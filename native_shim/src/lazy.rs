@@ -1,113 +1,173 @@
 use polars::prelude::*;
 use crate::types::*;
 
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_lazy_filter(
-    lf_ptr: *mut LazyFrameContext, 
-    expr_ptr: *mut ExprContext
-) -> *mut LazyFrameContext {
-    // 拿回所有权 (Consume)
-    let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
-    let expr_ctx = unsafe { Box::from_raw(expr_ptr) };
-    
-    // 执行 lazy filter (这一步很快，只是修改逻辑计划)
-    let new_lf = lf_ctx.inner.filter(expr_ctx.inner);
-    
-    Box::into_raw(Box::new(LazyFrameContext { inner: new_lf }))
+// ==========================================
+// 1. 内部辅助函数
+// ==========================================
+
+/// 转换 C 指针数组为 Vec<Expr>
+/// 警告：会消耗掉传入的 Expr 指针的所有权
+unsafe fn consume_exprs_array(ptr: *const *mut ExprContext, len: usize) -> Vec<Expr> {
+    let slice =unsafe{ std::slice::from_raw_parts(ptr, len)};
+    slice.iter()
+        .map(|&p| unsafe {Box::from_raw(p).inner}) // 拿走所有权
+        .collect()
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_lazy_select(
-    lf_ptr: *mut LazyFrameContext,
-    exprs_ptr: *const *mut ExprContext,
-    len: usize
-) -> *mut LazyFrameContext {
-    let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
-    
-    let mut exprs = Vec::with_capacity(len);
-    unsafe {
-        for &p in std::slice::from_raw_parts(exprs_ptr, len) {
-            exprs.push(Box::from_raw(p).inner);
+// ==========================================
+// 2. 宏定义
+// ==========================================
+
+/// 模式 A: LazyFrame -> Vec<Expr> -> LazyFrame
+/// 适用: select, with_columns
+macro_rules! gen_lazy_vec_op {
+    ($func_name:ident, $method:ident) => {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $func_name(
+            lf_ptr: *mut LazyFrameContext,
+            exprs_ptr: *const *mut ExprContext,
+            len: usize
+        ) -> *mut LazyFrameContext {
+            ffi_try!({
+                // 1. 拿回 LazyFrame 所有权 (Consume)
+                // 链式调用的核心：上一步的输出是这一步的输入，旧壳子丢弃
+                let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+                
+                // 2. 拿回 Exprs 所有权
+                let exprs = unsafe { consume_exprs_array(exprs_ptr, len) };
+
+                // 3. 执行转换
+                let new_lf = lf_ctx.inner.$method(exprs);
+
+                // 4. 返回新壳子
+                Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
+            })
         }
-    }
-
-    let new_lf = lf_ctx.inner.select(exprs);
-    Box::into_raw(Box::new(LazyFrameContext { inner: new_lf }))
+    };
 }
 
-// 补充一个 sort (order_by)
+/// 模式 B: LazyFrame -> 单个 Expr -> LazyFrame
+/// 适用: filter
+macro_rules! gen_lazy_single_expr_op {
+    ($func_name:ident, $method:ident) => {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $func_name(
+            lf_ptr: *mut LazyFrameContext, 
+            expr_ptr: *mut ExprContext
+        ) -> *mut LazyFrameContext {
+            ffi_try!({
+                let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+                let expr_ctx = unsafe { Box::from_raw(expr_ptr) };
+                
+                let new_lf = lf_ctx.inner.$method(expr_ctx.inner);
+                
+                Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
+            })
+        }
+    };
+}
+
+/// 模式 C: LazyFrame -> 标量参数 -> LazyFrame
+/// 适用: limit (u32), head (u32, 只要类型匹配)
+macro_rules! gen_lazy_scalar_op {
+    ($func_name:ident, $method:ident, $arg_type:ty) => {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $func_name(
+            lf_ptr: *mut LazyFrameContext, 
+            val: $arg_type
+        ) -> *mut LazyFrameContext {
+            ffi_try!({
+                let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+                let new_lf = lf_ctx.inner.$method(val); 
+                Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
+            })
+        }
+    };
+}
+
+// ==========================================
+// 3. 宏应用 (标准 API)
+// ==========================================
+
+// --- Select / WithColumns ---
+gen_lazy_vec_op!(pl_lazy_select, select);
+gen_lazy_vec_op!(pl_lazy_with_columns, with_columns);
+
+// --- Filter ---
+gen_lazy_single_expr_op!(pl_lazy_filter, filter);
+
+// --- Limit ---
+// limit 在 Polars 中通常接受 IdxSize (u32)
+gen_lazy_scalar_op!(pl_lazy_limit, limit, u32);
+// 也可以加个 tail
+// gen_lazy_scalar_op!(pl_lazy_tail, tail, u32);
+
+// ==========================================
+// 4. 特殊函数 (Sort & Collect)
+// ==========================================
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_lazy_sort(
     lf_ptr: *mut LazyFrameContext,
     expr_ptr: *mut ExprContext,
     descending: bool
 ) -> *mut LazyFrameContext {
-    let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
-    let expr_ctx = unsafe { Box::from_raw(expr_ptr) };
-    
-    // sort_by_exprs
-    let new_lf = lf_ctx.inner.sort_by_exprs(
-        vec![expr_ctx.inner], 
-        SortMultipleOptions::default().with_order_descending(descending)
-    );
-    Box::into_raw(Box::new(LazyFrameContext { inner: new_lf }))
-}
+    ffi_try!({
+        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+        let expr_ctx = unsafe { Box::from_raw(expr_ptr) };
+        
+        // 构建排序选项
+        let options = SortMultipleOptions::default()
+            .with_order_descending(descending);
 
+        // Polars 0.50: sort_by_exprs 接受 Vec<Expr>
+        let new_lf = lf_ctx.inner.sort_by_exprs(
+            vec![expr_ctx.inner], 
+            options
+        );
+        
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
+    })
+}
 // ==========================================
 // Collect (出口：LazyFrame -> DataFrame)
 // ==========================================
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_lazy_collect(lf_ptr: *mut LazyFrameContext) -> *mut DataFrameContext {
-    let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
-    println!("(Rust) Collecting LazyFrame... (Optimizer engaging)");
+    ffi_try!({
+        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+        
+        // 去掉了 println!，保持库函数的纯洁性。
+        // 如果想看日志，可以在 F# 端调用 explain 或者 check schema。
+        // 这里的 ? 会捕获 PolarsError 并转给 ffi_try
+        let df = lf_ctx.inner.collect()?;
 
-    match lf_ctx.inner.collect() {
-        Ok(df) => {
-            println!("(Rust) Collect done. Shape: {:?}", df.shape());
-            Box::into_raw(Box::new(DataFrameContext { df }))
-        },
-        Err(e) => {
-            println!("(Rust) Collect failed: {}", e);
-            std::ptr::null_mut()
-        }
-    }
-}
-
-
-
-
-
-
-// ==========================================
-// Limit / Head (截取前 N 行)
-// ==========================================
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_lazy_limit(lf_ptr: *mut LazyFrameContext, n: u32) -> *mut LazyFrameContext {
-    let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
-    // Polars API: limit(n)
-    let new_lf = lf_ctx.inner.limit(n); 
-    Box::into_raw(Box::new(LazyFrameContext { inner: new_lf }))
+        Ok(Box::into_raw(Box::new(DataFrameContext { df })))
+    })
 }
 
 // ==========================================
-// WithColumns (添加列)
+// 5. 实用功能
 // ==========================================
+
+// 不执行计算，只查看计划
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_lazy_with_columns(
-    lf_ptr: *mut LazyFrameContext,
-    exprs_ptr: *const *mut ExprContext,
-    len: usize
-) -> *mut LazyFrameContext {
-    let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+pub extern "C" fn pl_lazy_explain(lf_ptr: *mut LazyFrameContext) -> *mut std::os::raw::c_char {
+    // 注意：这里不能 consume (Box::from_raw)，因为调试不应该消耗掉 LazyFrame
+    // 我们只是借用一下
+    let ctx = unsafe { &*lf_ptr };
     
-    let mut exprs = Vec::with_capacity(len);
-    unsafe {
-        for &p in std::slice::from_raw_parts(exprs_ptr, len) {
-            exprs.push(Box::from_raw(p).inner);
-        }
+    // explain 通常返回 PolarsResult<String>
+    match ctx.inner.explain(true) {
+        Ok(plan_str) => std::ffi::CString::new(plan_str).unwrap().into_raw(),
+        Err(_) => std::ptr::null_mut(),
     }
+}
 
-    let new_lf = lf_ctx.inner.with_columns(exprs);
-    Box::into_raw(Box::new(LazyFrameContext { inner: new_lf }))
+// 释放字符串 (配合 pl_lazy_explain 使用)
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_free_string(ptr: *mut std::os::raw::c_char) {
+    if !ptr.is_null() {
+        unsafe { let _ = std::ffi::CString::from_raw(ptr); }
+    }
 }
