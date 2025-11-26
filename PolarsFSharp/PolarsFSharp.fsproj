@@ -10,7 +10,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\PolarsDebug\PolarsDebug.csproj" />
+    <ProjectReference Include="..\Polars.Native\Polars.Native.csproj" />
   </ItemGroup>
 
   <ItemGroup>
