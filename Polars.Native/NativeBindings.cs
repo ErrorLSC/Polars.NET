@@ -35,6 +35,9 @@ unsafe internal partial class NativeBindings
 
     [DllImport(LibName)]
     public static extern DataFrameHandle pl_filter(DataFrameHandle df, ExprHandle expr);
+    
+    [DllImport(LibName)] 
+    public static extern DataFrameHandle pl_with_columns(DataFrameHandle df, IntPtr[] exprs, UIntPtr len);
 
     [DllImport(LibName)]
     public static extern ExprHandle pl_expr_lit_str([MarshalAs(UnmanagedType.LPUTF8Str)] string val);

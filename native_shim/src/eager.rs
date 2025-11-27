@@ -78,6 +78,9 @@ gen_eager_op_single!(pl_filter, filter);
 // 生成 pl_select
 gen_eager_op_vec!(pl_select, select);
 
+// pl_with_columns
+gen_eager_op_vec!(pl_with_columns, with_columns);
+
 // ==========================================
 // GroupBy 核心逻辑
 // ==========================================

@@ -14,7 +14,11 @@ public static partial class PolarsWrapper
         expr.SetHandleAsInvalid(); // Expr 被消耗了
         return ErrorHelper.Check(h);
     }
-
+    public static DataFrameHandle WithColumns(DataFrameHandle df, ExprHandle[] exprs)
+    {
+        var raw = HandlesToPtrs(exprs);
+        return ErrorHelper.Check(NativeBindings.pl_with_columns(df, raw, (UIntPtr)raw.Length));
+    }
     public static DataFrameHandle Select(DataFrameHandle df, ExprHandle[] exprs)
     {
         var rawExprs = HandlesToPtrs(exprs);

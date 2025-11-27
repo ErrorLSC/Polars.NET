@@ -36,6 +36,10 @@ module Polars =
         df
 
     // --- Eager Ops ---
+    let withColumnsEager (exprs: Expr list) (df: DataFrame) : DataFrame =
+        let handles = exprs |> List.map (fun e -> e.Handle) |> List.toArray
+        let h = PolarsWrapper.WithColumns(df.Handle, handles)
+        new DataFrame(h)
     let filter (expr: Expr) (df: DataFrame) : DataFrame =
         let h = PolarsWrapper.Filter(df.Handle, expr.Handle)
         new DataFrame(h)
@@ -79,7 +83,7 @@ module Polars =
 
     let scanParquet (path: string) = new LazyFrame(PolarsWrapper.ScanParquet(path))
 
-// 1. Filter
+    // 1. Filter
     let filterLazy (expr: Expr) (lf: LazyFrame) : LazyFrame =
         // 关键点：
         // 1. 克隆 lf (因为 Rust 会消耗它)
