@@ -28,7 +28,7 @@ module App =
             
             lf
             |> Polars.filterLazy (Polars.col "salary" .> Polars.lit 5500)
-            |> Polars.withColumn (Polars.col "age" .* Polars.lit 2 |> Polars.alias "age_doubled")
+            |> Polars.withColumn (Polars.col "age" * Polars.lit 2 |> Polars.alias "age_doubled")
             |> Polars.collect
             |> Polars.show 10
             |> ignore

@@ -13,7 +13,7 @@ Cargo.lock
 *.tmp
 *.log
 *.txt
-
+*.sln
 # --- OS Files ---
 .DS_Store
 Thumbs.db
@@ -26,3 +26,5 @@ Thumbs.db
 !users.csv
 !sales.csv
 !dates.csv
+
+.fake

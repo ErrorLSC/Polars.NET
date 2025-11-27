@@ -25,9 +25,6 @@ unsafe internal partial class NativeBindings
     public static extern ExprHandle pl_expr_lit_i32(int val);
 
     [DllImport(LibName)]
-    public static extern ExprHandle pl_expr_gt(ExprHandle left, ExprHandle right);
-
-    [DllImport(LibName)]
     public static extern UIntPtr pl_dataframe_height(DataFrameHandle df);
     
     [DllImport(LibName)]
@@ -46,28 +43,36 @@ unsafe internal partial class NativeBindings
     public static extern ExprHandle pl_expr_lit_f64(double val);
 
     [DllImport(LibName)]
-    public static extern ExprHandle pl_expr_eq(ExprHandle left, ExprHandle right);
-
-    [DllImport(LibName)]
     public static extern ExprHandle pl_expr_mul(ExprHandle left, ExprHandle right);
+    // 比较
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_eq(ExprHandle left, ExprHandle right);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_neq(ExprHandle l, ExprHandle r);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_gt(ExprHandle left, ExprHandle right);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_gt_eq(ExprHandle l, ExprHandle r);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_lt(ExprHandle l, ExprHandle r);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_lt_eq(ExprHandle l, ExprHandle r);
+
+    // 算术
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_add(ExprHandle l, ExprHandle r);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_sub(ExprHandle l, ExprHandle r);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_div(ExprHandle l, ExprHandle r);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_rem(ExprHandle l, ExprHandle r);
+
+    // 逻辑
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_and(ExprHandle l, ExprHandle r);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_or(ExprHandle l, ExprHandle r);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_not(ExprHandle e);
+    // 聚合
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_sum(ExprHandle expr);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_mean(ExprHandle expr);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_max(ExprHandle expr);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_min(ExprHandle expr);
 
     [DllImport(LibName)]
     public static extern ExprHandle pl_expr_alias(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
 
     [DllImport(LibName)]
     public static extern DataFrameHandle pl_select(DataFrameHandle df, IntPtr[] exprs, UIntPtr len);
-
-    [DllImport(LibName)] 
-    public static extern ExprHandle pl_expr_sum(ExprHandle expr);
-
-    [DllImport(LibName)] 
-    public static extern ExprHandle pl_expr_mean(ExprHandle expr);
-
-    [DllImport(LibName)] 
-    public static extern ExprHandle pl_expr_max(ExprHandle expr);
-
-    [DllImport(LibName)] 
-    public static extern ExprHandle pl_expr_min(ExprHandle expr);
 
     [DllImport(LibName)] 
     public static extern ExprHandle pl_expr_dt_year(ExprHandle expr);

@@ -9,11 +9,26 @@ open Polars.Native
 type Expr(handle: ExprHandle) =
     member _.Handle = handle
     member internal this.CloneHandle() = PolarsWrapper.CloneExpr(handle)
-    // 运算符重载
+    // 运算符重载, Compare
     static member (.>) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Gt(lhs.Handle, rhs.Handle))
+    static member (.<) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Lt(lhs.Handle, rhs.Handle))
+    static member (.>=) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.GtEq(lhs.Handle, rhs.Handle))
+    static member (.<=) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.LtEq(lhs.Handle, rhs.Handle))
     static member (.==) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Eq(lhs.Handle, rhs.Handle))
-    static member (.*) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Mul(lhs.Handle, rhs.Handle))
-    
+    static member (.!=) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Neq(lhs.Handle, rhs.Handle))
+    // 运算符重载, Arithmetic
+    static member (+) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Add(lhs.Handle, rhs.Handle))
+    static member (-) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Sub(lhs.Handle, rhs.Handle))
+    static member (*) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Mul(lhs.Handle, rhs.Handle))
+    static member (/) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Div(lhs.Handle, rhs.Handle))
+    static member (%) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Rem(lhs.Handle, rhs.Handle))
+    // --- 逻辑运算符 ---
+    // 使用 .&& 和 .|| 避免与 F# 的短路逻辑 && 冲突
+    static member (.&&) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.And(lhs.Handle, rhs.Handle))
+    static member (.||) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Or(lhs.Handle, rhs.Handle))
+    // 逻辑非 (unary not) -> !expr
+    // F# 中一元非可以用 ~~ 或者自定义
+    static member (!!) (e: Expr) = new Expr(PolarsWrapper.Not(e.Handle))
     // 方法
     member this.Alias(name: string) = new Expr(PolarsWrapper.Alias(handle, name))
     member this.Sum() = new Expr(PolarsWrapper.Sum(handle))

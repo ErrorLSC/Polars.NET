@@ -17,3 +17,15 @@ polars-io = { version = "0.50.0", features = ["parquet","cloud"] }
 
 [lib]
 crate-type = ["cdylib"]
+
+# 开发模式配置：极速编译，无调试信息
+[profile.dev]
+debug = 0            
+strip = "debuginfo"  
+opt-level = 0        
+panic = "abort"      
+
+# 如果你偶尔需要 release 模式给 .NET 用
+[profile.release]
+strip = true         
+codegen-units = 16
