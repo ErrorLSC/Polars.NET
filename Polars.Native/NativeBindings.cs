@@ -3,6 +3,18 @@ using Apache.Arrow;
 using Apache.Arrow.C;
 
 namespace Polars.Native;
+
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+public delegate void CleanupCallback(IntPtr userData);
+
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+public unsafe delegate int UdfCallback(
+    CArrowArray* inArray, 
+    CArrowSchema* inSchema, 
+    CArrowArray* outArray, 
+    CArrowSchema* outSchema,
+    byte* msgBuf
+);
 unsafe internal partial class NativeBindings
 {
     const string LibName = "native_shim";
@@ -35,7 +47,7 @@ unsafe internal partial class NativeBindings
 
     [DllImport(LibName)]
     public static extern DataFrameHandle pl_filter(DataFrameHandle df, ExprHandle expr);
-    
+
     [DllImport(LibName)] 
     public static extern DataFrameHandle pl_with_columns(DataFrameHandle df, IntPtr[] exprs, UIntPtr len);
 
@@ -88,6 +100,15 @@ unsafe internal partial class NativeBindings
     public static extern ExprHandle pl_expr_clone(ExprHandle expr);
 
     [DllImport(LibName)]
+    public static extern ExprHandle pl_expr_map(
+        ExprHandle expr, 
+        UdfCallback callback, 
+        PlDataType returnType,
+        CleanupCallback cleanup,
+        IntPtr userData          
+    );
+
+    [DllImport(LibName)]
     public static extern DataFrameHandle pl_groupby_agg(
         DataFrameHandle df, 
         IntPtr[] byExprs, UIntPtr byLen,
@@ -137,5 +158,7 @@ unsafe internal partial class NativeBindings
 
     [DllImport(LibName)] public static extern IntPtr pl_get_last_error();
     [DllImport(LibName)] public static extern void pl_free_error_msg(IntPtr ptr);
+
+
 
 }

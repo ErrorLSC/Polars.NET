@@ -2,6 +2,7 @@ namespace PolarsFSharp
 
 open System
 open Polars.Native
+open Apache.Arrow
 
 // ==========================================
 // Expr 类型封装
@@ -48,6 +49,11 @@ type Expr(handle: ExprHandle) =
     // IsNotNull
     member this.IsNotNull() = 
         new Expr(PolarsWrapper.IsNotNull(this.CloneHandle()))
+
+    member this.Map(func: Func<IArrowArray, IArrowArray>) =
+        new Expr(PolarsWrapper.Map(this.CloneHandle(), func))
+    member this.Map(func: Func<IArrowArray, IArrowArray>, outputType: PlDataType) =
+        new Expr(PolarsWrapper.Map(this.CloneHandle(), func, outputType))
     member this.Dt = new DtOps(handle)
 
 and DtOps(handle: ExprHandle) =

@@ -13,6 +13,7 @@
     <Compile Include="ExprTests.fs" />
     <Compile Include="ComplexTests.fs" />
     <Compile Include="SafetyTests.fs" />
+    <Compile Include="UDFTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

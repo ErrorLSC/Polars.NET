@@ -5,6 +5,7 @@ mod expr;
 mod io;
 mod eager;
 mod lazy;
+mod udf;
 
 
 
