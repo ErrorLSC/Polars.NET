@@ -92,3 +92,31 @@ type ``UDF Tests`` () =
         // 我们期望看到 C# 的异常信息包含在 PolarsError 里
         Assert.Contains("Boom! C# UDF Exploded!", ex.Message)
         Assert.Contains("C# UDF Failed", ex.Message) // 这是 Rust 代码里加的前缀
+
+    [<Fact>]
+    member _.``Generic Map UDF with Lambda (Int -> String)`` () =
+        use csv = new TempCsv("num\n100\n200")
+        let lf = Polars.scanCsv csv.Path None
+        
+        // --- 用户的代码极度简化 ---
+        // 1. 定义一个简单的匿名函数 (int -> string)
+        let myLogic = fun (x: int) -> sprintf "Num: %d" (x + 1)
+
+        let df = 
+            lf 
+            |> Polars.withColumn (
+                Polars.col "num"
+                // 2. 直接调用 Udf.map
+                // 泛型 'T 和 'U 会自动推断为 int 和 string
+                |> fun e -> e.Map(Udf.map myLogic, Polars.Native.PlDataType.String) 
+                |> Polars.alias "res"
+            )
+            |> Polars.selectLazy [ Polars.col "res" ]
+            |> Polars.collect
+
+        // 验证
+        let arrow = df.ToArrow()
+        let col = arrow.Column("res") :?> StringViewArray // 自动用了 StringView
+        
+        Assert.Equal("Num: 101", col.GetString(0))
+        Assert.Equal("Num: 201", col.GetString(1))
