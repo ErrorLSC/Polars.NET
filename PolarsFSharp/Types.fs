@@ -74,6 +74,23 @@ type DataFrame(handle: DataFrameHandle) =
 
     // 零拷贝获取列数
     member _.Columns = PolarsWrapper.DataFrameWidth(handle)
+    member _.ColumnNames = PolarsWrapper.GetColumnNames(handle) |> Array.toList
+
+    member this.Item 
+        with get(colName: string, rowIndex: int) =
+            // 默认返回 float (double)，因为最通用。
+            // 如果需要其他类型，可以使用下面的专用方法
+            PolarsWrapper.GetDouble(handle, colName, int64 rowIndex)
+
+    // 专用取值方法
+    member this.Int(colName: string, rowIndex: int) : int64 option = 
+        let nullableVal = PolarsWrapper.GetInt(handle, colName, int64 rowIndex)
+        if nullableVal.HasValue then Some nullableVal.Value else None
+
+    member this.Float(colName: string, rowIndex: int) : float option = 
+        let nullableVal = PolarsWrapper.GetDouble(handle, colName, int64 rowIndex)
+        if nullableVal.HasValue then Some nullableVal.Value else None
+    member this.String(colName: string, rowIndex: int) = PolarsWrapper.GetString(handle, colName, int64 rowIndex)
 
 // LazyFrame 封装
 // 它依赖 DataFrame (Collect 返回 DataFrame)，所以必须定义在 DataFrame 后面

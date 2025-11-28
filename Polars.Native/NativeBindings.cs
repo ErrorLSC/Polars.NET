@@ -26,9 +26,9 @@ unsafe internal partial class NativeBindings
 
     [DllImport(LibName)]
     public static extern void pl_free_dataframe(IntPtr ptr);
-
-    [DllImport(LibName)]
-    public static extern void pl_to_arrow(DataFrameHandle handle, CArrowArray* arr, CArrowSchema* schema);
+    // String Free
+    [DllImport(LibName)] public static extern void pl_free_string(IntPtr ptr);
+    [DllImport(LibName)] public static extern void pl_to_arrow(DataFrameHandle handle, CArrowArray* arr, CArrowSchema* schema);
 
     [DllImport(LibName)]
     public static extern ExprHandle pl_expr_col([MarshalAs(UnmanagedType.LPUTF8Str)] string name);
@@ -41,7 +41,24 @@ unsafe internal partial class NativeBindings
     
     [DllImport(LibName)]
     public static extern UIntPtr pl_dataframe_width(DataFrameHandle df);
+    [DllImport(LibName)] public static extern IntPtr pl_dataframe_get_column_name(DataFrameHandle df, UIntPtr index);
+    // Scalars
+    [DllImport(LibName)] 
+    public static extern bool pl_dataframe_get_i64(
+        DataFrameHandle df, 
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string colName, 
+        UIntPtr row, 
+        out long outVal // <--- C# 的 out 关键字
+    );
 
+    [DllImport(LibName)] 
+    public static extern bool pl_dataframe_get_f64(
+        DataFrameHandle df, 
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string colName, 
+        UIntPtr row, 
+        out double outVal
+    );
+    [DllImport(LibName)] public static extern IntPtr pl_dataframe_get_string(DataFrameHandle df, [MarshalAs(UnmanagedType.LPUTF8Str)] string colName, UIntPtr row);
     [DllImport(LibName)]
     public static extern DataFrameHandle pl_head(DataFrameHandle df, UIntPtr n);
 

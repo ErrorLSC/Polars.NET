@@ -1,5 +1,5 @@
 use polars::prelude::*;
-use std::os::raw::c_char;
+use std::{ffi::CString, os::raw::c_char};
 use crate::types::*;
 
 // ==========================================
@@ -152,10 +152,10 @@ pub extern "C" fn pl_join(
         Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
     })
 }
+// ==========================================
+// DataFrame Ops
+// ==========================================
 
-// ==========================================
-// Head (取头)
-// ==========================================
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_height(df_ptr: *mut DataFrameContext) -> usize {
     let ctx = unsafe { &*df_ptr };
@@ -169,6 +169,113 @@ pub extern "C" fn pl_dataframe_width(ptr: *mut DataFrameContext) -> usize {
     ctx.df.width()
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_get_column_name(
+    df_ptr: *mut DataFrameContext, 
+    index: usize
+) -> *mut c_char {
+    let ctx = unsafe { &*df_ptr };
+    let cols = ctx.df.get_column_names();
+    
+    if index >= cols.len() {
+        return std::ptr::null_mut();
+    }
+
+    // 分配新内存返回给 C#，C# 必须负责释放
+    CString::new(cols[index].as_str()).unwrap().into_raw()
+}
+
+// --- 标量获取 (Scalar Access) ---
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_get_i64(
+    df_ptr: *mut DataFrameContext, 
+    col_name_ptr: *const c_char, 
+    row_index: usize,
+    out_val: *mut i64 // <--- [修改] 这是一个输出参数
+) -> bool { // <--- [修改] 返回值变为 bool: true=成功拿到值, false=失败/空/类型不对
+    let ctx = unsafe { &*df_ptr };
+    let col_name = ptr_to_str(col_name_ptr).unwrap_or("");
+    
+    // 如果列不存在，直接返回 false
+    let col = match ctx.df.column(col_name) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+
+    // 获取单元格值
+    match col.get(row_index) {
+        Ok(val) => match val {
+            // 严格匹配整数类型
+            AnyValue::Int64(v) => { unsafe { *out_val = v }; true },
+            AnyValue::Int32(v) => { unsafe { *out_val = v as i64 }; true },
+            AnyValue::Int16(v) => { unsafe { *out_val = v as i64 }; true },
+            AnyValue::Int8(v) =>  { unsafe { *out_val = v as i64 }; true },
+            AnyValue::UInt64(v) => { 
+                // i64 装不下 u64 的最大值，这里看你业务需求
+                // 严谨做法是再搞个 get_u64，或者这里由用户承担溢出风险
+                unsafe { *out_val = v as i64 }; true 
+            },
+            // 如果是 Null 或者其他类型，都视为“无法获取 i64”
+            _ => false, 
+        },
+        Err(_) => false // 索引越界
+    }
+}
+
+// 同理，f64 也要改，防止 NaN 混淆
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_get_f64(
+    df_ptr: *mut DataFrameContext, 
+    col_name_ptr: *const c_char, 
+    row_index: usize,
+    out_val: *mut f64
+) -> bool {
+    let ctx = unsafe { &*df_ptr };
+    let col_name = ptr_to_str(col_name_ptr).unwrap_or("");
+    
+    let col = match ctx.df.column(col_name) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+
+    match col.get(row_index) {
+        Ok(val) => match val {
+            AnyValue::Float64(v) => { unsafe { *out_val = v }; true },
+            AnyValue::Float32(v) => { unsafe { *out_val = v as f64 }; true },
+            // 整数也可以转浮点
+            AnyValue::Int64(v) => { unsafe { *out_val = v as f64 }; true },
+            AnyValue::Int32(v) => { unsafe { *out_val = v as f64 }; true },
+            _ => false, 
+        },
+        Err(_) => false
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_get_string(
+    df_ptr: *mut DataFrameContext, 
+    col_name_ptr: *const c_char, 
+    row_index: usize
+) -> *mut c_char {
+    let ctx = unsafe { &*df_ptr };
+    let col_name = ptr_to_str(col_name_ptr).unwrap_or("");
+    
+    match ctx.df.column(col_name) {
+        Ok(col) => match col.get(row_index) {
+            Ok(AnyValue::String(s)) => CString::new(s).unwrap().into_raw(),
+            // 0.50+ StringView
+            Ok(AnyValue::StringOwned(s)) => CString::new(s.as_str()).unwrap().into_raw(),
+            _ => std::ptr::null_mut()
+        },
+        Err(_) => std::ptr::null_mut()
+    }
+}
+
+
+// ==========================================
+// Head (取头)
+// ==========================================
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_head(df_ptr: *mut DataFrameContext, n: usize) -> *mut DataFrameContext {
     ffi_try!({
