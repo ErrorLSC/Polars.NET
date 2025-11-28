@@ -177,7 +177,23 @@ unsafe internal partial class NativeBindings
 
     [DllImport(LibName)] public static extern LazyFrameHandle pl_lazy_limit(LazyFrameHandle lf, uint n);
     [DllImport(LibName)] public static extern LazyFrameHandle pl_lazy_with_columns(LazyFrameHandle lf, IntPtr[] exprs, UIntPtr len);
+
+    // String Ops
     [DllImport(LibName)] public static extern ExprHandle pl_expr_str_contains(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string pat);
+
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_str_to_uppercase(ExprHandle expr);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_str_to_lowercase(ExprHandle expr);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_str_len_bytes(ExprHandle expr);
+    
+    [DllImport(LibName)] 
+    public static extern ExprHandle pl_expr_str_slice(ExprHandle expr, long offset, ulong length);
+    
+    [DllImport(LibName)] 
+    public static extern ExprHandle pl_expr_str_replace_all(
+        ExprHandle expr, 
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string pat, 
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string val
+    );
 
     [DllImport(LibName)] public static extern IntPtr pl_get_last_error();
     [DllImport(LibName)] public static extern void pl_free_error_msg(IntPtr ptr);

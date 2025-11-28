@@ -139,6 +139,10 @@ gen_binary_op!(pl_expr_fill_null, fill_null);
 // dt 命名空间
 gen_namespace_unary!(pl_expr_dt_year, dt, year);
 gen_namespace_unary!(pl_expr_dt_month, dt, month);
+// String Namespace
+gen_namespace_unary!(pl_expr_str_to_uppercase, str, to_uppercase);
+gen_namespace_unary!(pl_expr_str_to_lowercase, str, to_lowercase);
+gen_namespace_unary!(pl_expr_str_len_bytes, str, len_bytes);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_alias(expr_ptr: *mut ExprContext, name_ptr: *const c_char) -> *mut ExprContext {
@@ -166,6 +170,41 @@ pub extern "C" fn pl_expr_str_contains(
         // str().contains() 比较特殊，有两个参数 (pattern, strict)
         // 这里的 false 是 hardcode 的 strict 参数，如果想暴露出去，需要修改 C 接口签名
         let new_expr = ctx.inner.str().contains(lit(pat), false);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+// offset: 起始位置 (支持负数), length: 长度
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_str_slice(
+    expr_ptr: *mut ExprContext, 
+    offset: i64, 
+    length: u64
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        // Polars API: str().slice(offset, length)
+        let new_expr = ctx.inner.str().slice(offset.into(), length.into());
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+// 替换操作 (Replace All)
+// pat: 匹配模式, val: 替换值
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_str_replace_all(
+    expr_ptr: *mut ExprContext, 
+    pat_ptr: *const c_char,
+    val_ptr: *const c_char
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let pat = ptr_to_str(pat_ptr).unwrap();
+        let val = ptr_to_str(val_ptr).unwrap();
+
+        // literal=true 表示纯文本替换（非正则），通常是用户默认想要的
+        let new_expr = ctx.inner.str().replace_all(lit(pat), lit(val), true);
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
