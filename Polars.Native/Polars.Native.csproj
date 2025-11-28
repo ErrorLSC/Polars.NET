@@ -10,11 +10,16 @@
 
   <PropertyGroup>
     <RustProjectDir>..\native_shim</RustProjectDir>
+  </PropertyGroup>
+
+  <PropertyGroup>
     <RustLibPath>$(RustProjectDir)\target\debug\libnative_shim.so</RustLibPath>
+    <RustLibName>libnative_shim.so</RustLibName>
   </PropertyGroup>
 
   <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
     <RustLibPath>$(RustProjectDir)\target\debug\native_shim.dll</RustLibPath>
+    <RustLibName>native_shim.dll</RustLibName>
   </PropertyGroup>
 
   <Target Name="BuildRust" BeforeTargets="BeforeBuild">
@@ -24,7 +29,7 @@
 
   <ItemGroup>
     <Content Include="$(RustLibPath)">
-      <Link>libnative_shim.so</Link>
+      <Link>$(RustLibName)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Visible>false</Visible>
     </Content>
