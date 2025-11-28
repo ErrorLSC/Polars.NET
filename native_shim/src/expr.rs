@@ -1,4 +1,5 @@
 use polars::prelude::*;
+use polars::prelude::ClosedInterval;
 use std::os::raw::c_char;
 use crate::types::{ExprContext, ptr_to_str};
 use std::ops::{Add, Sub, Mul, Div, Rem};
@@ -178,4 +179,27 @@ pub extern "C" fn pl_expr_clone(ptr: *mut ExprContext) -> *mut ExprContext {
     let ctx = unsafe { &*ptr };
     let new_expr = ctx.inner.clone();
     Box::into_raw(Box::new(ExprContext { inner: new_expr }))
+}
+// ==========================================
+// Intervals
+// ==========================================
+// --- IsBetween ---
+// 这是一个三元操作: expr.is_between(lower, upper)
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_is_between(
+    expr_ptr: *mut ExprContext,
+    lower_ptr: *mut ExprContext,
+    upper_ptr: *mut ExprContext
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let lower = unsafe { Box::from_raw(lower_ptr) };
+        let upper = unsafe { Box::from_raw(upper_ptr) };
+
+        // 默认 behavior 是 ClosedInterval::Both (闭区间 [])
+        // 如果想暴露给 C#，可以传个 int 进来映射
+        let new_expr = ctx.inner.is_between(lower.inner, upper.inner, ClosedInterval::Both);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
 }
