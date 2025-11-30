@@ -165,3 +165,30 @@ type ``String Logic Tests`` () =
         // 验证 Row 1: "foo BAR"
         Assert.Equal("FOO BAR", res.String("upper", 1).Value)
         Assert.Equal("foo", res.String("slice", 1).Value)
+    [<Fact>]
+    member _.``Math Ops (BMI Calculation with Pow)`` () =
+        // 构造数据: 身高(m), 体重(kg)
+        use csv = new TempCsv("name,height,weight\nAlice,1.65,60\nBob,1.80,80")
+        let df = Polars.readCsv csv.Path None
+
+        // 目标逻辑: weight / (height ^ 2)
+        let bmiExpr = 
+            (Polars.col "weight") / (Polars.col "height")  **  Polars.lit 2
+            |> Polars.alias "bmi"
+
+        let res = 
+            df 
+            |> Polars.select [
+                Polars.col "name"
+                bmiExpr
+                // 顺便测一下 sqrt: sqrt(height)
+                (Polars.col "height").Sqrt().Alias("sqrt_h")
+            ]
+
+        // 验证 Bob 的 BMI: 80 / 1.8^2 = 24.691358...
+        let bobBmi = res.Float("bmi", 1).Value
+        Assert.True(bobBmi > 24.69 && bobBmi < 24.70)
+
+        // 验证 Alice 的 Sqrt: sqrt(1.65) = 1.2845...
+        let aliceSqrt = res.Float("sqrt_h", 0).Value
+        Assert.True(aliceSqrt > 1.28 && aliceSqrt < 1.29)

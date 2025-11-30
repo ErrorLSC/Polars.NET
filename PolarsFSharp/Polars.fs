@@ -71,12 +71,16 @@ module Polars =
     let mean (e: Expr) = e.Mean()
     let max (e: Expr) = e.Max()
     let min (e: Expr) = e.Min()
+    let abs (e: Expr) = e.Abs()
     let fillNull (fillValue: Expr) (e: Expr) = e.FillNull(fillValue)
     
     let isNull (e: Expr) = e.IsNull()
     
     let isNotNull (e: Expr) = e.IsNotNull()
-
+    // Math Helpers
+    let pow (exponent: Expr) (baseExpr: Expr) = baseExpr.Pow(exponent)
+    let sqrt (e: Expr) = e.Sqrt()
+    let exp (e: Expr) = e.Exp()
     // --- Lazy API ---
     let scanCsv (path: string) (tryParseDates: bool option) = 
         let parseDates = defaultArg tryParseDates true

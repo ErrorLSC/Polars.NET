@@ -42,6 +42,7 @@ public static partial class PolarsWrapper
     public static ExprHandle Mean(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_mean, e);
     public static ExprHandle Max(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_max, e);
     public static ExprHandle Min(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_min, e);
+    public static ExprHandle Abs(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_abs, e);
     public static ExprHandle DtYear(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_dt_year, e);
     // String Ops
     public static ExprHandle StrContains(ExprHandle e, string pat) 
@@ -97,7 +98,16 @@ public static partial class PolarsWrapper
 
     public static ExprHandle IsNotNull(ExprHandle expr) 
         => UnaryOp(NativeBindings.pl_expr_is_not_null, expr);
-
+    // Math
+    public static ExprHandle Pow(ExprHandle b, ExprHandle e) => BinaryOp(NativeBindings.pl_expr_pow, b, e);
+    public static ExprHandle Sqrt(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_sqrt, e);
+    public static ExprHandle Exp(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_exp, e);
+    public static ExprHandle Log(ExprHandle expr, double baseVal)
+    {
+        var h = NativeBindings.pl_expr_log(expr, baseVal);
+        expr.SetHandleAsInvalid(); // 消耗掉 expr
+        return ErrorHelper.Check(h);
+    }
     // IsBetween
     public static ExprHandle IsBetween(ExprHandle expr, ExprHandle lower, ExprHandle upper)
     {

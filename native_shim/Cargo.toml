@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 # 1. 主库 (提供高层 API)
-polars = { version = "0.50.0", features = ["lazy", "csv","dtype-date","parquet","strings","regex","timezones","semi_anti_join","cross_join","is_between"] }
+polars = { version = "0.50.0", features = ["lazy", "csv","dtype-date","parquet","strings","regex","timezones","semi_anti_join","cross_join","is_between","log","abs"] }
 
 # 2. 核心库 (提供 Series, 内存布局)
 polars-core = { version = "0.50.0" }

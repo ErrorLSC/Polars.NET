@@ -18,11 +18,12 @@ type Expr(handle: ExprHandle) =
     static member (.==) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Eq(lhs.Handle, rhs.Handle))
     static member (.!=) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Neq(lhs.Handle, rhs.Handle))
     // 运算符重载, Arithmetic
-    static member (+) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Add(lhs.Handle, rhs.Handle))
-    static member (-) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Sub(lhs.Handle, rhs.Handle))
-    static member (*) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Mul(lhs.Handle, rhs.Handle))
-    static member (/) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Div(lhs.Handle, rhs.Handle))
-    static member (%) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Rem(lhs.Handle, rhs.Handle))
+    static member ( + ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Add(lhs.Handle, rhs.Handle))
+    static member ( - ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Sub(lhs.Handle, rhs.Handle))
+    static member ( * ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Mul(lhs.Handle, rhs.Handle))
+    static member ( / ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Div(lhs.Handle, rhs.Handle))
+    static member ( % ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Rem(lhs.Handle, rhs.Handle))
+    static member ( ** ) (baseExpr: Expr, exponent: Expr) = baseExpr.Pow(exponent)
     // --- 逻辑运算符 ---
     // 使用 .&& 和 .|| 避免与 F# 的短路逻辑 && 冲突
     static member (.&&) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.And(lhs.Handle, rhs.Handle))
@@ -36,6 +37,7 @@ type Expr(handle: ExprHandle) =
     member this.Mean() = new Expr(PolarsWrapper.Mean(handle))
     member this.Max() = new Expr(PolarsWrapper.Max(handle))
     member this.Min() = new Expr(PolarsWrapper.Min(handle))
+    member this.Abs() = new Expr(PolarsWrapper.Abs(handle))
     // FillNull (填充空值)
     // 
     member this.FillNull(fillValue: Expr) = 
@@ -48,7 +50,30 @@ type Expr(handle: ExprHandle) =
     // IsNotNull
     member this.IsNotNull() = 
         new Expr(PolarsWrapper.IsNotNull(this.CloneHandle()))
+    // 基础 Pow: 接受 Expr
+    member this.Pow(exponent: Expr) = 
+        new Expr(PolarsWrapper.Pow(this.CloneHandle(), exponent.CloneHandle()))
 
+    // 重载 Pow: 方便用户直接传数字 (pow(2))
+    // 利用万能 lit 转换
+    member this.Pow(exponent: double) = 
+        this.Pow(PolarsWrapper.Lit(exponent) |> fun h -> new Expr(h)) // 这里偷懒直接调Wrapper构造临时Expr
+    member this.Pow(exponent: int) = 
+        this.Pow(PolarsWrapper.Lit(exponent) |> fun h -> new Expr(h))
+    member this.Sqrt() = new Expr(PolarsWrapper.Sqrt(this.CloneHandle()))
+    member this.Exp() = new Expr(PolarsWrapper.Exp(this.CloneHandle()))
+    // [场景 1] 常数底数 (性能最好，直接调 Rust)
+    member this.Log(baseVal: double) = 
+        new Expr(PolarsWrapper.Log(this.CloneHandle(), baseVal))
+
+    // [场景 2] 动态底数 (Rust 的 log 不支持 Expr，我们用数学公式模拟)
+    // log_b(x) = ln(x) / ln(b)
+    member this.Log(baseExpr: Expr) = 
+        this.Ln() / baseExpr.Ln()
+
+    // 自然对数 (快捷方式)
+    member this.Ln() = 
+        this.Log(Math.E)
     // IsBetween
     member this.IsBetween(lower: Expr, upper: Expr) =
         new Expr(PolarsWrapper.IsBetween(this.CloneHandle(), lower.CloneHandle(), upper.CloneHandle()))

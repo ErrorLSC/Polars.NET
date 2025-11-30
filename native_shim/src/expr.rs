@@ -106,12 +106,15 @@ gen_unary_op!(pl_expr_sum, sum);
 gen_unary_op!(pl_expr_mean, mean);
 gen_unary_op!(pl_expr_max, max);
 gen_unary_op!(pl_expr_min, min);
-// gen_unary_op!(pl_expr_abs, abs);
+gen_unary_op!(pl_expr_abs, abs);
 // 逻辑非 (!)
 gen_unary_op!(pl_expr_not, not);
 // is_null()
 gen_unary_op!(pl_expr_is_null, is_null);
 gen_unary_op!(pl_expr_is_not_null, is_not_null);
+// Math Ops
+gen_unary_op!(pl_expr_sqrt,sqrt);
+gen_unary_op!(pl_expr_exp,exp);
 
 // --- Group 4: 二元操作 ---
 gen_binary_op!(pl_expr_eq, eq); // ==
@@ -132,8 +135,8 @@ gen_binary_op!(pl_expr_or, or);   // |
 gen_binary_op!(pl_expr_xor, xor);
 // Null Ops
 gen_binary_op!(pl_expr_fill_null, fill_null);
-
-
+// Math Ops
+gen_binary_op!(pl_expr_pow,pow);
 
 // --- Group 5: 命名空间操作 ---
 // dt 命名空间
@@ -256,5 +259,20 @@ pub extern "C" fn pl_expr_lit_datetime(
         let dt_expr = lit_expr.cast(DataType::Datetime(TimeUnit::Microseconds, None));
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: dt_expr })))
+    })
+}
+// ==========================================
+// Math
+// ==========================================
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_log(
+    expr_ptr: *mut ExprContext, 
+    base: f64 // <--- 这里是 f64，不是 *mut ExprContext
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        // Polars API: log(base: f64)
+        let new_expr = ctx.inner.log(base); 
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
