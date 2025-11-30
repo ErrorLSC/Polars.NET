@@ -129,3 +129,39 @@ type ``Expression Logic Tests`` () =
         // 验证: 只有 Qinglei 符合
         Assert.Equal(1L, res.Rows)
         Assert.Equal("Qinglei", res.String("name", 0).Value)
+
+type ``String Logic Tests`` () =
+
+    [<Fact>]
+    member _.``String operations (Case, Slice, Replace)`` () =
+        // 脏数据: "  Hello World  ", "foo BAR"
+        use csv = new TempCsv("text\nHello World\nfoo BAR")
+        let df = Polars.readCsv csv.Path None
+
+        let res = 
+            df 
+            |> Polars.select [
+                Polars.col "text"
+                
+                // 1. 转大写
+                (Polars.col "text").Str.ToUpper().Alias("upper")
+                
+                // 2. 切片 (取前 3 个字符)
+                (Polars.col "text").Str.Slice(0L, 3UL).Alias("slice")
+                
+                // 3. 替换 (把 'o' 换成 '0')
+                (Polars.col "text").Str.ReplaceAll("o", "0").Alias("replaced")
+                
+                // 4. 长度
+                (Polars.col "text").Str.Len().Alias("len")
+            ]
+
+        // 验证 Row 0: "Hello World"
+        Assert.Equal("HELLO WORLD", res.String("upper", 0).Value)
+        Assert.Equal("Hel", res.String("slice", 0).Value)
+        Assert.Equal("Hell0 W0rld", res.String("replaced", 0).Value)
+        Assert.Equal(11L, int64 (res.Int("len", 0).Value)) // u32 -> i64
+
+        // 验证 Row 1: "foo BAR"
+        Assert.Equal("FOO BAR", res.String("upper", 1).Value)
+        Assert.Equal("foo", res.String("slice", 1).Value)

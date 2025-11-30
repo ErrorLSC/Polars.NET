@@ -212,10 +212,20 @@ pub extern "C" fn pl_dataframe_get_i64(
             AnyValue::Int16(v) => { unsafe { *out_val = v as i64 }; true },
             AnyValue::Int8(v) =>  { unsafe { *out_val = v as i64 }; true },
             AnyValue::UInt64(v) => { 
-                // i64 装不下 u64 的最大值，这里看你业务需求
-                // 严谨做法是再搞个 get_u64，或者这里由用户承担溢出风险
-                unsafe { *out_val = v as i64 }; true 
-            },
+                // i64::MAX 是 9,223,372,036,854,775,807
+                if v > (i64::MAX as u64) {
+                    // 溢出！数值太大，无法用 i64 表示
+                    // 返回 false，这在 C#/F# 端会变成 null/None
+                    false 
+                } else {
+                    // 安全，可以转换
+                    unsafe { *out_val = v as i64 }; 
+                    true 
+                }
+            },// 潜在溢出风险
+            AnyValue::UInt32(v) => { unsafe { *out_val = v as i64 }; true }, // <--- 关键修复
+            AnyValue::UInt16(v) => { unsafe { *out_val = v as i64 }; true },
+            AnyValue::UInt8(v) =>  { unsafe { *out_val = v as i64 }; true },
             // 如果是 Null 或者其他类型，都视为“无法获取 i64”
             _ => false, 
         },

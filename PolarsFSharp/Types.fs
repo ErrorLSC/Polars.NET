@@ -36,7 +36,6 @@ type Expr(handle: ExprHandle) =
     member this.Mean() = new Expr(PolarsWrapper.Mean(handle))
     member this.Max() = new Expr(PolarsWrapper.Max(handle))
     member this.Min() = new Expr(PolarsWrapper.Min(handle))
-    member this.StrContains(pattern: string) = new Expr(PolarsWrapper.StrContains(handle, pattern))
     // FillNull (填充空值)
     // 
     member this.FillNull(fillValue: Expr) = 
@@ -59,9 +58,33 @@ type Expr(handle: ExprHandle) =
     member this.Map(func: Func<IArrowArray, IArrowArray>, outputType: PlDataType) =
         new Expr(PolarsWrapper.Map(this.CloneHandle(), func, outputType))
     member this.Dt = new DtOps(handle)
-
+    member this.Str = new StringOps(this.CloneHandle())
 and DtOps(handle: ExprHandle) =
     member _.Year() = new Expr(PolarsWrapper.DtYear(handle))
+and StringOps(handle: ExprHandle) =
+    // 内部帮助函数
+    let wrap op = new Expr(op handle)
+    
+    // 大小写
+    member _.ToUpper() = wrap PolarsWrapper.StrToUpper
+    member _.ToLower() = wrap PolarsWrapper.StrToLower
+    
+    // 长度
+    member _.Len() = wrap PolarsWrapper.StrLenBytes
+    
+    // 切片
+    // F# uint64 = C# ulong
+    member _.Slice(offset: int64, length: uint64) = 
+        new Expr(PolarsWrapper.StrSlice(handle, offset, length))
+        
+    // 替换 (Replace All)
+    member _.ReplaceAll(pattern: string, value: string) =
+        new Expr(PolarsWrapper.StrReplaceAll(handle, pattern, value))
+
+    // 包含 (之前做的)
+    member _.Contains(pat: string) = 
+        new Expr(PolarsWrapper.StrContains(handle, pat))
+
 
 // DataFrame 封装
 type DataFrame(handle: DataFrameHandle) =

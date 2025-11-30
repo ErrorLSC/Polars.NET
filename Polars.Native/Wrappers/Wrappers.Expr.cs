@@ -17,6 +17,12 @@ public static partial class PolarsWrapper
         r.SetHandleAsInvalid();
         return ErrorHelper.Check(h);
     }
+    private static ExprHandle UnaryStrOp(Func<ExprHandle, ExprHandle> op, ExprHandle expr) 
+    {
+        var h = op(expr);
+        expr.SetHandleAsInvalid();
+        return ErrorHelper.Check(h);
+    }
     // --- Expr Ops (工厂方法) ---
     // 这些方法返回新的 ExprHandle，所有权在 C# 这边，直到传给 Filter/Select
     // Leaf Nodes (不消耗其他 Expr)
@@ -37,9 +43,28 @@ public static partial class PolarsWrapper
     public static ExprHandle Max(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_max, e);
     public static ExprHandle Min(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_min, e);
     public static ExprHandle DtYear(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_dt_year, e);
+    // String Ops
     public static ExprHandle StrContains(ExprHandle e, string pat) 
     {
         var h = NativeBindings.pl_expr_str_contains(e, pat);
+        e.SetHandleAsInvalid();
+        return ErrorHelper.Check(h);
+    }
+
+    public static ExprHandle StrToUpper(ExprHandle e) => UnaryStrOp(NativeBindings.pl_expr_str_to_uppercase, e);
+    public static ExprHandle StrToLower(ExprHandle e) => UnaryStrOp(NativeBindings.pl_expr_str_to_lowercase, e);
+    public static ExprHandle StrLenBytes(ExprHandle e) => UnaryStrOp(NativeBindings.pl_expr_str_len_bytes, e);
+
+    public static ExprHandle StrSlice(ExprHandle e, long offset, ulong length)
+    {
+        var h = NativeBindings.pl_expr_str_slice(e, offset, length);
+        e.SetHandleAsInvalid();
+        return ErrorHelper.Check(h);
+    }
+
+    public static ExprHandle StrReplaceAll(ExprHandle e, string pat, string val)
+    {
+        var h = NativeBindings.pl_expr_str_replace_all(e, pat, val);
         e.SetHandleAsInvalid();
         return ErrorHelper.Check(h);
     }
