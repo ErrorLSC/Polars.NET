@@ -19,9 +19,21 @@ pub fn set_error(msg: String) {
 // 供外部调用：获取错误
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_get_last_error() -> *mut c_char {
-    let msg = LAST_ERROR.with(|e| e.borrow_mut().take());
+    // take() 是个好习惯，读完即毁，防止 stale error
+    let msg = LAST_ERROR.with(|e| e.borrow_mut().take()); 
+    
     match msg {
-        Some(s) => CString::new(s).unwrap().into_raw(),
+        Some(s) => {
+            // 【修复】处理包含 \0 的边缘情况
+            match CString::new(s) {
+                Ok(c_str) => c_str.into_raw(),
+                Err(_) => {
+                    // 如果原字符串有 \0，返回一个通用的错误提示，保证不崩
+                    let safe_msg = CString::new("Error message contained null byte").unwrap();
+                    safe_msg.into_raw()
+                }
+            }
+        },
         None => std::ptr::null_mut(),
     }
 }
