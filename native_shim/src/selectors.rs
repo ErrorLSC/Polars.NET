@@ -8,6 +8,15 @@ pub struct SelectorContext {
     pub inner: Selector,
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_selector_free(ptr: *mut SelectorContext) {
+    ffi_try_void!({
+        if !ptr.is_null() {
+            unsafe { let _ = Box::from_raw(ptr); }
+        }
+        Ok(())
+    })
+}
 // 1. cs.all()
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_selector_all() -> *mut SelectorContext {

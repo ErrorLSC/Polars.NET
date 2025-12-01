@@ -6,35 +6,35 @@ public static partial class PolarsWrapper
     {
         var rawExprs = HandlesToPtrs(exprs);
         var newLf = NativeBindings.pl_lazy_select(lf, rawExprs, (UIntPtr)rawExprs.Length);
-        lf.SetHandleAsInvalid(); 
+        lf.TransferOwnership(); 
         return ErrorHelper.Check(newLf);
     }
 
     public static DataFrameHandle LazyCollect(LazyFrameHandle lf)
     {
         var df = NativeBindings.pl_lazy_collect(lf);
-        lf.SetHandleAsInvalid();
+        lf.TransferOwnership();
         return ErrorHelper.Check(df);
     }
     public static LazyFrameHandle LazyFilter(LazyFrameHandle lf, ExprHandle expr)
     {
         var h = NativeBindings.pl_lazy_filter(lf, expr);
-        lf.SetHandleAsInvalid();   
-        expr.SetHandleAsInvalid(); 
+        lf.TransferOwnership();   
+        expr.TransferOwnership(); 
         return ErrorHelper.Check(h);
     }
     public static LazyFrameHandle LazySort(LazyFrameHandle lf, ExprHandle expr, bool desc)
     {
         var h = NativeBindings.pl_lazy_sort(lf, expr, desc);
-        lf.SetHandleAsInvalid();
-        expr.SetHandleAsInvalid();
+        lf.TransferOwnership();
+        expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
 
     public static LazyFrameHandle LazyLimit(LazyFrameHandle lf, uint n)
     {
         var h = NativeBindings.pl_lazy_limit(lf, n);
-        lf.SetHandleAsInvalid();
+        lf.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     public static LazyFrameHandle LazyGroupByAgg(LazyFrameHandle lf, ExprHandle[] keys, ExprHandle[] aggs)
@@ -49,14 +49,14 @@ public static partial class PolarsWrapper
             aggPtrs, (UIntPtr)aggPtrs.Length
         );
         
-        lf.SetHandleAsInvalid();
+        lf.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     public static LazyFrameHandle LazyWithColumns(LazyFrameHandle lf, ExprHandle[] handles)
     {
         var raw = HandlesToPtrs(handles);
         var h = NativeBindings.pl_lazy_with_columns(lf, raw, (UIntPtr)raw.Length);
-        lf.SetHandleAsInvalid();
+        lf.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     // --- Clone Ops ---

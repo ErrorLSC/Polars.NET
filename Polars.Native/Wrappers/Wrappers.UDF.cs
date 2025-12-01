@@ -6,10 +6,15 @@ namespace Polars.Native;
 
 public static partial class PolarsWrapper
 {
-    // 1. 定义静态的清理函数
+    // ==========================================
+    // 1. 生命周期管理 (Cleanup)
+    // ==========================================
     // 这个函数会被 Rust 在 Drop 时调用
     // MonoPInvokeCallback 特性在某些环境（如 Unity/IL2CPP）是必须的，但在普通 .NET Core 中可选
     // 为了保险起见，保持它是静态的即可。
+    // 这个委托用于防止 CleanupTrampoline 被 GC 回收
+    private static readonly CleanupCallback s_cleanupDelegate = CleanupTrampoline;
+
     private static void CleanupTrampoline(IntPtr userData)
     {
         try
@@ -29,11 +34,9 @@ public static partial class PolarsWrapper
             Console.Error.WriteLine($"[Polars C#] Error freeing UDF handle: {ex}");
         }
     }
-
-    // 保存这个 delegate 的静态引用，防止 cleanup 本身被 GC
-    // 因为它是整个程序的生命周期通用的，static readonly 即可
-    private static readonly CleanupCallback s_cleanupDelegate = CleanupTrampoline;
-
+    // ==========================================
+    // 2. Map API
+    // ==========================================
     // 对外的高层 API
     // 用户传入：Func<IArrowArray, IArrowArray> (输入 Arrow 数组，返回 Arrow 数组)
     public static ExprHandle Map(ExprHandle expr, Func<IArrowArray, IArrowArray> func)
@@ -102,16 +105,22 @@ public static partial class PolarsWrapper
         IntPtr userData = GCHandle.ToIntPtr(gcHandle);
 
         try
-            {
-            // 4. 调用 Rust，传入 cleanup 委托和 userData
-            return ErrorHelper.Check(NativeBindings.pl_expr_map(
-                expr, 
-                callback, 
-                outputType, 
-                s_cleanupDelegate, // 传这个静态委托
-                userData           // 传 GCHandle 的指针
-            ));
-            }
+        {
+            // 3. 调用 Rust
+            // 传入: 表达式, 回调, 输出类型, 清理回调, GCHandle指针
+            var h = NativeBindings.pl_expr_map(
+                expr,
+                callback,
+                outputType,
+                s_cleanupDelegate,
+                userData
+            );
+
+            // 成功移交所有权
+            expr.TransferOwnership();
+            
+            return ErrorHelper.Check(h);
+        }
         catch
             {
             // 如果调用 Rust 失败（比如 Rust 那边直接 Panic 没返回 Expr），

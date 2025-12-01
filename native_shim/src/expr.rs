@@ -2,6 +2,17 @@ use polars::prelude::*;
 use std::os::raw::c_char;
 use crate::types::{ExprContext, ptr_to_str};
 use std::ops::{Add, Sub, Mul, Div, Rem};
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_free(ptr: *mut ExprContext) {
+    // 使用 ffi_try_void! 确保异常安全
+    ffi_try_void!({
+        if !ptr.is_null() {
+            unsafe { let _ = Box::from_raw(ptr); }
+        }
+        Ok(())
+    })
+}
 // ==========================================
 // 1. 宏定义区域
 // ==========================================

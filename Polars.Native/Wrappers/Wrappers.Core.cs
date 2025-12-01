@@ -10,11 +10,16 @@ public static partial class PolarsWrapper
     private static IntPtr[] HandlesToPtrs(PolarsHandle[] handles)
     {
         if (handles == null || handles.Length == 0) return System.Array.Empty<IntPtr>();
+        
         var ptrs = new IntPtr[handles.Length];
         for (int i = 0; i < handles.Length; i++)
         {
-            ptrs[i] = handles[i].DangerousGetHandle();
-            handles[i].SetHandleAsInvalid(); 
+            // [修改] 使用 TransferOwnership()
+            // 这步操作做了两件事：
+            // 1. 获取原始指针传给 Rust
+            // 2. 标记 C# Handle 为无效，防止 GC 二次释放
+            // (因为 Rust 侧的 Vec<Expr> 已经接管了这些指针的生命周期)
+            ptrs[i] = handles[i].TransferOwnership();
         }
         return ptrs;
     }

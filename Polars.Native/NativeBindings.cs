@@ -18,12 +18,14 @@ public unsafe delegate int UdfCallback(
 unsafe internal partial class NativeBindings
 {
     const string LibName = "native_shim";
-
+    
+    [DllImport(LibName)] public static extern void pl_expr_free(IntPtr ptr);
+    [DllImport(LibName)] public static extern void pl_lazy_frame_free(IntPtr ptr);
+    [DllImport(LibName)] public static extern void pl_selector_free(IntPtr ptr);
     [DllImport(LibName)]
     public static extern DataFrameHandle pl_read_csv([MarshalAs(UnmanagedType.LPUTF8Str)] string path,
     bool tryParseDates
     );
-
     [DllImport(LibName)]
     public static extern void pl_free_dataframe(IntPtr ptr);
     // String Free

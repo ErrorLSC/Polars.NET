@@ -15,7 +15,7 @@ public static partial class PolarsWrapper
         return UseUtf8StringArray(names, ptrs => 
         {
             var h = NativeBindings.pl_selector_exclude(sel, ptrs, (UIntPtr)ptrs.Length);
-            sel.SetHandleAsInvalid();
+            sel.TransferOwnership();
             return ErrorHelper.Check(h);
         });
     }
@@ -23,7 +23,7 @@ public static partial class PolarsWrapper
     public static ExprHandle SelectorToExpr(SelectorHandle sel)
     {
         var h = NativeBindings.pl_selector_into_expr(sel);
-        sel.SetHandleAsInvalid(); // 转换后 Selector 就没用了，变成了 Expr
+        sel.TransferOwnership(); // 转换后 Selector 就没用了，变成了 Expr
         return ErrorHelper.Check(h);
     }
 }

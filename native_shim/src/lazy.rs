@@ -203,3 +203,13 @@ pub extern "C" fn pl_lazy_clone(lf_ptr: *mut LazyFrameContext) -> *mut LazyFrame
     
     Box::into_raw(Box::new(LazyFrameContext { inner: new_lf }))
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazy_frame_free(ptr: *mut LazyFrameContext) {
+    ffi_try_void!({
+        if !ptr.is_null() {
+            unsafe { let _ = Box::from_raw(ptr); }
+        }
+        Ok(())
+    })
+}

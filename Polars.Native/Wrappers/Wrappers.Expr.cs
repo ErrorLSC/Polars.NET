@@ -6,23 +6,19 @@ public static partial class PolarsWrapper
     private static ExprHandle UnaryOp(Func<ExprHandle, ExprHandle> op, ExprHandle expr)
     {
         var h = op(expr);
-        expr.SetHandleAsInvalid();
+        expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     // Binary Nodes (消耗 2 个 Expr)
     private static ExprHandle BinaryOp(Func<ExprHandle, ExprHandle, ExprHandle> op, ExprHandle l, ExprHandle r)
     {
         var h = op(l, r);
-        l.SetHandleAsInvalid();
-        r.SetHandleAsInvalid();
+        l.TransferOwnership();
+        r.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     private static ExprHandle UnaryStrOp(Func<ExprHandle, ExprHandle> op, ExprHandle expr) 
-    {
-        var h = op(expr);
-        expr.SetHandleAsInvalid();
-        return ErrorHelper.Check(h);
-    }
+    => UnaryOp(op, expr);
     // --- Expr Ops (工厂方法) ---
     // 这些方法返回新的 ExprHandle，所有权在 C# 这边，直到传给 Filter/Select
     // Leaf Nodes (不消耗其他 Expr)
@@ -34,7 +30,7 @@ public static partial class PolarsWrapper
     public static ExprHandle Alias(ExprHandle expr, string name) 
     {
         var h = NativeBindings.pl_expr_alias(expr, name);
-        expr.SetHandleAsInvalid();
+        expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     // Aggregate
@@ -48,7 +44,7 @@ public static partial class PolarsWrapper
     public static ExprHandle StrContains(ExprHandle e, string pat) 
     {
         var h = NativeBindings.pl_expr_str_contains(e, pat);
-        e.SetHandleAsInvalid();
+        e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
 
@@ -59,20 +55,20 @@ public static partial class PolarsWrapper
     public static ExprHandle StrSlice(ExprHandle e, long offset, ulong length)
     {
         var h = NativeBindings.pl_expr_str_slice(e, offset, length);
-        e.SetHandleAsInvalid();
+        e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
 
     public static ExprHandle StrReplaceAll(ExprHandle e, string pat, string val)
     {
         var h = NativeBindings.pl_expr_str_replace_all(e, pat, val);
-        e.SetHandleAsInvalid();
+        e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     public static ExprHandle StrSplit(ExprHandle e, string pat) 
     {
         var h = NativeBindings.pl_expr_str_split(e, pat);
-        e.SetHandleAsInvalid();
+        e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
 
@@ -110,13 +106,13 @@ public static partial class PolarsWrapper
     public static ExprHandle Log(ExprHandle expr, double baseVal)
     {
         var h = NativeBindings.pl_expr_log(expr, baseVal);
-        expr.SetHandleAsInvalid(); // 消耗掉 expr
+        expr.TransferOwnership(); // 消耗掉 expr
         return ErrorHelper.Check(h);
     }
     public static ExprHandle Round(ExprHandle e, uint decimals)
     {
         var h = NativeBindings.pl_expr_round(e, decimals);
-        e.SetHandleAsInvalid();
+        e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     // IsBetween
@@ -124,9 +120,9 @@ public static partial class PolarsWrapper
     {
         var h = NativeBindings.pl_expr_is_between(expr, lower, upper);
         // 记得销毁所有输入 Handle
-        expr.SetHandleAsInvalid();
-        lower.SetHandleAsInvalid();
-        upper.SetHandleAsInvalid();
+        expr.TransferOwnership();
+        lower.TransferOwnership();
+        upper.TransferOwnership();
         return ErrorHelper.Check(h);
     }
 
@@ -148,7 +144,7 @@ public static partial class PolarsWrapper
     public static ExprHandle ListGet(ExprHandle e, long index)
     {
         var h = NativeBindings.pl_expr_list_get(e, index);
-        e.SetHandleAsInvalid();
+        e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
 
@@ -156,14 +152,14 @@ public static partial class PolarsWrapper
     public static ExprHandle Prefix(ExprHandle e, string p)
     {
         var h = NativeBindings.pl_expr_prefix(e, p);
-        e.SetHandleAsInvalid();
+        e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     
     public static ExprHandle Suffix(ExprHandle e, string s)
     {
         var h = NativeBindings.pl_expr_suffix(e, s);
-        e.SetHandleAsInvalid();
+        e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     // Expr Length

@@ -4,7 +4,10 @@ namespace Polars.Native;
 
 public static partial class PolarsWrapper
 {
-    // --- Metadata ---
+    // ==========================================
+    // Metadata (元数据)
+    // ==========================================
+
     public static string[] GetColumnNames(DataFrameHandle df)
     {
         long width = DataFrameWidth(df);
@@ -25,8 +28,10 @@ public static partial class PolarsWrapper
         }
         return names;
     }
-    // --- Scalars ---
-    // 返回可空类型
+    // ==========================================
+    // Scalar Access (标量获取 - O(1))
+    // ==========================================
+
     public static long? GetInt(DataFrameHandle df, string colName, long row)
     {
         if (NativeBindings.pl_dataframe_get_i64(df, colName, (UIntPtr)row, out long val))
@@ -52,7 +57,10 @@ public static partial class PolarsWrapper
         try { return Marshal.PtrToStringUTF8(ptr); }
         finally { NativeBindings.pl_free_string(ptr); }
     }
-    // --- Eager Ops ---
+    // ==========================================
+    // Eager Ops (立即执行操作)
+    // ==========================================
+
     public static DataFrameHandle Head(DataFrameHandle df, uint n)
     {
         return ErrorHelper.Check(NativeBindings.pl_head(df, (UIntPtr)n));
@@ -61,7 +69,7 @@ public static partial class PolarsWrapper
     public static DataFrameHandle Filter(DataFrameHandle df, ExprHandle expr)
     {
         var h = NativeBindings.pl_filter(df, expr);
-        expr.SetHandleAsInvalid(); // Expr 被消耗了
+        expr.TransferOwnership(); // Expr 被消耗了
         return ErrorHelper.Check(h);
     }
     public static DataFrameHandle WithColumns(DataFrameHandle df, ExprHandle[] exprs)
@@ -84,7 +92,7 @@ public static partial class PolarsWrapper
     public static DataFrameHandle Sort(DataFrameHandle df, ExprHandle expr, bool descending)
     {
         var h = NativeBindings.pl_sort(df, expr, descending);
-        expr.SetHandleAsInvalid(); // 消耗 Expr
+        expr.TransferOwnership();// 消耗 Expr
         return ErrorHelper.Check(h);
     }
     // GroupBy 封装
