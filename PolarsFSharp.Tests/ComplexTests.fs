@@ -173,3 +173,44 @@ type ``Complex Query Tests`` () =
         Assert.Equal("coding", exploded.String("my_tag_list", 0).Value)
         Assert.Equal("reading", exploded.String("my_tag_list", 1).Value)
         Assert.Equal("gaming", exploded.String("my_tag_list", 2).Value)
+
+    [<Fact>]
+    member _.``Struct and Advanced List Ops`` () =
+        // 构造数据: Alice 考了两次试
+        use csv = new TempCsv("name,score1,score2\nAlice,80,90\nBob,60,70")
+        let lf = Polars.scanCsv csv.Path None
+        let maxCharExpr = 
+            (Polars.col "raw_nums").Str.Split(" ")
+                .List.Sort(true) // Descending
+                .List.First()
+                .Alias("max_char")
+        let res = 
+            lf
+            // 1. Struct 测试: 把 score1, score2 打包成 "scores_struct"
+            |> Polars.withColumn (
+                Polars.asStruct [Polars.col "score1"; Polars.col "score2"]
+                |> Polars.alias "scores_struct"
+            )
+            // 2. List 测试: 
+            // 假设我们把 struct 里的字段取出来，做一个计算 (演示 Struct.Field)
+            |> Polars.withColumn (
+                (Polars.col "scores_struct").Struct.Field("score1").Alias("s1_extracted")
+            )
+            // 3. List Agg 测试 (既然没有 concat_list，我们造一个伪需求：如果 split 后的 list)
+            // 我们手动 split 一个字符串 "1 5 2"
+            |> Polars.withColumn (
+                Polars.lit "1 5 2"
+                |> Polars.alias "raw_nums"
+            )
+            // 4. 处理 List: Split -> Sort(Desc) -> First
+            // "1 5 2" -> ["1", "5", "2"] -> ["5", "2", "1"] -> "5"
+            // 注意：Split 出来是 String，Sort 默认按字典序，"5" > "2" > "1"
+            |> Polars.withColumn maxCharExpr
+            |> Polars.collect
+
+        // 验证 Struct Field
+        // Alice score1 = 80
+        Assert.Equal(80L, res.Int("s1_extracted", 0).Value)
+
+        // 验证 List Sort + First
+        Assert.Equal("5", res.String("max_char", 0).Value)
