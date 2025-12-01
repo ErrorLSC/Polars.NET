@@ -1,6 +1,6 @@
 use polars::prelude::*;
 use std::os::raw::c_char;
-use crate::types::{ExprContext, ptr_to_str};
+use crate::types::{ExprContext, ptr_to_str,consume_exprs_array};
 use std::ops::{Add, Sub, Mul, Div, Rem};
 
 #[unsafe(no_mangle)]
@@ -158,6 +158,10 @@ gen_namespace_unary!(pl_expr_str_to_lowercase, str, to_lowercase);
 gen_namespace_unary!(pl_expr_str_len_bytes, str, len_bytes);
 // --- List Ops (list 命名空间) ---
 gen_namespace_unary!(pl_expr_list_first, list, first);
+gen_namespace_unary!(pl_expr_list_sum, list, sum);
+gen_namespace_unary!(pl_expr_list_min, list, min);
+gen_namespace_unary!(pl_expr_list_max, list, max);
+gen_namespace_unary!(pl_expr_list_mean, list, mean);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_alias(expr_ptr: *mut ExprContext, name_ptr: *const c_char) -> *mut ExprContext {
@@ -302,6 +306,36 @@ pub extern "C" fn pl_expr_list_get(
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_list_sort(
+    expr_ptr: *mut ExprContext,
+    descending: bool
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let options = SortOptions {
+            descending,
+            ..Default::default()
+        };
+        let new_expr = ctx.inner.list().sort(options);
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+// 3. list.contains(item)
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_list_contains(
+    expr_ptr: *mut ExprContext,
+    item_ptr: *mut ExprContext
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let item = unsafe { Box::from_raw(item_ptr) };
+
+        let new_expr = item.inner.is_in(ctx.inner, true);
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_cols(
@@ -419,6 +453,37 @@ pub extern "C" fn pl_expr_suffix(
         let ctx = unsafe { Box::from_raw(expr_ptr) };
         let suffix = ptr_to_str(suffix_ptr).unwrap();
         let new_expr = ctx.inner.name().suffix(suffix);
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+// --- Struct Ops (struct 命名空间) ---
+
+// 1. as_struct(exprs) -> Expr (构造结构体)
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_as_struct(
+    exprs_ptr: *const *mut ExprContext,
+    len: usize
+) -> *mut ExprContext {
+    ffi_try!({
+        let exprs = unsafe { consume_exprs_array(exprs_ptr, len) };
+        // polars::prelude::as_struct
+        let new_expr = as_struct(exprs);
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+// 2. struct.field_by_name(name)
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_struct_field_by_name(
+    expr_ptr: *mut ExprContext,
+    name_ptr: *const c_char
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let name = ptr_to_str(name_ptr).unwrap();
+        // struct_() 是进入 struct namespace 的入口
+        let new_expr = ctx.inner.struct_().field_by_name(name);
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }

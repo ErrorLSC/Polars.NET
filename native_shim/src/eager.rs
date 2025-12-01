@@ -15,18 +15,7 @@ pub extern "C" fn pl_dataframe_free(ptr: *mut DataFrameContext) {
         Ok(())
     })
 }
-// ==========================================
-// 1. 内部辅助函数 (消灭重复的 unsafe 循环)
-// ==========================================
 
-/// 将 C 传递过来的 Expr 指针数组转换为 Rust 的 Vec<Expr>
-/// 注意：这会消耗掉 C 端传递过来的 Expr 所有权 (Box::from_raw)
-unsafe fn consume_exprs_array(ptr: *const *mut ExprContext, len: usize) -> Vec<Expr> {
-    let slice = unsafe {std::slice::from_raw_parts(ptr, len)};
-    slice.iter()
-        .map(|&p| unsafe { Box::from_raw(p).inner})
-        .collect()
-}
 // ==========================================
 // 2. 宏定义
 // ==========================================

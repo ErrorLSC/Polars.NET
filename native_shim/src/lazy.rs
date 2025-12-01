@@ -1,17 +1,5 @@
 use polars::prelude::*;
 use crate::types::*;
-// ==========================================
-// 1. 内部辅助函数
-// ==========================================
-
-/// 转换 C 指针数组为 Vec<Expr>
-/// 警告：会消耗掉传入的 Expr 指针的所有权
-unsafe fn consume_exprs_array(ptr: *const *mut ExprContext, len: usize) -> Vec<Expr> {
-    let slice =unsafe{ std::slice::from_raw_parts(ptr, len)};
-    slice.iter()
-        .map(|&p| unsafe {Box::from_raw(p).inner}) // 拿走所有权
-        .collect()
-}
 
 // ==========================================
 // 2. 宏定义

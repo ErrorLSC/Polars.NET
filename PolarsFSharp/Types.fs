@@ -80,6 +80,7 @@ type Expr(handle: ExprHandle) =
     // --- Namespaces ---
     member this.Name = new NameOps(this.CloneHandle())
     member this.List = new ListOps(this.CloneHandle())
+    member this.Struct = new StructOps(this.CloneHandle())
     // Explode
     member this.Explode() = new Expr(PolarsWrapper.Explode(this.CloneHandle()))
     // IsBetween
@@ -128,7 +129,37 @@ and ListOps(handle: ExprHandle) =
     member _.Get(index: int) = new Expr(PolarsWrapper.ListGet(handle, int64 index))
     member _.Join(separator: string) = new Expr(PolarsWrapper.ListJoin(handle, separator))
     member _.Len() = new Expr(PolarsWrapper.ListLen(handle))
+    // Aggregations within list
+    member _.Sum() = new Expr(PolarsWrapper.ListSum(handle))
+    member _.Min() = new Expr(PolarsWrapper.ListMin(handle))
+    member _.Max() = new Expr(PolarsWrapper.ListMax(handle))
+    member _.Mean() = new Expr(PolarsWrapper.ListMean(handle))
+    
+    // Sort
+    member _.Sort(descending: bool) = new Expr(PolarsWrapper.ListSort(handle, descending))
+    
+    // Contains
+    member _.Contains(item: Expr) : Expr = 
+        // 注意：item 也要 clone
+        new Expr(PolarsWrapper.ListContains(handle, item.CloneHandle()))
+    // Contains 重载 (方便传字面量)
+    member _.Contains(item: int) = 
+        // [修复] 变量名定义为 itemHandle，以便下一行使用
+        let itemHandle = PolarsWrapper.Lit(item)
+        
+        // 为了最大安全性，建议 clone handle (列表本身)，消耗 itemHandle (元素)
+        new Expr(PolarsWrapper.ListContains(PolarsWrapper.CloneExpr(handle), itemHandle))
 
+    // 3. 针对 string 的重载
+    member _.Contains(item: string) = 
+        // [修复] 变量名一致
+        let itemHandle = PolarsWrapper.Lit(item)
+        new Expr(PolarsWrapper.ListContains(PolarsWrapper.CloneExpr(handle), itemHandle))
+
+and StructOps(handle: ExprHandle) =
+    // 取字段
+    member _.Field(name: string) = 
+        new Expr(PolarsWrapper.StructFieldByName(handle, name))
 type Selector(handle: SelectorHandle) =
     member _.Handle = handle
     

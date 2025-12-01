@@ -165,6 +165,40 @@ public static partial class PolarsWrapper
     }
 
     public static ExprHandle ListLen(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_len, e);
+    // --- List Aggs ---
+    public static ExprHandle ListSum(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_sum, e);
+    public static ExprHandle ListMin(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_min, e);
+    public static ExprHandle ListMax(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_max, e);
+    public static ExprHandle ListMean(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_mean, e);
+
+    // --- List Other ---
+    public static ExprHandle ListSort(ExprHandle e, bool descending)
+    {
+        var h = NativeBindings.pl_expr_list_sort(e, descending);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+
+    public static ExprHandle ListContains(ExprHandle listExpr, ExprHandle itemExpr)
+    {
+        var h = NativeBindings.pl_expr_list_contains(listExpr, itemExpr);
+        listExpr.TransferOwnership();
+        itemExpr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    // --- Struct ---
+    public static ExprHandle AsStruct(ExprHandle[] exprs)
+    {
+        var raw = HandlesToPtrs(exprs);
+        return ErrorHelper.Check(NativeBindings.pl_expr_as_struct(raw, (UIntPtr)raw.Length));
+    }
+
+    public static ExprHandle StructFieldByName(ExprHandle e, string name)
+    {
+        var h = NativeBindings.pl_expr_struct_field_by_name(e, name);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     // Naming
     public static ExprHandle Prefix(ExprHandle e, string p)
     {

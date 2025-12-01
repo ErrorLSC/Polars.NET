@@ -226,6 +226,15 @@ unsafe internal partial class NativeBindings
     [DllImport(LibName)] public static extern ExprHandle pl_expr_explode(ExprHandle expr);
     [DllImport(LibName)] public static extern ExprHandle pl_expr_list_join(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string sep);
     [DllImport(LibName)] public static extern ExprHandle pl_expr_list_len(ExprHandle expr);
+    // List Aggs
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_list_sum(ExprHandle expr);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_list_min(ExprHandle expr);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_list_max(ExprHandle expr);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_list_mean(ExprHandle expr);
+    
+    // List Other
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_list_sort(ExprHandle expr, bool descending);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_list_contains(ExprHandle expr, ExprHandle item);
     // Naming
     [DllImport(LibName)] public static extern ExprHandle pl_expr_prefix(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string prefix);
     [DllImport(LibName)] public static extern ExprHandle pl_expr_suffix(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string suffix);
@@ -247,5 +256,8 @@ unsafe internal partial class NativeBindings
     );
 
     [DllImport(LibName)] public static extern ExprHandle pl_selector_into_expr(SelectorHandle sel);
+    // Struct
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_as_struct(IntPtr[] exprs, UIntPtr len);
+    [DllImport(LibName)] public static extern ExprHandle pl_expr_struct_field_by_name(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
 
 }

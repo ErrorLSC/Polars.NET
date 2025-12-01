@@ -83,7 +83,7 @@ module Polars =
         let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
         let h = PolarsWrapper.Explode(df.Handle, handles)
         new DataFrame(h)
-        
+
     let sum (e: Expr) = e.Sum()
     let mean (e: Expr) = e.Mean()
     let max (e: Expr) = e.Max()
@@ -188,6 +188,11 @@ module Polars =
     let asExpr (s: Selector) = s.ToExpr()
     // exclude 专门针对 Selector
     let exclude (names: string list) (s: Selector) = s.Exclude(names)
+    // [新增] asStruct (将多列打包成 Struct)
+    // 用法: asStruct [col "a"; col "b"]
+    let asStruct (exprs: Expr list) =
+        let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        new Expr(PolarsWrapper.AsStruct(handles))
     // --- Show / Helper ---
     // 为了保持文件整洁，formatValue 可以设为 private
     let private formatValue (col: IArrowArray) (index: int) : string =
