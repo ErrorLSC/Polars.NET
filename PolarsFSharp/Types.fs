@@ -93,6 +93,22 @@ type Expr(handle: ExprHandle) =
         new Expr(PolarsWrapper.Map(this.CloneHandle(), func, outputType))
     member this.Dt = new DtOps(handle)
     member this.Str = new StringOps(this.CloneHandle())
+
+    // Over
+    // 用法: col("salary").Sum().Over([col("dept")])
+    member this.Over(partitionBy: Expr list) =
+        // 1. 克隆主表达式
+        let mainHandle = this.CloneHandle()
+        
+        // 2. 克隆分组列表
+        let partHandles = partitionBy |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        
+        // 3. 调用 Wrapper
+        new Expr(PolarsWrapper.Over(mainHandle, partHandles))
+
+    // 重载：方便只传一个分组列的情况
+    member this.Over(partitionCol: Expr) =
+        this.Over([partitionCol])
 and DtOps(handle: ExprHandle) =
     let wrap op = new Expr(op handle)
     member _.Year() = wrap PolarsWrapper.DtYear

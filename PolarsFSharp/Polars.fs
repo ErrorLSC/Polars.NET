@@ -194,6 +194,12 @@ module Polars =
     let asStruct (exprs: Expr list) =
         let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
         new Expr(PolarsWrapper.AsStruct(handles))
+        
+    // [新增] over
+    // 用法: col "salary" |> sum |> over [col "dept"]
+    let over (partitionBy: Expr list) (e: Expr) = e.Over(partitionBy)
+
+
     // --- Show / Helper ---
 
     let rec private formatValue (col: IArrowArray) (index: int) : string =

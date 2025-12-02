@@ -214,3 +214,34 @@ type ``Complex Query Tests`` () =
 
         // 验证 List Sort + First
         Assert.Equal("5", res.String("max_char", 0).Value)
+
+    [<Fact>]
+    member _.``Window Function (Over)`` () =
+        use csv = new TempCsv("name,dept,salary\nAlice,IT,1000\nBob,IT,2000\nCharlie,HR,3000")
+        let lf = Polars.scanCsv csv.Path None
+
+        let res = 
+            lf
+            |> Polars.withColumn (
+                // 逻辑: col("salary") - col("salary").mean().over([col("dept")])
+                (
+                    Polars.col "salary" - 
+                    (Polars.col "salary").Mean().Over([Polars.col "dept"])
+                )
+                |> Polars.alias "diff_from_avg"
+            )
+            |> Polars.collect
+            |> Polars.sort (Polars.col "name") false
+
+        // 验证
+        // Alice (IT): 1000 - 1500 = -500
+        Assert.Equal("Alice", res.String("name", 0).Value)
+        Assert.Equal(-500.0, res.Float("diff_from_avg", 0).Value)
+
+        // Bob (IT): 2000 - 1500 = 500
+        Assert.Equal("Bob", res.String("name", 1).Value)
+        Assert.Equal(500.0, res.Float("diff_from_avg", 1).Value)
+
+        // Charlie (HR): 3000 - 3000 = 0
+        Assert.Equal("Charlie", res.String("name", 2).Value)
+        Assert.Equal(0.0, res.Float("diff_from_avg", 2).Value)

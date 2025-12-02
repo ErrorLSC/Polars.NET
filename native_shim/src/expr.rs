@@ -518,3 +518,24 @@ pub extern "C" fn pl_expr_struct_field_by_name(
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_over(
+    expr_ptr: *mut ExprContext,
+    partition_by_ptr: *const *mut ExprContext,
+    len: usize
+) -> *mut ExprContext {
+    ffi_try!({
+        // 1. 拿到主表达式 (例如 sum("salary"))
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        
+        // 2. 拿到分组表达式列表 (例如 [col("department")])
+        // 使用我们之前提取到 types.rs 的公共函数
+        let partition_by = unsafe { consume_exprs_array(partition_by_ptr, len) };
+
+        // 3. 调用 over
+        let new_expr = ctx.inner.over(partition_by);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}

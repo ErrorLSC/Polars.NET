@@ -236,6 +236,20 @@ public static partial class PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    // Window
+    public static ExprHandle Over(ExprHandle expr, ExprHandle[] partitionBy)
+    {
+        // 1. 处理分组列表 (HandlesToPtrs 会自动 TransferOwnership)
+        var rawPartition = HandlesToPtrs(partitionBy);
+        
+        // 2. 调用 Native
+        var h = NativeBindings.pl_expr_over(expr, rawPartition, (UIntPtr)rawPartition.Length);
+        
+        // 3. 处理主表达式 (必须 TransferOwnership)
+        expr.TransferOwnership();
+        
+        return ErrorHelper.Check(h);
+    }
     // Expr Length
     public static ExprHandle Len() => ErrorHelper.Check(NativeBindings.pl_expr_len());
     // expr clone

@@ -273,5 +273,11 @@ unsafe internal partial class NativeBindings
     // Struct
     [DllImport(LibName)] public static extern ExprHandle pl_expr_as_struct(IntPtr[] exprs, UIntPtr len);
     [DllImport(LibName)] public static extern ExprHandle pl_expr_struct_field_by_name(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
-
+    // Window
+    [DllImport(LibName)] 
+    public static extern ExprHandle pl_expr_over(
+        ExprHandle expr, 
+        IntPtr[] partitionBy, 
+        UIntPtr len
+    );
 }
