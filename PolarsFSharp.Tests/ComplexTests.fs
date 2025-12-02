@@ -2,6 +2,8 @@ namespace PolarsFSharp.Tests
 
 open Xunit
 open PolarsFSharp
+open System.IO
+open System
 
 type ``Complex Query Tests`` () =
     
@@ -217,17 +219,15 @@ type ``Complex Query Tests`` () =
 
     [<Fact>]
     member _.``Window Function (Over)`` () =
-        use csv = new TempCsv("name,dept,salary\nAlice,IT,1000\nBob,IT,2000\nCharlie,HR,3000")
+        use csv = new TempCsv "name,dept,salary\nAlice,IT,1000\nBob,IT,2000\nCharlie,HR,3000"
         let lf = Polars.scanCsv csv.Path None
 
         let res = 
             lf
             |> Polars.withColumn (
                 // 逻辑: col("salary") - col("salary").mean().over([col("dept")])
-                (
-                    Polars.col "salary" - 
-                    (Polars.col "salary").Mean().Over([Polars.col "dept"])
-                )
+                Polars.col "salary" - 
+                (Polars.col "salary").Mean().Over [Polars.col "dept"]
                 |> Polars.alias "diff_from_avg"
             )
             |> Polars.collect
@@ -245,3 +245,32 @@ type ``Complex Query Tests`` () =
         // Charlie (HR): 3000 - 3000 = 0
         Assert.Equal("Charlie", res.String("name", 2).Value)
         Assert.Equal(0.0, res.Float("diff_from_avg", 2).Value)
+    [<Fact>]
+    member _.``Reshaping and IO: Pivot, Unpivot`` () =
+        // 1. 准备宽表数据 (Sales Data)
+        // Year, Q1, Q2
+        use csv = new TempCsv("year,Q1,Q2\n2023,100,200\n2024,300,400")
+        let df = Polars.readCsv csv.Path None
+
+        // --- Test 1: Eager Unpivot (Wide -> Long) ---
+        // 结果: year, quarter, revenue
+        let longDf = 
+            df 
+            |> Polars.unpivot ["year"] ["Q1"; "Q2"] (Some "quarter") (Some "revenue")
+            |> Polars.sort (Polars.col "year") false
+
+        Assert.Equal(4L, longDf.Rows)
+        Assert.Equal("Q1", longDf.String("quarter", 0).Value)
+        Assert.Equal(100L, longDf.Int("revenue", 0).Value)
+
+        // --- Test 2: Eager Pivot (Long -> Wide) ---
+        // 还原回: year, Q1, Q2
+        let wideDf = 
+            longDf
+            |> Polars.pivot ["year"] ["quarter"] ["revenue"] "sum" // agg="sum"
+            |> Polars.sort (Polars.col "year") false
+
+        Assert.Equal(2L, wideDf.Rows)
+        Assert.Equal(3L, wideDf.Columns) // year, Q1, Q2
+        Assert.Equal(100L, wideDf.Int("Q1", 0).Value)
+        Assert.Equal(400L, wideDf.Int("Q2", 1).Value)

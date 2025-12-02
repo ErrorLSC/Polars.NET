@@ -1,5 +1,7 @@
+use std::ffi::c_char;
 use polars::prelude::*;
 use crate::types::*;
+use polars::lazy::dsl::UnpivotArgsDSL;
 
 // ==========================================
 // 2. 宏定义
@@ -90,7 +92,7 @@ gen_lazy_scalar_op!(pl_lazy_limit, limit, u32);
 gen_lazy_scalar_op!(pl_lazy_tail, tail, u32);
 
 // ==========================================
-// 4. 特殊函数 (Sort & Collect)
+// Sort
 // ==========================================
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_lazy_sort(
@@ -187,6 +189,83 @@ pub extern "C" fn pl_lazy_collect(lf_ptr: *mut LazyFrameContext) -> *mut DataFra
         let df = lf_ctx.inner.collect()?;
 
         Ok(Box::into_raw(Box::new(DataFrameContext { df })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazy_collect_streaming(lf_ptr: *mut LazyFrameContext) -> *mut DataFrameContext {
+    ffi_try!({
+        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+        
+        // Polars 0.50+ 写法: with_streaming(true).collect()
+        let df = lf_ctx.inner
+            .with_new_streaming(true)
+            .collect()?;
+            
+        Ok(Box::into_raw(Box::new(DataFrameContext { df })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazy_unpivot(
+    lf_ptr: *mut LazyFrameContext,
+    id_vars_ptr: *const *const c_char, id_len: usize,
+    val_vars_ptr: *const *const c_char, val_len: usize,
+    variable_name_ptr: *const c_char,
+    value_name_ptr: *const c_char
+) -> *mut LazyFrameContext {
+    ffi_try!({
+        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+        
+        // 1. 辅助：把 C字符串数组 转为 Vec<PlSmallStr>
+        // 因为 cols() 和 exclude() 都接受 IntoVec<PlSmallStr>
+        let to_pl_strs = |ptr, len| unsafe {
+            let mut v = Vec::with_capacity(len);
+            for &p in std::slice::from_raw_parts(ptr, len) {
+                let s = ptr_to_str(p).unwrap();
+                v.push(PlSmallStr::from_str(s));
+            }
+            v
+        };
+
+        let index_names = to_pl_strs(id_vars_ptr, id_len);
+        let on_names = to_pl_strs(val_vars_ptr, val_len);
+
+        // 2. 构造 Selector
+        // index: 直接指定列名
+        let index_selector = cols(index_names.clone()); // clone 一份给 index 使用
+
+        // on: 如果为空，则默认选取 "所有非 index 的列" (模仿 pandas/polars 默认行为)
+        let on_selector = if on_names.is_empty() {
+            all().exclude_cols(index_names) // 这里用掉了 index_names
+        } else {
+            cols(on_names)
+        };
+
+        // 3. 处理重命名
+        let variable_name = if variable_name_ptr.is_null() { 
+            None 
+        } else { 
+            Some(PlSmallStr::from_str(ptr_to_str(variable_name_ptr).unwrap())) 
+        };
+        
+        let value_name = if value_name_ptr.is_null() { 
+            None 
+        } else { 
+            Some(PlSmallStr::from_str(ptr_to_str(value_name_ptr).unwrap())) 
+        };
+
+        // 4. 构建参数 (UnpivotArgs)
+        let args = UnpivotArgsDSL {
+            index: index_selector, // 必须是 Selector
+            on: on_selector,       // 必须是 Selector
+            variable_name,
+            value_name,
+        };
+
+        let new_lf = lf_ctx.inner.unpivot(args);
+        
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
     })
 }
 

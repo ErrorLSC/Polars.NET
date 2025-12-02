@@ -66,6 +66,39 @@ public static partial class PolarsWrapper
         lf.TransferOwnership(); // 链式调用消耗旧 LF
         return ErrorHelper.Check(newLf);
     }
+    public static LazyFrameHandle LazyUnpivot(LazyFrameHandle lf, string[] index, string[] on, string variableName, string valueName)
+    {
+        return UseUtf8StringArray(index, iPtrs =>
+            UseUtf8StringArray(on, oPtrs =>
+            {
+                var h = NativeBindings.pl_lazy_unpivot(
+                    lf,
+                    iPtrs, (UIntPtr)iPtrs.Length,
+                    oPtrs, (UIntPtr)oPtrs.Length,
+                    variableName,
+                    valueName
+                );
+                lf.TransferOwnership();
+                return ErrorHelper.Check(h);
+            })
+        );
+    }
+
+    // [新增] Streaming Collect
+    public static DataFrameHandle CollectStreaming(LazyFrameHandle lf)
+    {
+        var df = NativeBindings.pl_lazy_collect_streaming(lf);
+        lf.TransferOwnership();
+        return ErrorHelper.Check(df);
+    }
+
+    // [新增] Sink Parquet
+    // public static void SinkParquet(LazyFrameHandle lf, string path)
+    // {
+    //     NativeBindings.pl_lazy_sink_parquet(lf, path);
+    //     lf.TransferOwnership();
+    //     ErrorHelper.CheckVoid();
+    // }
     // --- Clone Ops ---
     public static LazyFrameHandle CloneLazy(LazyFrameHandle lf)
     {

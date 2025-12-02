@@ -112,8 +112,40 @@ public static partial class PolarsWrapper
             rawAgg, (UIntPtr)rawAgg.Length
         ));
     }
+    // [新增] Pivot (Eager)
+    public static DataFrameHandle Pivot(DataFrameHandle df, string[] index, string[] columns, string[] values, string aggFn)
+    {
+        // 三层嵌套稍微有点丑，但能复用 UseUtf8StringArray 的安全机制
+        return UseUtf8StringArray(index, iPtrs =>
+            UseUtf8StringArray(columns, cPtrs =>
+                UseUtf8StringArray(values, vPtrs =>
+                {
+                    return ErrorHelper.Check(NativeBindings.pl_pivot(
+                        df,
+                        vPtrs, (UIntPtr)vPtrs.Length,
+                        iPtrs, (UIntPtr)iPtrs.Length,
+                        cPtrs, (UIntPtr)cPtrs.Length,
+                        aggFn
+                    ));
+                })
+            )
+        );
+    }
 
-
-
-
+    // [新增] Unpivot (Eager)
+    public static DataFrameHandle Unpivot(DataFrameHandle df, string[] index, string[] on, string variableName, string valueName)
+    {
+        return UseUtf8StringArray(index, iPtrs =>
+            UseUtf8StringArray(on, oPtrs =>
+            {
+                return ErrorHelper.Check(NativeBindings.pl_unpivot(
+                    df,
+                    iPtrs, (UIntPtr)iPtrs.Length,
+                    oPtrs, (UIntPtr)oPtrs.Length,
+                    variableName,
+                    valueName
+                ));
+            })
+        );
+    }
 }

@@ -1,6 +1,8 @@
 use polars::prelude::*;
 use std::{ffi::CString, os::raw::c_char};
 use crate::types::*;
+use polars::lazy::frame::pivot::pivot as pivot_impl; 
+use polars::lazy::dsl::UnpivotArgsDSL;
 // ==========================================
 // 0. Memory Safety
 // ==========================================
@@ -366,6 +368,121 @@ pub extern "C" fn pl_explode(
         let res_df = ctx.df.clone()
             .lazy()
             .explode(final_selector)
+            .collect()?;
+
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
+    })
+}
+// ==========================================
+// Pivot & Unpivot
+// ==========================================
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_pivot(
+    df_ptr: *mut DataFrameContext,
+    values_ptr: *const *const c_char, values_len: usize,
+    index_ptr: *const *const c_char, index_len: usize,
+    columns_ptr: *const *const c_char, columns_len: usize,
+    agg_fn_ptr: *const c_char
+) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*df_ptr };
+        
+        // 1. 转换字符串数组 (逻辑不变)
+        let to_strs = |ptr, len| unsafe {
+            let mut v = Vec::with_capacity(len);
+            for &p in std::slice::from_raw_parts(ptr, len) {
+                v.push(ptr_to_str(p).unwrap()); // 返回 &str
+            }
+            v
+        };
+
+        let values = to_strs(values_ptr, values_len);
+        let index = to_strs(index_ptr, index_len);
+        let columns = to_strs(columns_ptr, columns_len);
+        
+        // 2. 构建聚合表达式 (Expr)
+        // 注意：pivot 里的 agg_expr 只能使用 pl.element()，也就是 col("")
+        let agg_str = ptr_to_str(agg_fn_ptr).unwrap_or("first");
+        
+        // 我们构建一个针对 "element" 的表达式
+        let el = col(""); 
+        let agg_expr = match agg_str {
+            "sum" => el.sum(),
+            "min" => el.min(),
+            "max" => el.max(),
+            "mean" => el.mean(),
+            "median" => el.median(),
+            "count" => len(),
+            "len" => len(),
+            "first" | _ => el.first(),
+        };
+
+        // 3. 调用 polars::lazy::frame::pivot::pivot
+        // 这个函数就是你贴出的那个源代码，它接受 &DataFrame 和 Expr
+        let res_df = pivot_impl(
+            &ctx.df,
+            columns,          // I0
+            Some(index),  // Option<I1>
+            Some(values),   // Option<I2>
+            false,          // sort_columns
+            Some(agg_expr), // Option<Expr>
+            None            // separator
+        )?;
+
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_unpivot(
+    df_ptr: *mut DataFrameContext,
+    id_vars_ptr: *const *const c_char, id_len: usize,
+    val_vars_ptr: *const *const c_char, val_len: usize,
+    variable_name_ptr: *const c_char,
+    value_name_ptr: *const c_char
+) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*df_ptr };
+        
+        // 1. 辅助：C字符串数组 -> Vec<PlSmallStr>
+        let to_pl_strs = |ptr, len| unsafe {
+            let mut v = Vec::with_capacity(len);
+            for &p in std::slice::from_raw_parts(ptr, len) {
+                let s = ptr_to_str(p).unwrap();
+                v.push(PlSmallStr::from_str(s));
+            }
+            v
+        };
+
+        let index_names = to_pl_strs(id_vars_ptr, id_len);
+        let on_names = to_pl_strs(val_vars_ptr, val_len);
+
+        // 2. 构造 Selector (复用 Lazy 的逻辑)
+        let index_selector = cols(index_names.clone());
+
+        // 默认行为：如果 value_vars 为空，选所有非 index 的列
+        let on_selector = if on_names.is_empty() {
+            all().exclude_cols(index_names)
+        } else {
+            cols(on_names)
+        };
+
+        // 3. 处理重命名
+        let variable_name = if variable_name_ptr.is_null() { None } else { Some(PlSmallStr::from_str(ptr_to_str(variable_name_ptr).unwrap())) };
+        let value_name = if value_name_ptr.is_null() { None } else { Some(PlSmallStr::from_str(ptr_to_str(value_name_ptr).unwrap())) };
+
+        // 4. 构建参数
+        let args = UnpivotArgsDSL {
+            index: index_selector,
+            on: on_selector,
+            variable_name,
+            value_name,
+        };
+
+        // 5. 执行: Eager -> Lazy -> Unpivot -> Collect
+        let res_df = ctx.df.clone()
+            .lazy()
+            .unpivot(args)
             .collect()?;
 
         Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))

@@ -36,6 +36,10 @@ module Polars =
     let writeParquet (path: string) (df: DataFrame) = 
         PolarsWrapper.WriteParquet(df.Handle, path)
         df
+        
+    // let sinkParquet (path: string) (lf: LazyFrame) : unit =
+    //     let lfClone = lf.CloneHandle()
+    //     PolarsWrapper.SinkParquet(lfClone, path)
     // --- Expr Helpers ---
     // [新增] count/len
     let count () = new Expr(PolarsWrapper.Len())
@@ -84,6 +88,27 @@ module Polars =
         let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
         let h = PolarsWrapper.Explode(df.Handle, handles)
         new DataFrame(h)
+
+    // --- Reshaping (Eager) ---
+
+    // 1. Pivot
+    // 参数顺序：index -> columns -> values -> agg -> df
+    let pivot (index: string list) (columns: string list) (values: string list) (aggFn: string) (df: DataFrame) : DataFrame =
+        let iArr = List.toArray index
+        let cArr = List.toArray columns
+        let vArr = List.toArray values
+        new DataFrame(PolarsWrapper.Pivot(df.Handle, iArr, cArr, vArr, aggFn))
+
+    // 2. Unpivot (Melt)
+    let unpivot (index: string list) (on: string list) (variableName: string option) (valueName: string option) (df: DataFrame) : DataFrame =
+        let iArr = List.toArray index
+        let oArr = List.toArray on
+        let varN = defaultArg variableName null
+        let valN = defaultArg valueName null
+        new DataFrame(PolarsWrapper.Unpivot(df.Handle, iArr, oArr, varN, valN))
+
+    // 别名
+    let melt = unpivot    
 
     let sum (e: Expr) = e.Sum()
     let mean (e: Expr) = e.Mean()
@@ -177,7 +202,23 @@ module Polars =
         
         let h = PolarsWrapper.LazyGroupByAgg(lfClone, kHandles, aHandles)
         new LazyFrame(h)
-    // 7. Collect (触发执行)
+    // Lazy Unpivot
+    let unpivotLazy (index: string list) (on: string list) (variableName: string option) (valueName: string option) (lf: LazyFrame) : LazyFrame =
+        let lfClone = lf.CloneHandle() // 必须 Clone
+        let iArr = List.toArray index
+        let oArr = List.toArray on
+        let varN = defaultArg variableName null
+        let valN = defaultArg valueName null
+        new LazyFrame(PolarsWrapper.LazyUnpivot(lfClone, iArr, oArr, varN, valN))
+
+    let meltLazy = unpivotLazy
+
+    // Streaming Collect
+    let collectStreaming (lf: LazyFrame) : DataFrame =
+        let lfClone = lf.CloneHandle()
+        new DataFrame(PolarsWrapper.CollectStreaming(lfClone))
+
+    // Collect (触发执行)
     let collect (lf: LazyFrame) : DataFrame = 
         // Collect 也会消耗 LazyFrame，所以也要克隆！
         // 这样你可以 collect 多次 (例如一次 show，一次 save)

@@ -5,11 +5,13 @@ edition = "2024"
 
 [dependencies]
 # 1. 主库 (提供高层 API)
-polars = { version = "0.50.0", features = ["lazy", "csv","dtype-date","parquet","strings","regex","timezones","semi_anti_join","cross_join","is_between","is_in","log","abs","round_series","dtype-struct"] }
+polars = { version = "0.50.0", features = ["lazy", "csv","dtype-date","parquet","strings","regex","timezones",
+"semi_anti_join","cross_join","is_between","is_in","log","abs","round_series","dtype-struct","pivot"
+] }
 
 # 2. 核心库 (提供 Series, 内存布局)
 polars-core = { version = "0.50.0" }
-
+polars-ops = { version = "0.50.0", features = ["pivot"] }
 # 3. Arrow 库 (提供 FFI, RecordBatch)
 polars-arrow = { version = "0.50.0" }
 

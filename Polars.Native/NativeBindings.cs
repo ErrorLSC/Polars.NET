@@ -216,6 +216,25 @@ unsafe internal partial class NativeBindings
     [DllImport(LibName)] public static extern LazyFrameHandle pl_lazy_with_columns(LazyFrameHandle lf, IntPtr[] exprs, UIntPtr len);
     [DllImport(LibName)] 
     public static extern LazyFrameHandle pl_lazy_explode(LazyFrameHandle lf, IntPtr[] exprs, UIntPtr len);
+    // --- Reshaping (Lazy) ---
+    [DllImport(LibName)] 
+    public static extern LazyFrameHandle pl_lazy_unpivot(
+        LazyFrameHandle lf,
+        IntPtr[] idVars, UIntPtr idLen,
+        IntPtr[] valVars, UIntPtr valLen,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string varName,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string valName
+    );
+
+    // --- Streaming & Sink ---
+    [DllImport(LibName)] 
+    public static extern DataFrameHandle pl_lazy_collect_streaming(LazyFrameHandle lf);
+
+    // [DllImport(LibName)] 
+    // public static extern void pl_lazy_sink_parquet(
+    //     LazyFrameHandle lf, 
+    //     [MarshalAs(UnmanagedType.LPUTF8Str)] string path
+    // );
     // String Ops
     [DllImport(LibName)] public static extern ExprHandle pl_expr_str_contains(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string pat);
 
@@ -252,6 +271,24 @@ unsafe internal partial class NativeBindings
     // Naming
     [DllImport(LibName)] public static extern ExprHandle pl_expr_prefix(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string prefix);
     [DllImport(LibName)] public static extern ExprHandle pl_expr_suffix(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string suffix);
+    // --- Reshaping (Eager) ---
+    [DllImport(LibName)] 
+    public static extern DataFrameHandle pl_pivot(
+        DataFrameHandle df,
+        IntPtr[] values, UIntPtr valuesLen,
+        IntPtr[] index, UIntPtr indexLen,
+        IntPtr[] columns, UIntPtr columnsLen,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string aggFn
+    );
+
+    [DllImport(LibName)] 
+    public static extern DataFrameHandle pl_unpivot(
+        DataFrameHandle df,
+        IntPtr[] idVars, UIntPtr idLen,
+        IntPtr[] valVars, UIntPtr valLen,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string varName,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string valName
+    );
     // Expr Len
     [DllImport(LibName)] 
     public static extern ExprHandle pl_expr_len();
