@@ -41,4 +41,11 @@ public static partial class PolarsWrapper
         // [修复] 必须检查错误
         ErrorHelper.CheckVoid();
     }
+    // Sink Parquet
+    public static void SinkParquet(LazyFrameHandle lf, string path)
+    {
+        NativeBindings.pl_lazy_sink_parquet(lf, path);
+        lf.TransferOwnership();
+        ErrorHelper.CheckVoid();
+    }
 }

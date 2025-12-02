@@ -230,11 +230,11 @@ unsafe internal partial class NativeBindings
     [DllImport(LibName)] 
     public static extern DataFrameHandle pl_lazy_collect_streaming(LazyFrameHandle lf);
 
-    // [DllImport(LibName)] 
-    // public static extern void pl_lazy_sink_parquet(
-    //     LazyFrameHandle lf, 
-    //     [MarshalAs(UnmanagedType.LPUTF8Str)] string path
-    // );
+    [DllImport(LibName)] 
+    public static extern void pl_lazy_sink_parquet(
+        LazyFrameHandle lf, 
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path
+    );
     // String Ops
     [DllImport(LibName)] public static extern ExprHandle pl_expr_str_contains(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string pat);
 

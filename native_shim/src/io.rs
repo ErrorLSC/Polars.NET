@@ -180,5 +180,32 @@ pub extern "C" fn pl_to_arrow(
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazy_sink_parquet(
+    lf_ptr: *mut LazyFrameContext,
+    path_ptr: *const c_char
+) {
+    ffi_try_void!({
+        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+        let path_str = ptr_to_str(path_ptr).unwrap();
+        
+        let pl_path = PlPath::new(path_str);
+        let target = SinkTarget::Path(pl_path);
+
+        // 4. 配置项
+        let write_options = ParquetWriteOptions::default();
+        let sink_options = SinkOptions::default();
+
+        // 5. 执行
+        let _ = lf_ctx.inner.sink_parquet(
+            target, 
+            write_options, 
+            None, // cloud_options
+            sink_options
+        )?;
+        
+        Ok(())
+    })
+}
 
 

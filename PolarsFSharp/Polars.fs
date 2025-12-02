@@ -36,10 +36,10 @@ module Polars =
     let writeParquet (path: string) (df: DataFrame) = 
         PolarsWrapper.WriteParquet(df.Handle, path)
         df
-        
-    // let sinkParquet (path: string) (lf: LazyFrame) : unit =
-    //     let lfClone = lf.CloneHandle()
-    //     PolarsWrapper.SinkParquet(lfClone, path)
+
+    let sinkParquet (path: string) (lf: LazyFrame) : unit =
+        let lfClone = lf.CloneHandle()
+        PolarsWrapper.SinkParquet(lfClone, path)
     // --- Expr Helpers ---
     // [新增] count/len
     let count () = new Expr(PolarsWrapper.Len())
