@@ -174,7 +174,7 @@ unsafe internal partial class NativeBindings
         DataFrameHandle right,
         IntPtr[] leftOn, UIntPtr leftLen,
         IntPtr[] rightOn, UIntPtr rightLen,
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string how
+        PlJoinType how
     );
     [LibraryImport(LibName)] 
     public static partial DataFrameHandle pl_sort(DataFrameHandle df, ExprHandle expr, [MarshalAs(UnmanagedType.U1)] bool descending);
@@ -292,7 +292,7 @@ unsafe internal partial class NativeBindings
         IntPtr[] values, UIntPtr valuesLen,
         IntPtr[] index, UIntPtr indexLen,
         IntPtr[] columns, UIntPtr columnsLen,
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string aggFn
+        PlPivotAgg aggFn
     );
 
     [LibraryImport(LibName)] 

@@ -35,3 +35,15 @@ pub(crate) unsafe fn consume_exprs_array(
         .map(|&p| unsafe { Box::from_raw(p).inner }) // 拿走所有权
         .collect()
 }
+
+pub(crate) fn map_jointype(code: i32) -> JoinType {
+    match code {
+        0 => JoinType::Inner,
+        1 => JoinType::Left,
+        2 => JoinType::Full, // 对应 C# Outer
+        3 => JoinType::Cross,
+        4 => JoinType::Semi,
+        5 => JoinType::Anti,
+        _ => JoinType::Inner, // 默认
+    }
+}

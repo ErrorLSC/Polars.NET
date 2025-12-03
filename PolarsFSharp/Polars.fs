@@ -74,10 +74,10 @@ module Polars =
         let h = PolarsWrapper.GroupByAgg(df.Handle, kHandles, aHandles)
         new DataFrame(h)
 
-    let join (other: DataFrame) (leftOn: Expr list) (rightOn: Expr list) (how: string) (left: DataFrame) : DataFrame =
+    let join (other: DataFrame) (leftOn: Expr list) (rightOn: Expr list) (how: JoinType) (left: DataFrame) : DataFrame =
         let lHandles = leftOn |> List.map (fun e -> e.Handle) |> List.toArray
         let rHandles = rightOn |> List.map (fun e -> e.Handle) |> List.toArray
-        let h = PolarsWrapper.Join(left.Handle, other.Handle, lHandles, rHandles, how)
+        let h = PolarsWrapper.Join(left.Handle, other.Handle, lHandles, rHandles, how.ToNative())
         new DataFrame(h)
 
     let head (n: int) (df: DataFrame) : DataFrame =
@@ -93,11 +93,11 @@ module Polars =
 
     // 1. Pivot
     // 参数顺序：index -> columns -> values -> agg -> df
-    let pivot (index: string list) (columns: string list) (values: string list) (aggFn: string) (df: DataFrame) : DataFrame =
+    let pivot (index: string list) (columns: string list) (values: string list) (aggFn: PivotAgg) (df: DataFrame) : DataFrame =
         let iArr = List.toArray index
         let cArr = List.toArray columns
         let vArr = List.toArray values
-        new DataFrame(PolarsWrapper.Pivot(df.Handle, iArr, cArr, vArr, aggFn))
+        new DataFrame(PolarsWrapper.Pivot(df.Handle, iArr, cArr, vArr, aggFn.ToNative()))
 
     // 2. Unpivot (Melt)
     let unpivot (index: string list) (on: string list) (variableName: string option) (valueName: string option) (df: DataFrame) : DataFrame =

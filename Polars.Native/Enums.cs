@@ -18,3 +18,41 @@ public enum PlDataType : int
     Date = 13,
     Datetime = 14
 }
+
+public enum PlJoinType
+{
+    Inner = 0,
+    Left = 1,
+    Outer = 2, // Polars 0.50 叫 Full
+    Cross = 3,
+    Semi = 4,
+    Anti = 5
+}
+
+// 对应 Pivot 的聚合方式
+public enum PlPivotAgg
+{
+    First = 0,
+    Sum = 1,
+    Min = 2,
+    Max = 3,
+    Mean = 4,
+    Median = 5,
+    Count = 6,
+    Len = 7,
+    Last = 8
+}
+
+// 对应时间单位 (Cast 用)
+public enum PlTimeUnit
+{
+    Nanoseconds = 0,
+    Microseconds = 1,
+    Milliseconds = 2,
+    Second = 3,
+    Minute = 4,
+    Hour = 5,
+    Day = 6,
+    Month =7,
+    Year =8
+}

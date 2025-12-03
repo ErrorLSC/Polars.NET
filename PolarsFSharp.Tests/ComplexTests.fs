@@ -9,22 +9,22 @@ type ``Complex Query Tests`` () =
     
     [<Fact>]
     member _.``Join execution (Eager)`` () =
-        use users = new TempCsv("id,name\n1,A\n2,B")
-        use sales = new TempCsv("uid,amt\n1,100\n1,200\n3,50")
+        use users = new TempCsv "id,name\n1,A\n2,B"
+        use sales = new TempCsv "uid,amt\n1,100\n1,200\n3,50"
 
         let uDf = Polars.readCsv users.Path None
         let sDf = Polars.readCsv sales.Path None
 
         let res = 
             uDf 
-            |> Polars.join sDf [Polars.col "id"] [Polars.col "uid"] "left"
+            |> Polars.join sDf [Polars.col "id"] [Polars.col "uid"] JoinType.Left
         
         // Left join: id 1 (2 rows), id 2 (1 row null match) -> Total 3
         Assert.Equal(3L, res.Rows)
 
     [<Fact>]
     member _.``Lazy API Chain (Filter -> Collect)`` () =
-        use csv = new TempCsv("a,b\n1,10\n2,20\n3,30")
+        use csv = new TempCsv "a,b\n1,10\n2,20\n3,30"
         let lf = Polars.scanCsv csv.Path None
         
         let df = 
@@ -37,14 +37,14 @@ type ``Complex Query Tests`` () =
 
     [<Fact>]
     member _.``GroupBy Queries`` () =
-        use csv = new TempCsv("name,birthdate,weight,height\nBen Brown,1985-02-15,72.5,1.77\nQinglei,2025-11-25,70.0,1.80\nZhang,2025-10-31,55,1.75")
+        use csv = new TempCsv "name,birthdate,weight,height\nBen Brown,1985-02-15,72.5,1.77\nQinglei,2025-11-25,70.0,1.80\nZhang,2025-10-31,55,1.75"
         let lf = Polars.scanCsv csv.Path (Some true)
 
         let res = 
             lf 
             |> Polars.groupByLazy
                 [(Polars.col "birthdate").Dt.Year() / Polars.lit 10 * Polars.lit 10 |> Polars.alias "decade" ]
-                [ Polars.count().Alias("cnt")] 
+                [ Polars.count().Alias "cnt"] 
             |> Polars.sortLazy (Polars.col "decade") false
             |> Polars.collect
 
@@ -128,7 +128,7 @@ type ``Complex Query Tests`` () =
     [<Fact>]
     member _.``List Ops: Cols, Explode, Join and Read`` () =
         // 数据: 一个人有多个 Tag (空格分隔)
-        use csv = new TempCsv("name,tags\nAlice,coding reading\nBob,gaming")
+        use csv = new TempCsv "name,tags\nAlice,coding reading\nBob,gaming"
         let lf = Polars.scanCsv csv.Path None
 
         let res = 
@@ -179,7 +179,7 @@ type ``Complex Query Tests`` () =
     [<Fact>]
     member _.``Struct and Advanced List Ops`` () =
         // 构造数据: Alice 考了两次试
-        use csv = new TempCsv("name,score1,score2\nAlice,80,90\nBob,60,70")
+        use csv = new TempCsv "name,score1,score2\nAlice,80,90\nBob,60,70"
         let lf = Polars.scanCsv csv.Path None
         let maxCharExpr = 
             (Polars.col "raw_nums").Str.Split(" ")
@@ -249,7 +249,7 @@ type ``Complex Query Tests`` () =
     member _.``Reshaping and IO: Pivot, Unpivot`` () =
         // 1. 准备宽表数据 (Sales Data)
         // Year, Q1, Q2
-        use csv = new TempCsv("year,Q1,Q2\n2023,100,200\n2024,300,400")
+        use csv = new TempCsv "year,Q1,Q2\n2023,100,200\n2024,300,400"
         let df = Polars.readCsv csv.Path None
 
         // --- Test 1: Eager Unpivot (Wide -> Long) ---
@@ -267,7 +267,7 @@ type ``Complex Query Tests`` () =
         // 还原回: year, Q1, Q2
         let wideDf = 
             longDf
-            |> Polars.pivot ["year"] ["quarter"] ["revenue"] "sum" // agg="sum"
+            |> Polars.pivot ["year"] ["quarter"] ["revenue"] PivotAgg.Sum
             |> Polars.sort (Polars.col "year") false
 
         Assert.Equal(2L, wideDf.Rows)
@@ -278,9 +278,9 @@ type ``Complex Query Tests`` () =
     [<Fact>]
     member _.``Lazy Concatenation: Vertical Stack`` () =
         // DF1: 1, 2
-        use csv1 = new TempCsv("val\n1\n2")
+        use csv1 = new TempCsv "val\n1\n2"
         // DF2: 3, 4
-        use csv2 = new TempCsv("val\n3\n4")
+        use csv2 = new TempCsv "val\n3\n4"
 
         let lf1 = Polars.scanCsv csv1.Path None
         let lf2 = Polars.scanCsv csv2.Path None
@@ -300,11 +300,11 @@ type ``Complex Query Tests`` () =
     [<Fact>]
     member _.``Concatenation: Eager Stack (Safety Check)`` () =
         // DF1
-        use csv1 = new TempCsv("val\n1")
+        use csv1 = new TempCsv "val\n1"
         let df1 = Polars.readCsv csv1.Path None
         
         // DF2
-        use csv2 = new TempCsv("val\n2")
+        use csv2 = new TempCsv "val\n2"
         let df2 = Polars.readCsv csv2.Path None
 
         // 1. 执行 Concat

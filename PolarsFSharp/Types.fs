@@ -4,6 +4,38 @@ open System
 open Polars.Native
 open Apache.Arrow
 
+type JoinType =
+    | Inner
+    | Left
+    | Outer
+    | Cross
+    | Semi
+    | Anti
+    
+    // 内部转换 helper
+    member internal this.ToNative() =
+        match this with
+        | Inner -> PlJoinType.Inner
+        | Left -> PlJoinType.Left
+        | Outer -> PlJoinType.Outer
+        | Cross -> PlJoinType.Cross
+        | Semi -> PlJoinType.Semi
+        | Anti -> PlJoinType.Anti
+
+// F# 风格的 PivotAgg
+type PivotAgg =
+    | First | Sum | Min | Max | Mean | Median | Count | Last
+    
+    member internal this.ToNative() =
+        match this with
+        | First -> PlPivotAgg.First
+        | Sum -> PlPivotAgg.Sum
+        | Min -> PlPivotAgg.Min
+        | Max -> PlPivotAgg.Max
+        | Mean -> PlPivotAgg.Mean
+        | Median -> PlPivotAgg.Median
+        | Count -> PlPivotAgg.Count
+        | Last -> PlPivotAgg.Last
 // ==========================================
 // Expr 类型封装
 // ==========================================

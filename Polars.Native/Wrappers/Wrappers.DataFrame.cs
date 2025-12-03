@@ -87,7 +87,7 @@ public static partial class PolarsWrapper
         return ErrorHelper.Check(NativeBindings.pl_select(df, rawExprs, (UIntPtr)rawExprs.Length));
     }
 
-    public static DataFrameHandle Join(DataFrameHandle left, DataFrameHandle right, ExprHandle[] leftOn, ExprHandle[] rightOn, string how)
+    public static DataFrameHandle Join(DataFrameHandle left, DataFrameHandle right, ExprHandle[] leftOn, ExprHandle[] rightOn, PlJoinType how)
     {
         var lPtrs = HandlesToPtrs(leftOn);
         var rPtrs = HandlesToPtrs(rightOn);
@@ -117,7 +117,7 @@ public static partial class PolarsWrapper
         ));
     }
     // [新增] Pivot (Eager)
-    public static DataFrameHandle Pivot(DataFrameHandle df, string[] index, string[] columns, string[] values, string aggFn)
+    public static DataFrameHandle Pivot(DataFrameHandle df, string[] index, string[] columns, string[] values, PlPivotAgg aggFn)
     {
         // 三层嵌套稍微有点丑，但能复用 UseUtf8StringArray 的安全机制
         return UseUtf8StringArray(index, iPtrs =>

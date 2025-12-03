@@ -121,26 +121,14 @@ pub extern "C" fn pl_join(
     right_ptr: *mut DataFrameContext,
     left_on_ptr: *const *mut ExprContext, left_on_len: usize,
     right_on_ptr: *const *mut ExprContext, right_on_len: usize,
-    how_ptr: *const c_char
+    how_code: i32
 ) -> *mut DataFrameContext {
     ffi_try!({
         let left_ctx = unsafe { &*left_ptr };
         let right_ctx = unsafe { &*right_ptr };
-        
-        // 1. 修复问号报错：手动映射错误
-        let how_str = ptr_to_str(how_ptr)
-            .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
 
-        // 2. 匹配 JoinType (注意 Outer -> Full)
-        let how = match how_str {
-            "inner" => JoinType::Inner,
-            "left" => JoinType::Left,
-            "outer" | "full" => JoinType::Full, // 0.50+ 使用 Full
-            "cross" => JoinType::Cross,         // 需要 feature "cross_join"
-            "semi" => JoinType::Semi,           // 需要 feature "semi_anti_join"
-            "anti" => JoinType::Anti,           // 需要 feature "semi_anti_join"
-            _ => return Err(PolarsError::ComputeError(format!("Unknown join type: {}", how_str).into())),
-        };
+        // 匹配 JoinType
+        let how = map_jointype(how_code);
 
         let left_on = unsafe { consume_exprs_array(left_on_ptr, left_on_len) };
         let right_on = unsafe { consume_exprs_array(right_on_ptr, right_on_len) };
@@ -394,7 +382,7 @@ pub extern "C" fn pl_pivot(
     values_ptr: *const *const c_char, values_len: usize,
     index_ptr: *const *const c_char, index_len: usize,
     columns_ptr: *const *const c_char, columns_len: usize,
-    agg_fn_ptr: *const c_char
+    agg_code: i32
 ) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*df_ptr };
@@ -412,21 +400,18 @@ pub extern "C" fn pl_pivot(
         let index = to_strs(index_ptr, index_len);
         let columns = to_strs(columns_ptr, columns_len);
         
-        // 2. 构建聚合表达式 (Expr)
-        // 注意：pivot 里的 agg_expr 只能使用 pl.element()，也就是 col("")
-        let agg_str = ptr_to_str(agg_fn_ptr).unwrap_or("first");
-        
         // 我们构建一个针对 "element" 的表达式
         let el = col(""); 
-        let agg_expr = match agg_str {
-            "sum" => el.sum(),
-            "min" => el.min(),
-            "max" => el.max(),
-            "mean" => el.mean(),
-            "median" => el.median(),
-            "count" => len(),
-            "len" => len(),
-            "first" | _ => el.first(),
+        let agg_expr = match agg_code {
+            1 => el.sum(),    // Sum
+            2 => el.min(),    // Min
+            3 => el.max(),    // Max
+            4 => el.mean(),   // Mean
+            5 => el.median(), // Median
+            6 => len(),       // Count
+            7 => len(),       // Len
+            8 => el.last(),   // Last
+            0 | _ => el.first(), // First (Default)
         };
 
         // 3. 调用 polars::lazy::frame::pivot::pivot
