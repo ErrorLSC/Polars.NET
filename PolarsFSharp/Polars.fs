@@ -137,7 +137,9 @@ module Polars =
         new LazyFrame(PolarsWrapper.ScanCsv(path, parseDates))
 
     let scanParquet (path: string) = new LazyFrame(PolarsWrapper.ScanParquet(path))
-
+    let explain (lf: LazyFrame) = lf.Explain(true)
+    let explainUnoptimized (lf: LazyFrame) = lf.Explain(false)
+    let schema (lf: LazyFrame) = lf.Schema
     // 1. Filter
     let filterLazy (expr: Expr) (lf: LazyFrame) : LazyFrame =
         // 关键点：

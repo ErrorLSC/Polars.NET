@@ -200,7 +200,9 @@ unsafe internal partial class NativeBindings
 
     [LibraryImport(LibName)] 
     public static partial LazyFrameHandle pl_scan_parquet([MarshalAs(UnmanagedType.LPUTF8Str)] string path);
-    
+    // Lazy Introspection
+    [LibraryImport(LibName)] public static partial IntPtr pl_lazy_schema(LazyFrameHandle lf);
+    [LibraryImport(LibName)] public static partial IntPtr pl_lazy_explain(LazyFrameHandle lf,[MarshalAs(UnmanagedType.U1)] bool optimized);
     [LibraryImport(LibName)] 
     public static partial LazyFrameHandle pl_lazy_filter(LazyFrameHandle lf, ExprHandle expr);
     [LibraryImport(LibName)] 

@@ -2,6 +2,34 @@ namespace Polars.Native;
 
 public static partial class PolarsWrapper
 {
+    public static string GetSchemaString(LazyFrameHandle lf)
+    {
+        // 借用操作，不 TransferOwnership
+        IntPtr ptr = NativeBindings.pl_lazy_schema(lf);
+        return ErrorHelper.CheckString(ptr); // 假设你提取了 CheckString 逻辑，或者手动写 try-finally
+    }
+    public static Dictionary<string, string> GetSchema(LazyFrameHandle lf)
+    {
+        var json = GetSchemaString(lf);
+        if (string.IsNullOrEmpty(json)) return [];
+        
+        // 简单解析 (假设没有嵌套 JSON 结构，只是简单的 Key:Value)
+        // 或者引入 System.Text.Json
+        try 
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json) 
+                   ?? [];
+        }
+        catch 
+        {
+            return [];
+        }
+    }
+    public static string Explain(LazyFrameHandle lf, bool optimized)
+    {
+        IntPtr ptr = NativeBindings.pl_lazy_explain(lf, optimized);
+        return ErrorHelper.CheckString(ptr);
+    }
     public static LazyFrameHandle LazySelect(LazyFrameHandle lf, ExprHandle[] exprs)
     {
         var rawExprs = HandlesToPtrs(exprs);

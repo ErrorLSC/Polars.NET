@@ -299,3 +299,14 @@ type LazyFrame(handle: LazyFrameHandle) =
     member this.Collect() = 
         let dfHandle = PolarsWrapper.LazyCollect(handle)
         new DataFrame(dfHandle)
+    // 返回 JSON 字符串
+    member _.SchemaRaw = PolarsWrapper.GetSchemaString(handle)
+
+    // 返回 Map<string, string>
+    member _.Schema = 
+        let dict = PolarsWrapper.GetSchema(handle)
+        dict |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+
+    member this.Explain(?optimized: bool) = 
+        let opt = defaultArg optimized true
+        PolarsWrapper.Explain(handle, opt)

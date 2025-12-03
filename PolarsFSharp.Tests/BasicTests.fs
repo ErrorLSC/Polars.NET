@@ -58,3 +58,33 @@ type ``Basic Functionality Tests`` () =
         finally
             if System.IO.File.Exists tmpParquet then
                 System.IO.File.Delete tmpParquet
+
+    [<Fact>]
+    member _.``Lazy Introspection: Schema and Explain`` () =
+        use csv = new TempCsv "a,b\n1,2"
+        let lf = Polars.scanCsv csv.Path None
+        
+        let lf2 = 
+            lf 
+            |> Polars.withColumn (
+                (Polars.col "a" * Polars.lit 2).Alias "a_double"
+            )
+            |> Polars.filterLazy (Polars.col "b" .> Polars.lit 0)
+
+        // 1. 验证 Schema (使用 Map API，更加精准)
+        let schema = lf2.Schema // 类型是 Map<string, string>
+        
+        // 验证列名是否存在 (Key)
+        Assert.True(schema.ContainsKey "a")
+        Assert.True(schema.ContainsKey "b")
+        Assert.True(schema.ContainsKey "a_double")
+        
+        // 验证列类型 (Value)
+        // Polars 读取 CSV 整数默认是 Int64
+        Assert.Equal("i64", schema.["a"])
+        Assert.Equal("i64", schema.["a_double"])
+
+        // 2. 验证 Explain
+        let plan = lf2.Explain false
+        Assert.Contains("FILTER", plan) 
+        Assert.Contains("WITH_COLUMNS", plan)

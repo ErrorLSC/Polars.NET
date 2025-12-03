@@ -310,19 +310,46 @@ pub extern "C" fn pl_lazy_concat(
 // ==========================================
 // 5. 实用功能
 // ==========================================
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazy_schema(lf_ptr: *mut LazyFrameContext) -> *mut c_char {
+    ffi_try!({
+        // 借用 LazyFrame (注意：collect_schema 需要 &mut self，因为它会缓存 plan)
+        // 所以这里我们必须用 &mut *lf_ptr
+        let ctx = unsafe { &mut *lf_ptr };
+        
+        // 调用 collect_schema 获取 SchemaRef
+        let schema = ctx.inner.collect_schema()?;
+        
+        // 方案 A: 转 JSON (推荐，如果开启了 serde feature)
+        // let json = serde_json::to_string(&schema).unwrap();
+        
+        // 方案 B: 简单 Debug 字符串 (如果不依赖 serde)
+        // 格式类似: Schema { fields: [Field { name: "a", dtype: Int64 }, ...] }
+        // 这对 C# 来说比较难解析。
+        
+        // 方案 C (最佳折衷): 手动构建一个简化的 JSON 字符串
+        // {"name": "Int64", "age": "Utf8"}
+        let mut json_parts = Vec::new();
+        for (name, dtype) in schema.iter() {
+            let dtype_str = dtype.to_string();
+            json_parts.push(format!("\"{}\": \"{}\"", name, dtype_str));
+        }
+        let json = format!("{{ {} }}", json_parts.join(", "));
+        
+        Ok(std::ffi::CString::new(json).unwrap().into_raw())
+    })
+}
 
 // 不执行计算，只查看计划
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_lazy_explain(lf_ptr: *mut LazyFrameContext) -> *mut std::os::raw::c_char {
-    // 注意：这里不能 consume (Box::from_raw)，因为调试不应该消耗掉 LazyFrame
-    // 我们只是借用一下
-    let ctx = unsafe { &*lf_ptr };
-    
-    // explain 通常返回 PolarsResult<String>
-    match ctx.inner.explain(true) {
-        Ok(plan_str) => std::ffi::CString::new(plan_str).unwrap().into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
+pub extern "C" fn pl_lazy_explain(lf_ptr: *mut LazyFrameContext, optimized: bool) -> *mut c_char {
+    ffi_try!({
+        let ctx = unsafe { &*lf_ptr };
+        
+        let plan_str = ctx.inner.explain(optimized)?;
+        
+        Ok(std::ffi::CString::new(plan_str).unwrap().into_raw())
+    })
 }
 
 // 释放字符串 (配合 pl_lazy_explain 使用)
