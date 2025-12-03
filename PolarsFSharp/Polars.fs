@@ -257,7 +257,8 @@ module Polars =
     // [新增] over
     // 用法: col "salary" |> sum |> over [col "dept"]
     let over (partitionBy: Expr list) (e: Expr) = e.Over(partitionBy)
-
+    // SQL entry
+    let sqlContext () = new SqlContext()
 
     // --- Show / Helper ---
 

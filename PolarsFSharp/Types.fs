@@ -310,3 +310,18 @@ type LazyFrame(handle: LazyFrameHandle) =
     member this.Explain(?optimized: bool) = 
         let opt = defaultArg optimized true
         PolarsWrapper.Explain(handle, opt)
+
+type SqlContext() =
+    let handle = PolarsWrapper.SqlContextNew()
+    
+    interface IDisposable with
+        member _.Dispose() = handle.Dispose()
+
+    // 注册表
+    member _.Register(name: string, lf: LazyFrame) =
+        // 同样，注册是 Move 操作，需要 CloneHandle
+        PolarsWrapper.SqlRegister(handle, name, lf.CloneHandle())
+
+    // 执行查询
+    member _.Execute(query: string) =
+        new LazyFrame(PolarsWrapper.SqlExecute(handle, query))

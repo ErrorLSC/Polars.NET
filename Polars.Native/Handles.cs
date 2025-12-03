@@ -62,3 +62,12 @@ public class SelectorHandle : PolarsHandle
         return true;
     }
 }
+
+public class SqlContextHandle : PolarsHandle
+{
+    protected override bool ReleaseHandle()
+    {
+        NativeBindings.pl_sql_context_free(handle);
+        return true;
+    }
+}

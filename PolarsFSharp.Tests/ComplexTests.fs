@@ -318,3 +318,23 @@ type ``Complex Query Tests`` () =
         Assert.Equal(1L, df1.Rows)
         Assert.Equal(1L, df2.Rows)
         Assert.Equal(1L, df1.Int("val", 0).Value)
+    [<Fact>]
+    member _.``SQL Context: Register and Execute`` () =
+        // 准备数据
+        use csv = new TempCsv("name,age\nAlice,20\nBob,30")
+        let lf = Polars.scanCsv csv.Path None
+
+        // 1. 创建 Context
+        use ctx = Polars.sqlContext()
+        
+        // 2. 注册表 "people"
+        ctx.Register("people", lf)
+
+        // 3. 写 SQL
+        let resLf = ctx.Execute "SELECT name, age * 2 AS age_double FROM people WHERE age > 25"
+        let res = resLf |> Polars.collect
+
+        // 验证
+        Assert.Equal(1L, res.Rows)
+        Assert.Equal("Bob", res.String("name", 0).Value)
+        Assert.Equal(60L, res.Int("age_double", 0).Value)
