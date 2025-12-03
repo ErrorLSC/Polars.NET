@@ -74,7 +74,7 @@ type PivotAgg =
 // ==========================================
 type Expr(handle: ExprHandle) =
     member _.Handle = handle
-    member internal this.CloneHandle() = PolarsWrapper.CloneExpr(handle)
+    member internal this.CloneHandle() = PolarsWrapper.CloneExpr handle
     // [新增] Cast
     // 用法: col("age").Cast(DataType.Float64)
     member this.Cast(dtype: DataType, ?strict: bool) =
@@ -205,6 +205,20 @@ type Expr(handle: ExprHandle) =
         | "forward" | "ffill" -> this.ForwardFill()
         | "backward" | "bfill" -> this.BackwardFill()
         | _ -> failwith "Unsupported strategy"
+
+    member this.RollingMin(windowSize: string) = 
+        new Expr(PolarsWrapper.RollingMin(this.CloneHandle(), windowSize))
+        
+    member this.RollingMax(windowSize: string) = 
+        new Expr(PolarsWrapper.RollingMax(this.CloneHandle(), windowSize))
+
+    member this.RollingMean(windowSize: string) = 
+        new Expr(PolarsWrapper.RollingMean(this.CloneHandle(), windowSize))
+        
+    member this.RollingSum(windowSize: string) = 
+        new Expr(PolarsWrapper.RollingSum(this.CloneHandle(), windowSize))
+
+
 and DtOps(handle: ExprHandle) =
     let wrap op = new Expr(op handle)
     member _.Year() = wrap PolarsWrapper.DtYear

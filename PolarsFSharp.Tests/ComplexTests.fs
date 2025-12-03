@@ -321,7 +321,7 @@ type ``Complex Query Tests`` () =
     [<Fact>]
     member _.``SQL Context: Register and Execute`` () =
         // 准备数据
-        use csv = new TempCsv("name,age\nAlice,20\nBob,30")
+        use csv = new TempCsv "name,age\nAlice,20\nBob,30"
         let lf = Polars.scanCsv csv.Path None
 
         // 1. 创建 Context
@@ -344,7 +344,7 @@ type ``Complex Query Tests`` () =
         // P1: 10
         // P2: null
         // P3: 20
-        use csv = new TempCsv("price\n10\n\n20")
+        use csv = new TempCsv "price\n10\n\n20"
         let df = Polars.readCsv csv.Path None
 
         let res = 
@@ -376,3 +376,26 @@ type ``Complex Query Tests`` () =
         // Row 2: 20, ffill=20, lag=null(原始price是null), diff=10 (20-10)
         Assert.Equal(20L, res.Int("price_ffill", 2).Value)
         Assert.Equal(10L, res.Int("price_diff", 2).Value)
+    [<Fact>]
+    member _.``Rolling Window (Moving Average)`` () =
+        // 构造时序数据
+        use csv = new TempCsv "date,price\n2024-01-01,10\n2024-01-02,20\n2024-01-03,30"
+        let lf = Polars.scanCsv csv.Path (Some true)
+
+        let res = 
+            lf
+            |> Polars.sortLazy (Polars.col "date") false // Rolling 必须先排序
+            |> Polars.withColumnLazy (
+                // 2天移动平均 (包括当前行)
+                // 1.1: 10
+                // 1.2: (10+20)/2 = 15
+                // 1.3: (20+30)/2 = 25
+                // 注意：Polars "2d" 窗口不仅看行数，还看时间列。
+                // 如果没有设置 by="date"，这里其实是按行数 "2i" (2 rows) 来算的，或者依赖 Implicit Index。
+                // 为了简单测试，我们假设它是按行滚动 (2i)
+                (Polars.col "price").RollingMean("2i").Alias "ma_2"
+            )
+            |> Polars.collect
+
+        Assert.Equal(15.0, res.Float("ma_2", 1).Value)
+        Assert.Equal(25.0, res.Float("ma_2", 2).Value)

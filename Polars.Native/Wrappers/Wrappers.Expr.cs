@@ -294,4 +294,30 @@ public static partial class PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+
+    public static ExprHandle RollingMean(ExprHandle e, string windowSize)
+    {
+        var h = NativeBindings.pl_expr_rolling_mean(e, windowSize);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+
+    public static ExprHandle RollingMax(ExprHandle e, string windowSize)
+    {
+        var h = NativeBindings.pl_expr_rolling_max(e, windowSize);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle RollingMin(ExprHandle e, string windowSize)
+    {
+        var h = NativeBindings.pl_expr_rolling_min(e, windowSize);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle RollingSum(ExprHandle e, string windowSize)
+    {
+        var h = NativeBindings.pl_expr_rolling_sum(e, windowSize);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
 }

@@ -98,7 +98,45 @@ macro_rules! gen_namespace_unary {
         }
     };
 }
+/// 模式 6: RollingWindow操作 (Namespace Unary)
+fn parse_fixed_window_size(s: &str) -> PolarsResult<usize> {
+    // 去掉可能的 "i" 后缀 (Polars 习惯 "3i" 代表 3 index/rows)
+    let clean_s = s.trim().trim_end_matches('i');
+    clean_s.parse::<usize>().map_err(|_| {
+        PolarsError::ComputeError(format!("Invalid fixed window size: '{}'. For time-based windows (e.g. '3d'), use rolling_by.", s).into())
+    })
+}
+macro_rules! gen_rolling_op {
+    ($func_name:ident, $method:ident) => {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $func_name(
+            expr_ptr: *mut ExprContext,
+            window_size_ptr: *const c_char
+        ) -> *mut ExprContext {
+            ffi_try!({
+                let ctx = unsafe { Box::from_raw(expr_ptr) };
+                let window_size_str = ptr_to_str(window_size_ptr).unwrap();
 
+                // 1. 解析大小
+                let window_size = parse_fixed_window_size(window_size_str)?;
+
+                // 2. 构建 Fixed Window Options
+                let options = RollingOptionsFixedWindow {
+                    window_size,
+                    min_periods: 1, // 默认至少1个数据，防止全Null
+                    weights: None,
+                    center: false,
+                    fn_params: None,
+                };
+
+                // 3. 调用 expr.rolling_mean(options)
+                let new_expr = ctx.inner.$method(options);
+                
+                Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+            })
+        }
+    };
+}
 // ==========================================
 // 2. 宏应用区域 (Boilerplate 消灭术)
 // ==========================================
@@ -174,6 +212,11 @@ gen_namespace_unary!(pl_expr_list_sum, list, sum);
 gen_namespace_unary!(pl_expr_list_min, list, min);
 gen_namespace_unary!(pl_expr_list_max, list, max);
 gen_namespace_unary!(pl_expr_list_mean, list, mean);
+// 
+gen_rolling_op!(pl_expr_rolling_mean, rolling_mean);
+gen_rolling_op!(pl_expr_rolling_sum, rolling_sum);
+gen_rolling_op!(pl_expr_rolling_min, rolling_min);
+gen_rolling_op!(pl_expr_rolling_max, rolling_max);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_alias(expr_ptr: *mut ExprContext, name_ptr: *const c_char) -> *mut ExprContext {

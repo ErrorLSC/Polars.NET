@@ -358,4 +358,9 @@ unsafe internal partial class NativeBindings
     // Fill
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_forward_fill(ExprHandle expr, uint limit);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_backward_fill(ExprHandle expr, uint limit);
+    // Rolling Window
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rolling_mean(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string windowSize);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rolling_sum(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string windowSize);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rolling_min(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string windowSize);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rolling_max(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string windowSize);
 }
