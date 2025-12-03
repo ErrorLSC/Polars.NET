@@ -110,8 +110,8 @@ module Polars =
     let unpivot (index: string list) (on: string list) (variableName: string option) (valueName: string option) (df: DataFrame) : DataFrame =
         let iArr = List.toArray index
         let oArr = List.toArray on
-        let varN = defaultArg variableName null
-        let valN = defaultArg valueName null
+        let varN = Option.toObj variableName 
+        let valN = Option.toObj valueName 
         new DataFrame(PolarsWrapper.Unpivot(df.Handle, iArr, oArr, varN, valN))
 
     // 别名
@@ -216,8 +216,8 @@ module Polars =
         let lfClone = lf.CloneHandle() // 必须 Clone
         let iArr = List.toArray index
         let oArr = List.toArray on
-        let varN = defaultArg variableName null
-        let valN = defaultArg valueName null
+        let varN = Option.toObj variableName
+        let valN = Option.toObj valueName 
         new LazyFrame(PolarsWrapper.LazyUnpivot(lfClone, iArr, oArr, varN, valN))
 
     let meltLazy = unpivotLazy

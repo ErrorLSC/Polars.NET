@@ -94,7 +94,7 @@ public static partial class PolarsWrapper
         lf.TransferOwnership(); // 链式调用消耗旧 LF
         return ErrorHelper.Check(newLf);
     }
-    public static LazyFrameHandle LazyUnpivot(LazyFrameHandle lf, string[] index, string[] on, string variableName, string valueName)
+    public static LazyFrameHandle LazyUnpivot(LazyFrameHandle lf, string[] index, string[] on, string? variableName, string? valueName)
     {
         return UseUtf8StringArray(index, iPtrs =>
             UseUtf8StringArray(on, oPtrs =>

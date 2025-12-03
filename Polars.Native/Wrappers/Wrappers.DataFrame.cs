@@ -137,7 +137,7 @@ public static partial class PolarsWrapper
     }
 
     // [新增] Unpivot (Eager)
-    public static DataFrameHandle Unpivot(DataFrameHandle df, string[] index, string[] on, string variableName, string valueName)
+    public static DataFrameHandle Unpivot(DataFrameHandle df, string[] index, string[] on, string? variableName, string? valueName)
     {
         return UseUtf8StringArray(index, iPtrs =>
             UseUtf8StringArray(on, oPtrs =>

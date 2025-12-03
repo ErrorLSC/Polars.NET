@@ -235,8 +235,8 @@ unsafe internal partial class NativeBindings
         LazyFrameHandle lf,
         IntPtr[] idVars, UIntPtr idLen,
         IntPtr[] valVars, UIntPtr valLen,
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string varName,
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string valName
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string? varName,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string? valName
     );
     [LibraryImport(LibName)] 
     public static partial LazyFrameHandle pl_lazy_concat(
@@ -305,8 +305,8 @@ unsafe internal partial class NativeBindings
         DataFrameHandle df,
         IntPtr[] idVars, UIntPtr idLen,
         IntPtr[] valVars, UIntPtr valLen,
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string varName,
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string valName
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string? varName,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string? valName
     );
 
     // Expr Len
