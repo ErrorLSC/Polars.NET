@@ -2,6 +2,7 @@ namespace Polars.Native;
 
 public enum PlDataType : int
 {
+    Unknown = 0,
     SameAsInput = 0,
     Boolean = 1,
     Int8 = 2,
@@ -16,7 +17,10 @@ public enum PlDataType : int
     Float64 = 11,
     String = 12,
     Date = 13,
-    Datetime = 14
+    Datetime = 14,
+    Time = 15,
+    Duration = 16,
+    Binary = 17
 }
 
 public enum PlJoinType

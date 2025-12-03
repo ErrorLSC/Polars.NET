@@ -159,7 +159,12 @@ unsafe internal partial class NativeBindings
         CleanupCallback cleanup,
         IntPtr userData          
     );
-
+    [LibraryImport(LibName)] 
+    public static partial ExprHandle pl_expr_cast(
+        ExprHandle expr, 
+        PlDataType dtype, 
+        [MarshalAs(UnmanagedType.U1)] bool strict
+    );
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_groupby_agg(
         DataFrameHandle df, 

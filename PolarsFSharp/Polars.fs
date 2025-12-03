@@ -41,6 +41,13 @@ module Polars =
         let lfClone = lf.CloneHandle()
         PolarsWrapper.SinkParquet(lfClone, path)
     // --- Expr Helpers ---
+    // [新增] cast
+    let cast (dtype: DataType) (e: Expr) = e.Cast(dtype)
+    
+    // 常用类型快捷方式 (可选)
+    let int32 = DataType.Int32
+    let float64 = DataType.Float64
+    let string = DataType.String
     // [新增] count/len
     let count () = new Expr(PolarsWrapper.Len())
     let len () = new Expr(PolarsWrapper.Len())
@@ -266,43 +273,98 @@ module Polars =
         if col.IsNull(index) then "null"
         else
             match col with
-            // --- 基础整数 ---
-            | :? Int8Array as arr -> string (arr.GetValue(index))
-            | :? Int16Array as arr -> string (arr.GetValue(index))
-            | :? Int32Array as arr -> string (arr.GetValue(index))
-            | :? Int64Array as arr -> string (arr.GetValue(index))
-            | :? UInt8Array as arr -> string (arr.GetValue(index))
-            | :? UInt16Array as arr -> string (arr.GetValue(index))
-            | :? UInt32Array as arr -> string (arr.GetValue(index))
-            | :? UInt64Array as arr -> string (arr.GetValue(index))
+            // --- 基础数值 (直接调用 .Value.ToString()) ---
+            | :? Int8Array as arr -> arr.GetValue(index).Value.ToString()
+            | :? Int16Array as arr -> arr.GetValue(index).Value.ToString()
+            | :? Int32Array as arr -> arr.GetValue(index).Value.ToString()
+            | :? Int64Array as arr -> arr.GetValue(index).Value.ToString()
+            | :? UInt8Array as arr -> arr.GetValue(index).Value.ToString()
+            | :? UInt16Array as arr -> arr.GetValue(index).Value.ToString()
+            | :? UInt32Array as arr -> arr.GetValue(index).Value.ToString()
+            | :? UInt64Array as arr -> arr.GetValue(index).Value.ToString()
+            | :? FloatArray as arr -> arr.GetValue(index).Value.ToString()
+            | :? DoubleArray as arr -> arr.GetValue(index).Value.ToString()
             
-            // --- 浮点数 ---
-            | :? FloatArray as arr -> string (arr.GetValue(index))
-            | :? DoubleArray as arr -> string (arr.GetValue(index))
+            // --- 文本 ---
+            | :? StringArray as arr -> sprintf "\"%s\"" (arr.GetString(index))
+            | :? StringViewArray as arr -> sprintf "\"%s\"" (arr.GetString(index))
             
-            // --- 字符串 ---
-            | :? StringArray as arr -> arr.GetString(index)
-            | :? StringViewArray as arr -> arr.GetString(index)
-            | :? BooleanArray as arr -> string (arr.GetValue(index)) // True/False
+            // [修复] Boolean: 先转 string 再 ToLower
+            | :? BooleanArray as arr -> arr.GetValue(index).Value.ToString().ToLower()
             
-            // --- 时间日期 ---
+            // --- 二进制 (Binary) ---
+            | :? BinaryArray as arr -> 
+                let bytes = arr.GetBytes(index).ToArray()
+                let hex = BitConverter.ToString(bytes).Replace("-", "").ToLower()
+                if hex.Length > 20 then sprintf "x'%s...'" (hex.Substring(0, 20))
+                else sprintf "x'%s'" hex
+            | :? LargeBinaryArray as arr ->
+                let bytes = arr.GetBytes(index).ToArray()
+                let hex = BitConverter.ToString(bytes).Replace("-", "").ToLower()
+                if hex.Length > 20 then sprintf "x'%s...'" (hex.Substring(0, 20))
+                else sprintf "x'%s'" hex
+
+            // --- 日期 (Date) ---
             | :? Date32Array as arr -> 
                 let v = arr.GetValue(index).Value
                 DateTime(1970, 1, 1).AddDays(float v).ToString("yyyy-MM-dd")
+            
+            // --- 时间戳 (Timestamp) ---
             | :? TimestampArray as arr ->
                 let v = arr.GetValue(index).Value
-                // Polars 默认微秒 (us)
-                try DateTime.UnixEpoch.AddTicks(v * 10L).ToString("yyyy-MM-dd HH:mm:ss")
-                with _ -> string v
+                let unit = (arr.Data.DataType :?> TimestampType).Unit
+                let ticks = 
+                    match unit with
+                    | TimeUnit.Nanosecond -> v / 100L 
+                    | TimeUnit.Microsecond -> v * 10L 
+                    | TimeUnit.Millisecond -> v * 10000L 
+                    | TimeUnit.Second -> v * 10000000L 
+                    | _ -> v
+                
+                try DateTime.UnixEpoch.AddTicks(ticks).ToString("yyyy-MM-dd HH:mm:ss.ffffff")
+                with _ -> v.ToString()
 
-            // --- 嵌套类型 ---
+            // --- 时间 (Time) ---
+            | :? Time32Array as arr ->
+                let v = arr.GetValue(index).Value
+                let unit = (arr.Data.DataType :?> Time32Type).Unit
+                let span = 
+                    match unit with
+                    | TimeUnit.Millisecond -> TimeSpan.FromMilliseconds(float v)
+                    | _ -> TimeSpan.FromSeconds(float v)
+                span.ToString()
+
+            | :? Time64Array as arr ->
+                let v = arr.GetValue(index).Value
+                let unit = (arr.Data.DataType :?> Time64Type).Unit
+                let ticks = 
+                    match unit with
+                    | TimeUnit.Nanosecond -> v / 100L
+                    | _ -> v * 10L
+                TimeSpan.FromTicks(ticks).ToString()
+
+            // --- 持续时间 (Duration) ---
+            | :? DurationArray as arr ->
+                let v = arr.GetValue(index).Value
+                let unit = (arr.Data.DataType :?> DurationType).Unit
+                let suffix = 
+                    match unit with
+                    | TimeUnit.Nanosecond -> "ns"
+                    | TimeUnit.Microsecond -> "us"
+                    | TimeUnit.Millisecond -> "ms"
+                    | TimeUnit.Second -> "s"
+                    | _ -> ""
+                sprintf "%d%s" v suffix
+
+            // --- 嵌套类型 (递归) ---
             | :? ListArray as arr ->
                 let start = arr.ValueOffsets.[index]
                 let end_ = arr.ValueOffsets.[index + 1]
+                // 递归调用 formatValue 处理子元素
                 let items = [ for i in start .. end_ - 1 -> formatValue arr.Values i ]
                 sprintf "[%s]" (String.Join(", ", items))
 
-            | :? LargeListArray as arr -> // Polars 默认是用这个
+            | :? LargeListArray as arr -> 
                 let start = int (arr.ValueOffsets.[index])
                 let end_ = int (arr.ValueOffsets.[index + 1])
                 let items = [ for i in start .. end_ - 1 -> formatValue arr.Values i ]
@@ -314,6 +376,7 @@ module Polars =
                     structType.Fields 
                     |> Seq.mapi (fun i field -> 
                         let childCol = arr.Fields.[i]
+                        // 递归调用
                         sprintf "%s: %s" field.Name (formatValue childCol index)
                     )
                 sprintf "{%s}" (String.Join(", ", fields))

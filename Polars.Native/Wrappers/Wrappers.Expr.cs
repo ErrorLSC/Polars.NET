@@ -257,5 +257,10 @@ public static partial class PolarsWrapper
     {
         return ErrorHelper.Check(NativeBindings.pl_expr_clone(expr));
     }
-
+    public static ExprHandle Cast(ExprHandle expr, PlDataType dtype, bool strict = false)
+    {
+        var h = NativeBindings.pl_expr_cast(expr, dtype, strict);
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
 }

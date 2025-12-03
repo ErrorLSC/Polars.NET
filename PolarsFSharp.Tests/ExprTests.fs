@@ -251,3 +251,25 @@ type ``String Logic Tests`` () =
         Assert.Equal(2024L, res.Int("y", 1).Value)
         Assert.Equal(1L, res.Int("m", 1).Value)
         Assert.Equal(0L, res.Int("h", 1).Value) // 零点
+
+    [<Fact>]
+    member _.``Cast Ops: Int to Float, String to Int`` () =
+        use csv = new TempCsv "val_str,val_int\n100,10\n200,20"
+        let df = Polars.readCsv csv.Path None
+
+        let res = 
+            df 
+            |> Polars.select [
+                // 1. String -> Int64
+                (Polars.col "val_str").Cast(DataType.Int64).Alias "str_to_int"
+                
+                // 2. Int64 -> Float64
+                (Polars.col "val_int").Cast(DataType.Float64).Alias "int_to_float"
+            ]
+
+        // 验证
+        let v1 = res.Int("str_to_int", 0).Value
+        Assert.Equal(100L, v1)
+
+        let v2 = res.Float("int_to_float", 1).Value
+        Assert.Equal(20.0, v2)

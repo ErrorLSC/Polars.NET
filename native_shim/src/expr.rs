@@ -1,6 +1,6 @@
 use polars::prelude::*;
 use std::os::raw::c_char;
-use crate::types::{ExprContext, ptr_to_str,consume_exprs_array};
+use crate::types::{ExprContext, consume_exprs_array, map_datatype, ptr_to_str};
 use std::ops::{Add, Sub, Mul, Div, Rem};
 
 #[unsafe(no_mangle)]
@@ -535,6 +535,27 @@ pub extern "C" fn pl_expr_over(
 
         // 3. 调用 over
         let new_expr = ctx.inner.over(partition_by);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_cast(
+    expr_ptr: *mut ExprContext,
+    dtype_code: i32,
+    strict: bool
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let target_type = map_datatype(dtype_code);
+
+        // Polars 的 cast 有 strict 和 non-strict 两种
+        let new_expr = if strict {
+            ctx.inner.strict_cast(target_type)
+        } else {
+            ctx.inner.cast(target_type)
+        };
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })

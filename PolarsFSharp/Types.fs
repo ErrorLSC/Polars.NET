@@ -4,6 +4,39 @@ open System
 open Polars.Native
 open Apache.Arrow
 
+type DataType =
+    | Boolean
+    | Int8 | Int16 | Int32 | Int64
+    | UInt8 | UInt16 | UInt32 | UInt64
+    | Float32 | Float64
+    | String
+    | Date | Datetime | Time
+    | Duration
+    | Binary
+    | Unknown
+
+    // 转换 helper
+    member internal this.ToNative() =
+        match this with
+        | Boolean -> PlDataType.Boolean
+        | Int8 -> PlDataType.Int8
+        | Int16 -> PlDataType.Int16
+        | Int32 -> PlDataType.Int32
+        | Int64 -> PlDataType.Int64
+        | UInt8 -> PlDataType.UInt8
+        | UInt16 -> PlDataType.UInt16
+        | UInt32 -> PlDataType.UInt32
+        | UInt64 -> PlDataType.UInt64
+        | Float32 -> PlDataType.Float32
+        | Float64 -> PlDataType.Float64
+        | String -> PlDataType.String
+        | Date -> PlDataType.Date
+        | Datetime -> PlDataType.Datetime
+        | Time -> PlDataType.Time
+        | Duration -> PlDataType.Duration
+        | Binary -> PlDataType.Binary
+        | Unknown -> PlDataType.Unknown
+
 type JoinType =
     | Inner
     | Left
@@ -42,6 +75,11 @@ type PivotAgg =
 type Expr(handle: ExprHandle) =
     member _.Handle = handle
     member internal this.CloneHandle() = PolarsWrapper.CloneExpr(handle)
+    // [新增] Cast
+    // 用法: col("age").Cast(DataType.Float64)
+    member this.Cast(dtype: DataType, ?strict: bool) =
+        let isStrict = defaultArg strict false
+        new Expr(PolarsWrapper.Cast(this.CloneHandle(), dtype.ToNative(), isStrict))
     // --- Helpers ---
     member this.Round(decimals: int) = new Expr(PolarsWrapper.Round(this.CloneHandle(), uint decimals))
     // 运算符重载, Compare

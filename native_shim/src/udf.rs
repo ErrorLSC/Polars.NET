@@ -1,6 +1,6 @@
 use polars::prelude::*;
 use polars_arrow::ffi;
-use crate::types::{ExprContext};
+use crate::types::{ExprContext, map_datatype};
 use std::sync::Arc;
 use polars_arrow::datatypes::Field as ArrowField;
 use std::ffi::{CStr,c_void};
@@ -14,27 +14,6 @@ impl Drop for CSharpUdf {
     fn drop(&mut self) {
         // 调用 C# 传过来的清理函数，把 GCHandle 传回去
         (self.cleanup)(self.user_data);
-    }
-}
-
-// 定义数据类型映射
-fn map_code_to_dtype(code: i32) -> Option<DataType> {
-    match code {
-        1 => Some(DataType::Boolean),
-        2 => Some(DataType::Int8),
-        3 => Some(DataType::Int16),
-        4 => Some(DataType::Int32),
-        5 => Some(DataType::Int64),
-        6 => Some(DataType::UInt8),
-        7 => Some(DataType::UInt16),
-        8 => Some(DataType::UInt32),
-        9 => Some(DataType::UInt64),
-        10 => Some(DataType::Float32),
-        11 => Some(DataType::Float64),
-        12 => Some(DataType::String), // 0.50+ 叫 String，旧版叫 Utf8
-        13 => Some(DataType::Date),
-        14 => Some(DataType::Datetime(TimeUnit::Microseconds, None)), // 默认微秒，无时区
-        _ => None, // 0 或 未知 -> SameAsInput
     }
 }
 
@@ -120,14 +99,14 @@ pub extern "C" fn pl_expr_map(
     ffi_try!({
         let ctx = unsafe { Box::from_raw(expr_ptr) };
         let udf = Arc::new(CSharpUdf { callback,cleanup,user_data });
-        
+        let target_dtype = map_datatype(return_type_code);
         // [核心逻辑] 构建 GetOutput
-        let output_type = match map_code_to_dtype(return_type_code) {
-            // Case A: 用户明确指定了类型 (例如 String -> Int32)
-            Some(dtype) => GetOutput::from_type(dtype),
+        let output_type = match target_dtype {
+            // 如果是 Unknown (0)，说明用户没指定，我们假设输出类型 == 输入类型
+            DataType::Unknown(UnknownKind::Any) => GetOutput::map_field(|f| Ok(f.clone())),
             
-            // Case B: 用户没指定 (0)，或者是复杂类型，我们假设 "输入什么，输出就是什么"
-            None => GetOutput::map_field(|f| Ok(f.clone())) 
+            // 否则，指定具体的返回类型 (如 String, Float64)
+            _ => GetOutput::from_type(target_dtype),
         };
 
         let new_expr = ctx.inner.map(
