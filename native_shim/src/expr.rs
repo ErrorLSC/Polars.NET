@@ -725,3 +725,24 @@ pub extern "C" fn pl_expr_backward_fill(
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
+
+// 逻辑: when(predicate).then(truthy).otherwise(falsy)
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_if_else(
+    pred_ptr: *mut ExprContext,
+    true_ptr: *mut ExprContext,
+    false_ptr: *mut ExprContext
+) -> *mut ExprContext {
+    ffi_try!({
+        let pred = unsafe { Box::from_raw(pred_ptr) };
+        let truthy = unsafe { Box::from_raw(true_ptr) };
+        let falsy = unsafe { Box::from_raw(false_ptr) };
+
+        // Polars DSL: when(...).then(...).otherwise(...)
+        let new_expr = when(pred.inner)
+            .then(truthy.inner)
+            .otherwise(falsy.inner);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}

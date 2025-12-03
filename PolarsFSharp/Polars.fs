@@ -276,7 +276,13 @@ module Polars =
     let over (partitionBy: Expr list) (e: Expr) = e.Over(partitionBy)
     // SQL entry
     let sqlContext () = new SqlContext()
-
+    let ifElse (predicate: Expr) (ifTrue: Expr) (ifFalse: Expr) : Expr =
+        // 记得 CloneHandle，因为 Wrapper 会消耗它们
+        let p = predicate.CloneHandle()
+        let t = ifTrue.CloneHandle()
+        let f = ifFalse.CloneHandle()
+        
+        new Expr(PolarsWrapper.IfElse(p, t, f))
     // --- Show / Helper ---
 
     let rec private formatValue (col: IArrowArray) (index: int) : string =

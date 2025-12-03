@@ -273,3 +273,39 @@ type ``String Logic Tests`` () =
 
         let v2 = res.Float("int_to_float", 1).Value
         Assert.Equal(20.0, v2)
+    [<Fact>]
+    member _.``Control Flow: IfElse (When/Then/Otherwise)`` () =
+        // 构造成绩数据
+        use csv = new TempCsv "student,score\nAlice,95\nBob,70\nCharlie,50"
+        let df = Polars.readCsv csv.Path None
+
+        // 逻辑:
+        // if score >= 90 then "A"
+        // else if score >= 60 then "Pass"
+        // else "Fail"
+        
+        let gradeExpr = 
+            Polars.ifElse 
+                (Polars.col "score" .>= Polars.lit 90) 
+                (Polars.lit "A") 
+                (
+                    // 嵌套 IfElse
+                    Polars.ifElse 
+                        (Polars.col "score" .>= Polars.lit 60)
+                        (Polars.lit "Pass")
+                        (Polars.lit "Fail")
+                )
+            |> Polars.alias "grade"
+
+        let res = 
+            df 
+            |> Polars.withColumn gradeExpr
+            |> Polars.sort (Polars.col "score") true // 降序
+
+        // 验证
+        // Alice (95) -> A
+        Assert.Equal("A", res.String("grade", 0).Value)
+        // Bob (70) -> Pass
+        Assert.Equal("Pass", res.String("grade", 1).Value)
+        // Charlie (50) -> Fail
+        Assert.Equal("Fail", res.String("grade", 2).Value)

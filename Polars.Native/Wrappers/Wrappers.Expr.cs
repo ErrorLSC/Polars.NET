@@ -315,4 +315,15 @@ public static partial class PolarsWrapper
     public static ExprHandle RollingSumBy(ExprHandle e, string w, ExprHandle by, string closed) => RollingByOp(NativeBindings.pl_expr_rolling_sum_by, e, w, by, closed);
     public static ExprHandle RollingMinBy(ExprHandle e, string w, ExprHandle by, string closed) => RollingByOp(NativeBindings.pl_expr_rolling_min_by, e, w, by, closed);
     public static ExprHandle RollingMaxBy(ExprHandle e, string w, ExprHandle by, string closed) => RollingByOp(NativeBindings.pl_expr_rolling_max_by, e, w, by, closed);
+    public static ExprHandle IfElse(ExprHandle pred, ExprHandle ifTrue, ExprHandle ifFalse)
+    {
+        var h = NativeBindings.pl_expr_if_else(pred, ifTrue, ifFalse);
+        
+        // 三个输入都被消耗了
+        pred.TransferOwnership();
+        ifTrue.TransferOwnership();
+        ifFalse.TransferOwnership();
+        
+        return ErrorHelper.Check(h);
+    }
 }
