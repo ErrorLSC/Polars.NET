@@ -309,3 +309,29 @@ type ``String Logic Tests`` () =
         Assert.Equal("Pass", res.String("grade", 1).Value)
         // Charlie (50) -> Fail
         Assert.Equal("Fail", res.String("grade", 2).Value)
+
+    [<Fact>]
+    member _.``String Regex: Replace and Extract`` () =
+        use csv = new TempCsv "text\nUser: 12345\nID: 999"
+        let df = Polars.readCsv csv.Path None
+
+        let res = 
+            df 
+            |> Polars.select [
+                // 1. Regex Replace: 把数字换成 #
+                // \d+ 是正则
+                (Polars.col "text").Str.ReplaceAll("\d+", "#", useRegex=true).Alias "masked"
+                
+                // 2. Regex Extract: 提取数字部分
+                // (\d+) 是第 1 组
+                (Polars.col "text").Str.Extract("(\d+)", 1).Alias "extracted_id"
+            ]
+
+        // 验证 Replace
+        // "User: 12345" -> "User: #"
+        Assert.Equal("User: #", res.String("masked", 0).Value)
+        
+        // 验证 Extract
+        // "User: 12345" -> "12345"
+        Assert.Equal("12345", res.String("extracted_id", 0).Value)
+        Assert.Equal("999", res.String("extracted_id", 1).Value)
