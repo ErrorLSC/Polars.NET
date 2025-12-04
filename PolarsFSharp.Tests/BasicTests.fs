@@ -143,3 +143,47 @@ type ``Basic Functionality Tests`` () =
         let bob = records.[1]
         Assert.Equal("Bob", bob.name)
         Assert.Equal(None, bob.score)
+
+    [<Fact>]
+    member _.``Ingestion: Create DataFrame from F# Records`` () =
+        // 1. 定义数据
+        let data = [
+            { name = "Alice"; age = 30; score = Some 99.5; joined = Some (System.DateTime(2023,1,1)) }
+            { name = "Bob"; age = 25; score = None; joined = None }
+        ]
+
+        // 2. 转换 (ofRecords)
+        let df = DataFrame.ofRecords data
+        
+        // 3. 验证结构
+        Assert.Equal(2L, df.Rows)
+        Assert.Equal(4L, df.Columns)
+
+        // 4. 验证数据
+        
+        // --- String (Alice) ---
+        // [修复] df.String 返回 string option，必须用 .Value 取出里面的 string 才能和 "Alice" 比较
+        Assert.Equal("Alice", df.String("name", 0).Value) 
+        
+        // --- Int (Alice) ---
+        Assert.Equal(30L, df.Int("age", 0).Value) 
+        
+        // --- Float (Alice) ---
+        Assert.Equal(99.5, df.Float("score", 0).Value)
+        
+        // --- DateTime (Alice) ---
+        // [修复] 先取出 Option 里的值，再判断包含关系
+        let joinedAlice = df.String("joined", 0).Value
+        Assert.Contains("2023-01-01", joinedAlice)
+
+        // --- Bob (验证 Null) ---
+        Assert.Equal("Bob", df.String("name", 1).Value)
+        Assert.Equal(25L, df.Int("age", 1).Value)
+        
+        // Score 是 None
+        Assert.True(df.Float("score", 1).IsNone)
+        
+        // Joined 是 None
+        // [修复] 不要用 = null 判断 Option，要用 .IsNone
+        let joinedBob = df.String("joined", 1)
+        Assert.True joinedBob.IsNone

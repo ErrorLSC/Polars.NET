@@ -302,6 +302,8 @@ pub extern "C" fn pl_dataframe_get_string(
     
     match ctx.df.column(col_name) {
         Ok(col) => match col.get(row_index) {
+            // 显式处理 Null，返回空指针
+            Ok(AnyValue::Null) => std::ptr::null_mut(),
             // 1. 本身就是字符串，直接返回
             Ok(AnyValue::String(s)) => CString::new(s).unwrap().into_raw(),
             Ok(AnyValue::StringOwned(s)) => CString::new(s.as_str()).unwrap().into_raw(),
