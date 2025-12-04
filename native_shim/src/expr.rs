@@ -317,22 +317,40 @@ pub extern "C" fn pl_expr_str_slice(
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
-
+// extract (正则提取)
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_str_extract(
+    expr_ptr: *mut ExprContext, 
+    pat_ptr: *const c_char,
+    group_index: usize
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let pat = ptr_to_str(pat_ptr).unwrap();
+        
+        // str.extract(pattern, group_index)
+        let new_expr = ctx.inner.str().extract(lit(pat), group_index);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
 // 替换操作 (Replace All)
 // pat: 匹配模式, val: 替换值
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_str_replace_all(
     expr_ptr: *mut ExprContext, 
     pat_ptr: *const c_char,
-    val_ptr: *const c_char
+    val_ptr: *const c_char,
+    use_regex: bool // [新增]
 ) -> *mut ExprContext {
     ffi_try!({
         let ctx = unsafe { Box::from_raw(expr_ptr) };
         let pat = ptr_to_str(pat_ptr).unwrap();
         let val = ptr_to_str(val_ptr).unwrap();
 
-        // literal=true 表示纯文本替换（非正则），通常是用户默认想要的
-        let new_expr = ctx.inner.str().replace_all(lit(pat), lit(val), true);
+        // Polars 参数名是 literal。
+        // 如果 use_regex = true，则 literal = false。
+        let new_expr = ctx.inner.str().replace_all(lit(pat), lit(val), !use_regex);
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })

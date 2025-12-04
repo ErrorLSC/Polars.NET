@@ -48,4 +48,17 @@ public static partial class PolarsWrapper
         lf.TransferOwnership();
         ErrorHelper.CheckVoid();
     }
+    // JSON Eager
+    public static DataFrameHandle ReadJson(string path)
+    {
+        if (!File.Exists(path)) throw new FileNotFoundException($"JSON file not found: {path}");
+        return ErrorHelper.Check(NativeBindings.pl_read_json(path));
+    }
+
+    // NDJSON Lazy
+    public static LazyFrameHandle ScanNdjson(string path)
+    {
+        if (!File.Exists(path)) throw new FileNotFoundException($"NDJSON file not found: {path}");
+        return ErrorHelper.Check(NativeBindings.pl_scan_ndjson(path));
+    }
 }

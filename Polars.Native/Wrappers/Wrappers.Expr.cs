@@ -102,9 +102,9 @@ public static partial class PolarsWrapper
         return ErrorHelper.Check(h);
     }
 
-    public static ExprHandle StrReplaceAll(ExprHandle e, string pat, string val)
+    public static ExprHandle StrReplaceAll(ExprHandle e, string pat, string val,bool useRegex = false)
     {
-        var h = NativeBindings.pl_expr_str_replace_all(e, pat, val);
+        var h = NativeBindings.pl_expr_str_replace_all(e, pat, val,useRegex);
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
@@ -114,7 +114,12 @@ public static partial class PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-
+    public static ExprHandle StrExtract(ExprHandle e, string pat, uint groupIndex)
+    {
+        var h = NativeBindings.pl_expr_str_extract(e, pat, groupIndex);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     // Compare
     public static ExprHandle Eq(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_eq, l, r);
     public static ExprHandle Neq(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_neq, l, r);

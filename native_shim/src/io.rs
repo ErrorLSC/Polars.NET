@@ -3,6 +3,7 @@ use polars_arrow::ffi::{ArrowArray, ArrowSchema, export_array_to_c, export_field
 use polars_arrow::array::StructArray;
 use polars_arrow::datatypes::{ArrowDataType, Field};
 use polars_core::prelude::CompatLevel;
+use std::io::BufReader;
 use std::os::raw::c_char;
 use std::fs::File;
 use crate::types::{DataFrameContext, LazyFrameContext, ptr_to_str};
@@ -88,6 +89,38 @@ pub extern "C" fn pl_scan_parquet(path_ptr: *const c_char) -> *mut LazyFrameCont
         Ok(Box::into_raw(Box::new(LazyFrameContext { inner: lf })))
     })
 }
+
+// ==========================================
+// 读取 JSON
+// ==========================================
+// Read JSON (Eager)
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_read_json(path_ptr: *const c_char) -> *mut DataFrameContext {
+    ffi_try!({
+        let path = ptr_to_str(path_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+        let file = File::open(path).map_err(|e| PolarsError::ComputeError(format!("File not found: {}", e).into()))?;
+        
+        // JsonReader 需要 BufReader
+        let reader = BufReader::new(file);
+        let df = JsonReader::new(reader).finish()?;
+
+        Ok(Box::into_raw(Box::new(DataFrameContext { df })))
+    })
+}
+
+// Scan NDJSON (Lazy)
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_scan_ndjson(path_ptr: *const c_char) -> *mut LazyFrameContext {
+    ffi_try!({
+        let path = ptr_to_str(path_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+        
+        // LazyJsonLineReader 接受路径
+        let lf = LazyJsonLineReader::new(PlPath::new(path)).finish()?;
+
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: lf })))
+    })
+}
+
 // ==========================================
 // 2. 写操作 (Void 返回值)
 // ==========================================

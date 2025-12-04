@@ -36,7 +36,13 @@ module Polars =
     let writeParquet (path: string) (df: DataFrame) = 
         PolarsWrapper.WriteParquet(df.Handle, path)
         df
+    // [新增] JSON
+    let readJson (path: string) : DataFrame =
+        new DataFrame(PolarsWrapper.ReadJson(path))
 
+    // [新增] NDJSON (Lazy)
+    let scanNdjson (path: string) : LazyFrame =
+        new LazyFrame(PolarsWrapper.ScanNdjson(path))
     let sinkParquet (path: string) (lf: LazyFrame) : unit =
         let lfClone = lf.CloneHandle()
         PolarsWrapper.SinkParquet(lfClone, path)

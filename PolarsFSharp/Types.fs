@@ -278,8 +278,12 @@ and StringOps(handle: ExprHandle) =
         new Expr(PolarsWrapper.StrSlice(handle, offset, length))
         
     // 替换 (Replace All)
-    member _.ReplaceAll(pattern: string, value: string) =
-        new Expr(PolarsWrapper.StrReplaceAll(handle, pattern, value))
+    member _.ReplaceAll(pattern: string, value: string, ?useRegex: bool) =
+        let regex = defaultArg useRegex false
+        new Expr(PolarsWrapper.StrReplaceAll(handle, pattern, value,regex))
+
+    member _.Extract(pattern: string, groupIndex: int) =
+        new Expr(PolarsWrapper.StrExtract(handle, pattern, uint groupIndex))
 
     // 包含 (之前做的)
     member _.Contains(pat: string) = 

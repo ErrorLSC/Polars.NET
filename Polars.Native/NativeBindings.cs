@@ -197,7 +197,15 @@ unsafe internal partial class NativeBindings
     public static partial void pl_write_parquet(DataFrameHandle df, [MarshalAs(UnmanagedType.LPUTF8Str)] string path);
     [LibraryImport(LibName)] 
     public static partial DataFrameHandle pl_read_parquet([MarshalAs(UnmanagedType.LPUTF8Str)] string path);
+    // --- JSON IO ---
 
+    // Read JSON
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
+    public static partial DataFrameHandle pl_read_json(string path);
+
+    // Scan NDJSON
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
+    public static partial LazyFrameHandle pl_scan_ndjson(string path);
     // Lazy
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_scan_csv(string path,[MarshalAs(UnmanagedType.U1)] bool tryParseDates
@@ -269,7 +277,14 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_str_replace_all(
         ExprHandle expr, 
         [MarshalAs(UnmanagedType.LPUTF8Str)] string pat, 
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string val
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string val,
+        [MarshalAs(UnmanagedType.U1)] bool useRegex
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
+    public static partial ExprHandle pl_expr_str_extract(
+        ExprHandle expr, 
+        string pat, 
+        UIntPtr groupIndex
     );
 
     // List Ops
