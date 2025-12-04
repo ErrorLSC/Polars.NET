@@ -84,7 +84,12 @@ type ``Basic Functionality Tests`` () =
         Assert.Equal("i64", schema.["a"])
         Assert.Equal("i64", schema.["a_double"])
 
-        // 2. 验证 Explain
+        // 2. 验证 Explain 和 Optimization
         let plan = lf2.Explain false
+        printfn "\n=== Query Plan ===\n%s\n==================" plan
         Assert.Contains("FILTER", plan) 
         Assert.Contains("WITH_COLUMNS", plan)
+
+        let planOptimized = lf2.Explain true
+        printfn "\n=== Query Plan Optimized===\n%s\n==================" planOptimized
+        Assert.Contains("SELECTION", planOptimized) 
