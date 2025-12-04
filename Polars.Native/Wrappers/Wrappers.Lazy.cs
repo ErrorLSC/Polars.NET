@@ -117,6 +117,56 @@ public static partial class PolarsWrapper
         var h = NativeBindings.pl_lazy_concat(ptrs, (UIntPtr)ptrs.Length, rechunk, parallel);
         return ErrorHelper.Check(h);
     }
+    public static LazyFrameHandle Join(
+        LazyFrameHandle left, LazyFrameHandle right, 
+        ExprHandle[] leftOn, ExprHandle[] rightOn, 
+        PlJoinType how)
+    {
+        var lPtrs = HandlesToPtrs(leftOn);
+        var rPtrs = HandlesToPtrs(rightOn);
+        
+        var h = NativeBindings.pl_lazy_join(
+            left, right, 
+            lPtrs, (UIntPtr)lPtrs.Length, 
+            rPtrs, (UIntPtr)rPtrs.Length, 
+            how
+        );
+
+        // 两个 LF 都被 Rust 消耗了
+        left.TransferOwnership();
+        right.TransferOwnership();
+        
+        return ErrorHelper.Check(h);
+    }
+    public static LazyFrameHandle JoinAsOf(
+        LazyFrameHandle left, LazyFrameHandle right,
+        ExprHandle leftOn, ExprHandle rightOn,
+        ExprHandle[]? leftBy, ExprHandle[]? rightBy, // 允许为 null
+        string strategy, string? tolerance)
+    {
+        // 1. 处理数组 (HandlesToPtrs 内部已经处理了 null 检查，如果是 null 会返回空数组)
+        var lByPtrs = HandlesToPtrs(leftBy ?? []);
+        var rByPtrs = HandlesToPtrs(rightBy ?? []);
+
+        // 2. 直接调用 Native
+        var h = NativeBindings.pl_lazy_join_asof(
+            left, right, 
+            leftOn, rightOn,
+            lByPtrs, (UIntPtr)lByPtrs.Length,
+            rByPtrs, (UIntPtr)rByPtrs.Length,
+            strategy, tolerance
+        );
+
+        // 3. 消耗所有权 (TransferOwnership)
+        left.TransferOwnership();
+        right.TransferOwnership();
+        leftOn.TransferOwnership();
+        rightOn.TransferOwnership();
+        
+        // leftBy 和 rightBy 已经在 HandlesToPtrs 里被 TransferOwnership 了，不用再管
+
+        return ErrorHelper.Check(h);
+    }
     // [新增] Streaming Collect
     public static DataFrameHandle CollectStreaming(LazyFrameHandle lf)
     {

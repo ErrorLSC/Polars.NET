@@ -120,7 +120,59 @@ pub extern "C" fn pl_scan_ndjson(path_ptr: *const c_char) -> *mut LazyFrameConte
         Ok(Box::into_raw(Box::new(LazyFrameContext { inner: lf })))
     })
 }
+// ==========================================
+// IPC
+// ==========================================
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_read_ipc(path_ptr: *const c_char) -> *mut DataFrameContext {
+    ffi_try!({
+        let path = ptr_to_str(path_ptr).unwrap();
+        let file = File::open(path).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+        
+        let df = IpcReader::new(file).finish()?;
+        
+        Ok(Box::into_raw(Box::new(DataFrameContext { df })))
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_scan_ipc(path_ptr: *const c_char) -> *mut LazyFrameContext {
+    ffi_try!({
+        let path = ptr_to_str(path_ptr).unwrap();
+        // 0.50: ScanArgsIpc::default()
+        let args = ScanArgsIpc::default();
+        let lf = LazyFrame::scan_ipc(PlPath::new(path), args)?;
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: lf })))
+    })
+}
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazy_sink_ipc(
+    lf_ptr: *mut LazyFrameContext,
+    path_ptr: *const c_char
+) {
+    ffi_try_void!({
+        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+        let path = ptr_to_str(path_ptr).unwrap();
+        
+        // 1. 准备选项
+        let writer_options = IpcWriterOptions::default();
+        let sink_options = SinkOptions::default();
+
+        // 2. 构造 Target (使用 PlPath::new 自动处理本地/云路径)
+        let target = SinkTarget::Path(PlPath::new(path));
+
+        // 3. [修复] 调用 sink_ipc (4个参数)
+        // target, options, cloud_options, sink_options
+        let _ = lf_ctx.inner.sink_ipc(
+            target, 
+            writer_options, 
+            None, // CloudOptions
+            sink_options
+        )?;
+        
+        Ok(())
+    })
+}
 // ==========================================
 // 2. 写操作 (Void 返回值)
 // ==========================================

@@ -61,4 +61,22 @@ public static partial class PolarsWrapper
         if (!File.Exists(path)) throw new FileNotFoundException($"NDJSON file not found: {path}");
         return ErrorHelper.Check(NativeBindings.pl_scan_ndjson(path));
     }
+    public static DataFrameHandle ReadIpc(string path)
+    {
+        if (!File.Exists(path)) throw new FileNotFoundException($"IPC file not found: {path}");
+        return ErrorHelper.Check(NativeBindings.pl_read_ipc(path));
+    }
+
+    public static LazyFrameHandle ScanIpc(string path)
+    {
+        if (!File.Exists(path)) throw new FileNotFoundException($"IPC file not found: {path}");
+        return ErrorHelper.Check(NativeBindings.pl_scan_ipc(path));
+    }
+
+    public static void SinkIpc(LazyFrameHandle lf, string path)
+    {
+        NativeBindings.pl_lazy_sink_ipc(lf, path);
+        lf.TransferOwnership();
+        ErrorHelper.CheckVoid();
+    }
 }

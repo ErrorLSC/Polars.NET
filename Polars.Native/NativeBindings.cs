@@ -213,6 +213,15 @@ unsafe internal partial class NativeBindings
 
     [LibraryImport(LibName)] 
     public static partial LazyFrameHandle pl_scan_parquet([MarshalAs(UnmanagedType.LPUTF8Str)] string path);
+    // IPC
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
+    public static partial DataFrameHandle pl_read_ipc(string path);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
+    public static partial LazyFrameHandle pl_scan_ipc(string path);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
+    public static partial void pl_lazy_sink_ipc(LazyFrameHandle lf, string path);
     // Lazy Introspection
     [LibraryImport(LibName)] public static partial IntPtr pl_lazy_schema(LazyFrameHandle lf);
     [LibraryImport(LibName)] public static partial IntPtr pl_lazy_explain(LazyFrameHandle lf,[MarshalAs(UnmanagedType.U1)] bool optimized);
@@ -227,6 +236,22 @@ unsafe internal partial class NativeBindings
         LazyFrameHandle lf, 
         IntPtr[] keys, UIntPtr keysLen, 
         IntPtr[] aggs, UIntPtr aggsLen
+    );
+    [LibraryImport(LibName)]
+    public static partial LazyFrameHandle pl_lazy_join(
+        LazyFrameHandle left, 
+        LazyFrameHandle right,
+        IntPtr[] leftOn, UIntPtr leftLen,
+        IntPtr[] rightOn, UIntPtr rightLen,
+        PlJoinType how
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LazyFrameHandle pl_lazy_join_asof(
+        LazyFrameHandle left, LazyFrameHandle right,
+        ExprHandle leftOn, ExprHandle rightOn,
+        IntPtr[] leftBy, UIntPtr leftByLen,
+        IntPtr[] rightBy, UIntPtr rightByLen,
+        string strategy, string? tolerance
     );
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_lazy_collect(LazyFrameHandle lf);

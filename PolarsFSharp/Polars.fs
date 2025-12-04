@@ -46,6 +46,11 @@ module Polars =
     let sinkParquet (path: string) (lf: LazyFrame) : unit =
         let lfClone = lf.CloneHandle()
         PolarsWrapper.SinkParquet(lfClone, path)
+    let readIpc (path: string) = new DataFrame(PolarsWrapper.ReadIpc(path))
+    let scanIpc (path: string) = new LazyFrame(PolarsWrapper.ScanIpc(path))
+    let sinkIpc (path: string) (lf: LazyFrame) = 
+        let lfClone = lf.CloneHandle()
+        PolarsWrapper.SinkIpc(lfClone, path)
     // --- Expr Helpers ---
     // [新增] cast
     let cast (dtype: DataType) (e: Expr) = e.Cast(dtype)
@@ -237,7 +242,42 @@ module Polars =
         new LazyFrame(PolarsWrapper.LazyUnpivot(lfClone, iArr, oArr, varN, valN))
 
     let meltLazy = unpivotLazy
-    // --- Concatenation ---
+    let joinLazy (other: LazyFrame) (leftOn: Expr list) (rightOn: Expr list) (how: JoinType) (lf: LazyFrame) : LazyFrame =
+        let lClone = lf.CloneHandle()
+        let rClone = other.CloneHandle()
+        
+        let lOnArr = leftOn |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        let rOnArr = rightOn |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        
+        new LazyFrame(PolarsWrapper.Join(lClone, rClone, lOnArr, rOnArr, how.ToNative()))
+    let joinAsOf (other: LazyFrame) 
+                 (leftOn: Expr) (rightOn: Expr) 
+                 (byLeft: Expr list) (byRight: Expr list) 
+                 (strategy: string option) 
+                 (tolerance: string option) 
+                 (lf: LazyFrame) : LazyFrame =
+        
+        let lClone = lf.CloneHandle()
+        let rClone = other.CloneHandle()
+        
+        let lOn = leftOn.CloneHandle()
+        let rOn = rightOn.CloneHandle()
+        
+        // 处理分组列 (Clone List)
+        let lByArr = byLeft |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        let rByArr = byRight |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+
+        // 处理可选参数
+        let strat = defaultArg strategy "backward"
+        let tol = Option.toObj tolerance // 转为 string 或 null
+
+        let h = PolarsWrapper.JoinAsOf(
+            lClone, rClone, 
+            lOn, rOn, 
+            lByArr, rByArr,
+            strat, tol
+        )
+        new LazyFrame(h)
 
     // [新增] Eager Concat
     let concat (dfs: DataFrame list) : DataFrame =
@@ -247,7 +287,7 @@ module Polars =
         
         // 注意：Wrapper.Concat 会 SetInvalid，所以这里的 dfs 列表里的对象之后就不能用了
         // 这是符合线性类型逻辑的。如果想支持 Copy，需要在 Rust 加 pl_dataframe_clone
-        new DataFrame(PolarsWrapper.Concat(handles))
+        new DataFrame(PolarsWrapper.Concat handles)
     let concatLazy (lfs: LazyFrame list) : LazyFrame =
         // 同样，LazyFrame 支持 CloneHandle (我们之前加过)
         // 这里我们可以选择自动 Clone，保持 Functional 的不可变感觉

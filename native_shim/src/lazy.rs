@@ -308,6 +308,117 @@ pub extern "C" fn pl_lazy_concat(
     })
 }
 // ==========================================
+// Join & Join As of
+// ==========================================
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazy_join(
+    left_ptr: *mut LazyFrameContext,
+    right_ptr: *mut LazyFrameContext,
+    left_on_ptr: *const *mut ExprContext, left_on_len: usize,
+    right_on_ptr: *const *mut ExprContext, right_on_len: usize,
+    how_code: i32 // 复用 PlJoinType 枚举
+) -> *mut LazyFrameContext {
+    ffi_try!({
+        // 1. 消费左右 LazyFrame
+        let left_ctx = unsafe { Box::from_raw(left_ptr) };
+        let right_ctx = unsafe { Box::from_raw(right_ptr) };
+
+        // 2. 消费连接键表达式
+        let left_on = unsafe { consume_exprs_array(left_on_ptr, left_on_len) };
+        let right_on = unsafe { consume_exprs_array(right_on_ptr, right_on_len) };
+
+        // 3. 映射 JoinType
+        let how = map_jointype(how_code);
+        let args = JoinArgs::new(how);
+
+        // 4. 执行 Lazy Join
+        let new_lf = left_ctx.inner.join(right_ctx.inner, left_on, right_on, args);
+
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
+    })
+}
+fn exprs_to_names(exprs: &[Expr]) -> PolarsResult<Vec<PlSmallStr>> {
+    let mut names = Vec::new();
+    for e in exprs {
+        // e.meta().root_names() 返回 Vec<PlSmallStr>
+        let roots = e.clone().meta().root_names();
+        
+        // 将所有找到的根列名都加入到结果列表中
+        // extend_from_slice 会把 Vec 里的元素一个个加进去
+        names.extend_from_slice(&roots);
+    }
+    Ok(names)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazy_join_asof(
+    left_ptr: *mut LazyFrameContext,
+    right_ptr: *mut LazyFrameContext,
+    left_on_ptr: *mut ExprContext,
+    right_on_ptr: *mut ExprContext,
+    by_left_ptr: *const *mut ExprContext, by_left_len: usize,
+    by_right_ptr: *const *mut ExprContext, by_right_len: usize,
+    strategy_ptr: *const c_char,
+    tolerance_ptr: *const c_char 
+) -> *mut LazyFrameContext {
+    ffi_try!({
+        let left = unsafe { Box::from_raw(left_ptr) };
+        let right = unsafe { Box::from_raw(right_ptr) };
+        let left_on = unsafe { Box::from_raw(left_on_ptr) };
+        let right_on = unsafe { Box::from_raw(right_on_ptr) };
+        
+        let by_left_exprs = unsafe { consume_exprs_array(by_left_ptr, by_left_len) };
+        let by_right_exprs = unsafe { consume_exprs_array(by_right_ptr, by_right_len) };
+
+        // 将 Expr 列表转换为列名列表 (PlSmallStr)
+        let left_by_names = if by_left_exprs.is_empty() { None } else { Some(exprs_to_names(&by_left_exprs)?) };
+        let right_by_names = if by_right_exprs.is_empty() { None } else { Some(exprs_to_names(&by_right_exprs)?) };
+
+        // 策略
+        let strategy_str = ptr_to_str(strategy_ptr).unwrap_or("backward");
+        let strategy = match strategy_str {
+            "forward" => AsofStrategy::Forward,
+            "nearest" => AsofStrategy::Nearest,
+            _ => AsofStrategy::Backward,
+        };
+
+        // [修复] 容差解析: 字符串 -> (Scalar?, String?)
+        let tol_str = if tolerance_ptr.is_null() { "" } else { ptr_to_str(tolerance_ptr).unwrap() };
+        
+        let (tolerance, tolerance_str_val) = if tol_str.is_empty() {
+            (None, None)
+        } else if let Ok(v) = tol_str.parse::<i64>() {
+            // 纯整数 -> Scalar(Int64)
+            (Some(Scalar::new(DataType::Int64, AnyValue::Int64(v))), None)
+        } else if let Ok(v) = tol_str.parse::<f64>() {
+            // 浮点数 -> Scalar(Float64)
+            (Some(Scalar::new(DataType::Float64, AnyValue::Float64(v))), None)
+        } else {
+            // 否则认为是时间字符串 ("2h")，直接传给 Polars
+            (None, Some(PlSmallStr::from_str(tol_str)))
+        };
+
+        // 构建 Options
+        let options = AsOfOptions {
+            strategy,
+            tolerance,      // Option<Scalar>
+            tolerance_str: tolerance_str_val, // Option<PlSmallStr>
+            left_by: left_by_names,
+            right_by: right_by_names,
+            allow_eq: true, // 默认允许相等匹配
+            check_sortedness: true, // 默认检查排序
+        };
+
+        let new_lf = left.inner.join_builder()
+            .with(right.inner)
+            .left_on([left_on.inner])
+            .right_on([right_on.inner])
+            .how(JoinType::AsOf(Box::new(options)))
+            .finish();
+
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
+    })
+}
+// ==========================================
 // 5. 实用功能
 // ==========================================
 #[unsafe(no_mangle)]

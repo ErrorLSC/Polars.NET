@@ -428,3 +428,89 @@ type ``Complex Query Tests`` () =
         Assert.Equal(10L, res.Int("sum_1h", 0).Value)
         Assert.Equal(30L, res.Int("sum_1h", 1).Value)
         Assert.Equal(30L, res.Int("sum_1h", 2).Value)
+    [<Fact>]
+    member _.``Lazy Join (Standard Join)`` () =
+        // 左表: 用户 (id, name)
+        use usersCsv = new TempCsv("id,name\n1,Alice\n2,Bob")
+        // 右表: 订单 (uid, amount)
+        use ordersCsv = new TempCsv("uid,amount\n1,100\n1,200\n3,50")
+
+        let lfUsers = Polars.scanCsv usersCsv.Path None
+        let lfOrders = Polars.scanCsv ordersCsv.Path None
+
+        let res = 
+            lfUsers
+            |> Polars.joinLazy lfOrders [Polars.col "id"] [Polars.col "uid"] JoinType.Left
+            |> Polars.collect
+            |> Polars.sort (Polars.col "id") false
+
+        // 验证
+        // Alice (id=1) 有两单
+        Assert.Equal("Alice", res.String("name", 0).Value)
+        Assert.Equal(100L, res.Int("amount", 0).Value)
+        
+        Assert.Equal("Alice", res.String("name", 1).Value)
+        Assert.Equal(200L, res.Int("amount", 1).Value)
+
+        // Bob (id=2) 没单 -> null
+        Assert.Equal("Bob", res.String("name", 2).Value)
+        Assert.True(res.Int("amount", 2).IsNone) // 验证 Left Join 的空值处理
+    [<Fact>]
+    member _.``Join AsOf: Trades matching Quotes (with GroupBy and Tolerance)`` () =
+        // 1. 交易数据 (Trades)
+        // AAPL 在 10:00 有交易
+        // MSFT 在 10:00 有交易
+        let tradesContent = 
+            "time,ticker,volume\n" +
+            "1000,AAPL,10\n" +
+            "1000,MSFT,20\n" +
+            "1005,AAPL,10" // AAPL 在 10:05 还有一笔
+        use tradesCsv = new TempCsv(tradesContent)
+        
+        // 2. 报价数据 (Quotes)
+        // AAPL: 09:59 (99.0), 10:01 (101.0)
+        // MSFT: 09:58 (50.0)
+        // 注意：AsOf Join 要求数据在 Join Key 上是排序的
+        let quotesContent = 
+            "time,ticker,bid\n" +
+            "998,MSFT,50.0\n" +
+            "999,AAPL,99.0\n" +
+            "1001,AAPL,101.0"
+        use quotesCsv = new TempCsv(quotesContent)
+
+        let lfTrades = Polars.scanCsv tradesCsv.Path None |> Polars.sortLazy (Polars.col "time") false
+        let lfQuotes = Polars.scanCsv quotesCsv.Path None |> Polars.sortLazy (Polars.col "time") false
+
+        // 3. 执行 AsOf Join
+        // 逻辑：找到交易发生时刻(time)之前(backward)最近的一次报价
+        // 必须匹配 ticker (by=["ticker"])
+        // 容差: 2个时间单位 (tolerance="2")
+        let res = 
+            lfTrades
+            |> Polars.joinAsOf lfQuotes 
+                (Polars.col "time") (Polars.col "time") // On Time
+                [Polars.col "ticker"] [Polars.col "ticker"] // By Ticker
+                (Some "backward") // Strategy
+                (Some "2")        // Tolerance: 只匹配最近2ms内的数据
+            |> Polars.sortLazy (Polars.col "ticker") false // 排序方便断言
+            |> Polars.sortLazy (Polars.col "time") false
+            |> Polars.collect
+
+        // 4. 验证结果
+        // 预期：
+        // Row 0: time=1000, ticker=AAPL. 匹配 999 (diff=1 <= 2). Bid=99.0
+        // Row 1: time=1000, ticker=MSFT. 匹配 998 (diff=2 <= 2). Bid=50.0
+        // Row 2: time=1005, ticker=AAPL. 最近是 1001 (diff=4 > 2). 匹配失败 -> null
+        
+        // 按 time, ticker 排序后的顺序:
+        // 1000, AAPL
+        Assert.Equal("AAPL", res.String("ticker", 0).Value)
+        Assert.Equal(99.0, res.Float("bid", 0).Value)
+
+        // 1000, MSFT
+        Assert.Equal("MSFT", res.String("ticker", 1).Value)
+        Assert.Equal(50.0, res.Float("bid", 1).Value)
+
+        // 1005, AAPL (超时，应为 null)
+        Assert.Equal("AAPL", res.String("ticker", 2).Value)
+        Assert.True(res.Float("bid", 2).IsNone) // 验证 Tolerance 生效
