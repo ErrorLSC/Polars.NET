@@ -3,6 +3,12 @@ namespace PolarsFSharp.Tests
 open Xunit
 open PolarsFSharp
 
+type UserRecord = {
+        name: string
+        age: int          // Int64 -> Int32
+        score: float option // Nullable Float
+        joined: System.DateTime option // Timestamp -> DateTime
+    }
 type ``Basic Functionality Tests`` () =
 
     [<Fact>]
@@ -117,3 +123,23 @@ type ``Basic Functionality Tests`` () =
         Assert.Equal(100L, df.Int("num", 0).Value)
         Assert.Equal(200L, df.Int("num", 1).Value)
         Assert.True(df.Int("num", 2).IsNone) // 验证空值传递
+
+    [<Fact>]
+    member _.``Materialization: DataFrame to Records`` () =
+        let csv = "name,age,score,joined\nAlice,30,99.5,2023-01-01\nBob,25,,\n"
+        use tmp = new TempCsv(csv)
+        let df = Polars.readCsv tmp.Path (Some true)
+
+        let records = df.ToRecords<UserRecord>()
+
+        Assert.Equal(2, records.Length)
+        
+        let alice = records.[0]
+        Assert.Equal("Alice", alice.name)
+        Assert.Equal(30, alice.age)
+        Assert.Equal(Some 99.5, alice.score)
+        Assert.Equal(System.DateTime(2023,1,1), alice.joined.Value)
+
+        let bob = records.[1]
+        Assert.Equal("Bob", bob.name)
+        Assert.Equal(None, bob.score)

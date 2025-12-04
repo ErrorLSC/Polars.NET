@@ -431,9 +431,9 @@ type ``Complex Query Tests`` () =
     [<Fact>]
     member _.``Lazy Join (Standard Join)`` () =
         // 左表: 用户 (id, name)
-        use usersCsv = new TempCsv("id,name\n1,Alice\n2,Bob")
+        use usersCsv = new TempCsv "id,name\n1,Alice\n2,Bob"
         // 右表: 订单 (uid, amount)
-        use ordersCsv = new TempCsv("uid,amount\n1,100\n1,200\n3,50")
+        use ordersCsv = new TempCsv "uid,amount\n1,100\n1,200\n3,50"
 
         let lfUsers = Polars.scanCsv usersCsv.Path None
         let lfOrders = Polars.scanCsv ordersCsv.Path None
