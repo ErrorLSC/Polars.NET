@@ -51,6 +51,8 @@ module Polars =
     let sinkIpc (path: string) (lf: LazyFrame) = 
         let lfClone = lf.CloneHandle()
         PolarsWrapper.SinkIpc(lfClone, path)
+    let fromArrow (batch: Apache.Arrow.RecordBatch) : DataFrame =
+        new DataFrame(PolarsWrapper.FromArrow(batch))
     // --- Expr Helpers ---
     // [新增] cast
     let cast (dtype: DataType) (e: Expr) = e.Cast(dtype)

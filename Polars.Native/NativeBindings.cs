@@ -29,6 +29,11 @@ unsafe internal partial class NativeBindings
     // String Free
     [LibraryImport(LibName)] public static partial void pl_free_string(IntPtr ptr);
     [LibraryImport(LibName)] public static partial void pl_to_arrow(DataFrameHandle handle, CArrowArray* arr, CArrowSchema* schema);
+    [LibraryImport(LibName)]
+    public static partial DataFrameHandle pl_dataframe_from_arrow_record_batch(
+        CArrowArray* cArray, 
+        CArrowSchema* cSchema
+    );
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
     public static partial ExprHandle pl_expr_col(string name);

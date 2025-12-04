@@ -1,5 +1,5 @@
 use polars::prelude::*;
-use polars_arrow::ffi::{ArrowArray, ArrowSchema, export_array_to_c, export_field_to_c};
+use polars_arrow::ffi::{self, ArrowArray, ArrowSchema, export_array_to_c, export_field_to_c};
 use polars_arrow::array::StructArray;
 use polars_arrow::datatypes::{ArrowDataType, Field};
 use polars_core::prelude::CompatLevel;
@@ -171,6 +171,62 @@ pub extern "C" fn pl_lazy_sink_ipc(
         )?;
         
         Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_from_arrow_record_batch(
+    c_array_ptr: *mut ffi::ArrowArray, 
+    c_schema_ptr: *mut ffi::ArrowSchema
+) -> *mut DataFrameContext {
+    ffi_try!({
+        // 1. 安全检查: 指针不能为空
+        if c_array_ptr.is_null() || c_schema_ptr.is_null() {
+            return Err(PolarsError::ComputeError("Null pointer passed to pl_from_arrow".into()));
+        }
+
+        // 2. 导入 Arrow Schema
+        let field = unsafe { ffi::import_field_from_c(&*c_schema_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))? };
+        
+        // 3. 导入 Array
+        // import_array_from_c 接收的是 ArrowArray 结构体本身(move)，而不是指针
+        // 所以我们需要读取指针指向的内容: unsafe { std::ptr::read(c_array_ptr) }
+        let arrow_array_struct = unsafe { std::ptr::read(c_array_ptr) };
+        let array = unsafe { 
+            ffi::import_array_from_c(arrow_array_struct, field.dtype.clone())
+                .map_err(|e| PolarsError::ComputeError(e.to_string().into()))? 
+        };
+        
+        let df = match array.as_any().downcast_ref::<StructArray>() {
+            Some(struct_arr) => {
+                // [修复] 类型注解改为 Vec<Column>
+                let columns: Vec<Column> = struct_arr
+                    .values()
+                    .iter()
+                    .zip(struct_arr.fields())
+                    .map(|(arr, field)| {
+                        let name = PlSmallStr::from_str(&field.name);
+                        
+                        // Series::from_arrow 返回 PolarsResult<Series>
+                        // 我们需要 map 它，把 Series 转为 Column
+                        Series::from_arrow(name, arr.clone())
+                            .map(|s| Column::from(s)) // [关键] Series -> Column
+                    })
+                    .collect::<PolarsResult<Vec<_>>>()?;
+                
+                DataFrame::new(columns)?
+            },
+            None => {
+                // 单列情况也要改
+                let name = PlSmallStr::from_str(&field.name);
+                let series = Series::from_arrow(name, array)?;
+                
+                // [修复] vec![Column::from(series)]
+                DataFrame::new(vec![Column::from(series)])?
+            }
+        };
+
+        Ok(Box::into_raw(Box::new(DataFrameContext { df })))
     })
 }
 // ==========================================

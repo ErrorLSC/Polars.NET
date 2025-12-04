@@ -93,3 +93,27 @@ type ``Basic Functionality Tests`` () =
         let planOptimized = lf2.Explain true
         printfn "\n=== Query Plan Optimized===\n%s\n==================" planOptimized
         Assert.Contains("SELECTION", planOptimized) 
+    [<Fact>]
+    member _.``Arrow Integration: Import C# Arrow Data to Polars`` () =
+        // 1. 在 C# 端原生构建一个 RecordBatch
+        // 模拟场景：数据来自 .NET 数据库或计算结果
+        let builder = new Apache.Arrow.Int64Array.Builder()
+        builder.Append(100L) |> ignore
+        builder.Append(200L) |> ignore
+        builder.AppendNull() |> ignore // 测试空值
+        let colArray = builder.Build()
+
+        let field = new Apache.Arrow.Field("num", new Apache.Arrow.Types.Int64Type(), true)
+        let schema = new Apache.Arrow.Schema([| field |], null)
+        
+        use batch = new Apache.Arrow.RecordBatch(schema, [| colArray |], 3)
+
+        // 2. 传给 Polars (C# -> Rust)
+        // 这一步应该能成功，因为内存是 C# 分配的，Exporter 能够处理
+        let df = Polars.fromArrow batch
+
+        // 3. 验证
+        Assert.Equal(3L, df.Rows)
+        Assert.Equal(100L, df.Int("num", 0).Value)
+        Assert.Equal(200L, df.Int("num", 1).Value)
+        Assert.True(df.Int("num", 2).IsNone) // 验证空值传递

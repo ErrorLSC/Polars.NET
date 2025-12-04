@@ -1,3 +1,6 @@
+using Apache.Arrow;
+using Apache.Arrow.C;
+
 namespace Polars.Native;
 
 public static partial class PolarsWrapper
@@ -78,5 +81,27 @@ public static partial class PolarsWrapper
         NativeBindings.pl_lazy_sink_ipc(lf, path);
         lf.TransferOwnership();
         ErrorHelper.CheckVoid();
+    }
+    public static unsafe DataFrameHandle FromArrow(RecordBatch batch)
+    {
+        // 1. 在栈上分配 C 结构体 (避免 GC 压力)
+        // 这里的 new 是 C# 的 struct new，分配在栈上
+        var cArray = new CArrowArray();
+        var cSchema = new CArrowSchema();
+
+        // 2. 分两步导出
+        // Step A: 导出数据 (填充 cArray)
+        CArrowArrayExporter.ExportRecordBatch(batch, &cArray);
+
+        // Step B: 导出 Schema (填充 cSchema)
+        // 注意：RecordBatch 有一个 .Schema 属性
+        CArrowSchemaExporter.ExportSchema(batch.Schema, &cSchema);
+
+        // 3. 传给 Rust
+        // Rust 会执行 import，从而接管 cArray/cSchema 指向的堆内存
+        // 注意：一旦 Rust import 成功，它会把 cArray->release 置空
+        var h = NativeBindings.pl_dataframe_from_arrow_record_batch(&cArray, &cSchema);
+        
+        return ErrorHelper.Check(h);
     }
 }
