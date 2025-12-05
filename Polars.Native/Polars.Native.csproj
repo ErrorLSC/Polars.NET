@@ -24,7 +24,7 @@
 
   <Target Name="BuildRust" BeforeTargets="BeforeBuild">
     <Message Text="🦀 Building Rust Native Shim..." Importance="high" />
-    <Exec Command="cargo build" WorkingDirectory="$(RustProjectDir)" />
+    <Exec Command="cargo build --release" WorkingDirectory="$(RustProjectDir)" />
   </Target>
 
   <ItemGroup>

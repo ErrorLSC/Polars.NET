@@ -1,3 +1,3 @@
-[target.x86_64-unknown-linux-gnu]
-linker = "clang"
+[target.'cfg(target_os = "linux")']
+linker = "cc" 
 rustflags = ["-C", "link-arg=-fuse-ld=mold"]

@@ -16,6 +16,7 @@ polars-ops = { version = "0.50.0", features = ["pivot"] }
 polars-arrow = { version = "0.50.0" }
 
 polars-io = { version = "0.50.0", features = ["parquet","cloud"] }
+flate2 = { version = "=1.0.35", features = ["rust_backend"] }
 
 [lib]
 crate-type = ["cdylib"]
