@@ -337,6 +337,18 @@ public class Expr : IDisposable
         return new Expr(PolarsWrapper.IsBetween(e, l, u));
     }
     // ==========================================
+    // Casting
+    // ==========================================
+
+    /// <summary>
+    /// Cast the expression to a different data type.
+    /// </summary>
+    public Expr Cast(DataType dtype, bool strict = false)
+    {
+        var h = PolarsWrapper.CloneExpr(Handle);
+        return new Expr(PolarsWrapper.Cast(h, dtype.ToNative(), strict));
+    }
+    // ==========================================
     // Namespaces (子空间操作)
     // ==========================================
 

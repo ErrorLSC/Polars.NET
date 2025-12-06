@@ -60,4 +60,21 @@ public static class Polars
     /// <param name="value"></param>
     /// <returns></returns>
     public static Expr Lit(DateTime value) => new Expr(PolarsWrapper.Lit(value));
+    // ==========================================
+    // Control Flow
+    // ==========================================
+
+    /// <summary>
+    /// If-Else control flow: if predicate evaluates to true, return trueExpr, otherwise return falseExpr.
+    /// Similar to SQL's CASE WHEN ... THEN ... ELSE ... END.
+    /// </summary>
+    public static Expr IfElse(Expr predicate, Expr trueExpr, Expr falseExpr)
+    {
+        // 三个输入都需要 Clone，因为底层会消耗它们
+        var p = PolarsWrapper.CloneExpr(predicate.Handle);
+        var t = PolarsWrapper.CloneExpr(trueExpr.Handle);
+        var f = PolarsWrapper.CloneExpr(falseExpr.Handle);
+        
+        return new Expr(PolarsWrapper.IfElse(p, t, f));
+    }
 }
