@@ -40,7 +40,7 @@ public class ExprTests
 
         // 2. 验证 Year (Int32 or Int64 depending on Polars/Arrow mapping)
         // Polars Year 通常返回 Int32
-        var yearCol = batch.Column("year") as IArrowArray;
+        var yearCol = batch.Column("year");
         Assert.Equal(2025, yearCol.GetInt64Value(0));
 
         // 3. 验证 BMI (Double)
@@ -128,5 +128,41 @@ Zhang,2025-10-31,55,1.75";
         using var res = df.Filter(Col("value") == Lit(3.36));
         
         Assert.Equal(2, res.Height);
+    }
+
+    // ==========================================
+    // 6. Null handling works
+    // ==========================================
+    [Fact]
+    public void Null_Handling_Works()
+    {
+        // 构造 CSV: age 列包含 10, null, 30
+        // 注意 CSV 中的空行会被解析为 null
+        using var csv = new DisposableCsv("age\n10\n\n30");
+        using var df = DataFrame.ReadCsv(csv.Path);
+
+        // --- 测试 1: FillNull ---
+        // 逻辑: 将 null 填充为 0，并筛选 >= 0
+        // C# Eager 写法:
+        using var filled = df
+            .WithColumns(
+                Col("age").FillNull(Lit(0)).Alias("age_filled")
+            )
+            .Filter(Col("age_filled") >= Lit(0));
+            
+        // 结果应该是 3 行 (10, 0, 30)
+        Assert.Equal(3, filled.Height);
+
+        // 验证一下中间那个确实变成了 0
+        using var batch = filled.ToArrow();
+        var filledCol = batch.Column("age_filled"); // 通常是 Int64
+        Assert.Equal(0, filledCol.GetInt64Value(1)); // 第二行索引为 1
+
+        // --- 测试 2: IsNull ---
+        // 筛选出 null 的行
+        using var nulls = df.Filter(Col("age").IsNull());
+        
+        // 结果应该是 1 行
+        Assert.Equal(1, nulls.Height);
     }
 }

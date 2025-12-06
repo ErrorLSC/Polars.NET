@@ -229,6 +229,39 @@ public class Expr : IDisposable
         var cloned = PolarsWrapper.CloneExpr(Handle);
         return new Expr(PolarsWrapper.Abs(cloned));
     }
+
+    // ==========================================
+    // Null Handling
+    // ==========================================
+
+    /// <summary>
+    /// Fill null values with a specified value.
+    /// </summary>
+    /// <param name="fillValue">The expression (or literal) to replace nulls with.</param>
+    public Expr FillNull(Expr fillValue)
+    {
+        var e = PolarsWrapper.CloneExpr(Handle);
+        var f = PolarsWrapper.CloneExpr(fillValue.Handle);
+        return new Expr(PolarsWrapper.FillNull(e, f));
+    }
+
+    /// <summary>
+    /// Evaluate whether the expression is null.
+    /// </summary>
+    public Expr IsNull()
+    {
+        var e = PolarsWrapper.CloneExpr(Handle);
+        return new Expr(PolarsWrapper.IsNull(e));
+    }
+
+    /// <summary>
+    /// Evaluate whether the expression is not null.
+    /// </summary>
+    public Expr IsNotNull()
+    {
+        var e = PolarsWrapper.CloneExpr(Handle);
+        return new Expr(PolarsWrapper.IsNotNull(e));
+    }
     // ==========================================
     // Namespaces (子空间操作)
     // ==========================================
