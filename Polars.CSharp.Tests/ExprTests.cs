@@ -165,4 +165,39 @@ Zhang,2025-10-31,55,1.75";
         // 结果应该是 1 行
         Assert.Equal(1, nulls.Height);
     }
+    [Fact]
+    public void IsBetween_With_DateTime_Literals()
+    {
+        // 构造数据: Qinglei 的生日
+        var content = @"name,birthdate,height
+Qinglei,1990-05-20,1.80
+TooOld,1980-01-01,1.80
+TooShort,1990-05-20,1.60";
+
+        using var csv = new DisposableCsv(content);
+        
+        // 必须开启日期解析 (tryParseDates: true)
+        using var df = DataFrame.ReadCsv(csv.Path, tryParseDates: true);
+
+        // Python logic translation:
+        // col("birthdate").is_between(date(1982,12,31), date(1996,1,1)) & (col("height") > 1.7)
+        
+        // 定义边界
+        var startDt = new DateTime(1982, 12, 31);
+        var endDt = new DateTime(1996, 1, 1);
+
+        using var res = df.Filter(
+            // 条件 1: 生日区间
+            Col("birthdate").IsBetween(Lit(startDt), Lit(endDt))
+            & // 条件 2: AND (注意 C# 是 & 不是 &&)
+            // 条件 3: 身高
+            (Col("height") > Lit(1.7))
+        );
+
+        // 验证: 只有 Qinglei 符合 (TooOld 生日不对，TooShort 身高不对)
+        Assert.Equal(1, res.Height);
+        
+        using var batch = res.ToArrow();
+        Assert.Equal("Qinglei", batch.Column("name").GetStringValue(0));
+    }
 }

@@ -262,6 +262,22 @@ public class Expr : IDisposable
         var e = PolarsWrapper.CloneExpr(Handle);
         return new Expr(PolarsWrapper.IsNotNull(e));
     }
+
+    // ==========================================
+    // Logic / Comparison
+    // ==========================================
+
+    /// <summary>
+    /// Check if the value is between lower and upper bounds (inclusive).
+    /// </summary>
+    public Expr IsBetween(Expr lower, Expr upper)
+    {
+        var e = PolarsWrapper.CloneExpr(Handle);
+        var l = PolarsWrapper.CloneExpr(lower.Handle);
+        var u = PolarsWrapper.CloneExpr(upper.Handle);
+        
+        return new Expr(PolarsWrapper.IsBetween(e, l, u));
+    }
     // ==========================================
     // Namespaces (子空间操作)
     // ==========================================
