@@ -7,7 +7,7 @@ open PolarsFSharp
 type ``Expression Logic Tests`` () =
     [<Fact>]
         member _.``Select inline style (Pythonic)`` () =
-            use csv = new TempCsv("name,birthdate,weight,height\nQinglei,2025-11-25,70,1.80")
+            use csv = new TempCsv "name,birthdate,weight,height\nQinglei,2025-11-25,70,1.80"
             let df = Polars.readCsv csv.Path None
 
             // 像 Python 一样写在 list 里面！
@@ -20,10 +20,10 @@ type ``Expression Logic Tests`` () =
                     Polars.col "birthdate" |> Polars.alias "b_date"
                     
                     // Inline 2: 链式调用
-                    (Polars.col "birthdate").Dt.Year().Alias("year")
+                    (Polars.col "birthdate").Dt.Year().Alias "year"
                     
                     // Inline 3: 算术表达式
-                    (Polars.col "weight" / (Polars.col "height" * Polars.col "height"))
+                    Polars.col "weight" / (Polars.col "height" * Polars.col "height")
                     |> Polars.alias "bmi"
                 ]
 
@@ -37,7 +37,7 @@ type ``Expression Logic Tests`` () =
             Assert.True(res.Float("bmi", 0).Value > 21.6)
     [<Fact>]
     member _.``Filter by numeric value (> operator)`` () =
-        use csv = new TempCsv("val\n10\n20\n30")
+        use csv = new TempCsv "val\n10\n20\n30"
         let df = Polars.readCsv csv.Path None
         
         let res = df |> Polars.filter (Polars.col "val" .> Polars.lit 15)
@@ -45,7 +45,7 @@ type ``Expression Logic Tests`` () =
         Assert.Equal(2L, res.Rows)
     [<Fact>]
     member _.``Filter by numeric value (< operator)`` () =
-        use csv = new TempCsv("name,birthdate,weight,height\nBen Brown,1985-02-15,72.5,1.77\nQinglei,2025-11-25,70.0,1.80\nZhang,2025-10-31,55,1.75")
+        use csv = new TempCsv "name,birthdate,weight,height\nBen Brown,1985-02-15,72.5,1.77\nQinglei,2025-11-25,70.0,1.80\nZhang,2025-10-31,55,1.75"
         let df = Polars.readCsv csv.Path (Some true)
 
         let res = df |> Polars.filter ((Polars.col "birthdate").Dt.Year() .< Polars.lit 1990 )
@@ -54,7 +54,7 @@ type ``Expression Logic Tests`` () =
 
     [<Fact>]
     member _.``Filter by string value (== operator)`` () =
-        use csv = new TempCsv("name\nAlice\nBob\nAlice")
+        use csv = new TempCsv "name\nAlice\nBob\nAlice"
         let df = Polars.readCsv csv.Path None
         
         // SRTP 魔法测试
@@ -64,7 +64,7 @@ type ``Expression Logic Tests`` () =
 
     [<Fact>]
     member _.``Filter by double value (== operator)`` () =
-        use csv = new TempCsv("value\n3.36\n4.2\n5\n3.36")
+        use csv = new TempCsv "value\n3.36\n4.2\n5\n3.36"
         let df = Polars.readCsv csv.Path None
         
         // SRTP 魔法测试
@@ -76,7 +76,7 @@ type ``Expression Logic Tests`` () =
     member _.``Null handling works`` () =
         // 造一个带 null 的 CSV
         // age: 10, null, 30
-        use csv = new TempCsv("age\n10\n\n30") 
+        use csv = new TempCsv "age\n10\n\n30" 
         let lf = Polars.scanCsv csv.Path None
 
         // 测试 1: fill_null
@@ -101,7 +101,7 @@ type ``Expression Logic Tests`` () =
     [<Fact>]
     member _.``IsBetween with DateTime Literals`` () =
         // 构造数据: Qinglei 的生日
-        use csv = new TempCsv("name,birthdate,height\nQinglei,1990-05-20,1.80\nTooOld,1980-01-01,1.80\nTooShort,1990-05-20,1.60")
+        use csv = new TempCsv "name,birthdate,height\nQinglei,1990-05-20,1.80\nTooOld,1980-01-01,1.80\nTooShort,1990-05-20,1.60"
         
         // 必须开启日期解析
         let df = Polars.readCsv csv.Path (Some true)
@@ -135,7 +135,7 @@ type ``String Logic Tests`` () =
     [<Fact>]
     member _.``String operations (Case, Slice, Replace)`` () =
         // 脏数据: "  Hello World  ", "foo BAR"
-        use csv = new TempCsv("text\nHello World\nfoo BAR")
+        use csv = new TempCsv "text\nHello World\nfoo BAR"
         let df = Polars.readCsv csv.Path None
 
         let res = 
@@ -144,16 +144,16 @@ type ``String Logic Tests`` () =
                 Polars.col "text"
                 
                 // 1. 转大写
-                (Polars.col "text").Str.ToUpper().Alias("upper")
+                (Polars.col "text").Str.ToUpper().Alias "upper"
                 
                 // 2. 切片 (取前 3 个字符)
-                (Polars.col "text").Str.Slice(0L, 3UL).Alias("slice")
+                (Polars.col "text").Str.Slice(0L, 3UL).Alias "slice"
                 
                 // 3. 替换 (把 'o' 换成 '0')
-                (Polars.col "text").Str.ReplaceAll("o", "0").Alias("replaced")
+                (Polars.col "text").Str.ReplaceAll("o", "0").Alias "replaced"
                 
                 // 4. 长度
-                (Polars.col "text").Str.Len().Alias("len")
+                (Polars.col "text").Str.Len().Alias "len"
             ]
 
         // 验证 Row 0: "Hello World"
@@ -168,12 +168,12 @@ type ``String Logic Tests`` () =
     [<Fact>]
     member _.``Math Ops (BMI Calculation with Pow)`` () =
         // 构造数据: 身高(m), 体重(kg)
-        use csv = new TempCsv("name,height,weight\nAlice,1.65,60\nBob,1.80,80")
+        use csv = new TempCsv "name,height,weight\nAlice,1.65,60\nBob,1.80,80"
         let df = Polars.readCsv csv.Path None
 
         // 目标逻辑: weight / (height ^ 2)
         let bmiExpr = 
-            (Polars.col "weight") / (Polars.col "height") .** Polars.lit 2
+            Polars.col "weight" / Polars.col "height" .** Polars.lit 2
             |> Polars.alias "bmi"
 
         let res = 
@@ -182,7 +182,7 @@ type ``String Logic Tests`` () =
                 Polars.col "name"
                 bmiExpr
                 // 顺便测一下 sqrt: sqrt(height)
-                (Polars.col "height").Sqrt().Alias("sqrt_h")
+                (Polars.col "height").Sqrt().Alias "sqrt_h"
             ]
 
         // 验证 Bob 的 BMI: 80 / 1.8^2 = 24.691358...
@@ -210,21 +210,21 @@ type ``String Logic Tests`` () =
                 Polars.col "ts"
 
                 // 1. 提取组件 (Components)
-                (Polars.col "ts").Dt.Year().Alias("y")
-                (Polars.col "ts").Dt.Month().Alias("m")
-                (Polars.col "ts").Dt.Day().Alias("d")
-                (Polars.col "ts").Dt.Hour().Alias("h")
+                (Polars.col "ts").Dt.Year().Alias "y"
+                (Polars.col "ts").Dt.Month().Alias "m"
+                (Polars.col "ts").Dt.Day().Alias "d"
+                (Polars.col "ts").Dt.Hour().Alias "h"
                 
                 // Polars 定义: Monday=1, Sunday=7
-                (Polars.col "ts").Dt.Weekday().Alias("w_day")
+                (Polars.col "ts").Dt.Weekday().Alias "w_day"
                 
                 // 2. 格式化 (Format to String)
                 // 测试自定义格式: "2023/12/25"
-                (Polars.col "ts").Dt.ToString("%Y/%m/%d").Alias("fmt_custom")
+                (Polars.col "ts").Dt.ToString("%Y/%m/%d").Alias "fmt_custom"
                 
                 // 3. 类型转换 (Cast to Date)
                 // Datetime (含时分秒) -> Date (只含日期)
-                (Polars.col "ts").Dt.Date().Alias("date_only")
+                (Polars.col "ts").Dt.Date().Alias "date_only"
             ]
         // --- 验证 Row 0: 2023-12-25 15:30:00 ---
         

@@ -1,10 +1,5 @@
-﻿using Xunit;
-using Polars.CSharp; // 引用我们的库
-using Apache.Arrow;
+﻿using Apache.Arrow;
 using Apache.Arrow.Memory;
-using Apache.Arrow.Types;
-using System.IO;
-using System;
 
 namespace Polars.CSharp.Tests;
 

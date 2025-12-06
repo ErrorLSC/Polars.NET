@@ -229,7 +229,14 @@ public class Expr : IDisposable
         var cloned = PolarsWrapper.CloneExpr(Handle);
         return new Expr(PolarsWrapper.Abs(cloned));
     }
-    
+    // ==========================================
+    // Namespaces (子空间操作)
+    // ==========================================
+
+    /// <summary>
+    /// Access temporal (Date/Time) operations.
+    /// </summary>
+    public DtOps Dt => new DtOps(this);
     // ---------------------------------------------------
     // Clean Up
     // ---------------------------------------------------
@@ -274,4 +281,90 @@ public class Expr : IDisposable
         // 使用 IntPtr 自身的 GetHashCode，它是基于内存地址的
         return Handle.DangerousGetHandle().GetHashCode();
     }
+}
+// ==========================================
+// DtOps Helper Class
+// ==========================================
+
+/// <summary>
+/// Contains methods for temporal (Date/Time) operations.
+/// </summary>
+public class DtOps
+{
+    private readonly Expr _expr;
+    
+    internal DtOps(Expr expr)
+    {
+        _expr = expr;
+    }
+
+    // 辅助函数：自动 Clone 并调用 Wrapper
+    private Expr Wrap(Func<ExprHandle, ExprHandle> op)
+    {
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new Expr(op(h));
+    }
+
+    /// <summary>Get the year from the underlying date/datetime.</summary>
+    public Expr Year() => Wrap(PolarsWrapper.DtYear);
+
+    /// <summary>Get the month from the underlying date/datetime.</summary>
+    public Expr Month() => Wrap(PolarsWrapper.DtMonth);
+
+    /// <summary>Get the day from the underlying date/datetime.</summary>
+    public Expr Day() => Wrap(PolarsWrapper.DtDay);
+
+    /// <summary>Get the ordinal day (day of year) from the underlying date/datetime.</summary>
+    public Expr OrdinalDay() => Wrap(PolarsWrapper.DtOrdinalDay);
+
+    /// <summary>Get the weekday from the underlying date/datetime.</summary>
+    public Expr Weekday() => Wrap(PolarsWrapper.DtWeekday);
+
+    /// <summary>Get the hour from the underlying datetime.</summary>
+    public Expr Hour() => Wrap(PolarsWrapper.DtHour);
+
+    /// <summary>Get the minute from the underlying datetime.</summary>
+    public Expr Minute() => Wrap(PolarsWrapper.DtMinute);
+
+    /// <summary>Get the second from the underlying datetime.</summary>
+    public Expr Second() => Wrap(PolarsWrapper.DtSecond);
+
+    /// <summary>Get the millisecond from the underlying datetime.</summary>
+    public Expr Millisecond() => Wrap(PolarsWrapper.DtMillisecond);
+
+    /// <summary>Get the microsecond from the underlying datetime.</summary>
+    public Expr Microsecond() => Wrap(PolarsWrapper.DtMicrosecond);
+
+    /// <summary>Get the nanosecond from the underlying datetime.</summary>
+    public Expr Nanosecond() => Wrap(PolarsWrapper.DtNanosecond);
+
+    /// <summary>
+    /// Format the date/datetime as a string using the given format string (strftime).
+    /// </summary>
+    public Expr ToString(string format)
+    {
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new Expr(PolarsWrapper.DtToString(h, format));
+    }
+
+    /// <summary>
+    /// Format the date/datetime as a string using the default format "%Y-%m-%dT%H:%M:%S%.f".
+    /// </summary>
+    public override string ToString()
+    {
+        // 注意：这里重写的是 C# 对象的 ToString，不是生成 Expr。
+        // 如果你想生成 Expr，应该用 ToString(format)
+        return "DtOps"; 
+    }
+
+    /// <summary>
+    /// Warp Date to Expr
+    /// </summary>
+    /// <returns></returns>
+    public Expr Date() => Wrap(PolarsWrapper.DtDate);
+    /// <summary>
+    /// Warp Time to Expr
+    /// </summary>
+    /// <returns></returns>
+    public Expr Time() => Wrap(PolarsWrapper.DtTime);
 }

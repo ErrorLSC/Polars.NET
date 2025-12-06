@@ -12,5 +12,5 @@ type TempCsv(content: string) =
     
     interface IDisposable with
         member _.Dispose() = 
-            if File.Exists(path) then 
-                try File.Delete(path) with _ -> () // 防止文件占用报错
+            if File.Exists path then 
+                try File.Delete path with _ -> () // 防止文件占用报错

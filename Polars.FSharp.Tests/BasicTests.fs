@@ -13,7 +13,7 @@ type ``Basic Functionality Tests`` () =
 
     [<Fact>]
     member _.``Can read CSV and count rows/cols`` () =
-        use csv = new TempCsv("name,age,birthday\nAlice,30,2022-11-01\nBob,25,2025-12-03")
+        use csv = new TempCsv "name,age,birthday\nAlice,30,2022-11-01\nBob,25,2025-12-03"
         
         let df = Polars.readCsv csv.Path None
         
@@ -23,7 +23,7 @@ type ``Basic Functionality Tests`` () =
     [<Fact>]
     member _.``Can read&write Parquet`` () =
         // 这一步需要你有一个真实的 parquet 文件，或者先用 writeParquet 生成一个
-        use csv = new TempCsv("a,b\n1,2")
+        use csv = new TempCsv "a,b\n1,2"
         let df = Polars.readCsv csv.Path None
         
         let tmpParquet = System.IO.Path.GetTempFileName()
@@ -38,7 +38,7 @@ type ``Basic Functionality Tests`` () =
     member _.``Streaming, Sink(untested)`` () =
         // 1. 准备宽表数据 (Sales Data)
         // Year, Q1, Q2
-        use csv = new TempCsv("year,Q1,Q2\n2023,100,200\n2024,300,400")
+        use csv = new TempCsv "year,Q1,Q2\n2023,100,200\n2024,300,400"
 
         let lf = Polars.scanCsv csv.Path None
         let tmpParquet = System.IO.Path.GetTempFileName()
@@ -57,7 +57,6 @@ type ``Basic Functionality Tests`` () =
             // let checkDf = Polars.readParquet tmpParquet
             // Assert.Equal(4L, checkDf.Rows)
 
-            // 测试 Streaming Collect (虽然数据量小看不出优势，但验证 API 是否崩)
             let streamedDf = lf |> Polars.collectStreaming |> Polars.show
             Assert.Equal(2L, streamedDf.Rows)
 
