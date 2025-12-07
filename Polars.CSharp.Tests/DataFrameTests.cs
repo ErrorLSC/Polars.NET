@@ -127,4 +127,43 @@ HR,50";
             if (File.Exists(fileName)) File.Delete(fileName);
         }
     }
+    // ==========================================
+    // Display Tests (Head & Show)
+    // ==========================================
+    [Fact]
+    public void Test_Head_And_Show()
+    {
+        // 构造较多数据 (15行)
+        // 0..14
+        using var df = DataFrame.FromArrow(
+            new RecordBatch.Builder(new NativeMemoryAllocator())
+                .Append("id", false, col => col.Int32(arr => arr.AppendRange(Enumerable.Range(0, 15))))
+                .Append("name", false, col => col.String(arr => arr.AppendRange(Enumerable.Range(0, 15).Select(i => $"User_{i}"))))
+                .Build()
+        );
+
+        Assert.Equal(15, df.Height);
+
+        // 1. Test Head/Tail
+        using var headDf = df.Head(5);
+        Assert.Equal(5, headDf.Height);
+        
+        using var batch = headDf.ToArrow();
+        Assert.Equal(0, batch.Column("id").GetInt64Value(0));
+        Assert.Equal(4, batch.Column("id").GetInt64Value(4));
+
+        using var tailDf = df.Tail(5);
+        Assert.Equal(5, tailDf.Height);
+        using var tailBatch = tailDf.ToArrow();
+        Assert.Equal(10, tailBatch.Column("id").GetInt64Value(0));
+        Assert.Equal(14, tailBatch.Column("id").GetInt64Value(4));
+        // 2. Test Show (No exception should be thrown)
+        // 这会在控制台打印表格
+        System.Console.WriteLine("\n--- Testing DataFrame.Show() output ---");
+        df.Show(10); 
+        
+        // 测试小数据 Show
+        headDf.Show();
+        tailDf.Show();
+    }
 }

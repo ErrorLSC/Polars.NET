@@ -321,14 +321,21 @@ pub extern "C" fn pl_dataframe_get_string(
 
 
 // ==========================================
-// Head (取头)
+// Head/Tail
 // ==========================================
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_head(df_ptr: *mut DataFrameContext, n: usize) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*df_ptr };
-        // head 只是切片，开销极小
         let res_df = ctx.df.head(Some(n));
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
+    })
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_tail(df_ptr: *mut DataFrameContext, n: usize) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*df_ptr };
+        let res_df = ctx.df.tail(Some(n));
         Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
     })
 }

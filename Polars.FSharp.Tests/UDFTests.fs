@@ -24,7 +24,7 @@ module UdfLogic =
                     builder.AppendNull() |> ignore
                 else 
                     let v = i32Arr.GetValue(i).Value
-                    builder.Append($"Value: {v}") |> ignore
+                    builder.Append $"Value: {v}" |> ignore
             builder.Build() :> IArrowArray
         |_ -> failwith $"Expected Int32Array or Int64Array, but got: {arr.GetType().Name}"
 
@@ -43,7 +43,7 @@ type ``UDF Tests`` () =
     [<Fact>]
     member _.``Map UDF can change data type (Int -> String)`` () =
         // 1. 准备数据
-        use csv = new TempCsv("num\n100\n200")
+        use csv = new TempCsv "num\n100\n200"
         let lf = Polars.scanCsv csv.Path None
         
         // 2. 构造 C# 委托
@@ -95,7 +95,7 @@ type ``UDF Tests`` () =
 
     [<Fact>]
     member _.``Generic Map UDF with Lambda (Int -> String)`` () =
-        use csv = new TempCsv("num\n100\n200")
+        use csv = new TempCsv "num\n100\n200"
         let lf = Polars.scanCsv csv.Path None
         
         // --- 用户的代码极度简化 ---
@@ -116,7 +116,7 @@ type ``UDF Tests`` () =
 
         // 验证
         let arrow = df.ToArrow()
-        let col = arrow.Column("res") :?> StringViewArray // 自动用了 StringView
+        let col = arrow.Column "res" :?> StringViewArray // 自动用了 StringView
         
         Assert.Equal("Num: 101", col.GetString(0))
         Assert.Equal("Num: 201", col.GetString(1))

@@ -16,6 +16,7 @@ module Polars =
     let cols (names: string list) =
         let arr = List.toArray names
         new Expr(PolarsWrapper.Cols arr)
+    /// <summary> Select all columns (returns a Selector). </summary>
     let all () = new Selector(PolarsWrapper.SelectorAll())
 
     // --- Lit (SRTP) ---
@@ -126,13 +127,20 @@ module Polars =
         let rHandles = rightOn |> List.map (fun e -> e.Handle) |> List.toArray
         let h = PolarsWrapper.Join(left.Handle, other.Handle, lHandles, rHandles, how.ToNative())
         new DataFrame(h)
+    /// <summary> Concatenate multiple DataFrames vertically. </summary>
     let concat (dfs: DataFrame list) : DataFrame =
 
         let handles = dfs |> List.map (fun df -> df.CloneHandle()) |> List.toArray
         new DataFrame(PolarsWrapper.Concat handles)
+    /// <summary> Get the first n rows of the DataFrame. </summary>
     let head (n: int) (df: DataFrame) : DataFrame =
         let h = PolarsWrapper.Head(df.Handle, uint n)
         new DataFrame(h)
+    /// <summary> Get the last n rows of the DataFrame. </summary>
+    let tail (n: int) (df: DataFrame) : DataFrame =
+        let h = PolarsWrapper.Tail(df.Handle, uint n)
+        new DataFrame(h)
+    /// <summary> Explode list-like columns into multiple rows. </summary>
     let explode (exprs: Expr list) (df: DataFrame) : DataFrame =
         let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
         let h = PolarsWrapper.Explode(df.Handle, handles)

@@ -70,6 +70,11 @@ public static partial class PolarsWrapper
         return ErrorHelper.Check(NativeBindings.pl_head(df, (UIntPtr)n));
     }
 
+    public static DataFrameHandle Tail(DataFrameHandle df, uint n)
+    {
+        return ErrorHelper.Check(NativeBindings.pl_tail(df, (UIntPtr)n));
+    }
+
     public static DataFrameHandle Filter(DataFrameHandle df, ExprHandle expr)
     {
         var h = NativeBindings.pl_filter(df, expr);
