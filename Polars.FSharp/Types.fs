@@ -1,4 +1,4 @@
-namespace PolarsFSharp
+namespace Polars.FSharp
 
 open System
 open Polars.Native

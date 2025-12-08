@@ -1,7 +1,7 @@
-namespace PolarsFSharp.Tests
+namespace Polars.FSharp.Tests
 
 open Xunit
-open PolarsFSharp
+open Polars.FSharp
 open System.IO
 open System
 

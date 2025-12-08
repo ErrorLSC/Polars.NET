@@ -1,4 +1,5 @@
 using System;
+using Apache.Arrow;
 using Polars.Native;
 
 namespace Polars.CSharp;
@@ -347,6 +348,40 @@ public class Expr : IDisposable
     {
         var h = PolarsWrapper.CloneExpr(Handle);
         return new Expr(PolarsWrapper.Cast(h, dtype.ToNative(), strict));
+    }
+    // ==========================================
+    // UDF / Map
+    // ==========================================
+    /// <summary>
+    /// Apply a custom C# function to the expression.
+    /// This runs locally in the .NET runtime, converting data between Polars and .NET.
+    /// </summary>
+    /// <typeparam name="TInput">Input type (e.g. int, double, string)</typeparam>
+    /// <typeparam name="TOutput">Output type (e.g. int, double, string)</typeparam>
+    /// <param name="function">The function to apply.</param>
+    /// <param name="outputType">The Polars data type of the output column.</param>
+    public Expr Map<TInput, TOutput>(Func<TInput, TOutput> function, DataType outputType)
+    {
+        // 1. 将用户的强类型 Func 转换为 Arrow Func
+        var arrowFunc = UdfUtils.Wrap(function);
+
+        // 2. Clone Handle (因为 Map 会消耗它)
+        var h = PolarsWrapper.CloneExpr(Handle);
+
+        // 3. 调用底层 Wrapper
+        return new Expr(PolarsWrapper.Map(h, arrowFunc, outputType.ToNative()));
+    }
+    /// <summary>
+    /// Apply a raw Arrow-to-Arrow UDF. (Advanced / Internal use)
+    /// </summary>
+    public Expr Map(Func<IArrowArray, IArrowArray> function, DataType outputType)
+    {
+        // 1. 直接使用用户提供的 Arrow 函数，不经过 UdfUtils 包装
+        // 2. Clone Handle
+        var h = PolarsWrapper.CloneExpr(Handle);
+
+        // 3. 调用底层 Wrapper
+        return new Expr(PolarsWrapper.Map(h, function, outputType.ToNative()));
     }
     // ==========================================
     // Namespaces

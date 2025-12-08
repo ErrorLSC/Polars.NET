@@ -1,4 +1,4 @@
-namespace PolarsFSharp.Tests
+namespace Polars.FSharp.Tests
 
 open System
 open System.IO

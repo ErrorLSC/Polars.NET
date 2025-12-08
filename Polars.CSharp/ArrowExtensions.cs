@@ -7,38 +7,8 @@ namespace Polars.CSharp;
 /// </summary>
 public static class ArrowExtensions
 {
-    /// <summary>
-    /// Read Arrow String, including StringViewArray
-    /// </summary>
-    /// <param name="array"></param>
-    /// <param name="index"></param>
-    /// <returns></returns>
-    /// <exception cref="NotSupportedException"></exception>
-    public static string? GetStringValue(this IArrowArray array, int index)
-    {
-        if (array.IsNull(index)) return null;
-
-        switch (array)
-        {
-            // 标准 UTF8
-            case StringArray sa:
-                return sa.GetString(index);
-
-            // Large UTF8 (Polars 旧版)
-            case LargeStringArray lsa:
-                return lsa.GetString(index);
-
-            // StringView (Polars 0.50+ 默认)
-
-            case StringViewArray sva:
-                return sva.GetString(index);
-
-            default:
-                throw new NotSupportedException($"Unsupported string array type: {array.GetType().Name}");
-        }
-    }
     // ==========================================
-    // 2. FormatValue
+    // 1. FormatValue
     // ==========================================
     /// <summary>
     /// Deal with Other Formats
@@ -64,10 +34,10 @@ public static class ArrowExtensions
             FloatArray arr  => arr.GetValue(index).ToString()!,
             DoubleArray arr => arr.GetValue(index).ToString()!,
 
-            // 字符串 (复用上面的 GetStringValue)
-            StringArray sa      => $"\"{sa.GetStringValue(index)}\"",
-            LargeStringArray lsa => $"\"{lsa.GetStringValue(index)}\"",
-            StringViewArray sva  => $"\"{sva.GetStringValue(index)}\"",
+            // Strings
+            StringArray sa      => $"\"{sa.GetString(index)}\"",
+            LargeStringArray lsa => $"\"{lsa.GetString(index)}\"",
+            StringViewArray sva  => $"\"{sva.GetString(index)}\"",
 
             // 布尔
             BooleanArray arr => arr.GetValue(index).ToString()!.ToLower(),
@@ -115,6 +85,23 @@ public static class ArrowExtensions
             UInt16Array u16 => u16.GetValue(index),
             UInt32Array u32 => u32.GetValue(index),
             UInt64Array u64 => (long?)u64.GetValue(index),
+            _ => null
+        };
+    }
+    /// <summary>
+    /// Deal with String Values
+    /// </summary>
+    /// <param name="array"></param>
+    /// <param name="index"></param>
+    /// <returns></returns>
+    public static string? GetStringValue(this IArrowArray array, int index)
+    {
+        if (array.IsNull(index)) return null;
+        return array switch
+        {
+            StringArray sa       => sa.GetString(index),
+            LargeStringArray lsa => lsa.GetString(index),
+            StringViewArray sva  => sva.GetString(index),
             _ => null
         };
     }

@@ -1,4 +1,4 @@
-namespace PolarsFSharp
+namespace Polars.FSharp
 
 open System
 open Apache.Arrow
@@ -24,24 +24,24 @@ module Udf =
         if typeof<'T> = typeof<int> then
             match arr with
             // 兼容 Int32 和 Int64 源，统一转为 int 给用户
-            | :? Int32Array as a -> (fun i -> unbox (a.GetValue(i).Value))
-            | :? Int64Array as a -> (fun i -> unbox (int (a.GetValue(i).Value))) 
+            | :? Int32Array as a -> fun i -> unbox (a.GetValue(i).Value)
+            | :? Int64Array as a -> fun i -> unbox (int (a.GetValue(i).Value)) 
             | _ -> failwith $"Array {arr.GetType().Name} cannot be read as int"
         
         else if typeof<'T> = typeof<string> then
             match arr with
-            | :? StringArray as a -> (fun i -> unbox (a.GetString(i)))
-            | :? StringViewArray as a -> (fun i -> unbox (a.GetString(i)))
+            | :? StringArray as a -> fun i -> unbox (a.GetString(i))
+            | :? StringViewArray as a -> fun i -> unbox (a.GetString(i))
             | _ -> failwith $"Array {arr.GetType().Name} cannot be read as string"
             
         else if typeof<'T> = typeof<double> then
             match arr with
-            | :? DoubleArray as a -> (fun i -> unbox (a.GetValue(i).Value))
+            | :? DoubleArray as a -> fun i -> unbox (a.GetValue(i).Value)
             | _ -> failwith "Array cannot be read as double"
 
         else if typeof<'T> = typeof<bool> then
             match arr with
-            | :? BooleanArray as a -> (fun i-> unbox (a.GetValue(i).Value))
+            | :? BooleanArray as a -> fun i-> unbox (a.GetValue(i).Value)
             | _ -> failwith "Array cannot be read as boolean"
             
         else
@@ -52,7 +52,7 @@ module Udf =
         if typeof<'U> = typeof<int> then
             let b = new Int32Array.Builder()
             let writer : ColumnWriter<int> = { 
-                // [修复] 显式指定 unbox<int>
+                // 显式指定 unbox<int>
                 Append = (fun v -> b.Append(v) |> ignore)
                 AppendNull = (fun () -> b.AppendNull() |> ignore)
                 Build = (fun () -> b.Build() :> IArrowArray) 
@@ -62,7 +62,7 @@ module Udf =
         else if typeof<'U> = typeof<string> then
             let b = new StringViewArray.Builder()
             let writer : ColumnWriter<string> = { 
-                // [修复] 显式指定 unbox<string>
+                // 显式指定 unbox<string>
                 Append = (fun v -> b.Append(v) |> ignore)
                 AppendNull = (fun () -> b.AppendNull() |> ignore)
                 Build = (fun () -> b.Build() :> IArrowArray) 
@@ -72,7 +72,7 @@ module Udf =
         else if typeof<'U> = typeof<double> then // F# 的 double 就是 System.Double
             let b = new DoubleArray.Builder()
             let writer: ColumnWriter<float> = { 
-                // [修复] F# 里 float 就是 64位双精度浮点数 (C# double)
+                // F# 里 float 就是 64位双精度浮点数 (C# double)
                 // 必须显式写 unbox<float>，否则编译器不知道你调的是 Append(double) 还是 Append(double?)
                 Append = (fun v -> b.Append(v) |> ignore)
                 AppendNull = (fun () -> b.AppendNull() |> ignore)
@@ -83,7 +83,6 @@ module Udf =
         else if typeof<'U> = typeof<bool> then
             let b = new BooleanArray.Builder()
             let writer : ColumnWriter<bool> = {
-                // [新增] 支持布尔值
                 Append = (fun v -> b.Append(v) |> ignore)
                 AppendNull = (fun () -> b.AppendNull() |> ignore)
                 Build = (fun () -> b.Build() :> IArrowArray)
@@ -107,7 +106,7 @@ module Udf =
             // 3. 通用循环 (脏活在这里只写一次)
             let len = arr.Length
             for i in 0 .. len - 1 do
-                if arr.IsNull(i) then
+                if arr.IsNull i then
                     writer.AppendNull()
                 else
                     // 读取 -> 计算 -> 写入

@@ -1,8 +1,8 @@
-namespace PolarsFSharp.Tests
+namespace Polars.FSharp.Tests
 
 open System
 open Xunit
-open PolarsFSharp
+open Polars.FSharp
 
 type ``Expression Logic Tests`` () =
     [<Fact>]

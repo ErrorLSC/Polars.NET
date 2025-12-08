@@ -5,86 +5,111 @@ namespace Polars.CSharp;
 /// <summary>
 /// Data types supported by Polars.
 /// </summary>
+/// <summary>
+/// Data types supported by Polars.
+/// </summary>
 public enum DataType
-{   
+{
+    /// <summary>
+    /// Use the same data type as the input expression (Commonly used for UDFs).
+    /// </summary>
+    SameAsInput,
+
     /// <summary>
     /// Boolean Type
     /// </summary>
     Boolean,
+    
     /// <summary>
-    /// Signed Integer Types
+    /// Signed 8-bit Integer Type
     /// </summary>
     Int8,
+    
     /// <summary>
     /// Signed 16-bit Integer Type
     /// </summary>
     Int16, 
+    
     /// <summary>
     /// Signed 32-bit Integer Type
     /// </summary>
     Int32, 
+    
     /// <summary>
     /// Signed 64-bit Integer Type
     /// </summary>
     Int64,
+    
     /// <summary>
-    /// Unsigned Integer Types
+    /// Unsigned 8-bit Integer Type
     /// </summary>
     UInt8, 
+    
     /// <summary>
     /// Unsigned 16-bit Integer Type
     /// </summary>
     UInt16, 
+    
     /// <summary>
     /// Unsigned 32-bit Integer Type
     /// </summary>
     UInt32, 
+    
     /// <summary>
     /// Unsigned 64-bit Integer Type
     /// </summary>
     UInt64,
+    
     /// <summary>
-    /// Floating Point Types
+    /// 32-bit Floating Point Type
     /// </summary>
     Float32, 
+    
     /// <summary>
     /// 64-bit Floating Point Type
     /// </summary>
     Float64,
+    
     /// <summary>
-    /// String Types
+    /// String Types (UTF-8)
     /// </summary>
     String,
+    
     /// <summary>
-    /// Date and Time Types
+    /// Date Type (Days since epoch)
     /// </summary>
     Date, 
+    
     /// <summary>
-    /// DateTime Types
+    /// DateTime Type (Microseconds since epoch)
     /// </summary>
     Datetime, 
+    
     /// <summary>
-    /// Time Types
+    /// Time Type (Nanoseconds since midnight)
     /// </summary>
     Time, 
+    
     /// <summary>
-    /// Duration Types
+    /// Duration Type
     /// </summary>
     Duration,
+    
     /// <summary>
-    /// Binary Types
+    /// Binary Type (Bytes)
     /// </summary>
     Binary,
+    
     /// <summary>
     /// Unknown or Unsupported Type
     /// </summary>
     Unknown
 }
-
 internal static class DataTypeExtensions
 {
     public static PlDataType ToNative(this DataType dt) => dt switch
     {
+        DataType.SameAsInput => PlDataType.SameAsInput, // [新增映射]
         DataType.Boolean => PlDataType.Boolean,
         DataType.Int8 => PlDataType.Int8,
         DataType.Int16 => PlDataType.Int16,

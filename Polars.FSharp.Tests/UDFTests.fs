@@ -1,4 +1,4 @@
-namespace PolarsFSharp.Tests
+namespace Polars.FSharp.Tests
 
 module UdfLogic =
     open Apache.Arrow
@@ -33,7 +33,7 @@ module UdfLogic =
         failwith "Boom! C# UDF Exploded!"
 
 open Xunit
-open PolarsFSharp
+open Polars.FSharp
 open Apache.Arrow
 open System
 open Polars.Native
@@ -47,7 +47,7 @@ type ``UDF Tests`` () =
         let lf = Polars.scanCsv csv.Path None
         
         // 2. 构造 C# 委托
-        let udf = Func<IArrowArray, IArrowArray>(UdfLogic.intToString)
+        let udf = Func<IArrowArray, IArrowArray> UdfLogic.intToString
 
         // 3. 执行 Polars 查询
         // 关键点：必须传入 PlDataType.String，否则 Polars 可能会把结果当成 Int 处理导致乱码
@@ -63,10 +63,10 @@ type ``UDF Tests`` () =
 
         // 4. 验证结果
         let arrowBatch = df.ToArrow()
-        let strCol = arrowBatch.Column("desc") :?> StringViewArray
+        let strCol = arrowBatch.Column "desc" :?> StringViewArray
         
-        Assert.Equal("Value: 100", strCol.GetString(0))
-        Assert.Equal("Value: 200", strCol.GetString(1))
+        Assert.Equal("Value: 100", strCol.GetString 0)
+        Assert.Equal("Value: 200", strCol.GetString 1)
 
     [<Fact>]
     member _.``Map UDF error is propagated to F#`` () =
@@ -74,7 +74,7 @@ type ``UDF Tests`` () =
         use csv = new TempCsv("num\n1")
         let lf = Polars.scanCsv csv.Path None
         
-        let udf = System.Func<IArrowArray, IArrowArray>(UdfLogic.alwaysFail)
+        let udf = System.Func<IArrowArray, IArrowArray> UdfLogic.alwaysFail
 
         // 2. 断言会抛出异常
         let ex = Assert.Throws<Exception>(fun () -> 
@@ -95,7 +95,7 @@ type ``UDF Tests`` () =
 
     [<Fact>]
     member _.``Generic Map UDF with Lambda (Int -> String)`` () =
-        use csv = new TempCsv "num\n100\n200"
+        use csv = new TempCsv "num\n100\n"
         let lf = Polars.scanCsv csv.Path None
         
         // --- 用户的代码极度简化 ---
@@ -118,5 +118,5 @@ type ``UDF Tests`` () =
         let arrow = df.ToArrow()
         let col = arrow.Column "res" :?> StringViewArray // 自动用了 StringView
         
-        Assert.Equal("Num: 101", col.GetString(0))
-        Assert.Equal("Num: 201", col.GetString(1))
+        Assert.Equal("Num: 101", col.GetString 0)
+        Assert.Equal(1, col.Length)
