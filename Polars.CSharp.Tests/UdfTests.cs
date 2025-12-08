@@ -292,4 +292,49 @@ public class UdfTests
         Assert.Equal("Order-1001", col.GetStringValue(0));
         Assert.Equal("Order-1002", col.GetStringValue(1));
     }
+    [Fact]
+    public void Test_UDF_Nullable_Output()
+    {
+        // 构造数据: 10, 0, 20
+        // 我们想把 0 变成 Null
+        using var csv = new DisposableCsv("num\n10\n0\n20\n");
+        using var df = DataFrame.ReadCsv(csv.Path);
+
+        // 逻辑: 如果是 0 返回 null (C# null)，否则返回原值
+        // 关键点：泛型参数是 <long, long?>
+        var cleanExpr = Col("num")
+            .Map<long, long?>(x => x == 0 ? null : x, DataType.Int64)
+            .Alias("cleaned");
+
+        using var res = df.Select(Col("num"), cleanExpr);
+        
+        // 验证
+        using var batch = res.ToArrow();
+        var col = batch.Column("cleaned");
+        
+        Assert.Equal(10, col.GetInt64Value(0));
+        Assert.True(col.IsNull(1)); // 0 变成了 Null
+        Assert.Equal(20, col.GetInt64Value(2));
+    }
+    [Fact]
+    public void Test_UDF_Nullable_Input()
+    {
+        // 数据: 10, null
+        using var csv = new DisposableCsv("num\n10\n\n"); // 第二行是空
+        using var df = DataFrame.ReadCsv(csv.Path);
+
+        // 逻辑: 输入 int? -> 输出 string
+        // 如果输入是 null，返回 "FoundNull"，否则返回 "Value:{x}"
+        var checkNullExpr = Col("num")
+            .Map<long?, string>(x => x.HasValue ? $"Value:{x}" : "FoundNull", DataType.String)
+            .Alias("status");
+
+        using var res = df.Select(Col("num"), checkNullExpr);
+        
+        using var batch = res.ToArrow();
+        var col = batch.Column("status");
+        
+        Assert.Equal("Value:10", col.GetStringValue(0));
+        Assert.Equal("FoundNull", col.GetStringValue(1)); // 成功捕获了 Null 输入！
+    }
 }
