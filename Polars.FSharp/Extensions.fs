@@ -25,7 +25,7 @@ module Serialization =
             let mkSome (v: obj) = FSharpValue.MakeUnion(someCase, [| v |])
             let noneValue = FSharpValue.MakeUnion(noneCase, [||])
             
-            (mkSome, noneValue)
+            mkSome, noneValue
         else
             // 非 Option 类型，不做包装，None 值就是 null
             ((fun x -> x), null)
@@ -52,7 +52,7 @@ module Serialization =
         let isOption = targetType.IsGenericType && targetType.GetGenericTypeDefinition() = typedefof<option<_>>
         let coreType = if isOption then targetType.GetGenericArguments().[0] else targetType
 
-        let (wrapSome, valueNone) = createOptionWrapper targetType
+        let wrapSome, valueNone = createOptionWrapper targetType
 
         // 内部读取器：假设非空，读取原始值
         let getRawValue : int -> obj =
@@ -141,35 +141,35 @@ module Serialization =
             let append v = appendWithNullCheck (fun x -> b.Append(unbox<int> x) |> ignore) (fun () -> b.AppendNull() |> ignore) v
             let field () = new Field(name, Int32Type.Default, true)
             let build () = b.Build() :> IArrowArray
-            (append, field, build)
+            append, field, build
 
         else if coreType = typeof<int64> then
             let b = new Int64Array.Builder()
             let append v = appendWithNullCheck (fun x -> b.Append(unbox<int64> x) |> ignore) (fun () -> b.AppendNull() |> ignore) v
             let field () = new Field(name, Int64Type.Default, true)
             let build () = b.Build() :> IArrowArray
-            (append, field, build)
+            append, field, build
 
         else if coreType = typeof<double> then
             let b = new DoubleArray.Builder()
             let append v = appendWithNullCheck (fun x -> b.Append(unbox<double> x) |> ignore) (fun () -> b.AppendNull() |> ignore) v
             let field () = new Field(name, DoubleType.Default, true)
             let build () = b.Build() :> IArrowArray
-            (append, field, build)
+            append, field, build
             
         else if coreType = typeof<string> then
             let b = new StringArray.Builder() // 写的时候用 StringArray 兼容性最好
             let append v = appendWithNullCheck (fun x -> b.Append(unbox<string> x) |> ignore) (fun () -> b.AppendNull() |> ignore) v
             let field () = new Field(name, StringType.Default, true)
             let build () = b.Build() :> IArrowArray
-            (append, field, build)
+            append, field, build
 
         else if coreType = typeof<bool> then
             let b = new BooleanArray.Builder()
             let append v = appendWithNullCheck (fun x -> b.Append(unbox<bool> x) |> ignore) (fun () -> b.AppendNull() |> ignore) v
             let field () = new Field(name, BooleanType.Default, true)
             let build () = b.Build() :> IArrowArray
-            (append, field, build)
+            append, field, build
 
         else if coreType = typeof<DateTime> then
                     // Arrow 默认使用 Microsecond，这也是 Polars 的默认值
@@ -237,7 +237,7 @@ module Serialization =
                     args.[c] <- columnReaders.[c] i
                 
                 let record = FSharpValue.MakeRecord(typeof<'T>, args) :?> 'T
-                result.Add(record)
+                result.Add record
             
             Seq.toList result
 
@@ -261,7 +261,7 @@ module Serialization =
             for item in items do
                 let values = FSharpValue.GetRecordFields item
                 for i in 0 .. handlers.Length - 1 do
-                    let (append, _, _) = handlers.[i]
+                    let append, _, _ = handlers.[i]
                     append values.[i]
 
             // 构建 Arrow Batch
@@ -279,3 +279,142 @@ module Serialization =
             
             // 零拷贝传入 Polars (PolarsWrapper.FromArrow 内部会处理导出)
             new DataFrame(PolarsWrapper.FromArrow batch)
+
+[<AutoOpen>]
+module SeriesExtensions =
+
+    type Series with
+        /// <summary>
+        /// Convert Series to a typed sequence of Options.
+        /// </summary>
+        member this.AsSeq<'T>() : seq<'T option> =
+            // 1. 转为 Arrow 以便高效读取
+            // 注意：Series.ToArrow() 我们已经实现了
+            let arrow = this.ToArrow()
+            let len = arrow.Length
+
+            // 2. 利用 Display 模块里的读取逻辑，或者针对常用类型特化
+            // 为了性能，我们这里针对常见类型做模式匹配
+            let reader : int -> 'T option = 
+                match box Unchecked.defaultof<'T> with
+                | :? int -> 
+                    match arrow with
+                    | :? Int32Array as arr -> fun i -> if arr.IsNull i then None else Some(unbox (arr.GetValue(i).Value))
+                    | :? Int64Array as arr -> fun i -> if arr.IsNull i then None else Some(unbox (int (arr.GetValue(i).Value)))
+                    | _ -> failwith "Type mismatch: Expected Int32/64"
+                
+                | :? int64 ->
+                    match arrow with
+                    | :? Int64Array as arr -> fun i -> if arr.IsNull i then None else Some(unbox (arr.GetValue(i).Value))
+                    | :? Int32Array as arr -> fun i -> if arr.IsNull i then None else Some(unbox (int64 (arr.GetValue(i).Value)))
+                    | _ -> failwith "Type mismatch: Expected Int64/32"
+
+                | :? double ->
+                    match arrow with
+                    | :? DoubleArray as arr -> fun i -> if arr.IsNull i then None else Some(unbox (arr.GetValue(i).Value))
+                    | :? FloatArray as arr -> fun i -> if arr.IsNull i then None else Some(unbox (double (arr.GetValue(i).Value)))
+                    | _ -> failwith "Type mismatch: Expected Double/Float"
+
+                | :? decimal ->
+                    // Arrow 自动处理 Scale
+                    match arrow with
+                    | :? Decimal128Array as arr -> fun i -> if arr.IsNull i then None else Some(unbox (arr.GetValue(i).Value))
+                    | _ -> failwith "Type mismatch: Expected Decimal"
+
+                | :? string ->
+                    match arrow with
+                    | :? StringArray as arr -> fun i -> if arr.IsNull i then None else Some(unbox (arr.GetString i))
+                    | :? StringViewArray as arr -> fun i -> if arr.IsNull i then None else Some(unbox (arr.GetString i))
+                    // Categorical
+                    | :? DictionaryArray as arr ->
+                        // 这是一个简单的 Categorical 读取实现
+                        let indices = arr.Indices
+                        let dict = arr.Dictionary :?> StringArray // 假设 Dict 是 String
+                        // Helper to get key
+                        let getKey i = 
+                            match indices with
+                            | :? UInt32Array as idx -> if idx.IsNull i then -1 else int (idx.GetValue(i).Value)
+                            | :? Int32Array as idx -> if idx.IsNull i then -1 else int (idx.GetValue(i).Value)
+                            | _ -> -1
+                        
+                        fun i -> 
+                            let k = getKey i
+                            if k < 0 then None else Some(unbox (dict.GetString k))
+                    | _ -> failwith "Type mismatch: Expected String"
+
+                | :? bool ->
+                    match arrow with
+                    | :? BooleanArray as arr -> fun i -> if arr.IsNull i then None else Some(unbox (arr.GetValue(i).Value))
+                    | _ -> failwith "Type mismatch: Expected Boolean"
+
+                | _ -> failwithf "Unsupported type for AsSeq: %A" typeof<'T>
+
+            // 3. 生成序列
+            seq {
+                for i in 0 .. len - 1 do
+                    yield reader i
+            }
+
+        /// <summary>
+        /// Get values as a list (forces evaluation).
+        /// </summary>
+        member this.ToList<'T>() = this.AsSeq<'T>() |> Seq.toList
+
+    // --- Static Extensions ---
+    
+    type Series with
+        /// <summary>
+        /// Create a Series from a generic sequence.
+        /// Automatically dispatches to the correct create method.
+        /// </summary>
+        static member ofSeq<'T>(name: string, data: seq<'T>) : Series =
+            match box Unchecked.defaultof<'T> with
+            | :? int -> Series.create(name, data |> Seq.cast<int>)
+            | :? int64 -> Series.create(name, data |> Seq.cast<int64>)
+            | :? double -> Series.create(name, data |> Seq.cast<double>)
+            | :? bool -> Series.create(name, data |> Seq.cast<bool>)
+            | :? string -> Series.create(name, data |> Seq.cast<string>)
+            | _ -> failwithf "Unsupported type for Series.ofSeq: %A" typeof<'T>
+
+        /// <summary>
+        /// Create a Series from a generic sequence of Options.
+        /// </summary>
+        static member ofOptionSeq<'T>(name: string, data: seq<'T option>) : Series =
+            match box Unchecked.defaultof<'T> with
+            | :? int -> Series.create(name, data |> Seq.cast<int option>)
+            | :? int64 -> Series.create(name, data |> Seq.cast<int64 option>)
+            | :? double -> Series.create(name, data |> Seq.cast<double option>)
+            | :? bool -> Series.create(name, data |> Seq.cast<bool option>)
+            | :? string -> Series.create(name, data |> Seq.cast<string option>)
+            | _ -> failwithf "Unsupported type for Series.ofOptionSeq: %A" typeof<'T>
+    type Series with
+        /// <summary>
+        /// Apply a C# UDF (Arrow->Arrow) directly to this Series.
+        /// Returns a new Series.
+        /// </summary>
+        member this.Map(func: Func<IArrowArray, IArrowArray>) : Series =
+            // 1. 获取输入 (Zero-Copy)
+            let inputArrow = this.ToArrow()
+            
+            // 2. 执行运算
+            let outputArrow = func.Invoke(inputArrow)
+            
+            // 3. 将结果封装回 Series
+            // 这里的巧妙之处：Extensions.fs 可以看到 Polars.fromArrow
+            
+            // 3.1 构建 RecordBatch 包装纸
+            let field = new Apache.Arrow.Field(this.Name, outputArrow.Data.DataType, true)
+            let schema = new Apache.Arrow.Schema([| field |], null)
+            use batch = new Apache.Arrow.RecordBatch(schema, [| outputArrow |], outputArrow.Length)
+            
+            // 3.2 借道 DataFrame (Zero-Copy import)
+            use df = Polars.fromArrow batch
+            
+            // 3.3 提取 Series (Clone Handle)
+            // 这里的 df.Column(0) 是在 Polars.fs 之后调用的，所以没问题
+            // 但如果 df.Column 是 Types.fs 定义的成员，完全可以直接用
+            // 关键是 Polars.fromArrow 这个函数能在 Extensions.fs 里被访问到
+            let res = df.Column(0)
+            
+            // 显式重命名以防万一
+            res.Rename(this.Name)

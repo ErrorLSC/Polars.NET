@@ -19,6 +19,7 @@
     <Compile Include="SafetyTests.fs" />
     <Compile Include="UDFTests.fs" />
     <Compile Include="SeriesTests.fs" />
+    <Compile Include="ExtensionsTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

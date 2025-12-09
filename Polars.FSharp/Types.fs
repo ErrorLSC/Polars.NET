@@ -372,8 +372,6 @@ type Series(handle: SeriesHandle) =
     /// Convert the Series to an Apache Arrow Array.
     /// This operation involves zero-copy if possible, but may rechunk data internally.
     /// </summary>
-    member this.ToArrow() : IArrowArray =
-        PolarsWrapper.SeriesToArrow(handle)
 
     // ==========================================
     // Static Constructors
@@ -458,6 +456,9 @@ type Series(handle: SeriesHandle) =
         use typeHandle = dtype.CreateHandle()
         let newHandle = PolarsWrapper.SeriesCast(handle, typeHandle)
         new Series(newHandle)
+    member this.ToArrow() : IArrowArray =
+        PolarsWrapper.SeriesToArrow handle
+
 // --- Frames ---
 
 /// <summary>

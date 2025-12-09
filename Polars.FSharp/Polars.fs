@@ -72,7 +72,7 @@ module Polars =
         PolarsWrapper.SinkIpc(lfClone, path)
     /// <summary> Transform RecordBatch into DataFrame </summary>
     let fromArrow (batch: Apache.Arrow.RecordBatch) : DataFrame =
-        new DataFrame(PolarsWrapper.FromArrow(batch))
+        new DataFrame(PolarsWrapper.FromArrow batch)
     // --- Expr Helpers ---
     /// <summary> Cast an expression to a different data type. </summary>
     let cast (dtype: DataType) (e: Expr) = e.Cast dtype
