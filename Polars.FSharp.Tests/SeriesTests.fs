@@ -67,7 +67,7 @@ type ``Series Tests`` () =
         use sName = df.Column "name"
         Assert.Equal("name", sName.Name)
         Assert.Equal(2L, sName.Length)
-
+        sName |> Polars.showSeries |> ignore
         // 3. 获取 Series (ByIndex)
         use sAge = df.Column(1)
         Assert.Equal("age", sAge.Name)

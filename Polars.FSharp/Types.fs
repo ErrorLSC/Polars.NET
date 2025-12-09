@@ -447,7 +447,6 @@ type Series(handle: SeriesHandle) =
     // ==========================================
     // Interop with DataFrame
     // ==========================================
-    
     member this.ToFrame() : DataFrame =
         let h = PolarsWrapper.SeriesToFrame handle
         new DataFrame(h)
@@ -456,7 +455,6 @@ type Series(handle: SeriesHandle) =
         use typeHandle = dtype.CreateHandle()
         let newHandle = PolarsWrapper.SeriesCast(handle, typeHandle)
         new Series(newHandle)
-
 // --- Frames ---
 
 /// <summary>

@@ -67,12 +67,12 @@ public static partial class PolarsWrapper
 
     public static DataFrameHandle Head(DataFrameHandle df, uint n)
     {
-        return ErrorHelper.Check(NativeBindings.pl_head(df, (UIntPtr)n));
+        return ErrorHelper.Check(NativeBindings.pl_head(df, n));
     }
 
     public static DataFrameHandle Tail(DataFrameHandle df, uint n)
     {
-        return ErrorHelper.Check(NativeBindings.pl_tail(df, (UIntPtr)n));
+        return ErrorHelper.Check(NativeBindings.pl_tail(df, n));
     }
 
     public static DataFrameHandle Filter(DataFrameHandle df, ExprHandle expr)

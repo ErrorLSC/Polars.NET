@@ -3,16 +3,14 @@ namespace Polars.FSharp
 open System
 open System.Text
 open Microsoft.DotNet.Interactive.Formatting
-open Polars.Native
 /// <summary>
 /// Display utilities for DataFrame and LazyFrame in interactive environments.
 /// </summary>
 [<AutoOpen>]
 module Display =
-    
     let private formatValueHtml (col: Apache.Arrow.IArrowArray) (index: int) : string =
-        let raw = Polars.formatValue col index 
-        System.Web.HttpUtility.HtmlEncode(raw)
+        let raw = Polars.Printing.formatValue col index 
+        System.Web.HttpUtility.HtmlEncode raw
 
     let toHtml (df: DataFrame) =
         let rowsToShow = 10
@@ -91,3 +89,5 @@ module Display =
             ),
             "text/html"
         )
+
+    
