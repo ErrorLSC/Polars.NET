@@ -138,7 +138,11 @@ public static partial class PolarsWrapper
         ));
     }
     // --- Properties ---
-
+    public static string GetSeriesDtypeString(SeriesHandle h)
+    {
+        var ptr = NativeBindings.pl_series_dtype_str(h);
+        return ErrorHelper.CheckString(ptr);
+    }
     public static long SeriesLen(SeriesHandle h) => (long)NativeBindings.pl_series_len(h);
     
     public static string SeriesName(SeriesHandle h) 

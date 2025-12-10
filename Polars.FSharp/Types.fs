@@ -370,11 +370,10 @@ type Series(handle: SeriesHandle) =
     member this.Rename(name: string) = 
         PolarsWrapper.SeriesRename(handle, name)
         this
-
     /// <summary>
-    /// Convert the Series to an Apache Arrow Array.
-    /// This operation involves zero-copy if possible, but may rechunk data internally.
+    /// Get the string representation of the Series Data Type (e.g., "Int64", "String").
     /// </summary>
+    member _.DtypeStr = PolarsWrapper.GetSeriesDtypeString handle
 
     // ==========================================
     // Static Constructors
@@ -595,6 +594,28 @@ and DataFrame(handle: DataFrameHandle) =
     member this.Clone() = new DataFrame(PolarsWrapper.CloneDataFrame handle)
     member internal this.CloneHandle() = PolarsWrapper.CloneDataFrame handle
     member _.Handle = handle
+    /// <summary>
+    /// Get the schema of the DataFrame as a Map (Column Name -> Data Type String).
+    /// </summary>
+    member this.Schema : Map<string, string> =
+        let json = PolarsWrapper.GetDataFrameSchemaString handle
+        if String.IsNullOrEmpty json then Map.empty
+        else
+            try
+                // 使用 System.Text.Json 解析
+                let dict = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.Dictionary<string, string>>(json)
+                // 转为 F# Map
+                dict |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+            with _ ->
+                Map.empty
+
+    /// <summary>
+    /// Print the schema to Console.
+    /// </summary>
+    member this.PrintSchema() =
+        printfn "--- DataFrame Schema ---"
+        this.Schema |> Map.iter (fun name dtype -> printfn "%-15s | %s" name dtype)
+        printfn "------------------------"
     static member create(series: Series list) : DataFrame =
         let handles = 
             series 

@@ -195,6 +195,12 @@ pub extern "C" fn pl_series_rename(ptr: *mut SeriesContext, name: *const c_char)
     ctx.series.rename(name_str.into());
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_dtype_str(s_ptr: *mut SeriesContext) -> *mut c_char {
+    let ctx = unsafe { &*s_ptr };
+    let dtype_str = ctx.series.dtype().to_string();
+    CString::new(dtype_str).unwrap().into_raw()
+}
 // [Series 转 Arrow]
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_to_arrow(ptr: *mut SeriesContext) -> *mut ArrowArrayContext {

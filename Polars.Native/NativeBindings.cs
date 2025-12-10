@@ -49,7 +49,8 @@ unsafe internal partial class NativeBindings
 
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_lit_i32(int val);
-
+    [LibraryImport(LibName)]
+    public static partial IntPtr pl_dataframe_schema(DataFrameHandle df);
     [LibraryImport(LibName)]
     public static partial UIntPtr pl_dataframe_height(DataFrameHandle df);
     
@@ -466,6 +467,8 @@ unsafe internal partial class NativeBindings
         UIntPtr scale
     );
     // --- Series Properties ---
+    [LibraryImport(LibName)]
+    public static partial IntPtr pl_series_dtype_str(SeriesHandle s);
     [LibraryImport(LibName)]
     public static partial UIntPtr pl_series_len(SeriesHandle h);
 

@@ -63,7 +63,29 @@ type ``Basic Functionality Tests`` () =
         finally
             if System.IO.File.Exists tmpParquet then
                 System.IO.File.Delete tmpParquet
+    [<Fact>]
+    member _.``Metadata: Schema and Dtype`` () =
+        // 1. 创建 DataFrame
+        use s1 = Series.create("id", [1; 2; 3])
+        use s2 = Series.create("score", [1.1; 2.2; 3.3])
+        use s3 = Series.create("is_active", [true; false; true])
+        
+        use df = DataFrame.create [s1; s2; s3]
 
+        // 2. 验证 Series Dtype
+        Assert.Equal("i32", s1.DtypeStr)   // F# int 是 Int32
+        Assert.Equal("f64", s2.DtypeStr) // F# float 是 double (Float64)
+        Assert.Equal("bool", s3.DtypeStr)
+
+        // 3. 验证 DataFrame Schema
+        let schema = df.Schema
+        Assert.Equal(3, schema.Count)
+        Assert.Equal("i32", schema.["id"])
+        Assert.Equal("f64", schema.["score"])
+        Assert.Equal("bool", schema.["is_active"])
+        
+        // 4. 打印看看效果
+        df.PrintSchema()
     [<Fact>]
     member _.``Lazy Introspection: Schema and Explain`` () =
         use csv = new TempCsv "a,b\n1,2"

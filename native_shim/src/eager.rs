@@ -206,6 +206,22 @@ pub extern "C" fn pl_dataframe_get_column_name(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_schema(df_ptr: *mut DataFrameContext) -> *mut c_char {
+    let ctx = unsafe { &*df_ptr };
+    // 获取 Schema
+    let schema = ctx.df.schema();
+      
+    // 简单粗暴方案：构建一个 Map<Name, DtypeStr>
+    let map: std::collections::HashMap<String, String> = schema.iter_names_and_dtypes()
+        .map(|(name, dtype)| (name.to_string(), dtype.to_string()))
+        .collect();
+
+    let json = serde_json::to_string(&map).unwrap_or_else(|_| "{}".to_string());
+    
+    CString::new(json).unwrap().into_raw()
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_clone(ptr: *mut DataFrameContext) -> *mut DataFrameContext {
     ffi_try!({
         // 1. 借用 (&*ptr) 而不是消费 (Box::from_raw)
