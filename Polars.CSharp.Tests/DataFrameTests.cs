@@ -477,4 +477,33 @@ B,5";
         Assert.Equal(5, batch.Column("val_list_max").GetInt64Value(1));
         Assert.Equal("true", batch.Column("has_3").FormatValue(1));
     }
+    [Fact]
+    public void Test_DataFrame_From_Records_With_Decimal()
+    {
+        // 1. 准备数据
+        var data = new[]
+        {
+            new { Id = 1, Name = "A", Price = 10.5m },
+            new { Id = 2, Name = "B", Price = 20.005m }, // Scale 3
+            new { Id = 3, Name = "C", Price = 0m }
+        };
+
+        // 2. 转换
+        // 匿名类型也是支持的
+        using var df = DataFrame.From(data);
+        
+        Assert.Equal(3, df.Height);
+        Assert.Equal(3, df.Width);
+
+        // 3. 验证
+        using var batch = df.ToArrow();
+        
+        // 验证 Decimal
+        var priceCol = batch.Column("Price") as Decimal128Array;
+        Assert.NotNull(priceCol);
+        Assert.Equal(3, priceCol.Scale); // 自动推断
+        Assert.Equal(10.5m, priceCol.GetValue(0));   // 之前期望 10500 是错的，Arrow 已经除回去了
+        Assert.Equal(20.005m, priceCol.GetValue(1)); 
+        Assert.Equal(0m, priceCol.GetValue(2));
+    }
 }

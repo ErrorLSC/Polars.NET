@@ -1,5 +1,6 @@
 using Polars.Native;
 using Apache.Arrow;
+using System.Reflection;
 namespace Polars.CSharp;
 
 /// <summary>
@@ -475,5 +476,73 @@ public class DataFrame : IDisposable
     public void Dispose()
     {
         Handle?.Dispose();
+    }
+    // ==========================================
+    // Object Mapping (From Records)
+    // ==========================================
+
+    /// <summary>
+    /// Create a DataFrame from a collection of objects (Records/Classes).
+    /// Uses reflection to map Properties to Columns.
+    /// </summary>
+    public static DataFrame From<T>(IEnumerable<T> items)
+    {
+        var properties = typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        var seriesHandles = new SeriesHandle[properties.Length];
+        var itemsList = items as IList<T> ?? items.ToList();
+        var createdHandles = new List<SeriesHandle>();
+
+        try
+        {
+            for (int i = 0; i < properties.Length; i++)
+            {
+                var prop = properties[i];
+                var colName = prop.Name;
+                var colType = prop.PropertyType;
+
+                // 1. 获取原始数据 (IEnumerable<object>)
+                var rawValues = itemsList.Select(item => prop.GetValue(item));
+
+                // 2. [关键修复] 动态调用 Enumerable.Cast<ColType>()
+                // 将 IEnumerable<object> 转换为 IEnumerable<int> / IEnumerable<decimal?> 等
+                var castMethod = typeof(Enumerable)
+                    .GetMethod(nameof(Enumerable.Cast), BindingFlags.Public | BindingFlags.Static)!
+                    .MakeGenericMethod(colType);
+                
+                var castedValues = castMethod.Invoke(null, new object[] { rawValues });
+
+                // 3. 调用 Series.Create<ColType>
+                var createMethod = typeof(Series)
+                    .GetMethod(nameof(Series.Create), BindingFlags.Public | BindingFlags.Static)!
+                    .MakeGenericMethod(colType);
+                
+                // 现在传入的是类型匹配的 castedValues
+                var seriesObj = (Series)createMethod.Invoke(null, new object[] { colName, castedValues! })!;
+                
+                seriesHandles[i] = seriesObj.Handle;
+                createdHandles.Add(seriesObj.Handle); 
+            }
+
+            // 调用 Wrapper 创建 DataFrame
+            // 你的 Wrapper: DataFrameNew(SeriesHandle[])
+            return new DataFrame(PolarsWrapper.DataFrameNew(seriesHandles));
+        }
+        finally
+        {
+            // [生命周期管理]
+            // DataFrameNew 调用完后，Rust 已经有了这些 Series (不管是 Move 还是 Clone)。
+            // 如果 Rust 是 Clone 的，我们这里必须 Dispose 旧的 Handles。
+            // 如果 Rust 是 Move 的，我们这里必须 SetHandleAsInvalid (TransferOwnership)。
+            
+            // 通常 pl_dataframe_new(columns) 会消耗 columns。
+            // 如果你的 C# Wrapper 用的是 DangerousGetHandle，说明没交出所有权。
+            // 那意味着 Rust 那边必须 Clone。
+            // 如果 Rust Clone 了，那我们这里就可以安全释放 C# 侧的 Handles 了。
+            
+            foreach (var h in createdHandles)
+            {
+                if (!h.IsInvalid) h.Dispose();
+            }
+        }
     }
 }
