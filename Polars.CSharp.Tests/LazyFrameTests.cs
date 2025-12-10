@@ -349,4 +349,30 @@ HR,50";
         using var sqlRes = ctx.Execute("SELECT * FROM mytable WHERE Val < 15").Collect();
         Assert.Equal(1, sqlRes.Height); // Only A
     }
+    [Fact]
+    public void Test_Lazy_GroupBy_Ownership()
+    {
+        // 1. 数据
+        var data = new[]
+        {
+            new { Dept = "A", Val = 10 },
+            new { Dept = "A", Val = 20 },
+            new { Dept = "B", Val = 30 }
+        };
+        using var df = DataFrame.From(data);
+        using var lf = df.Lazy();
+
+        // 2. 第一次聚合
+        // GroupBy 内部 Clone 了 Handle，所以 Agg 消耗的是副本
+        using var agg1 = lf.GroupBy(Col("Dept"))
+                           .Agg(Col("Val").Sum().Alias("SumVal"))
+                           .Collect();
+        
+        Assert.Equal(2, agg1.Height); // A, B
+
+        // 3. 验证原 lf 是否还活着 (如果 GroupBy 没 Clone，这里会崩)
+        // 我们做个简单的 Select 操作验证
+        using var res2 = lf.Select(Col("Dept")).Collect();
+        Assert.Equal(3, res2.Height);
+    }
 }

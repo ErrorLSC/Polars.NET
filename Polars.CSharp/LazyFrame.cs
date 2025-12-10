@@ -286,15 +286,16 @@ public class LazyFrame : IDisposable
     // GroupBy
     // ==========================================
     /// <summary>
-    /// Begin a GroupBy operation on the LazyFrame.
+    /// Start a GroupBy operation on specified keys.
     /// </summary>
-    /// <param name="by"></param>
+    /// <param name="keys"></param>
     /// <returns></returns>
-    public LazyGroupByBuilder GroupBy(params Expr[] by)
+    public LazyGroupBy GroupBy(params Expr[] keys)
     {
-        return new LazyGroupByBuilder(this, by);
+        var lfClone = this.CloneHandle();
+        
+        return new LazyGroupBy(lfClone, keys);
     }
-
     // ==========================================
     // Execution (Collect)
     // ==========================================
