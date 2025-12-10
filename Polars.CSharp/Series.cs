@@ -104,7 +104,15 @@ public class Series : IDisposable
             var (data, validity) = ToRawArrays(array, v => (double)(object)v!);
             return new Series(name, PolarsWrapper.SeriesNew(name, data, validity));
         }
-
+        if (underlyingType == typeof(float))
+        {
+            // 策略：复用 SeriesNew(double[])，创建后 Cast 为 Float32
+            // 这样不需要在底层 NativeBindings 加 pl_series_new_f32
+            var (data, validity) = ToRawArrays(array, v => (double)(float)(object)v!);
+            
+            using var temp = new Series(name, PolarsWrapper.SeriesNew(name, data, validity));
+            return temp.Cast(DataType.Float32);
+        }
         // --- 4. Boolean ---
         if (underlyingType == typeof(bool))
         {

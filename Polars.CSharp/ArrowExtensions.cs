@@ -89,6 +89,25 @@ public static class ArrowExtensions
         };
     }
     /// <summary>
+    /// Deal with Double Values
+    /// </summary>
+    /// <param name="array"></param>
+    /// <param name="index"></param>
+    /// <returns></returns>
+    public static double? GetDoubleValue(this IArrowArray array, int index)
+    {
+        if (array.IsNull(index)) return null;
+        return array switch
+        {
+            DoubleArray d => d.GetValue(index),
+            FloatArray f => f.GetValue(index),
+            // 也可以支持整型转浮点
+            Int64Array i => i.GetValue(index),
+            Int32Array i => i.GetValue(index),
+            _ => null
+        };
+    }
+    /// <summary>
     /// Deal with String Values
     /// </summary>
     /// <param name="array"></param>

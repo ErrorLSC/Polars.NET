@@ -509,7 +509,7 @@ public class DataFrame : IDisposable
                     .GetMethod(nameof(Enumerable.Cast), BindingFlags.Public | BindingFlags.Static)!
                     .MakeGenericMethod(colType);
                 
-                var castedValues = castMethod.Invoke(null, new object[] { rawValues });
+                var castedValues = castMethod.Invoke(null, [rawValues]);
 
                 // 3. 调用 Series.Create<ColType>
                 var createMethod = typeof(Series)
@@ -517,7 +517,7 @@ public class DataFrame : IDisposable
                     .MakeGenericMethod(colType);
                 
                 // 现在传入的是类型匹配的 castedValues
-                var seriesObj = (Series)createMethod.Invoke(null, new object[] { colName, castedValues! })!;
+                var seriesObj = (Series)createMethod.Invoke(null, [colName, castedValues!])!;
                 
                 seriesHandles[i] = seriesObj.Handle;
                 createdHandles.Add(seriesObj.Handle); 
@@ -528,21 +528,154 @@ public class DataFrame : IDisposable
             return new DataFrame(PolarsWrapper.DataFrameNew(seriesHandles));
         }
         finally
-        {
-            // [生命周期管理]
-            // DataFrameNew 调用完后，Rust 已经有了这些 Series (不管是 Move 还是 Clone)。
-            // 如果 Rust 是 Clone 的，我们这里必须 Dispose 旧的 Handles。
-            // 如果 Rust 是 Move 的，我们这里必须 SetHandleAsInvalid (TransferOwnership)。
-            
-            // 通常 pl_dataframe_new(columns) 会消耗 columns。
-            // 如果你的 C# Wrapper 用的是 DangerousGetHandle，说明没交出所有权。
-            // 那意味着 Rust 那边必须 Clone。
-            // 如果 Rust Clone 了，那我们这里就可以安全释放 C# 侧的 Handles 了。
-            
+        {      
             foreach (var h in createdHandles)
             {
                 if (!h.IsInvalid) h.Dispose();
             }
         }
+    }
+    // ==========================================
+    // Object Mapping (To Records)
+    // ==========================================
+
+    /// <summary>
+    /// Convert DataFrame rows back to a list of objects.
+    /// Note: This materializes the data (ToArrow) and uses reflection.
+    /// </summary>
+    public IEnumerable<T> Rows<T>() where T : new()
+    {
+        // 1. 导出数据到 Arrow
+        // ToArrow 会自动 Rechunk，所以我们拿到的是连续内存
+        using var batch = this.ToArrow();
+        int rowCount = batch.Length;
+
+        // 2. 准备反射元数据 (缓存起来避免循环内反射)
+        var type = typeof(T);
+        var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                             .Where(p => p.CanWrite) // 必须能写入
+                             .ToArray();
+
+        // 3. 预先查找每一列对应的 Arrow Array，并检查类型兼容性
+        var columnAccessors = new Func<int, object?>[properties.Length];
+
+        for (int i = 0; i < properties.Length; i++)
+        {
+            var prop = properties[i];
+            var colName = prop.Name;
+            
+            // 查找列 (不区分大小写可能会更友好，但这里先严格匹配)
+            var col = batch.Column(colName);
+            if (col == null) 
+            {
+                // 如果找不到列，可以选择抛错或者忽略（保留默认值）
+                // 这里我们选择忽略，对应的 accessor 为 null
+                columnAccessors[i] = _ => null; 
+                continue;
+            }
+
+            // 创建读取器委托 (针对目标属性类型进行适配)
+            columnAccessors[i] = CreateAccessor(col, prop.PropertyType);
+        }
+
+        // 4. 遍历行，构造对象
+        for (int i = 0; i < rowCount; i++)
+        {
+            var item = new T();
+            for (int p = 0; p < properties.Length; p++)
+            {
+                var accessor = columnAccessors[p];
+                if (accessor != null) // 如果该属性有对应的列
+                {
+                    // 获取值
+                    var val = accessor(i);
+                    // 只有非 null 才赋值 (避免覆盖默认值)
+                    if (val != null)
+                    {
+                        properties[p].SetValue(item, val);
+                    }
+                }
+            }
+            yield return item;
+        }
+    }
+
+    // --- 智能类型转换工厂 ---
+    // 根据 Arrow 列类型 和 C# 目标类型，生成最高效的读取器
+    private static Func<int, object?> CreateAccessor(IArrowArray array, Type targetType)
+    {
+        // 获取底层类型 (处理 Nullable<T>)
+        var underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+
+        // 1. String
+        if (underlyingType == typeof(string))
+        {
+            return array.GetStringValue; // 使用之前写的扩展方法
+        }
+
+        // 2. Int / Long (Arrow 默认通常是 Int64)
+        if (underlyingType == typeof(int) || underlyingType == typeof(long))
+        {
+            return idx => 
+            {
+                long? val = array.GetInt64Value(idx); // 扩展方法获取 long?
+                if (!val.HasValue) return null;
+                
+                // 窄化转换
+                if (underlyingType == typeof(int)) return (int)val.Value;
+                return val.Value;
+            };
+        }
+
+        // 3. Double / Float
+        if (underlyingType == typeof(double) || underlyingType == typeof(float))
+        {
+            return idx => 
+            {
+                // [优化] 直接调用扩展方法 array.GetDoubleValue(idx)
+                // 它的内部实现已经包含了对 DoubleArray, FloatArray, IntArray 的 switch/case
+                // 所以这里不需要再写 if (array is DoubleArray) 了
+                double? v = array.GetDoubleValue(idx);
+                
+                if (!v.HasValue) return null;
+                
+                // 如果目标属性是 float，需要从 double 强转回来 (窄化转换)
+                if (underlyingType == typeof(float)) return (float)v.Value;
+                
+                return v.Value;
+            };
+        }
+
+        // 4. Decimal (核心！)
+        if (underlyingType == typeof(decimal))
+        {
+            return idx =>
+            {
+                if (array is Decimal128Array decArr)
+                {
+                    return decArr.GetValue(idx); // Arrow 自动处理了 Scale，返回 C# decimal?
+                }
+                // 兼容：如果 Polars 传回的是 Double (还没转 Decimal)，尝试强转
+                if (array is DoubleArray dArr)
+                {
+                    var v = dArr.GetValue(idx);
+                    return v.HasValue ? (decimal)v.Value : null;
+                }
+                return null;
+            };
+        }
+
+        // 5. Bool
+        if (underlyingType == typeof(bool))
+        {
+            return idx => 
+            {
+                if (array is BooleanArray bArr) return bArr.GetValue(idx);
+                return null;
+            };
+        }
+
+        // 默认回退 (低效但安全)
+        return _ => null;
     }
 }

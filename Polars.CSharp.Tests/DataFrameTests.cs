@@ -506,4 +506,46 @@ B,5";
         Assert.Equal(20.005m, priceCol.GetValue(1)); 
         Assert.Equal(0m, priceCol.GetValue(2));
     }
+public class TradeRecord
+    {
+        public string Ticker { get; set; }
+        public int Qty { get; set; }        // C# int <-> Polars Int64
+        public decimal Price { get; set; }  // C# decimal <-> Polars Decimal(18,2)
+        public double? Factor { get; set; } // C# double <-> Polars Float64
+        public float Risk { get; set; }     // C# float <-> Polars Float64 (downcast)
+    }
+
+    [Fact]
+    public void Test_DataFrame_RoundTrip_POCO()
+    {
+        // 1. 原始数据
+        var trades = new List<TradeRecord>
+        {
+            new() { Ticker = "AAPL", Qty = 100, Price = 150.50m, Factor = 1.1, Risk = 0.5f },
+            new() { Ticker = "GOOG", Qty = 50,  Price = 2800.00m, Factor = null, Risk = 0.1f },
+            new() { Ticker = "MSFT", Qty = 200, Price = 300.25m, Factor = 0.95, Risk = 0.2f }
+        };
+
+        // 2. From: List -> DataFrame
+        using var df = DataFrame.From(trades);
+        
+        Assert.Equal(3, df.Height);
+        
+        // 3. To: DataFrame -> List (Rows<T>)
+        var resultList = df.Rows<TradeRecord>().ToList();
+
+        Assert.Equal(3, resultList.Count);
+
+        // 4. 验证数据
+        var row0 = resultList[0];
+        Assert.Equal("AAPL", row0.Ticker);
+        Assert.Equal(100, row0.Qty);
+        Assert.Equal(150.50m, row0.Price);
+        Assert.Equal(1.1, row0.Factor);
+        Assert.Equal(0.5f, row0.Risk);
+
+        var row1 = resultList[1];
+        Assert.Equal("GOOG", row1.Ticker);
+        Assert.Null(row1.Factor); // 验证 Null 透传
+    }
 }
