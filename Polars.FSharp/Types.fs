@@ -353,11 +353,14 @@ type Selector(handle: SelectorHandle) =
 
     member this.ToExpr() =
         new Expr(PolarsWrapper.SelectorToExpr(this.CloneHandle()))
+
+
 /// --- Series ---
 /// <summary>
 /// An eager Series holding a single column of data.
 /// </summary>
 type Series(handle: SeriesHandle) =
+
     interface IDisposable with member _.Dispose() = handle.Dispose()
     member _.Handle = handle
 
@@ -444,8 +447,41 @@ type Series(handle: SeriesHandle) =
         // 将 Option 转换为 string array (None -> null)
         let vals = arr |> Array.map (fun opt -> match opt with Some s -> s | None -> null)
         new Series(PolarsWrapper.SeriesNew(name, vals))
+    // --- DateTime ---
+    static member create(name: string, data: DateTime seq) = 
+        let arr = Seq.toArray data
+        let longs = Array.zeroCreate<int64> arr.Length
+        let epoch = 621355968000000000L
+        
+        for i in 0 .. arr.Length - 1 do
+            // 转换为 Unix Microseconds
+            longs.[i] <- (arr.[i].Ticks - epoch) / 10L
+
+        // 1. 创建 Int64 Series
+        let s = Series.create(name, longs)
+        // 2. 转换为 Datetime 类型 (Microseconds, No Timezone)
+        s.Cast DataType.Datetime
+
+    static member create(name: string, data: DateTime option seq) = 
+        let arr = Seq.toArray data
+        let longs = Array.zeroCreate<int64> arr.Length
+        let valid = Array.zeroCreate<bool> arr.Length
+        let epoch = 621355968000000000L
+        
+        for i in 0 .. arr.Length - 1 do
+            match arr.[i] with
+            | Some dt -> 
+                longs.[i] <- (dt.Ticks - epoch) / 10L
+                valid.[i] <- true
+            | None -> 
+                longs.[i] <- 0L
+                valid.[i] <- false
+
+        // 直接调用底层 Wrapper 创建带 Validity 的 Int64 Series
+        let s = new Series(PolarsWrapper.SeriesNew(name, longs, valid))
+        s.Cast DataType.Datetime
+
     // --- Decimal ---
-    
     /// <summary>
     /// Create a Decimal Series.
     /// scale: The number of decimal places (e.g., 2 for currency).
@@ -461,6 +497,79 @@ type Series(handle: SeriesHandle) =
             arr |> Array.map (function Some v -> System.Nullable(v) | None -> System.Nullable())
             
         new Series(PolarsWrapper.SeriesNewDecimal(name, nullableArr, scale))
+
+    /// <summary>
+    /// Smart Constructor:
+    /// 1. Handles primitive types (int, double...).
+    /// 2. Handles Option types (int option...) by forwarding to ofOptionSeq.
+    /// 3. Handles Decimal types (decimal, decimal option) by inferring scale.
+    /// </summary>
+    static member ofOptionSeq<'T>(name: string, data: seq<'T option>) : Series =
+        let t = typeof<'T>
+        if t = typeof<int> then Series.create(name, data |> Seq.cast<int option>)
+        else if t = typeof<int64> then Series.create(name, data |> Seq.cast<int64 option>)
+        else if t = typeof<double> then Series.create(name, data |> Seq.cast<double option>)
+        else if t = typeof<bool> then Series.create(name, data |> Seq.cast<bool option>)
+        else if t = typeof<string> then Series.create(name, data |> Seq.cast<string option>)
+        else if t = typeof<DateTime> then Series.create(name, data |> Seq.cast<DateTime option>)
+        else failwithf "Unsupported type for Series.ofOptionSeq: %A" t
+
+    /// <summary>
+    /// Smart Constructor:
+    /// 1. Handles primitive types (int, double...).
+    /// 2. Handles Option types (int option...) by forwarding to ofOptionSeq.
+    /// 3. Handles Decimal types (decimal, decimal option) by inferring scale.
+    /// </summary>
+    static member ofSeq<'T>(name: string, data: seq<'T>) : Series =
+        let t = typeof<'T>
+
+        let getDecimalScale (d: decimal) =
+            let bits = System.Decimal.GetBits(d)
+            (bits.[3] >>> 16) &&& 0xFF
+
+        // A. 检查是否是 Option 类型 (例如 int option)
+        if t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<option<_>> then
+            let innerType = t.GetGenericArguments().[0]
+            
+            // 针对 decimal option 特殊处理 (为了 Scale)
+            if innerType = typeof<decimal> then
+                let arr = data |> Seq.cast<decimal option> |> Seq.toArray
+                // 扫描数据计算最大 Scale
+                let maxScale = 
+                    if arr.Length = 0 then 0 
+                    else 
+                        arr 
+                        |> Array.choose id 
+                        |> Array.map getDecimalScale 
+                        |> Array.append [| 0 |] 
+                        |> Array.max
+                Series.create(name, arr, maxScale)
+            else if innerType = typeof<DateTime> then 
+                Series.create(name, data |> Seq.cast<DateTime option>)
+            // 其他 Option 类型 -> 转发给 ofOptionSeq
+            else if innerType = typeof<int> then Series.ofOptionSeq(name, data |> Seq.cast<int option>)
+            else if innerType = typeof<int64> then Series.ofOptionSeq(name, data |> Seq.cast<int64 option>)
+            else if innerType = typeof<double> then Series.ofOptionSeq(name, data |> Seq.cast<double option>)
+            else if innerType = typeof<bool> then Series.ofOptionSeq(name, data |> Seq.cast<bool option>)
+            else if innerType = typeof<string> then Series.ofOptionSeq(name, data |> Seq.cast<string option>)
+            else failwithf "Unsupported Option type inside ofSeq: %A" innerType
+
+        // B. 处理普通类型 (Non-Option)
+        else
+            if t = typeof<int> then Series.create(name, data |> Seq.cast<int>)
+            else if t = typeof<int64> then Series.create(name, data |> Seq.cast<int64>)
+            else if t = typeof<double> then Series.create(name, data |> Seq.cast<double>)
+            else if t = typeof<bool> then Series.create(name, data |> Seq.cast<bool>)
+            else if t = typeof<string> then Series.create(name, data |> Seq.cast<string>)
+            else if t = typeof<DateTime> then Series.create(name, data |> Seq.cast<DateTime>)
+            else if t = typeof<decimal> then 
+                let arr = data |> Seq.cast<decimal> |> Seq.toArray
+                let maxScale = 
+                    if arr.Length = 0 then 0 
+                    else arr |> Array.map getDecimalScale |> Array.max
+                Series.create(name, arr, maxScale)
+            else 
+                failwithf "Unsupported type for Series.ofSeq: %A" t
     // ==========================================
     // Interop with DataFrame
     // ==========================================
