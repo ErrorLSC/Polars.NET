@@ -303,7 +303,64 @@ public class Expr : IDisposable
         var f = PolarsWrapper.CloneExpr(fillValue.Handle);
         return new Expr(PolarsWrapper.FillNull(e, f));
     }
+    /// <summary>
+    /// Fill null values with a specified literal value.
+    /// </summary>
+    /// <param name="value"></param>
+    /// <returns></returns>
+    public Expr FillNull(int value) => FillNull(Polars.Lit(value));
+    /// <summary>
+    /// Fill null values with a specified literal value.
+    /// </summary>
+    /// <param name="value"></param>
+    /// <returns></returns>
+    public Expr FillNull(double value) => FillNull(Polars.Lit(value));
+    /// <summary>
+    /// Fill null values with a specified literal value.    
+    /// </summary>
+    /// <param name="value"></param>
+    /// <returns></returns>
+    public Expr FillNull(string value) => FillNull(Polars.Lit(value));
+    /// <summary>
+    /// Fill null values with a specified literal value.
+    /// </summary>
+    /// <param name="value"></param>
+    /// <returns></returns>
+    public Expr FillNull(bool value) => FillNull(Polars.Lit(value));
+    /// <summary>
+    /// Fill null values with a specified literal value.
+    /// </summary>
+    /// <param name="value"></param>
+    /// <returns></returns>
+    public Expr FillNull(long value) => FillNull(Polars.Lit(value));
+    /// <summary>
+    /// Fill null values with a specified literal value.
+    /// </summary>
+    /// <param name="value"></param>
+    /// <returns></returns>
+    public Expr FillNull(float value) => FillNull(Polars.Lit(value));
+    /// <summary>
+    /// Fill null values with a specified literal value.
+    /// </summary>
+    /// <param name="value"></param>
+    /// <returns></returns>
+    public Expr FillNull(DateTime value) => FillNull(Polars.Lit(value));
+    /// <summary>
+    /// Fill null values with a specific strategy (Forward).
+    /// </summary>
+    /// <param name="limit">Max number of consecutive nulls to fill. (Default null = infinite)</param>
+    public Expr ForwardFill(uint? limit = null)
+    {
+        return new Expr(PolarsWrapper.ForwardFill(Handle, limit ?? 0));
+    }
 
+    /// <summary>
+    /// Fill null values with a specific strategy (Backward).
+    /// </summary>
+    public Expr BackwardFill(uint? limit = null)
+    {
+        return new Expr(PolarsWrapper.BackwardFill(Handle, limit ?? 0));
+    }
     /// <summary>
     /// Evaluate whether the expression is null.
     /// </summary>

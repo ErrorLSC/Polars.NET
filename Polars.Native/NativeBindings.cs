@@ -50,6 +50,13 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_lit_i32(int val);
     [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_lit_bool([MarshalAs(UnmanagedType.I1)] bool val);
+
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_lit_i64(long val);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_lit_f32(float val);
+    [LibraryImport(LibName)]
     public static partial IntPtr pl_dataframe_schema(DataFrameHandle df);
     [LibraryImport(LibName)]
     public static partial UIntPtr pl_dataframe_height(DataFrameHandle df);

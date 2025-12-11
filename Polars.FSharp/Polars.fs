@@ -21,10 +21,13 @@ module Polars =
 
     // --- Lit (SRTP) ---
     type LitMechanism = LitMechanism with
-        static member ($) (LitMechanism, v: int) = new Expr(PolarsWrapper.Lit(v))
-        static member ($) (LitMechanism, v: string) = new Expr(PolarsWrapper.Lit(v))
-        static member ($) (LitMechanism, v: double) = new Expr(PolarsWrapper.Lit(v))
-        static member ($) (LitMechanism, v: DateTime) = new Expr(PolarsWrapper.Lit(v))
+        static member ($) (LitMechanism, v: int) = new Expr(PolarsWrapper.Lit v)
+        static member ($) (LitMechanism, v: string) = new Expr(PolarsWrapper.Lit v)
+        static member ($) (LitMechanism, v: double) = new Expr(PolarsWrapper.Lit v)
+        static member ($) (LitMechanism, v: DateTime) = new Expr(PolarsWrapper.Lit v)
+        static member ($) (LitMechanism, v: bool) = new Expr(PolarsWrapper.Lit v)
+        static member ($) (LitMechanism, v: float32) = new Expr(PolarsWrapper.Lit v)
+        static member ($) (LitMechanism, v: int64) = new Expr(PolarsWrapper.Lit v)
 
     /// <summary> Create a literal expression from a value. </summary>
     let inline lit (value: ^T) : Expr = 

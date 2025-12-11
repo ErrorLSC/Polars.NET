@@ -234,7 +234,59 @@ public class DataFrame : IDisposable
         //
         return new DataFrame(PolarsWrapper.Explode(Handle, handles));
     }
+    // ==========================================
+    // Data Cleaning / Structure Ops
+    // ==========================================
 
+    /// <summary>
+    /// Drop a column by name.
+    /// </summary>
+    public DataFrame Drop(string columnName)
+    {
+        // Wrapper: Drop(df, name)
+        // 注意：Polars 操作通常返回新 DataFrame，原 DataFrame 可能会被消耗（取决于 Rust 实现）。
+        // 如果 Rust 的 pl_dataframe_drop 是消耗性的 (Move)，我们这里应该 new DataFrame(handle)。
+        // 假设 Wrapper 里的 Drop 返回的是新的 DataFrameHandle。
+        return new DataFrame(PolarsWrapper.Drop(Handle, columnName));
+    }
+
+    /// <summary>
+    /// Rename a column.
+    /// </summary>
+    public DataFrame Rename(string oldName, string newName)
+    {
+        return new DataFrame(PolarsWrapper.Rename(Handle, oldName, newName));
+    }
+
+    /// <summary>
+    /// Drop rows containing null values.
+    /// </summary>
+    /// <param name="subset">Column names to consider. If null/empty, checks all columns.</param>
+    public DataFrame DropNulls(params string[]? subset)
+    {
+        // Wrapper 处理了 subset 为 null 的情况
+        return new DataFrame(PolarsWrapper.DropNulls(Handle, subset));
+    }
+
+    // ==========================================
+    // Sampling
+    // ==========================================
+
+    /// <summary>
+    /// Sample n rows from the DataFrame.
+    /// </summary>
+    public DataFrame Sample(ulong n, bool withReplacement = false, bool shuffle = true, ulong? seed = null)
+    {
+        return new DataFrame(PolarsWrapper.SampleN(Handle, n, withReplacement, shuffle, seed));
+    }
+
+    /// <summary>
+    /// Sample a fraction of rows from the DataFrame.
+    /// </summary>
+    public DataFrame Sample(double fraction, bool withReplacement = false, bool shuffle = true, ulong? seed = null)
+    {
+        return new DataFrame(PolarsWrapper.SampleFrac(Handle, fraction, withReplacement, shuffle, seed));
+    }
     // ==========================================
     // Combining DataFrames
     // ==========================================

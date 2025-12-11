@@ -193,6 +193,9 @@ macro_rules! gen_rolling_by_op {
 
 // --- Group 1: 构造函数 ---
 gen_lit_ctor!(pl_expr_lit_i32, i32);
+gen_lit_ctor!(pl_expr_lit_i64, i64);
+gen_lit_ctor!(pl_expr_lit_bool, bool);
+gen_lit_ctor!(pl_expr_lit_f32, f32);
 gen_lit_ctor!(pl_expr_lit_f64, f64);
 
 // --- Group 2: 字符串构造 ---

@@ -59,6 +59,24 @@ public static class Polars
     /// <param name="value"></param>
     /// <returns></returns>
     public static Expr Lit(DateTime value) => new Expr(PolarsWrapper.Lit(value));
+    /// <summary>
+    /// Create a literal expression from a long value.
+    /// </summary>
+    /// <param name="value"></param>
+    /// <returns></returns>
+    public static Expr Lit(bool value) => new Expr(PolarsWrapper.Lit(value));
+    /// <summary>
+    /// Create a literal expression from a long value.
+    /// </summary>
+    /// <param name="value"></param>
+    /// <returns></returns>
+    public static Expr Lit(long value) => new Expr(PolarsWrapper.Lit(value));
+    /// <summary>
+    /// Create a literal expression from a float value.
+    /// </summary>
+    /// <param name="value"></param>
+    /// <returns></returns>
+    public static Expr Lit(float value) => new Expr(PolarsWrapper.Lit(value));
     // ==========================================
     // Control Flow
     // ==========================================
