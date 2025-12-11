@@ -229,6 +229,39 @@ type ``Basic Functionality Tests`` () =
         // 5. 打印看看
         Polars.show df |> ignore
     [<Fact>]
+    member _.``Convenience: Drop, Rename, DropNulls, Sample`` () =
+        // Test DataFrame
+        let s1 = Series.create("a", [Some 1; Some 2; None])
+        let s2 = Series.create("b", ["x"; "y"; "z"])
+        use df = DataFrame.create [s1; s2]
+
+        // 1. Drop
+        let dfDrop = df.Drop "a"
+        Assert.Equal(1L, dfDrop.Columns)
+        Assert.Equal<string seq>(["b"], dfDrop.ColumnNames)
+        Assert.Equal(2L, df.Columns) |> ignore
+        Assert.Equal<string seq>(["a"; "b"], df.ColumnNames)
+
+        // 2. Rename
+        let dfRenamed = df.Rename("b", "b_new")
+        Assert.Equal<string seq>(["a"; "b_new"], dfRenamed.ColumnNames)
+
+        // 3. DropNulls
+        let dfClean = df.DropNulls()
+        Assert.Equal(2L, dfClean.Rows) // 第三行 a=null 被删了
+        Assert.Equal(Some 1L, dfClean.Int("a", 0))
+        Assert.Equal(Some 2L, dfClean.Int("a", 1))
+
+        // 4. Sample (n=1)
+        let dfSample = df.Sample(n=1, seed=12345UL)
+        Assert.Equal(1L, dfSample.Rows)
+        
+        // 5. Sample (frac=0.5) -> 3 * 0.5 = 1.5 -> 1 or 2 rows depending on algo, usually round/floor
+        // Polars sample_frac usually works well. 3 * 0.6 = 1.8. 
+        // 让我们试个明确的
+        let dfSampleFrac = df.Sample(frac=1.0) // 全量乱序
+        Assert.Equal(3L, dfSampleFrac.Rows)
+    [<Fact>]
     member _.``Conversion: DataFrame -> Lazy -> DataFrame`` () =
         // 1. 创建 Eager DF
         use df = DataFrame.ofRecords [ { name = "Qinglei"; age = 18 ; score = Some 99.5; joined = Some (System.DateTime(2023,1,1)) }; { name = "Someone"; age = 20; score = None; joined = None } ]

@@ -90,7 +90,22 @@ unsafe internal partial class NativeBindings
 
     [LibraryImport(LibName)] 
     public static partial DataFrameHandle pl_with_columns(DataFrameHandle df, IntPtr[] exprs, UIntPtr len);
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial DataFrameHandle pl_dataframe_drop(DataFrameHandle df, string name);
 
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial DataFrameHandle pl_dataframe_rename(DataFrameHandle df, string oldName, string newName);
+
+    // subset 是字符串指针数组
+    [LibraryImport(LibName)]
+    public static partial DataFrameHandle pl_dataframe_drop_nulls(DataFrameHandle df, IntPtr[] subset, UIntPtr len);
+
+    // seed 传 ulong 指针 (nullable)
+    [LibraryImport(LibName)]
+    public static unsafe partial DataFrameHandle pl_dataframe_sample_n(DataFrameHandle df, UIntPtr n, [MarshalAs(UnmanagedType.U1)] bool replacement, [MarshalAs(UnmanagedType.I1)] bool shuffle, ulong* seed);
+
+    [LibraryImport(LibName)]
+    public static unsafe partial DataFrameHandle pl_dataframe_sample_frac(DataFrameHandle df, double frac, [MarshalAs(UnmanagedType.U1)] bool replacement, [MarshalAs(UnmanagedType.I1)] bool shuffle, ulong* seed);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_lit_str([MarshalAs(UnmanagedType.LPUTF8Str)] string val);
 

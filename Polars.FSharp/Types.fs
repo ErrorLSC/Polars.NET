@@ -632,6 +632,46 @@ and DataFrame(handle: DataFrameHandle) =
         let handles = series |> Array.map (fun s -> s.Handle)
         let h = PolarsWrapper.DataFrameNew handles
         new DataFrame(h)
+    /// <summary>
+    /// Remove a column by name. Returns a new DataFrame.
+    /// </summary>
+    member this.Drop(name: string) : DataFrame =
+        new DataFrame(PolarsWrapper.Drop(handle, name))
+
+    /// <summary>
+    /// Rename a column. Returns a new DataFrame.
+    /// </summary>
+    member this.Rename(oldName: string, newName: string) : DataFrame =
+        new DataFrame(PolarsWrapper.Rename(handle, oldName, newName))
+
+    /// <summary>
+    /// Drop rows containing any null values.
+    /// subset: Optional list of column names to consider.
+    /// </summary>
+    member this.DropNulls(?subset: string list) : DataFrame =
+        let s = subset |> Option.map List.toArray |> Option.toObj
+        new DataFrame(PolarsWrapper.DropNulls(handle, s))
+
+    /// <summary>
+    /// Sample n rows from the DataFrame.
+    /// </summary>
+    member this.Sample(n: int, ?withReplacement: bool, ?shuffle: bool, ?seed: uint64) : DataFrame =
+        let replace = defaultArg withReplacement false
+        let shuff = defaultArg shuffle true
+        let s = Option.toNullable seed
+        
+        // n 必须 >= 0
+        new DataFrame(PolarsWrapper.SampleN(handle, uint64 n, replace, shuff, s))
+
+    /// <summary>
+    /// Sample a fraction of rows from the DataFrame.
+    /// </summary>
+    member this.Sample(frac: double, ?withReplacement: bool, ?shuffle: bool, ?seed: uint64) : DataFrame =
+        let replace = defaultArg withReplacement false
+        let shuff = defaultArg shuffle true
+        let s = Option.toNullable seed
+        
+        new DataFrame(PolarsWrapper.SampleFrac(handle, frac, replace, shuff, s))
     // Interop
     member this.ToArrow() = PolarsWrapper.Collect handle
     member _.Rows = PolarsWrapper.DataFrameHeight handle

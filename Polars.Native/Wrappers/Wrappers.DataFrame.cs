@@ -79,7 +79,40 @@ public static partial class PolarsWrapper
     {
         return ErrorHelper.Check(NativeBindings.pl_tail(df, n));
     }
+    public static DataFrameHandle Drop(DataFrameHandle df, string name)
+    {
+        return ErrorHelper.Check(NativeBindings.pl_dataframe_drop(df, name));
+    }
 
+    public static DataFrameHandle Rename(DataFrameHandle df, string oldName, string newName)
+    {
+        return ErrorHelper.Check(NativeBindings.pl_dataframe_rename(df, oldName, newName));
+    }
+
+    public static DataFrameHandle DropNulls(DataFrameHandle df, string[]? subset)
+    {
+        return UseUtf8StringArray(subset ?? [], ptrs => 
+        {
+            // 如果 subset 是空，传给 Rust 空数组，Rust 会处理为 drop all nulls
+            // 但我们要区分 "subset=null" (all columns) 和 "subset=[]" (no columns?? logic check)
+            // 根据 Rust 实现: subset.is_null || len==0 都会导致 drop any row with null in ANY column
+            return ErrorHelper.Check(NativeBindings.pl_dataframe_drop_nulls(df, ptrs, (UIntPtr)ptrs.Length));
+        });
+    }
+
+    public static unsafe DataFrameHandle SampleN(DataFrameHandle df, ulong n, bool replacement, bool shuffle, ulong? seed)
+    {
+        ulong sVal = seed ?? 0;
+        ulong* sPtr = seed.HasValue ? &sVal : null;
+        return ErrorHelper.Check(NativeBindings.pl_dataframe_sample_n(df, (UIntPtr)n, replacement, shuffle, sPtr));
+    }
+
+    public static unsafe DataFrameHandle SampleFrac(DataFrameHandle df, double frac, bool replacement, bool shuffle, ulong? seed)
+    {
+        ulong sVal = seed ?? 0;
+        ulong* sPtr = seed.HasValue ? &sVal : null;
+        return ErrorHelper.Check(NativeBindings.pl_dataframe_sample_frac(df, frac, replacement, shuffle, sPtr));
+    }
     public static DataFrameHandle Filter(DataFrameHandle df, ExprHandle expr)
     {
         var h = NativeBindings.pl_filter(df, expr);

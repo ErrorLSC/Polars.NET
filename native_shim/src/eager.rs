@@ -1,5 +1,6 @@
 use polars::prelude::*;
 use polars_core::utils::concat_df;
+use std::ffi::CStr;
 use std::{ffi::CString, os::raw::c_char};
 use crate::types::*;
 use polars::lazy::frame::pivot::pivot as pivot_impl; 
@@ -219,6 +220,101 @@ pub extern "C" fn pl_dataframe_schema(df_ptr: *mut DataFrameContext) -> *mut c_c
     let json = serde_json::to_string(&map).unwrap_or_else(|_| "{}".to_string());
     
     CString::new(json).unwrap().into_raw()
+}
+
+// --- Convenience Ops ---
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_drop(df_ptr: *mut DataFrameContext, name: *const c_char) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*df_ptr };
+        let col_name = unsafe { CStr::from_ptr(name).to_string_lossy() };
+        
+        // Clone + Drop (Immutable Semantics)
+        let new_df = ctx.df.drop(&col_name)?;
+        
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_rename(df_ptr: *mut DataFrameContext, old: *const c_char, new: *const c_char) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*df_ptr };
+        let old_name = unsafe { CStr::from_ptr(old).to_string_lossy() };
+        let new_name = unsafe { CStr::from_ptr(new).to_string_lossy() };
+
+        // Clone + Rename
+        let mut new_df = ctx.df.clone();
+        new_df.rename(&old_name, PlSmallStr::from_str(&new_name))?;
+
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_drop_nulls(df_ptr: *mut DataFrameContext, subset: *const *const c_char, len: usize) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*df_ptr };
+        
+        let new_df = if subset.is_null() || len == 0 {
+            // [修复] 显式告诉编译器：这里的 None 是 Option<&[String]> 类型的 None
+            // 这样泛型 S 就被推断为 String，且 String 实现了 Into<PlSmallStr>
+            ctx.df.drop_nulls::<String>(None)? 
+        } else {
+            let slice = unsafe { std::slice::from_raw_parts(subset, len) };
+            let cols: Vec<String> = slice.iter()
+                .map(|&p| unsafe { CStr::from_ptr(p).to_string_lossy().to_string() })
+                .collect();
+            // 这里 cols 是 Vec<String>，&cols 是 &[String]，S 推断为 String，没问题
+            ctx.df.drop_nulls(Some(&cols))?
+        };
+
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_sample_n(
+    df_ptr: *mut DataFrameContext, 
+    n: usize, 
+    replacement: bool, 
+    shuffle: bool, 
+    seed: *const u64
+) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*df_ptr };
+        let s = if seed.is_null() { None } else { Some(unsafe { *seed }) };
+        
+        // [修复] 调用 literal 版本
+        let new_df = ctx.df.sample_n_literal(n, replacement, shuffle, s)?;
+        
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_sample_frac(
+    df_ptr: *mut DataFrameContext, 
+    frac: f64, 
+    replacement: bool, 
+    shuffle: bool, 
+    seed: *const u64
+) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*df_ptr };
+        let s = if seed.is_null() { None } else { Some(unsafe { *seed }) };
+        
+        // [修复] 手动计算 n，因为 sample_frac_literal 不存在或未公开
+        // 逻辑参考 Polars 源码: n = height * frac
+        let height = ctx.df.height();
+        let n = (height as f64 * frac) as usize;
+        
+        // 调用 sample_n_literal
+        let new_df = ctx.df.sample_n_literal(n, replacement, shuffle, s)?;
+        
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
+    })
 }
 
 #[unsafe(no_mangle)]
