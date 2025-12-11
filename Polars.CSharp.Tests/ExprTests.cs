@@ -456,4 +456,22 @@ TooShort,1990-05-20,1.60";
         // "1 5 2" -> ["1", "5", "2"] -> Sort Desc -> ["5", "2", "1"] -> First -> "5"
         Assert.Equal("5", batch.Column("max_char").GetStringValue(0));
     }
+    [Fact]
+    public void Test_Expr_Explode_In_Select()
+    {
+        using var s = new Series("data", ["x,y"]);
+        using var df = new DataFrame(s);
+
+        // 直接在 Select 内部对表达式结果进行 Explode
+        // Col("data").Str.Split(",") 返回 List
+        // .Explode() 将其展平
+        using var res = df.Select(
+            Col("data").Str.Split(",").Explode().Alias("flat")
+        );
+
+        // 原本 1 行，应该变成 2 行
+        Assert.Equal(2, res.Height);
+        Assert.Equal("x", res.GetValue<string>(0, "flat"));
+        Assert.Equal("y", res.GetValue<string>(1, "flat"));
+    }
 }

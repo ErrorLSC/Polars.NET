@@ -627,4 +627,44 @@ public class TradeRecord
         // 清理
         foreach (var col in columns) col.Dispose();
     }
+    [Fact]
+public void Test_DataFrame_Explode_Eager()
+{
+    // 1. 构造数据: 模拟逗号分隔的字符串
+    // Row 0: "1,2" (炸开后应变2行)
+    // Row 1: "3"   (炸开后保持1行)
+    using var s = new Series("nums", ["1,2", "3"]);
+    using var df = new DataFrame(s);
+
+    // 2. 预处理: 用 Split 生成 List 列
+    // 此时 df 结构:
+    // ┌──────┬───────────┐
+    // │ nums ┆ list_vals │
+    // ╞══════╪═══════════╡
+    // │ 1,2  ┆ ["1","2"] │
+    // │ 3    ┆ ["3"]     │
+    // └──────┴───────────┘
+    using var dfWithList = df.Select(
+        Col("nums"),
+        Col("nums").Str.Split(",").Alias("list_vals")
+    );
+
+    // 3. 执行 Explode
+    // 这一步调用了你的 public DataFrame Explode(params Expr[] exprs)
+    using var exploded = dfWithList.Explode(Col("list_vals"));
+
+    // 4. 验证结果
+    // 总行数应该是 2 + 1 = 3
+    Assert.Equal(3, exploded.Height);
+
+    // 验证 list_vals 列的内容是否已展平为 String
+    Assert.Equal("1", exploded.GetValue<string>(0, "list_vals"));
+    Assert.Equal("2", exploded.GetValue<string>(1, "list_vals"));
+    Assert.Equal("3", exploded.GetValue<string>(2, "list_vals"));
+
+    // 验证其它列 (nums) 是否被正确复制 (Duplicated)
+    Assert.Equal("1,2", exploded.GetValue<string>(0, "nums"));
+    Assert.Equal("1,2", exploded.GetValue<string>(1, "nums"));
+    Assert.Equal("3",   exploded.GetValue<string>(2, "nums"));
+}
 }

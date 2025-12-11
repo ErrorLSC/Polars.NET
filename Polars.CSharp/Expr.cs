@@ -567,6 +567,10 @@ public class Expr : IDisposable
             closed
         ));
     }
+    /// <summary>
+    /// Explode a list column into multiple rows.
+    /// </summary>
+    public Expr Explode() => new Expr(PolarsWrapper.Explode(Handle));
     // ==========================================
     // Namespaces
     // ==========================================
