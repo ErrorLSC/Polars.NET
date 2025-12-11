@@ -257,6 +257,12 @@ pub extern "C" fn pl_series_is_null_at(s_ptr: *mut SeriesContext, idx: usize) ->
         _ => false // 有值（包括错误，但 get 已经通过 len 检查了）
     }
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_null_count(s_ptr: *mut SeriesContext) -> usize {
+    let ctx = unsafe { &*s_ptr };
+    ctx.series.null_count()
+}
 // --- Scalar Access ---
 
 #[unsafe(no_mangle)]

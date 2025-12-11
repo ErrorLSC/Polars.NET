@@ -385,6 +385,20 @@ type ``Basic Functionality Tests`` () =
         Assert.False(df.IsNullAt("a", 0))
         Assert.True(df.IsNullAt("a", 1))
     [<Fact>]
+    member _.``Metadata: NullCount`` () =
+        // 1. 创建包含 Null 的 Series
+        // 数据: 1, null, 3, null
+        let s = Series.create("a", [Some 1; None; Some 3; None])
+        
+        // 2. 验证 Series.NullCount
+        Assert.Equal(2L, s.NullCount)
+        Assert.Equal(4L, s.Length)
+
+        // 3. 验证 DataFrame Helper
+        use df = DataFrame.create [s]
+        Assert.Equal(2L, df.NullCount "a")
+
+    [<Fact>]
     member _.``Async: Collect LazyFrame`` () =
         // 构造一个稍微大一点的计算任务
         use csv1 = new TempCsv "a,b\n1,2\n3,4"

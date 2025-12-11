@@ -558,6 +558,8 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)]
     public static partial bool pl_series_is_null_at(SeriesHandle s, UIntPtr idx);
+    [LibraryImport(LibName)]
+    public static partial UIntPtr pl_series_null_count(SeriesHandle s);
     // --- Series Cast ---
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_cast(SeriesHandle s, DataTypeHandle dtype);

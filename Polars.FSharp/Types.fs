@@ -409,6 +409,12 @@ type Series(handle: SeriesHandle) =
     /// </summary>
     member _.IsNullAt(index: int) : bool =
         PolarsWrapper.SeriesIsNullAt(handle, int64 index)
+    /// <summary>
+    /// Get the number of null values in the Series.
+    /// This is an O(1) operation (metadata access).
+    /// </summary>
+    member _.NullCount : int64 = 
+        PolarsWrapper.SeriesNullCount handle
 
     // ==========================================
     // Static Constructors
@@ -545,7 +551,7 @@ type Series(handle: SeriesHandle) =
             days.[i] <- arr.[i].DayNumber - epochOffset
             
         let s = Series.create(name, days)
-        s.Cast(DataType.Date)
+        s.Cast DataType.Date
 
     static member create(name: string, data: DateOnly option seq) =
         let arr = Seq.toArray data
@@ -941,6 +947,12 @@ and DataFrame(handle: DataFrameHandle) =
     member this.IsNullAt(col: string, row: int) : bool =
         use s = this.Column col
         s.IsNullAt row
+    /// <summary>
+    /// Get the number of null values in a specific column.
+    /// </summary>
+    member this.NullCount(colName: string) : int64 =
+        use s = this.Column colName
+        s.NullCount
 /// <summary>
 /// A LazyFrame represents a logical plan of operations that will be optimized and executed only when collected.
 /// </summary>

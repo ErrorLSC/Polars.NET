@@ -1,3 +1,4 @@
+#nullable enable
 using Xunit;
 using Polars.CSharp;
 using Apache.Arrow;
@@ -54,5 +55,29 @@ public class SeriesTests
         var arrowArray = sDecimal.ToArrow();
         // Apache Arrow C# 会把 Decimal128 映射为 Decimal128Array
         Assert.IsType<Decimal128Array>(arrowArray);
+    }
+    [Fact]
+    public void Test_NullCount()
+    {
+        // Case 1: 整数 Series (含 Null)
+        using var sInt = new Series("nums", [1, null, 3, null, 5]);
+        
+        // 验证: 应该有 2 个 null
+        Assert.Equal(2, sInt.NullCount);
+        Assert.Equal(5, sInt.Length);
+
+        // Case 2: 字符串 Series (含 Null)
+        using var sStr = new Series("str", ["a", null, "b"]);
+        
+        // 验证: 应该有 1 个 null
+        Assert.Equal(1, sStr.NullCount);
+        
+        // Case 3: 全是 Null
+        using var sAllNull = new Series("nulls", new string?[] { null, null });
+        Assert.Equal(2, sAllNull.NullCount);
+        
+        // Case 4: 没有 Null
+        using var sClean = new Series("clean", [1, 2, 3]);
+        Assert.Equal(0, sClean.NullCount);
     }
 }

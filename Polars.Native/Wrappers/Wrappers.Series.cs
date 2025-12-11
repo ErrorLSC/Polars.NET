@@ -320,6 +320,10 @@ public static partial class PolarsWrapper
     {
         return NativeBindings.pl_series_is_null_at(s, (UIntPtr)idx);
     }
+    public static long SeriesNullCount(SeriesHandle s)
+    {
+        return (long)NativeBindings.pl_series_null_count(s);
+    }
     // DataType Helpers
     public static DataTypeHandle NewPrimitiveType(int code) => NativeBindings.pl_datatype_new_primitive(code);
     public static DataTypeHandle NewDecimalType(int precision, int scale) => NativeBindings.pl_datatype_new_decimal((UIntPtr)precision, (UIntPtr)scale);

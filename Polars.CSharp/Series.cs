@@ -620,6 +620,10 @@ public class Series : IDisposable
         get => PolarsWrapper.SeriesName(Handle);
         set => PolarsWrapper.SeriesRename(Handle, value);
     }
+    /// <summary>
+    /// Get the number of null values in the Series.
+    /// </summary>
+    public long NullCount => PolarsWrapper.SeriesNullCount(Handle);
 
     // ==========================================
     // Operations
