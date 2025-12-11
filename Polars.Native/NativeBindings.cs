@@ -451,6 +451,26 @@ unsafe internal partial class NativeBindings
     public static partial void pl_free_c_string(IntPtr ptr);
     [LibraryImport(LibName)]
     public static partial void pl_arrow_array_free(IntPtr ptr);
+    // --- Series Getters ---
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static partial bool pl_series_get_i64(SeriesHandle s, UIntPtr idx, out long val);
+
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static partial bool pl_series_get_f64(SeriesHandle s, UIntPtr idx, out double val);
+
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static partial bool pl_series_get_bool(SeriesHandle s, UIntPtr idx, [MarshalAs(UnmanagedType.I1)] out bool val);
+
+    [LibraryImport(LibName)]
+    public static partial IntPtr pl_series_get_str(SeriesHandle s, UIntPtr idx);
+
+    // Decimal: out Int128, out UIntPtr (scale)
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static partial bool pl_series_get_decimal(SeriesHandle s, UIntPtr idx, out Int128 val, out UIntPtr scale);
     // --- Series Constructors ---
     // DataFrame -> Series (ByName)
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]

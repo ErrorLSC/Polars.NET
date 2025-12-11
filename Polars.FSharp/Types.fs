@@ -569,6 +569,27 @@ type Series(handle: SeriesHandle) =
                 Series.create(name, arr, maxScale)
             else 
                 failwithf "Unsupported type for Series.ofSeq: %A" t
+    // --- Scalar Access ---
+    
+    /// <summary> Get value as Int64 Option. Handles Int32/Int64 etc. </summary>
+    member _.Int(index: int) : int64 option = 
+        PolarsWrapper.SeriesGetInt(handle, int64 index) |> Option.ofNullable
+
+    /// <summary> Get value as Double Option. Handles Float32/Float64. </summary>
+    member _.Float(index: int) : float option = 
+        PolarsWrapper.SeriesGetDouble(handle, int64 index) |> Option.ofNullable
+
+    /// <summary> Get value as String Option. </summary>
+    member _.String(index: int) : string option = 
+        PolarsWrapper.SeriesGetString(handle, int64 index) |> Option.ofObj
+
+    /// <summary> Get value as Boolean Option. </summary>
+    member _.Bool(index: int) : bool option = 
+        PolarsWrapper.SeriesGetBool(handle, int64 index) |> Option.ofNullable
+
+    /// <summary> Get value as Decimal Option. </summary>
+    member _.Decimal(index: int) : decimal option = 
+        PolarsWrapper.SeriesGetDecimal(handle, int64 index) |> Option.ofNullable
     // ==========================================
     // Interop with DataFrame
     // ==========================================
@@ -723,6 +744,13 @@ and DataFrame(handle: DataFrameHandle) =
         | _ -> 
             // System.Console.WriteLine($"[Debug] Mismatched Array Type: {col.GetType().Name}")
             None
+    member this.Decimal(col: string, row: int) : decimal option =
+        use s = this.Column col
+        s.Decimal(row)
+
+    member this.Bool(col: string, row: int) : bool option =
+        use s = this.Column col
+        s.Bool(row)
     member this.Column(name: string) : Series =
     // 我们假设 Rust 端有 pl_dataframe_get_column
         let h = PolarsWrapper.DataFrameGetColumn(this.Handle, name)

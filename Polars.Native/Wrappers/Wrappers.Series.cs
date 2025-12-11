@@ -162,7 +162,71 @@ public static partial class PolarsWrapper
     {
         return ErrorHelper.Check(NativeBindings.pl_series_to_frame(h));
     }
-    
+    public static long? SeriesGetInt(SeriesHandle s, long idx)
+    {
+        if (NativeBindings.pl_series_get_i64(s, (UIntPtr)idx, out long val)) return val;
+        return null;
+    }
+
+    public static double? SeriesGetDouble(SeriesHandle s, long idx)
+    {
+        if (NativeBindings.pl_series_get_f64(s, (UIntPtr)idx, out double val)) return val;
+        return null;
+    }
+
+    public static bool? SeriesGetBool(SeriesHandle s, long idx)
+    {
+        if (NativeBindings.pl_series_get_bool(s, (UIntPtr)idx, out bool val)) return val;
+        return null;
+    }
+
+    public static string? SeriesGetString(SeriesHandle s, long idx)
+    {
+        IntPtr ptr = NativeBindings.pl_series_get_str(s, (UIntPtr)idx);
+        return ErrorHelper.CheckString(ptr); // CheckString 会处理 IntPtr.Zero -> null
+    }
+
+    public static decimal? SeriesGetDecimal(SeriesHandle s, long idx)
+    {
+        if (NativeBindings.pl_series_get_decimal(s, (UIntPtr)idx, out Int128 val, out UIntPtr scalePtr))
+        {
+            int scale = (int)scalePtr;
+            
+            // Int128 -> Decimal 转换
+            // Decimal 构造函数不支持 Int128，但支持 int[] bits
+            // 简单做法：(decimal)val / 10^scale
+            // 但这样会转 double 丢精度。
+            
+            // 正确做法：直接构造 decimal
+            // decimal 布局: flags, hi, lo, mid
+            // 我们需要先把 Int128 变成 decimal (纯整数)，然后设 scale
+            
+            // 既然 val 是 i128，我们显式强转 decimal (C# 11+ 支持显式转换)
+            try 
+            {
+                decimal d = (decimal)val; 
+                // 手动应用 scale: d / 10^scale
+                // 或者更高效：创建一个新的 decimal 修改其 flags
+                // 但 C# decimal 是 immutable struct，修改 flags 比较 hacky
+                // 最稳妥： d / PowersOf10[scale] (我们之前算过这个表)
+                
+                if (scale >= 0 && scale < PowersOf10.Length)
+                {
+                    return d / PowersOf10[scale];
+                }
+                else
+                {
+                    // Fallback using double division if scale is huge (unlikely)
+                    return d / (decimal)Math.Pow(10, scale);
+                }
+            }
+            catch (OverflowException)
+            {
+                return null; // 超出 decimal 范围
+            }
+        }
+        return null;
+    }
     // --- Arrow Integration ---
 
     public static unsafe IArrowArray SeriesToArrow(SeriesHandle h)

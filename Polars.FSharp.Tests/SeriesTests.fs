@@ -145,3 +145,13 @@ type ``Series Tests`` () =
         // 因为我们在 C# 端做了 * 100 操作：4.56m * 100m = 456m -> (Int128)456
         // 绝对没有浮点数中间商赚差价
         Assert.Equal(4.56m, arrow.GetValue(1).Value)
+    [<Fact>]
+    member _.``Scalar Access: Series & DataFrame`` () =
+        // Series 验证
+        use s = Series.create("d", [1.23m; 4.56m], 2)
+        Assert.Equal(Some 1.23m, s.Decimal 0)
+        Assert.Equal(Some 4.56m, s.Decimal 1)
+        
+        // DataFrame 验证 (Redirect)
+        use df = DataFrame.create [s]
+        Assert.Equal(Some 1.23m, df.Decimal("d", 0))

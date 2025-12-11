@@ -231,3 +231,78 @@ pub extern "C" fn pl_series_cast(
         Err(_) => std::ptr::null_mut()
     }
 }
+
+// --- Scalar Access ---
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_get_i64(s_ptr: *mut SeriesContext, idx: usize, out_val: *mut i64) -> bool {
+    let ctx = unsafe { &*s_ptr };
+    if idx >= ctx.series.len() { return false; }
+
+    // 使用 get(i) 获取 AnyValue
+    match ctx.series.get(idx) {
+        Ok(AnyValue::Int64(v)) => { unsafe { *out_val = v }; true }
+        Ok(AnyValue::Int32(v)) => { unsafe { *out_val = v as i64 }; true }
+        Ok(AnyValue::Int16(v)) => { unsafe { *out_val = v as i64 }; true }
+        Ok(AnyValue::Int8(v)) => { unsafe { *out_val = v as i64 }; true }
+        Ok(AnyValue::UInt64(v)) => { unsafe { *out_val = v as i64 }; true } // 注意溢出风险，但通常 ok
+        Ok(AnyValue::UInt32(v)) => { unsafe { *out_val = v as i64 }; true }
+        _ => false // Null or type mismatch
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_get_f64(s_ptr: *mut SeriesContext, idx: usize, out_val: *mut f64) -> bool {
+    let ctx = unsafe { &*s_ptr };
+    if idx >= ctx.series.len() { return false; }
+
+    match ctx.series.get(idx) {
+        Ok(AnyValue::Float64(v)) => { unsafe { *out_val = v }; true }
+        Ok(AnyValue::Float32(v)) => { unsafe { *out_val = v as f64 }; true }
+        _ => false
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_get_bool(s_ptr: *mut SeriesContext, idx: usize, out_val: *mut bool) -> bool {
+    let ctx = unsafe { &*s_ptr };
+    if idx >= ctx.series.len() { return false; }
+
+    match ctx.series.get(idx) {
+        Ok(AnyValue::Boolean(v)) => { unsafe { *out_val = v }; true }
+        _ => false
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_get_str(s_ptr: *mut SeriesContext, idx: usize) -> *mut c_char {
+    let ctx = unsafe { &*s_ptr };
+    if idx >= ctx.series.len() { return std::ptr::null_mut(); }
+
+    match ctx.series.get(idx) {
+        // String / StringView 统一处理
+        Ok(AnyValue::String(s)) => CString::new(s).unwrap().into_raw(),
+        _ => std::ptr::null_mut()
+    }
+}
+
+// [新增] Decimal 支持
+// 返回值：true=成功, false=null/fail
+// out_val: 写入 i128 值
+// out_scale: 写入 scale (因为 AnyValue 包含 scale)
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_get_decimal(s_ptr: *mut SeriesContext, idx: usize, out_val: *mut i128, out_scale: *mut usize) -> bool {
+    let ctx = unsafe { &*s_ptr };
+    if idx >= ctx.series.len() { return false; }
+
+    match ctx.series.get(idx) {
+        Ok(AnyValue::Decimal(v, scale)) => { 
+            unsafe { 
+                *out_val = v; 
+                *out_scale = scale;
+            } 
+            true 
+        }
+        _ => false
+    }
+}
