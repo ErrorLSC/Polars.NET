@@ -445,7 +445,7 @@ public class Expr : IDisposable
     /// <typeparam name="TOutput">Output type (e.g. int, double, string)</typeparam>
     /// <param name="function">The function to apply.</param>
     /// <param name="outputType">The Polars data type of the output column.</param>
-/// <summary>
+    /// <summary>
     /// Apply a custom C# function to the expression (High-Level).
     /// </summary>
     public Expr Map<TInput, TOutput>(Func<TInput, TOutput> function, DataType outputType)

@@ -392,6 +392,24 @@ type Series(handle: SeriesHandle) =
     /// </summary>
     member _.DtypeStr = PolarsWrapper.GetSeriesDtypeString handle
 
+    /// <summary>
+    /// Returns a boolean Series indicating which values are null.
+    /// </summary>
+    member this.IsNull() : Series = 
+        new Series(PolarsWrapper.SeriesIsNull handle)
+
+    /// <summary>
+    /// Returns a boolean Series indicating which values are not null.
+    /// </summary>
+    member this.IsNotNull() : Series = 
+        new Series(PolarsWrapper.SeriesIsNotNull handle)
+    /// <summary>
+    /// Check if the value at the specified index is null.
+    /// This is faster than retrieving the value and checking for Option.None.
+    /// </summary>
+    member _.IsNullAt(index: int) : bool =
+        PolarsWrapper.SeriesIsNullAt(handle, int64 index)
+
     // ==========================================
     // Static Constructors
     // ==========================================
@@ -521,7 +539,7 @@ type Series(handle: SeriesHandle) =
     static member create(name: string, data: DateOnly seq) =
         let arr = Seq.toArray data
         let days = Array.zeroCreate<int> arr.Length
-        let epochOffset = 719163 // 0001-01-01 to 1970-01-01
+        let epochOffset = 719162 // 0001-01-01 to 1970-01-01
         
         for i in 0 .. arr.Length - 1 do
             days.[i] <- arr.[i].DayNumber - epochOffset
@@ -533,7 +551,7 @@ type Series(handle: SeriesHandle) =
         let arr = Seq.toArray data
         let days = Array.zeroCreate<int> arr.Length
         let valid = Array.zeroCreate<bool> arr.Length
-        let epochOffset = 719163
+        let epochOffset = 719162
         
         for i in 0 .. arr.Length - 1 do
             match arr.[i] with
@@ -605,7 +623,7 @@ type Series(handle: SeriesHandle) =
                 valid.[i] <- false
                 
         let s = new Series(PolarsWrapper.SeriesNew(name, micros, valid))
-        s.Cast(DataType.Duration)
+        s.Cast DataType.Duration
     /// <summary>
     /// Smart Constructor:
     /// 1. Handles primitive types (int, double...).
@@ -778,7 +796,7 @@ and DataFrame(handle: DataFrameHandle) =
             
         let h = PolarsWrapper.DataFrameNew handles
         new DataFrame(h)
-        
+    
     // 重载：允许变长参数 (df = DataFrame.create(s1, s2, s3))
     static member create([<System.ParamArray>] series: Series[]) : DataFrame =
         let handles = series |> Array.map (fun s -> s.Handle)
@@ -917,7 +935,12 @@ and DataFrame(handle: DataFrameHandle) =
 
     member this.GetSeries() : Series list =
         [ for i in 0 .. int this.Columns - 1 -> this.Column i ]
-
+    /// <summary>
+    /// Check if the value at the specified column and row is null.
+    /// </summary>
+    member this.IsNullAt(col: string, row: int) : bool =
+        use s = this.Column col
+        s.IsNullAt row
 /// <summary>
 /// A LazyFrame represents a logical plan of operations that will be optimized and executed only when collected.
 /// </summary>

@@ -315,7 +315,7 @@ type ``Basic Functionality Tests`` () =
     [<Fact>]
     member _.``EDA: Describe (Manual Implementation)`` () =
         let s = Series.create("nums", [1.0; 2.0; 3.0; 4.0; 5.0])
-        use df = DataFrame.create([s])
+        use df = DataFrame.create [s]
 
         let desc = df.Describe()
         
@@ -369,6 +369,21 @@ type ``Basic Functionality Tests`` () =
         Assert.Equal(3L, res.Int("a", 1).Value)
         Assert.True(res.Int("b", 1).IsNone) // b 应该是 null
         Assert.Equal(4L, res.Int("c", 1).Value)
+    [<Fact>]
+    member _.``Scalar Access: IsNullAt`` () =
+        // 准备数据: [1, null, 3]
+        use s = Series.create("a", [Some 1; None; Some 3])
+        use df = DataFrame.create [s]
+
+        // Series 验证
+        Assert.False(s.IsNullAt 0)
+        Assert.True(s.IsNullAt 1)
+        Assert.False(s.IsNullAt 2)
+        Assert.False(s.IsNullAt 999) // 越界返回 false
+
+        // DataFrame 验证
+        Assert.False(df.IsNullAt("a", 0))
+        Assert.True(df.IsNullAt("a", 1))
     [<Fact>]
     member _.``Async: Collect LazyFrame`` () =
         // 构造一个稍微大一点的计算任务

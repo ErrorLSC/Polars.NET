@@ -231,7 +231,32 @@ pub extern "C" fn pl_series_cast(
         Err(_) => std::ptr::null_mut()
     }
 }
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_is_null(s_ptr: *mut SeriesContext) -> *mut SeriesContext {
+    let ctx = unsafe { &*s_ptr };
+    // is_null() 返回 BooleanChunked，需转 Series
+    let series = ctx.series.is_null().into_series();
+    Box::into_raw(Box::new(SeriesContext { series }))
+}
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_is_not_null(s_ptr: *mut SeriesContext) -> *mut SeriesContext {
+    let ctx = unsafe { &*s_ptr };
+    let series = ctx.series.is_not_null().into_series();
+    Box::into_raw(Box::new(SeriesContext { series }))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_is_null_at(s_ptr: *mut SeriesContext, idx: usize) -> bool {
+    let ctx = unsafe { &*s_ptr };
+    if idx >= ctx.series.len() { 
+        return false; // 越界不算 Null，算无效
+    }
+    match ctx.series.get(idx) {
+        Ok(AnyValue::Null) => true,
+        _ => false // 有值（包括错误，但 get 已经通过 len 检查了）
+    }
+}
 // --- Scalar Access ---
 
 #[unsafe(no_mangle)]

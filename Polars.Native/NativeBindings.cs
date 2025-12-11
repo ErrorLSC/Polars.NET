@@ -550,7 +550,14 @@ unsafe internal partial class NativeBindings
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_series_rename(SeriesHandle h, string name);
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_is_null(SeriesHandle s);
 
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_is_not_null(SeriesHandle s);
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static partial bool pl_series_is_null_at(SeriesHandle s, UIntPtr idx);
     // --- Series Cast ---
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_cast(SeriesHandle s, DataTypeHandle dtype);

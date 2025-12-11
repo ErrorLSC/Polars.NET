@@ -23,8 +23,6 @@ public class CleaningTests
         
         // Forward Fill (limit=null -> 0 -> Infinite)
         using var ff = df.Select(Col("val").ForwardFill().Alias("ff"));
-        using var bff = ff.ToArrow();
-        var col = bff.Column("ff");
         
         // 验证：
         // 1 (原值)
@@ -32,11 +30,11 @@ public class CleaningTests
         // 1 (填充)
         // 2 (原值)
         // 2 (填充)
-        Assert.Equal(1, col.GetInt64Value(0));
-        Assert.Equal(1, col.GetInt64Value(1)); 
-        Assert.Equal(1, col.GetInt64Value(2)); 
-        Assert.Equal(2, col.GetInt64Value(3));
-        Assert.Equal(2, col.GetInt64Value(4)); 
+        Assert.Equal(1, ff.GetValue<int>(0,"ff"));
+        Assert.Equal(1, ff.GetValue<int>(1,"ff")); 
+        Assert.Equal(1, ff.GetValue<int>(2,"ff")); 
+        Assert.Equal(2, ff.GetValue<int>(3,"ff"));
+        Assert.Equal(2, ff.GetValue<int>(4,"ff")); 
     }
     [Fact]
     public void Test_Sampling()
@@ -70,9 +68,8 @@ public class CleaningTests
             Col("B").FillNull("unknown")
         );
         
-        using var batchFilled = filledDf.ToArrow();
-        Assert.Equal(0, batchFilled.Column("A").GetInt64Value(1)); // null -> 0
-        Assert.Equal("unknown", batchFilled.Column("B").GetStringValue(2)); // null -> unknown
+        Assert.Equal(0, filledDf.GetValue<int>(1,"A")); // null -> 0
+        Assert.Equal("unknown", filledDf.GetValue<string>(2,"B")); // null -> unknown
 
         // --- 2. DropNulls ---
         using var dfDirty = DataFrame.ReadCsv(csv.Path);
@@ -82,6 +79,6 @@ public class CleaningTests
         // Row 1: null, y, 20 -> 删
         // Row 2: 3, null, 30 -> 删
         Assert.Equal(1, droppedDf.Height); 
-        Assert.Equal(1, droppedDf.ToArrow().Column("A").GetInt64Value(0));
+        Assert.Equal(1, droppedDf.GetValue<int>(0,"A"));
     }
 }

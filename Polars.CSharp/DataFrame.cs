@@ -942,4 +942,54 @@ public class DataFrame : IDisposable
         
         return new LazyFrame(lfHandle);
     }
+    // ==========================================
+    // Series Access (Column Selection)
+    // ==========================================
+
+    /// <summary>
+    /// Get a column as a Series by name.
+    /// </summary>
+    public Series Column(string name)
+    {
+        // 调用 Wrapper 获取 SeriesHandle (Rust 侧通常是 Clone Arc，引用计数+1)
+        var sHandle = PolarsWrapper.DataFrameGetColumn(Handle, name);
+        
+        // 返回新的 Series 对象，它接管 Handle 的生命周期
+        return new Series(name, sHandle);
+    }
+
+    /// <summary>
+    /// Get a column as a Series by name (Indexer syntax).
+    /// Usage: var s = df["age"];
+    /// </summary>
+    public Series this[string columnName]
+    {
+        get => Column(columnName);
+    }
+    
+    /// <summary>
+    /// Get all columns as a list of Series.
+    /// </summary>
+/// <summary>
+    /// Get all columns as a list of Series.
+    /// Order is guaranteed to match the physical column order.
+    /// </summary>
+    public Series[] GetColumns()
+    {
+        // [修复] 不再使用 Schema.Keys (无序)
+        // 改用底层的按索引获取列名 (有序)
+        var names = PolarsWrapper.GetColumnNames(Handle);
+        
+        var cols = new Series[names.Length];
+        for (int i = 0; i < names.Length; i++)
+        {
+            cols[i] = Column(names[i]);
+        }
+        return cols;
+    }
+    
+    /// <summary>
+    /// Get column names in order.
+    /// </summary>
+    public string[] ColumnNames => PolarsWrapper.GetColumnNames(Handle);
 }

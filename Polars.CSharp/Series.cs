@@ -64,7 +64,22 @@ public class Series : IDisposable
 
         // 3. String
         if (underlying == typeof(string)) 
-            return (T?)(object?)PolarsWrapper.SeriesGetString(Handle, index);
+        {
+            // 1. 先检查 Validity Bitmap (位图)
+            if (PolarsWrapper.SeriesIsNullAt(Handle, index))
+            {
+                // 这里返回 default! 是为了压制 "可能返回 null" 的警告
+                // 对于 string?，default 是 null；对于 string，default 也是 null (但在非空上下文中需要 !)
+                return default!; 
+            }
+
+            // 2. 获取实际字符串
+            var strVal = PolarsWrapper.SeriesGetString(Handle, index);
+            
+            // 3. 压制警告并返回
+            // strVal! 告诉编译器：根据前面的 IsNullAt 检查，我确信这里 strVal 不会是 null
+            return (T)(object)strVal!;
+        }
 
         // 4. Decimal
         if (underlying == typeof(decimal))
@@ -72,7 +87,20 @@ public class Series : IDisposable
 
         // 5. Temporal (Time)
         if (underlying == typeof(DateTime))
+        {
+            // [修复逻辑] 检查 Series 实际的 DataType
+            // 如果底层是 Date 类型 (Int32)，不能调 GetDatetime (期望 Int64)
+            // 而应该调 GetDate (得到 DateOnly)，再转为 DateTime
+            if (this.DataTypeName == "date") 
+            {
+                var dateOnly = PolarsWrapper.SeriesGetDate(Handle, index);
+                if (dateOnly == null) return default; // 处理空值
+                return (T)(object)dateOnly.Value.ToDateTime(TimeOnly.MinValue);
+            }
+
+            // 只有当底层真的是 Datetime 类型时，才调这个
             return (T?)(object?)PolarsWrapper.SeriesGetDatetime(Handle, index);
+        }
 
         if (underlying == typeof(DateOnly))
             return (T?)(object?)PolarsWrapper.SeriesGetDate(Handle, index);
@@ -118,7 +146,7 @@ public class Series : IDisposable
     
     // Unix Epoch Ticks (1970-01-01)
     private const long UnixEpochTicks = 621355968000000000L;
-    private const int DaysTo1970 = 719163;
+    private const int DaysTo1970 = 719162;
 
     // DateTime -> Microseconds (Long)
     private static long ToMicros(DateTime dt) => (dt.Ticks - UnixEpochTicks) / 10L;
@@ -392,7 +420,7 @@ public class Series : IDisposable
             var dArray = array.Cast<DateOnly?>().ToArray();
             var intArray = new int[dArray.Length];
             var validity = new bool[dArray.Length];
-            const int DaysTo1970 = 719163;
+            const int DaysTo1970 = 719162;
 
             for (int i = 0; i < dArray.Length; i++)
             {
@@ -605,7 +633,35 @@ public class Series : IDisposable
         // SeriesCast 返回一个新的 Series Handle
         return new Series(PolarsWrapper.SeriesCast(Handle, dtype.Handle));
     }
+    // ==========================================
+    // Null Checks & Boolean Masks
+    // ==========================================
 
+    /// <summary>
+    /// 检查指定索引处的值是否为 Null。
+    /// </summary>
+    public bool IsNullAt(long index)
+    {
+        return PolarsWrapper.SeriesIsNullAt(Handle, index);
+    }
+
+    /// <summary>
+    /// 返回一个布尔 Series，如果元素为 Null 则为 True。
+    /// </summary>
+    public Series IsNull()
+    {
+        var newHandle = PolarsWrapper.SeriesIsNull(Handle);
+        return new Series(newHandle);
+    }
+
+    /// <summary>
+    /// 返回一个布尔 Series，如果元素不为 Null 则为 True。
+    /// </summary>
+    public Series IsNotNull()
+    {
+        var newHandle = PolarsWrapper.SeriesIsNotNull(Handle);
+        return new Series(newHandle);
+    }
     // ==========================================
     // Conversions (Arrow / DataFrame)
     // ==========================================

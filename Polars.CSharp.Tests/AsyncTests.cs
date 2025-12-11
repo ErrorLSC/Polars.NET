@@ -34,11 +34,8 @@ public class AsyncTests
         // 5. 验证结果
         Assert.Equal(2, resultDf.Height); // 20, 30 符合条件
         
-        using var batch = resultDf.ToArrow();
-        var col = batch.Column("id");
-        
-        Assert.Equal(2, col.GetInt64Value(0));
-        Assert.Equal(3, col.GetInt64Value(1));
+        Assert.Equal(2, resultDf.GetValue<int>(0,"id"));
+        Assert.Equal(3, resultDf.GetValue<int>(1,"id"));
     }
 
     [Fact]
@@ -62,8 +59,7 @@ public class AsyncTests
 
         Assert.Equal(2, res.Height);
         
-        using var batch = res.ToArrow();
-        Assert.Equal("Pass", batch.Column("status").GetStringValue(0)); // Alice
-        Assert.Equal("Fail", batch.Column("status").GetStringValue(1)); // Bob
+        Assert.Equal("Pass", res.GetValue<string>(0,"status")); // Alice
+        Assert.Equal("Fail", res.GetValue<string>(1,"status")); // Bob
     }
 }

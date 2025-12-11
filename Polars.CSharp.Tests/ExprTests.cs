@@ -33,24 +33,17 @@ public class ExprTests
         Assert.Equal(4, res.Width);
 
         // 验证值
-        using var batch = res.ToArrow();
         
         // 1. 验证 Name (String)
-        Assert.Equal("Qinglei", batch.Column("name").GetStringValue(0));
+        Assert.Equal("Qinglei", res.GetValue<string>(0, "name"));
 
         // 2. 验证 Year (Int32 or Int64 depending on Polars/Arrow mapping)
         // Polars Year 通常返回 Int32
-        var yearCol = batch.Column("year");
-        Assert.Equal(2025, yearCol.GetInt64Value(0));
+        Assert.Equal(2025, res.GetValue<int>(0, "year"));
 
         // 3. 验证 BMI (Double)
-        var bmiCol = batch.Column("bmi") as DoubleArray;
-        Assert.NotNull(bmiCol);
-        
-        double bmi = bmiCol.GetValue(0) ?? 0.0;
-        // 70 / (1.8 * 1.8) = 21.6049...
-        Assert.True(bmi > 21.6);
-        Assert.True(bmi < 21.7);
+        Assert.True(res.GetValue<double>(0, "bmi") > 21.6);
+        Assert.True(res.GetValue<double>(0, "bmi") < 21.7);
     }
 
     // ==========================================
@@ -68,11 +61,9 @@ public class ExprTests
         Assert.Equal(2, res.Height); // 20, 30
         
         // 验证结果
-        using var batch = res.ToArrow();
-        var valCol = batch.Column("val");
         
-        Assert.Equal(20, valCol.GetInt64Value(0));
-        Assert.Equal(30, valCol.GetInt64Value(1));
+        Assert.Equal(20, res.GetValue<int>(0, "val"));
+        Assert.Equal(30, res.GetValue<int>(1, "val"));
     }
 
     // ==========================================
@@ -95,8 +86,7 @@ Zhang,2025-10-31,55,1.75";
 
         Assert.Equal(1, res.Height); // 只有 Ben Brown
         
-        using var batch = res.ToArrow();
-        Assert.Equal("Ben Brown", batch.Column("name").GetStringValue(0));
+        Assert.Equal("Ben Brown", res.GetValue<string>(0, "name"));
     }
 
     // ==========================================
@@ -154,9 +144,7 @@ Zhang,2025-10-31,55,1.75";
         Assert.Equal(3, filled.Height);
 
         // 验证一下中间那个确实变成了 0
-        using var batch = filled.ToArrow();
-        var filledCol = batch.Column("age_filled"); // 通常是 Int64
-        Assert.Equal(0, filledCol.GetInt64Value(1)); // 第二行索引为 1
+        Assert.Equal(0, filled.GetValue<int>(1, "age_filled"));
 
         // --- 测试 2: IsNull ---
         // 筛选出 null 的行
@@ -197,8 +185,7 @@ TooShort,1990-05-20,1.60";
         // 验证: 只有 Qinglei 符合 (TooOld 生日不对，TooShort 身高不对)
         Assert.Equal(1, res.Height);
         
-        using var batch = res.ToArrow();
-        Assert.Equal("Qinglei", batch.Column("name").GetStringValue(0));
+        Assert.Equal("Qinglei", res.GetValue<string>(0, "name"));
     }
     [Fact]
     public void Math_Ops_BMI_Calculation_With_Pow()
@@ -219,23 +206,13 @@ TooShort,1990-05-20,1.60";
             Col("height").Sqrt().Alias("sqrt_h")
         );
 
-        using var batch = res.ToArrow();
 
         // 验证 Bob 的 BMI: 80 / 1.8^2 = 24.691358...
         // Bob 是第二行 (index 1)
-        var bmiCol = batch.Column("bmi") as DoubleArray;
-        Assert.NotNull(bmiCol);
-        
-        double bobBmi = bmiCol.GetValue(1) ?? 0.0;
-        Assert.True(bobBmi > 24.69 && bobBmi < 24.70);
-
+        Assert.True(res.GetValue<double>(1, "bmi") > 24.69 && res.GetValue<double>(1, "bmi") < 24.70);
         // 验证 Alice 的 Sqrt: sqrt(1.65) = 1.2845...
         // Alice 是第一行 (index 0)
-        var sqrtCol = batch.Column("sqrt_h") as DoubleArray;
-        Assert.NotNull(sqrtCol);
-
-        double aliceSqrt = sqrtCol.GetValue(0) ?? 0.0;
-        Assert.True(aliceSqrt > 1.28 && aliceSqrt < 1.29);
+        Assert.True(res.GetValue<double>(0, "sqrt_h") > 1.28 && res.GetValue<double>(0, "sqrt_h") < 1.29);
     }
     // ==========================================
     // String Operations
@@ -264,19 +241,17 @@ TooShort,1990-05-20,1.60";
             Col("text").Str.Len().Alias("len")
         );
 
-        using var batch = res.ToArrow();
-
         // 验证 Row 0: "Hello World"
-        Assert.Equal("HELLO WORLD", batch.Column("upper").GetStringValue(0));
-        Assert.Equal("Hel", batch.Column("slice").GetStringValue(0));
-        Assert.Equal("Hell0 W0rld", batch.Column("replaced").GetStringValue(0));
+        Assert.Equal("HELLO WORLD", res.GetValue<string>(0, "upper"));
+        Assert.Equal("Hel", res.GetValue<string>(0, "slice"));
+        Assert.Equal("Hell0 W0rld", res.GetValue<string>(0, "replaced"));
         
         // Polars len() 返回的是 u32，我们的 GetInt64Value 会处理转换
-        Assert.Equal(11, batch.Column("len").GetInt64Value(0)); 
+        Assert.Equal(11, res.GetValue<int>(0, "len")); 
 
         // 验证 Row 1: "foo BAR"
-        Assert.Equal("FOO BAR", batch.Column("upper").GetStringValue(1));
-        Assert.Equal("foo", batch.Column("slice").GetStringValue(1));
+        Assert.Equal("FOO BAR", res.GetValue<string>(1, "upper"));
+        Assert.Equal("foo", res.GetValue<string>(1, "slice"));
     }
 
     [Fact]
@@ -294,17 +269,14 @@ TooShort,1990-05-20,1.60";
             // @"(\d+)" 是第 1 组
             Col("text").Str.Extract(@"(\d+)", 1).Alias("extracted_id")
         );
-
-        using var batch = res.ToArrow();
-
-        // 验证 Replace
+            // 验证 Replace
         // "User: 12345" -> "User: #"
-        Assert.Equal("User: #", batch.Column("masked").GetStringValue(0));
+        Assert.Equal("User: #", res.GetValue<string>(0, "masked"));
         
         // 验证 Extract
         // "User: 12345" -> "12345"
-        Assert.Equal("12345", batch.Column("extracted_id").GetStringValue(0));
-        Assert.Equal("999", batch.Column("extracted_id").GetStringValue(1));
+        Assert.Equal("12345", res.GetValue<string>(0, "extracted_id"));
+        Assert.Equal("999", res.GetValue<string>(1, "extracted_id"));
     }
     // ==========================================
     // Temporal Ops (Components, Format, Cast)
@@ -313,100 +285,89 @@ TooShort,1990-05-20,1.60";
     public void Temporal_Ops_Components_Format_Cast()
     {
         // 构造数据: 包含日期和时间的字符串
-        // Row 0: 2023年圣诞节下午3点半 (周一)
-        // Row 1: 2024年元旦零点 (周一)
         var csvContent = "ts\n2023-12-25 15:30:00\n2024-01-01 00:00:00";
         using var csv = new DisposableCsv(csvContent);
 
-        // [关键] 开启 tryParseDates=true，让 Polars 自动解析为 Datetime 类型
+        // [关键] 开启 tryParseDates=true
         using var df = DataFrame.ReadCsv(csv.Path, tryParseDates: true);
 
         using var res = df.Select(
             Col("ts"),
-
-            // 1. 提取组件 (Components)
+            // 1. 提取组件
             Col("ts").Dt.Year().Alias("y"),
             Col("ts").Dt.Month().Alias("m"),
             Col("ts").Dt.Day().Alias("d"),
             Col("ts").Dt.Hour().Alias("h"),
-            
-            // Polars 定义: Monday=1, Sunday=7
             Col("ts").Dt.Weekday().Alias("w_day"),
             
-            // 2. 格式化 (Format to String)
-            // 测试自定义格式: "2023/12/25"
+            // 2. 格式化 (Format to String) -> 返回的是 Utf8 类型
             Col("ts").Dt.ToString("%Y/%m/%d").Alias("fmt_custom"),
             
-            // 3. 类型转换 (Cast to Date)
-            // Datetime (含时分秒) -> Date (只含日期)
-            // 这一步依赖我们在 Wrapper.Expr.cs 中添加了 DtDate 绑定
+            // 3. 类型转换 (Cast to Date) -> 返回的是 Date 类型 (内部是 Int32 days)
             Col("ts").Dt.Date().Alias("date_only")
         );
 
-        // 验证结果
-        using var batch = res.ToArrow();
-
         // --- 验证 Row 0: 2023-12-25 15:30:00 ---
-        
-        // 年月日 (Polars 返回的是 Int32，我们的 GetInt64Value 会自动兼容)
-        Assert.Equal(2023, batch.Column("y").GetInt64Value(0));
-        Assert.Equal(12, batch.Column("m").GetInt64Value(0));
-        Assert.Equal(25, batch.Column("d").GetInt64Value(0));
-        
-        // 小时
-        Assert.Equal(15, batch.Column("h").GetInt64Value(0));
-        
-        // 星期 (2023-12-25 是周一，Polars weekday 1-7)
-        Assert.Equal(1, batch.Column("w_day").GetInt64Value(0));
 
-        // 格式化字符串验证
-        // 这里验证 .Dt.ToString() 是否生效
-        Assert.Equal("2023/12/25", batch.Column("fmt_custom").GetStringValue(0));
+        // 1. 组件验证
+        // 注意：Polars 内部 Year/Month/Day 可能返回不同宽度的整数 (Int32/Int8/UInt32)
+        // 确保你的 GetValue<int> 内部处理了 Convert.ToInt32 的转换逻辑，否则可能会因为类型不严格匹配报错
+        Assert.Equal(2023, res.GetValue<int>(0, "y"));
+        Assert.Equal(12, res.GetValue<int>(0, "m"));
+        Assert.Equal(25, res.GetValue<int>(0, "d"));
+        Assert.Equal(15, res.GetValue<int>(0, "h"));
+        Assert.Equal(1, res.GetValue<int>(0, "w_day")); // 周一
 
-        // Date 类型验证
-        // 这里验证 .Dt.Date() 是否成功把 Datetime 转成了 Date32
-        // 我们在 ArrowExtensions.cs 里写的 FormatValue 会把 Date32 渲染为 "yyyy-MM-dd"
-        // 且不包含时分秒
-        var dateCol = batch.Column("date_only");
-        Assert.Equal("2023-12-25", dateCol.FormatValue(0));
+        // 2. 格式化字符串验证
+        // 这里是对的，ToString() 在 Polars 层面返回 Utf8，C# 对应 string
+        Assert.Equal("2023/12/25", res.GetValue<string>(0, "fmt_custom"));
+
+        // 3. Date 类型验证 [修正点]
+        // 既然去掉了 Arrow 中间层，GetValue<DateTime> 应该返回 C# 的 DateTime 结构体
+        // 或者是 DateOnly (取决于你的 .NET 版本和绑定实现，通常用 DateTime 兼容性更好)
+        var expectedDate = new DateTime(2023, 12, 25);
+        var actualDate = res.GetValue<DateTime>(0, "date_only");
+
+        Assert.Equal(expectedDate, actualDate); 
+        // 如果你坚持要比对字符串，必须自己在 C# 侧 ToString:
+        // Assert.Equal("2023-12-25", actualDate.ToString("yyyy-MM-dd"));
 
         // --- 验证 Row 1: 2024-01-01 00:00:00 ---
-        Assert.Equal(2024, batch.Column("y").GetInt64Value(1));
-        Assert.Equal(1, batch.Column("m").GetInt64Value(1));
-        Assert.Equal(0, batch.Column("h").GetInt64Value(1)); // 零点
+        Assert.Equal(2024, res.GetValue<int>(1, "y"));
+        Assert.Equal(1, res.GetValue<int>(1, "m"));
+        Assert.Equal(0, res.GetValue<int>(1, "h"));
     }
-    // // ==========================================
-    // // Cast Ops: Int to Float, String to Int
-    // // ==========================================
-    // [Fact]
-    // public void Cast_Ops_Int_To_Float_String_To_Int()
-    // {
-    //     using var csv = new DisposableCsv("val_str,val_int\n100,10\n200,20");
-    //     using var df = DataFrame.ReadCsv(csv.Path);
+    // ==========================================
+    // Cast Ops: Int to Float, String to Int
+    // ==========================================
+    [Fact]
+    public void Cast_Ops_Int_To_Float_String_To_Int()
+    {
+        using var csv = new DisposableCsv("val_str,val_int\n100,10\n200,20");
+        using var df = DataFrame.ReadCsv(csv.Path);
 
-    //     using var res = df.Select(
-    //         // 1. String -> Int64
-    //         Col("val_str").Cast(DataType.Int64).Alias("str_to_int"),
+        using var res = df.Select(
+            // 1. String -> Int64
+            Col("val_str").Cast(DataType.Int64).Alias("str_to_int"),
             
-    //         // 2. Int64 -> Float64
-    //         Col("val_int").Cast(DataType.Float64).Alias("int_to_float")
-    //     );
+            // 2. Int64 -> Float64
+            Col("val_int").Cast(DataType.Float64).Alias("int_to_float")
+        );
 
-    //     // 验证
-    //     using var batch = res.ToArrow();
+        // 验证
         
-    //     // 验证 str_to_int (Row 0: 100)
-    //     // GetInt64Value 兼容 Int32/Int64，很安全
-    //     long v1 = batch.Column("str_to_int").GetInt64Value(0) ?? 0;
-    //     Assert.Equal(100L, v1);
+        // 验证 str_to_int (Row 0: 100)
+        // GetInt64Value 兼容 Int32/Int64，很安全
+        long v1 = res.Column("str_to_int").GetValue<long>(0);
+        Assert.Equal(100L, v1);
 
-    //     // 验证 int_to_float (Row 1: 20)
-    //     var floatCol = batch.Column("int_to_float") as DoubleArray; // Float64 -> DoubleArray
-    //     Assert.NotNull(floatCol);
+        // 验证 int_to_float (Row 1: 20)
+        var floatCol = res.Column("int_to_float").ToArrow() as DoubleArray; // Float64 -> DoubleArray
+        Assert.NotNull(floatCol);
         
-    //     double v2 = floatCol.GetValue(1) ?? 0.0;
-    //     Assert.Equal(20.0, v2);
-    // }
+        double v2 = floatCol.GetValue(1) ?? 0.0;
+        Assert.Equal(20.0, v2);
+    }
     // ==========================================
     // Control Flow: IfElse (When/Then/Otherwise)
     // ==========================================

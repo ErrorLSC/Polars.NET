@@ -155,3 +155,18 @@ type ``Series Tests`` () =
         // DataFrame 验证 (Redirect)
         use df = DataFrame.create [s]
         Assert.Equal(Some 1.23m, df.Decimal("d", 0))
+    [<Fact>]
+    member _.``Series: IsNull / IsNotNull`` () =
+        // 数据: 1, null, 3
+        let s = Series.create("a", [Some 1; None; Some 3])
+
+        // 1. IsNull -> [false, true, false]
+        let maskNull = s.IsNull()
+        Assert.Equal("bool", maskNull.DtypeStr)
+        Assert.Equal(Some false, maskNull.Bool(0))
+        Assert.Equal(Some true, maskNull.Bool(1))
+
+        // 2. IsNotNull -> [true, false, true]
+        let maskNotNull = s.IsNotNull()
+        Assert.Equal(Some true, maskNotNull.Bool(0))
+        Assert.Equal(Some false, maskNotNull.Bool(1))

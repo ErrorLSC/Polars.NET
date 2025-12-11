@@ -131,13 +131,10 @@ public class UdfTests
         // res.Show(); // 可以打开看看
         Assert.Equal(5, res.Height); // 应该是 5
 
-        using var arrowBatch = res.ToArrow();
-        var col = arrowBatch.Column("res") as DoubleArray;
-        
-        Assert.NotNull(col);
-        Assert.Equal(5, col.Length);
-        Assert.Equal(0.0, col.GetValue(0)); // 0 / 2
-        Assert.Equal(20.0, col.GetValue(4)); // 40 / 2
+        Assert.NotNull(res.Column("res"));
+        Assert.Equal(5, res.Column("res").Length);
+        Assert.Equal(0.0, res.Column("res").GetValue<double>(0)); // 0 / 2
+        Assert.Equal(20.0, res.Column("res").GetValue<double>(4)); // 40 / 2
     }
     [Fact]
     public void Test_UDF_Map_Stable()
@@ -162,13 +159,10 @@ public class UdfTests
 
         // 4. 验证
         Assert.Equal(5, res.Height); // 关键断言：行数不能丢
-
-        using var batch = res.ToArrow();
-        var col = batch.Column("res");
         
-        Assert.Equal(30, col.GetInt64Value(0));
-        Assert.Equal(50, col.GetInt64Value(1));
-        Assert.Equal(70, col.GetInt64Value(2));
+        Assert.Equal(30, res.Column("res").GetValue<long>(0));
+        Assert.Equal(50, res.Column("res").GetValue<long>(1));
+        Assert.Equal(70, res.Column("res").GetValue<long>(2));
     }
     [Fact]
     public void Map_UDF_Can_Change_Data_Type_Int_To_String()
@@ -190,14 +184,12 @@ public class UdfTests
         ).Collect();
         df.Show();
         // 4. 验证结果
-        using var arrowBatch = df.ToArrow();
         // F# let strCol = arrowBatch.Column "desc" :?> StringViewArray
         // 我们用 helper 或者直接 cast
-        var strCol = arrowBatch.Column("desc") as StringViewArray;
         
-        Assert.NotNull(strCol);
-        Assert.Equal("Value: 100", strCol.GetStringValue(0)); // 使用之前修好的 GetStringValue
-        Assert.Equal("Value: 200", strCol.GetStringValue(1));
+        Assert.NotNull(df.Column("desc"));
+        Assert.Equal("Value: 100", df.Column("desc").GetValue<string>(0)); // 使用之前修好的 GetStringValue
+        Assert.Equal("Value: 200", df.Column("desc").GetValue<string>(1));
     }
 
     [Fact]
@@ -238,10 +230,8 @@ public class UdfTests
         using var res = df.Select(Col("num"), doubleExpr);
         
         // 验证
-        using var batch = res.ToArrow();
-        var col = batch.Column("doubled");
-        Assert.Equal(20, col.GetInt64Value(0)); // 10 * 2
-        Assert.Equal(60, col.GetInt64Value(2)); // 30 * 2
+        Assert.Equal(20, res.Column("doubled").GetValue<long>(0)); // 10 * 2
+        Assert.Equal(60, res.Column("doubled").GetValue<long>(2)); // 30 * 2
     }
 
     [Fact]
@@ -261,11 +251,8 @@ public class UdfTests
         using var res = df.Select(Col("name"), greetExpr);
         
         // 验证
-        using var batch = res.ToArrow();
-        var col = batch.Column("greeting"); // 这里的 Column 会自动处理 LargeString/StringView
-        
-        Assert.Equal("Hello, Alice!", col.GetStringValue(0));
-        Assert.Equal("Hello, Bob!", col.GetStringValue(1));
+        Assert.Equal("Hello, Alice!", res.Column("greeting").GetValue<string>(0));
+        Assert.Equal("Hello, Bob!", res.Column("greeting").GetValue<string>(1));
     }
 
     [Fact]
@@ -285,12 +272,9 @@ public class UdfTests
 
         using var res = df.Select(Col("id"), formatExpr);
         
-        // 验证
-        using var batch = res.ToArrow();
-        var col = batch.Column("order_id");
-        
-        Assert.Equal("Order-1001", col.GetStringValue(0));
-        Assert.Equal("Order-1002", col.GetStringValue(1));
+        // 验证     
+        Assert.Equal("Order-1001", res.Column("order_id").GetValue<string>(0));
+        Assert.Equal("Order-1002", res.Column("order_id").GetValue<string>(1));
     }
     [Fact]
     public void Test_UDF_Nullable_Output()
@@ -309,12 +293,9 @@ public class UdfTests
         using var res = df.Select(Col("num"), cleanExpr);
         
         // 验证
-        using var batch = res.ToArrow();
-        var col = batch.Column("cleaned");
-        
-        Assert.Equal(10, col.GetInt64Value(0));
-        Assert.True(col.IsNull(1)); // 0 变成了 Null
-        Assert.Equal(20, col.GetInt64Value(2));
+        Assert.Equal(10, res.Column("cleaned").GetValue<long>(0));
+        Assert.Null(res.Column("cleaned").GetValue<long?>(1)); // 0 变成了 Null
+        Assert.Equal(20, res.Column("cleaned").GetValue<long>(2));
     }
     [Fact]
     public void Test_UDF_Nullable_Input()
@@ -331,10 +312,7 @@ public class UdfTests
 
         using var res = df.Select(Col("num"), checkNullExpr);
         
-        using var batch = res.ToArrow();
-        var col = batch.Column("status");
-        
-        Assert.Equal("Value:10", col.GetStringValue(0));
-        Assert.Equal("FoundNull", col.GetStringValue(1)); // 成功捕获了 Null 输入！
+        Assert.Equal("Value:10", res.Column("status").GetValue<string>(0));
+        Assert.Equal("FoundNull", res.Column("status").GetValue<string>(1)); // 成功捕获了 Null 输入！
     }
 }

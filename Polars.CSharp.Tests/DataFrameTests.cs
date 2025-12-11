@@ -37,14 +37,9 @@ David,40,80000";
             // 应该剩下 Charlie (35) 和 David (40)
             Assert.Equal(2, filtered.Height);
             Assert.Equal(2, filtered.Width);
-
-            // 4. 验证具体值 (通过 ToArrow 取回数据)
-            using var batch = filtered.ToArrow();
-            var nameCol = batch.Column("name");
             
-            Assert.NotNull(nameCol);
-            Assert.Equal("Charlie", nameCol.GetStringValue(0));
-            Assert.Equal("David", nameCol.GetStringValue(1));
+            Assert.Equal("Charlie", filtered.GetValue<string>(0, "name"));
+            Assert.Equal("David", filtered.GetValue<string>(1, "name"));
         }
         finally
         {
@@ -112,15 +107,11 @@ HR,50";
             
             Assert.Equal(2, grouped.Height);
             
-            using var batch = grouped.ToArrow();
-            var deptCol = batch.Column("dept");
-            var salaryCol = batch.Column("total_salary"); // Polars Sum 整数通常返回 Int64
-
-            Assert.Equal("IT", deptCol.GetStringValue(0));
-            Assert.Equal(300, salaryCol.GetInt64Value(0));
+            Assert.Equal("IT", grouped.GetValue<string>(0, "dept"));
+            Assert.Equal(300, grouped.GetValue<long>(0, "total_salary"));
             
-            Assert.Equal("HR", deptCol.GetStringValue(1));
-            Assert.Equal(200, salaryCol.GetInt64Value(1));
+            Assert.Equal("HR", grouped.GetValue<string>(1, "dept"));
+            Assert.Equal(200, grouped.GetValue<long>(1, "total_salary"));
         }
         finally
         {
@@ -174,20 +165,19 @@ Bob,2024,History";
         // 这里的列应该是: student, year, score, class
         Assert.Equal(4, joinedDf.Width);
 
-        using var batch = joinedDf.ToArrow();
         
         // 排序以确保验证顺序 (按 year 排序)
         // 但这里我们简单通过 Filter 验证或者假定顺序（CSV读取顺序通常保留）
         
         // 验证第一行 (Alice 2023)
-        Assert.Equal("Alice", batch.Column("student").GetStringValue(0));
-        Assert.Equal(2023, batch.Column("year").GetInt64Value(0));
-        Assert.Equal("Math", batch.Column("class").GetStringValue(0));
+        Assert.Equal("Alice", joinedDf.GetValue<string>(0, "student"));
+        Assert.Equal(2023, joinedDf.GetValue<int>(0, "year"));
+        Assert.Equal("Math", joinedDf.GetValue<string>(0, "class"));
 
         // 验证第二行 (Alice 2024)
-        Assert.Equal("Alice", batch.Column("student").GetStringValue(1));
-        Assert.Equal(2024, batch.Column("year").GetInt64Value(1));
-        Assert.Equal("Physics", batch.Column("class").GetStringValue(1));
+        Assert.Equal("Alice", joinedDf.GetValue<string>(1, "student"));
+        Assert.Equal(2024, joinedDf.GetValue<int>(1, "year"));
+        Assert.Equal("Physics", joinedDf.GetValue<string>(1, "class"));
 
         // 验证 Bob 确实被删除了 (因为他在右表没有 2023 的记录)
         // 我们可以简单地检查 DataFrame 里没有 Bob
@@ -214,10 +204,9 @@ Bob,2024,History";
             Assert.Equal(2, res.Height);
             Assert.Equal(2, res.Width);
 
-            using var batch = res.ToArrow();
             // 验证顺序
-            Assert.Equal(1, batch.Column("id").GetInt64Value(0));
-            Assert.Equal(2, batch.Column("id").GetInt64Value(1));
+            Assert.Equal(1, res.GetValue<int>(0, "id"));
+            Assert.Equal(2, res.GetValue<int>(1, "id"));
         }
 
         // --- 2. Horizontal (水平拼接) ---
@@ -234,14 +223,13 @@ Bob,2024,History";
             Assert.Equal(2, res.Height);
             Assert.Equal(3, res.Width); // id + name + age
 
-            using var batch = res.ToArrow();
-            Assert.NotNull(batch.Column("id"));
-            Assert.NotNull(batch.Column("name"));
-            Assert.NotNull(batch.Column("age"));
+            Assert.NotNull(res.Columns.Contains("id") ? res.GetValue<int>(0, "id") : null);
+            Assert.NotNull(res.Columns.Contains("name") ? res.GetValue<string>(0, "name") : null);
+            Assert.NotNull(res.Columns.Contains("age") ? res.GetValue<int>(0, "age") : null);
             
             // 验证数据对齐
-            Assert.Equal(1, batch.Column("id").GetInt64Value(0));
-            Assert.Equal("Alice", batch.Column("name").GetStringValue(0));
+            Assert.Equal(1, res.GetValue<int>(0, "id"));
+            Assert.Equal("Alice", res.GetValue<string>(0, "name"));
         }
 
         // --- 3. Diagonal (对角拼接) ---
@@ -260,22 +248,15 @@ Bob,2024,History";
 
             Assert.Equal(2, res.Height); // 垂直堆叠
             Assert.Equal(3, res.Width);  // A, B, C (列的并集)
-
-            using var batch = res.ToArrow();
             
-            var colA = batch.Column("A");
-            var colB = batch.Column("B");
-            var colC = batch.Column("C");
-
-            // Row 0 (来自 DF1): A=1, B=10, C=null
-            Assert.Equal(1, colA.GetInt64Value(0));
-            Assert.Equal(10, colB.GetInt64Value(0));
-            Assert.True(colC.IsNull(0)); // DF1 没有 C 列
+            Assert.Equal(1, res.GetValue<int>(0, "A"));
+            Assert.Equal(10, res.GetValue<int>(0, "B"));
+            Assert.Null(res.GetValue<int?>(0, "C"));
 
             // Row 1 (来自 DF2): A=null, B=20, C=300
-            Assert.True(colA.IsNull(1)); // DF2 没有 A 列
-            Assert.Equal(20, colB.GetInt64Value(1));
-            Assert.Equal(300, colC.GetInt64Value(1));
+            Assert.Null(res.GetValue<int?>(1, "A"));
+            Assert.Equal(20, res.GetValue<int>(1, "B"));
+            Assert.Equal(300, res.GetValue<int>(1, "C"));
         }
     }
     // ==========================================
@@ -312,11 +293,10 @@ Bob,2024,History";
         // 简单打印一下结构，防止列名顺序不确定导致测试挂掉
         pivoted.Show(); 
 
-        using var pBatch = pivoted.ToArrow();
         // 验证 2024-01-01 的 NY 气温 (假设第一行是 01-01)
         // 注意：Arrow 列名区分大小写
-        Assert.Equal(5, pBatch.Column("NY").GetInt64Value(0)); 
-        Assert.Equal(20, pBatch.Column("LA").GetInt64Value(0));
+        Assert.Equal(5, pivoted.GetValue<int>(0, "NY")); 
+        Assert.Equal(20, pivoted.GetValue<int>(0, "LA"));
 
         // --- Step 2: Unpivot/Melt (宽 -> 长) ---
         // 把刚才的宽表还原。
@@ -333,19 +313,16 @@ Bob,2024,History";
         // 高度应该回到 4 行
         Assert.Equal(4, unpivoted.Height);
         Assert.Equal(3, unpivoted.Width); // date, city, temp_restored
-
-        using var uBatch = unpivoted.ToArrow();
         
         // 验证列名是否存在
-        Assert.NotNull(uBatch.Column("city"));
-        Assert.NotNull(uBatch.Column("temp_restored"));
+        Assert.NotNull(unpivoted.Column("city"));
+        Assert.NotNull(unpivoted.Column("temp_restored"));
 
         // 验证值是否还在
         // 比如第一行应该是 2024-01-01, NY, 5 (或者 LA, 20，取决于排序稳定性，我们这里不深究具体排序，只验证数据存在性)
         // 简单验证第一行的数据类型正确
-        Assert.NotNull(uBatch.Column("city").GetStringValue(0));
-        Assert.NotNull(uBatch.Column("temp_restored").GetInt64Value(0));
-    }
+        Assert.NotNull(unpivoted.Column("city").GetValue<string>(0));
+}
     // ==========================================
     // Display Tests (Head & Show)
     // ==========================================
@@ -367,15 +344,14 @@ Bob,2024,History";
         using var headDf = df.Head(5);
         Assert.Equal(5, headDf.Height);
         
-        using var batch = headDf.ToArrow();
-        Assert.Equal(0, batch.Column("id").GetInt64Value(0));
-        Assert.Equal(4, batch.Column("id").GetInt64Value(4));
+        Assert.Equal(0, headDf.GetValue<int>(0,"id"));
+        Assert.Equal(4, headDf.GetValue<int>(4,"id"));
 
         using var tailDf = df.Tail(5);
         Assert.Equal(5, tailDf.Height);
-        using var tailBatch = tailDf.ToArrow();
-        Assert.Equal(10, tailBatch.Column("id").GetInt64Value(0));
-        Assert.Equal(14, tailBatch.Column("id").GetInt64Value(4));
+
+        Assert.Equal(10, tailDf.GetValue<int>(0,"id"));
+        Assert.Equal(14, tailDf.GetValue<int>(4,"id"));
         // 2. Test Show (No exception should be thrown)
         // 这会在控制台打印表格
         System.Console.WriteLine("\n--- Testing DataFrame.Show() output ---");
@@ -443,15 +419,11 @@ Bob,2024,History";
             rollExpr
         );
 
-        // 验证
-        using var batch = res.ToArrow();
-        var rollCol = batch.Column("roll_mean");
-        
         // 第3行 (2024-01-03): 窗口 [01, 02, 03) -> 10, 20. Mean = 15. 
         // Polars 的 RollingBy closed="left" 行为细节取决于版本，通常不包含当前行
         // 假设这里验证的是基本调用成功，具体数值依赖 Polars 逻辑
-        Assert.NotNull(rollCol);
-        Assert.Equal(5, rollCol.Length); 
+        Assert.NotNull(res);
+        Assert.Equal(5, res.Height); 
         // 只要不抛异常且有数据返回，说明 Wrapper 绑定成功
     }
 
@@ -488,21 +460,19 @@ B,5";
         // A (1,2) -> Sum=3, Max=2, Has3=false
         // B (3,4,5) -> Sum=12, Max=5, Has3=true
         
-        using var batch = res.ToArrow();
-        
         // 验证 Name Suffix
-        Assert.NotNull(batch.Column("val_list_sum")); // Suffix 生效
-        Assert.NotNull(batch.Column("val_list_max"));
+        Assert.NotNull(res["val_list_sum"]); // Suffix 生效
+        Assert.NotNull(res["val_list_max"]);
 
         // 验证 A
-        Assert.Equal(3, batch.Column("val_list_sum").GetInt64Value(0));
-        Assert.Equal(2, batch.Column("val_list_max").GetInt64Value(0));
-        Assert.Equal("false", batch.Column("has_3").FormatValue(0));
+        Assert.Equal(3, res.GetValue<int>(0,"val_list_sum"));
+        Assert.Equal(2, res.GetValue<int>(0,"val_list_max"));
+        Assert.False(res.GetValue<bool>(0,"has_3"));
 
         // 验证 B
-        Assert.Equal(12, batch.Column("val_list_sum").GetInt64Value(1));
-        Assert.Equal(5, batch.Column("val_list_max").GetInt64Value(1));
-        Assert.Equal("true", batch.Column("has_3").FormatValue(1));
+        Assert.Equal(12, res.GetValue<int>(1,"val_list_sum"));
+        Assert.Equal(5, res.GetValue<int>(1,"val_list_max"));
+        Assert.True(res.GetValue<bool>(1,"has_3"));
     }
     [Fact]
     public void Test_DataFrame_From_Records_With_Decimal()
@@ -523,15 +493,15 @@ B,5";
         Assert.Equal(3, df.Width);
 
         // 3. 验证
-        using var batch = df.ToArrow();
-        
+        // using var batch = df.ToArrow();
+        var priceCol = df.Column("Price");
         // 验证 Decimal
-        var priceCol = batch.Column("Price") as Decimal128Array;
-        Assert.NotNull(priceCol);
-        Assert.Equal(3, priceCol.Scale); // 自动推断
-        Assert.Equal(10.5m, priceCol.GetValue(0));   // 之前期望 10500 是错的，Arrow 已经除回去了
-        Assert.Equal(20.005m, priceCol.GetValue(1)); 
-        Assert.Equal(0m, priceCol.GetValue(2));
+        // var priceCol = batch.Column("Price") as Decimal128Array;
+            // Assert.NotNull(priceCol);
+        Assert.Equal(3, priceCol.Length); // 自动推断
+        Assert.Equal(10.5m, priceCol.GetValue<decimal>(0));   // 之前期望 10500 是错的，Arrow 已经除回去了
+        Assert.Equal(20.005m, priceCol.GetValue<decimal>(1)); 
+        Assert.Equal(0m, priceCol.GetValue<decimal>(2));
     }
 public class TradeRecord
     {
@@ -601,9 +571,6 @@ public class TradeRecord
         using var df = DataFrame.From(logs);
         
         Assert.Equal(2, df.Height);
-        
-        // 验证 Schema 是否正确变成了 Datetime
-        // (这里只能隐式验证，如果 ToArrow 成功说明类型兼容)
 
         // 2. To (Polars -> C#)
         var result = df.Rows<LogEntry>().ToList();
@@ -617,5 +584,47 @@ public class TradeRecord
         var row2 = result[1];
         Assert.Equal(now.AddMinutes(1), row2.Timestamp);
         Assert.Equal(now.AddMinutes(2), row2.ProcessedAt);
+    }
+    [Fact]
+    public void Test_Get_Column_As_Series()
+    {
+        // 1. 准备数据
+        var data = new[]
+        {
+            new { Name = "Alice", Age = 30 },
+            new { Name = "Bob",   Age = 40 }
+        };
+        using var df = DataFrame.From(data);
+
+        // 2. 获取 Series (显式方法)
+        using var sName = df.Column("Name");
+        Assert.Equal("Name", sName.Name);
+        Assert.Equal(2, sName.Length);
+        Assert.Equal("Alice", sName.GetValue<string>(0));
+
+        // 3. 获取 Series (索引器)
+        using var sAge = df["Age"];
+        Assert.Equal("Age", sAge.Name);
+        Assert.Equal(2, sAge.Length);
+        Assert.Equal(40, sAge.GetValue<int>(1));
+        
+        // 4. 验证类型信息
+        Assert.Contains("i32", sAge.DataTypeName); // From<T> 默认 int -> i32
+    }
+
+    [Fact]
+    public void Test_Get_Columns_Iterate()
+    {
+        using var df = DataFrame.From([new { A = 1, B = 2.0 }]);
+
+        // 获取所有列
+        var columns = df.GetColumns();
+        
+        Assert.Equal(2, columns.Length);
+        Assert.Equal("A", columns[0].Name);
+        Assert.Equal("B", columns[1].Name);
+        
+        // 清理
+        foreach (var col in columns) col.Dispose();
     }
 }

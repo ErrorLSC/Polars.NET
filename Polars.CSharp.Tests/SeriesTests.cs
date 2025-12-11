@@ -32,15 +32,12 @@ public class SeriesTests
         using var s = new Series("strings", ["a", null, "c"]);
         
         Assert.Equal(3, s.Length);
-
-        // 2. 转 Arrow
-        var arrowArray = s.ToArrow();
         
         // Polars 0.50 默认可能是 StringViewArray 或 LargeStringArray
         // 我们用之前的扩展方法来验证
-        Assert.Equal("a", arrowArray.GetStringValue(0));
-        Assert.Null(arrowArray.GetStringValue(1));
-        Assert.Equal("c", arrowArray.GetStringValue(2));
+        Assert.Equal("a", s.GetValue<string>(0));
+        Assert.Null(s.GetValue<string>(1));
+        Assert.Equal("c", s.GetValue<string>(2));
     }
 
     [Fact]

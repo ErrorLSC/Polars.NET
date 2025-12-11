@@ -34,13 +34,12 @@ David,40,80000";
         Assert.Equal(2, resultDf.Height);
         Assert.Equal(2, resultDf.Width); // name, salary
 
-        // 4. 验证具体值 (通过 ToArrow 取回数据)
-        using var batch = resultDf.ToArrow();
-        var nameCol = batch.Column("name");
+        // 4. 验证具体值
+        var nameCol = resultDf.Column("name");
         
         Assert.NotNull(nameCol);
-        Assert.Equal("Charlie", nameCol.GetStringValue(0));
-        Assert.Equal("David", nameCol.GetStringValue(1));
+        Assert.Equal("Charlie", nameCol.GetValue<string>(0));
+        Assert.Equal("David", nameCol.GetValue<string>(1));
 
     }
     [Fact]
@@ -63,9 +62,8 @@ David,40,80000";
         Assert.Equal(2, df.Width); // id, name
 
         // 验证数据
-        using var batch = df.ToArrow();
-        Assert.Equal(1, batch.Column("id").GetInt64Value(0));
-        Assert.Equal("Alice", batch.Column("name").GetStringValue(0));
+        Assert.Equal(1, df.Column("id").GetValue<long>(0));
+        Assert.Equal("Alice", df.Column("name").GetValue<string>(0));
 
         // 2. [关键] 验证 C# 对象安全性 (F# vs C# 习惯测试)
         
@@ -73,8 +71,7 @@ David,40,80000";
         using var df1_again = lf1.Select(Col("id") * Lit(10)).Collect();
         Assert.Equal(2, df1_again.Height);
         
-        using var batch1 = df1_again.ToArrow();
-        Assert.Equal(10, batch1.Column("id").GetInt64Value(0));
+        Assert.Equal(10, df1_again.Column("id").GetValue<long>(0));
     }
     
     [Fact]
@@ -89,6 +86,9 @@ David,40,80000";
         using var lf2 = LazyFrame.ScanCsv(csv2.Path);
 
         // Diagonal Concat (Lazy)
+        // 结果结构预期：
+        // Row 0 (来自 LF1): A=1,    B=10,   C=null (补位)
+        // Row 1 (来自 LF2): A=null, B=20,   C=300
         var concatLf = LazyFrame.Concat([lf1, lf2], ConcatType.Diagonal);
         
         using var df = concatLf.Collect();
@@ -96,12 +96,22 @@ David,40,80000";
         Assert.Equal(2, df.Height);
         Assert.Equal(3, df.Width); // A, B, C
 
-        using var batch = df.ToArrow();
-        // 验证第一行 (来自 LF1) -> C 应该是 null
-        Assert.True(batch.Column("C").IsNull(0));
+        // --- 验证 Row 0 (来自 LF1) ---
+        // A 和 B 有值
+        Assert.Equal(1, df.GetValue<int?>(0, "A"));
+        Assert.Equal(10, df.GetValue<int?>(0, "B"));
         
-        // 验证第二行 (来自 LF2) -> A 应该是 null
-        Assert.True(batch.Column("A").IsNull(1));
+        // C 应该是 null (因为 LF1 没有 C列)
+        // [重点] 使用 Assert.Null + GetValue<int?>
+        Assert.Null(df.GetValue<int?>(0, "C"));
+        
+        // --- 验证 Row 1 (来自 LF2) ---
+        // A 应该是 null (因为 LF2 没有 A列)
+        Assert.Null(df.GetValue<int?>(1, "A"));
+        
+        // B 和 C 有值
+        Assert.Equal(20, df.GetValue<int?>(1, "B"));
+        Assert.Equal(300, df.GetValue<int?>(1, "C"));
     }
         [Fact]
     public void Test_LazyFrame_Join_MultiColumn()
@@ -147,20 +157,19 @@ Bob,2024,History";
         // 这里的列应该是: student, year, score, class
         Assert.Equal(4, joinedDf.Width);
 
-        using var batch = joinedDf.ToArrow();
         
         // 排序以确保验证顺序 (按 year 排序)
         // 但这里我们简单通过 Filter 验证或者假定顺序（CSV读取顺序通常保留）
         
         // 验证第一行 (Alice 2023)
-        Assert.Equal("Alice", batch.Column("student").GetStringValue(0));
-        Assert.Equal(2023, batch.Column("year").GetInt64Value(0));
-        Assert.Equal("Math", batch.Column("class").GetStringValue(0));
+        Assert.Equal("Alice", joinedDf.Column("student").GetValue<string>(0));
+        Assert.Equal(2023, joinedDf.Column("year").GetValue<long>(0));
+        Assert.Equal("Math", joinedDf.Column("class").GetValue<string>(0));
 
         // 验证第二行 (Alice 2024)
-        Assert.Equal("Alice", batch.Column("student").GetStringValue(1));
-        Assert.Equal(2024, batch.Column("year").GetInt64Value(1));
-        Assert.Equal("Physics", batch.Column("class").GetStringValue(1));
+        Assert.Equal("Alice", joinedDf.Column("student").GetValue<string>(1));
+        Assert.Equal(2024, joinedDf.Column("year").GetValue<long>(1));
+        Assert.Equal("Physics", joinedDf.Column("class").GetValue<string>(1));
 
         // 验证 Bob 确实被删除了 (因为他在右表没有 2023 的记录)
         // 我们可以简单地检查 DataFrame 里没有 Bob
@@ -192,16 +201,12 @@ HR,50";
         // HR: 200
         
         Assert.Equal(2, grouped.Height);
+    
+        Assert.Equal("IT", grouped.Column("dept").GetValue<string>(0));
+        Assert.Equal(300, grouped.Column("total_salary").GetValue<long>(0));
         
-        using var batch = grouped.ToArrow();
-        var deptCol = batch.Column("dept");
-        var salaryCol = batch.Column("total_salary"); // Polars Sum 整数通常返回 Int64
-
-        Assert.Equal("IT", deptCol.GetStringValue(0));
-        Assert.Equal(300, salaryCol.GetInt64Value(0));
-        
-        Assert.Equal("HR", deptCol.GetStringValue(1));
-        Assert.Equal(200, salaryCol.GetInt64Value(1));
+        Assert.Equal("HR", grouped.Column("dept").GetValue<string>(1));
+        Assert.Equal(200, grouped.Column("total_salary").GetValue<long>(1));
     }
     [Fact]
     public void Test_Lazy_Unpivot_With_Explain()
@@ -237,16 +242,14 @@ HR,50";
         // 原来 2 行，每行拆成 2 个水果 -> 总共 4 行
         Assert.Equal(4, df.Height);
         Assert.Equal(3, df.Width); // date, fruit, price
-
-        using var batch = df.ToArrow();
         
         // 简单验证第一行 (具体顺序取决于实现，但通常有序)
         // 检查列存在性
-        Assert.NotNull(batch.Column("fruit"));
-        Assert.NotNull(batch.Column("price"));
+        Assert.NotNull(df.Column("fruit"));
+        Assert.NotNull(df.Column("price"));
         
         // 验证值类型 (apple/banana 价格是 Int64)
-        var price0 = batch.Column("price").GetInt64Value(0);
+        var price0 = df.Column("price").GetValue<long>(0);
         Assert.True(price0 == 10 || price0 == 20);
     }
     [Fact]
@@ -301,22 +304,18 @@ HR,50";
         // Trades 有 3 行，Left Join 应该保留 3 行
         Assert.Equal(3, df.Height);
 
-        using var batch = df.ToArrow();
-        var timeCol = batch.Column("time"); // Trades 的时间
-        var bidCol = batch.Column("bid");   // 匹配到的报价
-
         // Row 0: Trade 10:00 -> 匹配 Quote 09:59 (Bid 150)
-        Assert.Equal("10:00", timeCol.GetStringValue(0));
-        Assert.Equal(150, bidCol.GetInt64Value(0));
+        Assert.Equal("10:00", df.Column("time").GetValue<string>(0));
+        Assert.Equal(150, df.Column("bid").GetValue<long>(0));
 
         // Row 1: Trade 10:02 -> 匹配 Quote 10:01 (Bid 151)
-        Assert.Equal("10:02", timeCol.GetStringValue(1));
-        Assert.Equal(151, bidCol.GetInt64Value(1));
+        Assert.Equal("10:02", df.Column("time").GetValue<string>(1));
+        Assert.Equal(151, df.Column("bid").GetValue<long>(1));
 
         // Row 2: Trade 10:05 -> 匹配 Quote 10:01 (Bid 151)
         // 因为 10:06 的报价还没发生 (backward strategy)
-        Assert.Equal("10:05", timeCol.GetStringValue(2));
-        Assert.Equal(151, bidCol.GetInt64Value(2));
+        Assert.Equal("10:05", df.Column("time").GetValue<string>(2));
+        Assert.Equal(151, df.Column("bid").GetValue<long>(2));
     }
     [Fact]
     public void Test_DataFrame_To_Lazy_And_Sql()

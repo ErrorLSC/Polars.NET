@@ -232,7 +232,7 @@ public static partial class PolarsWrapper
     {
         if (NativeBindings.pl_series_get_date(s, (UIntPtr)idx, out int days))
         {
-            return DateOnly.FromDayNumber(days + 719163); // 719163 is days from 0001-01-01 to 1970-01-01
+            return DateOnly.FromDayNumber(days + 719162); // 719162 is days from 0001-01-01 to 1970-01-01
         }
         return null;
     }
@@ -312,7 +312,14 @@ public static partial class PolarsWrapper
     {
         return ErrorHelper.Check(NativeBindings.pl_series_cast(s, dtype));
     }
+    public static SeriesHandle SeriesIsNull(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_null(s));
+    
+    public static SeriesHandle SeriesIsNotNull(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_not_null(s));
 
+    public static bool SeriesIsNullAt(SeriesHandle s, long idx)
+    {
+        return NativeBindings.pl_series_is_null_at(s, (UIntPtr)idx);
+    }
     // DataType Helpers
     public static DataTypeHandle NewPrimitiveType(int code) => NativeBindings.pl_datatype_new_primitive(code);
     public static DataTypeHandle NewDecimalType(int precision, int scale) => NativeBindings.pl_datatype_new_decimal((UIntPtr)precision, (UIntPtr)scale);

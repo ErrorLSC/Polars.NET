@@ -35,12 +35,9 @@ public class SqlTests
         // 5. 验证
         Assert.Equal(2, resDf.Height); // Bob, Charlie
         
-        using var batch = resDf.ToArrow();
-        var nameCol = batch.Column("Name");
-        
         // Order By DESC -> Charlie First
-        Assert.Equal("Charlie", nameCol.GetStringValue(0));
-        Assert.Equal("Bob", nameCol.GetStringValue(1));
+        Assert.Equal("Charlie", resDf.Column("Name").GetValue<string>(0));
+        Assert.Equal("Bob", resDf.Column("Name").GetValue<string>(1));
     }
 
     [Fact]
@@ -68,14 +65,13 @@ public class SqlTests
         using var res = ctx.Execute(query).Collect();
         
         // HR: 1500, IT: 3000
-        using var batch = res.ToArrow();
-        var deptCol = batch.Column("Dept");
-        var salaryCol = batch.Column("TotalSalary"); // Polars SQL 会保留大小写或者转小写，视版本而定，通常是保持
+        var deptCol = res.Column("Dept");
+        var salaryCol = res.Column("TotalSalary"); // Polars SQL 会保留大小写或者转小写，视版本而定，通常是保持
 
-        Assert.Equal("HR", deptCol.GetStringValue(0));
-        Assert.Equal(1500, salaryCol.GetInt64Value(0)); // Sum int -> int/long
+        Assert.Equal("HR", deptCol.GetValue<string>(0));
+        Assert.Equal(1500, salaryCol.GetValue<long>(0)); // Sum int -> int/long
 
-        Assert.Equal("IT", deptCol.GetStringValue(1));
-        Assert.Equal(3000, salaryCol.GetInt64Value(1));
+        Assert.Equal("IT", deptCol.GetValue<string>(1));
+        Assert.Equal(3000, salaryCol.GetValue<long>(1));
     }
 }
