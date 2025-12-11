@@ -227,6 +227,51 @@ public static partial class PolarsWrapper
         }
         return null;
     }
+    // Date: Days since 1970-01-01
+    public static DateOnly? SeriesGetDate(SeriesHandle s, long idx)
+    {
+        if (NativeBindings.pl_series_get_date(s, (UIntPtr)idx, out int days))
+        {
+            return DateOnly.FromDayNumber(days + 719163); // 719163 is days from 0001-01-01 to 1970-01-01
+        }
+        return null;
+    }
+
+    // Time: Nanoseconds since midnight
+    public static TimeOnly? SeriesGetTime(SeriesHandle s, long idx)
+    {
+        if (NativeBindings.pl_series_get_time(s, (UIntPtr)idx, out long ns))
+        {
+            // .NET Ticks = 100ns
+            long ticks = ns / 100;
+            return new TimeOnly(ticks);
+        }
+        return null;
+    }
+
+    // Datetime: Microseconds since 1970-01-01 (Assuming 'us' time unit)
+    public static DateTime? SeriesGetDatetime(SeriesHandle s, long idx)
+    {
+        if (NativeBindings.pl_series_get_datetime(s, (UIntPtr)idx, out long us))
+        {
+            // .NET Ticks = 100ns. 1 us = 10 ticks.
+            // Unix Epoch Ticks = 621355968000000000
+            long ticks = (us * 10) + 621355968000000000L;
+            return new DateTime(ticks, DateTimeKind.Utc); // 默认 UTC 语义
+        }
+        return null;
+    }
+
+    // Duration: Microseconds (Assuming 'us')
+    public static TimeSpan? SeriesGetDuration(SeriesHandle s, long idx)
+    {
+        if (NativeBindings.pl_series_get_duration(s, (UIntPtr)idx, out long us))
+        {
+            // 1 us = 10 ticks
+            return new TimeSpan(us * 10);
+        }
+        return null;
+    }
     // --- Arrow Integration ---
 
     public static unsafe IArrowArray SeriesToArrow(SeriesHandle h)

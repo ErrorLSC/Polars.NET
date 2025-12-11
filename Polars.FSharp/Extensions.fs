@@ -256,94 +256,94 @@ module Serialization =
     // ==========================================
 
     // 工厂：为某个属性创建写入闭包
-    let private createFieldWriter (prop: Reflection.PropertyInfo) 
-        : (obj -> unit) * (unit -> Field) * (unit -> IArrowArray) =
+    // let private createFieldWriter (prop: Reflection.PropertyInfo) 
+    //     : (obj -> unit) * (unit -> Field) * (unit -> IArrowArray) =
         
-        let t = prop.PropertyType
-        let name = prop.Name
+    //     let t = prop.PropertyType
+    //     let name = prop.Name
         
-        let isOption = t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<option<_>>
-        let coreType = if isOption then t.GetGenericArguments().[0] else t
+    //     let isOption = t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<option<_>>
+    //     let coreType = if isOption then t.GetGenericArguments().[0] else t
         
-        // 获取解包器
-        let unwrap = createOptionUnwrapper t
+    //     // 获取解包器
+    //     let unwrap = createOptionUnwrapper t
 
-        // 通用 Append 逻辑
-        let appendWithNullCheck (f: obj -> unit) (builderNull: unit -> unit) (v: obj) =
-            let realVal = unwrap v
-            if isNull realVal then builderNull()
-            else f realVal
+    //     // 通用 Append 逻辑
+    //     let appendWithNullCheck (f: obj -> unit) (builderNull: unit -> unit) (v: obj) =
+    //         let realVal = unwrap v
+    //         if isNull realVal then builderNull()
+    //         else f realVal
 
-        if coreType = typeof<int> then
-            let b = new Int32Array.Builder()
-            let append v = appendWithNullCheck (fun x -> b.Append(unbox<int> x) |> ignore) (fun () -> b.AppendNull() |> ignore) v
-            let field () = new Field(name, Int32Type.Default, true)
-            let build () = b.Build() :> IArrowArray
-            append, field, build
+    //     if coreType = typeof<int> then
+    //         let b = new Int32Array.Builder()
+    //         let append v = appendWithNullCheck (fun x -> b.Append(unbox<int> x) |> ignore) (fun () -> b.AppendNull() |> ignore) v
+    //         let field () = new Field(name, Int32Type.Default, true)
+    //         let build () = b.Build() :> IArrowArray
+    //         append, field, build
 
-        else if coreType = typeof<int64> then
-            let b = new Int64Array.Builder()
-            let append v = appendWithNullCheck (fun x -> b.Append(unbox<int64> x) |> ignore) (fun () -> b.AppendNull() |> ignore) v
-            let field () = new Field(name, Int64Type.Default, true)
-            let build () = b.Build() :> IArrowArray
-            append, field, build
+    //     else if coreType = typeof<int64> then
+    //         let b = new Int64Array.Builder()
+    //         let append v = appendWithNullCheck (fun x -> b.Append(unbox<int64> x) |> ignore) (fun () -> b.AppendNull() |> ignore) v
+    //         let field () = new Field(name, Int64Type.Default, true)
+    //         let build () = b.Build() :> IArrowArray
+    //         append, field, build
 
-        else if coreType = typeof<double> then
-            let b = new DoubleArray.Builder()
-            let append v = appendWithNullCheck (fun x -> b.Append(unbox<double> x) |> ignore) (fun () -> b.AppendNull() |> ignore) v
-            let field () = new Field(name, DoubleType.Default, true)
-            let build () = b.Build() :> IArrowArray
-            append, field, build
+    //     else if coreType = typeof<double> then
+    //         let b = new DoubleArray.Builder()
+    //         let append v = appendWithNullCheck (fun x -> b.Append(unbox<double> x) |> ignore) (fun () -> b.AppendNull() |> ignore) v
+    //         let field () = new Field(name, DoubleType.Default, true)
+    //         let build () = b.Build() :> IArrowArray
+    //         append, field, build
             
-        else if coreType = typeof<string> then
-            let b = new StringArray.Builder()
-            let append v = appendWithNullCheck (fun x -> b.Append(unbox<string> x) |> ignore) (fun () -> b.AppendNull() |> ignore) v
-            let field () = new Field(name, StringType.Default, true)
-            let build () = b.Build() :> IArrowArray
-            append, field, build
+    //     else if coreType = typeof<string> then
+    //         let b = new StringArray.Builder()
+    //         let append v = appendWithNullCheck (fun x -> b.Append(unbox<string> x) |> ignore) (fun () -> b.AppendNull() |> ignore) v
+    //         let field () = new Field(name, StringType.Default, true)
+    //         let build () = b.Build() :> IArrowArray
+    //         append, field, build
 
-        else if coreType = typeof<bool> then
-            let b = new BooleanArray.Builder()
-            let append v = appendWithNullCheck (fun x -> b.Append(unbox<bool> x) |> ignore) (fun () -> b.AppendNull() |> ignore) v
-            let field () = new Field(name, BooleanType.Default, true)
-            let build () = b.Build() :> IArrowArray
-            append, field, build
+    //     else if coreType = typeof<bool> then
+    //         let b = new BooleanArray.Builder()
+    //         let append v = appendWithNullCheck (fun x -> b.Append(unbox<bool> x) |> ignore) (fun () -> b.AppendNull() |> ignore) v
+    //         let field () = new Field(name, BooleanType.Default, true)
+    //         let build () = b.Build() :> IArrowArray
+    //         append, field, build
 
-        else if coreType = typeof<DateTime> then
-            let tsType = new TimestampType(TimeUnit.Microsecond, (null: string))
-            let b = new TimestampArray.Builder(tsType)
+    //     else if coreType = typeof<DateTime> then
+    //         let tsType = new TimestampType(TimeUnit.Microsecond, (null: string))
+    //         let b = new TimestampArray.Builder(tsType)
             
-            let writeValue (x: obj) = 
-                let dt = unbox<DateTime> x
-                let dtUtc = DateTime(dt.Ticks, DateTimeKind.Utc)
-                let dto = DateTimeOffset dtUtc
-                b.Append dto |> ignore
+    //         let writeValue (x: obj) = 
+    //             let dt = unbox<DateTime> x
+    //             let dtUtc = DateTime(dt.Ticks, DateTimeKind.Utc)
+    //             let dto = DateTimeOffset dtUtc
+    //             b.Append dto |> ignore
 
-            let writeNull () = b.AppendNull() |> ignore
+    //         let writeNull () = b.AppendNull() |> ignore
 
-            let append v = appendWithNullCheck writeValue writeNull v
-            let field () = new Field(name, new TimestampType(TimeUnit.Microsecond, (null:string)), true)
-            let build () = b.Build() :> IArrowArray
+    //         let append v = appendWithNullCheck writeValue writeNull v
+    //         let field () = new Field(name, new TimestampType(TimeUnit.Microsecond, (null:string)), true)
+    //         let build () = b.Build() :> IArrowArray
             
-            append, field, build
+    //         append, field, build
 
-        // [新增] Decimal Support
-        else if coreType = typeof<decimal> then
-            // 注意：这里我们无法预知所有数据的 Scale，必须假定一个足够大的值 (e.g. 28, 4)
-            // 或者抛出异常建议用户使用 Series.create
-            // 这里为了方便，我们默认使用 (38, 18) 或者 (28, 6) 这种通用精度
-            // Arrow 的 DecimalBuilder 需要显式 Type
-            let p, s = 28, 6
-            let decType = new Decimal128Type(p, s)
-            let b = new Decimal128Array.Builder(decType)
+    //     // [新增] Decimal Support
+    //     else if coreType = typeof<decimal> then
+    //         // 注意：这里我们无法预知所有数据的 Scale，必须假定一个足够大的值 (e.g. 28, 4)
+    //         // 或者抛出异常建议用户使用 Series.create
+    //         // 这里为了方便，我们默认使用 (38, 18) 或者 (28, 6) 这种通用精度
+    //         // Arrow 的 DecimalBuilder 需要显式 Type
+    //         let p, s = 28, 6
+    //         let decType = new Decimal128Type(p, s)
+    //         let b = new Decimal128Array.Builder(decType)
             
-            let append v = appendWithNullCheck (fun x -> b.Append(unbox<decimal> x) |> ignore) (fun () -> b.AppendNull() |> ignore) v
-            let field () = new Field(name, decType, true)
-            let build () = b.Build() :> IArrowArray
-            append, field, build
+    //         let append v = appendWithNullCheck (fun x -> b.Append(unbox<decimal> x) |> ignore) (fun () -> b.AppendNull() |> ignore) v
+    //         let field () = new Field(name, decType, true)
+    //         let build () = b.Build() :> IArrowArray
+    //         append, field, build
 
-        else
-            failwithf "Unsupported type for DataFrame.ofRecords: %s" coreType.Name
+    //     else
+    //         failwithf "Unsupported type for DataFrame.ofRecords: %s" coreType.Name
 
     // ==========================================
     // 4. Extensions (Exposed Methods)

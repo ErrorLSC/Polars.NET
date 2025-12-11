@@ -471,6 +471,21 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)]
     public static partial bool pl_series_get_decimal(SeriesHandle s, UIntPtr idx, out Int128 val, out UIntPtr scale);
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static partial bool pl_series_get_date(SeriesHandle s, UIntPtr idx, out int val);
+
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static partial bool pl_series_get_time(SeriesHandle s, UIntPtr idx, out long val);
+
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static partial bool pl_series_get_datetime(SeriesHandle s, UIntPtr idx, out long val);
+
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static partial bool pl_series_get_duration(SeriesHandle s, UIntPtr idx, out long val);
     // --- Series Constructors ---
     // DataFrame -> Series (ByName)
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]

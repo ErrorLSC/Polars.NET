@@ -306,3 +306,46 @@ pub extern "C" fn pl_series_get_decimal(s_ptr: *mut SeriesContext, idx: usize, o
         _ => false
     }
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_get_date(s_ptr: *mut SeriesContext, idx: usize, out_val: *mut i32) -> bool {
+    let ctx = unsafe { &*s_ptr };
+    if idx >= ctx.series.len() { return false; }
+    match ctx.series.get(idx) {
+        Ok(AnyValue::Date(v)) => { unsafe { *out_val = v }; true }
+        _ => false
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_get_time(s_ptr: *mut SeriesContext, idx: usize, out_val: *mut i64) -> bool {
+    let ctx = unsafe { &*s_ptr };
+    if idx >= ctx.series.len() { return false; }
+    match ctx.series.get(idx) {
+        Ok(AnyValue::Time(v)) => { unsafe { *out_val = v }; true } // Nanoseconds
+        _ => false
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_get_datetime(s_ptr: *mut SeriesContext, idx: usize, out_val: *mut i64) -> bool {
+    let ctx = unsafe { &*s_ptr };
+    if idx >= ctx.series.len() { return false; }
+    match ctx.series.get(idx) {
+        // Datetime(val, unit, timezone)
+        // 我们这里只取 val。通常 Polars 默认是 Microseconds (us)。
+        // 严谨的做法应该转换单位，但这里为了性能直接返回物理值，C# 端按 Microseconds 处理。
+        Ok(AnyValue::Datetime(v, _, _)) => { unsafe { *out_val = v }; true }
+        _ => false
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_get_duration(s_ptr: *mut SeriesContext, idx: usize, out_val: *mut i64) -> bool {
+    let ctx = unsafe { &*s_ptr };
+    if idx >= ctx.series.len() { return false; }
+    match ctx.series.get(idx) {
+        Ok(AnyValue::Duration(v, _)) => { unsafe { *out_val = v }; true }
+        _ => false
+    }
+}

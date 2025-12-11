@@ -2,6 +2,7 @@ namespace Polars.FSharp.Tests
 
 open Xunit
 open Polars.FSharp
+open System
 
 type UserRecord = {
         name: string
@@ -261,6 +262,36 @@ type ``Basic Functionality Tests`` () =
         // 让我们试个明确的
         let dfSampleFrac = df.Sample(frac=1.0) // 全量乱序
         Assert.Equal(3L, dfSampleFrac.Rows)
+    [<Fact>]
+    member _.``Full Temporal Types: Create & Retrieve`` () =
+        let date = DateOnly(2023, 1, 1)
+        let time = TimeOnly(12, 30, 0)
+        let dur = TimeSpan.FromHours(1.5) // 90 mins
+
+        // 1. Series Create
+        use sDate = Series.create("d", [date])
+        use sTime = Series.create("t", [time])
+        use sDur = Series.create("dur", [dur])
+
+        // 2. 验证类型字符串
+        Assert.Equal("date", sDate.DtypeStr)
+        Assert.Equal("time", sTime.DtypeStr)
+        Assert.Equal("duration[μs]", sDur.DtypeStr) // Polars 默认 Duration 是 us
+
+        // 3. 验证读取 (Scalar Access)
+        Assert.Equal(date, sDate.Date(0).Value)
+        Assert.Equal(time, sTime.Time(0).Value)
+        Assert.Equal(dur, sDur.Duration(0).Value)
+
+        // 4. DataFrame.ofRecords 集成测试
+        let records = [
+            {| Id = 1; DoB = date; WakeUp = time; Shift = dur |}
+        ]
+        let df = DataFrame.ofRecords records
+        
+        Assert.Equal(date, df.Date("DoB", 0).Value)
+        Assert.Equal(time, df.Time("WakeUp", 0).Value)
+        Assert.Equal(dur, df.Duration("Shift", 0).Value)
     [<Fact>]
     member _.``Conversion: DataFrame -> Lazy -> DataFrame`` () =
         // 1. 创建 Eager DF

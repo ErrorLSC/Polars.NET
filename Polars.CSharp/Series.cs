@@ -28,6 +28,109 @@ public class Series : IDisposable
     /// Get the string representation of the Series data type (e.g. "i64", "str", "datetime(μs)").
     /// </summary>
     public string DataTypeName => PolarsWrapper.GetSeriesDtypeString(Handle);
+    
+    // ==========================================
+    // Scalar Accessors (Native Speed ⚡)
+    // ==========================================
+
+    /// <summary>
+    /// Get an item at the specified index.
+    /// Supports: int, long, double, bool, string, decimal, DateTime, TimeSpan, DateOnly, TimeOnly.
+    /// </summary>
+    public T? GetValue<T>(long index)
+    {
+        var type = typeof(T);
+        var underlying = Nullable.GetUnderlyingType(type) ?? type;
+
+        if (index < 0 || index >= Length)
+            throw new IndexOutOfRangeException($"Index {index} is out of bounds for Series length {Length}.");
+
+        // 1. Numeric
+        if (underlying == typeof(int)) 
+            return (T?)(object?)(int?)PolarsWrapper.SeriesGetInt(Handle, index); // Long -> Int (Narrowing)
+            
+        if (underlying == typeof(long)) 
+            return (T?)(object?)PolarsWrapper.SeriesGetInt(Handle, index);
+
+        if (underlying == typeof(double)) 
+            return (T?)(object?)PolarsWrapper.SeriesGetDouble(Handle, index);
+
+        if (underlying == typeof(float)) 
+            return (T?)(object?)(float?)PolarsWrapper.SeriesGetDouble(Handle, index);
+
+        // 2. Boolean
+        if (underlying == typeof(bool)) 
+            return (T?)(object?)PolarsWrapper.SeriesGetBool(Handle, index);
+
+        // 3. String
+        if (underlying == typeof(string)) 
+            return (T?)(object?)PolarsWrapper.SeriesGetString(Handle, index);
+
+        // 4. Decimal
+        if (underlying == typeof(decimal))
+            return (T?)(object?)PolarsWrapper.SeriesGetDecimal(Handle, index);
+
+        // 5. Temporal (Time)
+        if (underlying == typeof(DateTime))
+            return (T?)(object?)PolarsWrapper.SeriesGetDatetime(Handle, index);
+
+        if (underlying == typeof(DateOnly))
+            return (T?)(object?)PolarsWrapper.SeriesGetDate(Handle, index);
+            
+        if (underlying == typeof(TimeOnly))
+            return (T?)(object?)PolarsWrapper.SeriesGetTime(Handle, index);
+            
+        if (underlying == typeof(TimeSpan))
+            return (T?)(object?)PolarsWrapper.SeriesGetDuration(Handle, index);
+
+        throw new NotSupportedException($"Type {type.Name} is not supported for Series.GetValue.");
+    }
+    
+    /// <summary>
+    /// Get an item at the specified index as object.
+    /// </summary>
+    /// <param name="index"></param>
+    /// <returns></returns>
+    public object? this[long index]
+    {
+        get
+        {
+            // 根据 dtype 字符串动态决定返回类型 (稍微慢一点，适合调试)
+            // 你也可以解析 DataTypeName 字符串，或者让用户必须用 GetValue<T>
+            // 这里简单处理：
+            var dtype = DataTypeName;
+            if (dtype.Contains("i32") || dtype.Contains("i64")) return GetValue<long>(index);
+            if (dtype.Contains("f32") || dtype.Contains("f64")) return GetValue<double>(index);
+            if (dtype.Contains("str")) return GetValue<string>(index);
+            if (dtype.Contains("bool")) return GetValue<bool>(index);
+            if (dtype.Contains("decimal")) return GetValue<decimal>(index);
+            if (dtype.Contains("datetime")) return GetValue<DateTime>(index);
+            if (dtype.Contains("date")) return GetValue<DateOnly>(index);
+            if (dtype.Contains("time")) return GetValue<TimeOnly>(index);
+            if (dtype.Contains("duration")) return GetValue<TimeSpan>(index);
+            
+            return null; // Fallback
+        }
+    }
+    // ==========================================
+    // Helpers (时间转换逻辑)
+    // ==========================================
+    
+    // Unix Epoch Ticks (1970-01-01)
+    private const long UnixEpochTicks = 621355968000000000L;
+    private const int DaysTo1970 = 719163;
+
+    // DateTime -> Microseconds (Long)
+    private static long ToMicros(DateTime dt) => (dt.Ticks - UnixEpochTicks) / 10L;
+    
+    // TimeSpan -> Microseconds (Long)
+    private static long ToMicros(TimeSpan ts) => ts.Ticks / 10L;
+
+    // TimeOnly -> Nanoseconds (Long)
+    private static long ToNanos(TimeOnly t) => t.Ticks * 100L;
+
+    // DateOnly -> Days (Int)
+    private static int ToDays(DateOnly d) => d.DayNumber - DaysTo1970;
     // ==========================================
     // Constructors
     // ==========================================
@@ -80,7 +183,94 @@ public class Series : IDisposable
     {
         Handle = PolarsWrapper.SeriesNew(name, data);
     }
+    /// <summary>
+    /// Create a Series from an array of DateTime values.
+    /// </summary>
+    /// <param name="name"></param>
+    /// <param name="data"></param>
+    public Series(string name, DateTime[] data) : this(name, data, null) { }
+    /// <summary>
+    /// Create a Series from an array of DateTime values with validity mask.    
+    /// </summary>
+    /// <param name="name"></param>
+    /// <param name="data"></param>
+    /// <param name="validity"></param>
+    public Series(string name, DateTime[] data, bool[]? validity)
+    {
+        var longArray = new long[data.Length];
+        for (int i = 0; i < data.Length; i++) longArray[i] = ToMicros(data[i]);
 
+        // 步骤: 创建 i64 -> Cast 为 Datetime
+        using var hRaw = PolarsWrapper.SeriesNew(name, longArray, validity);
+        using var dtype = DataType.Datetime; // 默认是 Microseconds
+        Handle = PolarsWrapper.SeriesCast(hRaw, dtype.Handle);
+    }
+    
+    /// <summary>
+    /// Create a Series from an array of TimeSpan values.
+    /// </summary>
+    /// <param name="name"></param>
+    /// <param name="data"></param>
+    public Series(string name, TimeSpan[] data) : this(name, data, null) { }
+    /// <summary>
+    /// Create a Series from an array of TimeSpan values with validity mask.
+    /// </summary>
+    /// <param name="name"></param>
+    /// <param name="data"></param>
+    /// <param name="validity"></param>
+    public Series(string name, TimeSpan[] data, bool[]? validity)
+    {
+        var longArray = new long[data.Length];
+        for (int i = 0; i < data.Length; i++) longArray[i] = ToMicros(data[i]);
+
+        using var hRaw = PolarsWrapper.SeriesNew(name, longArray, validity);
+        using var dtype = DataType.Duration; 
+        Handle = PolarsWrapper.SeriesCast(hRaw, dtype.Handle);
+    }
+
+    /// <summary>
+    /// Create a Series from an array of DateOnly values.
+    /// </summary>
+    /// <param name="name"></param>
+    /// <param name="data"></param>
+    public Series(string name, DateOnly[] data) : this(name, data, null) { }
+    /// <summary>
+    /// Create a Series from an array of DateOnly values with validity mask.
+    /// </summary>
+    /// <param name="name"></param>
+    /// <param name="data"></param>
+    /// <param name="validity"></param>
+    public Series(string name, DateOnly[] data, bool[]? validity)
+    {
+        var intArray = new int[data.Length];
+        for (int i = 0; i < data.Length; i++) intArray[i] = ToDays(data[i]);
+
+        using var hRaw = PolarsWrapper.SeriesNew(name, intArray, validity);
+        using var dtype = DataType.Date;
+        Handle = PolarsWrapper.SeriesCast(hRaw, dtype.Handle);
+    }
+
+    /// <summary>
+    /// Create a Series from an array of TimeOnly values.
+    /// </summary>
+    /// <param name="name"></param>
+    /// <param name="data"></param>
+    public Series(string name, TimeOnly[] data) : this(name, data, null) { }
+    /// <summary>
+    /// Create a Series from an array of TimeOnly values with validity mask.
+    /// </summary>
+    /// <param name="name"></param>
+    /// <param name="data"></param>
+    /// <param name="validity"></param>
+    public Series(string name, TimeOnly[] data, bool[]? validity)
+    {
+        var longArray = new long[data.Length];
+        for (int i = 0; i < data.Length; i++) longArray[i] = ToNanos(data[i]);
+
+        using var hRaw = PolarsWrapper.SeriesNew(name, longArray, validity);
+        using var dtype = DataType.Time;
+        Handle = PolarsWrapper.SeriesCast(hRaw, dtype.Handle);
+    }
     /// <summary>
     /// Create a Series from a collection of values. 
     /// Supports: int, long, double, bool, string, decimal, and their nullable variants.
@@ -161,48 +351,129 @@ public class Series : IDisposable
         // --- 7. DateTime ---
         if (underlyingType == typeof(DateTime))
         {
-            // 定义 Unix Epoch Ticks (1970-01-01)
-            const long UnixEpochTicks = 621355968000000000L;
-            const long TicksPerMicrosecond = 10L;
-
-            // 转换函数: DateTime -> long (Microseconds since Epoch)
-            long ToMicros(DateTime dt) => (dt.Ticks - UnixEpochTicks) / TicksPerMicrosecond;
-
+            // 7.1 非空：直接调用构造函数 (复用 ToMicros + Cast 逻辑)
             if (type == typeof(DateTime))
             {
-                // 非空
-                var dtArray = array as DateTime[] ?? array.Cast<DateTime>().ToArray();
-                var longArray = new long[dtArray.Length];
-                for(int i=0; i<dtArray.Length; i++) longArray[i] = ToMicros(dtArray[i]);
-                
-                // 先创建 Int64 Series，再 Cast 为 Datetime(Microseconds)
-                using var temp = new Series(name, longArray);
-                return temp.Cast(DataType.Datetime); 
+                return new Series(name, array.Cast<DateTime>().ToArray());
             }
-            else
+
+            // 7.2 可空
+            var dtArray = array.Cast<DateTime?>().ToArray();
+            var longArray = new long[dtArray.Length];
+            var validity = new bool[dtArray.Length];
+
+            for (int i = 0; i < dtArray.Length; i++)
             {
-                // 可空 DateTime?
-                var dtArray = array.Cast<DateTime?>().ToArray();
-                var longArray = new long[dtArray.Length];
-                var validity = new bool[dtArray.Length];
-                
-            for(int i = 0; i < dtArray.Length; i++)
+                if (dtArray[i] is DateTime dt)
                 {
-                    if (dtArray[i] is DateTime dt)
-                    {
-                        longArray[i] = ToMicros(dt);
-                        validity[i] = true;
-                    }
-                    else
-                    {
-                        longArray[i] = 0;
-                        validity[i] = false;
-                    }
+                    longArray[i] = ToMicros(dt);
+                    validity[i] = true;
                 }
-                using var temp = new Series(name, longArray, validity);
-                return temp.Cast(DataType.Datetime);
+                else
+                {
+                    longArray[i] = 0; // validity=false 时值不重要
+                    validity[i] = false;
+                }
             }
+            
+            using var temp = new Series(name, longArray, validity);
+            return temp.Cast(DataType.Datetime);
         }
+
+        // --- 8. DateOnly ---
+        if (underlyingType == typeof(DateOnly))
+        {
+            if (type == typeof(DateOnly))
+            {
+                return new Series(name, array.Cast<DateOnly>().ToArray());
+            }
+
+            // 可空
+            var dArray = array.Cast<DateOnly?>().ToArray();
+            var intArray = new int[dArray.Length];
+            var validity = new bool[dArray.Length];
+            const int DaysTo1970 = 719163;
+
+            for (int i = 0; i < dArray.Length; i++)
+            {
+                if (dArray[i] is DateOnly d)
+                {
+                    intArray[i] = d.DayNumber - DaysTo1970;
+                    validity[i] = true;
+                }
+                else
+                {
+                    intArray[i] = 0;
+                    validity[i] = false;
+                }
+            }
+
+            using var temp = new Series(name, intArray, validity);
+            return temp.Cast(DataType.Date);
+        }
+
+        // --- 9. TimeOnly ---
+        if (underlyingType == typeof(TimeOnly))
+        {
+            if (type == typeof(TimeOnly))
+            {
+                return new Series(name, array.Cast<TimeOnly>().ToArray());
+            }
+
+            // 可空
+            var tArray = array.Cast<TimeOnly?>().ToArray();
+            var longArray = new long[tArray.Length];
+            var validity = new bool[tArray.Length];
+
+            for (int i = 0; i < tArray.Length; i++)
+            {
+                if (tArray[i] is TimeOnly t)
+                {
+                    longArray[i] = ToNanos(t);
+                    validity[i] = true;
+                }
+                else
+                {
+                    longArray[i] = 0;
+                    validity[i] = false;
+                }
+            }
+
+            using var temp = new Series(name, longArray, validity);
+            return temp.Cast(DataType.Time);
+        }
+
+        // --- 10. TimeSpan (Duration) ---
+        if (underlyingType == typeof(TimeSpan))
+        {
+            if (type == typeof(TimeSpan))
+            {
+                return new Series(name, array.Cast<TimeSpan>().ToArray());
+            }
+
+            // 可空
+            var tsArray = array.Cast<TimeSpan?>().ToArray();
+            var longArray = new long[tsArray.Length];
+            var validity = new bool[tsArray.Length];
+
+            for (int i = 0; i < tsArray.Length; i++)
+            {
+                if (tsArray[i] is TimeSpan ts)
+                {
+                    longArray[i] = ToMicros(ts);
+                    validity[i] = true;
+                }
+                else
+                {
+                    longArray[i] = 0;
+                    validity[i] = false;
+                }
+            }
+
+            using var temp = new Series(name, longArray, validity);
+            return temp.Cast(DataType.Duration);
+        }
+
         throw new NotSupportedException($"Type {type.Name} is not supported for Series creation via Create<T>.");
     }
     /// <summary>

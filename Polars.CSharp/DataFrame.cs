@@ -154,6 +154,45 @@ public class DataFrame : IDisposable
     public string[] Columns => PolarsWrapper.GetColumnNames(Handle); //
 
     // ==========================================
+    // Scalar Access (Direct)
+    // ==========================================
+
+    /// <summary>
+    /// Get a value from the DataFrame at the specified row and column.
+    /// This is efficient for single-value lookups (no Arrow conversion).
+    /// </summary>
+    public T? GetValue<T>(int row, string columnName)
+    {
+        // 1. 获取 Series (Native Handle)
+        // 注意：这会产生一次 FFI 调用，返回一个 SeriesHandle
+        using var sHandle = PolarsWrapper.DataFrameGetColumn(Handle, columnName);
+        
+        // 2. 临时创建一个 Series 对象来复用 GetValue 逻辑
+        // (或者你可以把 GetValue 逻辑提取成静态帮助方法，避免 new Series 开销)
+        // 这里为了代码复用，new 一个 Series (非常轻量，只有一个 IntPtr)
+        using var series = new Series(columnName, sHandle); // Series Dispose 会释放 sHandle
+        
+        // 3. 取值
+        return series.GetValue<T>(row);
+    }
+
+    /// <summary>
+    /// Get value by row index and column name (object type).
+    /// </summary>
+    /// <param name="row"></param>
+    /// <param name="columnName"></param>
+    /// <returns></returns>
+    public object? this[int row, string columnName]
+    {
+        get
+        {
+            using var sHandle = PolarsWrapper.DataFrameGetColumn(Handle, columnName);
+            using var series = new Series(columnName, sHandle);
+            return series[row]; // 复用 Series 的索引器逻辑
+        }
+    }
+
+    // ==========================================
     // DataFrame Operations
     // ==========================================
     /// <summary>
@@ -586,7 +625,7 @@ public class DataFrame : IDisposable
     {
         var properties = typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance);
         var seriesHandles = new SeriesHandle[properties.Length];
-        var itemsList = items as IList<T> ?? items.ToList();
+        var itemsList = items as IList<T> ?? [.. items];
         var createdHandles = new List<SeriesHandle>();
 
         try
@@ -631,6 +670,24 @@ public class DataFrame : IDisposable
                 if (!h.IsInvalid) h.Dispose();
             }
         }
+    }
+    /// <summary>
+    /// Create a DataFrame from a list of Series.
+    /// </summary>
+    public DataFrame(params Series[] series)
+    {
+        if (series == null || series.Length == 0)
+        {
+            Handle = PolarsWrapper.DataFrameNew([]);
+            return;
+        }
+
+        // 提取 Handles
+        // 注意：NativeBindings.pl_dataframe_new 通常会 Clone 这些 Series，
+        // 所以 C# 端的 Series 对象依然拥有原本 Handle 的所有权，用户可以在外面继续使用 series[i]。
+        var handles = series.Select(s => s.Handle).ToArray();
+        
+        Handle = PolarsWrapper.DataFrameNew(handles);
     }
     // ==========================================
     // Object Mapping (To Records)

@@ -1,0 +1,67 @@
+using Xunit;
+using Polars.CSharp;
+using System;
+
+namespace Polars.CSharp.Tests;
+
+public class ScalarTests
+{
+    [Fact]
+    public void Test_Direct_Scalar_Access_All_Types()
+    {
+        // 1. 准备全类型数据
+        var now = DateTime.UtcNow;
+        // Truncate to ms/us precision to match Polars (us) behavior
+        now = new DateTime(now.Ticks - (now.Ticks % 10), DateTimeKind.Utc); 
+        
+        var date = DateOnly.FromDateTime(now);
+        var time = new TimeOnly(12, 30, 0, 100); // 12:30:00.100
+        var duration = TimeSpan.FromHours(1.5) + TimeSpan.FromMicroseconds(50); // 1.5h + 50us
+
+        // 使用新增的构造函数 (解决编译错误的关键)
+        using var sInt = new Series("i", [100]);
+        using var sFloat = new Series("f", [1.23]);
+        using var sStr = new Series("s", ["hello"]);
+        using var sBool = new Series("b", [true]);
+        using var sDec = new Series("d", [123.456m]); 
+        
+        // 时间类型
+        using var sDt = new Series("dt", [now]);
+        using var sDate = new Series("date", [date]);
+        using var sTime = new Series("time", [time]);
+        using var sDur = new Series("dur", [duration]);
+        
+        // 创建 DF (通过 Series 数组构造)
+        using var df = new DataFrame([
+            sInt, sFloat, sStr, sBool, 
+            sDec, sDt, sDate, sTime, sDur
+        ]);
+
+        // 2. 验证 DataFrame GetValue<T> (Direct Access)
+        
+        // Basic
+        Assert.Equal(100, df.GetValue<int>(0, "i"));
+        Assert.Equal(1.23, df.GetValue<double>(0, "f"));
+        Assert.Equal("hello", df.GetValue<string>(0, "s"));
+        Assert.True(df.GetValue<bool>(0, "b"));
+        Assert.Equal(123.456m, df.GetValue<decimal>(0, "d"));
+        
+        // DateTime (UTC ticks check)
+        var dtOut = df.GetValue<DateTime>(0, "dt");
+        Assert.Equal(now.ToUniversalTime().Ticks, dtOut!.Ticks);
+        
+        // DateOnly
+        Assert.Equal(date, df.GetValue<DateOnly>(0, "date"));
+        
+        // TimeOnly
+        Assert.Equal(time, df.GetValue<TimeOnly>(0, "time"));
+        
+        // Duration (TimeSpan)
+        Assert.Equal(duration, df.GetValue<TimeSpan>(0, "dur"));
+
+        // 3. 验证索引器 (ToString 检查类型)
+        // 索引器返回的是 object，对于 Date/Time 等类型可能需要拆箱
+        Assert.IsType<TimeSpan>(df[0, "dur"]);
+        Assert.IsType<DateOnly>(df[0, "date"]);
+    }
+}

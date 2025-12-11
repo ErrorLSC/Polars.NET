@@ -496,7 +496,99 @@ type Series(handle: SeriesHandle) =
             arr |> Array.map (function Some v -> System.Nullable(v) | None -> System.Nullable())
             
         new Series(PolarsWrapper.SeriesNewDecimal(name, nullableArr, scale))
+    // ==========================================
+    // Temporal Types Creation
+    // ==========================================
 
+    // --- DateOnly (Polars Date: i32 days) ---
+    static member create(name: string, data: DateOnly seq) =
+        let arr = Seq.toArray data
+        let days = Array.zeroCreate<int> arr.Length
+        let epochOffset = 719163 // 0001-01-01 to 1970-01-01
+        
+        for i in 0 .. arr.Length - 1 do
+            days.[i] <- arr.[i].DayNumber - epochOffset
+            
+        let s = Series.create(name, days)
+        s.Cast(DataType.Date)
+
+    static member create(name: string, data: DateOnly option seq) =
+        let arr = Seq.toArray data
+        let days = Array.zeroCreate<int> arr.Length
+        let valid = Array.zeroCreate<bool> arr.Length
+        let epochOffset = 719163
+        
+        for i in 0 .. arr.Length - 1 do
+            match arr.[i] with
+            | Some d -> 
+                days.[i] <- d.DayNumber - epochOffset
+                valid.[i] <- true
+            | None -> 
+                days.[i] <- 0
+                valid.[i] <- false
+                
+        // 调用底层 int32 (SeriesNew)
+        let s = new Series(PolarsWrapper.SeriesNew(name, days, valid))
+        s.Cast(DataType.Date)
+
+    // --- TimeOnly (Polars Time: i64 nanoseconds) ---
+    static member create(name: string, data: TimeOnly seq) =
+        let arr = Seq.toArray data
+        let nanos = Array.zeroCreate<int64> arr.Length
+        
+        for i in 0 .. arr.Length - 1 do
+            // Ticks = 100ns -> * 100 = ns
+            nanos.[i] <- arr.[i].Ticks * 100L
+            
+        let s = Series.create(name, nanos)
+        s.Cast(DataType.Time)
+
+    static member create(name: string, data: TimeOnly option seq) =
+        let arr = Seq.toArray data
+        let nanos = Array.zeroCreate<int64> arr.Length
+        let valid = Array.zeroCreate<bool> arr.Length
+        
+        for i in 0 .. arr.Length - 1 do
+            match arr.[i] with
+            | Some t -> 
+                nanos.[i] <- t.Ticks * 100L
+                valid.[i] <- true
+            | None -> 
+                nanos.[i] <- 0L
+                valid.[i] <- false
+                
+        let s = new Series(PolarsWrapper.SeriesNew(name, nanos, valid))
+        s.Cast(DataType.Time)
+
+    // --- TimeSpan (Polars Duration: i64 microseconds) ---
+    // 为了和 Datetime(us) 兼容，Duration 也默认用 us
+    static member create(name: string, data: TimeSpan seq) =
+        let arr = Seq.toArray data
+        let micros = Array.zeroCreate<int64> arr.Length
+        
+        for i in 0 .. arr.Length - 1 do
+            // Ticks = 100ns -> / 10 = us
+            micros.[i] <- arr.[i].Ticks / 10L
+            
+        let s = Series.create(name, micros)
+        s.Cast(DataType.Duration)
+
+    static member create(name: string, data: TimeSpan option seq) =
+        let arr = Seq.toArray data
+        let micros = Array.zeroCreate<int64> arr.Length
+        let valid = Array.zeroCreate<bool> arr.Length
+        
+        for i in 0 .. arr.Length - 1 do
+            match arr.[i] with
+            | Some t -> 
+                micros.[i] <- t.Ticks / 10L
+                valid.[i] <- true
+            | None -> 
+                micros.[i] <- 0L
+                valid.[i] <- false
+                
+        let s = new Series(PolarsWrapper.SeriesNew(name, micros, valid))
+        s.Cast(DataType.Duration)
     /// <summary>
     /// Smart Constructor:
     /// 1. Handles primitive types (int, double...).
@@ -511,6 +603,9 @@ type Series(handle: SeriesHandle) =
         else if t = typeof<bool> then Series.create(name, data |> Seq.cast<bool option>)
         else if t = typeof<string> then Series.create(name, data |> Seq.cast<string option>)
         else if t = typeof<DateTime> then Series.create(name, data |> Seq.cast<DateTime option>)
+        else if t = typeof<DateOnly> then Series.create(name, data |> Seq.cast<DateOnly option>)
+        else if t = typeof<TimeOnly> then Series.create(name, data |> Seq.cast<TimeOnly option>)
+        else if t = typeof<TimeSpan> then Series.create(name, data |> Seq.cast<TimeSpan option>)
         else failwithf "Unsupported type for Series.ofOptionSeq: %A" t
 
     /// <summary>
@@ -545,6 +640,9 @@ type Series(handle: SeriesHandle) =
                 Series.create(name, arr, maxScale)
             else if innerType = typeof<DateTime> then 
                 Series.create(name, data |> Seq.cast<DateTime option>)
+            else if innerType = typeof<DateOnly> then Series.create(name, data |> Seq.cast<DateOnly option>)
+            else if innerType = typeof<TimeOnly> then Series.create(name, data |> Seq.cast<TimeOnly option>)
+            else if innerType = typeof<TimeSpan> then Series.create(name, data |> Seq.cast<TimeSpan option>)
             // 其他 Option 类型 -> 转发给 ofOptionSeq
             else if innerType = typeof<int> then Series.ofOptionSeq(name, data |> Seq.cast<int option>)
             else if innerType = typeof<int64> then Series.ofOptionSeq(name, data |> Seq.cast<int64 option>)
@@ -556,6 +654,9 @@ type Series(handle: SeriesHandle) =
         // B. 处理普通类型 (Non-Option)
         else
             if t = typeof<int> then Series.create(name, data |> Seq.cast<int>)
+            else if t = typeof<DateOnly> then Series.create(name, data |> Seq.cast<DateOnly>)
+            else if t = typeof<TimeOnly> then Series.create(name, data |> Seq.cast<TimeOnly>)
+            else if t = typeof<TimeSpan> then Series.create(name, data |> Seq.cast<TimeSpan>)
             else if t = typeof<int64> then Series.create(name, data |> Seq.cast<int64>)
             else if t = typeof<double> then Series.create(name, data |> Seq.cast<double>)
             else if t = typeof<bool> then Series.create(name, data |> Seq.cast<bool>)
@@ -590,6 +691,19 @@ type Series(handle: SeriesHandle) =
     /// <summary> Get value as Decimal Option. </summary>
     member _.Decimal(index: int) : decimal option = 
         PolarsWrapper.SeriesGetDecimal(handle, int64 index) |> Option.ofNullable
+
+    // 时间类型
+    member _.Date(index: int) : DateOnly option = 
+        PolarsWrapper.SeriesGetDate(handle, int64 index) |> Option.ofNullable
+
+    member _.Time(index: int) : TimeOnly option = 
+        PolarsWrapper.SeriesGetTime(handle, int64 index) |> Option.ofNullable
+
+    member _.Datetime(index: int) : DateTime option = 
+        PolarsWrapper.SeriesGetDatetime(handle, int64 index) |> Option.ofNullable
+
+    member _.Duration(index: int) : TimeSpan option = 
+        PolarsWrapper.SeriesGetDuration(handle, int64 index) |> Option.ofNullable
     // ==========================================
     // Interop with DataFrame
     // ==========================================
@@ -746,11 +860,30 @@ and DataFrame(handle: DataFrameHandle) =
             None
     member this.Decimal(col: string, row: int) : decimal option =
         use s = this.Column col
-        s.Decimal(row)
-
+        s.Decimal row
+    // 1. Boolean
     member this.Bool(col: string, row: int) : bool option =
         use s = this.Column col
-        s.Bool(row)
+        s.Bool row
+    // 2. Date (DateOnly)
+    member this.Date(col: string, row: int) : DateOnly option =
+        use s = this.Column col
+        s.Date row
+
+    // 3. Time (TimeOnly)
+    member this.Time(col: string, row: int) : TimeOnly option =
+        use s = this.Column col
+        s.Time row
+
+    // 4. Datetime (DateTime)
+    member this.Datetime(col: string, row: int) : DateTime option =
+        use s = this.Column col
+        s.Datetime row
+
+    // 5. Duration (TimeSpan)
+    member this.Duration(col: string, row: int) : TimeSpan option =
+        use s = this.Column col
+        s.Duration row
     member this.Column(name: string) : Series =
     // 我们假设 Rust 端有 pl_dataframe_get_column
         let h = PolarsWrapper.DataFrameGetColumn(this.Handle, name)
