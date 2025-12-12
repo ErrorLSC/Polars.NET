@@ -22,26 +22,18 @@ public class DataFrame : IDisposable
     /// <summary>
     /// Get the schema of the DataFrame as a dictionary (Column Name -> Data Type String).
     /// </summary>
-    public Dictionary<string, string> Schema
+    public Dictionary<string, DataType> Schema
     {
         get
         {
             var json = PolarsWrapper.GetDataFrameSchemaString(Handle);
-            if (string.IsNullOrEmpty(json) || json == "{}")
-            {
-                return [];
-            }
+            if (string.IsNullOrEmpty(json)) return [];
 
-            try 
-            {
-                return JsonSerializer.Deserialize<Dictionary<string, string>>(json) 
-                       ?? [];
-            }
-            catch
-            {
-                // 容错：如果 JSON 解析失败，返回空字典
-                return [];
-            }
+            var rawDict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            
+            // 现在 DataType.Parse 会返回带 Kind 的 DataType 对象
+            return rawDict?.ToDictionary(k => k.Key, v => DataType.Parse(v.Value)) 
+                ?? [];
         }
     }
     /// <summary>
@@ -508,7 +500,7 @@ public class DataFrame : IDisposable
         // 1. 筛选数值列
         var schema = this.Schema;
         var numericCols = schema
-            .Where(kv => IsNumeric(kv.Value))
+            .Where(kv => kv.Value.IsNumeric)
             .Select(kv => kv.Key)
             .ToList();
 

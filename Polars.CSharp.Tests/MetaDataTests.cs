@@ -57,9 +57,9 @@ public class MetadataTests
         
         // 应该包含 root 和列信息
         Assert.Contains("root", output);
-        Assert.Contains("|-- Id: i32", output);
-        Assert.Contains("|-- Name: str", output);     // 或者 String
-        Assert.Contains("|-- IsActive: bool", output); // 或者 Boolean
+        Assert.Contains("|-- Id: Int32", output);
+        Assert.Contains("|-- Name: String", output);     // 或者 String
+        Assert.Contains("|-- IsActive: Boolean", output); // 或者 Boolean
         
         System.Console.WriteLine(output);
     }

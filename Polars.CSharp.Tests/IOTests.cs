@@ -103,13 +103,14 @@ namespace Polars.CSharp.Tests
             // 验证 birthday 列是否被自动解析为 Date 类型，而不是 String
             // 注意：Polars 自动解析可能解析为 Date 或 Datetime
             var dateType = df.Schema["birthday"];
+            Assert.Equal(DataTypeKind.Date, dateType.Kind);
 
             // 2. 测试显式关闭 (tryParseDates = false)
             using var dfString = DataFrame.ReadCsv(csv.Path, tryParseDates: false);
             
             // 断言它是 String
-            var strType = dfString.Schema["birthday"].ToString();
-            Assert.True(strType == "str" || strType == "Utf8");
+            var strType = dfString.Schema["birthday"];
+            Assert.Equal(DataTypeKind.String,strType.Kind);
         }
     }
 }
