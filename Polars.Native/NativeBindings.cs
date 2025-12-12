@@ -351,6 +351,34 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_to_uppercase(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_to_lowercase(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_len_bytes(ExprHandle expr);
+    // String Cleaning
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_str_strip_chars(ExprHandle e, string? matches);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_str_strip_chars_start(ExprHandle e, string? matches);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_str_strip_chars_end(ExprHandle e, string? matches);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_str_strip_prefix(ExprHandle e, string prefix);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_str_strip_suffix(ExprHandle e, string suffix);
+
+    // Anchors
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_str_starts_with(ExprHandle e, string prefix);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_str_ends_with(ExprHandle e, string suffix);
+    // Parsing
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_str_to_date(ExprHandle e, string format);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_str_to_datetime(ExprHandle e, string format);
     
     [LibraryImport(LibName)] 
     public static partial ExprHandle pl_expr_str_slice(ExprHandle expr, long offset, ulong length);

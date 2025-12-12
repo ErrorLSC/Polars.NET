@@ -375,25 +375,25 @@ HR,50";
         Assert.Equal(3, res2.Height);
     }
     [Fact]
-public void Test_LazyFrame_Explode()
-{
-    using var s = new Series("chars", ["a,b", "c"]);
-    using var df = new DataFrame(s);
-    
-    // 转换为 Lazy 模式
-    using var lf = df.Lazy();
+    public void Test_LazyFrame_Explode()
+    {
+        using var s = new Series("chars", ["a,b", "c"]);
+        using var df = new DataFrame(s);
+        
+        // 转换为 Lazy 模式
+        using var lf = df.Lazy();
 
-    // 链式调用: Split -> Explode -> Collect
-    // 这一步调用你的 public LazyFrame Explode(params Expr[] exprs)
-    using var res = lf
-        .Select(Col("chars").Str.Split(",").Alias("expanded"))
-        .Explode(Col("expanded"))
-        .Collect();
+        // 链式调用: Split -> Explode -> Collect
+        // 这一步调用你的 public LazyFrame Explode(params Expr[] exprs)
+        using var res = lf
+            .Select(Col("chars").Str.Split(",").Alias("expanded"))
+            .Explode(Col("expanded"))
+            .Collect();
 
-    // 验证
-    Assert.Equal(3, res.Height);
-    Assert.Equal("a", res.GetValue<string>(0, "expanded"));
-    Assert.Equal("b", res.GetValue<string>(1, "expanded"));
-    Assert.Equal("c", res.GetValue<string>(2, "expanded"));
-}
+        // 验证
+        Assert.Equal(3, res.Height);
+        Assert.Equal("a", res.GetValue<string>(0, "expanded"));
+        Assert.Equal("b", res.GetValue<string>(1, "expanded"));
+        Assert.Equal("c", res.GetValue<string>(2, "expanded"));
+    }
 }

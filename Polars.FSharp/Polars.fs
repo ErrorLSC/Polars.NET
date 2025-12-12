@@ -101,7 +101,7 @@ module Polars =
     /// <summary> Collect LazyFrame into DataFrame (Eager execution). </summary>
     let collect (lf: LazyFrame) : DataFrame = 
         let lfClone = lf.CloneHandle()
-        let dfHandle = PolarsWrapper.LazyCollect(lfClone)
+        let dfHandle = PolarsWrapper.LazyCollect lfClone
         new DataFrame(dfHandle)
     /// <summary> Convert Selector to Expr. </summary>
     let asExpr (s: Selector) = s.ToExpr()

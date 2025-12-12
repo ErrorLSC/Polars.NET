@@ -374,6 +374,156 @@ pub extern "C" fn pl_expr_str_split(
     })
 }
 
+// Helper: 将 C 字符串转换为 Polars Literal Expr
+// 如果 ptr 为 null，则返回 lit(Null) -> 表示去除空白符
+unsafe fn str_or_null_lit(ptr: *const c_char) -> Expr {
+    if ptr.is_null() {
+        // 创建一个类型为 String 但值为 Null 的字面量
+        lit(NULL) 
+    } else {
+        let s = unsafe { CStr::from_ptr(ptr).to_string_lossy() };
+        lit(s.as_ref())
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_str_strip_chars(
+    expr_ptr: *mut ExprContext, 
+    matches: *const c_char
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let match_expr = unsafe { str_or_null_lit(matches) };
+        
+        // Clone 是为了支持不可变 API
+        let new_expr = ctx.inner.str().strip_chars(match_expr);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+// 2. Strip Chars Start (LTrim)
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_str_strip_chars_start(
+    expr_ptr: *mut ExprContext, 
+    matches: *const c_char
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe {Box::from_raw(expr_ptr) };
+        let match_expr = unsafe { str_or_null_lit(matches) };
+        
+        let new_expr = ctx.inner.str().strip_chars_start(match_expr);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+// 3. Strip Chars End (RTrim)
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_str_strip_chars_end(
+    expr_ptr: *mut ExprContext, 
+    matches: *const c_char
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr)};
+        let match_expr = unsafe { str_or_null_lit(matches) };
+        
+        let new_expr = ctx.inner.str().strip_chars_end(match_expr);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+// 4. Strip Prefix (去除固定前缀，不是字符集合)
+// 比如 "http://google.com" strip_prefix "http://" -> "google.com"
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_str_strip_prefix(
+    expr_ptr: *mut ExprContext, 
+    prefix: *const c_char
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        // Prefix 必须有值，不能是 Null (业务逻辑上)
+        let prefix_str = unsafe { CStr::from_ptr(prefix).to_string_lossy() };
+        
+        let new_expr = ctx.inner.str().strip_prefix(lit(prefix_str.as_ref()));
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+// 5. Strip Suffix
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_str_strip_suffix(
+    expr_ptr: *mut ExprContext, 
+    suffix: *const c_char
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr)};
+        let suffix_str = unsafe { CStr::from_ptr(suffix).to_string_lossy() };
+        
+        let new_expr = ctx.inner.str().strip_suffix(lit(suffix_str.as_ref()));
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+// Anchors
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_str_starts_with(expr_ptr: *mut ExprContext, prefix: *const c_char) -> *mut ExprContext {
+    let ctx = unsafe { Box::from_raw(expr_ptr) };
+    let p = unsafe { CStr::from_ptr(prefix).to_string_lossy() };
+    
+    // starts_with 接受 Expr，我们需要把 prefix 转为 Lit
+    let new_expr = ctx.inner.str().starts_with(lit(p.as_ref()));
+    Box::into_raw(Box::new(ExprContext { inner: new_expr }))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_str_ends_with(expr_ptr: *mut ExprContext, suffix: *const c_char) -> *mut ExprContext {
+    let ctx = unsafe {Box::from_raw(expr_ptr)};
+    let s = unsafe { CStr::from_ptr(suffix).to_string_lossy() };
+    
+    let new_expr = ctx.inner.str().ends_with(lit(s.as_ref()));
+    Box::into_raw(Box::new(ExprContext { inner: new_expr }))
+}
+
+// Parsing (String -> Date/Time)
+// format: e.g. "%Y-%m-%d"
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_str_to_date(expr_ptr: *mut ExprContext, format: *const c_char) -> *mut ExprContext {
+    let ctx = unsafe { Box::from_raw(expr_ptr) };
+    let fmt = unsafe { CStr::from_ptr(format).to_string_lossy() };
+    
+    // strptime(dtype, options)
+    // 这里简化处理，直接用 StrptimeOptions::default()
+    let options = StrptimeOptions {
+        format: Some(fmt.into()),
+        strict: false, // 转换失败返回 Null，不 panic
+        exact: true,
+        ..Default::default()
+    };
+    
+    let new_expr = ctx.inner.str().to_date(options);
+    Box::into_raw(Box::new(ExprContext { inner: new_expr }))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_str_to_datetime(expr_ptr: *mut ExprContext, format: *const c_char) -> *mut ExprContext {
+    let ctx = unsafe { Box::from_raw(expr_ptr) };
+    let fmt = unsafe { CStr::from_ptr(format).to_string_lossy() };
+    
+    let options = StrptimeOptions {
+        format: Some(fmt.into()),
+        strict: false,
+        exact: true,
+        ..Default::default()
+    };
+    
+    // 默认转为 Microseconds, 无时区
+    let new_expr = ctx.inner.str().to_datetime(Some(TimeUnit::Microseconds), None, options, lit("raise"));
+    Box::into_raw(Box::new(ExprContext { inner: new_expr }))
+}
+
 // ==========================================
 // 复用expr
 // ==========================================
@@ -771,30 +921,30 @@ pub extern "C" fn pl_expr_if_else(
 // --- Statistics ---
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_count(expr_ptr: *mut ExprContext) -> *mut ExprContext {
-    let ctx = unsafe { &*expr_ptr };
-    let new_expr = ctx.inner.clone().count();
+    let ctx = unsafe { Box::from_raw(expr_ptr) };
+    let new_expr = ctx.inner.count();
     Box::into_raw(Box::new(ExprContext { inner: new_expr }))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_std(expr_ptr: *mut ExprContext, ddof: u8) -> *mut ExprContext {
-    let ctx = unsafe { &*expr_ptr };
+    let ctx = unsafe { Box::from_raw(expr_ptr)};
     // std(ddof) -> ddof usually 1 for sample std dev
-    let new_expr = ctx.inner.clone().std(ddof);
+    let new_expr = ctx.inner.std(ddof);
     Box::into_raw(Box::new(ExprContext { inner: new_expr }))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_var(expr_ptr: *mut ExprContext, ddof: u8) -> *mut ExprContext {
-    let ctx = unsafe { &*expr_ptr };
-    let new_expr = ctx.inner.clone().var(ddof);
+    let ctx = unsafe { Box::from_raw(expr_ptr)};
+    let new_expr = ctx.inner.var(ddof);
     Box::into_raw(Box::new(ExprContext { inner: new_expr }))
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_median(expr_ptr: *mut ExprContext) -> *mut ExprContext {
-    let ctx = unsafe { &*expr_ptr };
-    let new_expr = ctx.inner.clone().median();
+    let ctx = unsafe { Box::from_raw(expr_ptr)};
+    let new_expr = ctx.inner.median();
     Box::into_raw(Box::new(ExprContext { inner: new_expr }))
 }
 
@@ -806,7 +956,7 @@ pub extern "C" fn pl_expr_quantile(
     quantile: f64, // e.g. 0.5
     interpol: *const c_char
 ) -> *mut ExprContext {
-    let ctx = unsafe { &*expr_ptr };
+    let ctx = unsafe { Box::from_raw(expr_ptr) };
     let method_str = unsafe { CStr::from_ptr(interpol).to_string_lossy() };
     
     // 解析 QuantileInterpolOptions
@@ -818,6 +968,6 @@ pub extern "C" fn pl_expr_quantile(
         _ => QuantileMethod::Linear, // 默认 Linear
     };
 
-    let new_expr = ctx.inner.clone().quantile(lit(quantile), method);
+    let new_expr = ctx.inner.quantile(lit(quantile), method);
     Box::into_raw(Box::new(ExprContext { inner: new_expr }))
 }

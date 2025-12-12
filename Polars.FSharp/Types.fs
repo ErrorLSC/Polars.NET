@@ -354,21 +354,78 @@ and StringOps(handle: ExprHandle) =
     member _.Contains(pat: string) = 
         new Expr(PolarsWrapper.StrContains(handle, pat))
     member _.Split(separator: string) = new Expr(PolarsWrapper.StrSplit(handle, separator))
+    /// <summary>
+    /// Remove leading and trailing characters.
+    /// If 'matches' is omitted, whitespace is removed.
+    /// </summary>
+    member _.Strip(?matches: string) = 
+        // Option.toObj: None -> null, Some s -> s
+        new Expr(PolarsWrapper.StrStripChars(handle, Option.toObj matches))
+
+    /// <summary>
+    /// Remove leading characters (Left Trim).
+    /// If 'matches' is omitted, whitespace is removed.
+    /// </summary>
+    member _.LStrip(?matches: string) = 
+        new Expr(PolarsWrapper.StrStripCharsStart(handle, Option.toObj matches))
+
+    /// <summary>
+    /// Remove trailing characters (Right Trim).
+    /// If 'matches' is omitted, whitespace is removed.
+    /// </summary>
+    member _.RStrip(?matches: string) = 
+        new Expr(PolarsWrapper.StrStripCharsEnd(handle, Option.toObj matches))
+
+    /// <summary>
+    /// Remove a specific prefix string.
+    /// </summary>
+    member _.StripPrefix(prefix: string) = 
+        new Expr(PolarsWrapper.StrStripPrefix(handle, prefix))
+
+    /// <summary>
+    /// Remove a specific suffix string.
+    /// </summary>
+    member _.StripSuffix(suffix: string) = 
+        new Expr(PolarsWrapper.StrStripSuffix(handle, suffix))
+
+    /// <summary>
+    /// Check if string starts with a specific prefix.
+    /// </summary>
+    member _.StartsWith(prefix: string) = 
+        new Expr(PolarsWrapper.StrStartsWith(handle, prefix))
+
+    /// <summary>
+    /// Check if string ends with a specific suffix.
+    /// </summary>
+    member _.EndsWith(suffix: string) = 
+        new Expr(PolarsWrapper.StrEndsWith(handle, suffix))
+
+    /// <summary>
+    /// Parse string to Date using a format string (e.g., "%Y-%m-%d").
+    /// </summary>
+    member _.ToDate(format: string) = 
+        new Expr(PolarsWrapper.StrToDate(handle, format))
+
+    /// <summary>
+    /// Parse string to Datetime using a format string.
+    /// </summary>
+    member _.ToDatetime(format: string) = 
+        new Expr(PolarsWrapper.StrToDatetime(handle, format))
 and NameOps(handle: ExprHandle) =
     let wrap op arg = new Expr(op(handle, arg))
     member _.Prefix(p: string) = wrap PolarsWrapper.Prefix p
     member _.Suffix(s: string) = wrap PolarsWrapper.Suffix s
 
 and ListOps(handle: ExprHandle) =
-    member _.First() = new Expr(PolarsWrapper.ListFirst(handle))
+    member _.First() = new Expr(PolarsWrapper.ListFirst handle)
     member _.Get(index: int) = new Expr(PolarsWrapper.ListGet(handle, int64 index))
     member _.Join(separator: string) = new Expr(PolarsWrapper.ListJoin(handle, separator))
-    member _.Len() = new Expr(PolarsWrapper.ListLen(handle))
+    member _.Len() = new Expr(PolarsWrapper.ListLen handle)
     // Aggregations within list
-    member _.Sum() = new Expr(PolarsWrapper.ListSum(handle))
-    member _.Min() = new Expr(PolarsWrapper.ListMin(handle))
-    member _.Max() = new Expr(PolarsWrapper.ListMax(handle))
-    member _.Mean() = new Expr(PolarsWrapper.ListMean(handle))
+    member _.Sum() = new Expr(PolarsWrapper.ListSum handle)
+    member _.Min() = new Expr(PolarsWrapper.ListMin handle)
+    member _.Max() = new Expr(PolarsWrapper.ListMax handle)
+    member _.Mean() = new Expr(PolarsWrapper.ListMean handle)
     member _.Sort(descending: bool) = new Expr(PolarsWrapper.ListSort(handle, descending))
     // Contains
     member _.Contains(item: Expr) : Expr = 

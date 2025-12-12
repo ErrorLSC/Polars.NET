@@ -133,38 +133,102 @@ type ``Expression Logic Tests`` () =
 type ``String Logic Tests`` () =
 
     [<Fact>]
-    member _.``String operations (Case, Slice, Replace)`` () =
-        // 脏数据: "  Hello World  ", "foo BAR"
-        use csv = new TempCsv "text\nHello World\nfoo BAR"
-        let df = DataFrame.readCsv csv.Path
+    member _.``Expr: String Cleaning & Parsing (Strip, Anchor, Date)`` () =
+        // 1. 准备测试数据，覆盖多种场景
+        // Row 0: 空格脏数据 -> 测试 Strip
+        // Row 1: URL -> 测试 Prefix/StartsWith
+        // Row 2: 文件名 -> 测试 Suffix/EndsWith
+        // Row 3: 自定义字符脏数据 -> 测试 Strip(matches)
+        // Row 4: 标准日期 -> 测试 ToDate
+        // Row 5: 脏日期 -> 测试 链式调用 Strip().ToDate()
+        let s = Series.create("raw", [
+            "  abc  "           // 0
+            "https://polars.rs" // 1
+            "data.csv"          // 2
+            "__key__"           // 3
+            "20250101"          // 4
+            "  2025-12-31  "    // 5
+        ])
+        
+        use df = DataFrame.create [s]
 
         let res = 
-            df 
-            |> Polars.select [
-                Polars.col "text"
-                
-                // 1. 转大写
-                (Polars.col "text").Str.ToUpper().Alias "upper"
-                
-                // 2. 切片 (取前 3 个字符)
-                (Polars.col "text").Str.Slice(0L, 3UL).Alias "slice"
-                
-                // 3. 替换 (把 'o' 换成 '0')
-                (Polars.col "text").Str.ReplaceAll("o", "0").Alias "replaced"
-                
-                // 4. 长度
-                (Polars.col "text").Str.Len().Alias "len"
-            ]
+            df
+            |> Polars.select([
+                Polars.col "raw"
 
-        // 验证 Row 0: "Hello World"
-        Assert.Equal("HELLO WORLD", res.String("upper", 0).Value)
-        Assert.Equal("Hel", res.String("slice", 0).Value)
-        Assert.Equal("Hell0 W0rld", res.String("replaced", 0).Value)
-        Assert.Equal(11L, int64 (res.Int("len", 0).Value)) // u32 -> i64
+                // 1. Strip 测试 (默认去空格)
+                // "  abc  " -> "abc"
+                Polars.col("raw").Str.Strip().Alias "strip_default"
+                
+                // 2. LStrip / RStrip 测试
+                // "  abc  " -> "abc  " / "  abc"
+                Polars.col("raw").Str.LStrip().Alias "lstrip"
+                Polars.col("raw").Str.RStrip().Alias "rstrip"
 
-        // 验证 Row 1: "foo BAR"
-        Assert.Equal("FOO BAR", res.String("upper", 1).Value)
-        Assert.Equal("foo", res.String("slice", 1).Value)
+                // 3. Strip Matches 测试 (去自定义字符)
+                // "__key__" -> "key"
+                Polars.col("raw").Str.Strip(matches="_").Alias "strip_custom"
+
+                // 4. Prefix / Suffix 测试
+                // "https://polars.rs" -> "polars.rs"
+                // "data.csv" -> "data"
+                Polars.col("raw").Str.StripPrefix("https://").Alias "strip_prefix"
+                Polars.col("raw").Str.StripSuffix(".csv").Alias "strip_suffix"
+
+                // 5. Anchors 测试 (StartsWith / EndsWith) -> Boolean
+                Polars.col("raw").Str.StartsWith("https").Alias "is_url"
+                Polars.col("raw").Str.EndsWith(".csv").Alias "is_csv"
+
+                // 6. ToDate 测试 (解析)
+                // "20250101" -> Date
+                Polars.col("raw").Str.ToDate("%Y%m%d").Alias "parsed_date"
+
+                // 7. 链式调用测试 (清洗 + 解析)
+                // "  2025-12-31  " -> "2025-12-31" -> Date
+                Polars.col("raw").Str.Strip().Str.ToDate("%Y-%m-%d").Alias "chain_date"
+            ])
+
+        // --- 验证结果 ---
+
+        // 1. Strip
+        Assert.Equal("abc", res.String("strip_default", 0).Value)
+        Assert.Equal("abc  ", res.String("lstrip", 0).Value)
+        Assert.Equal("  abc", res.String("rstrip", 0).Value)
+
+        // 2. Custom Strip
+        Assert.Equal("key", res.String("strip_custom", 3).Value) // __key__ -> key
+
+        // 3. Prefix / Suffix
+        Assert.Equal("polars.rs", res.String("strip_prefix", 1).Value)
+        Assert.Equal("data", res.String("strip_suffix", 2).Value) // data.csv -> data
+
+        // 4. Anchors (Boolean)
+        Assert.Equal(Some true, res.Bool("is_url", 1)) // https://...
+        Assert.Equal(Some false, res.Bool("is_url", 0))
+        Assert.Equal(Some true, res.Bool("is_csv", 2)) // ...csv
+
+        // 5. ToDate (解析成功)
+        // Row 4: "20250101"
+        let d1 = res.Date("parsed_date", 4).Value
+        Assert.Equal(2025, d1.Year)
+        Assert.Equal(1, d1.Month)
+        Assert.Equal(1, d1.Day)
+
+        // 6. ToDate (解析失败 - Strict=false 默认返回 Null)
+        // Row 0: "  abc  " 无法解析为日期
+        Assert.True(res.IsNullAt("parsed_date", 0))
+
+        // 7. 链式调用 (Strip + ToDate)
+        // Row 5: "  2025-12-31  "
+        let d2 = res.Date("chain_date", 5).Value
+        Assert.Equal(2025, d2.Year)
+        Assert.Equal(12, d2.Month)
+        Assert.Equal(31, d2.Day)
+
+        // 打印 Schema 确认类型正确
+        // parsed_date 应该是 Date 类型
+        Assert.Equal(DataType.Date, res.Schema.["parsed_date"])
     [<Fact>]
     member _.``Math Ops (BMI Calculation with Pow)`` () =
         // 构造数据: 身高(m), 体重(kg)

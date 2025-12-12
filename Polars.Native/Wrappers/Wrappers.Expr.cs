@@ -19,6 +19,21 @@ public static partial class PolarsWrapper
     }
     private static ExprHandle UnaryStrOp(Func<ExprHandle, ExprHandle> op, ExprHandle expr) 
     => UnaryOp(op, expr);
+    private static ExprHandle UnaryStrOp(Func<ExprHandle, string, ExprHandle> func, ExprHandle e, string arg)
+    {
+        var h = func(e, arg);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    private static ExprHandle UnaryStrOpNullable(Func<ExprHandle, string?, ExprHandle> func, ExprHandle e, string? arg)
+    {
+        var h = func(e, arg);
+        
+        // [内存模型] Expr 是 Move 语义，必须转移所有权给 Rust
+        e.TransferOwnership();
+        
+        return ErrorHelper.Check(h);
+    }
     private static ExprHandle UnaryDtOp(Func<ExprHandle, ExprHandle> op, ExprHandle expr) 
         => UnaryOp(op, expr);
     public static ExprHandle RollingOp(Func<ExprHandle, string ,ExprHandle> op, ExprHandle expr, string windowSize)
@@ -98,7 +113,7 @@ public static partial class PolarsWrapper
     public static ExprHandle StrToUpper(ExprHandle e) => UnaryStrOp(NativeBindings.pl_expr_str_to_uppercase, e);
     public static ExprHandle StrToLower(ExprHandle e) => UnaryStrOp(NativeBindings.pl_expr_str_to_lowercase, e);
     public static ExprHandle StrLenBytes(ExprHandle e) => UnaryStrOp(NativeBindings.pl_expr_str_len_bytes, e);
-
+    
     public static ExprHandle StrSlice(ExprHandle e, long offset, ulong length)
     {
         var h = NativeBindings.pl_expr_str_slice(e, offset, length);
@@ -124,6 +139,30 @@ public static partial class PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle StrStripChars(ExprHandle e, string? matches = null)
+        => UnaryStrOpNullable(NativeBindings.pl_expr_str_strip_chars, e, matches);
+
+    public static ExprHandle StrStripCharsStart(ExprHandle e, string? matches = null)
+        => UnaryStrOpNullable(NativeBindings.pl_expr_str_strip_chars_start, e, matches);
+
+    public static ExprHandle StrStripCharsEnd(ExprHandle e, string? matches = null)
+        => UnaryStrOpNullable(NativeBindings.pl_expr_str_strip_chars_end, e, matches);
+    public static ExprHandle StrStripPrefix(ExprHandle e, string prefix)
+        => UnaryStrOp(NativeBindings.pl_expr_str_strip_prefix, e, prefix);
+
+    public static ExprHandle StrStripSuffix(ExprHandle e, string suffix)
+        => UnaryStrOp(NativeBindings.pl_expr_str_strip_suffix, e, suffix);
+    public static ExprHandle StrStartsWith(ExprHandle e, string prefix)
+        => UnaryStrOp(NativeBindings.pl_expr_str_starts_with, e, prefix);
+
+    public static ExprHandle StrEndsWith(ExprHandle e, string suffix)
+        => UnaryStrOp(NativeBindings.pl_expr_str_ends_with, e, suffix);
+
+    public static ExprHandle StrToDate(ExprHandle e, string format)
+        => UnaryStrOp(NativeBindings.pl_expr_str_to_date, e, format);
+
+    public static ExprHandle StrToDatetime(ExprHandle e, string format)
+        => UnaryStrOp(NativeBindings.pl_expr_str_to_datetime, e, format);
     // Compare
     public static ExprHandle Eq(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_eq, l, r);
     public static ExprHandle Neq(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_neq, l, r);
@@ -169,8 +208,18 @@ public static partial class PolarsWrapper
     }
     // Statistics
     public static ExprHandle Count(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_count, e);
-    public static ExprHandle Std(ExprHandle e, int ddof) => ErrorHelper.Check(NativeBindings.pl_expr_std(e, (byte)ddof));
-    public static ExprHandle Var(ExprHandle e, int ddof) => ErrorHelper.Check(NativeBindings.pl_expr_var(e, (byte)ddof));
+    public static ExprHandle Std(ExprHandle e, int ddof) 
+    {
+        var h = NativeBindings.pl_expr_std(e, (byte)ddof);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle Var(ExprHandle e, int ddof)
+    {
+        var h = NativeBindings.pl_expr_var(e, (byte)ddof);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     public static ExprHandle Median(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_median, e);
     
     public static ExprHandle Quantile(ExprHandle e, double quantile, string method)
