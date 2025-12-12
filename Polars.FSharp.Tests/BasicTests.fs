@@ -139,12 +139,14 @@ id;date_col;val_col
         // 3. 验证 DataFrame Schema
         let schema = df.Schema
         Assert.Equal(3, schema.Count)
-        Assert.Equal("i32", schema.["id"])
-        Assert.Equal("f64", schema.["score"])
-        Assert.Equal("bool", schema.["is_active"])
+        Assert.Equal(DataType.Int32, schema.["id"])
+        Assert.Equal(DataType.Float64, schema.["score"])
+        Assert.Equal(DataType.Boolean, schema.["is_active"])
         
         // 4. 打印看看效果
+        Console.WriteLine "------Test DataFrame PrintSchema START------"
         df.PrintSchema()
+        Console.WriteLine "------Test DataFrame PrintSchema END------"
     [<Fact>]
     member _.``Lazy Introspection: Schema and Explain`` () =
         use csv = new TempCsv "a,b\n1,2"

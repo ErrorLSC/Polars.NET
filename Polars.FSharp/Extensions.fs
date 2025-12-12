@@ -437,9 +437,7 @@ module Serialization =
             // 我们利用 Schema 来判断
             let numericCols = 
                 this.Schema 
-                |> Map.filter (fun _ dtype -> 
-                    dtype.StartsWith "i" || dtype.StartsWith "f" || dtype.StartsWith "u"
-                )
+                |> Map.filter (fun _ dtype -> dtype.IsNumeric)
                 |> Map.keys
                 |> Seq.toList
 

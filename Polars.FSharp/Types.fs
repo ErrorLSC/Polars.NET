@@ -46,6 +46,36 @@ type DataType =
         | Decimal (p, s) -> 
             let prec = defaultArg p 0 // 0 means None in Rust shim
             PolarsWrapper.NewDecimalType(prec, s)
+    static member Parse(str: string) =
+        match str with
+        | "bool" -> Boolean
+        | "i8" -> Int8
+        | "i16" -> Int16
+        | "i32" -> Int32
+        | "i64" -> Int64
+        | "u8" -> UInt8
+        | "u16" -> UInt16
+        | "u32" -> UInt32
+        | "u64" -> UInt64
+        | "f32" -> Float32
+        | "f64" -> Float64
+        | "str" | "String" -> String // 兼容一下旧版
+        | "date" -> Date
+        | "time" -> Time
+        | s when s.StartsWith "datetime" -> Datetime // 处理 "datetime[μs]" 这种带参数的
+        | s when s.StartsWith "duration" -> Duration
+        | s when s.StartsWith "decimal" -> 
+            // 简单处理 decimal，暂不解析具体精度
+            Decimal(None, 0)
+        | "cat" -> Categorical
+        | _ -> Unknown
+    member this.IsNumeric =
+        match this with
+        | UInt8 | UInt16 | UInt32 | UInt64
+        | Int8 | Int16 | Int32 | Int64
+        | Float32 | Float64 
+        | Decimal _ -> true
+        | _ -> false
 
 /// <summary>
 /// Represents the type of join operation to perform.
@@ -898,28 +928,32 @@ and DataFrame(handle: DataFrameHandle) =
             return new DataFrame(handle)
         }
     /// <summary>
-    /// Get the schema of the DataFrame as a Map (Column Name -> Data Type String).
+    /// Get the schema as Map<ColumnName, DataType>.
     /// </summary>
-    member this.Schema : Map<string, string> =
+    member this.Schema : Map<string, DataType> =
         let json = PolarsWrapper.GetDataFrameSchemaString handle
         if String.IsNullOrEmpty json then Map.empty
         else
             try
-                // 使用 System.Text.Json 解析
-                let dict = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.Dictionary<string, string>>(json)
-                // 转为 F# Map
-                dict |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+                // 依赖 System.Text.Json
+                let dict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json)
+                dict 
+                |> Seq.map (fun kv -> kv.Key, DataType.Parse kv.Value) 
+                |> Map.ofSeq
             with _ ->
                 Map.empty
     member this.Lazy() : LazyFrame =
         let lfHandle = PolarsWrapper.DataFrameToLazy handle
         new LazyFrame(lfHandle)
     /// <summary>
-    /// Print the schema to Console.
+    /// Print schema in a readable format.
     /// </summary>
     member this.PrintSchema() =
         printfn "--- DataFrame Schema ---"
-        this.Schema |> Map.iter (fun name dtype -> printfn "%-15s | %s" name dtype)
+        this.Schema |> Map.iter (fun name dtype -> 
+            // 简单的反射打印 DU 名称
+            printfn "%-15s | %A" name dtype
+        )
         printfn "------------------------"
     static member create(series: Series list) : DataFrame =
         let handles = 
