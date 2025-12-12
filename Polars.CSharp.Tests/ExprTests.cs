@@ -337,6 +337,61 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(1, res.GetValue<int>(1, "m"));
         Assert.Equal(0, res.GetValue<int>(1, "h"));
     }
+    [Fact]
+    public void Test_Dt_Ops_Advanced()
+    {
+        // 构造数据: 2023-01-01 10:30:55
+        // Row 0: 10:30:55
+        // Row 1: 10:45:10
+        using var s = new Series("ts", ["2023-01-01 10:30:55", "2023-01-01 10:45:10"]);
+        using var df = new DataFrame(s);
+        
+        // 先转成 Datetime 类型 (利用之前做的 tryParseDates 或者手动转换)
+        // 这里手动转一下以确保万无一失
+        using var dfDt = df.Select(
+            Col("ts").Str.ToDatetime("%Y-%m-%d %H:%M:%S").Alias("ts")
+        );
+
+        using var res = dfDt.Select(
+            Col("ts"),
+
+            // 1. Truncate "1h" -> 应该变成 10:00:00
+            Col("ts").Dt.Truncate("1h").Alias("trunc_1h"),
+            
+            // 2. Round "30m" -> 
+            // 10:30:55 -> 10:30:00
+            // 10:45:10 -> 10:30:00 (就近) 还是 11:00? Round是四舍五入
+            Col("ts").Dt.Round("30m").Alias("round_30m"),
+
+            // 3. OffsetBy "1d" -> 加一天
+            // 注意：这里我们测试 OffsetBy(Lit("1d")) 是否有效
+            // 如果失败，可能需要先 Cast 为 Duration
+            Col("ts").Dt.OffsetBy(Polars.Lit("1d")).Alias("offset_1d"),
+
+            // 4. Timestamp (转 Int64)
+            Col("ts").Dt.Timestamp(TimeUnit.Milliseconds).Alias("ts_ms")
+        );
+
+        // 验证 Truncate
+        var t0 = res.GetValue<DateTime>(0, "trunc_1h");
+        Assert.Equal(10, t0.Hour);
+        Assert.Equal(0, t0.Minute);
+        Assert.Equal(0, t0.Second);
+
+        // 验证 OffsetBy (+1 Day)
+        var original = res.GetValue<DateTime>(0, "ts");
+        var offset = res.GetValue<DateTime>(0, "offset_1d");
+        Assert.Equal(original.AddDays(1), offset);
+
+        // 验证 Timestamp (Milliseconds)
+        // 2023-01-01 10:30:55 UTC
+        // 只要结果是 Int64 且大于 0 即可，精确换算比较麻烦（涉及时区）
+        var tsVal = res.GetValue<long>(0, "ts_ms");
+        Assert.True(tsVal > 1672531000000L); 
+        
+        // 验证类型是否正确变换为 Int64
+        Assert.Equal(DataTypeKind.Int64, res.Schema["ts_ms"].Kind);
+    }
     // ==========================================
     // Cast Ops: Int to Float, String to Int
     // ==========================================

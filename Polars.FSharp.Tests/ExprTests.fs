@@ -129,6 +129,57 @@ type ``Expression Logic Tests`` () =
         // 验证: 只有 Qinglei 符合
         Assert.Equal(1L, res.Rows)
         Assert.Equal("Qinglei", res.String("name", 0).Value)
+    [<Fact>]
+    member _.``Expr: DateTime Ops (Truncate, Offset, Timestamp)`` () =
+        // 数据: ["2023-01-01 10:15:00", "2023-01-01 10:45:00"]
+        let s = Series.create("ts", ["2023-01-01 10:15:00"; "2023-01-01 10:45:00"])
+        // 先解析成 Datetime
+        use df_origin = DataFrame.create [s]
+        let df =
+            df_origin 
+            |> Polars.select([
+            Polars.col("ts").Str.ToDatetime("%Y-%m-%d %H:%M:%S").Alias "ts"
+            ])
+
+        let res = 
+            df
+            |> Polars.select([
+                Polars.col "ts"
+
+                // 1. Truncate to 1 hour (10:15 -> 10:00)
+                Polars.col("ts").Dt.Truncate("1h").Alias "truncated"
+
+                // 2. Round to 1 hour (10:45 -> 11:00)
+                Polars.col("ts").Dt.Round("1h").Alias "rounded"
+
+                // 3. Offset by 30m (10:15 -> 10:45)
+                Polars.col("ts").Dt.OffsetBy("30m").Alias "offset"
+
+                // 4. Timestamp (Micros)
+                Polars.col("ts").Dt.TimestampMicros().Alias "micros"
+            ])
+            |> Polars.show
+        // 验证 Row 0: 10:15
+        // let row0 = res.Row(0) // 假设你以后会实现 Row 访问，或者用 .Date(..).Value
+        // 这里用原来的列式访问
+        
+        // Truncate: 10:15 -> 10:00
+        let t0 = res.Datetime("truncated", 0).Value
+        Assert.Equal(10, t0.Hour)
+        Assert.Equal(0, t0.Minute)
+
+        // Round: 10:45 (Row 1) -> 11:00
+        let r1 = res.Datetime("rounded", 1).Value
+        Assert.Equal(11, r1.Hour)
+        Assert.Equal(0, r1.Minute)
+
+        // Offset: 10:15 -> 10:45
+        let o0 = res.Datetime("offset", 0).Value
+        Assert.Equal(10, o0.Hour)
+        Assert.Equal(45, o0.Minute)
+        
+        // Timestamp should be > 0
+        Assert.True(res.Int("micros", 0).Value > 0L)
 
 type ``String Logic Tests`` () =
 

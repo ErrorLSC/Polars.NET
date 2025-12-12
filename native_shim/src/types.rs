@@ -47,26 +47,3 @@ pub(crate) fn map_jointype(code: i32) -> JoinType {
         _ => JoinType::Inner, // 默认
     }
 }
-
-// pub(crate) fn map_datatype(code: i32) -> DataType {
-//     match code {
-//         1 => DataType::Boolean,
-//         2 => DataType::Int8,
-//         3 => DataType::Int16,
-//         4 => DataType::Int32,
-//         5 => DataType::Int64,
-//         6 => DataType::UInt8,
-//         7 => DataType::UInt16,
-//         8 => DataType::UInt32,
-//         9 => DataType::UInt64,
-//         10 => DataType::Float32,
-//         11 => DataType::Float64,
-//         12 => DataType::String,
-//         13 => DataType::Date,
-//         14 => DataType::Datetime(TimeUnit::Microseconds, None), // 默认无时区微秒
-//         15 => DataType::Time,
-//         16 => DataType::Duration(TimeUnit::Microseconds),
-//         17 => DataType::Binary,
-//         _ => DataType::Unknown(UnknownKind::Any), // 0 或未知
-//     }
-// }

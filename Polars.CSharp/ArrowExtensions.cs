@@ -142,8 +142,8 @@ public static class ArrowExtensions
         long v = arr.GetValue(index) ?? 0;
         var unit = (arr.Data.DataType as TimestampType)?.Unit;
         long ticks = unit switch {
-            TimeUnit.Nanosecond => v / 100L, TimeUnit.Microsecond => v * 10L,
-            TimeUnit.Millisecond => v * 10000L, TimeUnit.Second => v * 10000000L, _ => v
+            Apache.Arrow.Types.TimeUnit.Nanosecond => v / 100L, Apache.Arrow.Types.TimeUnit.Microsecond => v * 10L,
+            Apache.Arrow.Types.TimeUnit.Millisecond => v * 10000L, Apache.Arrow.Types.TimeUnit.Second => v * 10000000L, _ => v
         };
         try { return DateTime.UnixEpoch.AddTicks(ticks).ToString("yyyy-MM-dd HH:mm:ss.ffffff"); }
         catch { return v.ToString(); }
@@ -153,7 +153,7 @@ public static class ArrowExtensions
     {
         int v = arr.GetValue(index) ?? 0;
         var unit = (arr.Data.DataType as Time32Type)?.Unit;
-        var span = unit switch { TimeUnit.Millisecond => TimeSpan.FromMilliseconds(v), _ => TimeSpan.FromSeconds(v) };
+        var span = unit switch { Apache.Arrow.Types.TimeUnit.Millisecond => TimeSpan.FromMilliseconds(v), _ => TimeSpan.FromSeconds(v) };
         return span.ToString();
     }
 
@@ -161,7 +161,7 @@ public static class ArrowExtensions
     {
         long v = arr.GetValue(index) ?? 0;
         var unit = (arr.Data.DataType as Time64Type)?.Unit;
-        long ticks = unit switch { TimeUnit.Nanosecond => v / 100L, _ => v * 10L };
+        long ticks = unit switch { Apache.Arrow.Types.TimeUnit.Nanosecond => v / 100L, _ => v * 10L };
         return TimeSpan.FromTicks(ticks).ToString();
     }
 
@@ -170,8 +170,8 @@ public static class ArrowExtensions
         long v = arr.GetValue(index) ?? 0;
         var unit = (arr.Data.DataType as DurationType)?.Unit;
         string suffix = unit switch {
-            TimeUnit.Nanosecond => "ns", TimeUnit.Microsecond => "us",
-            TimeUnit.Millisecond => "ms", TimeUnit.Second => "s", _ => ""
+            Apache.Arrow.Types.TimeUnit.Nanosecond => "ns", Apache.Arrow.Types.TimeUnit.Microsecond => "us",
+            Apache.Arrow.Types.TimeUnit.Millisecond => "ms", Apache.Arrow.Types.TimeUnit.Second => "s", _ => ""
         };
         return $"{v}{suffix}";
     }
@@ -262,10 +262,10 @@ public static class ArrowExtensions
         // Unix Epoch 是 1970-01-01
         long ticks = unit switch
         {
-            TimeUnit.Nanosecond => v / 100L,        // ns -> 100ns
-            TimeUnit.Microsecond => v * 10L,        // us -> 100ns
-            TimeUnit.Millisecond => v * 10000L,     // ms -> 100ns
-            TimeUnit.Second => v * 10000000L,       // s  -> 100ns
+            Apache.Arrow.Types.TimeUnit.Nanosecond => v / 100L,        // ns -> 100ns
+            Apache.Arrow.Types.TimeUnit.Microsecond => v * 10L,        // us -> 100ns
+            Apache.Arrow.Types.TimeUnit.Millisecond => v * 10000L,     // ms -> 100ns
+            Apache.Arrow.Types.TimeUnit.Second => v * 10000000L,       // s  -> 100ns
             _ => v // Should not happen
         };
 
@@ -286,7 +286,7 @@ public static class ArrowExtensions
         var unit = (arr.Data.DataType as Time32Type)?.Unit;
         return unit switch
         {
-            TimeUnit.Millisecond => TimeSpan.FromMilliseconds(v),
+            Apache.Arrow.Types.TimeUnit.Millisecond => TimeSpan.FromMilliseconds(v),
             _ => TimeSpan.FromSeconds(v)
         };
     }
@@ -298,7 +298,7 @@ public static class ArrowExtensions
         
         long ticks = unit switch
         {
-            TimeUnit.Nanosecond => v / 100L,
+            Apache.Arrow.Types.TimeUnit.Nanosecond => v / 100L,
             _ => v * 10L // Microsecond
         };
         return TimeSpan.FromTicks(ticks);
@@ -311,10 +311,10 @@ public static class ArrowExtensions
         
         long ticks = unit switch
         {
-            TimeUnit.Nanosecond => v / 100L,
-            TimeUnit.Microsecond => v * 10L,
-            TimeUnit.Millisecond => v * 10000L,
-            TimeUnit.Second => v * 10000000L,
+            Apache.Arrow.Types.TimeUnit.Nanosecond => v / 100L,
+            Apache.Arrow.Types.TimeUnit.Microsecond => v * 10L,
+            Apache.Arrow.Types.TimeUnit.Millisecond => v * 10000L,
+            Apache.Arrow.Types.TimeUnit.Second => v * 10000000L,
             _ => v
         };
         return TimeSpan.FromTicks(ticks);

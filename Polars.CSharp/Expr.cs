@@ -729,6 +729,59 @@ public class DtOps
     /// </summary>
     /// <returns></returns>
     public Expr Time() => Wrap(PolarsWrapper.DtTime);
+
+    // ==========================================
+    // Truncate & Round (时间对齐)
+    // ==========================================
+
+    /// <summary>
+    /// Truncate the datetimes to the given interval (e.g. "1d", "1h", "15m").
+    /// </summary>
+    public Expr Truncate(string every)
+    {
+        return new Expr(PolarsWrapper.DtTruncate(_expr.Handle, every));
+    }
+
+    /// <summary>
+    /// Round the datetimes to the given interval.
+    /// </summary>
+    public Expr Round(string every)
+    {
+        return new Expr(PolarsWrapper.DtRound(_expr.Handle, every));
+    }
+
+    // ==========================================
+    // Offset (时间平移)
+    // ==========================================
+
+    /// <summary>
+    /// Offset the datetimes by a given duration expression.
+    /// </summary>
+    public Expr OffsetBy(Expr by)
+    {
+        return new Expr(PolarsWrapper.DtOffsetBy(_expr.Handle, by.Handle));
+    }
+
+    /// <summary>
+    /// Offset the datetimes by a constant duration string (e.g., "1d", "-2h").
+    /// </summary>
+    public Expr OffsetBy(string duration)
+    {
+        return OffsetBy(Polars.Lit(duration));
+    }
+
+    // ==========================================
+    // Timestamp (转整数)
+    // ==========================================
+
+    /// <summary>
+    /// Convert the datetime to an integer timestamp (Unix epoch).
+    /// </summary>
+    public Expr Timestamp(TimeUnit unit = TimeUnit.Microseconds)
+    {
+        return new Expr(PolarsWrapper.DtTimestamp(_expr.Handle, (int)unit));
+    }
+    
 }
 
 // ==========================================
