@@ -565,6 +565,10 @@ unsafe internal partial class NativeBindings
     public static partial bool pl_series_is_null_at(SeriesHandle s, UIntPtr idx);
     [LibraryImport(LibName)]
     public static partial UIntPtr pl_series_null_count(SeriesHandle s);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_nan(SeriesHandle s);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_not_nan(SeriesHandle s);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_finite(SeriesHandle s);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_infinite(SeriesHandle s);
     // --- Series Cast ---
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_cast(SeriesHandle s, DataTypeHandle dtype);
@@ -591,6 +595,24 @@ unsafe internal partial class NativeBindings
 
     [LibraryImport(LibName)]
     public static partial DataTypeHandle pl_datatype_new_categorical();
+    // Arithmetic
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_add(SeriesHandle s1, SeriesHandle s2);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_sub(SeriesHandle s1, SeriesHandle s2);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_mul(SeriesHandle s1, SeriesHandle s2);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_div(SeriesHandle s1, SeriesHandle s2);
 
+    // Comparison
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_eq(SeriesHandle s1, SeriesHandle s2);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_neq(SeriesHandle s1, SeriesHandle s2);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_gt(SeriesHandle s1, SeriesHandle s2);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_lt(SeriesHandle s1, SeriesHandle s2);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_gt_eq(SeriesHandle s1, SeriesHandle s2);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_lt_eq(SeriesHandle s1, SeriesHandle s2);
+
+    // Aggregation
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_sum(SeriesHandle s);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_mean(SeriesHandle s);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_min(SeriesHandle s);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_max(SeriesHandle s);
 
 }

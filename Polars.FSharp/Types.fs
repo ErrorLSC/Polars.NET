@@ -415,7 +415,17 @@ type Series(handle: SeriesHandle) =
     /// </summary>
     member _.NullCount : int64 = 
         PolarsWrapper.SeriesNullCount handle
+    /// <summary> Check if floating point values are NaN. </summary>
+    member this.IsNan() = new Series(PolarsWrapper.SeriesIsNan handle)
 
+    /// <summary> Check if floating point values are not NaN. </summary>
+    member this.IsNotNan() = new Series(PolarsWrapper.SeriesIsNotNan handle)
+
+    /// <summary> Check if floating point values are finite (not NaN and not Inf). </summary>
+    member this.IsFinite() = new Series(PolarsWrapper.SeriesIsFinite handle)
+
+    /// <summary> Check if floating point values are infinite. </summary>
+    member this.IsInfinite() = new Series(PolarsWrapper.SeriesIsInfinite handle)
     // ==========================================
     // Static Constructors
     // ==========================================
@@ -660,7 +670,7 @@ type Series(handle: SeriesHandle) =
 
         let getDecimalScale (d: decimal) =
             let bits = System.Decimal.GetBits(d)
-            (bits.[3] >>> 16) &&& 0xFF
+            bits.[3] >>> 16 &&& 0xFF
 
         // A. 检查是否是 Option 类型 (例如 int option)
         if t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<option<_>> then
@@ -745,6 +755,60 @@ type Series(handle: SeriesHandle) =
 
     member _.Duration(index: int) : TimeSpan option = 
         PolarsWrapper.SeriesGetDuration(handle, int64 index) |> Option.ofNullable
+    // --- Aggregations (Returning Series of len 1) ---
+    // 返回 Series 而不是 scalar，是为了支持链式计算 (s.Sum() / s.Count())
+    // 最终要取值时，用户可以调 s.Int(0) 或 s.Float(0)
+    
+    member this.Sum() = new Series(PolarsWrapper.SeriesSum handle)
+    member this.Mean() = new Series(PolarsWrapper.SeriesMean handle)
+    member this.Min() = new Series(PolarsWrapper.SeriesMin handle)
+    member this.Max() = new Series(PolarsWrapper.SeriesMax handle)
+
+    // --- Operators (Arithmetic) ---
+
+    static member (+) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesAdd(lhs.Handle, rhs.Handle))
+    static member (-) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesSub(lhs.Handle, rhs.Handle))
+    static member (*) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesMul(lhs.Handle, rhs.Handle))
+    static member (/) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesDiv(lhs.Handle, rhs.Handle))
+
+    // --- Operators (Comparison) ---
+
+    static member (.=) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesEq(lhs.Handle, rhs.Handle))
+    static member (!=) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesNeq(lhs.Handle, rhs.Handle))
+    static member (.>) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesGt(lhs.Handle, rhs.Handle))
+    static member (.<) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesLt(lhs.Handle, rhs.Handle))
+
+    static member (.>=) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesGtEq(lhs.Handle, rhs.Handle))
+    static member (.<=) (lhs: Series, rhs: Series) = new Series(PolarsWrapper.SeriesLtEq(lhs.Handle, rhs.Handle))
+
+    // --- Broadcasting Helpers (Scalar Ops) ---
+    // 允许 s + 1, s * 2.5 等操作
+    // 我们创建一个临时的长度为1的 Series 传给 Rust，Rust 会处理广播
+
+    static member (+) (lhs: Series, rhs: int) = lhs + Series.create("lit", [rhs])
+    static member (+) (lhs: Series, rhs: double) = lhs + Series.create("lit", [rhs])
+    static member (-) (lhs: Series, rhs: int) = lhs - Series.create("lit", [rhs])
+    static member (-) (lhs: Series, rhs: double) = lhs - Series.create("lit", [rhs])
+    
+    static member (*) (lhs: Series, rhs: int) = lhs * Series.create("lit", [rhs])
+    static member (*) (lhs: Series, rhs: double) = lhs * Series.create("lit", [rhs])
+    
+    static member (/) (lhs: Series, rhs: int) = lhs / Series.create("lit", [rhs])
+    static member (/) (lhs: Series, rhs: double) = lhs / Series.create("lit", [rhs])
+
+    // Comparison with Scalar
+    static member (.>) (lhs: Series, rhs: int) = lhs .> Series.create("lit", [rhs])
+    static member (.>) (lhs: Series, rhs: double) = lhs .> Series.create("lit", [rhs])
+    static member (.<) (lhs: Series, rhs: int) = lhs .< Series.create("lit", [rhs])
+    static member (.<) (lhs: Series, rhs: double) = lhs .< Series.create("lit", [rhs])
+    static member (.>=) (lhs: Series, rhs: int) = lhs .>= Series.create("lit", [rhs])
+    static member (.<=) (lhs: Series, rhs: double) = lhs .<= Series.create("lit", [rhs])
+    
+    static member (.=) (lhs: Series, rhs: int) = lhs .= Series.create("lit", [rhs])
+    static member (.=) (lhs: Series, rhs: double) = lhs .= Series.create("lit", [rhs])
+    static member (.=) (lhs: Series, rhs: string) = lhs .= Series.create("lit", [rhs])
+    static member (.!=) (lhs: Series, rhs: int) = lhs != Series.create("lit", [rhs])
+    static member (.!=) (lhs: Series, rhs: string) = lhs != Series.create("lit", [rhs])
     // ==========================================
     // Interop with DataFrame
     // ==========================================
@@ -953,6 +1017,18 @@ and DataFrame(handle: DataFrameHandle) =
     member this.NullCount(colName: string) : int64 =
         use s = this.Column colName
         s.NullCount
+    member this.IsNan(col: string) =
+        use s = this.Column col
+        s.IsNan()
+    member this.IsNotNan (col:string) =
+        use s = this.Column col
+        s.IsNotNan()
+    member this.IsFinite (col:string) =
+        use s = this.Column col
+        s.IsFinite()
+    member this.IsInfinite (col:string) =
+        use s = this.Column col
+        s.IsInfinite()
 /// <summary>
 /// A LazyFrame represents a logical plan of operations that will be optimized and executed only when collected.
 /// </summary>

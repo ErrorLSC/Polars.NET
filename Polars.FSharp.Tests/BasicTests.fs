@@ -443,3 +443,116 @@ type ``Basic Functionality Tests`` () =
 
         Assert.Equal(2L, df.Rows)
         Assert.Equal(1L, df.Int("a", 0).Value)
+    [<Fact>]
+    member _.``Series: Arithmetic & Aggregation (Pandas Style)`` () =
+        // 1. 准备数据
+        use demand = Series.create("demand", [100.0; 200.0; 300.0])
+        use weight = Series.create("weight", [0.5; 1.5; 1.0])
+
+        // 2. Pandas 风格计算：加权平均
+        // weighted_mean = (demand * weight).Sum() / weight.Sum()
+        
+        let sProd = demand * weight    // [50.0, 300.0, 300.0]
+        let sSumProd = sProd.Sum()     // [650.0]
+        let sSumW = weight.Sum()       // [3.0]
+        
+        // Series 之间的除法 (Broadcasting: Scalar / Scalar)
+        let sWeightedMean = sSumProd / sSumW 
+        
+        // 结果应该是一个长度为1的 Series
+        Assert.Equal(1L, sWeightedMean.Length)
+        
+        // 验证数值: 650 / 3 = 216.666...
+        let valMean = sWeightedMean.Float(0).Value
+        Assert.True(abs(valMean - 216.6666) < 0.001)
+
+        // 3. 逻辑运算与过滤
+        // weeks_with_demand = (demand > 0).sum()
+        
+        // (demand > 0) 返回 Boolean Series
+        // .Sum() 在 Boolean Series 上通常等价于 count true，但 Polars Series Sum 可能返回 Int/Float
+        // 让我们看看 boolean sum 的行为
+        // Polars Rust boolean.sum() returns u32/u64 usually.
+        
+        let mask = demand .> 0.0 // 广播比较
+        // Polars.NET Sum() 返回的是 Series。对于 Bool，Rust sum 返回的是 number。
+        // 我们验证一下类型
+        let countPos = mask.Sum()
+        // demand全是 > 0，所以应该是 3
+        
+        // 注意：Sum 返回的可能是 Int 或 Float，视底层实现而定
+        // Polars boolean sum returns UInt32 usually.
+        // 我们通过 .Float 或 .Int 尝试获取
+        // 简单起见，先转 f64 再拿
+        let countVal = countPos.Cast(DataType.Float64).Float(0).Value
+        Assert.Equal(3.0, countVal)
+        
+        // zero_ratio = (demand == 0).mean()
+        let zeroMask = demand .= 0.0
+        let zeroRatio = zeroMask.Mean() // Mean on boolean = ratio of true
+        
+        // 0 / 3 = 0.0
+        Assert.Equal(0.0, zeroRatio.Float(0).Value)
+    [<Fact>]
+    member _.``Series: Arithmetic & Aggregation (F# Pipeline Style)`` () =
+        // 1. 准备数据
+        use demand = Series.create("demand", [100.0; 200.0; 300.0])
+        use weight = Series.create("weight", [0.5; 1.5; 1.0])
+
+        // 2. F# 管道风格计算：加权平均
+        // 逻辑流：demand 乘以 weight -> 求和 -> 除以 (weight 求和)
+        
+        let sWeightedMean = 
+            demand
+            |> Series.mul weight          // Element-wise multiplication
+            |> Series.sum                 // Sum result
+            |> Series.div (weight |> Series.sum) // Divide by scalar (series of len 1)
+
+        // 验证
+        Assert.Equal(1L, sWeightedMean.Length)
+        let valMean = sWeightedMean.Float(0).Value
+        Assert.True(abs(valMean - 216.6666) < 0.001)
+
+        // 3. 逻辑运算与过滤
+        
+        // A. 统计需求大于 0 的周数
+        // 逻辑流：demand -> 大于 0.0 -> 求和 -> 转 Float -> 取值
+        let countVal = 
+            demand
+            |> Series.gtLit 0.0           // Broadcasting comparison (> 0.0)
+            |> Series.sum                 // Count true values
+            |> Series.cast DataType.Float64 
+            |> fun s -> s.Float(0).Value  // 最后的取值也可以写个 helper
+
+        Assert.Equal(3.0, countVal)
+
+        // B. 统计零需求占比
+        // 逻辑流：demand -> 等于 0.0 -> 求均值
+        let zeroRatio = 
+            demand
+            |> Series.eqLit 0.0           // Broadcasting comparison (= 0.0)
+            |> Series.mean                // Mean of boolean
+            |> fun s -> s.Float(0).Value
+
+        Assert.Equal(0.0, zeroRatio)
+    [<Fact>]
+    member _.``Series: NaN and Infinity Checks`` () =
+        // 1. 准备数据: [1.0, NaN, Inf, -Inf, 5.0]
+        let s = Series.create("f", [1.0; Double.NaN; Double.PositiveInfinity; Double.NegativeInfinity; 5.0])
+
+        // 2. IsNan -> [F, T, F, F, F]
+        let maskNan = s.IsNan()
+        Assert.Equal(Some true, maskNan.Bool 1) // NaN
+        Assert.Equal(Some false, maskNan.Bool 0)
+
+        // 3. IsInfinite -> [F, F, T, T, F]
+        let maskInf = s.IsInfinite()
+        Assert.Equal(Some true, maskInf.Bool 2) // +Inf
+        Assert.Equal(Some true, maskInf.Bool 3) // -Inf
+        Assert.Equal(Some false, maskInf.Bool 1) // NaN is NOT Infinite
+
+        // 4. IsFinite -> [T, F, F, F, T]
+        let maskFin = s.IsFinite()
+        Assert.Equal(Some true, maskFin.Bool 0)
+        Assert.Equal(Some false, maskFin.Bool 1) // NaN not finite
+        Assert.Equal(Some false, maskFin.Bool 2) // Inf not finite
