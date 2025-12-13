@@ -8,7 +8,7 @@ type ``Expression Logic Tests`` () =
     [<Fact>]
         member _.``Select inline style (Pythonic)`` () =
             use csv = new TempCsv "name,birthdate,weight,height\nQinglei,2025-11-25,70,1.80"
-            let df = DataFrame.readCsv csv.Path
+            let df = DataFrame.ReadCsv csv.Path
 
             // 像 Python 一样写在 list 里面！
             let res = 
@@ -38,7 +38,7 @@ type ``Expression Logic Tests`` () =
     [<Fact>]
     member _.``Filter by numeric value (> operator)`` () =
         use csv = new TempCsv "val\n10\n20\n30"
-        let df = DataFrame.readCsv csv.Path
+        let df = DataFrame.ReadCsv csv.Path
         
         let res = df |> Polars.filter (Polars.col "val" .> Polars.lit 15)
         
@@ -46,7 +46,7 @@ type ``Expression Logic Tests`` () =
     [<Fact>]
     member _.``Filter by numeric value (< operator)`` () =
         use csv = new TempCsv "name,birthdate,weight,height\nBen Brown,1985-02-15,72.5,1.77\nQinglei,2025-11-25,70.0,1.80\nZhang,2025-10-31,55,1.75"
-        let df = DataFrame.readCsv (path=csv.Path,tryParseDates=true)
+        let df = DataFrame.ReadCsv (path=csv.Path,tryParseDates=true)
 
         let res = df |> Polars.filter ((Polars.col "birthdate").Dt.Year() .< Polars.lit 1990 )
 
@@ -55,7 +55,7 @@ type ``Expression Logic Tests`` () =
     [<Fact>]
     member _.``Filter by string value (== operator)`` () =
         use csv = new TempCsv "name\nAlice\nBob\nAlice"
-        let df = DataFrame.readCsv csv.Path
+        let df = DataFrame.ReadCsv csv.Path
         
         // SRTP 魔法测试
         let res = df |> Polars.filter (Polars.col "name" .== Polars.lit "Alice")
@@ -65,7 +65,7 @@ type ``Expression Logic Tests`` () =
     [<Fact>]
     member _.``Filter by double value (== operator)`` () =
         use csv = new TempCsv "value\n3.36\n4.2\n5\n3.36"
-        let df = DataFrame.readCsv csv.Path
+        let df = DataFrame.ReadCsv csv.Path
         
         // SRTP 魔法测试
         let res = df |> Polars.filter (Polars.col "value" .== Polars.lit 3.36)
@@ -77,7 +77,7 @@ type ``Expression Logic Tests`` () =
         // 造一个带 null 的 CSV
         // age: 10, null, 30
         use csv = new TempCsv "age\n10\n\n30" 
-        let lf = LazyFrame.scanCsv csv.Path
+        let lf = LazyFrame.ScanCsv csv.Path
 
         // 测试 1: fill_null
         // 把 null 填成 0，然后筛选 age > 0
@@ -95,7 +95,7 @@ type ``Expression Logic Tests`` () =
         
         // 测试 2: is_null
         // 筛选出 null 的行
-        let df= DataFrame.readCsv csv.Path 
+        let df= DataFrame.ReadCsv csv.Path 
         let nulls = df |> Polars.filter (Polars.col "age" |> Polars.isNull)
         Assert.Equal(1L, nulls.Rows)
     [<Fact>]
@@ -104,7 +104,7 @@ type ``Expression Logic Tests`` () =
         use csv = new TempCsv "name,birthdate,height\nQinglei,1990-05-20,1.80\nTooOld,1980-01-01,1.80\nTooShort,1990-05-20,1.60"
         
         // 必须开启日期解析
-        let df = DataFrame.readCsv (path=csv.Path,tryParseDates=true)
+        let df = DataFrame.ReadCsv (path=csv.Path,tryParseDates=true)
 
         // Python logic translation:
         // filter(
@@ -284,7 +284,7 @@ type ``String Logic Tests`` () =
     member _.``Math Ops (BMI Calculation with Pow)`` () =
         // 构造数据: 身高(m), 体重(kg)
         use csv = new TempCsv "name,height,weight\nAlice,1.65,60\nBob,1.80,80"
-        let df = DataFrame.readCsv csv.Path
+        let df = DataFrame.ReadCsv csv.Path
 
         // 目标逻辑: weight / (height ^ 2)
         let bmiExpr = 
@@ -317,7 +317,7 @@ type ``String Logic Tests`` () =
         use csv = new TempCsv(csvContent)
         
         // [关键] 开启 tryParseDates=true，让 Polars 自动解析为 Datetime 类型
-        let df = DataFrame.readCsv (path=csv.Path,tryParseDates=true)
+        let df = DataFrame.ReadCsv (path=csv.Path,tryParseDates=true)
 
         let res =
             df
@@ -375,10 +375,10 @@ type ``String Logic Tests`` () =
         
         // [修改] 显式指定 Schema，确保 val_str 是 String，val_int 是 Int64
         // 这样测试的就是纯粹的 Cast 逻辑，而不是 CSV 推断逻辑
-        // (由于 readCsv 还没有 Schema 参数，我们依赖数据本身让推断正确)
+        // (由于 ReadCsv 还没有 Schema 参数，我们依赖数据本身让推断正确)
         // 1000 肯定超过了 UInt8 (max 255)，会被推断为 Int64
         
-        let df = DataFrame.readCsv csv.Path
+        let df = DataFrame.ReadCsv csv.Path
 
         let res = 
             df 
@@ -402,7 +402,7 @@ type ``String Logic Tests`` () =
     member _.``Control Flow: IfElse (When/Then/Otherwise)`` () =
         // 构造成绩数据
         use csv = new TempCsv "student,score\nAlice,95\nBob,70\nCharlie,50"
-        let df = DataFrame.readCsv csv.Path
+        let df = DataFrame.ReadCsv csv.Path
 
         // 逻辑:
         // if score >= 90 then "A"
@@ -438,7 +438,7 @@ type ``String Logic Tests`` () =
     [<Fact>]
     member _.``String Regex: Replace and Extract`` () =
         use csv = new TempCsv "text\nUser: 12345\nID: 999"
-        let df = DataFrame.readCsv csv.Path
+        let df = DataFrame.ReadCsv csv.Path
 
         let res = 
             df 

@@ -12,8 +12,8 @@ type ``Complex Query Tests`` () =
         use users = new TempCsv "id,name\n1,A\n2,B"
         use sales = new TempCsv "uid,amt\n1,100\n1,200\n3,50"
 
-        let uDf = DataFrame.readCsv (path=users.Path, tryParseDates=false)
-        let sDf = DataFrame.readCsv (path=sales.Path, tryParseDates=false)
+        let uDf = DataFrame.ReadCsv (path=users.Path, tryParseDates=false)
+        let sDf = DataFrame.ReadCsv (path=sales.Path, tryParseDates=false)
 
         let res = 
             uDf 
@@ -25,7 +25,7 @@ type ``Complex Query Tests`` () =
     [<Fact>]
     member _.``Lazy API Chain (Filter -> Collect)`` () =
         use csv = new TempCsv "a,b\n1,10\n2,20\n3,30"
-        let lf = LazyFrame.scanCsv csv.Path
+        let lf = LazyFrame.ScanCsv csv.Path
         
         let df = 
             lf
@@ -38,7 +38,7 @@ type ``Complex Query Tests`` () =
     [<Fact>]
     member _.``GroupBy Queries`` () =
         use csv = new TempCsv "name,birthdate,weight,height\nBen Brown,1985-02-15,72.5,1.77\nQinglei,2025-11-25,70.0,1.80\nZhang,2025-10-31,55,1.75"
-        let lf = LazyFrame.scanCsv csv.Path
+        let lf = LazyFrame.ScanCsv csv.Path
 
         let res = 
             lf 
@@ -66,7 +66,7 @@ type ``Complex Query Tests`` () =
             "Li Si,1988-05-20,60.5678,1.604\n" +
             "Wang Wu,1996-12-31,80.9999,1.859"
         use csv = new TempCsv(csvContent)
-        let lf = LazyFrame.scanCsv csv.Path
+        let lf = LazyFrame.ScanCsv csv.Path
 
         let res = 
             lf
@@ -129,7 +129,7 @@ type ``Complex Query Tests`` () =
     member _.``List Ops: Cols, Explode, Join and Read`` () =
         // 数据: 一个人有多个 Tag (空格分隔)
         use csv = new TempCsv "name,tags\nAlice,coding reading\nBob,gaming"
-        let lf = LazyFrame.scanCsv csv.Path
+        let lf = LazyFrame.ScanCsv csv.Path
 
         let res = 
             lf
@@ -180,7 +180,7 @@ type ``Complex Query Tests`` () =
     member _.``Struct and Advanced List Ops`` () =
         // 构造数据: Alice 考了两次试
         use csv = new TempCsv "name,score1,score2\nAlice,80,90\nBob,60,70"
-        let lf = LazyFrame.scanCsv csv.Path
+        let lf = LazyFrame.ScanCsv csv.Path
         let maxCharExpr = 
             (Polars.col "raw_nums").Str.Split(" ")
                 .List.Sort(true) // Descending
@@ -220,7 +220,7 @@ type ``Complex Query Tests`` () =
     [<Fact>]
     member _.``Window Function (Over)`` () =
         use csv = new TempCsv "name,dept,salary\nAlice,IT,1000\nBob,IT,2000\nCharlie,HR,3000"
-        let lf = LazyFrame.scanCsv csv.Path
+        let lf = LazyFrame.ScanCsv csv.Path
 
         let res = 
             lf
@@ -250,7 +250,7 @@ type ``Complex Query Tests`` () =
         // 1. 准备宽表数据 (Sales Data)
         // Year, Q1, Q2
         use csv = new TempCsv "year,Q1,Q2\n2023,100,200\n2024,300,400"
-        let df = DataFrame.readCsv csv.Path
+        let df = DataFrame.ReadCsv csv.Path
 
         // --- Test 1: Eager Unpivot (Wide -> Long) ---
         // 结果: year, quarter, revenue
@@ -280,9 +280,9 @@ type ``Complex Query Tests`` () =
         // lf1: [a]
         // lf2: [b]
         // lf3: [a]
-        let lf1 = LazyFrame.scanCsv (new TempCsv "a\n1").Path
-        let lf2 = LazyFrame.scanCsv (new TempCsv "b\n2").Path
-        let lf3 = LazyFrame.scanCsv (new TempCsv "a\n3").Path
+        let lf1 = LazyFrame.ScanCsv (new TempCsv "a\n1").Path
+        let lf2 = LazyFrame.ScanCsv (new TempCsv "b\n2").Path
+        let lf3 = LazyFrame.ScanCsv (new TempCsv "a\n3").Path
 
         // 1. Horizontal: [a, b]
         let dfHorz = 
@@ -316,11 +316,11 @@ type ``Complex Query Tests`` () =
     member _.``Concatenation: Eager Stack (Safety Check)`` () =
         // DF1
         use csv1 = new TempCsv "val\n1"
-        let df1 = DataFrame.readCsv csv1.Path
+        let df1 = DataFrame.ReadCsv csv1.Path
         
         // DF2
         use csv2 = new TempCsv "val\n2"
-        let df2 = DataFrame.readCsv csv2.Path
+        let df2 = DataFrame.ReadCsv csv2.Path
 
         // 1. 执行 Concat
         let bigDf = Polars.concat [df1; df2]
@@ -337,7 +337,7 @@ type ``Complex Query Tests`` () =
     member _.``SQL Context: Register and Execute`` () =
         // 准备数据
         use csv = new TempCsv "name,age\nAlice,20\nBob,30"
-        let lf = LazyFrame.scanCsv csv.Path
+        let lf = LazyFrame.ScanCsv csv.Path
 
         // 1. 创建 Context
         use ctx = Polars.sqlContext()
@@ -360,7 +360,7 @@ type ``Complex Query Tests`` () =
         // P2: null
         // P3: 20
         use csv = new TempCsv "price\n10\n\n20"
-        let df = DataFrame.readCsv csv.Path
+        let df = DataFrame.ReadCsv csv.Path
 
         let res = 
             df 
@@ -395,7 +395,7 @@ type ``Complex Query Tests`` () =
     member _.``Rolling Window (Moving Average)`` () =
         // 构造时序数据
         use csv = new TempCsv "date,price\n2024-01-01,10\n2024-01-02,20\n2024-01-03,30"
-        let lf = LazyFrame.scanCsv (path=csv.Path,tryParseDates=true)
+        let lf = LazyFrame.ScanCsv (path=csv.Path,tryParseDates=true)
 
         let res = 
             lf
@@ -422,7 +422,7 @@ type ``Complex Query Tests`` () =
         // 12:00 -> 30 (此时 1小时窗口内只有它自己，因为 10:30 已经是一个半小时前了)
         let csvContent = "time,val\n2024-01-01 10:00:00,10\n2024-01-01 10:30:00,20\n2024-01-01 12:00:00,30"
         use csv = new TempCsv(csvContent)
-        let lf = LazyFrame.scanCsv (path=csv.Path,tryParseDates=true)
+        let lf = LazyFrame.ScanCsv (path=csv.Path,tryParseDates=true)
 
         let res = 
             lf
@@ -450,8 +450,8 @@ type ``Complex Query Tests`` () =
         // 右表: 订单 (uid, amount)
         use ordersCsv = new TempCsv "uid,amount\n1,100\n1,200\n3,50"
 
-        let lfUsers = LazyFrame.scanCsv usersCsv.Path
-        let lfOrders = LazyFrame.scanCsv ordersCsv.Path
+        let lfUsers = LazyFrame.ScanCsv usersCsv.Path
+        let lfOrders = LazyFrame.ScanCsv ordersCsv.Path
 
         let res = 
             lfUsers
@@ -493,8 +493,8 @@ type ``Complex Query Tests`` () =
             "1001,AAPL,101.0"
         use quotesCsv = new TempCsv(quotesContent)
 
-        let lfTrades = LazyFrame.scanCsv tradesCsv.Path |> Polars.sortLazy (Polars.col "time") false
-        let lfQuotes = LazyFrame.scanCsv quotesCsv.Path |> Polars.sortLazy (Polars.col "time") false
+        let lfTrades = LazyFrame.ScanCsv tradesCsv.Path |> Polars.sortLazy (Polars.col "time") false
+        let lfQuotes = LazyFrame.ScanCsv quotesCsv.Path |> Polars.sortLazy (Polars.col "time") false
 
         // 3. 执行 AsOf Join
         // 逻辑：找到交易发生时刻(time)之前(backward)最近的一次报价

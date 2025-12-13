@@ -34,56 +34,6 @@ module Polars =
     /// <summary> Create a literal expression from a value. </summary>
     let inline lit (value: ^T) : Expr = 
         ((^T or LitMechanism) : (static member ($) : LitMechanism * ^T -> Expr) (LitMechanism, value))
-
-    // --- IO ---
-
-    /// <summary> Read a parquet file into a DataFrame (Eager). </summary>
-    let readParquet (path: string) = new DataFrame(PolarsWrapper.ReadParquet path)
-
-    /// <summary> Scan a parquet file into a LazyFrame. </summary>
-    let scanParquet (path: string) = new LazyFrame(PolarsWrapper.ScanParquet path)
-    /// <summary> Read a JSON file into a DataFrame (Eager). </summary>
-    let readJson (path: string) : DataFrame =
-        new DataFrame(PolarsWrapper.ReadJson path)
-    /// <summary> Scan a JSON file into a LazyFrame. </summary>
-    let scanNdjson (path: string) : LazyFrame =
-        new LazyFrame(PolarsWrapper.ScanNdjson path)
-    /// <summary> Read an IPC file into a DataFrame (Eager). </summary>
-    let readIpc (path: string) = new DataFrame(PolarsWrapper.ReadIpc path)
-    /// <summary> Scan an IPC file into a LazyFrame. </summary>
-    let scanIpc (path: string) = new LazyFrame(PolarsWrapper.ScanIpc path)
-    /// <summary> Write DataFrame to CSV. </summary>
-    let writeCsv (path: string) (df: DataFrame) = 
-        PolarsWrapper.WriteCsv(df.Handle, path)
-        df 
-    /// <summary> Write DataFrame to Parquet. </summary>
-    let writeParquet (path: string) (df: DataFrame) = 
-        PolarsWrapper.WriteParquet(df.Handle, path)
-        df
-    /// <summary>
-    /// Write DataFrame to an Arrow IPC (Feather) file.
-    /// This is a fast, zero-copy binary format.
-    /// </summary>
-    let WriteIpc(path: string) (df:DataFrame) =
-        PolarsWrapper.WriteIpc(df.Handle, path)
-        df
-    /// <summary>
-    /// Write DataFrame to a JSON file (standard array format).
-    /// </summary>
-    let WriteJson(path: string) (df:DataFrame) =
-        PolarsWrapper.WriteJson(df.Handle, path)
-        df
-    /// <summary> Write LazyFrame execution result to Parquet (Streaming). </summary>
-    let sinkParquet (path: string) (lf: LazyFrame) : unit =
-        let lfClone = lf.CloneHandle()
-        PolarsWrapper.SinkParquet(lfClone, path)
-    /// <summary> Write LazyFrame execution result to IPC (Streaming). </summary>
-    let sinkIpc (path: string) (lf: LazyFrame) = 
-        let lfClone = lf.CloneHandle()
-        PolarsWrapper.SinkIpc(lfClone, path)
-    /// <summary> Transform RecordBatch into DataFrame </summary>
-    let fromArrow (batch: Apache.Arrow.RecordBatch) : DataFrame =
-        new DataFrame(PolarsWrapper.FromArrow batch)
     // --- Expr Helpers ---
     /// <summary> Cast an expression to a different data type. </summary>
     let cast (dtype: DataType) (e: Expr) = e.Cast dtype

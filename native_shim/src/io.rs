@@ -197,7 +197,7 @@ pub extern "C" fn pl_lazy_sink_ipc(
     ffi_try_void!({
         let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
         let path = ptr_to_str(path_ptr).unwrap();
-        
+
         // 1. 准备选项
         let writer_options = IpcWriterOptions::default();
         let sink_options = SinkOptions::default();
@@ -400,9 +400,9 @@ pub extern "C" fn pl_lazy_sink_parquet(
     ffi_try_void!({
         let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
         let path_str = ptr_to_str(path_ptr).unwrap();
-        
+
         let pl_path = PlPath::new(path_str);
-        let target = SinkTarget::Path(pl_path);
+        let target = SinkTarget::Path(pl_path.into());
 
         // 4. 配置项
         let write_options = ParquetWriteOptions::default();
@@ -415,7 +415,31 @@ pub extern "C" fn pl_lazy_sink_parquet(
             None, // cloud_options
             sink_options
         )?;
+
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazy_sink_json(
+    lf_ptr: *mut LazyFrameContext,
+    path_ptr: *const c_char
+) {
+    ffi_try_void!({
+        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+        let path_str = ptr_to_str(path_ptr).unwrap();
+        let pl_path = PlPath::new(path_str);
         
+        let target = SinkTarget::Path(pl_path.into());
+        let writer_options = JsonWriterOptions::default();
+        let sink_options = SinkOptions::default();
+
+        let _ = lf_ctx.inner.sink_json(
+            target, 
+            writer_options, 
+            None, 
+            sink_options
+        )?;
         Ok(())
     })
 }

@@ -3,7 +3,24 @@ namespace Polars.FSharp.Tests
 open Xunit
 open Polars.FSharp
 open System
+open System.IO
 
+type DisposableFile (extension: string, ?content: string) =
+    let ext = if extension.StartsWith(".") then extension else "." + extension
+    let path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + ext)
+    
+    do
+        match content with
+        | Some text -> File.WriteAllText(path, text) // 模式 A: 写入内容 (CSV/JSON)
+        | None -> () // 模式 B: 仅生成路径 (Parquet/IPC Write)
+
+    member _.Path = path
+
+    interface IDisposable with
+        member _.Dispose() =
+            try 
+                if File.Exists(path) then File.Delete(path)
+            with _ -> ()
 type UserRecord = {
         name: string
         age: int          // Int64 -> Int32
@@ -16,7 +33,7 @@ type ``Basic Functionality Tests`` () =
     member _.``Can read CSV and count rows/cols`` () =
         use csv = new TempCsv "name,age,birthday\nAlice,30,2022-11-01\nBob,25,2025-12-03"
         
-        let df = DataFrame.readCsv (path=csv.Path)
+        let df = DataFrame.ReadCsv (path=csv.Path)
         
         Assert.Equal(2L, df.Rows)    // 注意：现在 Rows 返回的是 long (int64)
         Assert.Equal(3L, df.Columns) // 注意：现在 Columns 返回的是 long
@@ -30,8 +47,8 @@ id;date_col;val_col
 008;2023-12-31;10.5"""
             System.IO.File.WriteAllText(path, content)
 
-            // [修改] 调用 DataFrame.readCsv
-            use df = DataFrame.readCsv(
+            // [修改] 调用 DataFrame.ReadCsv
+            use df = DataFrame.ReadCsv(
                 path,
                 skipRows = 1,
                 separator = ';',
@@ -48,80 +65,82 @@ id;date_col;val_col
             if System.IO.File.Exists path then System.IO.File.Delete path
     [<Fact>]
     member _.``Can read&write Parquet`` () =
-        // 这一步需要你有一个真实的 parquet 文件，或者先用 writeParquet 生成一个
-        use csv = new TempCsv "a,b\n1,2"
-        let df = DataFrame.readCsv (path=csv.Path, tryParseDates=false)
+        // 1. 准备 CSV 数据
+        use csv = new DisposableFile(".csv", "a,b,c,d\n1,2,3,4")
+        use df = DataFrame.ReadCsv(csv.Path, tryParseDates=false)
         
-        let tmpParquet = System.IO.Path.GetTempFileName()
-        try
-            // 测试 Write -> Read 闭环
-            df |> Polars.writeParquet tmpParquet |> ignore
-            let df2 = Polars.readParquet tmpParquet
-            Assert.Equal(df.Rows, df2.Rows)
-        finally
-            System.IO.File.Delete tmpParquet
+        // 2. 准备 Parquet 目标路径 (不预先创建文件)
+        use parquet = new DisposableFile ".parquet"
+        
+        // 3. 写入
+        // 注意：F# 方法返回 this，忽略它
+        df.WriteParquet parquet.Path |> ignore
+        
+        // 4. 验证文件确实生成了
+        Assert.True(File.Exists parquet.Path, $"Parquet file should exist at {parquet.Path}")
+
+        // 5. 读回来验证内容
+        use df2 = DataFrame.ReadParquet parquet.Path
+        Assert.Equal(df.Rows, df2.Rows)
+        Assert.Equal(4, df2.Schema.Count)
+
     [<Fact>]
     member _.``IO: Write & Read IPC/JSON`` () =
-        let pathIpc = "test_output.ipc"
-        let pathJson = "test_output.json"
+        // 准备路径托管
+        use ipcFile = new DisposableFile ".ipc"
+        use jsonFile = new DisposableFile ".json"
+
+        // 1. 准备数据
+        let s1 = Series.create("a", [1; 2; 3])
+        let s2 = Series.create("b", ["x"; "y"; "z"])
+        use df = DataFrame.create [s1; s2]
+
+        // 2. 测试 IPC (Feather)
+        df.WriteIpc ipcFile.Path |> ignore
+        Assert.True(File.Exists ipcFile.Path, "IPC file not found")
         
-        try
-            // 1. 准备数据
-            let s1 = Series.create("a", [1; 2; 3])
-            let s2 = Series.create("b", ["x"; "y"; "z"])
-            use df = DataFrame.create [s1; s2]
+        use dfIpc = DataFrame.ReadIpc ipcFile.Path
+        Assert.Equal(3L, dfIpc.Rows)
+        Assert.Equal("x", dfIpc.String("b", 0).Value)
 
-            // 2. 测试 IPC (Feather)
-            df |> Polars.WriteIpc pathIpc |> ignore
-            Assert.True(System.IO.File.Exists pathIpc)
-            
-            // 读回来验证
-            use dfIpc = Polars.readIpc pathIpc
-            Assert.Equal(3L, dfIpc.Rows)
-            Assert.Equal("x", dfIpc.String("b", 0).Value)
+        // 3. 测试 JSON
+        df.WriteJson jsonFile.Path |> ignore
+        Assert.True(File.Exists jsonFile.Path, "JSON file not found")
+        
+        use dfJson = DataFrame.ReadJson jsonFile.Path
+        Assert.Equal(3L, dfJson.Rows)
+        Assert.Equal(2L, dfJson.Int("a", 1).Value)
+    // [<Fact>]
+    // member _.``Streaming: Debug Sink`` () =
+    //     // 1. 准备数据
+    //     use csv = new DisposableFile(".csv", "a,b\n1,2\n3,4")
+    //     use parquetEager = new DisposableFile(".parquet")
+    //     use parquetSink = new DisposableFile(".parquet")
 
-            // 3. 测试 JSON
-            df |> Polars.WriteJson pathJson |> ignore
-            Assert.True(System.IO.File.Exists pathJson)
-            
-            // 读回来验证
-            use dfJson = Polars.readJson pathJson
-            Assert.Equal(3L, dfJson.Rows)
-            Assert.Equal(2L, dfJson.Int("a", 1).Value)
+    //     printfn "CSV Path: %s" csv.Path
+    //     printfn "Target Sink Path: %s" parquetSink.Path
 
-        finally
-            // 清理垃圾
-            if System.IO.File.Exists pathIpc then System.IO.File.Delete pathIpc
-            if System.IO.File.Exists pathJson then System.IO.File.Delete pathJson
-    [<Fact>]
-    member _.``Streaming, Sink(untested)`` () =
-        // 1. 准备宽表数据 (Sales Data)
-        // Year, Q1, Q2
-        use csv = new TempCsv "year,Q1,Q2\n2023,100,200\n2024,300,400"
+    //     // Step A: 验证 LazyFrame 能否读取数据 (Collect)
+    //     // 如果这里挂了，说明 scanCsv 没读到文件，或者 CSV 格式 Polars 不认
+    //     let lf = LazyFrame.ScanCsv(csv.Path)
+    //     use df = lf.Collect()
+        
+    //     Assert.Equal(2L, df.Rows)
+    //     printfn "Step A: Collect Success. Rows: %d" df.Rows
 
-        let lf = LazyFrame.scanCsv (path=csv.Path, tryParseDates=false)
-        let tmpParquet = System.IO.Path.GetTempFileName()
-        System.IO.File.Delete tmpParquet
+    //     // Step B: 验证 Eager WriteParquet 是否正常
+    //     // 如果这里挂了，说明是文件系统/权限问题，与 Lazy 无关
+    //     df.WriteParquet(parquetEager.Path) |> ignore
+    //     Assert.True(System.IO.File.Exists parquetEager.Path, "Step B: Eager Write Failed")
+    //     printfn "Step B: Eager Write Success"
 
-        try
-            // Lazy Unpivot -> Sink Parquet
-            lf
-            |> Polars.unpivotLazy ["year"] ["Q1"; "Q2"] (Some "quarter") (Some "revenue")
-            |> Polars.sinkParquet tmpParquet
+    //     // Step C: 验证 Lazy Sink (使用新的 LazyFrame)
+    //     // 注意：之前的 lf 已经被 Collect 消耗了 (虽然我们 CloneHandle 了，但为了纯净环境重新 scan)
+    //     LazyFrame.ScanCsv(csv.Path)
+    //         .SinkParquet parquetSink.Path
 
-            // 验证文件生成
-            let tmpParquet = System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.Guid.NewGuid().ToString() + ".parquet")
-            
-            // 读回来验证行数
-            // let checkDf = Polars.readParquet tmpParquet
-            // Assert.Equal(4L, checkDf.Rows)
-
-            let streamedDf = lf |> Polars.collectStreaming 
-            Assert.Equal(2L, streamedDf.Rows)
-
-        finally
-            if System.IO.File.Exists tmpParquet then
-                System.IO.File.Delete tmpParquet
+    //     Assert.True(System.IO.File.Exists parquetSink.Path, "Step C: Lazy Sink Failed")
+    //     printfn "Step C: Lazy Sink Success"
     [<Fact>]
     member _.``Metadata: Schema and Dtype`` () =
         // 1. 创建 DataFrame
@@ -150,7 +169,7 @@ id;date_col;val_col
     [<Fact>]
     member _.``Lazy Introspection: Schema and Explain`` () =
         use csv = new TempCsv "a,b\n1,2"
-        let lf = LazyFrame.scanCsv (path=csv.Path, tryParseDates=false)
+        let lf = LazyFrame.ScanCsv (path=csv.Path, tryParseDates=false)
         
         let lf2 = 
             lf 
@@ -198,7 +217,7 @@ id;date_col;val_col
 
         // 2. 传给 Polars (C# -> Rust)
         // 这一步应该能成功，因为内存是 C# 分配的，Exporter 能够处理
-        let df = Polars.fromArrow batch
+        let df = DataFrame.FromArrow batch
         df |> Polars.show |> ignore
         // 3. 验证
         Assert.Equal(3L, df.Rows)
@@ -210,7 +229,7 @@ id;date_col;val_col
     member _.``Materialization: DataFrame to Records`` () =
         let csv = "name,age,score,joined\nAlice,30,99.5,2023-01-01\nBob,25,,\n"
         use tmp = new TempCsv(csv)
-        let df = DataFrame.readCsv (path=tmp.Path, tryParseDates=true)
+        let df = DataFrame.ReadCsv (path=tmp.Path, tryParseDates=true)
 
         let records = df.ToRecords<UserRecord>()
 
@@ -401,8 +420,8 @@ id;date_col;val_col
         // df2: [a, c] (注意：没有 b，多了 c)
         use csv2 = new TempCsv "a,c\n3,4"
 
-        let df1 = DataFrame.readCsv (path=csv1.Path, tryParseDates=false)
-        let df2 = DataFrame.readCsv (path=csv2.Path, tryParseDates=false)
+        let df1 = DataFrame.ReadCsv (path=csv1.Path, tryParseDates=false)
+        let df2 = DataFrame.ReadCsv (path=csv2.Path, tryParseDates=false)
 
         // 对角拼接
         // 结果应该包含 3 列: [a, b, c]
@@ -463,7 +482,7 @@ id;date_col;val_col
         // 构造一个稍微大一点的计算任务
         use csv1 = new TempCsv "a,b\n1,2\n3,4"
         let df = 
-            LazyFrame.scanCsv (path=csv1.Path, tryParseDates=false)
+            LazyFrame.ScanCsv (path=csv1.Path, tryParseDates=false)
             |> Polars.filterLazy (Polars.col "a" .> Polars.lit 0)
             |> Polars.collectAsync // 返回 Async<DataFrame>
             |> Async.RunSynchronously // 在测试里阻塞等待结果

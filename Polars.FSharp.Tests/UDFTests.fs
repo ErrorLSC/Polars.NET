@@ -44,7 +44,7 @@ type ``UDF Tests`` () =
     member _.``Map UDF can change data type (Int -> String)`` () =
         // 1. 准备数据
         use csv = new TempCsv "num\n100\n200"
-        let lf = LazyFrame.scanCsv csv.Path
+        let lf = LazyFrame.ScanCsv csv.Path
         
         // 2. 构造 C# 委托
         let udf = Func<IArrowArray, IArrowArray> UdfLogic.intToString
@@ -72,7 +72,7 @@ type ``UDF Tests`` () =
     member _.``Map UDF error is propagated to F#`` () =
         // 1. 准备数据
         use csv = new TempCsv("num\n1")
-        let lf = LazyFrame.scanCsv csv.Path
+        let lf = LazyFrame.ScanCsv csv.Path
         
         let udf = System.Func<IArrowArray, IArrowArray> UdfLogic.alwaysFail
 
@@ -96,7 +96,7 @@ type ``UDF Tests`` () =
     [<Fact>]
     member _.``Generic Map UDF with Lambda (Int -> String)`` () =
         use csv = new TempCsv "num\n100\n"
-        let lf = LazyFrame.scanCsv csv.Path
+        let lf = LazyFrame.ScanCsv csv.Path
         
         // --- 用户的代码极度简化 ---
         // 1. 定义一个简单的匿名函数 (int -> string)
@@ -125,7 +125,7 @@ type ``UDF Tests`` () =
         // 数据: [10, 20, null]
         // 注意: CSV 最后一行写 null 还是空行取决于解析器，这里用空行配合 Polars 默认行为
         use csv = new TempCsv "val\n10\n20\n" 
-        let lf = LazyFrame.scanCsv csv.Path
+        let lf = LazyFrame.ScanCsv csv.Path
 
         // 逻辑: 
         // 输入是 int option

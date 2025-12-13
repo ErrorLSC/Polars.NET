@@ -61,7 +61,7 @@ type ``Series Tests`` () =
     member _.``Interop: DataFrame <-> Series`` () =
         // 1. 创建 DataFrame
         use csv = new TempCsv "name,age\nalice,10\nbob,20"
-        let df = DataFrame.readCsv csv.Path
+        let df = DataFrame.ReadCsv csv.Path
                 
         // 2. 获取 Series (ByName)
         use sName = df.Column "name"

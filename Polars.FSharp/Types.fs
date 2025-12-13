@@ -963,7 +963,7 @@ and DataFrame(handle: DataFrameHandle) =
     member this.Clone() = new DataFrame(PolarsWrapper.CloneDataFrame handle)
     member internal this.CloneHandle() = PolarsWrapper.CloneDataFrame handle
     member _.Handle = handle
-    static member readCsv (path: string, 
+    static member ReadCsv (path: string, 
                                ?schema: Map<string, DataType>, // 注意逗号
                                ?hasHeader: bool,               // 注意逗号
                                ?separator: char,
@@ -986,7 +986,7 @@ and DataFrame(handle: DataFrameHandle) =
         let h = PolarsWrapper.ReadCsv(path, schemaDict, header, sep, uint64 skip, dates)
         new DataFrame(h)
     /// <summary> Asynchronously read a CSV file into a DataFrame. </summary>
-    static member readCsvAsync(path: string, 
+    static member ReadCsvAsync(path: string, 
                                ?schema: Map<string, DataType>,
                                ?hasHeader: bool,
                                ?separator: char,
@@ -1025,6 +1025,38 @@ and DataFrame(handle: DataFrameHandle) =
 
             return new DataFrame(handle)
         }
+
+    /// <summary> Read a parquet file into a DataFrame (Eager). </summary>
+    static member ReadParquet (path: string) = new DataFrame(PolarsWrapper.ReadParquet path)
+    /// <summary> Read a JSON file into a DataFrame (Eager). </summary>
+    static member ReadJson (path: string) : DataFrame =
+        new DataFrame(PolarsWrapper.ReadJson path)
+    /// <summary> Read an IPC file into a DataFrame (Eager). </summary>
+    static member ReadIpc (path: string) = new DataFrame(PolarsWrapper.ReadIpc path)
+    static member FromArrow (batch: Apache.Arrow.RecordBatch) : DataFrame =
+        new DataFrame(PolarsWrapper.FromArrow batch)
+    /// <summary> Write DataFrame to CSV. </summary>
+    member this.WriteCsv (path: string) = 
+        PolarsWrapper.WriteCsv(this.Handle, path)
+        this 
+    /// <summary> Write DataFrame to Parquet. </summary>
+    member this.WriteParquet (path: string) = 
+        PolarsWrapper.WriteParquet(this.Handle, path)
+        this
+    /// <summary>
+    /// Write DataFrame to an Arrow IPC (Feather) file.
+    /// This is a fast, zero-copy binary format.
+    /// </summary>
+    member this.WriteIpc(path: string)=
+        PolarsWrapper.WriteIpc(this.Handle, path)
+        this
+    /// <summary>
+    /// Write DataFrame to a JSON file (standard array format).
+    /// </summary>
+    member this.WriteJson(path: string) =
+        PolarsWrapper.WriteJson(this.Handle, path)
+        this 
+    
     /// <summary>
     /// Get the schema as Map<ColumnName, DataType>.
     /// </summary>
@@ -1249,7 +1281,7 @@ and LazyFrame(handle: LazyFrameHandle) =
     /// <summary>
     /// Lazily scan a CSV file into a LazyFrame.
     /// </summary>
-    static member scanCsv(path: string,
+    static member ScanCsv(path: string,
                           ?schema: Map<string, DataType>,
                           ?hasHeader: bool,
                           ?separator: char,
@@ -1271,6 +1303,21 @@ and LazyFrame(handle: LazyFrameHandle) =
 
         let h = PolarsWrapper.ScanCsv(path, schemaDict, header, sep, uint64 skip, dates)
         new LazyFrame(h)
+    /// <summary> Scan a parquet file into a LazyFrame. </summary>
+    static member ScanParquet (path: string) = new LazyFrame(PolarsWrapper.ScanParquet path)
+    /// <summary> Scan a JSON file into a LazyFrame. </summary>
+    static member ScanNdjson (path: string) : LazyFrame =
+        new LazyFrame(PolarsWrapper.ScanNdjson path)
+    /// <summary> Scan an IPC file into a LazyFrame. </summary>
+    static member ScanIpc (path: string) = new LazyFrame(PolarsWrapper.ScanIpc path)
+    /// <summary> Write LazyFrame execution result to Parquet (Streaming). </summary>
+    member this.SinkParquet (path: string) : unit =
+        PolarsWrapper.SinkParquet(this.CloneHandle(), path)
+    /// <summary> Write LazyFrame execution result to IPC (Streaming). </summary>
+    member this.SinkIpc (path: string) = 
+        PolarsWrapper.SinkIpc(this.CloneHandle(), path)
+    /// <summary> Transform RecordBatch into DataFrame </summary>
+    
 /// <summary>
 /// SQL Context for executing SQL queries on registered LazyFrames.
 /// </summary>

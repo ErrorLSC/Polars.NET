@@ -117,7 +117,7 @@ module SeriesExtensions =
             use batch = new Apache.Arrow.RecordBatch(schema, [| outputArrow |], outputArrow.Length)
             
             // 3.2 借道 DataFrame (Zero-Copy import)
-            use df = Polars.fromArrow batch
+            use df = DataFrame.FromArrow batch
             
             // 3.3 提取 Series (Clone Handle)
             let res = df.Column 0
