@@ -58,7 +58,36 @@ public class DataType : IDisposable
     // ==========================================
     // Schema Parsing Logic (C# 侧解析)
     // ==========================================
+    /// <summary>
+    /// 解析形如 "list[i64]" 或 "list[list[str]]" 的字符串
+    /// </summary>
+    private static DataType ParseListType(string typeStr)
+    {
+        // 格式通常是 "list[<inner_type>]"
+        // 如果只是 "list" (极少见)，默认给个 List<Null> 或 List<Unknown>
+        int openBracket = typeStr.IndexOf('[');
+        int closeBracket = typeStr.LastIndexOf(']');
 
+        if (openBracket > -1 && closeBracket > openBracket)
+        {
+            // 1. 提取内部类型字符串，例如 "i64" 或 "list[str]"
+            string innerStr = typeStr.Substring(openBracket + 1, closeBracket - openBracket - 1).Trim();
+
+            // 2. [关键递归] 再次调用 Parse 解析内部类型
+            // 这一步会创建一个临时的 DataType 对象 (比如 Int64)
+            using var innerType = DataType.Parse(innerStr);
+
+            // 3. 使用内部类型的 Handle 创建 List Handle
+            // 注意：PolarsWrapper.NewListType 应该接受 innerType.Handle
+            // 并且 Rust 端通常会 Clone 这个 Handle 指向的类型定义，所以我们 dispose innerType 是安全的
+            return new DataType(PolarsWrapper.NewListType(innerType.Handle), DataTypeKind.List);
+        }
+
+        // 如果解析失败或者只是纯 "list" 字符串，返回一个默认的 List<Null>
+        // 这样至少 Kind 是对的，代码不会崩
+        using var nullType = new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Null), DataTypeKind.Null);
+        return new DataType(PolarsWrapper.NewListType(nullType.Handle), DataTypeKind.List);
+    }
     /// <summary>
     /// Parse a schema type string (e.g., "i64", "date") into a DataType object.
     /// </summary>
@@ -87,6 +116,7 @@ public class DataType : IDisposable
             "time" => Time,
             "cat" => Categorical,
             "binary" => Binary,
+            var s when s.Contains("struct") => Struct,
             
             // 复杂类型处理 (前缀匹配)
             // 这里我们尽可能返回正确的 Handle，如果需要参数化（如 Datetime 时区），
@@ -95,7 +125,7 @@ public class DataType : IDisposable
             var s when s.StartsWith("datetime") => Datetime,
             var s when s.StartsWith("duration") => Duration,
             var s when s.StartsWith("decimal") => Decimal(38, 9), // 默认精度，用于 schema 占位
-            // var s when s.StartsWith("list") => new DataType(PolarsWrapper.NewListType(DataType.Int64.Handle), DataTypeKind.List), // 临时占位，List 比较特殊
+            var s when s.StartsWith("list") => ParseListType(s),
             _ => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Unknown), DataTypeKind.Unknown)
         };
     }
@@ -174,7 +204,14 @@ public class DataType : IDisposable
     /// Binary
     /// </summary>
     public static DataType Binary  => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Binary), DataTypeKind.Binary);
-    
+    /// <summary>
+    /// Null
+    /// </summary>
+    public static DataType Null  => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Null), DataTypeKind.Null);
+    /// <summary>
+    /// Struct
+    /// </summary>
+    public static DataType Struct  => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Struct), DataTypeKind.Struct);
     /// <summary>
     /// SameAsInput
     /// </summary>
@@ -290,6 +327,10 @@ public enum DataTypeKind
         /// Binary
         /// </summary>
         Binary,
+        /// <summary>
+        /// Null
+        /// </summary>
+        Null,
         /// <summary>
         /// Unknown
         /// </summary>

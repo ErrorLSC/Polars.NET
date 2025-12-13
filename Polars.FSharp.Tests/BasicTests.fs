@@ -138,7 +138,7 @@ id;date_col;val_col
     //     // 注意：之前的 lf 已经被 Collect 消耗了 (虽然我们 CloneHandle 了，但为了纯净环境重新 scan)
     //     LazyFrame.ScanCsv(csv.Path)
     //         .SinkParquet parquetSink.Path
-
+    
     //     Assert.True(System.IO.File.Exists parquetSink.Path, "Step C: Lazy Sink Failed")
     //     printfn "Step C: Lazy Sink Success"
     [<Fact>]

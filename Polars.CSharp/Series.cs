@@ -1,6 +1,7 @@
 using System;
 using Polars.Native;
 using Apache.Arrow;
+using Apache.Arrow.C;
 
 namespace Polars.CSharp;
 /// <summary>
@@ -28,6 +29,25 @@ public class Series : IDisposable
     /// Get the string representation of the Series data type (e.g. "i64", "str", "datetime(μs)").
     /// </summary>
     public string DataTypeName => PolarsWrapper.GetSeriesDtypeString(Handle);
+
+    /// <summary>
+    /// Gets the DataType of the Series.
+    /// </summary>
+    /// <remarks>
+    /// This property creates a new DataType instance every time it is accessed.
+    /// Since DataType wraps a native handle, consider caching it locally if accessed frequently in a loop.
+    /// </remarks>
+    public DataType DataType
+    {
+        get
+        {
+            // 1. 调用底层获取类型字符串 (例如 "i64", "date", "list[i64]")
+            var dtypeStr = PolarsWrapper.GetSeriesDtypeString(Handle);
+            
+            // 2. 解析为 C# DataType 对象
+            return DataType.Parse(dtypeStr);
+        }
+    }
     
     // ==========================================
     // Scalar Accessors (Native Speed ⚡)
@@ -875,7 +895,76 @@ public class Series : IDisposable
     {
         return PolarsWrapper.SeriesToArrow(Handle);
     }
+    /// <summary>
+    /// Create a Polars Series from an Apache.Arrow array.
+    /// This allows zero-copy import of complex types (List, Struct, etc.) constructed in C#.
+    /// </summary>
+    /// <param name="name">Name of the Series</param>
+    /// <param name="arrowArray">The C# Apache.Arrow IArrowArray instance</param>
+    /// <returns>A new Series</returns>
+    public static Series FromArrow(string name, IArrowArray arrowArray)
+    {
+        unsafe
+        {
+            // 1. 分配 C Data Interface 结构体
+            var cArray = new CArrowArray();
+            var cSchema = new CArrowSchema();
 
+            // 2. 导出 Schema (类型信息)
+            // 关键点：使用 CArrowSchemaExporter 导出 Array 的 DataType
+            CArrowSchemaExporter.ExportType(arrowArray.Data.DataType, &cSchema);
+
+            // 3. 导出 Array (数据内容)
+            // 关键点：使用 CArrowArrayExporter 导出数据，仅传入 cArray 指针
+            CArrowArrayExporter.ExportArray(arrowArray, &cArray);
+            // 4. 调用 Wrapper
+            // 将两个指针都传给 Rust，Rust 端会先解析 Schema 得到类型，再解析 Array
+            var handle = PolarsWrapper.SeriesFromArrow(name, &cArray, &cSchema);
+
+            return new Series(handle);
+        }
+    }
+    // ==========================================
+    // High-Level Factories
+    // ==========================================
+
+    /// <summary>
+    /// Create a Series from a list of lists.List:Int64
+    /// </summary>
+    public static Series From(string name, List<List<long?>?> data)
+    {
+        // 1. 自动构建 Arrow
+        using var arrowArray = Internals.ArrowBuilderHelper.BuildListArray(data);
+        
+        // 2. 传给底层
+        return FromArrow(name, arrowArray);
+    }
+
+    /// <summary>
+    /// Create a Series from a list of lists. List:Int32
+    /// </summary>
+    /// <param name="name"></param>
+    /// <param name="data"></param>
+    /// <returns></returns>
+    public static Series From(string name, List<List<int?>?> data)
+    {
+        // 转换数据 (会有一次拷贝，但为了易用性是值得的，或者再写一个 Int 专用的 Helper)
+        // 这里演示简单转换
+        var converted = data?.Select(
+            sub => sub?.Select(i => (long?)i).ToList()
+        ).ToList();
+
+        return From(name, converted!);
+    }
+    /// <summary>
+    /// Create a Struct Series from a list of objects using Reflection.
+    /// </summary>
+    public static Series From<T>(string name, IEnumerable<T> data) where T : class
+    {
+        // 调用 StructBuilderHelper
+        using var structArray = Internals.StructBuilderHelper.BuildStructArray(data);
+        return FromArrow(name, structArray);
+    }
     /// <summary>
     /// Convert this single Series into a DataFrame.
     /// </summary>

@@ -1,4 +1,5 @@
 use polars::prelude::*;
+use polars_arrow::array::{Array, ListArray};
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use crate::utils::*;
@@ -219,6 +220,156 @@ pub extern "C" fn pl_series_to_arrow(ptr: *mut SeriesContext) -> *mut ArrowArray
         let contiguous_series = ctx.series.rechunk();
         let arr = contiguous_series.to_arrow(0, CompatLevel::newest());
         Ok(Box::into_raw(Box::new(ArrowArrayContext { array: arr })))
+    })
+}
+
+fn upgrade_to_large_list(array: Box<dyn Array>) -> Box<dyn Array> {
+    match array.dtype() {
+        // 🎯 命中目标：List (Int32 Offsets)
+        ArrowDataType::List(inner_field) => {
+            // 1. 强制转为 ListArray<i32>
+            let list_array = array.as_any().downcast_ref::<ListArray<i32>>().unwrap();
+
+            // let offsets_i32 = list_array.offsets();
+            // let values = list_array.values();
+            
+            // // 打印看看 Rust 到底收到了什么！
+            // println!("--- Rust Debug Info ---");
+            // println!("List Length: {}", list_array.len());
+            // println!("Offsets (i32): {:?}", offsets_i32);
+            // println!("Child Values Length: {}", values.len());
+
+            
+            // 2. 提取并转换 Offsets (i32 -> i64)
+            let offsets_i32 = list_array.offsets();
+            let offsets_i64: Vec<i64> = offsets_i32.iter().map(|&x| x as i64).collect();
+            
+            // 转为 Arrow Buffer
+            // 注意：Polars 的 Arrow Buffer 通常是 polars::export::arrow::buffer::Buffer
+            let raw_buffer = polars_arrow::buffer::Buffer::from(offsets_i64);
+            // try_from 会检查偏移量是否合法 (单调递增)，因为源数据是合法的，这里 unwrap 是安全的
+            let offsets_buffer = polars_arrow::offset::OffsetsBuffer::try_from(raw_buffer).unwrap();
+
+            // 3. 递归处理 Values (子数组)
+            // 这一点很重要，处理 List<List<T>> 的情况
+            let values = list_array.values().clone();
+            let new_values = upgrade_to_large_list(values);
+
+            // 4. 构造新的 DataType (LargeList)
+            // 递归修正 inner_field 的类型
+            let new_inner_dtype = new_values.dtype().clone();
+            let new_field = inner_field.as_ref().clone().with_dtype(new_inner_dtype);
+            let new_dtype = ArrowDataType::LargeList(Box::new(new_field));
+
+            // 5. 组装新的 LargeListArray
+            // new(data_type, offsets, values, validity)
+            let large_list = ListArray::<i64>::new(
+                new_dtype,
+                offsets_buffer.into(),
+                new_values,
+                list_array.validity().cloned(),
+            );
+
+            Box::new(large_list)
+        },
+        
+        // 如果已经是 LargeList，也要递归检查内部 (比如 LargeList<List<T>>)
+        ArrowDataType::LargeList(inner_field) => {
+             let list_array = array.as_any().downcast_ref::<ListArray<i64>>().unwrap();
+             
+             let values = list_array.values().clone();
+             let new_values = upgrade_to_large_list(values.clone());
+             
+             // 如果子数组没变，就原样返回
+             if new_values.dtype() == values.dtype() {
+                 return array;
+             }
+
+             // 否则重组
+             let new_inner_dtype = new_values.dtype().clone();
+             let new_field = inner_field.as_ref().clone().with_dtype(new_inner_dtype);
+             let new_dtype = ArrowDataType::LargeList(Box::new(new_field));
+             
+             let large_list = ListArray::<i64>::new(
+                new_dtype,
+                list_array.offsets().clone(),
+                new_values,
+                list_array.validity().cloned(),
+            );
+            Box::new(large_list)
+        },
+        ArrowDataType::Struct(fields) => {
+            let struct_array = array.as_any().downcast_ref::<StructArray>().unwrap();
+            
+            // 1. 递归升级每一个子数组
+            // Struct 只是个容器，脏活累活都在子数组里
+            let new_values: Vec<Box<dyn Array>> = struct_array
+                .values()
+                .iter()
+                .map(|v| upgrade_to_large_list(v.clone())) // <--- 递归调用的魔法
+                .collect();
+
+            // 2. 检查是否有变化
+            // 如果所有子数组都没变（比如全是 Int），那 Struct 也不用变
+            let mut changed = false;
+            for (old, new) in struct_array.values().iter().zip(new_values.iter()) {
+                if old.dtype() != new.dtype() {
+                    changed = true;
+                    break;
+                }
+            }
+
+            if !changed {
+                return array;
+            }
+
+            // 3. 如果子数组变了（比如 List 变成了 LargeList），需要更新 Struct 的类型定义
+            let new_fields: Vec<ArrowField> = fields
+                .iter()
+                .zip(new_values.iter())
+                .map(|(f, v)| {
+                    // 保持 Field 名字不变，但类型更新为子数组的新类型
+                    f.clone().with_dtype(v.dtype().clone())
+                })
+                .collect();
+            
+            let new_dtype = ArrowDataType::Struct(new_fields);
+
+            // 4. 重新组装 StructArray
+            // StructArray::new(data_type, values, validity)
+            let new_struct = StructArray::new(
+                new_dtype,
+                struct_array.len(),
+                new_values,
+                struct_array.validity().cloned(),
+            );
+
+            Box::new(new_struct)
+        },
+        // 其他类型直接放行
+        _ => array,
+    }
+}
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_arrow_to_series(
+    name: *const c_char,
+    ptr_array: *mut polars_arrow::ffi::ArrowArray,
+    ptr_schema: *mut polars_arrow::ffi::ArrowSchema
+) -> *mut SeriesContext {
+    ffi_try!({
+        let name_str = unsafe { CStr::from_ptr(name).to_str().unwrap() };
+        let field = unsafe { polars_arrow::ffi::import_field_from_c(&*ptr_schema)? };
+        // println!("Imported DataType: {:?}", field.dtype);
+        let array_val = unsafe { std::ptr::read(ptr_array) };
+        let mut array = unsafe { polars_arrow::ffi::import_array_from_c(array_val, field.dtype)? };
+       
+        // =============================================================
+        // 🔧 调用我们手写的升级函数
+        // =============================================================
+        array = upgrade_to_large_list(array);
+
+        let series = Series::from_arrow(name_str.into(), array)?;
+        Ok(Box::into_raw(Box::new(SeriesContext { series })))
     })
 }
 

@@ -29,6 +29,8 @@ pub extern "C" fn pl_datatype_new_primitive(code: i32) -> *mut DataTypeContext {
         15 => DataType::Time,
         16 => DataType::Duration(TimeUnit::Microseconds),
         17 => DataType::Binary,
+        18 => DataType::Null,
+        19 => DataType::Struct(vec![]),
         _ => DataType::Unknown(UnknownKind::Any),
     };
     Box::into_raw(Box::new(DataTypeContext { dtype }))
@@ -62,6 +64,22 @@ pub extern "C" fn pl_datatype_new_categorical() -> *mut DataTypeContext {
     let dtype = DataType::Categorical(cats, mapping);
     
     Box::into_raw(Box::new(DataTypeContext { dtype }))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_datatype_new_list(inner_ptr: *mut DataTypeContext) -> *mut DataTypeContext {
+    assert!(!inner_ptr.is_null());
+    
+    // 1. 获取内部类型的引用
+    let inner_ctx = unsafe { &*inner_ptr };
+    
+    // 2. 构造 List 类型
+    // 注意：DataType::List 需要一个 Box<DataType>
+    // 我们这里 Clone 内部类型，这样 C# 端释放 inner_ptr 不会影响新的 List 类型
+    let list_dtype = DataType::List(Box::new(inner_ctx.dtype.clone()));
+    
+    // 3. 返回新的 Context
+    Box::into_raw(Box::new(DataTypeContext { dtype: list_dtype }))
 }
 
 // --- Destructor ---

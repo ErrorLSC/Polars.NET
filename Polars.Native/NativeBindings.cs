@@ -123,6 +123,12 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static unsafe partial DataFrameHandle pl_dataframe_sample_frac(DataFrameHandle df, double frac, [MarshalAs(UnmanagedType.U1)] bool replacement, [MarshalAs(UnmanagedType.I1)] bool shuffle, ulong* seed);
     [LibraryImport(LibName)]
+    public static partial DataFrameHandle pl_dataframe_unnest(
+        DataFrameHandle df,
+        [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.LPUTF8Str)] string[] cols,
+        UIntPtr len
+    );
+    [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_lit_str([MarshalAs(UnmanagedType.LPUTF8Str)] string val);
 
     [LibraryImport(LibName)] 
@@ -631,7 +637,13 @@ unsafe internal partial class NativeBindings
     // --- Series Cast ---
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_cast(SeriesHandle s, DataTypeHandle dtype);
-
+    // --- Arrow Export ---
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    public static partial SeriesHandle pl_arrow_to_series(
+        string name,
+        CArrowArray* cArray,
+        CArrowSchema* cSchema
+    );
     // --- Arrow Export ---
     [LibraryImport(LibName)]
     public static partial ArrowArrayContextHandle pl_series_to_arrow(SeriesHandle h);
@@ -654,6 +666,8 @@ unsafe internal partial class NativeBindings
 
     [LibraryImport(LibName)]
     public static partial DataTypeHandle pl_datatype_new_categorical();
+    [LibraryImport(LibName)]
+    public static partial DataTypeHandle pl_datatype_new_list(DataTypeHandle inner);
     // Arithmetic
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_add(SeriesHandle s1, SeriesHandle s2);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_sub(SeriesHandle s1, SeriesHandle s2);

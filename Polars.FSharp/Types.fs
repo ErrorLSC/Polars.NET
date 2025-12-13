@@ -17,8 +17,9 @@ type DataType =
     | Duration
     | Binary
     | Categorical
+    | Struct
     | Decimal of precision: int option * scale: int
-    | Unknown | SameAsInput
+    | Unknown | SameAsInput | Null
 
     // 转换 helper
     member internal this.CreateHandle() =
@@ -41,6 +42,8 @@ type DataType =
         | Time -> PolarsWrapper.NewPrimitiveType 15
         | Duration -> PolarsWrapper.NewPrimitiveType 16
         | Binary -> PolarsWrapper.NewPrimitiveType 17
+        | Null -> PolarsWrapper.NewPrimitiveType 18
+        | Struct -> PolarsWrapper.NewPrimitiveType 19
         | Unknown -> PolarsWrapper.NewPrimitiveType 0
         | Categorical -> PolarsWrapper.NewCategoricalType()
         | Decimal (p, s) -> 
@@ -62,6 +65,8 @@ type DataType =
         | "str" | "String" -> String // 兼容一下旧版
         | "date" -> Date
         | "time" -> Time
+        | "null" -> Null
+        | "struct" -> Struct
         | s when s.StartsWith "datetime" -> Datetime // 处理 "datetime[μs]" 这种带参数的
         | s when s.StartsWith "duration" -> Duration
         | s when s.StartsWith "decimal" -> 

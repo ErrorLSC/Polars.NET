@@ -307,6 +307,15 @@ public class DataFrame : IDisposable
         //
         return new DataFrame(PolarsWrapper.Explode(Handle, handles));
     }
+    /// <summary>
+    /// Decompose a struct column into multiple columns.
+    /// </summary>
+    /// <param name="columns">The struct columns to unnest.</param>
+    public DataFrame Unnest(params string[] columns)
+    {
+        var newHandle = PolarsWrapper.Unnest(Handle, columns);
+        return new DataFrame(newHandle);
+    }
     // ==========================================
     // Data Cleaning / Structure Ops
     // ==========================================

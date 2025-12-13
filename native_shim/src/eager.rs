@@ -650,7 +650,34 @@ pub extern "C" fn pl_concat(
         Ok(Box::into_raw(Box::new(DataFrameContext { df: out_df })))
     })
 }
+// ==========================================
+// Unnest
+// ==========================================
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_unnest(
+    df: *mut DataFrame, 
+    cols: *const *const c_char, 
+    len: usize
+) -> *mut DataFrame {
+    ffi_try!({
+        let df = unsafe { &*df };
+        
+        // 1. 安全地将 C 字符串数组转换为 Rust 迭代器
+        let cols_slice = unsafe { std::slice::from_raw_parts(cols, len) };
+        
+        // 这里使用 map 转换，如果字符串 utf8 编码不对会 panic，
+        // 但由 C# 传来的 LPUTF8Str 通常是安全的。
+        let names = cols_slice
+            .iter()
+            .map(|&ptr| unsafe { CStr::from_ptr(ptr).to_str().unwrap() });
 
+        // 2. 调用 Polars 的 unnest
+        let result_df = df.unnest(names)?;
+
+        // 3. 返回指针
+        Ok(Box::into_raw(Box::new(result_df)))
+    })
+}
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_get_column(
     ptr: *mut DataFrameContext, 

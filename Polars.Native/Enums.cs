@@ -20,7 +20,9 @@ public enum PlDataType : int
     Datetime = 14,
     Time = 15,
     Duration = 16,
-    Binary = 17
+    Binary = 17,
+    Null = 18,
+    Struct = 19
 }
 
 public enum PlJoinType

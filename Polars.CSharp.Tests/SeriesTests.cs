@@ -2,6 +2,7 @@
 using Xunit;
 using Polars.CSharp;
 using Apache.Arrow;
+using Apache.Arrow.Types;
 
 namespace Polars.CSharp.Tests;
 
@@ -25,7 +26,227 @@ public class SeriesTests
         s.Name = "renamed";
         Assert.Equal("renamed", s.Name);
     }
+    [Fact]
+    public void Test_Series_FromArrow_ComplexList()
+    {
+        // A. 构造 Values (Int64): [1, 2, 3]
+        var valueBuilder = new Int64Array.Builder();
+        valueBuilder.Append(1);
+        valueBuilder.Append(2);
+        valueBuilder.Append(3);
+        using var valuesArray = valueBuilder.Build();
 
+        // B. [修正点] 构造 Offsets (Int32): [0, 2, 2, 3]
+        // 使用 Int32Array.Builder，不要用 PrimitiveArrayBuilder
+        var offsetsBuilder = new Int32Array.Builder();
+        offsetsBuilder.Append(0); // Start
+        offsetsBuilder.Append(2); // End of row 0 (0->2, len=2)
+        offsetsBuilder.Append(2); // End of row 1 (2->2, len=0, is_null)
+        offsetsBuilder.Append(3); // End of row 2 (2->3, len=1)
+        using var offsetsArray = offsetsBuilder.Build();
+        
+        // C. 构造 Validity Bitmap: 1, 0, 1 (Row 1 is null)
+        var validityBuilder = new BooleanArray.Builder();
+        validityBuilder.Append(true);
+        validityBuilder.Append(false); // null
+        validityBuilder.Append(true);
+        using var validityArray = validityBuilder.Build();
+
+        // D. 组装 ListArray
+        // ListArray 构造函数签名:
+        // (IArrowType type, int length, ArrowBuffer valueOffsets, IArrowArray values, ArrowBuffer nullBitmap, int nullCount = 0, int offset = 0)
+        using var listArray = new ListArray(
+            new ListType(new Int64Type()), // 类型定义
+            3,                             // 数组长度 (Rows)
+            offsetsArray.ValueBuffer,      // 复用 offsets 的底层 Buffer
+            valuesArray,                   // Values 数组
+            validityArray.ValueBuffer,     // 复用 validity 的底层 Buffer
+            1                              // Null Count
+        );
+
+        // =============================================================
+        // 2. 验证一下 C# 这一侧的数据是对的
+        // =============================================================
+        // 再次确认 Offsets 是从 0 开始的
+        var checkOffsets = listArray.ValueOffsets;
+        Assert.Equal(0, checkOffsets[0]); 
+        Assert.Equal(2, checkOffsets[1]);
+        Assert.Equal(2, checkOffsets[2]);
+        Assert.Equal(3, checkOffsets[3]);
+
+        // =============================================================
+        // 3. 导入 Polars
+        // =============================================================
+        // 这里会触发我们写的 C# -> Rust -> Upgrade(Int32->Int64) 逻辑
+        using var s = Series.FromArrow("arrow_list_manual", listArray);
+
+        // 4. 验证 Polars
+        using var df = new DataFrame(s);
+
+        // 5. 数据验证
+        using var exploded = df.Explode(Polars.Col("arrow_list_manual"));
+        // [1, 2] -> 2 rows
+        // null   -> 1 rows
+        // [3]    -> 1 row
+        // Total 4 rows
+        Assert.Equal(4, exploded.Height);
+        
+        // 验证值: 1, 2, 3
+        Assert.Equal(1, exploded.GetValue<long>(0, "arrow_list_manual"));
+        Assert.Equal(2, exploded.GetValue<long>(1, "arrow_list_manual"));
+        Assert.Equal(3, exploded.GetValue<long>(3, "arrow_list_manual"));
+    }
+    [Fact]
+        public void Test_Series_HighLevel_Create()
+        {
+            // 用户只需写标准的 C# 集合
+            var data = new List<List<int?>?>
+            {
+                new List<int?> { 1, 2 },
+                null,
+                new List<int?> { 3, null, 5 } // 甚至支持子元素 null
+            };
+
+            // 一行代码创建 Series
+            using var s = Series.From("my_list", data);
+
+            // 验证
+            using var df = new DataFrame(s);
+            
+            // Schema 检查
+            Assert.Equal(DataTypeKind.List, s.DataType.Kind);
+            
+            // Explode 检查
+            using var exploded = df.Explode(Polars.Col("my_list"));
+
+            Assert.Equal(6, exploded.Height); 
+        }
+    [Fact]
+    public void Test_Series_FromArrow_Struct_With_List()
+    {
+        // =============================================================
+        // 目标结构: Struct<Name: Utf8, Scores: List<i64>>
+        // Row 0: { "Alice", [10, 20] }
+        // Row 1: null (整个 Struct 是 null)
+        // Row 2: { "Bob", [30] }
+        // =============================================================
+
+        int length = 3;
+
+        // 1. 构造子数组 A: "Name" (StringArray)
+        var nameBuilder = new StringArray.Builder();
+        nameBuilder.Append("Alice");
+        nameBuilder.Append("Ignored"); // Row 1 虽然是 null，但子数组通常要有占位值，或者 append null
+        nameBuilder.Append("Bob");
+        using var nameArray = nameBuilder.Build();
+
+        // 2. 构造子数组 B: "Scores" (ListArray<i64>)
+        // 复用我们要死要活搞出来的 List 构造逻辑
+        // Row 0: [10, 20]
+        // Row 1: null (或者 [])
+        // Row 2: [30]
+        
+        // Values
+        var valBuilder = new Int64Array.Builder();
+        valBuilder.Append(10); valBuilder.Append(20); valBuilder.Append(30);
+        using var valArray = valBuilder.Build();
+        
+        // Offsets: [0, 2, 2, 3] (Row 1 是空/null)
+        var offBuilder = new Int32Array.Builder();
+        offBuilder.Append(0); offBuilder.Append(2); offBuilder.Append(2); offBuilder.Append(3);
+        using var offArray = offBuilder.Build();
+        
+        // Validity for List
+        var listValidBuilder = new BooleanArray.Builder();
+        listValidBuilder.Append(true); listValidBuilder.Append(false); listValidBuilder.Append(true);
+        using var listValid = listValidBuilder.Build();
+
+        using var scoresArray = new ListArray(
+            new ListType(new Int64Type()), 
+            length, offArray.ValueBuffer, valArray, listValid.ValueBuffer, 1
+        );
+
+        // 3. 构造 Struct 自身的 Validity
+        // Row 1 是 null
+        var structValidBuilder = new BooleanArray.Builder();
+        structValidBuilder.Append(true);
+        structValidBuilder.Append(false); // <--- Struct Null
+        structValidBuilder.Append(true);
+        using var structValid = structValidBuilder.Build();
+
+        // 4. 组装 StructArray
+        // 字段定义
+        var fields = new List<Apache.Arrow.Field>
+        {
+            new Apache.Arrow.Field("Name", new StringType(), false),
+            new Apache.Arrow.Field("Scores", new ListType(new Int64Type()), true)
+        };
+        var structType = new StructType(fields);
+
+        // 子数组列表
+        var children = new List<IArrowArray> { nameArray, scoresArray };
+
+        using var structArray = new StructArray(
+            structType,
+            length,
+            children,
+            structValid.ValueBuffer,
+            1
+        );
+
+        // =============================================================
+        // 5. 见证奇迹：传入 Polars
+        // =============================================================
+        // 预期：Rust 会递归把里面的 List<i32> 升级为 LargeList<i64>
+        using var s = Series.FromArrow("my_struct", structArray);
+
+        using var df = new DataFrame(s);
+
+        // 6. 验证
+        // 确保类型是 Struct
+        Assert.Equal(DataTypeKind.Struct, s.DataType.Kind);
+        
+        // 验证第一行 Alice
+        // 在 Polars C# 取 Struct 值可能比较麻烦 (返回 JSON 字符串或 Object?)
+        // 简单起见，我们 Unnest (展开) 验证
+        
+        // 如果还没实现 Unnest，我们可以测试 struct.field("Name")
+        // 假设你加了 Field Access 的 Expr
+        using var res = df.Select(
+            Polars.Col("my_struct").Struct.Field("Name"),
+            Polars.Col("my_struct").Struct.Field("Scores")
+        );
+        
+        Assert.Equal("Alice", res.GetValue<string>(0, "Name"));
+    }
+    private class Student
+    {
+        public string? Name { get; set; }
+        public int Age { get; set; }
+    }
+
+    [Fact]
+    public void Test_Series_From_ObjectList()
+    {
+        var students = new List<Student>
+        {
+            new Student { Name = "Alice", Age = 20 },
+            null!, // Struct Null
+            new Student { Name = "Bob", Age = 22 }
+        };
+
+        // 这一行代码，对于用户来说是极其舒适的
+        using var s = Series.From("students", students);
+        
+        // 验证
+        using var df = new DataFrame(s);
+        
+        Assert.Equal(DataTypeKind.Struct, s.DataType.Kind);
+        
+        using var unnested = df.Unnest("students");
+        Assert.Equal("Alice", unnested.GetValue<string>(0, "Name"));
+        Assert.Equal(22, unnested.GetValue<int>(2, "Age"));
+    }
     [Fact]
     public void Test_Series_String_And_Nulls()
     {

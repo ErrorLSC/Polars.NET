@@ -291,7 +291,7 @@ Bob,2024,History";
         Assert.Equal(3, pivoted.Width);  // date, NY, LA
         
         // 简单打印一下结构，防止列名顺序不确定导致测试挂掉
-        pivoted.Show(); 
+        // pivoted.Show(); 
 
         // 验证 2024-01-01 的 NY 气温 (假设第一行是 01-01)
         // 注意：Arrow 列名区分大小写

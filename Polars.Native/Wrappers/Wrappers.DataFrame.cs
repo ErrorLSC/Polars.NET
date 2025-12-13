@@ -147,6 +147,11 @@ public static partial class PolarsWrapper
         var raw = HandlesToPtrs(exprs);
         return ErrorHelper.Check(NativeBindings.pl_explode(df, raw, (UIntPtr)raw.Length));
     }
+    public static DataFrameHandle Unnest(DataFrameHandle df, string[] columns)
+    {
+        // 记得把 int Length 转为 UIntPtr
+        return ErrorHelper.Check(NativeBindings.pl_dataframe_unnest(df, columns, (UIntPtr)columns.Length));
+    }
     // GroupBy
     public static DataFrameHandle GroupByAgg(DataFrameHandle df, ExprHandle[] by, ExprHandle[] agg)
     {
