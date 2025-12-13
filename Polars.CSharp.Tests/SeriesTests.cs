@@ -248,6 +248,58 @@ public class SeriesTests
         Assert.Equal(22, unnested.GetValue<int>(2, "Age"));
     }
     [Fact]
+    public void Test_Series_Recursive_List_Of_List()
+    {
+        // 构造 List<List<int>> (注意是 int，不是 long，验证工厂的泛型能力)
+        // 结构:
+        // Row 0: [1, 2]
+        // Row 1: null
+        // Row 2: [3, 4, 5]
+        var data = new List<List<int>?>
+        {
+            new() { 1, 2 },
+            null,
+            new() { 3, 4, 5 }
+        };
+
+        // 一行代码搞定
+        using var s = Series.From("nested_list", data);
+
+        using var df = new DataFrame(s);
+
+        // 验证结构
+        Assert.Equal(DataTypeKind.List, s.DataType.Kind);
+        Assert.Equal(3, s.Length);
+        Assert.Equal(1, s.NullCount);
+
+        // 验证数据：Explode
+        using var exploded = df.Explode(Polars.Col("nested_list"));
+        exploded.Show();
+        // 1, 2, null, 3, 4, 5 -> 5 rows
+        Assert.Equal(6, exploded.Height);
+        Assert.Equal(1, exploded.GetValue<int>(0, "nested_list")); // int
+        Assert.Equal(4, exploded.GetValue<int>(4, "nested_list"));
+    }
+
+    [Fact]
+    public void Test_Series_Deep_Recursive()
+    {
+        // 构造 List<List<string>>: String 也是支持的！
+        var data = new List<List<string>?>
+        {
+            new List<string> { "a", "b" },
+            new List<string> { "c" }
+        };
+        
+        using var s = Series.From("strs", data);
+        Assert.Equal(DataTypeKind.List, s.DataType.Kind);
+        
+        // 验证内部数据
+        using var df = new DataFrame(s);
+        using var exp = df.Explode(Polars.Col("strs"));
+        Assert.Equal("a", exp.GetValue<string>(0, "strs"));
+    }
+    [Fact]
     public void Test_Series_String_And_Nulls()
     {
         // 1. 创建 String Series (带 Null)

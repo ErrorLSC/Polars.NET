@@ -927,43 +927,14 @@ public class Series : IDisposable
     // ==========================================
     // High-Level Factories
     // ==========================================
-
-    /// <summary>
-    /// Create a Series from a list of lists.List:Int64
-    /// </summary>
-    public static Series From(string name, List<List<long?>?> data)
-    {
-        // 1. 自动构建 Arrow
-        using var arrowArray = Internals.ArrowBuilderHelper.BuildListArray(data);
-        
-        // 2. 传给底层
-        return FromArrow(name, arrowArray);
-    }
-
-    /// <summary>
-    /// Create a Series from a list of lists. List:Int32
-    /// </summary>
-    /// <param name="name"></param>
-    /// <param name="data"></param>
-    /// <returns></returns>
-    public static Series From(string name, List<List<int?>?> data)
-    {
-        // 转换数据 (会有一次拷贝，但为了易用性是值得的，或者再写一个 Int 专用的 Helper)
-        // 这里演示简单转换
-        var converted = data?.Select(
-            sub => sub?.Select(i => (long?)i).ToList()
-        ).ToList();
-
-        return From(name, converted!);
-    }
     /// <summary>
     /// Create a Struct Series from a list of objects using Reflection.
     /// </summary>
-    public static Series From<T>(string name, IEnumerable<T> data) where T : class
+    public static Series From<T>(string name, IEnumerable<T> data) 
     {
         // 调用 StructBuilderHelper
-        using var structArray = Internals.StructBuilderHelper.BuildStructArray(data);
-        return FromArrow(name, structArray);
+        using var arrowArray = Internals.ArrowArrayFactory.Build(data);
+        return FromArrow(name, arrowArray);
     }
     /// <summary>
     /// Convert this single Series into a DataFrame.
