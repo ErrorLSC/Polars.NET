@@ -1,9 +1,9 @@
-using System;
 using Polars.NET.Core;
 using Apache.Arrow;
-using Apache.Arrow.C;
+using Polars.NET.Core.Arrow;
 
 namespace Polars.CSharp;
+
 /// <summary>
 /// Represents a Polars Series.
 /// </summary>
@@ -896,45 +896,33 @@ public class Series : IDisposable
         return PolarsWrapper.SeriesToArrow(Handle);
     }
     /// <summary>
-    /// Create a Polars Series from an Apache.Arrow array.
-    /// This allows zero-copy import of complex types (List, Struct, etc.) constructed in C#.
+    /// Low-level entry point: Create Series from existing Arrow Array.
     /// </summary>
-    /// <param name="name">Name of the Series</param>
-    /// <param name="arrowArray">The C# Apache.Arrow IArrowArray instance</param>
-    /// <returns>A new Series</returns>
     public static Series FromArrow(string name, IArrowArray arrowArray)
     {
-        unsafe
-        {
-            // 1. 分配 C Data Interface 结构体
-            var cArray = new CArrowArray();
-            var cSchema = new CArrowSchema();
-
-            // 2. 导出 Schema (类型信息)
-            // 关键点：使用 CArrowSchemaExporter 导出 Array 的 DataType
-            CArrowSchemaExporter.ExportType(arrowArray.Data.DataType, &cSchema);
-
-            // 3. 导出 Array (数据内容)
-            // 关键点：使用 CArrowArrayExporter 导出数据，仅传入 cArray 指针
-            CArrowArrayExporter.ExportArray(arrowArray, &cArray);
-            // 4. 调用 Wrapper
-            // 将两个指针都传给 Rust，Rust 端会先解析 Schema 得到类型，再解析 Array
-            var handle = PolarsWrapper.SeriesFromArrow(name, &cArray, &cSchema);
-
-            return new Series(handle);
-        }
+        var handle = ArrowFfiBridge.ImportSeries(name, arrowArray);
+        return new Series(handle);
     }
+
     // ==========================================
     // High-Level Factories
     // ==========================================
     /// <summary>
-    /// Create a Struct Series from a list of objects using Reflection.
+    /// Create a Series from a list of objects, primitives, or nested lists.
+    /// Uses Polars.NET.Core to handle Arrow conversion and FFI transfer.
     /// </summary>
     public static Series From<T>(string name, IEnumerable<T> data) 
     {
-        // 调用 StructBuilderHelper
-        using var arrowArray = Internals.ArrowArrayFactory.Build(data);
-        return FromArrow(name, arrowArray);
+        // 1. 调用 Core 层的转换器：IEnumerable<T> -> IArrowArray
+        // (原 ArrowArrayFactory.Build)
+        using var arrowArray = ArrowConverter.Build(data);
+
+        // 2. 调用 Core 层的 FFI 桥梁：IArrowArray -> SeriesHandle
+        // (原 Series.FromArrow 的底层逻辑)
+        var handle = ArrowFfiBridge.ImportSeries(name, arrowArray);
+
+        // 3. 封装为 C# API 对象
+        return new Series(handle);
     }
     /// <summary>
     /// Convert this single Series into a DataFrame.

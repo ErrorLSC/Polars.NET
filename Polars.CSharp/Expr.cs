@@ -1,4 +1,3 @@
-using System;
 using Apache.Arrow;
 using Polars.NET.Core;
 

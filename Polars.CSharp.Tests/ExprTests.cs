@@ -1,5 +1,5 @@
 using Apache.Arrow;
-
+using Polars.NET.Core.Arrow;
 using static Polars.CSharp.Polars;
 namespace Polars.CSharp.Tests;
 

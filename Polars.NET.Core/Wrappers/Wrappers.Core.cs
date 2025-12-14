@@ -9,7 +9,7 @@ public static partial class PolarsWrapper
     // 辅助：批量转换 Handle
     private static IntPtr[] HandlesToPtrs(PolarsHandle[] handles)
     {
-        if (handles == null || handles.Length == 0) return System.Array.Empty<IntPtr>();
+        if (handles == null || handles.Length == 0) return [];
         
         var ptrs = new IntPtr[handles.Length];
         for (int i = 0; i < handles.Length; i++)
@@ -23,10 +23,6 @@ public static partial class PolarsWrapper
         }
         return ptrs;
     }
-
-    // 辅助：获取行列数 (利用之前加的 API)
-    public static long DataFrameHeight(DataFrameHandle df) => (long)NativeBindings.pl_dataframe_height(df);
-    public static long DataFrameWidth(DataFrameHandle df) => (long)NativeBindings.pl_dataframe_width(df);
 
     public static unsafe RecordBatch Collect(DataFrameHandle handle)
     {
@@ -49,7 +45,7 @@ public static partial class PolarsWrapper
     {
         if (strings == null || strings.Length == 0)
         {
-            return action(System.Array.Empty<IntPtr>());
+            return action([]);
         }
 
         var ptrs = new IntPtr[strings.Length];

@@ -1,9 +1,10 @@
 using Apache.Arrow;
 using Apache.Arrow.Types;
 
-namespace Polars.CSharp;
+namespace Polars.NET.Core.Arrow;
 /// <summary>
-///  Deal types of Arrow and C#
+/// Extension methods for handling Apache Arrow Arrays.
+/// Provides formatting and safe value extraction.
 /// </summary>
 public static class ArrowExtensions
 {
@@ -85,6 +86,15 @@ public static class ArrowExtensions
             UInt16Array u16 => u16.GetValue(index),
             UInt32Array u32 => u32.GetValue(index),
             UInt64Array u64 => (long?)u64.GetValue(index),
+
+            // [新增] 兼容时间类型 (返回 Raw Ticks / Days)
+            // 这能防止 POCO 定义为 long 但数据是 Timestamp 时无法读取的问题
+            TimestampArray ts => ts.GetValue(index),
+            Date32Array d32   => d32.GetValue(index), // Days
+            Date64Array d64   => d64.GetValue(index), // Milliseconds
+            Time32Array t32   => t32.GetValue(index),
+            Time64Array t64   => t64.GetValue(index),
+            DurationArray dur => dur.GetValue(index),
             _ => null
         };
     }

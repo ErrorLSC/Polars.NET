@@ -1,12 +1,11 @@
-using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Reflection;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 
-namespace Polars.CSharp.Internals
+namespace Polars.NET.Core.Arrow
 {
-internal static class ArrowArrayFactory
+public static class ArrowConverter
     {
         /// <summary>
         /// 通用入口：根据 T 的类型决定创建什么 Array
@@ -36,11 +35,11 @@ internal static class ArrowArrayFactory
 
                 // 反射调用泛型方法 BuildListArray<U>
                 // 因为我们在写代码时不知道 U 是什么
-                var method = typeof(ArrowArrayFactory)
-                    .GetMethod(nameof(BuildListArray), System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+                var method = typeof(ArrowConverter)
+                    .GetMethod(nameof(BuildListArray), BindingFlags.Public | BindingFlags.Static)!
                     .MakeGenericMethod(elementType);
 
-                return (IArrowArray)method.Invoke(null, new object[] { data })!;
+                return (IArrowArray)method.Invoke(null, [data])!;
             }
 
             // 3. 支持 Struct (对象)
@@ -56,7 +55,7 @@ internal static class ArrowArrayFactory
         /// 核心逻辑：构建 ListArray (支持递归)
         /// 逻辑：拍扁数据 -> 构建子数组 -> 组装
         /// </summary>
-        private static ListArray BuildListArray<U>(IEnumerable<IEnumerable<U>?> data)
+        public static ListArray BuildListArray<U>(IEnumerable<IEnumerable<U>?> data)
         {
             // A. 拍扁数据 (Flatten)
             // 比如 [[1, 2], null, [3]] -> [1, 2, 3]
@@ -154,7 +153,7 @@ internal static class ArrowArrayFactory
     }
      // 你可以照葫芦画瓢，增加 BuildStringListArray, BuildDoubleListArray 等
 
-    internal static class StructBuilderHelper
+    public static class StructBuilderHelper
     {
     public static StructArray BuildStructArray<T>(IEnumerable<T> data)
         {

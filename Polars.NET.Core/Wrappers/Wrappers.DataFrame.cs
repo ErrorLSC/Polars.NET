@@ -7,7 +7,8 @@ public static partial class PolarsWrapper
     // ==========================================
     // Metadata (元数据)
     // ==========================================
-
+    public static long DataFrameHeight(DataFrameHandle df) => (long)NativeBindings.pl_dataframe_height(df);
+    public static long DataFrameWidth(DataFrameHandle df) => (long)NativeBindings.pl_dataframe_width(df);
     public static string[] GetColumnNames(DataFrameHandle df)
     {
         long width = DataFrameWidth(df);

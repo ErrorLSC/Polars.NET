@@ -1,6 +1,4 @@
-using System;
 using Apache.Arrow;
-using Apache.Arrow.Types;
 
 namespace Polars.CSharp;
 

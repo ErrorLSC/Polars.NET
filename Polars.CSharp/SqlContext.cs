@@ -1,4 +1,3 @@
-using System;
 using Polars.NET.Core;
 
 namespace Polars.CSharp;

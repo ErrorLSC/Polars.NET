@@ -1,7 +1,7 @@
 using Polars.NET.Core;
-using Apache.Arrow;
 using System.Reflection;
-using System.Text.Json;
+using Polars.NET.Core.Arrow;
+using Apache.Arrow;
 namespace Polars.CSharp;
 
 /// <summary>
@@ -129,12 +129,22 @@ public class DataFrame : IDisposable
     }
 
     /// <summary>
-    /// Create DataFrame from Arrow RecordBatch
+    /// Create DataFrame from Apache Arrow RecordBatch.
     /// </summary>
     public static DataFrame FromArrow(RecordBatch batch)
     {
+        // 调用 Core 层的 Bridge
+        var handle = ArrowFfiBridge.ImportDataFrame(batch);
+        return new DataFrame(handle);
+    }
+    /// <summary>
+    /// Transfer a RecordBatch to Arrow
+    /// </summary>
+    /// <returns></returns>
+    public RecordBatch ToArrow()
+    {
         //
-        return new DataFrame(PolarsWrapper.FromArrow(batch));
+        return ArrowFfiBridge.ExportDataFrame(Handle);
     }
     /// <summary>
     /// Asynchronously reads a CSV file into a DataFrame.
@@ -721,15 +731,7 @@ public class DataFrame : IDisposable
     /// <returns></returns>
     public string? GetString(string colName, int row) 
         => PolarsWrapper.GetString(Handle, colName, row); //
-    /// <summary>
-    /// Transfer a RecordBatch to Arrow
-    /// </summary>
-    /// <returns></returns>
-    public RecordBatch ToArrow()
-    {
-        //
-        return PolarsWrapper.Collect(Handle);
-    }
+
     /// <summary>
     /// Clone the DataFrame
     /// </summary>
@@ -830,155 +832,23 @@ public class DataFrame : IDisposable
     /// Convert DataFrame rows back to a list of objects.
     /// Note: This materializes the data (ToArrow) and uses reflection.
     /// </summary>
+ /// <summary>
+    /// Convert DataFrame to a list of strongly-typed objects.
+    /// This triggers a conversion to Arrow format internally.
+    /// </summary>
     public IEnumerable<T> Rows<T>() where T : new()
     {
-        // 1. 导出数据到 Arrow
-        // ToArrow 会自动 Rechunk，所以我们拿到的是连续内存
-        using var batch = this.ToArrow();
-        int rowCount = batch.Length;
+        // 1. 转为 Arrow RecordBatch (这是 Polars.CSharp 这一层特有的能力)
+        // ToArrow() 方法本身应该已经在 DataFrame 类里实现了
+        using var batch = this.ToArrow(); 
 
-        // 2. 准备反射元数据 (缓存起来避免循环内反射)
-        var type = typeof(T);
-        var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                             .Where(p => p.CanWrite) // 必须能写入
-                             .ToArray();
-
-        // 3. 预先查找每一列对应的 Arrow Array，并检查类型兼容性
-        var columnAccessors = new Func<int, object?>[properties.Length];
-
-        for (int i = 0; i < properties.Length; i++)
+        // 2. 委托给 Core 层去解析
+        foreach (var item in ArrowReader.ReadRecordBatch<T>(batch))
         {
-            var prop = properties[i];
-            var colName = prop.Name;
-            
-            // 查找列 (不区分大小写可能会更友好，但这里先严格匹配)
-            var col = batch.Column(colName);
-            if (col == null) 
-            {
-                // 如果找不到列，可以选择抛错或者忽略（保留默认值）
-                // 这里我们选择忽略，对应的 accessor 为 null
-                columnAccessors[i] = _ => null; 
-                continue;
-            }
-
-            // 创建读取器委托 (针对目标属性类型进行适配)
-            columnAccessors[i] = CreateAccessor(col, prop.PropertyType);
-        }
-
-        // 4. 遍历行，构造对象
-        for (int i = 0; i < rowCount; i++)
-        {
-            var item = new T();
-            for (int p = 0; p < properties.Length; p++)
-            {
-                var accessor = columnAccessors[p];
-                if (accessor != null) // 如果该属性有对应的列
-                {
-                    // 获取值
-                    var val = accessor(i);
-                    // 只有非 null 才赋值 (避免覆盖默认值)
-                    if (val != null)
-                    {
-                        properties[p].SetValue(item, val);
-                    }
-                }
-            }
             yield return item;
         }
     }
 
-    // --- 智能类型转换工厂 ---
-    // 根据 Arrow 列类型 和 C# 目标类型，生成最高效的读取器
-    private static Func<int, object?> CreateAccessor(IArrowArray array, Type targetType)
-    {
-        // 获取底层类型 (处理 Nullable<T>)
-        var underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
-
-        // 1. String
-        if (underlyingType == typeof(string))
-        {
-            return array.GetStringValue; // 使用之前写的扩展方法
-        }
-
-        // 2. Int / Long (Arrow 默认通常是 Int64)
-        if (underlyingType == typeof(int) || underlyingType == typeof(long))
-        {
-            return idx => 
-            {
-                long? val = array.GetInt64Value(idx); // 扩展方法获取 long?
-                if (!val.HasValue) return null;
-                
-                // 窄化转换
-                if (underlyingType == typeof(int)) return (int)val.Value;
-                return val.Value;
-            };
-        }
-
-        // 3. Double / Float
-        if (underlyingType == typeof(double) || underlyingType == typeof(float))
-        {
-            return idx => 
-            {
-                // [优化] 直接调用扩展方法 array.GetDoubleValue(idx)
-                // 它的内部实现已经包含了对 DoubleArray, FloatArray, IntArray 的 switch/case
-                // 所以这里不需要再写 if (array is DoubleArray) 了
-                double? v = array.GetDoubleValue(idx);
-                
-                if (!v.HasValue) return null;
-                
-                // 如果目标属性是 float，需要从 double 强转回来 (窄化转换)
-                if (underlyingType == typeof(float)) return (float)v.Value;
-                
-                return v.Value;
-            };
-        }
-
-        // 4. Decimal (核心！)
-        if (underlyingType == typeof(decimal))
-        {
-            return idx =>
-            {
-                if (array is Decimal128Array decArr)
-                {
-                    return decArr.GetValue(idx); // Arrow 自动处理了 Scale，返回 C# decimal?
-                }
-                // 兼容：如果 Polars 传回的是 Double (还没转 Decimal)，尝试强转
-                if (array is DoubleArray dArr)
-                {
-                    var v = dArr.GetValue(idx);
-                    return v.HasValue ? (decimal)v.Value : null;
-                }
-                return null;
-            };
-        }
-
-        // 5. Bool
-        if (underlyingType == typeof(bool))
-        {
-            return idx => 
-            {
-                if (array is BooleanArray bArr) return bArr.GetValue(idx);
-                return null;
-            };
-        }
-        // 6. DateTime
-        if (underlyingType == typeof(DateTime))
-        {
-            return idx => 
-            {
-                // 调用 ArrowExtensions.GetDateTime (它会自动处理 Date32/Date64/Timestamp)
-                DateTime? val = array.GetDateTime(idx);
-                
-                if (!val.HasValue) return null;
-                
-                // 如果目标是 DateTime (非空)，直接返回 Value
-                // 如果目标是 DateTime?，也返回 Value (会被装箱)
-                return val.Value;
-            };
-        }
-        // 默认回退 (低效但安全)
-        return _ => null;
-    }
     // ==========================================
     // Conversion to Lazy
     // ==========================================
