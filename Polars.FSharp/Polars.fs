@@ -2,7 +2,7 @@ namespace Polars.FSharp
 
 open System
 open Apache.Arrow
-open Polars.Native
+open Polars.NET.Core
 open System.Collections.Generic
 open System.Threading.Tasks
 /// <summary>

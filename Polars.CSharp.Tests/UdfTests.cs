@@ -1,6 +1,6 @@
 using Xunit;
 using Polars.CSharp;
-using Polars.Native;
+using Polars.NET.Core;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using System;

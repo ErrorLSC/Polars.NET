@@ -1,4 +1,4 @@
-using Polars.Native;
+using Polars.NET.Core;
 using Apache.Arrow;
 using System.Reflection;
 using System.Text.Json;

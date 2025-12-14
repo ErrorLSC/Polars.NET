@@ -2,7 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
-namespace Polars.Native;
+namespace Polars.NET.Core;
 
 // 1. 基类：实现通用的所有权转移逻辑
 public abstract class PolarsHandle : SafeHandle

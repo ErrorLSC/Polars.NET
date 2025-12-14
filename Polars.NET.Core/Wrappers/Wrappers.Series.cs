@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.C; // 需要引用 Apache.Arrow
 
-namespace Polars.Native;
+namespace Polars.NET.Core;
 
 public static partial class PolarsWrapper
 {

@@ -5,7 +5,7 @@ using Apache.Arrow.C;
 
 [assembly: DisableRuntimeMarshalling]
 
-namespace Polars.Native;
+namespace Polars.NET.Core;
 
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 public delegate void CleanupCallback(IntPtr userData);

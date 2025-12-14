@@ -74,7 +74,7 @@ lf
 )
 ```
 ## Architecture
-Polars.Native: C# P/Invoke bindings (LibraryImport) handling memory safety (GC & Rust Drop).
+Polars.NET.Core: C# P/Invoke bindings (LibraryImport) handling memory safety (GC & Rust Drop).
 
 PolarsFSharp: F# functional wrapper providing DSL and type safety.
 

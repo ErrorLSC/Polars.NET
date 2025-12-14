@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.C;
 
-namespace Polars.Native;
+namespace Polars.NET.Core;
 
 public static partial class PolarsWrapper
 {

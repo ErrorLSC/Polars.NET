@@ -1,7 +1,7 @@
 namespace Polars.FSharp
 
 open System
-open Polars.Native
+open Polars.NET.Core
 open Apache.Arrow
 open System.Collections.Generic
 /// <summary>

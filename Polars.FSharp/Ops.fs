@@ -1,6 +1,6 @@
 namespace Polars.FSharp
 
-open Polars.Native
+open Polars.NET.Core
 
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Series =

@@ -36,7 +36,7 @@ open Xunit
 open Polars.FSharp
 open Apache.Arrow
 open System
-open Polars.Native
+open Polars.NET.Core
 
 type ``UDF Tests`` () =
 

@@ -4,7 +4,7 @@ open System
 open FSharp.Reflection
 open Apache.Arrow
 open Apache.Arrow.Types
-open Polars.Native
+open Polars.NET.Core
 
 // =========================================================================================
 // MODULE: Series Extensions (Data Conversion & Computation)

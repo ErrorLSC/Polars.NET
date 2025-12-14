@@ -1,6 +1,6 @@
 using System;
 using Apache.Arrow;
-using Polars.Native;
+using Polars.NET.Core;
 
 namespace Polars.CSharp;
 

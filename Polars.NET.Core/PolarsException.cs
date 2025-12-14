@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace Polars.Native;
+namespace Polars.NET.Core;
 
 internal static class ErrorHelper
 {

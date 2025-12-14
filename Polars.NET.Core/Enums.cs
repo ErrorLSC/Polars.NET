@@ -1,4 +1,4 @@
-namespace Polars.Native;
+namespace Polars.NET.Core;
 
 public enum PlDataType : int
 {
