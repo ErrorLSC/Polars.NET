@@ -160,6 +160,45 @@ namespace Polars.NET.Core.Arrow
                     return list;
                 };
             }
+            if (array is LargeListArray largeListArray)
+            {
+                Type elementType = typeof(object);
+                if (targetType.IsGenericType) elementType = targetType.GetGenericArguments()[0];
+                else if (targetType.IsArray) elementType = targetType.GetElementType()!;
+
+                // LargeList 的 Values 依然是 IArrowArray
+                var childArray = largeListArray.Values;
+                var childGetter = CreateAccessor(childArray, elementType);
+
+                return idx =>
+                {
+                    if (largeListArray.IsNull(idx)) return null;
+
+                    // [注意] LargeList 的 Offsets 是 long
+                    long start = largeListArray.ValueOffsets[idx];
+                    long end = largeListArray.ValueOffsets[idx+1];
+                    long longCount = end - start;
+                    int count = (int)longCount; // C# List 限制 int 长度
+
+                    var listType = typeof(List<>).MakeGenericType(elementType);
+                    var list = (IList)Activator.CreateInstance(listType, count)!;
+
+                    for (int k = 0; k < count; k++)
+                    {
+                        // Values 数组下标是 (int)(start + k)
+                        var val = childGetter((int)(start + k));
+                        list.Add(val);
+                    }
+
+                    if (targetType.IsArray)
+                    {
+                        var arr = System.Array.CreateInstance(elementType, list.Count);
+                        list.CopyTo(arr, 0);
+                        return arr;
+                    }
+                    return list;
+                };
+            }
 
             // ---------------------------------------------------------
             // 3. 基础类型 (String, Primitives, Date...)

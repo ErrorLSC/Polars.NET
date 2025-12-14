@@ -841,7 +841,18 @@ public class DataFrame : IDisposable
         // 1. 转为 Arrow RecordBatch (这是 Polars.CSharp 这一层特有的能力)
         // ToArrow() 方法本身应该已经在 DataFrame 类里实现了
         using var batch = this.ToArrow(); 
-
+        // 🕵️‍♂️ 侦探代码：打印 Schema 看看列名到底是啥
+        // Console.WriteLine("--- Arrow Schema ---");
+        // foreach (var field in batch.Schema.FieldsList)
+        // {
+        //     Console.WriteLine($"Field: '{field.Name}' Type: {field.DataType.Name}");
+        //     if (field.DataType is Apache.Arrow.Types.StructType st)
+        //     {
+        //         foreach (var child in st.Fields)
+        //             Console.WriteLine($"  - Child: '{child.Name}' Type: {child.DataType.Name}");
+        //     }
+        // }
+        // Console.WriteLine("--------------------");
         // 2. 委托给 Core 层去解析
         foreach (var item in ArrowReader.ReadRecordBatch<T>(batch))
         {

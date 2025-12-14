@@ -24,23 +24,7 @@ public static partial class PolarsWrapper
         return ptrs;
     }
 
-    public static unsafe RecordBatch Collect(DataFrameHandle handle)
-    {
-        var array = CArrowArray.Create();
-        var schema = CArrowSchema.Create();
-        try
-        {
-            NativeBindings.pl_to_arrow(handle, array, schema);
-            ErrorHelper.CheckVoid();
-            var managedSchema = CArrowSchemaImporter.ImportSchema(schema);
-            return CArrowArrayImporter.ImportRecordBatch(array, managedSchema);
-        }
-        finally
-        {
-            CArrowArray.Free(array);
-            CArrowSchema.Free(schema);
-        }
-    }
+
     private static R UseUtf8StringArray<R>(string[] strings, Func<IntPtr[], R> action)
     {
         if (strings == null || strings.Length == 0)

@@ -153,170 +153,132 @@ public static class ArrowConverter
     }
      // 你可以照葫芦画瓢，增加 BuildStringListArray, BuildDoubleListArray 等
 
-    public static class StructBuilderHelper
+    internal static class StructBuilderHelper
     {
-    public static StructArray BuildStructArray<T>(IEnumerable<T> data)
+        // =================================================================
+        // 核心逻辑：列式构建 (Columnar Construction)
+        // =================================================================
+        public static StructArray BuildStructArray<T>(IEnumerable<T> data)
         {
+            // 1. 预处理数据 (避免多次枚举)
+            // 如果 data 很大，这里会有一份引用拷贝，但为了列式处理是必须的
+            var dataList = data as IList<T> ?? data.ToList();
+            int length = dataList.Count;
             var type = typeof(T);
+
+            // 2. 获取属性 (过滤索引器)
             var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                .Where(p => p.GetIndexParameters().Length == 0) 
+                .Where(p => p.GetIndexParameters().Length == 0)
                 .ToArray();
-            int length = data.Count();
 
-            var fields = new List<Apache.Arrow.Field>();
-            var builders = new List<IArrowArrayBuilder>();
-            
-            // [性能核心] 预编译的 Getter 列表
-            // Func<T, object?>: 输入对象实例，输出属性值
-            var getters = new List<Func<T, object?>>();
+            var fields = new List<Field>();
+            var childrenArrays = new List<IArrowArray>();
 
-            // 1. 准备阶段：编译 Getter，创建 Builder
+            // 3. 遍历每个属性，构建子数组
             foreach (var prop in properties)
             {
                 // A. 编译高性能 Getter
-                getters.Add(CompileGetter<T>(prop));
+                var getter = CompileGetter<T>(prop);
 
-                // B. 创建 Arrow Builder
-                var (fieldType, builder) = CreateBuilderForType(prop.PropertyType);
-                
-                // 处理可空性
-                bool isNullable = Nullable.GetUnderlyingType(prop.PropertyType) != null || !prop.PropertyType.IsValueType;
-                fields.Add(new Apache.Arrow.Field(prop.Name, fieldType, isNullable));
-                builders.Add(builder);
+                // B. 构建子数组 (递归调用的魔法在这里发生)
+                // 我们通过反射调用泛型 helper 方法 ProjectAndBuild<T, PropType>
+                // 这样能保留属性的强类型信息，传给 ArrowConverter.Build<PropType>
+                var childArray = ProjectAndBuild(dataList, prop.PropertyType, getter);
+
+                // C. 定义 Field
+                // 自动推断可空性：如果是引用类型或 Nullable<T>，则为 nullable
+                bool isNullable = !prop.PropertyType.IsValueType || Nullable.GetUnderlyingType(prop.PropertyType) != null;
+                var field = new Field(prop.Name, childArray.Data.DataType, isNullable);
+
+                fields.Add(field);
+                childrenArrays.Add(childArray);
             }
 
-            var structValidityBuilder = new BooleanArray.Builder();
+            // 4. 构建 Struct 自身的 Validity Bitmap
+            // 只需要检查 item != null
+            var validityBuilder = new BooleanArray.Builder();
             int nullCount = 0;
-
-            // 2. 填充数据阶段 (这里是百万行循环，必须极速)
-            foreach (var item in data)
+            foreach (var item in dataList)
             {
                 if (item == null)
                 {
-                    structValidityBuilder.Append(false);
+                    validityBuilder.Append(false);
                     nullCount++;
-                    foreach (var builder in builders) AppendNullToBuilder(builder);
                 }
                 else
                 {
-                    structValidityBuilder.Append(true);
-                    
-                    // 遍历所有属性
-                    for (int i = 0; i < properties.Length; i++)
-                    {
-                        // [极速调用] 使用预编译的委托，而不是 prop.GetValue(item)
-                        var val = getters[i](item);
-                        
-                        AppendValueToBuilder(builders[i], val);
-                    }
+                    validityBuilder.Append(true);
                 }
             }
+            var validityBuffer = validityBuilder.Build().ValueBuffer;
 
-            // 3. Build 子数组
-            var childrenArrays = builders.Select(b => BuildArray(b)).ToList();
+            // 5. 组装
             var structType = new StructType(fields);
-            var structValidity = structValidityBuilder.Build();
-
+            
             return new StructArray(
                 structType,
                 length,
                 childrenArrays,
-                structValidity.ValueBuffer,
+                validityBuffer,
                 nullCount
             );
         }
 
         // =================================================================
-        // ⚡ 黑魔法：使用 Expression Tree 动态编译 Getter
-        // 效果：将反射调用 ((T)obj).Prop 编译成直接的 IL 指令
+        // 辅助：反射桥接
+        // =================================================================
+        
+        /// <summary>
+        /// 这是一个泛型桥梁方法。
+        /// 它将 IList<TParent> 转换为 IEnumerable<TProp>，然后调用 ArrowConverter.Build
+        /// </summary>
+        private static IArrowArray ProjectAndBuild<TParent>(IList<TParent> data, Type propType, Func<TParent, object?> getter)
+        {
+            // 利用反射调用泛型的 BuildColumn<TParent, TProp>
+            var method = typeof(StructBuilderHelper)
+                .GetMethod(nameof(BuildColumn), BindingFlags.NonPublic | BindingFlags.Static)!
+                .MakeGenericMethod(typeof(TParent), propType);
+
+            return (IArrowArray)method.Invoke(null, new object[] { data, getter })!;
+        }
+
+        /// <summary>
+        /// 实际执行数据投影和构建的方法
+        /// </summary>
+        private static IArrowArray BuildColumn<TParent, TProp>(IList<TParent> data, Func<TParent, object?> getter)
+        {
+            // 1. 投影数据 (Projection)
+            // 把 List<Parent> 变成 IEnumerable<Prop>
+            var columnData = data.Select(item => 
+            {
+                // 如果父对象是 null，子属性给默认值 (null 或 0)
+                // StructArray 的 ValidityBitmap 会负责标记这一行为空，所以这里填充默认值是安全的
+                if (item == null) return default;
+
+                var val = getter(item);
+                
+                // 处理值类型拆箱
+                if (val == null) return default;
+                return (TProp)val;
+            });
+
+            // 2. [递归] 调用通用转换器
+            // 这里会自动路由：
+            // - 如果 TProp 是 int -> BuildInt32
+            // - 如果 TProp 是 NestedItem -> BuildStructArray (递归回来)
+            // - 如果 TProp 是 List<double> -> BuildListArray
+            return ArrowConverter.Build(columnData);
+        }
+
+        // =================================================================
+        // 表达式树优化 Getter (和之前一样)
         // =================================================================
         private static Func<T, object?> CompileGetter<T>(PropertyInfo propertyInfo)
         {
-            // 定义参数: (T item)
             var instanceParam = Expression.Parameter(typeof(T), "item");
-
-            // 定义访问: item.Property
             var propertyAccess = Expression.Property(instanceParam, propertyInfo);
-
-            // 定义转换: (object)item.Property
-            // 因为我们需要统一返回 object，所以必须 Box 值类型
             var convertToObject = Expression.Convert(propertyAccess, typeof(object));
-
-            // 编译成 Lambda: (item) => (object)item.Property
             return Expression.Lambda<Func<T, object?>>(convertToObject, instanceParam).Compile();
-        }
-
-        private static (IArrowType, IArrowArrayBuilder) CreateBuilderForType(Type type)
-        {
-            var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
-
-            if (underlyingType == typeof(int)) 
-                return (new Int32Type(), new Int32Array.Builder());
-            if (underlyingType == typeof(long)) 
-                return (new Int64Type(), new Int64Array.Builder());
-            if (underlyingType == typeof(double)) 
-                return (new DoubleType(), new DoubleArray.Builder());
-            if (underlyingType == typeof(string)) 
-                return (new StringType(), new StringArray.Builder());
-            if (underlyingType == typeof(bool)) 
-                return (new BooleanType(), new BooleanArray.Builder());
-
-            // 递归支持将在这里扩展：
-            // if (typeof(System.Collections.IEnumerable).IsAssignableFrom(type) && type != typeof(string))
-            // { ... }
-
-            throw new NotSupportedException($"Type {type.Name} is not yet supported in Struct auto-mapping.");
-        }
-        // --- 辅助方法：往 Builder 里塞值 ---
-        // 这一块用 dynamic 或者 switch 会比较长，为了演示逻辑简化写
-        private static void AppendValueToBuilder(IArrowArrayBuilder builder, object? value)
-        {
-            if (value == null)
-            {
-                AppendNullToBuilder(builder);
-                return;
-            }
-
-            // 使用模式匹配分发
-            switch (builder)
-            {
-                case Int32Array.Builder b: b.Append((int)value); break;
-                case Int64Array.Builder b: b.Append(Convert.ToInt64(value)); break; // 宽容转换
-                case DoubleArray.Builder b: b.Append((double)value); break;
-                case StringArray.Builder b: b.Append((string)value); break;
-                case BooleanArray.Builder b: b.Append((bool)value); break;
-                default: throw new NotImplementedException();
-            }
-        }
-
-        private static void AppendNullToBuilder(IArrowArrayBuilder builder)
-        {
-             switch (builder)
-            {
-                case Int32Array.Builder b: b.AppendNull(); break;
-                case Int64Array.Builder b: b.AppendNull(); break;
-                case DoubleArray.Builder b: b.AppendNull(); break;
-                case StringArray.Builder b: b.AppendNull(); break;
-                case BooleanArray.Builder b: b.AppendNull(); break;
-                default: throw new NotImplementedException();
-            }
-        }
-        private static IArrowArray BuildArray(IArrowArrayBuilder builder)
-        {
-            return builder switch
-            {
-                Int32Array.Builder b => b.Build(),
-                Int64Array.Builder b => b.Build(),
-                DoubleArray.Builder b => b.Build(),
-                StringArray.Builder b => b.Build(),
-                BooleanArray.Builder b => b.Build(),
-                
-                // 如果是 Struct 递归的情况，这里也需要支持
-                // StructArray.Builder b => b.Build(),
-                ListArray.Builder b => b.Build(),
-
-                _ => throw new NotImplementedException($"Builder type {builder.GetType().Name} build not supported.")
-            };
         }
     }
 }
