@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Polars.Native\Polars.Native.csproj" />
+    <ProjectReference Include="..\Polars.NET.Core\Polars.NET.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
