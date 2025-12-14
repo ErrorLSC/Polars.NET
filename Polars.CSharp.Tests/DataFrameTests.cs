@@ -603,18 +603,15 @@ public class TradeRecord
         // 1. 准备数据
         var data = new List<ComplexContainer>
         {
-            new ComplexContainer 
-            { 
+            new() { 
                 Id = 1, 
                 Info = new NestedItem { Key = "A", Values = new List<double> { 1.1, 2.2 } } 
             },
-            new ComplexContainer 
-            { 
+            new() { 
                 Id = 2, 
                 Info = null // Struct Null
             },
-            new ComplexContainer 
-            { 
+            new() { 
                 Id = 3, 
                 Info = new NestedItem { Key = "B", Values = new List<double> { 3.3 } } 
             }
@@ -648,6 +645,59 @@ public class TradeRecord
         // Row 2
         Assert.Equal("B", results[2].Info.Key);
         Assert.Single(results[2].Info.Values);
+    }
+    private class ModernTypesPoco
+    {
+        public string Cat { get; set; } // Polars 里是 cat，C# 里读成 string
+        public DateOnly Date { get; set; }
+        public TimeOnly Time { get; set; }
+    }
+
+    [Fact]
+    public void Test_DataFrame_ModernTypes_And_Categorical()
+    {
+        // 1. 写入测试 (DateOnly / TimeOnly)
+        var data = new List<ModernTypesPoco>
+        {
+            new() { 
+                Cat = "A", 
+                Date = new DateOnly(2023, 1, 1), 
+                Time = new TimeOnly(12, 0, 0) 
+            },
+            new() { 
+                Cat = "B", 
+                Date = new DateOnly(2024, 2, 29), 
+                Time = new TimeOnly(23, 59, 59) 
+            }
+        };
+
+        using var s = Series.From("modern", data);
+        using var df = new DataFrame(s).Unnest("modern");
+
+        // 2. 模拟 Categorical
+        // 目前我们写入的是 String，我们在 Polars 端强转为 Categorical
+        // 这样可以测试读取 DictionaryArray 的逻辑
+        using var dfCat = df.WithColumns(Col("Cat").Cast(DataType.Categorical));
+
+        // Schema 检查
+        Assert.Equal(DataTypeKind.Categorical, dfCat.Schema["Cat"].Kind);
+        Assert.Equal(DataTypeKind.Date, dfCat.Schema["Date"].Kind);
+        Assert.Equal(DataTypeKind.Time, dfCat.Schema["Time"].Kind);
+
+        // 3. 读取测试 (Round Trip)
+        var rows = dfCat.Rows<ModernTypesPoco>().ToList();
+
+        Assert.Equal(2, rows.Count);
+        
+        // 验证 Categorical -> String 读取
+        Assert.Equal("A", rows[0].Cat);
+        Assert.Equal("B", rows[1].Cat);
+
+        // 验证 DateOnly
+        Assert.Equal(new DateOnly(2023, 1, 1), rows[0].Date);
+
+        // 验证 TimeOnly
+        Assert.Equal(new TimeOnly(12, 0, 0), rows[0].Time);
     }
     [Fact]
     public void Test_Get_Column_As_Series()

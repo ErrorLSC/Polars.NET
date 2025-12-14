@@ -265,6 +265,26 @@ namespace Polars.NET.Core.Arrow
                     return null;
                 };
             }
+            if (underlyingType == typeof(DateOnly))
+            {
+                return idx => 
+                {
+                    DateOnly? v = array.GetDateOnly(idx);
+                    if (!v.HasValue) return null;
+                    return v.Value;
+                };
+            }
+
+            // [新增] TimeOnly
+            if (underlyingType == typeof(TimeOnly))
+            {
+                return idx => 
+                {
+                    TimeOnly? v = array.GetTimeOnly(idx);
+                    if (!v.HasValue) return null;
+                    return v.Value;
+                };
+            }
 
             // Fallback
             return _ => null;

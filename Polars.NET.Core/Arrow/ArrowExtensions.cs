@@ -34,7 +34,7 @@ public static class ArrowExtensions
             UInt64Array arr => arr.GetValue(index).ToString()!,
             FloatArray arr  => arr.GetValue(index).ToString()!,
             DoubleArray arr => arr.GetValue(index).ToString()!,
-
+            DictionaryArray dictArr => $"\"{dictArr.GetStringValue(index)}\"",
             // Strings
             StringArray sa      => $"\"{sa.GetString(index)}\"",
             LargeStringArray lsa => $"\"{lsa.GetString(index)}\"",
@@ -131,10 +131,23 @@ public static class ArrowExtensions
             StringArray sa       => sa.GetString(index),
             LargeStringArray lsa => lsa.GetString(index),
             StringViewArray sva  => sva.GetString(index),
+            DictionaryArray dictArr => UnpackDictionary(dictArr, index),
             _ => null
         };
     }
+    private static string? UnpackDictionary(DictionaryArray dictArr, int index)
+    {
+        // 1. 获取 Key (索引)
+        // Indices 可能是 Int8, Int16, Int32 等
+        var keys = dictArr.Indices;
+        long? key = keys.GetInt64Value(index); // 复用我们写的通用 Int 获取器
 
+        if (!key.HasValue) return null;
+
+        // 2. 从 Dictionary (Values) 中查找对应的 String
+        var values = dictArr.Dictionary;
+        return values.GetStringValue((int)key.Value);
+    }
     private static string FormatBinary(ReadOnlySpan<byte> bytes)
     {
         string hex = BitConverter.ToString(bytes.ToArray()).Replace("-", "").ToLower();
@@ -258,6 +271,61 @@ public static class ArrowExtensions
             _ => null
         };
     }
+    private static readonly int UnixEpochDayNumber = new DateOnly(1970, 1, 1).DayNumber;
+
+    public static DateOnly? GetDateOnly(this IArrowArray array, int index)
+    {
+        if (array.IsNull(index)) return null;
+
+        if (array is Date32Array d32)
+        {
+            int daysSinceEpoch = d32.GetValue(index)!.Value;
+            // C# DateOnly.FromDayNumber 是从 0001-01-01 开始算的
+            return DateOnly.FromDayNumber(UnixEpochDayNumber + daysSinceEpoch);
+        }
+        
+        // Date64 是毫秒，也可以转
+        if (array is Date64Array d64)
+        {
+            var dt = new DateTime(1970, 1, 1).AddMilliseconds(d64.GetValue(index)!.Value);
+            return DateOnly.FromDateTime(dt);
+        }
+
+        return null;
+    }
+
+    public static TimeOnly? GetTimeOnly(this IArrowArray array, int index)
+    {
+        if (array.IsNull(index)) return null;
+
+        // Time32 (Seconds / Milliseconds)
+        if (array is Time32Array t32)
+        {
+            var ms = t32.GetMilliSeconds(index); // Arrow Helper
+            if (ms.HasValue) 
+                return new TimeOnly(0, 0, 0).Add(TimeSpan.FromMilliseconds(ms.Value));
+            
+            // 如果单位是秒，可能要手动算，这里简化处理
+            return null; 
+        }
+
+        // Time64 (Microseconds / Nanoseconds)
+        if (array is Time64Array t64)
+        {
+            long v = t64.GetValue(index)!.Value;
+            var unit = (t64.Data.DataType as Time64Type)?.Unit;
+            
+            long ticks = unit switch
+            {
+                TimeUnit.Nanosecond => v / 100L, // 100ns = 1 tick
+                _ => v * 10L // Microsecond -> 100ns
+            };
+            return new TimeOnly(ticks);
+        }
+
+        return null;
+    }
+
 
     // ==========================================
     // Internal Conversion Logic

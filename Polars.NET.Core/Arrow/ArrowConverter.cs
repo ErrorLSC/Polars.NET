@@ -21,6 +21,8 @@ public static class ArrowConverter
             if (underlyingType == typeof(double)) return BuildDouble(data.Cast<double?>());
             if (underlyingType == typeof(bool)) return BuildBoolean(data.Cast<bool?>());
             if (underlyingType == typeof(string)) return BuildString(data.Cast<string?>());
+            if (underlyingType == typeof(DateOnly)) return BuildDate32(data.Cast<DateOnly?>());
+            if (underlyingType == typeof(TimeOnly)) return BuildTime64(data.Cast<TimeOnly?>());
 
             // 2. 递归支持 List<U>
             // 检查是否实现了 IEnumerable<U> 且不是 string
@@ -116,38 +118,62 @@ public static class ArrowConverter
 
         // --- 基础类型 Builders (简单搬运) ---
         
-        private static IArrowArray BuildInt32(IEnumerable<int?> data)
+        private static Int32Array BuildInt32(IEnumerable<int?> data)
         {
             var b = new Int32Array.Builder();
             foreach (var v in data) if (v.HasValue) b.Append(v.Value); else b.AppendNull();
             return b.Build();
         }
         
-        private static IArrowArray BuildInt64(IEnumerable<long?> data)
+        private static Int64Array BuildInt64(IEnumerable<long?> data)
         {
             var b = new Int64Array.Builder();
             foreach (var v in data) if (v.HasValue) b.Append(v.Value); else b.AppendNull();
             return b.Build();
         }
 
-        private static IArrowArray BuildDouble(IEnumerable<double?> data)
+        private static DoubleArray BuildDouble(IEnumerable<double?> data)
         {
             var b = new DoubleArray.Builder();
             foreach (var v in data) if (v.HasValue) b.Append(v.Value); else b.AppendNull();
             return b.Build();
         }
 
-        private static IArrowArray BuildBoolean(IEnumerable<bool?> data)
+        private static BooleanArray BuildBoolean(IEnumerable<bool?> data)
         {
             var b = new BooleanArray.Builder();
             foreach (var v in data) if (v.HasValue) b.Append(v.Value); else b.AppendNull();
             return b.Build();
         }
 
-        private static IArrowArray BuildString(IEnumerable<string?> data)
+        private static StringArray BuildString(IEnumerable<string?> data)
         {
             var b = new StringArray.Builder();
             foreach (var v in data) b.Append(v);
+            return b.Build();
+        }
+        // [新增] DateOnly -> Date32 (Days since epoch)
+        private static Date32Array BuildDate32(IEnumerable<DateOnly?> data)
+        {
+            var b = new Date32Array.Builder();
+            int epoch = new DateOnly(1970, 1, 1).DayNumber;
+            foreach (var v in data)
+            {
+                if (v.HasValue) b.Append(v.Value.ToDateTime(TimeOnly.MinValue));
+                else b.AppendNull();
+            }
+            return b.Build();
+        }
+
+        // [新增] TimeOnly -> Time64 (Microseconds)
+        private static Time64Array BuildTime64(IEnumerable<TimeOnly?> data)
+        {
+            var b = new Time64Array.Builder(TimeUnit.Microsecond); // 注意设置单位
+            foreach (var v in data)
+            {
+                if (v.HasValue) b.Append(v.Value.Ticks / 10L); // 1 tick = 100ns, 10 ticks = 1us
+                else b.AppendNull();
+            }
             return b.Build();
         }
     }
@@ -239,7 +265,7 @@ public static class ArrowConverter
                 .GetMethod(nameof(BuildColumn), BindingFlags.NonPublic | BindingFlags.Static)!
                 .MakeGenericMethod(typeof(TParent), propType);
 
-            return (IArrowArray)method.Invoke(null, new object[] { data, getter })!;
+            return (IArrowArray)method.Invoke(null, [data, getter])!;
         }
 
         /// <summary>
