@@ -1,44 +1,36 @@
-// Polars.NET.Core / Arrow / ArrowReader.cs
+using System.Collections;
 using System.Reflection;
 using Apache.Arrow;
-using Apache.Arrow.C;
+using Apache.Arrow.Types;
 
 namespace Polars.NET.Core.Arrow
 {
     public static class ArrowReader
     {
-        /// <summary>
-        /// Reads an Arrow RecordBatch into a sequence of C# objects.
-        /// </summary>
+        // ReadRecordBatch 保持不变，它只负责最外层的循环
         public static IEnumerable<T> ReadRecordBatch<T>(RecordBatch batch) where T : new()
         {
+            // ... (复用之前的逻辑) ...
+            // 只需要确保 CreateAccessor 被正确调用即可
+            
             int rowCount = batch.Length;
-
-            // 1. 准备反射元数据
             var type = typeof(T);
             var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                                 .Where(p => p.CanWrite)
-                                 .ToArray();
-
-            // 2. 预先绑定列读取器
+                                 .Where(p => p.CanWrite).ToArray();
+            
             var columnAccessors = new Func<int, object?>[properties.Length];
 
             for (int i = 0; i < properties.Length; i++)
             {
                 var prop = properties[i];
-                var col = batch.Column(prop.Name); // 这一步可以用 Dictionary 优化查找速度
+                var col = batch.Column(prop.Name); 
 
-                if (col == null)
-                {
-                    columnAccessors[i] = _ => null;
-                    continue;
-                }
+                if (col == null) { columnAccessors[i] = _ => null; continue; }
 
-                // [核心] 生成列读取器
+                // 这里开始进入递归逻辑
                 columnAccessors[i] = CreateAccessor(col, prop.PropertyType);
             }
 
-            // 3. 遍历行，填充对象
             for (int i = 0; i < rowCount; i++)
             {
                 var item = new T();
@@ -46,61 +38,177 @@ namespace Polars.NET.Core.Arrow
                 {
                     var accessor = columnAccessors[p];
                     var val = accessor(i);
-                    if (val != null)
-                    {
-                        properties[p].SetValue(item, val);
-                    }
+                    if (val != null) properties[p].SetValue(item, val);
                 }
                 yield return item;
             }
         }
 
-        // --- CreateAccessor 逻辑 (直接复用你写好的代码) ---
+        // =============================================================
+        // 🧠 核心：支持递归的 Accessor 工厂
+        // =============================================================
         private static Func<int, object?> CreateAccessor(IArrowArray array, Type targetType)
         {
-             // 引用 Polars.NET.Arrow.ArrowExtensions 里的扩展方法
-             var underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+            var underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
 
-             // 1. String
-             if (underlyingType == typeof(string))
-                 return array.GetStringValue; 
+            // ---------------------------------------------------------
+            // 1. StructArray -> Class / Struct (递归的核心)
+            // ---------------------------------------------------------
+            if (array is StructArray structArray)
+            {
+                // A. 准备子属性元数据
+                var props = underlyingType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                                          .Where(p => p.CanWrite).ToArray();
+                
+                var structType = (StructType)structArray.Data.DataType;
+                
+                // B. 预编译子字段的 Setter
+                // Action<object, int>: 传入目标对象(obj)和行号(rowIdx)，将 Arrow 值填入 obj
+                var setters = new List<Action<object, int>>();
 
-             // 2. Int / Long
-             if (underlyingType == typeof(int) || underlyingType == typeof(long))
-             {
-                 return idx => 
-                 {
-                     long? val = array.GetInt64Value(idx);
-                     if (!val.HasValue) return null;
-                     if (underlyingType == typeof(int)) return (int)val.Value;
-                     return val.Value;
-                 };
-             }
+                foreach (var prop in props)
+                {
+                    // 查找对应的 Arrow 列 (按名字匹配)
+                    // 注意：structType.Fields 保存元数据，structArray.Fields 保存实际数组
+                    int fieldIndex = structType.GetFieldIndex(prop.Name);
+                    
+                    if (fieldIndex == -1) continue; // C# 有属性但 Arrow 没列，跳过
 
-             // 3. Double / Float
-             if (underlyingType == typeof(double) || underlyingType == typeof(float))
-             {
-                 return idx => 
-                 {
-                     double? v = array.GetDoubleValue(idx);
+                    var childArray = structArray.Fields[fieldIndex];
+                    
+                    // [递归] 为子字段创建读取器！
+                    var childGetter = CreateAccessor(childArray, prop.PropertyType);
+
+                    // 创建 Setter 闭包
+                    setters.Add((obj, rowIdx) => 
+                    {
+                        var val = childGetter(rowIdx);
+                        if (val != null) prop.SetValue(obj, val);
+                    });
+                }
+
+                // C. 返回 Struct 读取器
+                return idx => 
+                {
+                    if (structArray.IsNull(idx)) return null;
+
+                    // 创建 POCO 实例
+                    var instance = Activator.CreateInstance(underlyingType);
+                    
+                    // 填充属性
+                    foreach (var setter in setters)
+                    {
+                        setter(instance!, idx);
+                    }
+                    return instance;
+                };
+            }
+
+            // ---------------------------------------------------------
+            // 2. ListArray -> List<T> / IEnumerable<T>
+            // ---------------------------------------------------------
+            if (array is ListArray listArray)
+            {
+                // 获取 List 泛型参数 TElement
+                // 假设 targetType 是 List<string>，elementType 就是 string
+                Type elementType = typeof(object);
+                if (targetType.IsGenericType)
+                {
+                     elementType = targetType.GetGenericArguments()[0];
+                }
+                else if (targetType.IsArray)
+                {
+                    elementType = targetType.GetElementType()!;
+                }
+
+                // [递归] 为 List 的 Values 数组创建读取器
+                // 注意：Values 数组是扁平的，索引不是 rowIdx，而是 offset 到 offset+len
+                var childArray = listArray.Values;
+                var childGetter = CreateAccessor(childArray, elementType);
+
+                return idx =>
+                {
+                    if (listArray.IsNull(idx)) return null;
+
+                    // 获取切片范围
+                    int start = listArray.ValueOffsets[idx];
+                    int end = listArray.ValueOffsets[idx+1];
+                    int count = end - start;
+
+                    // 创建 C# List
+                    // 这里我们需要反射创建泛型 List<TElement>
+                    var listType = typeof(List<>).MakeGenericType(elementType);
+                    var list = (IList)Activator.CreateInstance(listType, count)!;
+
+                    // 填充 List
+                    for (int k = 0; k < count; k++)
+                    {
+                        // 转换：当前行 List 的第 k 个元素，对应 Values 数组的 (start + k)
+                        var val = childGetter(start + k);
+                        // List add 会处理 null
+                        list.Add(val);
+                    }
+
+                    // 如果目标是数组，转数组
+                    if (targetType.IsArray)
+                    {
+                        var arr = System.Array.CreateInstance(elementType, list.Count);
+                        list.CopyTo(arr, 0);
+                        return arr;
+                    }
+
+                    return list;
+                };
+            }
+
+            // ---------------------------------------------------------
+            // 3. 基础类型 (String, Primitives, Date...)
+            // ---------------------------------------------------------
+            
+            if (underlyingType == typeof(string))
+                return array.GetStringValue;
+
+            if (underlyingType == typeof(int) || underlyingType == typeof(long))
+            {
+                return idx => 
+                {
+                    long? val = array.GetInt64Value(idx);
+                    if (!val.HasValue) return null;
+                    if (underlyingType == typeof(int)) return (int)val.Value;
+                    return val.Value;
+                };
+            }
+
+            if (underlyingType == typeof(double) || underlyingType == typeof(float))
+            {
+                return idx => 
+                {
+                    double? v = array.GetDoubleValue(idx);
+                    if (!v.HasValue) return null;
+                    if (underlyingType == typeof(float)) return (float)v.Value;
+                    return v.Value;
+                };
+            }
+
+            if (underlyingType == typeof(DateTime))
+            {
+                return idx => 
+                {
+                     DateTime? v = array.GetDateTime(idx);
                      if (!v.HasValue) return null;
-                     if (underlyingType == typeof(float)) return (float)v.Value;
                      return v.Value;
-                 };
-             }
-             
-             // 4. DateTime
-             if (underlyingType == typeof(DateTime))
-             {
-                 return idx => 
-                 {
-                      DateTime? v = array.GetDateTime(idx);
-                      if (!v.HasValue) return null;
-                      return v.Value;
-                 };
-             }
+                };
+            }
+            
+            if (underlyingType == typeof(bool))
+            {
+                return idx => 
+                {
+                     if (array is BooleanArray bArr) return bArr.GetValue(idx);
+                     return null;
+                };
+            }
 
-            // 5. Decimal
             if (underlyingType == typeof(decimal))
             {
                 return idx =>
@@ -119,18 +227,8 @@ namespace Polars.NET.Core.Arrow
                 };
             }
 
-            // 6. Bool
-            if (underlyingType == typeof(bool))
-            {
-                return idx => 
-                {
-                    if (array is BooleanArray bArr) return bArr.GetValue(idx);
-                    return null;
-                };
-            }
-
-        // 默认回退 (低效但安全)
-        return _ => null;
+            // Fallback
+            return _ => null;
         }
     }
 }

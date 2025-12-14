@@ -585,6 +585,70 @@ public class TradeRecord
         Assert.Equal(now.AddMinutes(1), row2.Timestamp);
         Assert.Equal(now.AddMinutes(2), row2.ProcessedAt);
     }
+    private class NestedItem
+    {
+        public string Key { get; set; }
+        public List<double> Values { get; set; }
+    }
+
+    private class ComplexContainer
+    {
+        public int Id { get; set; }
+        public NestedItem Info { get; set; } // Struct
+    }
+
+    [Fact]
+    public void Test_DataFrame_RoundTrip_ComplexStruct()
+    {
+        // 1. 准备数据
+        var data = new List<ComplexContainer>
+        {
+            new ComplexContainer 
+            { 
+                Id = 1, 
+                Info = new NestedItem { Key = "A", Values = new List<double> { 1.1, 2.2 } } 
+            },
+            new ComplexContainer 
+            { 
+                Id = 2, 
+                Info = null // Struct Null
+            },
+            new ComplexContainer 
+            { 
+                Id = 3, 
+                Info = new NestedItem { Key = "B", Values = new List<double> { 3.3 } } 
+            }
+        };
+
+        // 2. POCO -> DataFrame (Series.From + DataFrame)
+        // 这里用到了我们之前的 ArrowConverter + ArrowFfiBridge
+        using var s = Series.From("data", data); 
+        using var df = new DataFrame(s).Unnest("data"); // 炸开成 Id, Info
+
+        // Expected:
+        // Id (i64), Info (Struct)
+        
+        // 3. DataFrame -> POCO (Rows<T>)
+        // 这里用到刚写的 ArrowReader 递归逻辑
+        var results = df.Rows<ComplexContainer>().ToList();
+
+        // 4. 验证
+        Assert.Equal(3, results.Count);
+        
+        // Row 0
+        Assert.Equal(1, results[0].Id);
+        Assert.Equal("A", results[0].Info.Key);
+        Assert.Equal(2, results[0].Info.Values.Count);
+        Assert.Equal(2.2, results[0].Info.Values[1]);
+
+        // Row 1 (Struct Null)
+        Assert.Equal(2, results[1].Id);
+        Assert.Null(results[1].Info); // 完美还原 null
+
+        // Row 2
+        Assert.Equal("B", results[2].Info.Key);
+        Assert.Single(results[2].Info.Values);
+    }
     [Fact]
     public void Test_Get_Column_As_Series()
     {
