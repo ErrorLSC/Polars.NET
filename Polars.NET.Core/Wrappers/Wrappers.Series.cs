@@ -288,7 +288,7 @@ public static partial class PolarsWrapper
         // 3. 导出 (填充结构体)
         NativeBindings.pl_arrow_array_export(contextHandle, &cArray);
         NativeBindings.pl_arrow_schema_export(contextHandle, &cSchema);
-        
+        bool ownershipTransferred = false;
         // 4. 导入 (两步走)
         try
         {
@@ -298,7 +298,7 @@ public static partial class PolarsWrapper
             // [修复] 第二步：使用 DataType 导入 Array
             // 这样编译器就能匹配到 ImportArray(CArrowArray*, IArrowType)
             var array = CArrowArrayImporter.ImportArray(&cArray, importedField.DataType);
-            
+            ownershipTransferred = true;
             return array;
         }
         finally
@@ -306,6 +306,11 @@ public static partial class PolarsWrapper
             // 注意：CArrowArrayImporter 会接管 cArray 和 cSchema 指向的内部资源 (release 回调)
             // 所以我们不需要手动释放 cArray/cSchema 结构体本身的内容
             // 只需要释放 Rust 的 Context 壳子 (由 using contextHandle 自动完成)
+            if (!ownershipTransferred)
+            {
+                CArrowArray.Free(&cArray);
+                CArrowSchema.Free(&cSchema);
+            }
         }
     }
     /// <summary>

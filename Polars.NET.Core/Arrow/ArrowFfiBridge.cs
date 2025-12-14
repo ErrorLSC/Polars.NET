@@ -1,6 +1,7 @@
 // Polars.NET.Core / Arrow / ArrowFfiBridge.cs
 using Apache.Arrow;
 using Apache.Arrow.C;
+using Apache.Arrow.Types;
 
 namespace Polars.NET.Core.Arrow
 {
@@ -106,6 +107,36 @@ namespace Polars.NET.Core.Arrow
                 // 安全起见，Schema 总是 Free 是没问题的（它不持有大数据 buffer）。
                 CArrowSchema.Free(schema);
             }
+        }
+        /// <summary>
+        /// [New] Helper: Convert IEnumerable<T> directly to RecordBatch
+        /// This bridges the gap between ArrowConverter (returns Array) and ImportDataFrame (needs Batch).
+        /// </summary>
+        public static RecordBatch BuildRecordBatch<T>(IEnumerable<T> data)
+        {
+            // 1. 利用 ArrowConverter 构建 StructArray
+            // 这里会自动处理 F# Option, List, DateTime 等所有复杂逻辑
+            var arrowArray = ArrowConverter.Build(data);
+
+            // 2. 验证结果是否为 StructArray
+            // 因为 T 是 Record 或 Class，Build 出来一定是 StructArray
+            if (arrowArray is not StructArray structArray)
+            {
+                throw new ArgumentException($"Type {typeof(T).Name} did not result in a StructArray. Is it a primitive type? DataFrame.ofRecords expects objects/records.");
+            }
+
+            // 3. 将 StructArray 拆包为 RecordBatch
+            // RecordBatch 本质上就是 Schema + 列数组集合，而 StructArray 刚好包含这两样东西
+            
+            // StructType 包含了字段定义 (Schema 的核心)
+            var structType = (StructType)structArray.Data.DataType;
+            
+            // 构造 Schema
+            var schema = new Apache.Arrow.Schema(structType.Fields, null); // null for metadata
+
+            // 构造 RecordBatch
+            // structArray.Fields 就是各列的数据
+            return new RecordBatch(schema, structArray.Fields, structArray.Length);
         }
     }
 }

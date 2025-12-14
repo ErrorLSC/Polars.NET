@@ -224,27 +224,25 @@ id;date_col;val_col
         Assert.Equal(100L, df.Int("num", 0).Value)
         Assert.Equal(200L, df.Int("num", 1).Value)
         Assert.True(df.Int("num", 2).IsNone) // 验证空值传递
-
     [<Fact>]
-    member _.``Materialization: DataFrame to Records`` () =
-        let csv = "name,age,score,joined\nAlice,30,99.5,2023-01-01\nBob,25,,\n"
-        use tmp = new TempCsv(csv)
-        let df = DataFrame.ReadCsv (path=tmp.Path, tryParseDates=true)
+    member _.``Series: AsSeq Lifecycle & Complex Types`` () =
+    // 1. 创建包含复杂类型的 Series
+        let data = [
+            Some(DateTime(2023, 1, 1))
+            None
+            Some(DateTime(2024, 1, 1))
+        ]
+        use s = Series.ofSeq("dt", data)
 
-        let records = df.ToRecords<UserRecord>()
+        // 2. 惰性序列 (此时 Arrow Array 还没创建)
+        let seqData = s.AsSeq<DateTime>()
 
-        Assert.Equal(2, records.Length)
-        
-        let alice = records.[0]
-        Assert.Equal("Alice", alice.name)
-        Assert.Equal(30, alice.age)
-        Assert.Equal(Some 99.5, alice.score)
-        Assert.Equal(System.DateTime(2023,1,1), alice.joined.Value)
+        // 3. 触发迭代 (Arrow Array 创建 -> 读取 -> 释放)
+        let listData = seqData |> Seq.toList
 
-        let bob = records.[1]
-        Assert.Equal("Bob", bob.name)
-        Assert.Equal(None, bob.score)
-
+        Assert.Equal(3, listData.Length)
+        Assert.Equal(Some(DateTime(2023, 1, 1)), listData.[0])
+        Assert.True(listData.[1].IsNone)
     [<Fact>]
     member _.``Ingestion: Create DataFrame from F# Records`` () =
         // 1. 定义数据
@@ -255,7 +253,7 @@ id;date_col;val_col
 
         // 2. 转换 (ofRecords)
         let df = DataFrame.ofRecords data
-        
+
         // 3. 验证结构
         Assert.Equal(2L, df.Rows)
         Assert.Equal(4L, df.Columns)

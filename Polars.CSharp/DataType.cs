@@ -138,83 +138,83 @@ public class DataType : IDisposable
     /// <summary>
     /// Boolean
     /// </summary>
-    public static DataType Boolean => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Boolean), DataTypeKind.Boolean);
+    public static DataType Boolean => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Boolean), DataTypeKind.Boolean);
     /// <summary>
     /// Int8
     /// </summary>
-    public static DataType Int8    => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int8), DataTypeKind.Int8);
+    public static DataType Int8    => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int8), DataTypeKind.Int8);
     /// <summary>
     /// Int16
     /// </summary>
-    public static DataType Int16   => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int16), DataTypeKind.Int16);
+    public static DataType Int16   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int16), DataTypeKind.Int16);
     /// <summary>
     /// Int32
     /// </summary>
-    public static DataType Int32   => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int32), DataTypeKind.Int32);
+    public static DataType Int32   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int32), DataTypeKind.Int32);
     /// <summary>
     /// Int64
     /// </summary>
-    public static DataType Int64   => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int64), DataTypeKind.Int64);
+    public static DataType Int64   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int64), DataTypeKind.Int64);
     /// <summary>
     /// UInt8
     /// </summary>
-    public static DataType UInt8   => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt8), DataTypeKind.UInt8);
+    public static DataType UInt8   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt8), DataTypeKind.UInt8);
     /// <summary>
     /// UInt16
     /// </summary>
-    public static DataType UInt16  => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt16), DataTypeKind.UInt16);
+    public static DataType UInt16  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt16), DataTypeKind.UInt16);
     /// <summary>
     /// UInt32
     /// </summary>
-    public static DataType UInt32  => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt32), DataTypeKind.UInt32);
+    public static DataType UInt32  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt32), DataTypeKind.UInt32);
     /// <summary>
     /// UInt64
     /// </summary>
-    public static DataType UInt64  => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt64), DataTypeKind.UInt64);
+    public static DataType UInt64  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt64), DataTypeKind.UInt64);
     /// <summary>
     /// Float32
     /// </summary>
-    public static DataType Float32 => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Float32), DataTypeKind.Float32);
+    public static DataType Float32 => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Float32), DataTypeKind.Float32);
     /// <summary>
     /// Float64
     /// </summary>
-    public static DataType Float64 => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Float64), DataTypeKind.Float64);
+    public static DataType Float64 => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Float64), DataTypeKind.Float64);
     /// <summary>
     /// String
     /// </summary>
-    public static DataType String  => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.String), DataTypeKind.String);
+    public static DataType String  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.String), DataTypeKind.String);
     /// <summary>
     /// DateOnly
     /// </summary>
-    public static DataType Date    => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Date), DataTypeKind.Date);
+    public static DataType Date    => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Date), DataTypeKind.Date);
     /// <summary>
     /// DateTime
     /// </summary>
-    public static DataType Datetime=> new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Datetime), DataTypeKind.Datetime);
+    public static DataType Datetime=> new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Datetime), DataTypeKind.Datetime);
     /// <summary>
     /// TimeOnly
     /// </summary>
-    public static DataType Time    => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Time), DataTypeKind.Time);
+    public static DataType Time    => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Time), DataTypeKind.Time);
     /// <summary>
     /// Duration
     /// </summary>
-    public static DataType Duration=> new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Duration), DataTypeKind.Duration);
+    public static DataType Duration=> new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Duration), DataTypeKind.Duration);
     /// <summary>
     /// Binary
     /// </summary>
-    public static DataType Binary  => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Binary), DataTypeKind.Binary);
+    public static DataType Binary  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Binary), DataTypeKind.Binary);
     /// <summary>
     /// Null
     /// </summary>
-    public static DataType Null  => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Null), DataTypeKind.Null);
+    public static DataType Null  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Null), DataTypeKind.Null);
     /// <summary>
     /// Struct
     /// </summary>
-    public static DataType Struct  => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.Struct), DataTypeKind.Struct);
+    public static DataType Struct  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Struct), DataTypeKind.Struct);
     /// <summary>
     /// SameAsInput
     /// </summary>
-    public static DataType SameAsInput => new DataType(PolarsWrapper.NewPrimitiveType((int)PlDataType.SameAsInput), DataTypeKind.Unknown);
+    public static DataType SameAsInput => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.SameAsInput), DataTypeKind.Unknown);
 
     // ==========================================
     // Complex Factories (Methods)
@@ -226,12 +226,12 @@ public class DataType : IDisposable
     /// <param name="scale"></param>
     /// <returns></returns>
     public static DataType Decimal(int precision, int scale) 
-        => new DataType(PolarsWrapper.NewDecimalType(precision, scale), DataTypeKind.Decimal);
+        => new(PolarsWrapper.NewDecimalType(precision, scale), DataTypeKind.Decimal);
     /// <summary>
     /// Categorical
     /// </summary>
     public static DataType Categorical 
-        => new DataType(PolarsWrapper.NewCategoricalType(), DataTypeKind.Categorical);
+        => new(PolarsWrapper.NewCategoricalType(), DataTypeKind.Categorical);
 }
 /// <summary>
 /// Enum of DataTypeKind

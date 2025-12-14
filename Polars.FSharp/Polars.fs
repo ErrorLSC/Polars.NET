@@ -10,7 +10,6 @@ open System.Threading.Tasks
 /// </summary>
 module Polars =
     
-    
     // --- Factories ---
     /// <summary> Reference a column by name. </summary>
     let col (name: string) = new Expr(PolarsWrapper.Col name)
@@ -126,6 +125,14 @@ module Polars =
         let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
         let h = PolarsWrapper.Explode(df.Handle, handles)
         new DataFrame(h)
+    let unnestColumn(column: string) (df:DataFrame) : DataFrame =
+        let cols = [| column |]
+        let newHandle = PolarsWrapper.Unnest(df.Handle, cols)
+        new DataFrame(newHandle)
+    let unnestColumns(columns: string list) (df:DataFrame) : DataFrame =
+        let cArr = List.toArray columns
+        let newHandle = PolarsWrapper.Unnest(df.Handle, cArr)
+        new DataFrame(newHandle)
 
     // --- Reshaping (Eager) ---
 

@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Security.AccessControl;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 
@@ -13,6 +14,23 @@ public static class ArrowConverter
         public static IArrowArray Build<T>(IEnumerable<T> data)
         {
             var type = typeof(T);
+            // [新增] 0. 顶层 F# Option 解包
+            // 将 seq<Option<U>> 视为 seq<U?> 处理，生成扁平的 Arrow Array
+            if (FSharpHelper.IsFSharpOption(type))
+            {
+                var innerType = FSharpHelper.GetUnderlyingType(type);
+                
+                // 获取针对 Option<U> 的解包器
+                var unwrapper = FSharpHelper.CreateOptionUnwrapper(type);
+
+                // 动态调用 HandleFSharpOption<InnerType>
+                var method = typeof(ArrowConverter)
+                    .GetMethod(nameof(HandleFSharpOption), BindingFlags.NonPublic | BindingFlags.Static)!
+                    .MakeGenericMethod(innerType);
+
+                // 注意：data 是 IEnumerable<Option<U>>，我们当作 IEnumerable<object> 传进去处理
+                return (IArrowArray)method.Invoke(null, new object[] { data, unwrapper })!;
+            }
             var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
 
             // 1. 基础类型 (Primitives & String)
@@ -23,7 +41,8 @@ public static class ArrowConverter
             if (underlyingType == typeof(string)) return BuildString(data.Cast<string?>());
             if (underlyingType == typeof(DateOnly)) return BuildDate32(data.Cast<DateOnly?>());
             if (underlyingType == typeof(TimeOnly)) return BuildTime64(data.Cast<TimeOnly?>());
-
+            if (underlyingType == typeof(DateTime)) return BuildTimestamp(data.Cast<DateTime?>());
+            if (underlyingType == typeof(TimeSpan)) return BuildDuration(data.Cast<TimeSpan?>());
             // 2. 递归支持 List<U>
             // 检查是否实现了 IEnumerable<U> 且不是 string
             if (type != typeof(string) && 
@@ -117,7 +136,61 @@ public static class ArrowConverter
         }
 
         // --- 基础类型 Builders (简单搬运) ---
-        
+        /// <summary>
+        /// 中转方法：判断 U 是值类型还是引用类型，分发到不同的构建器
+        /// </summary>
+        private static IArrowArray HandleFSharpOption<U>(IEnumerable<object> data, Func<object, object?> unwrapper)
+        {
+            if (typeof(U).IsValueType)
+            {
+                // 值类型 (int, double, DateTime...) -> 需要转为 Nullable<U>
+                // 必须通过反射调用带 where T : struct 约束的方法，才能让编译器允许 (T?)null 写法
+                var method = typeof(ArrowConverter)
+                    .GetMethod(nameof(BuildStructOption), BindingFlags.NonPublic | BindingFlags.Static)!
+                    .MakeGenericMethod(typeof(U));
+                return (IArrowArray)method.Invoke(null, [data, unwrapper])!;
+            }
+            else
+            {
+                // 引用类型 (string, List...) -> 直接转为 U (因为 U 本身可空)
+                return BuildClassOption<U>(data, unwrapper);
+            }
+        }
+
+        /// <summary>
+        /// 专门处理值类型的 Option (如 Option<int>, Option<DateTime>)
+        /// 约束: where T : struct
+        /// </summary>
+        private static IArrowArray BuildStructOption<T>(IEnumerable<object> data, Func<object, object?> unwrapper) 
+            where T : struct
+        {
+            // 将 IEnumerable<FSharpOption<T>> 转换为 IEnumerable<T?>
+            var nullableData = data.Select(item => 
+            {
+                var val = unwrapper(item);
+                // 这里编译器终于开心了，因为 T 是 struct，T? 是合法的 Nullable<T>
+                return val == null ? (T?)null : (T)val;
+            });
+            
+            // 递归调用主入口 Build<T?>
+            return Build(nullableData);
+        }
+
+        /// <summary>
+        /// 专门处理引用类型的 Option (如 Option<string>, Option<List<int>>)
+        /// </summary>
+        private static IArrowArray BuildClassOption<T>(IEnumerable<object> data, Func<object, object?> unwrapper)
+        {
+            // 将 IEnumerable<FSharpOption<T>> 转换为 IEnumerable<T>
+            var classData = data.Select(item => 
+            {
+                var val = unwrapper(item);
+                return (T)val!; // val 为 null 时直接转为 T (对于引用类型 T，null 是合法的)
+            });
+
+            // 递归调用主入口 Build<T>
+            return Build(classData);
+        }
         private static Int32Array BuildInt32(IEnumerable<int?> data)
         {
             var b = new Int32Array.Builder();
@@ -173,6 +246,56 @@ public static class ArrowConverter
             {
                 if (v.HasValue) b.Append(v.Value.Ticks / 10L); // 1 tick = 100ns, 10 ticks = 1us
                 else b.AppendNull();
+            }
+            return b.Build();
+        }
+        // [新增] DateTime -> Timestamp (Microsecond)
+        private static TimestampArray BuildTimestamp(IEnumerable<DateTime?> data)
+        {
+            // Polars 默认倾向于 Microsecond 或 Nanosecond
+            // C# Ticks 是 100ns。为了兼顾范围和精度，我们选 Microsecond (us)
+            // 1 us = 10 Ticks
+            var b = new TimestampArray.Builder(TimeUnit.Microsecond);
+            
+            // 基准时间 1970-01-01 (UTC)
+            long epochTicks = DateTime.UnixEpoch.Ticks; 
+
+            foreach (var v in data)
+            {
+                if (v.HasValue)
+                {
+                    // 必须转为 DateTimeOffset
+                    // 这里我们假设传入的时间是 UTC (TimeSpan.Zero)，这是最安全的做法
+                    // Arrow 会自动计算它距离 1970-01-01 的微秒数
+                    var dto = new DateTimeOffset(v.Value, TimeSpan.Zero);
+                    b.Append(dto);
+                }
+                else 
+                {
+                    b.AppendNull();
+                }
+            }
+            return b.Build();
+        }
+        private static DurationArray BuildDuration(IEnumerable<TimeSpan?> data)
+        {
+            // Polars 默认 Duration 是 Microsecond 或 Nanosecond
+            // C# TimeSpan.Ticks 是 100ns
+            // 我们选择 Microsecond (us) 以保持与 Timestamp 的一致性
+            var b = new DurationArray.Builder(DurationType.Microsecond);
+
+            foreach (var v in data)
+            {
+                if (v.HasValue)
+                {
+                    // Ticks (100ns) -> Microseconds (1000ns)
+                    // 除以 10
+                    b.Append(v.Value.Ticks / 10L);
+                }
+                else
+                {
+                    b.AppendNull();
+                }
             }
             return b.Build();
         }
@@ -260,19 +383,33 @@ public static class ArrowConverter
         /// </summary>
         private static IArrowArray ProjectAndBuild<TParent>(IList<TParent> data, Type propType, Func<TParent, object?> getter)
         {
+            bool isFSharpOption = FSharpHelper.IsFSharpOption(propType);
+            Type underlyingType = isFSharpOption ? FSharpHelper.GetUnderlyingType(propType) : propType;
+            Type targetType = underlyingType.IsValueType 
+                ? typeof(Nullable<>).MakeGenericType(underlyingType) 
+                : underlyingType;
             // 利用反射调用泛型的 BuildColumn<TParent, TProp>
             var method = typeof(StructBuilderHelper)
                 .GetMethod(nameof(BuildColumn), BindingFlags.NonPublic | BindingFlags.Static)!
-                .MakeGenericMethod(typeof(TParent), propType);
+                .MakeGenericMethod(typeof(TParent), targetType);
 
-            return (IArrowArray)method.Invoke(null, [data, getter])!;
+            return (IArrowArray)method.Invoke(null, [data, getter, isFSharpOption, propType])!;
         }
 
         /// <summary>
         /// 实际执行数据投影和构建的方法
         /// </summary>
-        private static IArrowArray BuildColumn<TParent, TProp>(IList<TParent> data, Func<TParent, object?> getter)
+        private static IArrowArray BuildColumn<TParent, TProp>(
+            IList<TParent> data, 
+            Func<TParent, object?> getter, 
+            bool isOption, 
+            Type originalType)
         {
+            Func<object, object?>? unwrapper = null;
+            if (isOption)
+            {
+                unwrapper = FSharpHelper.CreateOptionUnwrapper(originalType);
+            }
             // 1. 投影数据 (Projection)
             // 把 List<Parent> 变成 IEnumerable<Prop>
             var columnData = data.Select(item => 
@@ -281,11 +418,18 @@ public static class ArrowConverter
                 // StructArray 的 ValidityBitmap 会负责标记这一行为空，所以这里填充默认值是安全的
                 if (item == null) return default;
 
-                var val = getter(item);
+                var rawVal = getter(item);
                 
                 // 处理值类型拆箱
-                if (val == null) return default;
-                return (TProp)val;
+                if (rawVal == null) return default;
+                // [关键] 如果是 Option，先解包
+                if (isOption)
+                {
+                    var unwrapped = unwrapper!(rawVal);
+                    if (unwrapped == null) return default;
+                    return (TProp)unwrapped;
+                }
+                return (TProp)rawVal;
             });
 
             // 2. [递归] 调用通用转换器
@@ -297,7 +441,7 @@ public static class ArrowConverter
         }
 
         // =================================================================
-        // 表达式树优化 Getter (和之前一样)
+        // 表达式树优化 Getter
         // =================================================================
         private static Func<T, object?> CompileGetter<T>(PropertyInfo propertyInfo)
         {

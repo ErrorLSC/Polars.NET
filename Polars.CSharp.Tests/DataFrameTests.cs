@@ -699,6 +699,58 @@ public class TradeRecord
         // 验证 TimeOnly
         Assert.Equal(new TimeOnly(12, 0, 0), rows[0].Time);
     }
+    private class TimeFamily
+    {
+        public DateOnly Date { get; set; }
+        public TimeOnly Time { get; set; }
+        public DateTime Stamp { get; set; }
+        public TimeSpan Duration { get; set; } // 新兄弟
+    }
+
+    [Fact]
+    public void Test_TimeFamily_Reunion()
+    {
+        // 1. 准备数据
+        var data = new List<TimeFamily>
+        {
+            new TimeFamily 
+            {
+                Date = new DateOnly(2025, 1, 1),
+                Time = new TimeOnly(14, 30, 0),
+                Stamp = new DateTime(2025, 1, 1, 14, 30, 0),
+                Duration = TimeSpan.FromHours(1.5) + TimeSpan.FromMicroseconds(50) // 1.5小时 + 50微秒
+            },
+            new TimeFamily 
+            {
+                Date = new DateOnly(1999, 12, 31),
+                Time = new TimeOnly(23, 59, 59),
+                Stamp = DateTime.UnixEpoch,
+                Duration = TimeSpan.FromDays(365) // 1年
+            }
+        };
+
+        // 2. 写入 Polars (ArrowConverter 生效)
+        using var s = Series.From("times", data);
+        using var df = new DataFrame(s).Unnest("times");
+
+        Console.WriteLine(df);
+        // 检查 Schema，Duration 应该被识别
+        Assert.Equal(DataTypeKind.Duration, df.Schema["Duration"].Kind);
+
+        // 3. 读取 Polars (ArrowReader + ArrowExtensions 生效)
+        var rows = df.Rows<TimeFamily>().ToList();
+
+        // 4. 验证 Duration
+        // Row 0
+        Assert.Equal(TimeSpan.FromHours(1.5) + TimeSpan.FromMicroseconds(50), rows[0].Duration);
+        
+        // Row 1
+        Assert.Equal(TimeSpan.FromDays(365), rows[1].Duration);
+
+        // 顺手验证其他兄弟
+        Assert.Equal(new DateOnly(2025, 1, 1), rows[0].Date);
+        Assert.Equal(new TimeOnly(14, 30, 0), rows[0].Time);
+    }
     [Fact]
     public void Test_Get_Column_As_Series()
     {

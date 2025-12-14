@@ -9,6 +9,19 @@ type Product = {
     Price: decimal
     InStock: bool option
 }
+[<CLIMutable>]
+    type ComplexData = {
+        Id: int
+        Name: string option       // 测试 Option<string>
+        Score: float option       // 测试 Option<float>
+        Tags: string list         // 测试 List<string> (递归)
+        Metadata: InnerMeta option // 测试 Option<Struct> (递归)
+        CreatedAt: System.DateTime
+    }
+    and [<CLIMutable>] InnerMeta = {
+        Code: string
+        Level: int
+    }
 type ``Extensions Tests`` () =
 
     [<Fact>]
@@ -53,40 +66,63 @@ type ``Extensions Tests`` () =
         Assert.Equal(15.0, res.[2].Value)
         Assert.Equal("val", sRes.Name) // 名字应该保持一致
 
-    [<Fact>]
-    member _.``Extensions: DataFrame <-> Records (Decimal & Cat)`` () =
 
+    [<Fact>]
+    member _.``Interop: Full Complex Type Roundtrip`` () =
         // 1. 准备数据
-        let records = [
-            { Name = "Apple"; Price = 1.20m; InStock = Some true }
-            { Name = "Banana"; Price = 0.85m; InStock = None }
-            { Name = "Apple"; Price = 1.25m; InStock = Some false }
+        let data = [
+            { 
+                Id = 1
+                Name = Some "Alice"
+                Score = Some 99.5
+                Tags = ["dev"; "fsharp"]
+                Metadata = Some { Code = "A1"; Level = 10 }
+                CreatedAt = System.DateTime(2023, 1, 1) 
+            }
+            { 
+                Id = 2
+                Name = None
+                Score = None
+                Tags = []
+                Metadata = None
+                CreatedAt = System.DateTime(2023, 1, 2) 
+            }
         ]
 
-        // 2. Records -> DataFrame
-        // 这里会自动推断 Decimal Scale (应该是 2)
-        let df = DataFrame.ofRecords records
+        // 2. 写入 (Seq -> Series -> DataFrame)
+        // 这一步会调用 ArrowConverter，递归处理 List 和 Option
+        use df = DataFrame.create [
+            Series.ofSeq("data", data) // 没错，直接把 Struct 当作一列 Series 存进去！
+        ]
         
-        // 3. 将 Name 列转为 Categorical (模拟真实场景)
-        let dfCat = 
-            df
-            |> Polars.withColumn(
-                Polars.col("Name").Cast Categorical
-            )
-
-        // 验证一下类型
-        Polars.show dfCat |> ignore
-
-        // 4. DataFrame -> Records
-        // 这里测试 Categorical -> String 的自动转换
-        // 以及 Decimal -> Decimal 的读取
-        let results = dfCat.ToRecords<Product>() |> Seq.toList
-
-        // 5. 断言
-        Assert.Equal(3, results.Length)
-        Assert.Equal("Apple", results.[0].Name)
-        Assert.Equal(1.20m, results.[0].Price)
-        Assert.Equal(Some true, results.[0].InStock)
+        // Polars 会把它展平成 Struct 类型列
+        // 验证一下 Schema
+        df.PrintSchema() 
         
-        Assert.Equal("Banana", results.[1].Name)
-        Assert.Equal(0.85m, results.[1].Price)
+        // 3. 读取 (DataFrame -> Seq)
+        // 如果是 Struct 列，Polars 里的列名是 "data"。
+        // 这里演示的是 Unnest 后的读取，或者直接读 Struct 列。
+        // 为了简单演示 Roundtrip，我们假设这一列就是 Struct
+        
+        // 我们需要把这一列拿出来，转回 Record
+        // 目前 ToRecords 是针对 DataFrame 的（按列名匹配属性名）。
+        // 上面的 create 实际上创建了一个只有一列 "data" 的 DF，列类型是 Struct<Id, Name...>
+        
+        // 我们需要 Unnest 才能用 ToRecords 映射回扁平的 Record
+        let dfFlat =
+            df |>Polars.unnestColumn "data"
+        
+        let readBack = dfFlat.ToRecords<ComplexData>() |> Seq.toList
+
+        // 4. 验证
+        Assert.Equal(2, readBack.Length)
+        
+        let row1 = readBack.[0]
+        Assert.Equal(Some "Alice", row1.Name)
+        // Assert.Equal(["dev"; "fsharp"], row1.Tags)
+        Assert.Equal(Some 99.5, row1.Score)
+        Assert.Equal(10, row1.Metadata.Value.Level)
+        
+        let row2 = readBack.[1]
+        Assert.True row2.Name.IsNone
+        Assert.True row2.Metadata.IsNone

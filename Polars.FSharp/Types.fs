@@ -4,6 +4,7 @@ open System
 open Polars.NET.Core
 open Apache.Arrow
 open System.Collections.Generic
+open Polars.NET.Core.Arrow
 /// <summary>
 /// Polars data types for casting and schema definitions.
 /// </summary>
@@ -793,68 +794,6 @@ type Series(handle: SeriesHandle) =
         else if t = typeof<TimeSpan> then Series.create(name, data |> Seq.cast<TimeSpan option>)
         else failwithf "Unsupported type for Series.ofOptionSeq: %A" t
 
-    /// <summary>
-    /// Smart Constructor:
-    /// 1. Handles primitive types (int, double...).
-    /// 2. Handles Option types (int option...) by forwarding to ofOptionSeq.
-    /// 3. Handles Decimal types (decimal, decimal option) by inferring scale.
-    /// </summary>
-    static member ofSeq<'T>(name: string, data: seq<'T>) : Series =
-        let t = typeof<'T>
-
-        let getDecimalScale (d: decimal) =
-            let bits = System.Decimal.GetBits(d)
-            bits.[3] >>> 16 &&& 0xFF
-
-        // A. 检查是否是 Option 类型 (例如 int option)
-        if t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<option<_>> then
-            let innerType = t.GetGenericArguments().[0]
-            
-            // 针对 decimal option 特殊处理 (为了 Scale)
-            if innerType = typeof<decimal> then
-                let arr = data |> Seq.cast<decimal option> |> Seq.toArray
-                // 扫描数据计算最大 Scale
-                let maxScale = 
-                    if arr.Length = 0 then 0 
-                    else 
-                        arr 
-                        |> Array.choose id 
-                        |> Array.map getDecimalScale 
-                        |> Array.append [| 0 |] 
-                        |> Array.max
-                Series.create(name, arr, maxScale)
-            else if innerType = typeof<DateTime> then 
-                Series.create(name, data |> Seq.cast<DateTime option>)
-            else if innerType = typeof<DateOnly> then Series.create(name, data |> Seq.cast<DateOnly option>)
-            else if innerType = typeof<TimeOnly> then Series.create(name, data |> Seq.cast<TimeOnly option>)
-            else if innerType = typeof<TimeSpan> then Series.create(name, data |> Seq.cast<TimeSpan option>)
-            // 其他 Option 类型 -> 转发给 ofOptionSeq
-            else if innerType = typeof<int> then Series.ofOptionSeq(name, data |> Seq.cast<int option>)
-            else if innerType = typeof<int64> then Series.ofOptionSeq(name, data |> Seq.cast<int64 option>)
-            else if innerType = typeof<double> then Series.ofOptionSeq(name, data |> Seq.cast<double option>)
-            else if innerType = typeof<bool> then Series.ofOptionSeq(name, data |> Seq.cast<bool option>)
-            else if innerType = typeof<string> then Series.ofOptionSeq(name, data |> Seq.cast<string option>)
-            else failwithf "Unsupported Option type inside ofSeq: %A" innerType
-
-        // B. 处理普通类型 (Non-Option)
-        else
-            if t = typeof<int> then Series.create(name, data |> Seq.cast<int>)
-            else if t = typeof<DateOnly> then Series.create(name, data |> Seq.cast<DateOnly>)
-            else if t = typeof<TimeOnly> then Series.create(name, data |> Seq.cast<TimeOnly>)
-            else if t = typeof<TimeSpan> then Series.create(name, data |> Seq.cast<TimeSpan>)
-            else if t = typeof<int64> then Series.create(name, data |> Seq.cast<int64>)
-            else if t = typeof<double> then Series.create(name, data |> Seq.cast<double>)
-            else if t = typeof<bool> then Series.create(name, data |> Seq.cast<bool>)
-            else if t = typeof<string> then Series.create(name, data |> Seq.cast<string>)
-            else if t = typeof<DateTime> then Series.create(name, data |> Seq.cast<DateTime>)
-            else if t = typeof<decimal> then 
-                let arr = data |> Seq.cast<decimal> |> Seq.toArray
-                let maxScale = 
-                    if arr.Length = 0 then 0 
-                    else arr |> Array.map getDecimalScale |> Array.max
-                Series.create(name, arr, maxScale)
-            else 
-                failwithf "Unsupported type for Series.ofSeq: %A" t
     // --- Scalar Access ---
     
     /// <summary> Get value as Int64 Option. Handles Int32/Int64 etc. </summary>
@@ -1145,7 +1084,7 @@ and DataFrame(handle: DataFrameHandle) =
         
         new DataFrame(PolarsWrapper.SampleFrac(handle, frac, replace, shuff, s))
     // Interop
-    member this.ToArrow() = PolarsWrapper.Collect handle
+    member this.ToArrow() = ArrowFfiBridge.ExportDataFrame handle
     member _.Rows = PolarsWrapper.DataFrameHeight handle
     member _.Columns = PolarsWrapper.DataFrameWidth handle
     member _.ColumnNames = PolarsWrapper.GetColumnNames handle |> Array.toList

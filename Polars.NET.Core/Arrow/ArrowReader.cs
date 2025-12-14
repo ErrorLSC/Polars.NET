@@ -49,37 +49,50 @@ namespace Polars.NET.Core.Arrow
         // =============================================================
         private static Func<int, object?> CreateAccessor(IArrowArray array, Type targetType)
         {
-            var underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+            // ---------------------------------------------------------
+            // 0. 类型解析 (Type Resolution)
+            // ---------------------------------------------------------
+            bool isFSharpOption = FSharpHelper.IsFSharpOption(targetType);
+            
+            // 获取 "真实" 的处理类型
+            // 如果是 Option<int> -> int
+            // 如果是 int?        -> int
+            // 如果是 List<T>     -> List<T>
+            var underlyingType = isFSharpOption 
+                ? FSharpHelper.GetUnderlyingType(targetType) 
+                : (Nullable.GetUnderlyingType(targetType) ?? targetType);
+
+            // 定义基础读取器 (返回 C# 对象或 null)
+            Func<int, object?> baseAccessor = null!;
 
             // ---------------------------------------------------------
-            // 1. StructArray -> Class / Struct (递归的核心)
+            // 1. StructArray -> Class / Struct
             // ---------------------------------------------------------
             if (array is StructArray structArray)
             {
-                // A. 准备子属性元数据
                 var props = underlyingType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                                           .Where(p => p.CanWrite).ToArray();
                 
                 var structType = (StructType)structArray.Data.DataType;
-                
-                // B. 预编译子字段的 Setter
-                // Action<object, int>: 传入目标对象(obj)和行号(rowIdx)，将 Arrow 值填入 obj
                 var setters = new List<Action<object, int>>();
 
                 foreach (var prop in props)
                 {
-                    // 查找对应的 Arrow 列 (按名字匹配)
-                    // 注意：structType.Fields 保存元数据，structArray.Fields 保存实际数组
-                    int fieldIndex = structType.GetFieldIndex(prop.Name);
-                    
-                    if (fieldIndex == -1) continue; // C# 有属性但 Arrow 没列，跳过
+                    // 手动查找 Arrow 列索引
+                    int fieldIndex = -1;
+                    for (int k = 0; k < structType.Fields.Count; k++)
+                    {
+                        if (structType.Fields[k].Name == prop.Name) { fieldIndex = k; break; }
+                    }
+
+                    if (fieldIndex == -1) continue;
 
                     var childArray = structArray.Fields[fieldIndex];
                     
-                    // [递归] 为子字段创建读取器！
+                    // [递归] 这里的 prop.PropertyType 可能是 Option<T>
+                    // 递归调用会自动处理它
                     var childGetter = CreateAccessor(childArray, prop.PropertyType);
 
-                    // 创建 Setter 闭包
                     setters.Add((obj, rowIdx) => 
                     {
                         var val = childGetter(rowIdx);
@@ -87,207 +100,173 @@ namespace Polars.NET.Core.Arrow
                     });
                 }
 
-                // C. 返回 Struct 读取器
-                return idx => 
+                baseAccessor = idx => 
                 {
                     if (structArray.IsNull(idx)) return null;
-
-                    // 创建 POCO 实例
-                    var instance = Activator.CreateInstance(underlyingType);
-                    
-                    // 填充属性
-                    foreach (var setter in setters)
-                    {
-                        setter(instance!, idx);
-                    }
+                    var instance = Activator.CreateInstance(underlyingType)!;
+                    foreach (var setter in setters) setter(instance, idx);
                     return instance;
                 };
             }
-
             // ---------------------------------------------------------
-            // 2. ListArray -> List<T> / IEnumerable<T>
+            // 2. ListArray / LargeListArray -> List<T>
             // ---------------------------------------------------------
-            if (array is ListArray listArray)
+            else if (array is ListArray || array is LargeListArray)
             {
-                // 获取 List 泛型参数 TElement
-                // 假设 targetType 是 List<string>，elementType 就是 string
-                Type elementType = typeof(object);
-                if (targetType.IsGenericType)
+                // 统一处理 List 和 LargeList 的共性逻辑
+                IArrowArray valuesArray;
+                Func<int, long> getOffset;
+                Func<int, bool> isNull;
+
+                if (array is ListArray listArr)
                 {
-                     elementType = targetType.GetGenericArguments()[0];
+                    valuesArray = listArr.Values;
+                    getOffset = i => listArr.ValueOffsets[i];
+                    isNull = listArr.IsNull;
                 }
-                else if (targetType.IsArray)
+                else
                 {
-                    elementType = targetType.GetElementType()!;
+                    var largeArr = (LargeListArray)array;
+                    valuesArray = largeArr.Values;
+                    getOffset = i => largeArr.ValueOffsets[i];
+                    isNull = largeArr.IsNull;
                 }
 
-                // [递归] 为 List 的 Values 数组创建读取器
-                // 注意：Values 数组是扁平的，索引不是 rowIdx，而是 offset 到 offset+len
-                var childArray = listArray.Values;
-                var childGetter = CreateAccessor(childArray, elementType);
-
-                return idx =>
-                {
-                    if (listArray.IsNull(idx)) return null;
-
-                    // 获取切片范围
-                    int start = listArray.ValueOffsets[idx];
-                    int end = listArray.ValueOffsets[idx+1];
-                    int count = end - start;
-
-                    // 创建 C# List
-                    // 这里我们需要反射创建泛型 List<TElement>
-                    var listType = typeof(List<>).MakeGenericType(elementType);
-                    var list = (IList)Activator.CreateInstance(listType, count)!;
-
-                    // 填充 List
-                    for (int k = 0; k < count; k++)
-                    {
-                        // 转换：当前行 List 的第 k 个元素，对应 Values 数组的 (start + k)
-                        var val = childGetter(start + k);
-                        // List add 会处理 null
-                        list.Add(val);
-                    }
-
-                    // 如果目标是数组，转数组
-                    if (targetType.IsArray)
-                    {
-                        var arr = System.Array.CreateInstance(elementType, list.Count);
-                        list.CopyTo(arr, 0);
-                        return arr;
-                    }
-
-                    return list;
-                };
-            }
-            if (array is LargeListArray largeListArray)
-            {
+                // 解析 List 元素类型
                 Type elementType = typeof(object);
-                if (targetType.IsGenericType) elementType = targetType.GetGenericArguments()[0];
-                else if (targetType.IsArray) elementType = targetType.GetElementType()!;
+                if (underlyingType.IsGenericType) elementType = underlyingType.GetGenericArguments()[0];
+                else if (underlyingType.IsArray) elementType = underlyingType.GetElementType()!;
+                bool isFSharpList = underlyingType.IsGenericType && 
+                                    (underlyingType.GetGenericTypeDefinition().FullName == "Microsoft.FSharp.Collections.FSharpList`1");
 
-                // LargeList 的 Values 依然是 IArrowArray
-                var childArray = largeListArray.Values;
-                var childGetter = CreateAccessor(childArray, elementType);
+                // [递归] 为元素创建读取器
+                var childGetter = CreateAccessor(valuesArray, elementType);
 
-                return idx =>
+                baseAccessor = idx =>
                 {
-                    if (largeListArray.IsNull(idx)) return null;
+                    if (isNull(idx)) return null;
 
-                    // [注意] LargeList 的 Offsets 是 long
-                    long start = largeListArray.ValueOffsets[idx];
-                    long end = largeListArray.ValueOffsets[idx+1];
-                    long longCount = end - start;
-                    int count = (int)longCount; // C# List 限制 int 长度
+                    long start = getOffset(idx);
+                    long end = getOffset(idx + 1);
+                    int count = (int)(end - start);
 
                     var listType = typeof(List<>).MakeGenericType(elementType);
                     var list = (IList)Activator.CreateInstance(listType, count)!;
 
                     for (int k = 0; k < count; k++)
                     {
-                        // Values 数组下标是 (int)(start + k)
                         var val = childGetter((int)(start + k));
                         list.Add(val);
                     }
 
-                    if (targetType.IsArray)
+                    if (underlyingType.IsArray)
                     {
                         var arr = System.Array.CreateInstance(elementType, list.Count);
                         list.CopyTo(arr, 0);
                         return arr;
                     }
+                    if (isFSharpList)
+                    {
+                        return FSharpHelper.ToFSharpList(list, elementType);
+                    }
                     return list;
                 };
             }
+            // ---------------------------------------------------------
+            // 3. 基础类型 (Primitives)
+            // ---------------------------------------------------------
+            else
+            {
+                if (underlyingType == typeof(string))
+                    baseAccessor = array.GetStringValue;
+
+                else if (underlyingType == typeof(int) || underlyingType == typeof(long))
+                {
+                    baseAccessor = idx => 
+                    {
+                        long? val = array.GetInt64Value(idx);
+                        if (!val.HasValue) return null;
+                        if (underlyingType == typeof(int)) return (int)val.Value;
+                        return val.Value;
+                    };
+                }
+
+                else if (underlyingType == typeof(double) || underlyingType == typeof(float))
+                {
+                    baseAccessor = idx => 
+                    {
+                        double? v = array.GetDoubleValue(idx);
+                        if (!v.HasValue) return null;
+                        if (underlyingType == typeof(float)) return (float)v.Value;
+                        return v.Value;
+                    };
+                }
+
+                else if (underlyingType == typeof(decimal))
+                {
+                    baseAccessor = idx =>
+                    {
+                        if (array is Decimal128Array decArr) return decArr.GetValue(idx);
+                        if (array is DoubleArray dArr) return dArr.GetValue(idx) is double v ? (decimal)v : (decimal?)null;
+                        return null;
+                    };
+                }
+
+                else if (underlyingType == typeof(bool))
+                {
+                    baseAccessor = idx => (array as BooleanArray)?.GetValue(idx);
+                }
+
+                else if (underlyingType == typeof(DateTime))
+                {
+                    baseAccessor = idx => array.GetDateTime(idx);
+                }
+
+                else if (underlyingType == typeof(DateOnly))
+                {
+                    baseAccessor = idx => array.GetDateOnly(idx);
+                }
+
+                else if (underlyingType == typeof(TimeOnly))
+                {
+                    baseAccessor = idx => array.GetTimeOnly(idx);
+                }
+                else if (underlyingType == typeof(TimeSpan))
+                {
+                    baseAccessor = idx => 
+                    {
+                        TimeSpan? v = array.GetTimeSpan(idx); // 调用 ArrowExtensions
+                        if (!v.HasValue) return null;
+                        return v.Value;
+                    };
+                }
+            }
 
             // ---------------------------------------------------------
-            // 3. 基础类型 (String, Primitives, Date...)
+            // 4. 收尾：F# Option 包装
             // ---------------------------------------------------------
             
-            if (underlyingType == typeof(string))
-                return array.GetStringValue;
+            // 如果没有匹配到任何读取器，返回 null 读取器
+            if (baseAccessor == null) return _ => null;
 
-            if (underlyingType == typeof(int) || underlyingType == typeof(long))
+            // 如果目标是 F# Option，我们需要把 null 转为 None，把 value 转为 Some(value)
+            if (isFSharpOption)
             {
-                return idx => 
-                {
-                    long? val = array.GetInt64Value(idx);
-                    if (!val.HasValue) return null;
-                    if (underlyingType == typeof(int)) return (int)val.Value;
-                    return val.Value;
-                };
+                var wrapper = FSharpHelper.CreateOptionWrapper(targetType);
+                return idx => wrapper(baseAccessor(idx));
             }
 
-            if (underlyingType == typeof(double) || underlyingType == typeof(float))
-            {
-                return idx => 
-                {
-                    double? v = array.GetDoubleValue(idx);
-                    if (!v.HasValue) return null;
-                    if (underlyingType == typeof(float)) return (float)v.Value;
-                    return v.Value;
-                };
-            }
-
-            if (underlyingType == typeof(DateTime))
-            {
-                return idx => 
-                {
-                     DateTime? v = array.GetDateTime(idx);
-                     if (!v.HasValue) return null;
-                     return v.Value;
-                };
-            }
-            
-            if (underlyingType == typeof(bool))
-            {
-                return idx => 
-                {
-                     if (array is BooleanArray bArr) return bArr.GetValue(idx);
-                     return null;
-                };
-            }
-
-            if (underlyingType == typeof(decimal))
-            {
-                return idx =>
-                {
-                    if (array is Decimal128Array decArr)
-                    {
-                        return decArr.GetValue(idx); // Arrow 自动处理了 Scale，返回 C# decimal?
-                    }
-                    // 兼容：如果 Polars 传回的是 Double (还没转 Decimal)，尝试强转
-                    if (array is DoubleArray dArr)
-                    {
-                        var v = dArr.GetValue(idx);
-                        return v.HasValue ? (decimal)v.Value : null;
-                    }
-                    return null;
-                };
-            }
-            if (underlyingType == typeof(DateOnly))
-            {
-                return idx => 
-                {
-                    DateOnly? v = array.GetDateOnly(idx);
-                    if (!v.HasValue) return null;
-                    return v.Value;
-                };
-            }
-
-            // [新增] TimeOnly
-            if (underlyingType == typeof(TimeOnly))
-            {
-                return idx => 
-                {
-                    TimeOnly? v = array.GetTimeOnly(idx);
-                    if (!v.HasValue) return null;
-                    return v.Value;
-                };
-            }
-
-            // Fallback
-            return _ => null;
+            return baseAccessor;
+        }
+        /// <summary>
+        /// [New] Create a high-performance accessor for a single Arrow Array.
+        /// Used by Series.AsSeq().
+        /// </summary>
+        public static Func<int, object?> GetSeriesAccessor<T>(IArrowArray array)
+        {
+            // 直接复用 CreateAccessor 的强大逻辑
+            // 它支持 DateTime 转换, F# List 转换, 甚至 Struct 递归
+            return CreateAccessor(array, typeof(T));
         }
     }
 }
