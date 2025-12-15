@@ -152,29 +152,29 @@ public class Series : IDisposable
             // =========================================================
             // 1. Integers
             // =========================================================
-            if (dtype == "Int32") return GetValue<int>(index);
-            if (dtype == "Int64") return GetValue<long>(index);
-            if (dtype == "Int16") return GetValue<short>(index);
-            if (dtype == "Int8")  return GetValue<sbyte>(index);
+            if (dtype == "i32") return GetValue<int>(index);
+            if (dtype == "i64") return GetValue<long>(index);
+            if (dtype == "i16") return GetValue<short>(index);
+            if (dtype == "i8")  return GetValue<sbyte>(index);
             
-            if (dtype == "UInt32") return GetValue<uint>(index);
-            if (dtype == "UInt64") return GetValue<ulong>(index);
-            if (dtype == "UInt16") return GetValue<ushort>(index);
-            if (dtype == "UInt8")  return GetValue<byte>(index);
+            if (dtype == "u32") return GetValue<uint>(index);
+            if (dtype == "u64") return GetValue<ulong>(index);
+            if (dtype == "u16") return GetValue<ushort>(index);
+            if (dtype == "u8")  return GetValue<byte>(index);
 
             // =========================================================
             // 2. Floats & Decimal
             // =========================================================
-            if (dtype == "Float64") return GetValue<double>(index);
-            if (dtype == "Float32") return GetValue<float>(index);
+            if (dtype == "f64") return GetValue<double>(index);
+            if (dtype == "f32") return GetValue<float>(index);
             if (dtype.StartsWith("decimal")) return GetValue<decimal>(index);
 
             // =========================================================
             // 3. String & Bool
             // =========================================================
-            if (dtype == "String") return GetValue<string>(index);
-            if (dtype == "Boolean") return GetValue<bool>(index);
-            if (dtype == "Binary") return GetValue<byte[]>(index);
+            if (dtype == "str") return GetValue<string>(index);
+            if (dtype == "bool") return GetValue<bool>(index);
+            if (dtype == "binary") return GetValue<byte[]>(index);
 
             // =========================================================
             // 4. Temporal (我们新加的兄弟们)
@@ -197,7 +197,7 @@ public class Series : IDisposable
             // 5. Complex Types (Struct, List)
             // =========================================================
             // 对于复杂类型，我们无法推断用户想映射成什么 C# 类，所以抛错引导
-            if (dtype.StartsWith("Struct") || dtype.StartsWith("List"))
+            if (dtype.StartsWith("struct") || dtype.StartsWith("list"))
             {
                 throw new NotSupportedException(
                     $"Cannot access complex type '{dtype}' via non-generic indexer. " +
