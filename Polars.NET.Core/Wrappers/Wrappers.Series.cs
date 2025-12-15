@@ -357,6 +357,12 @@ public static partial class PolarsWrapper
     public static SeriesHandle SeriesMean(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_mean(s));
     public static SeriesHandle SeriesMin(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_min(s));
     public static SeriesHandle SeriesMax(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_max(s));
+    // Slice
+    public static SeriesHandle SeriesSlice(SeriesHandle handle, long offset, long length)
+    {
+        // 将 long 长度转为 UIntPtr
+        return ErrorHelper.Check(NativeBindings.pl_series_slice(handle, offset, (UIntPtr)length));
+    }
     // DataType Helpers
     public static DataTypeHandle NewPrimitiveType(int code) => NativeBindings.pl_datatype_new_primitive(code);
     public static DataTypeHandle NewDecimalType(int precision, int scale) => NativeBindings.pl_datatype_new_decimal((UIntPtr)precision, (UIntPtr)scale);

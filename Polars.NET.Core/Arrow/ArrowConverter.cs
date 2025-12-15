@@ -41,6 +41,7 @@ public static class ArrowConverter
             if (underlyingType == typeof(DateOnly)) return BuildDate32(data.Cast<DateOnly?>());
             if (underlyingType == typeof(TimeOnly)) return BuildTime64(data.Cast<TimeOnly?>());
             if (underlyingType == typeof(DateTime)) return BuildTimestamp(data.Cast<DateTime?>());
+            if (underlyingType == typeof(DateTimeOffset)) return BuildDateTimeOffset(data.Cast<DateTimeOffset?>());
             if (underlyingType == typeof(TimeSpan)) return BuildDuration(data.Cast<TimeSpan?>());
             // 2. 递归支持 List<U>
             // 检查是否实现了 IEnumerable<U> 且不是 string
@@ -255,21 +256,44 @@ public static class ArrowConverter
             // C# Ticks 是 100ns。为了兼顾范围和精度，我们选 Microsecond (us)
             // 1 us = 10 Ticks
             var b = new TimestampArray.Builder(TimeUnit.Microsecond);
-            
-            // 基准时间 1970-01-01 (UTC)
-            long epochTicks = DateTime.UnixEpoch.Ticks; 
 
             foreach (var v in data)
             {
                 if (v.HasValue)
                 {
-                    // 必须转为 DateTimeOffset
-                    // 这里我们假设传入的时间是 UTC (TimeSpan.Zero)，这是最安全的做法
-                    // Arrow 会自动计算它距离 1970-01-01 的微秒数
-                    var dto = new DateTimeOffset(v.Value, TimeSpan.Zero);
+                    DateTime val = v.Value;
+                    
+                    // 1. 如果是 Local，转 UTC
+                    if (val.Kind == DateTimeKind.Local)
+                    {
+                        val = val.ToUniversalTime();
+                    }
+                    // 2. 如果是 Unspecified，我们默认它就是“墙上时间”（即 Naive），
+                    //    或者你可以选择把它当 UTC。Polars 默认通常喜欢 Naive。
+                    //    这里我们保持原值，但在转 Offset 时设为 Zero (UTC)
+                    
+                    var dto = new DateTimeOffset(val, TimeSpan.Zero);
                     b.Append(dto);
                 }
                 else 
+                {
+                    b.AppendNull();
+                }
+            }
+            return b.Build();
+        }
+        private static TimestampArray BuildDateTimeOffset(IEnumerable<DateTimeOffset?> data)
+        {
+            var b = new TimestampArray.Builder(TimeUnit.Microsecond);
+            
+            foreach (var v in data)
+            {
+                if (v.HasValue)
+                {
+                    // Arrow Builder 会自动把 DateTimeOffset 归一化为 UTC
+                    b.Append(v.Value); 
+                }
+                else
                 {
                     b.AppendNull();
                 }

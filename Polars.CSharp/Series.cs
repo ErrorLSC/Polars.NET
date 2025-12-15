@@ -105,22 +105,22 @@ public class Series : IDisposable
         if (underlying == typeof(decimal))
             return (T?)(object?)PolarsWrapper.SeriesGetDecimal(Handle, index);
 
-        // 5. Temporal (Time)
-        if (underlying == typeof(DateTime))
-        {
-            // [修复逻辑] 检查 Series 实际的 DataType
-            // 如果底层是 Date 类型 (Int32)，不能调 GetDatetime (期望 Int64)
-            // 而应该调 GetDate (得到 DateOnly)，再转为 DateTime
-            if (this.DataTypeName == "date") 
-            {
-                var dateOnly = PolarsWrapper.SeriesGetDate(Handle, index);
-                if (dateOnly == null) return default; // 处理空值
-                return (T)(object)dateOnly.Value.ToDateTime(TimeOnly.MinValue);
-            }
+        // // 5. Temporal (Time)
+        // if (underlying == typeof(DateTime))
+        // {
+        //     // [修复逻辑] 检查 Series 实际的 DataType
+        //     // 如果底层是 Date 类型 (Int32)，不能调 GetDatetime (期望 Int64)
+        //     // 而应该调 GetDate (得到 DateOnly)，再转为 DateTime
+        //     if (this.DataTypeName == "date") 
+        //     {
+        //         var dateOnly = PolarsWrapper.SeriesGetDate(Handle, index);
+        //         if (dateOnly == null) return default; // 处理空值
+        //         return (T)(object)dateOnly.Value.ToDateTime(TimeOnly.MinValue);
+        //     }
 
-            // 只有当底层真的是 Datetime 类型时，才调这个
-            return (T?)(object?)PolarsWrapper.SeriesGetDatetime(Handle, index);
-        }
+        //     // 只有当底层真的是 Datetime 类型时，才调这个
+        //     return (T?)(object?)PolarsWrapper.SeriesGetDatetime(Handle, index);
+        // }
 
         if (underlying == typeof(DateOnly))
             return (T?)(object?)PolarsWrapper.SeriesGetDate(Handle, index);
@@ -131,7 +131,26 @@ public class Series : IDisposable
         if (underlying == typeof(TimeSpan))
             return (T?)(object?)PolarsWrapper.SeriesGetDuration(Handle, index);
 
-        throw new NotSupportedException($"Type {type.Name} is not supported for Series.GetValue.");
+        // ==============================================================
+        // 🐢 慢车道 (Universal Path) - 使用 Arrow Infrastructure
+        // 针对 Struct, List, F# Option, DateTimeOffset 等复杂类型
+        // ==============================================================
+        
+        // 1. 切片：只取这一行
+        using var slice = this.Slice(index, 1);
+        
+        // 2. 导出为 Arrow Array
+        // 因为 ArrowReader 需要 IArrowArray，我们暂时没有 Series.ToArrow 直接绑定
+        // 所以我们把它包在 DataFrame 里导出，然后取第一列
+        using var df = new DataFrame(slice);
+        using var batch = df.ToArrow(); // 调用 Core 层的 ExportDataFrame
+        var column = batch.Column(0);
+
+        // 3. 使用强大的 ArrowReader 解析
+        // 这里会自动处理 Struct 递归、F# Option 解包、DateTimeOffset 时区归一化
+        return ArrowReader.ReadItem<T>(column, 0);
+
+        // throw new NotSupportedException($"Type {type.Name} is not supported for Series.GetValue.");
     }
     
     /// <summary>
@@ -831,6 +850,33 @@ public class Series : IDisposable
     {
         // SeriesCast 返回一个新的 Series Handle
         return new Series(PolarsWrapper.SeriesCast(Handle, dtype.Handle));
+    }
+    /// <summary>
+    /// Get a slice of this Series.
+    /// </summary>
+    /// <param name="offset">Start index. Negative values count from the end.</param>
+    /// <param name="length">Length of the slice.</param>
+    public Series Slice(long offset, long length)
+    {
+        var newHandle = PolarsWrapper.SeriesSlice(Handle, offset, length);
+        return new Series(newHandle);
+    }
+    /// <summary>
+    /// Convert Series to Arrow Array
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public T[] ToArray<T>()
+    {
+        // 1. 转为 DataFrame (为了用 ToArrow 导出 Batch)
+        using var df = new DataFrame(this);
+        using var batch = df.ToArrow();
+        
+        // 2. 取第一列
+        var col = batch.Column(0);
+        
+        // 3. 读取
+        return ArrowReader.ReadColumn<T>(col);
     }
     // ==========================================
     // Null Checks & Boolean Masks

@@ -206,6 +206,13 @@ pub extern "C" fn pl_series_rename(ptr: *mut SeriesContext, name: *const c_char)
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_series_slice(series: *mut Series, offset: i64, length: usize) -> *mut Series {
+    let s = unsafe { &*series };
+    let new_s = s.slice(offset, length);
+    Box::into_raw(Box::new(new_s))
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_series_dtype_str(s_ptr: *mut SeriesContext) -> *mut c_char {
     let ctx = unsafe { &*s_ptr };
     let dtype_str = ctx.series.dtype().to_string();

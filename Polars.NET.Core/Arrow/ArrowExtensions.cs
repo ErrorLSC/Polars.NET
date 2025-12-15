@@ -326,6 +326,53 @@ public static class ArrowExtensions
         return null;
     }
 
+    public static DateTimeOffset? GetDateTimeOffset(this IArrowArray array, int index)
+        {
+            if (array.IsNull(index)) return null;
+
+            // 1. TimestampArray (最常见的情况)
+            if (array is TimestampArray tsArr)
+            {
+                // GetValue 返回的是 long? (原始数值)
+                long? v = tsArr.GetValue(index);
+                if (!v.HasValue) return null;
+
+                // 获取单位 (Microsecond, Nanosecond, etc.)
+                var unit = (tsArr.Data.DataType as TimestampType)?.Unit;
+                
+                // 将原始数值转换为 C# Ticks (100ns)
+                long ticks = unit switch
+                {
+                    TimeUnit.Nanosecond => v.Value / 100L,
+                    TimeUnit.Microsecond => v.Value * 10L,
+                    TimeUnit.Millisecond => v.Value * 10000L,
+                    TimeUnit.Second => v.Value * 10000000L,
+                    _ => v.Value
+                };
+
+                // 加上 Unix Epoch (1970-01-01) 的 Ticks，构造 UTC 的 DateTimeOffset
+                // 注意：这里我们明确指定 Offset 为 Zero (UTC)
+                return new DateTimeOffset(DateTime.UnixEpoch.Ticks + ticks, TimeSpan.Zero);
+            }
+            
+            // 2. 兼容 Date32 (Days)
+            if (array is Date32Array d32)
+            {
+                int? days = d32.GetValue(index);
+                if (!days.HasValue) return null;
+                return new DateTimeOffset(new DateTime(1970, 1, 1).AddDays(days.Value), TimeSpan.Zero);
+            }
+            
+            // 3. 兼容 Date64 (Milliseconds)
+            if (array is Date64Array d64)
+            {
+                long? ms = d64.GetValue(index);
+                if (!ms.HasValue) return null;
+                return new DateTimeOffset(new DateTime(1970, 1, 1).AddMilliseconds(ms.Value), TimeSpan.Zero);
+            }
+                
+            return null;
+        }
 
     // ==========================================
     // Internal Conversion Logic

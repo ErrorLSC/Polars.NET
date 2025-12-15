@@ -569,6 +569,12 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)]
     public static partial bool pl_series_get_duration(SeriesHandle s, UIntPtr idx, out long val);
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_slice(
+        SeriesHandle series, 
+        long offset, 
+        UIntPtr length
+    );
     // --- Series Constructors ---
     // DataFrame -> Series (ByName)
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]

@@ -249,4 +249,130 @@ public class DataTypeTests
         Assert.Equal(new DateOnly(2025, 1, 1), rows[0].Date);
         Assert.Equal(new TimeOnly(14, 30, 0), rows[0].Time);
     }
+    [Fact]
+    public void Test_TimeZone_Normalization()
+    {
+        var now = DateTime.Now; // Local Time
+        var utcNow = DateTime.UtcNow;
+        var offsetNow = DateTimeOffset.Now; // Local Offset (e.g., +08:00)
+
+        var data = new List<object> { now, utcNow, offsetNow };
+
+        // 这里的 List<object> 会让 Converter 困惑，我们分开测更严谨
+        // 测试 1: DateTime (Local vs UTC)
+        var dates = new List<DateTime> { now, utcNow };
+        using var s1 = Series.From("dates", dates);
+        // 读取回来，应该都是 UTC 时间点
+        // 注意：Ticks 比较时，ToUniversalTime() 后的 Ticks 应该一致
+        
+        using var df1 = new DataFrame(s1);
+        var readDates = df1.Rows<DateTime>().ToList();
+        
+        // 验证：读回来的时间点（Ticks）应该等于原始时间转 UTC 后的 Ticks
+        // 允许微秒级误差 (Arrow截断)
+        long tolerance = 10000; // 1ms
+        Assert.InRange(readDates[0].Ticks - now.ToUniversalTime().Ticks, -tolerance, tolerance);
+
+        // 测试 2: DateTimeOffset
+        var offsets = new List<DateTimeOffset> { offsetNow };
+        using var s2 = Series.From("offsets", offsets);
+        
+        using var df2 = new DataFrame(s2);
+        var readOffsets = df2.Rows<DateTimeOffset>().ToList();
+
+        // 验证：Arrow 存的是 UTC，读回来也是 UTC (+00:00)
+        // 但代表的“绝对时间点”必须相等
+        Assert.Equal(TimeSpan.Zero, readOffsets[0].Offset); // 读回来变成 UTC 了
+        Assert.InRange(readOffsets[0].UtcTicks - offsetNow.UtcTicks, -tolerance, tolerance);
+    }
+    [Fact]
+    public void Test_TimeZone_Normalization_Clean()
+    {
+        // 1. 准备数据
+        // 故意取一个带时区的时间 (Local) 和一个 UTC 时间
+        var nowLocal = DateTime.Now;           // e.g. 12:00 +08:00 (UTC 04:00)
+        var nowUtc = DateTime.UtcNow;          // e.g. 04:00 Z
+        var offsetNow = DateTimeOffset.Now;    // e.g. 12:00 +08:00
+
+        // =========================================================
+        // Test 1: DateTime (Local -> UTC Normalization)
+        // =========================================================
+        
+        // 存入 Series
+        var dates = new List<DateTime> { nowLocal, nowUtc };
+        using var sDates = Series.From("dates", dates);
+
+        // 读取 (使用新加的 ToArray 或者 GetValue)
+        var resDates = sDates.ToArray<DateTime>();
+
+        // 验证
+        // Arrow 存的是微秒，.NET 是 100ns，会有精度损失，允许 100 Ticks (10微秒) 的误差
+        long tolerance = 100; 
+
+        // 验证 1: Local 时间是否被正确转为了 UTC 时间戳
+        // 我们比较的是 Ticks（绝对时间点）
+        long expectedTicks1 = nowLocal.ToUniversalTime().Ticks;
+        long actualTicks1 = resDates[0].Ticks;
+        
+        // 打印调试信息 (如果挂了方便看)
+        // Expected: ~638377776000000000
+        // Actual:   ~638377776000000000 (Last digit might be 0 due to microsecond truncation)
+        Assert.InRange(actualTicks1 - expectedTicks1, -tolerance, tolerance);
+
+        // 验证 2: UTC 时间是否保持一致
+        long expectedTicks2 = nowUtc.Ticks;
+        long actualTicks2 = resDates[1].Ticks;
+        Assert.InRange(actualTicks2 - expectedTicks2, -tolerance, tolerance);
+
+        // =========================================================
+        // Test 2: DateTimeOffset (Offset -> UTC Zero)
+        // =========================================================
+        
+        var offsets = new List<DateTimeOffset> { offsetNow };
+        using var sOffsets = Series.From("offsets", offsets);
+
+        var resOffsets = sOffsets.ToArray<DateTimeOffset>();
+
+        // 验证 1: 读回来必须是 UTC (Offset 为 0)
+        Assert.Equal(TimeSpan.Zero, resOffsets[0].Offset);
+
+        // 验证 2: 绝对时间点 (UtcTicks) 必须相等
+        Assert.InRange(resOffsets[0].UtcTicks - offsetNow.UtcTicks, -tolerance, tolerance);
+    }
+    [Fact]
+    public void Test_GetValue_Complex()
+    {
+        // 1. 准备 Struct 数据
+        var data = new List<ComplexContainer>
+        {
+            new ComplexContainer { Id = 1, Info = new NestedItem { Key = "K1" } },
+            new ComplexContainer { Id = 2, Info = new NestedItem { Key = "K2" } }
+        };
+        using var s = Series.From("data", data); // Struct Series
+
+        // 2. 直接 GetValue<T> (Struct)
+        var item1 = s.GetValue<ComplexContainer>(0);
+        Assert.Equal("K1", item1.Info.Key);
+
+        var item2 = s.GetValue<ComplexContainer>(1);
+        Assert.Equal("K2", item2.Info.Key);
+    }
+    
+    [Fact]
+    public void Test_GetValue_List()
+    {
+        // 1. 准备 List 数据
+        var data = new List<List<int>>
+        {
+            new List<int> { 1, 2 },
+            new List<int> { 3 }
+        };
+        using var s = Series.From("list", data);
+
+        // 2. 直接 GetValue<List<int>>
+        var list0 = s.GetValue<List<int>>(0);
+        Assert.Equal(2, list0.Count);
+        Assert.Equal(2, list0[1]);
+    }
+    
 }

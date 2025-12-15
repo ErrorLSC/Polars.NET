@@ -8,15 +8,36 @@ namespace Polars.NET.Core.Arrow
     public static class ArrowReader
     {
         // ReadRecordBatch 保持不变，它只负责最外层的循环
-        public static IEnumerable<T> ReadRecordBatch<T>(RecordBatch batch) where T : new()
+        public static IEnumerable<T> ReadRecordBatch<T>(RecordBatch batch)
         {
-            // ... (复用之前的逻辑) ...
-            // 只需要确保 CreateAccessor 被正确调用即可
+            
+            var targetType = typeof(T);
+
+            // [新增] 模式 A: 标量模式 (Scalar Mode)
+            // 解决 Rows<int>, Rows<DateTime>, Rows<string> 等问题
+            if (IsScalarType(targetType))
+            {
+                if (batch.ColumnCount == 0) yield break;
+
+                var col = batch.Column(0);
+                var accessor = CreateAccessor(col, targetType);
+                int count = batch.Length;
+
+                for (int i = 0; i < count; i++)
+                {
+                    var val = accessor(i);
+                    yield return val == null ? default! : (T)val;
+                }
+                yield break;
+            }
+            // [原有] 模式 B: 对象映射模式 (Object Mapping Mode)
+            // 适用于 POCO (class/struct)
             
             int rowCount = batch.Length;
-            var type = typeof(T);
-            var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                                 .Where(p => p.CanWrite).ToArray();
+            
+            // 获取可写属性
+            var properties = targetType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                                       .Where(p => p.CanWrite).ToArray();
             
             var columnAccessors = new Func<int, object?>[properties.Length];
 
@@ -25,15 +46,22 @@ namespace Polars.NET.Core.Arrow
                 var prop = properties[i];
                 var col = batch.Column(prop.Name); 
 
-                if (col == null) { columnAccessors[i] = _ => null; continue; }
+                if (col == null) 
+                {
+                    // 可以选择抛错，或者静默跳过（返回 null）
+                    columnAccessors[i] = _ => null; 
+                    continue; 
+                }
 
-                // 这里开始进入递归逻辑
                 columnAccessors[i] = CreateAccessor(col, prop.PropertyType);
             }
 
             for (int i = 0; i < rowCount; i++)
             {
-                var item = new T();
+                // 使用 Activator 创建实例，不再依赖 new() 约束
+                // ! 压制可能的 null警告（假设 T 是 POCO）
+                var item = Activator.CreateInstance<T>()!; 
+                
                 for (int p = 0; p < properties.Length; p++)
                 {
                     var accessor = columnAccessors[p];
@@ -221,7 +249,10 @@ namespace Polars.NET.Core.Arrow
                 {
                     baseAccessor = idx => array.GetDateTime(idx);
                 }
-
+                else if (underlyingType == typeof(DateTimeOffset))
+                {
+                    baseAccessor = idx => array.GetDateTimeOffset(idx);
+                }
                 else if (underlyingType == typeof(DateOnly))
                 {
                     baseAccessor = idx => array.GetDateOnly(idx);
@@ -258,6 +289,22 @@ namespace Polars.NET.Core.Arrow
 
             return baseAccessor;
         }
+        // --- 辅助方法：判断是否为标量类型 ---
+        private static bool IsScalarType(Type t)
+        {
+            var underlying = Nullable.GetUnderlyingType(t) ?? t;
+
+            return underlying.IsPrimitive 
+                || underlying == typeof(string)
+                || underlying == typeof(decimal)
+                || underlying == typeof(DateTime)
+                || underlying == typeof(DateOnly)
+                || underlying == typeof(TimeOnly)
+                || underlying == typeof(TimeSpan)
+                || underlying == typeof(DateTimeOffset)
+                // F# Option 如果包裹的是标量，也视为标量
+                || FSharpHelper.IsFSharpOption(t); 
+        }
         /// <summary>
         /// [New] Create a high-performance accessor for a single Arrow Array.
         /// Used by Series.AsSeq().
@@ -268,5 +315,29 @@ namespace Polars.NET.Core.Arrow
             // 它支持 DateTime 转换, F# List 转换, 甚至 Struct 递归
             return CreateAccessor(array, typeof(T));
         }
+        public static T[] ReadColumn<T>(IArrowArray array)
+        {
+            var accessor = CreateAccessor(array, typeof(T));
+            int len = array.Length;
+            var result = new T[len];
+            
+            for (int i = 0; i < len; i++)
+            {
+                var val = accessor(i);
+                // 处理拆箱和 null
+                result[i] = val == null ? default! : (T)val;
+            }
+            return result;
+        }
+        /// <summary>
+        /// [新增] 读取单个 Array 的第 i 个元素
+        /// </summary>
+        public static T? ReadItem<T>(IArrowArray array, int index)
+        {
+            var accessor = CreateAccessor(array, typeof(T));
+            var val = accessor(index);
+            return val == null ? default : (T)val;
+        }
     }
+    
 }
