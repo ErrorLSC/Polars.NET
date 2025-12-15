@@ -329,6 +329,30 @@ public class SeriesTests
         Assert.IsType<Decimal128Array>(arrowArray);
     }
     [Fact]
+    public void Test_Series_Constructor_DateTimeOffset()
+    {
+        var now = DateTimeOffset.Now;
+        var data = new DateTimeOffset[] { now, now.AddHours(1) };
+
+        // 1. 测试非空构造函数
+        using var s1 = new Series("dto", data);
+        Assert.Equal("dto", s1.Name);
+        Assert.Equal(2, s1.Length);
+
+        // 验证数据 (使用我们刚修好的 GetValue)
+        var v0 = s1.GetValue<DateTimeOffset>(0);
+        // 验证 UTC 时间点一致
+        Assert.Equal(now.UtcTicks / 10 * 10, v0.UtcTicks); // 考虑微秒截断
+
+        // 2. 测试可空构造函数
+        var dataNull = new DateTimeOffset?[] { now, null };
+        using var s2 = new Series("dto_null", dataNull);
+        
+        Assert.Equal(2, s2.Length);
+        Assert.Null(s2.GetValue<DateTimeOffset?>(1));
+        Assert.NotNull(s2.GetValue<DateTimeOffset?>(0));
+    }
+    [Fact]
     public void Test_NullCount()
     {
         // Case 1: 整数 Series (含 Null)

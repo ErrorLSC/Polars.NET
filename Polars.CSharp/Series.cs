@@ -383,25 +383,7 @@ public class Series : IDisposable
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
     public T? Max<T>() => Max().GetValue<T>(0);
-    // ==========================================
-    // Helpers (时间转换逻辑)
-    // ==========================================
-    
-    // Unix Epoch Ticks (1970-01-01)
-    private const long UnixEpochTicks = 621355968000000000L;
-    private const int DaysTo1970 = 719162;
 
-    // DateTime -> Microseconds (Long)
-    private static long ToMicros(DateTime dt) => (dt.Ticks - UnixEpochTicks) / 10L;
-    
-    // TimeSpan -> Microseconds (Long)
-    private static long ToMicros(TimeSpan ts) => ts.Ticks / 10L;
-
-    // TimeOnly -> Nanoseconds (Long)
-    private static long ToNanos(TimeOnly t) => t.Ticks * 100L;
-
-    // DateOnly -> Days (Int)
-    private static int ToDays(DateOnly d) => d.DayNumber - DaysTo1970;
     // ==========================================
     // Constructors
     // ==========================================
@@ -486,6 +468,29 @@ public class Series : IDisposable
     /// <param name="data"></param>
     public Series(string name, DateTime?[] data)
     {
+        using var arrowArray = ArrowConverter.Build(data);
+        Handle = ArrowFfiBridge.ImportSeries(name, arrowArray);
+    }
+    /// <summary>
+    /// Create a Series from an array of DateTime with timezone offsets values.
+    /// </summary>
+    /// <param name="name"></param>
+    /// <param name="data"></param>
+    public Series(string name, DateTimeOffset[] data)
+    {
+        // 1. 转 Arrow
+        using var arrowArray = ArrowConverter.Build(data);
+        Handle = ArrowFfiBridge.ImportSeries(name, arrowArray);
+    }
+
+    /// <summary>
+    /// Create a Series from an array of Nullable DateTime with timezone offsets values.
+    /// </summary>
+    /// <param name="name"></param>
+    /// <param name="data"></param>
+    public Series(string name, DateTimeOffset?[] data)
+    {
+        // 1. 转 Arrow
         using var arrowArray = ArrowConverter.Build(data);
         Handle = ArrowFfiBridge.ImportSeries(name, arrowArray);
     }
