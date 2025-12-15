@@ -1,6 +1,7 @@
 using Polars.NET.Core;
 using Apache.Arrow;
 using Polars.NET.Core.Arrow;
+using Apache.Arrow.Types;
 
 namespace Polars.CSharp;
 
@@ -138,29 +139,73 @@ public class Series : IDisposable
     }
     
     /// <summary>
-    /// Get an item at the specified index as object.
+    /// Get an item at the specified index as object (boxed).
+    /// Note: For Struct/List types, please use <see cref="GetValue{T}(long)"/> explicitly.
     /// </summary>
-    /// <param name="index"></param>
-    /// <returns></returns>
     public object? this[long index]
     {
         get
         {
-            // 根据 dtype 字符串动态决定返回类型 (稍微慢一点，适合调试)
-            // 你也可以解析 DataTypeName 字符串，或者让用户必须用 GetValue<T>
-            // 这里简单处理：
+            // 获取 Polars 的类型字符串
             var dtype = DataTypeName;
-            if (dtype.Contains("i32") || dtype.Contains("i64")) return GetValue<long>(index);
-            if (dtype.Contains("f32") || dtype.Contains("f64")) return GetValue<double>(index);
-            if (dtype.Contains("str")) return GetValue<string>(index);
-            if (dtype.Contains("bool")) return GetValue<bool>(index);
-            if (dtype.Contains("decimal")) return GetValue<decimal>(index);
-            if (dtype.Contains("datetime")) return GetValue<DateTime>(index);
-            if (dtype.Contains("date")) return GetValue<DateOnly>(index);
-            if (dtype.Contains("time")) return GetValue<TimeOnly>(index);
-            if (dtype.Contains("duration")) return GetValue<TimeSpan>(index);
+
+            // =========================================================
+            // 1. Integers
+            // =========================================================
+            if (dtype == "Int32") return GetValue<int>(index);
+            if (dtype == "Int64") return GetValue<long>(index);
+            if (dtype == "Int16") return GetValue<short>(index);
+            if (dtype == "Int8")  return GetValue<sbyte>(index);
             
-            return null; // Fallback
+            if (dtype == "UInt32") return GetValue<uint>(index);
+            if (dtype == "UInt64") return GetValue<ulong>(index);
+            if (dtype == "UInt16") return GetValue<ushort>(index);
+            if (dtype == "UInt8")  return GetValue<byte>(index);
+
+            // =========================================================
+            // 2. Floats & Decimal
+            // =========================================================
+            if (dtype == "Float64") return GetValue<double>(index);
+            if (dtype == "Float32") return GetValue<float>(index);
+            if (dtype.StartsWith("decimal")) return GetValue<decimal>(index);
+
+            // =========================================================
+            // 3. String & Bool
+            // =========================================================
+            if (dtype == "String") return GetValue<string>(index);
+            if (dtype == "Boolean") return GetValue<bool>(index);
+            if (dtype == "Binary") return GetValue<byte[]>(index);
+
+            // =========================================================
+            // 4. Temporal (我们新加的兄弟们)
+            // =========================================================
+            if (dtype == "date") return GetValue<DateOnly>(index);
+            if (dtype == "time") return GetValue<TimeOnly>(index);
+            
+            // Duration 可能带有单位后缀 (e.g. "Duration(us)")，用 StartsWith
+            if (dtype.StartsWith("duration")) return GetValue<TimeSpan>(index);
+            
+            // Datetime 可能带时区 (e.g. "Datetime(us, Asia/Shanghai)")
+            if (dtype.StartsWith("datetime")) 
+            {
+                // 优先尝试返回 DateTimeOffset，因为它能携带时区信息
+                // 我们的 ArrowReader 已经支持了自动处理 Datetime -> DateTimeOffset
+                return GetValue<DateTimeOffset>(index);
+            }
+
+            // =========================================================
+            // 5. Complex Types (Struct, List)
+            // =========================================================
+            // 对于复杂类型，我们无法推断用户想映射成什么 C# 类，所以抛错引导
+            if (dtype.StartsWith("Struct") || dtype.StartsWith("List"))
+            {
+                throw new NotSupportedException(
+                    $"Cannot access complex type '{dtype}' via non-generic indexer. " +
+                    $"Please use series.GetValue<T>(index) to specify the target C# class or List type.");
+            }
+
+            // Fallback
+            throw new NotSupportedException($"DataType '{dtype}' is not supported in the non-generic indexer.");
         }
     }
     // ==========================================

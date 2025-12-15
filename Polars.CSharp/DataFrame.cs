@@ -205,34 +205,28 @@ public class DataFrame : IDisposable
     /// Get a value from the DataFrame at the specified row and column.
     /// This is efficient for single-value lookups (no Arrow conversion).
     /// </summary>
-    public T? GetValue<T>(int row, string columnName)
+    public T? GetValue<T>(long rowIndex, string colName)
     {
-        // 1. 获取 Series (Native Handle)
-        // 注意：这会产生一次 FFI 调用，返回一个 SeriesHandle
-        using var sHandle = PolarsWrapper.DataFrameGetColumn(Handle, columnName);
+        // 1. 获取 Series (假设已有索引器 this[string column])
+        // 注意：这里不要用 using，因为 Series 的所有权属于 DataFrame，不能 Dispose
+        var series = this[colName];
         
-        // 2. 临时创建一个 Series 对象来复用 GetValue 逻辑
-        // (或者你可以把 GetValue 逻辑提取成静态帮助方法，避免 new Series 开销)
-        // 这里为了代码复用，new 一个 Series (非常轻量，只有一个 IntPtr)
-        using var series = new Series(columnName, sHandle); // Series Dispose 会释放 sHandle
-        
-        // 3. 取值
-        return series.GetValue<T>(row);
+        // 2. 委托给 Series.GetValue<T>
+        return series.GetValue<T>(rowIndex);
     }
 
     /// <summary>
     /// Get value by row index and column name (object type).
     /// </summary>
-    /// <param name="row"></param>
-    /// <param name="columnName"></param>
+    /// <param name="rowIndex"></param>
+    /// <param name="colName"></param>
     /// <returns></returns>
-    public object? this[int row, string columnName]
+    public object? this[long rowIndex, string colName]
     {
         get
         {
-            using var sHandle = PolarsWrapper.DataFrameGetColumn(Handle, columnName);
-            using var series = new Series(columnName, sHandle);
-            return series[row]; // 复用 Series 的索引器逻辑
+            var series = this[colName];
+            return series[rowIndex]; // 委托给 Series 的 object 索引器
         }
     }
 

@@ -373,7 +373,7 @@ id;date_col;val_col
     member _.``Expr: TimeZone Ops (Convert & Replace)`` () =
         // 1. 创建 Naive Datetime
         let s = Series.create("ts", [DateTime(2023, 1, 1, 12, 0, 0)])
-        use df = DataFrame.create([s])
+        use df = DataFrame.create [s]
 
         let res = 
             df
@@ -410,9 +410,9 @@ id;date_col;val_col
         Assert.Equal(0, ldRow.Offset.Hours) 
         
         // 验证 Naive (Unset)
-        // 读取出来的应该是 Unspecified Kind 的 DateTime
+        // 读取出来的应该是 UTC 的 DateTime,我们约定进入polars的一定是UTC
         let naiveRow = res.Column("naive").AsSeq<DateTime>() |> Seq.head |> Option.get
-        Assert.Equal(DateTimeKind.Unspecified, naiveRow.Kind)
+        Assert.Equal(DateTimeKind.Utc, naiveRow.Kind)
     [<Fact>]
     member _.``Conversion: DataFrame -> Lazy -> DataFrame`` () =
         // 1. 创建 Eager DF

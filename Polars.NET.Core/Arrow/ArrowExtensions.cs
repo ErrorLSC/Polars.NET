@@ -451,7 +451,7 @@ public static class ArrowExtensions
     // ==========================================
     // Internal Conversion Logic
     // ==========================================
-
+    private static readonly DateTime EpochUtc = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
     private static DateTime ConvertTimestamp(TimestampArray arr, int index)
     {
         long v = arr.GetValue(index).GetValueOrDefault();
@@ -472,17 +472,7 @@ public static class ArrowExtensions
 
         try 
         {
-            // 1. 计算出 UTC 时间 (因为 Polars 物理存储总是基于 Epoch 的)
-            var dt = DateTime.UnixEpoch.AddTicks(ticks);
-
-            // 2. [关键修复] 检查 Arrow Schema 是否定义了时区
-            // 如果 Timezone 为空/null，说明是 Naive Timestamp -> DateTimeKind.Unspecified
-            if (string.IsNullOrEmpty(type?.Timezone))
-            {
-                return DateTime.SpecifyKind(dt, DateTimeKind.Unspecified);
-            }
-
-            // 如果有时区，Polars 物理存储的是 UTC，返回 Kind=Utc 是正确的
+            var dt = EpochUtc.AddTicks(ticks);
             return dt;
         }
         catch (ArgumentOutOfRangeException)
