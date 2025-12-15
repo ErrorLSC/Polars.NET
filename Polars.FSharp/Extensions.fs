@@ -108,7 +108,7 @@ module Serialization =
         /// <summary>
         /// [ToRecords] 将 DataFrame 转换为 F# Record 列表
         /// </summary>
-        member this.ToRecords<'T when 'T : (new : unit -> 'T)>() : seq<'T> =
+        member this.ToRecords<'T>() : seq<'T> =
             // 1. 导出为 RecordBatch
             use batch = Polars.NET.Core.Arrow.ArrowFfiBridge.ExportDataFrame this.Handle
             

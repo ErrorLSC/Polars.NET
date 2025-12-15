@@ -345,8 +345,8 @@ public class DataTypeTests
         // 1. 准备 Struct 数据
         var data = new List<ComplexContainer>
         {
-            new ComplexContainer { Id = 1, Info = new NestedItem { Key = "K1" } },
-            new ComplexContainer { Id = 2, Info = new NestedItem { Key = "K2" } }
+            new() { Id = 1, Info = new NestedItem { Key = "K1" } },
+            new() { Id = 2, Info = new NestedItem { Key = "K2" } }
         };
         using var s = Series.From("data", data); // Struct Series
 
@@ -364,8 +364,8 @@ public class DataTypeTests
         // 1. 准备 List 数据
         var data = new List<List<int>>
         {
-            new List<int> { 1, 2 },
-            new List<int> { 3 }
+            new() { 1, 2 },
+            new() { 3 }
         };
         using var s = Series.From("list", data);
 

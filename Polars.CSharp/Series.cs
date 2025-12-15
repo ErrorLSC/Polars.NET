@@ -106,22 +106,6 @@ public class Series : IDisposable
             return (T?)(object?)PolarsWrapper.SeriesGetDecimal(Handle, index);
 
         // // 5. Temporal (Time)
-        // if (underlying == typeof(DateTime))
-        // {
-        //     // [修复逻辑] 检查 Series 实际的 DataType
-        //     // 如果底层是 Date 类型 (Int32)，不能调 GetDatetime (期望 Int64)
-        //     // 而应该调 GetDate (得到 DateOnly)，再转为 DateTime
-        //     if (this.DataTypeName == "date") 
-        //     {
-        //         var dateOnly = PolarsWrapper.SeriesGetDate(Handle, index);
-        //         if (dateOnly == null) return default; // 处理空值
-        //         return (T)(object)dateOnly.Value.ToDateTime(TimeOnly.MinValue);
-        //     }
-
-        //     // 只有当底层真的是 Datetime 类型时，才调这个
-        //     return (T?)(object?)PolarsWrapper.SeriesGetDatetime(Handle, index);
-        // }
-
         if (underlying == typeof(DateOnly))
             return (T?)(object?)PolarsWrapper.SeriesGetDate(Handle, index);
             

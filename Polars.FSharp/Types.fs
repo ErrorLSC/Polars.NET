@@ -380,7 +380,31 @@ and DtOps(handle: ExprHandle) =
     /// </summary>
     member _.TimestampMillis() = 
         new Expr(PolarsWrapper.DtTimestamp(handle, 2))
+    /// <summary>
+    /// Convert the datetime to a different time zone.
+    /// The underlying physical value (UTC timestamp) remains the same, but the display time changes.
+    /// </summary>
+    member _.ConvertTimeZone(timeZone: string) =
+        new Expr(PolarsWrapper.DtConvertTimeZone(handle, timeZone))
 
+    /// <summary>
+    /// Replace the time zone of a datetime.
+    /// Use None (null) to make it TimeZone-Naive.
+    /// ambiguous: Strategy for DST overlaps ("raise", "earliest", "latest", "null").
+    /// nonExistent: Strategy for missing DST times ("raise", "null").
+    /// </summary>
+    member _.ReplaceTimeZone(timeZone: string option, ?ambiguous: string, ?nonExistent: string) =
+        let tz = Option.toObj timeZone
+        let amb = Option.toObj ambiguous
+        let ne = Option.toObj nonExistent
+        new Expr(PolarsWrapper.DtReplaceTimeZone(handle, tz, amb, ne))
+
+    /// <summary>
+    /// Helper: Replace time zone with a specific string.
+    /// </summary>
+    member this.ReplaceTimeZone(timeZone: string, ?ambiguous: string, ?nonExistent: string) =
+        this.ReplaceTimeZone(Some timeZone, ?ambiguous=ambiguous, ?nonExistent=nonExistent)
+        
 and StringOps(handle: ExprHandle) =
     let wrap op = new Expr(op handle)
     
@@ -522,6 +546,8 @@ type Series(handle: SeriesHandle) =
     member this.Rename(name: string) = 
         PolarsWrapper.SeriesRename(handle, name)
         this
+    member this.Slice(offset: int64, length: int64) =
+        new Series(PolarsWrapper.SeriesSlice(handle, offset, length))
     /// <summary>
     /// Get the string representation of the Series Data Type (e.g., "Int64", "String").
     /// </summary>

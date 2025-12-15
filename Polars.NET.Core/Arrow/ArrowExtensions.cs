@@ -328,19 +328,17 @@ public static class ArrowExtensions
 
     public static DateTimeOffset? GetDateTimeOffset(this IArrowArray array, int index)
         {
-            if (array.IsNull(index)) return null;
-
             // 1. TimestampArray (最常见的情况)
             if (array is TimestampArray tsArr)
             {
-                // GetValue 返回的是 long? (原始数值)
                 long? v = tsArr.GetValue(index);
                 if (!v.HasValue) return null;
 
-                // 获取单位 (Microsecond, Nanosecond, etc.)
-                var unit = (tsArr.Data.DataType as TimestampType)?.Unit;
-                
-                // 将原始数值转换为 C# Ticks (100ns)
+                var type = tsArr.Data.DataType as TimestampType;
+                var unit = type?.Unit;
+                var timezoneId = type?.Timezone; // 获取 Arrow 里的时区 ID (e.g., "Asia/Shanghai")
+
+                // A. 计算 UTC Ticks
                 long ticks = unit switch
                 {
                     TimeUnit.Nanosecond => v.Value / 100L,
@@ -349,10 +347,33 @@ public static class ArrowExtensions
                     TimeUnit.Second => v.Value * 10000000L,
                     _ => v.Value
                 };
+                long utcTicks = DateTime.UnixEpoch.Ticks + ticks;
 
-                // 加上 Unix Epoch (1970-01-01) 的 Ticks，构造 UTC 的 DateTimeOffset
-                // 注意：这里我们明确指定 Offset 为 Zero (UTC)
-                return new DateTimeOffset(DateTime.UnixEpoch.Ticks + ticks, TimeSpan.Zero);
+                // B. 计算 Offset
+                TimeSpan offset = TimeSpan.Zero;
+                
+                if (!string.IsNullOrEmpty(timezoneId))
+                {
+                    try
+                    {
+                        // 尝试查找系统时区
+                        // 注意：Polars 输出的是 IANA ID (如 "Asia/Shanghai")
+                        // Windows 上需要 .NET 6+ 且启用 ICU 才能直接识别 IANA，否则可能报错
+                        var tzi = TimeZoneInfo.FindSystemTimeZoneById(timezoneId);
+                        
+                        // 计算该时刻的 Offset (考虑夏令时)
+                        offset = tzi.GetUtcOffset(new DateTime(utcTicks, DateTimeKind.Utc));
+                    }
+                    catch (TimeZoneNotFoundException)
+                    {
+                        // 如果找不到时区 (比如 Windows 上没装 ICU 且传了 IANA)，回退到 UTC 或抛出
+                        // 这里为了稳健，保持 Zero，但在日志里可能需要记录
+                        Console.WriteLine($"Warning: TimeZone '{timezoneId}' not found on this system.");
+                    }
+                }
+
+                // C. 构造 DateTimeOffset (先造 UTC，再 ToOffset 转换视角)
+                return new DateTimeOffset(utcTicks, TimeSpan.Zero).ToOffset(offset);
             }
             
             // 2. 兼容 Date32 (Days)
@@ -381,26 +402,38 @@ public static class ArrowExtensions
     private static DateTime ConvertTimestamp(TimestampArray arr, int index)
     {
         long v = arr.GetValue(index).GetValueOrDefault();
-        var unit = (arr.Data.DataType as TimestampType)?.Unit;
         
-        // C# DateTime 使用 Ticks (100ns)
-        // Unix Epoch 是 1970-01-01
+        // 获取 Type 信息以检查 Timezone
+        var type = arr.Data.DataType as TimestampType;
+        var unit = type?.Unit;
+        
+        // C# DateTime Ticks = 100ns
         long ticks = unit switch
         {
-            Apache.Arrow.Types.TimeUnit.Nanosecond => v / 100L,        // ns -> 100ns
-            Apache.Arrow.Types.TimeUnit.Microsecond => v * 10L,        // us -> 100ns
-            Apache.Arrow.Types.TimeUnit.Millisecond => v * 10000L,     // ms -> 100ns
-            Apache.Arrow.Types.TimeUnit.Second => v * 10000000L,       // s  -> 100ns
-            _ => v // Should not happen
+            Apache.Arrow.Types.TimeUnit.Nanosecond => v / 100L,
+            Apache.Arrow.Types.TimeUnit.Microsecond => v * 10L,
+            Apache.Arrow.Types.TimeUnit.Millisecond => v * 10000L,
+            Apache.Arrow.Types.TimeUnit.Second => v * 10000000L,
+            _ => v
         };
 
         try 
         {
-            return DateTime.UnixEpoch.AddTicks(ticks);
+            // 1. 计算出 UTC 时间 (因为 Polars 物理存储总是基于 Epoch 的)
+            var dt = DateTime.UnixEpoch.AddTicks(ticks);
+
+            // 2. [关键修复] 检查 Arrow Schema 是否定义了时区
+            // 如果 Timezone 为空/null，说明是 Naive Timestamp -> DateTimeKind.Unspecified
+            if (string.IsNullOrEmpty(type?.Timezone))
+            {
+                return DateTime.SpecifyKind(dt, DateTimeKind.Unspecified);
+            }
+
+            // 如果有时区，Polars 物理存储的是 UTC，返回 Kind=Utc 是正确的
+            return dt;
         }
         catch (ArgumentOutOfRangeException)
         {
-            // 如果超出 C# DateTime 范围，返回 Min/Max 或抛出
             return v > 0 ? DateTime.MaxValue : DateTime.MinValue;
         }
     }

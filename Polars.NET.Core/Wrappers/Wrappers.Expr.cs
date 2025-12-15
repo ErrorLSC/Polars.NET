@@ -120,6 +120,25 @@ public static partial class PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    // TimeZone
+    public static ExprHandle DtConvertTimeZone(ExprHandle e, string timeZone)
+    {
+        // 这是一个 UnaryStrOp，但我们可以直接手写以复用 TransferOwnership 逻辑
+        // 或者复用之前的辅助函数 if you have generic one
+        var h = NativeBindings.pl_expr_dt_convert_time_zone(e, timeZone);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle DtReplaceTimeZone(
+        ExprHandle e, 
+        string? timeZone, 
+        string? ambiguous = null, 
+        string? nonExistent = "raise")
+    {
+        var h = NativeBindings.pl_expr_dt_replace_time_zone(e, timeZone, ambiguous, nonExistent);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     // String Ops
     public static ExprHandle StrContains(ExprHandle e, string pat) 
     {

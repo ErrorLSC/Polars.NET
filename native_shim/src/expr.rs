@@ -611,6 +611,82 @@ pub extern "C" fn pl_expr_dt_timestamp(expr_ptr: *mut ExprContext, unit_code: i3
     })
 }
 
+// 辅助函数：String -> NonExistent Enum
+fn parse_non_existent(s: &str) -> NonExistent {
+    match s {
+        "null" => NonExistent::Null,
+        "raise" => NonExistent::Raise,
+        // Polars 可能不支持其他策略用于 NonExistent，或者有 Time/RollForward 等
+        // 根据 0.50 源码，通常是 raise 或 null。
+        _ => NonExistent::Raise, // 默认报错
+    }
+}
+// Convert Time Zone (Physical value changes, Wall time changes)
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_dt_convert_time_zone(
+    expr_ptr: *mut ExprContext,
+    tz_ptr: *const c_char
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let tz_str = unsafe { CStr::from_ptr(tz_ptr).to_string_lossy() };
+        
+        // [修复] 构造 TimeZone 结构体
+        // Polars 0.50+ TimeZone::new(str)
+        let tz = unsafe{ TimeZone::new_unchecked(tz_str.as_ref()) };
+        
+        let new_expr = ctx.inner.dt().convert_time_zone(tz);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+// Replace Time Zone (Physical value stays, Wall time changes or meta changes)
+// tz_ptr: NULL means "unset" (make naive), otherwise "set" (make aware)
+// ambiguous_ptr: "raise", "earliest", "latest", "null", etc.
+// 2. Replace Time Zone (参数升级)
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_dt_replace_time_zone(
+    expr_ptr: *mut ExprContext,
+    tz_ptr: *const c_char,          // TimeZone (Option)
+    ambiguous_ptr: *const c_char,   // Ambiguous (Expr string, e.g. "raise")
+    non_existent_ptr: *const c_char // NonExistent (Enum string, e.g. "raise")
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        
+        // A. 构造 Option<TimeZone>
+        let tz = if tz_ptr.is_null() {
+            None
+        } else {
+            let s = unsafe { CStr::from_ptr(tz_ptr).to_string_lossy() };
+            unsafe { Some(TimeZone::new_unchecked(s.as_ref())) }
+        };
+
+        // B. 构造 Ambiguous Expr
+        // 这里的 ambiguous 是 Expr 类型，通常传 lit("raise") 或 lit("earliest")
+        let amb_str = if ambiguous_ptr.is_null() {
+            "raise"
+        } else {
+            unsafe { CStr::from_ptr(ambiguous_ptr).to_str().unwrap() }
+        };
+        let ambiguous_expr = lit(amb_str);
+
+        // C. 构造 NonExistent Enum
+        // 这里必须解析字符串为 Rust 枚举
+        let ne_str = if non_existent_ptr.is_null() {
+            "raise"
+        } else {
+            unsafe { CStr::from_ptr(non_existent_ptr).to_str().unwrap() }
+        };
+        let non_existent = parse_non_existent(ne_str);
+
+        // D. 调用
+        let new_expr = ctx.inner.dt().replace_time_zone(tz, ambiguous_expr, non_existent);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
 // ==========================================
 // Intervals
 // ==========================================

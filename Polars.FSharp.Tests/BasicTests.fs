@@ -370,6 +370,50 @@ id;date_col;val_col
         Assert.Equal(time, df.Time("WakeUp", 0).Value)
         Assert.Equal(dur, df.Duration("Shift", 0).Value)
     [<Fact>]
+    member _.``Expr: TimeZone Ops (Convert & Replace)`` () =
+        // 1. 创建 Naive Datetime
+        let s = Series.create("ts", [DateTime(2023, 1, 1, 12, 0, 0)])
+        use df = DataFrame.create([s])
+
+        let res = 
+            df
+            |> Polars.select([
+                Polars.col "ts"
+                
+                // 1. Convert (Naive -> Error, so we must Replace first)
+                // 先 Replace 设置为 UTC，再 Convert 到 Shanghai
+                Polars.col("ts")
+                    .Dt.ReplaceTimeZone("UTC")
+                    .Dt.ConvertTimeZone("Asia/Shanghai")
+                    .Alias "shanghai"
+
+                // 2. Replace with Strategy (Full signature check)
+                // "raise" is default, explicitly passing it to verify API binding
+                Polars.col("ts")
+                    .Dt.ReplaceTimeZone("Europe/London", ambiguous="earliest", nonExistent="null")
+                    .Alias "london_explicit"
+                
+                // 3. Unset TimeZone (Make Naive)
+                Polars.col("ts")
+                    .Dt.ReplaceTimeZone("UTC")
+                    .Dt.ReplaceTimeZone(None) // Set back to None
+                    .Alias "naive"
+            ])
+
+        // 验证 Shanghai (+08:00)
+        let shRow = res.Column("shanghai").AsSeq<DateTimeOffset>() |> Seq.head |> Option.get
+        Assert.Equal(TimeSpan.FromHours 8, shRow.Offset)
+        Assert.Equal(20, shRow.Hour) // 12:00 UTC -> 20:00 Shanghai
+
+        // 验证 London (Naive 12:00 -> London 12:00 +00:00 in Jan)
+        let ldRow = res.Column("london_explicit").AsSeq<DateTimeOffset>() |> Seq.head |> Option.get
+        Assert.Equal(0, ldRow.Offset.Hours) 
+        
+        // 验证 Naive (Unset)
+        // 读取出来的应该是 Unspecified Kind 的 DateTime
+        let naiveRow = res.Column("naive").AsSeq<DateTime>() |> Seq.head |> Option.get
+        Assert.Equal(DateTimeKind.Unspecified, naiveRow.Kind)
+    [<Fact>]
     member _.``Conversion: DataFrame -> Lazy -> DataFrame`` () =
         // 1. 创建 Eager DF
         use df = DataFrame.ofRecords [ { name = "Qinglei"; age = 18 ; score = Some 99.5; joined = Some (System.DateTime(2023,1,1)) }; { name = "Someone"; age = 20; score = None; joined = None } ]
