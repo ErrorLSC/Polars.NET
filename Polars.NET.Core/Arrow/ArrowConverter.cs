@@ -488,18 +488,18 @@ public static class ArrowConverter
             {
                 // 如果父对象是 null，子属性给默认值 (null 或 0)
                 // StructArray 的 ValidityBitmap 会负责标记这一行为空，所以这里填充默认值是安全的
-                if (item == null) return default(TProp?);
+                if (item == null) return default;
 
                 var rawVal = getter(item);
                 
                 // 处理值类型拆箱
-                if (rawVal == null) return default(TProp?);
+                if (rawVal == null) return default;
                 // [关键] 如果是 Option，先解包
                 if (isOption)
                 {
                     var unwrapped = unwrapper!(rawVal);
                     // [修复] 使用 default(TProp?)
-                    if (unwrapped == null) return default(TProp?);
+                    if (unwrapped == null) return default;
                     return (TProp)unwrapped;
                 }
                 return (TProp)rawVal;

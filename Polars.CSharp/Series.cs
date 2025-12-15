@@ -360,6 +360,12 @@ public class Series : IDisposable
     // ==========================================
     // Constructors
     // ==========================================
+
+    // ------------------------------------------
+    // 🚀 1. Fast Path (Primitives)
+    // 直接走 P/Invoke，性能最高
+    // ------------------------------------------
+    
     /// <summary>
     /// Create a Series from an array of integers.
     /// </summary>
@@ -409,27 +415,34 @@ public class Series : IDisposable
     {
         Handle = PolarsWrapper.SeriesNew(name, data);
     }
+
+    // ------------------------------------------
+    // 🐢 2. Universal Path (Complex Types)
+    // 委托给 ArrowConverter，逻辑统一
+    // ------------------------------------------
+
     /// <summary>
     /// Create a Series from an array of DateTime values.
     /// </summary>
     /// <param name="name"></param>
     /// <param name="data"></param>
-    public Series(string name, DateTime[] data) : this(name, data, null) { }
+    public Series(string name, DateTime[] data)
+    {
+        // 1. 转 Arrow
+        using var arrowArray = ArrowConverter.Build(data);
+        // 2. 导入 Handle (这一步会自动转移所有权给 Rust)
+        Handle = ArrowFfiBridge.ImportSeries(name, arrowArray);
+    }
+
     /// <summary>
-    /// Create a Series from an array of DateTime values with validity mask.    
+    /// Create a Series from an array of Nullable DateTime values.
     /// </summary>
     /// <param name="name"></param>
     /// <param name="data"></param>
-    /// <param name="validity"></param>
-    public Series(string name, DateTime[] data, bool[]? validity)
+    public Series(string name, DateTime?[] data)
     {
-        var longArray = new long[data.Length];
-        for (int i = 0; i < data.Length; i++) longArray[i] = ToMicros(data[i]);
-
-        // 步骤: 创建 i64 -> Cast 为 Datetime
-        using var hRaw = PolarsWrapper.SeriesNew(name, longArray, validity);
-        using var dtype = DataType.Datetime; // 默认是 Microseconds
-        Handle = PolarsWrapper.SeriesCast(hRaw, dtype.Handle);
+        using var arrowArray = ArrowConverter.Build(data);
+        Handle = ArrowFfiBridge.ImportSeries(name, arrowArray);
     }
     
     /// <summary>
@@ -437,21 +450,20 @@ public class Series : IDisposable
     /// </summary>
     /// <param name="name"></param>
     /// <param name="data"></param>
-    public Series(string name, TimeSpan[] data) : this(name, data, null) { }
+    public Series(string name, TimeSpan[] data)
+    {
+        using var arrowArray = ArrowConverter.Build(data);
+        Handle = ArrowFfiBridge.ImportSeries(name, arrowArray);
+    }
     /// <summary>
-    /// Create a Series from an array of TimeSpan values with validity mask.
+    /// Create a Series from an array of Nullable TimeSpan values.
     /// </summary>
     /// <param name="name"></param>
     /// <param name="data"></param>
-    /// <param name="validity"></param>
-    public Series(string name, TimeSpan[] data, bool[]? validity)
+    public Series(string name, TimeSpan?[] data)
     {
-        var longArray = new long[data.Length];
-        for (int i = 0; i < data.Length; i++) longArray[i] = ToMicros(data[i]);
-
-        using var hRaw = PolarsWrapper.SeriesNew(name, longArray, validity);
-        using var dtype = DataType.Duration; 
-        Handle = PolarsWrapper.SeriesCast(hRaw, dtype.Handle);
+        using var arrowArray = ArrowConverter.Build(data);
+        Handle = ArrowFfiBridge.ImportSeries(name, arrowArray);
     }
 
     /// <summary>
@@ -459,21 +471,20 @@ public class Series : IDisposable
     /// </summary>
     /// <param name="name"></param>
     /// <param name="data"></param>
-    public Series(string name, DateOnly[] data) : this(name, data, null) { }
+    public Series(string name, DateOnly[] data)
+    {
+        using var arrowArray = ArrowConverter.Build(data);
+        Handle = ArrowFfiBridge.ImportSeries(name, arrowArray);
+    }
     /// <summary>
-    /// Create a Series from an array of DateOnly values with validity mask.
+    /// Create a Series from an array of Nullable DateOnly values.
     /// </summary>
     /// <param name="name"></param>
     /// <param name="data"></param>
-    /// <param name="validity"></param>
-    public Series(string name, DateOnly[] data, bool[]? validity)
+    public Series(string name, DateOnly?[] data)
     {
-        var intArray = new int[data.Length];
-        for (int i = 0; i < data.Length; i++) intArray[i] = ToDays(data[i]);
-
-        using var hRaw = PolarsWrapper.SeriesNew(name, intArray, validity);
-        using var dtype = DataType.Date;
-        Handle = PolarsWrapper.SeriesCast(hRaw, dtype.Handle);
+        using var arrowArray = ArrowConverter.Build(data);
+        Handle = ArrowFfiBridge.ImportSeries(name, arrowArray);
     }
 
     /// <summary>
@@ -481,240 +492,31 @@ public class Series : IDisposable
     /// </summary>
     /// <param name="name"></param>
     /// <param name="data"></param>
-    public Series(string name, TimeOnly[] data) : this(name, data, null) { }
+    public Series(string name, TimeOnly[] data)
+    {
+        using var arrowArray = ArrowConverter.Build(data);
+        Handle = ArrowFfiBridge.ImportSeries(name, arrowArray);
+    }
     /// <summary>
-    /// Create a Series from an array of TimeOnly values with validity mask.
+    /// Create a Series from an array of Nullable TimeOnly values.
     /// </summary>
     /// <param name="name"></param>
     /// <param name="data"></param>
-    /// <param name="validity"></param>
-    public Series(string name, TimeOnly[] data, bool[]? validity)
+    public Series(string name, TimeOnly?[] data)
     {
-        var longArray = new long[data.Length];
-        for (int i = 0; i < data.Length; i++) longArray[i] = ToNanos(data[i]);
-
-        using var hRaw = PolarsWrapper.SeriesNew(name, longArray, validity);
-        using var dtype = DataType.Time;
-        Handle = PolarsWrapper.SeriesCast(hRaw, dtype.Handle);
-    }
-    /// <summary>
-    /// Create a Series from a collection of values. 
-    /// Supports: int, long, double, bool, string, decimal, and their nullable variants.
-    /// </summary>
-    public static Series Create<T>(string name, IEnumerable<T> values)
-    {
-        var array = values as T[] ?? [.. values];
-        var type = typeof(T);
-        var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
-
-        // --- 1. Integers (Int32) ---
-        if (underlyingType == typeof(int))
-        {
-            var (data, validity) = ToRawArrays(array, v => (int)(object)v!);
-            return new Series(name, PolarsWrapper.SeriesNew(name, data, validity));
-        }
-        
-        // --- 2. Long (Int64) ---
-        if (underlyingType == typeof(long))
-        {
-            var (data, validity) = ToRawArrays(array, v => (long)(object)v!);
-            return new Series(name, PolarsWrapper.SeriesNew(name, data, validity));
-        }
-
-        // --- 3. Double (Float64) ---
-        if (underlyingType == typeof(double))
-        {
-            var (data, validity) = ToRawArrays(array, v => (double)(object)v!);
-            return new Series(name, PolarsWrapper.SeriesNew(name, data, validity));
-        }
-        if (underlyingType == typeof(float))
-        {
-            // 策略：复用 SeriesNew(double[])，创建后 Cast 为 Float32
-            // 这样不需要在底层 NativeBindings 加 pl_series_new_f32
-            var (data, validity) = ToRawArrays(array, v => (double)(float)(object)v!);
-            
-            using var temp = new Series(name, PolarsWrapper.SeriesNew(name, data, validity));
-            return temp.Cast(DataType.Float32);
-        }
-        // --- 4. Boolean ---
-        if (underlyingType == typeof(bool))
-        {
-            var (data, validity) = ToRawArrays(array, v => (bool)(object)v!);
-            return new Series(name, PolarsWrapper.SeriesNew(name, data, validity));
-        }
-
-        // --- 5. String (特殊处理) ---
-        if (underlyingType == typeof(string))
-        {
-            // string 引用类型本身可空，直接传给 Wrapper
-            var strArray = array as string[] ?? array.Select(x => x as string).ToArray();
-            return new Series(name, PolarsWrapper.SeriesNew(name, strArray));
-        }
-
-        // --- 6. Decimal (高精度金融计算) ---
-        if (underlyingType == typeof(decimal))
-        {
-            // 必须先计算 Scale，因为 Wrapper 需要它来做 Int128 乘法
-            if (type == typeof(decimal))
-            {
-                // 非空 Decimal
-                var decArray = array as decimal[] ?? [.. array.Cast<decimal>()];
-                int scale = DetectMaxScale(decArray);
-                // 调用你刚才写的 Wrapper (它内部会处理 * 10^scale 转 Int128)
-                return new Series(name, PolarsWrapper.SeriesNewDecimal(name, decArray, null, scale));
-            }
-            else
-            {
-                if (array is not decimal?[] decArray)
-                {
-                    decArray = [.. array.Cast<decimal?>()];
-                }
-
-                int scale = DetectMaxScale(decArray);
-                return new Series(name, PolarsWrapper.SeriesNewDecimal(name, decArray, scale));
-            }
-        }
-        // --- 7. DateTime ---
-        if (underlyingType == typeof(DateTime))
-        {
-            // 7.1 非空：直接调用构造函数 (复用 ToMicros + Cast 逻辑)
-            if (type == typeof(DateTime))
-            {
-                return new Series(name, array.Cast<DateTime>().ToArray());
-            }
-
-            // 7.2 可空
-            var dtArray = array.Cast<DateTime?>().ToArray();
-            var longArray = new long[dtArray.Length];
-            var validity = new bool[dtArray.Length];
-
-            for (int i = 0; i < dtArray.Length; i++)
-            {
-                if (dtArray[i] is DateTime dt)
-                {
-                    longArray[i] = ToMicros(dt);
-                    validity[i] = true;
-                }
-                else
-                {
-                    longArray[i] = 0; // validity=false 时值不重要
-                    validity[i] = false;
-                }
-            }
-            
-            using var temp = new Series(name, longArray, validity);
-            return temp.Cast(DataType.Datetime);
-        }
-
-        // --- 8. DateOnly ---
-        if (underlyingType == typeof(DateOnly))
-        {
-            if (type == typeof(DateOnly))
-            {
-                return new Series(name, array.Cast<DateOnly>().ToArray());
-            }
-
-            // 可空
-            var dArray = array.Cast<DateOnly?>().ToArray();
-            var intArray = new int[dArray.Length];
-            var validity = new bool[dArray.Length];
-            const int DaysTo1970 = 719162;
-
-            for (int i = 0; i < dArray.Length; i++)
-            {
-                if (dArray[i] is DateOnly d)
-                {
-                    intArray[i] = d.DayNumber - DaysTo1970;
-                    validity[i] = true;
-                }
-                else
-                {
-                    intArray[i] = 0;
-                    validity[i] = false;
-                }
-            }
-
-            using var temp = new Series(name, intArray, validity);
-            return temp.Cast(DataType.Date);
-        }
-
-        // --- 9. TimeOnly ---
-        if (underlyingType == typeof(TimeOnly))
-        {
-            if (type == typeof(TimeOnly))
-            {
-                return new Series(name, array.Cast<TimeOnly>().ToArray());
-            }
-
-            // 可空
-            var tArray = array.Cast<TimeOnly?>().ToArray();
-            var longArray = new long[tArray.Length];
-            var validity = new bool[tArray.Length];
-
-            for (int i = 0; i < tArray.Length; i++)
-            {
-                if (tArray[i] is TimeOnly t)
-                {
-                    longArray[i] = ToNanos(t);
-                    validity[i] = true;
-                }
-                else
-                {
-                    longArray[i] = 0;
-                    validity[i] = false;
-                }
-            }
-
-            using var temp = new Series(name, longArray, validity);
-            return temp.Cast(DataType.Time);
-        }
-
-        // --- 10. TimeSpan (Duration) ---
-        if (underlyingType == typeof(TimeSpan))
-        {
-            if (type == typeof(TimeSpan))
-            {
-                return new Series(name, array.Cast<TimeSpan>().ToArray());
-            }
-
-            // 可空
-            var tsArray = array.Cast<TimeSpan?>().ToArray();
-            var longArray = new long[tsArray.Length];
-            var validity = new bool[tsArray.Length];
-
-            for (int i = 0; i < tsArray.Length; i++)
-            {
-                if (tsArray[i] is TimeSpan ts)
-                {
-                    longArray[i] = ToMicros(ts);
-                    validity[i] = true;
-                }
-                else
-                {
-                    longArray[i] = 0;
-                    validity[i] = false;
-                }
-            }
-
-            using var temp = new Series(name, longArray, validity);
-            return temp.Cast(DataType.Duration);
-        }
-
-        throw new NotSupportedException($"Type {type.Name} is not supported for Series creation via Create<T>.");
+        using var arrowArray = ArrowConverter.Build(data);
+        Handle = ArrowFfiBridge.ImportSeries(name, arrowArray);
     }
     /// <summary>
     /// Create a Series from an array of decimals.
     /// </summary>
     /// <param name="name"></param>
     /// <param name="data"></param>
-    /// <param name="validity"></param>
-    public Series(string name, decimal[] data, bool[]? validity = null)
+    public Series(string name, decimal[] data)
     {
-        // 复用之前的自动精度推断逻辑
-        int scale = DetectMaxScale(data);
-        Handle = PolarsWrapper.SeriesNewDecimal(name, data, validity, scale);
+        using var arrowArray = ArrowConverter.Build(data);
+        Handle = ArrowFfiBridge.ImportSeries(name, arrowArray);
     }
-
     /// <summary>
     /// Create a Series from an array of nullable decimals.
     /// </summary>
@@ -722,85 +524,8 @@ public class Series : IDisposable
     /// <param name="data"></param>
     public Series(string name, decimal?[] data)
     {
-        int scale = DetectMaxScale(data);
-        Handle = PolarsWrapper.SeriesNewDecimal(name, data, scale);
-    }
-    // ==========================================
-    // Internal Helpers
-    // ==========================================
-
-    /// <summary>
-    /// 将 IEnumerable&lt;T&gt; (可能是 Nullable) 拆分为 数据数组 + ValidityMask
-    /// </summary>
-    private static (TPrimitive[] data, bool[]? validity) ToRawArrays<TInput, TPrimitive>(
-        TInput[] input, 
-        Func<TInput, TPrimitive> valueSelector) 
-        where TPrimitive : struct
-    {
-        int len = input.Length;
-        var data = new TPrimitive[len];
-        
-        // 只有当类型是 Nullable 或者是引用类型且有 null 时才需要 validity
-        // 但为了通用性，我们这里先检查一下是否有 null，如果没有 null，validity 传 null 给 Rust 以节省内存
-        
-        // 快速路径：如果 TInput 是值类型且非 Nullable，直接 Copy
-        // (省略优化，走通用路径以保证安全性)
-
-        var validity = new bool[len];
-        bool hasNull = false;
-
-        for (int i = 0; i < len; i++)
-        {
-            var item = input[i];
-            if (item == null)
-            {
-                hasNull = true;
-                validity[i] = false;
-                data[i] = default; // 0
-            }
-            else
-            {
-                validity[i] = true;
-                data[i] = valueSelector(item);
-            }
-        }
-
-        return (data, hasNull ? validity : null);
-    }
-
-    // --- Decimal Helpers ---
-
-    private static int GetScale(decimal d)
-    {
-        // C# decimal bits: [0,1,2] = 96bit integer, [3] = flags (contains scale)
-        int[] bits = decimal.GetBits(d);
-        // Scale is in bits 16-23 of the 4th int
-        return (bits[3] >> 16) & 0x7F;
-    }
-
-    private static int DetectMaxScale(IEnumerable<decimal> values)
-    {
-        int max = 0;
-        foreach (var v in values)
-        {
-            int s = GetScale(v);
-            if (s > max) max = s;
-        }
-        return max;
-    }
-    
-    private static int DetectMaxScale(IEnumerable<decimal?> values)
-    {
-        int max = 0;
-        foreach (var v in values)
-        {
-            if (v.HasValue)
-            {
-                int s = GetScale(v.Value);
-                if (s > max) max = s;
-            }
-        }
-        return max;
+        using var arrowArray = ArrowConverter.Build(data);
+        Handle = ArrowFfiBridge.ImportSeries(name, arrowArray);
     }
 
     // ==========================================

@@ -111,9 +111,7 @@ namespace Polars.NET.Core.Arrow
         public static object ToFSharpList(System.Collections.IList list, Type elementType)
         {
             // Reflection: Microsoft.FSharp.Collections.ListModule.OfSeq<T>(IEnumerable<T>)
-            var listModule = Type.GetType("Microsoft.FSharp.Collections.ListModule, FSharp.Core");
-            if (listModule == null) throw new InvalidOperationException("FSharp.Core assembly not found.");
-
+            var listModule = Type.GetType("Microsoft.FSharp.Collections.ListModule, FSharp.Core") ?? throw new InvalidOperationException("FSharp.Core assembly not found.");
             var ofSeqMethod = listModule.GetMethod("OfSeq")!.MakeGenericMethod(elementType);
             
             // We must cast IList to IEnumerable<T> for OfSeq to work
