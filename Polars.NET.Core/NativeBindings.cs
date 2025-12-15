@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using Apache.Arrow;
 using Apache.Arrow.C;
 
 [assembly: DisableRuntimeMarshalling]

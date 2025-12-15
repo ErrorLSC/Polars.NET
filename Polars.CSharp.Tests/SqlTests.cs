@@ -1,6 +1,3 @@
-using Xunit;
-using Polars.CSharp;
-
 namespace Polars.CSharp.Tests;
 
 public class SqlTests

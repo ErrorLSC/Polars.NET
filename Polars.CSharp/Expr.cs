@@ -222,7 +222,7 @@ public class Expr : IDisposable
     // ==========================================
 
     /// <summary>
-    /// Abs
+    /// Calculate the absolute value of the expression.
     /// </summary>
     public Expr Abs()
     {

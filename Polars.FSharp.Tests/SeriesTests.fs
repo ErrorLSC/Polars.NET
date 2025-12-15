@@ -1,6 +1,5 @@
 namespace Polars.FSharp.Tests
 
-open System
 open Xunit
 open Polars.FSharp
 open Apache.Arrow

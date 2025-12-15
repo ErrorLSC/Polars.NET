@@ -2,7 +2,6 @@ namespace Polars.FSharp
 
 open System
 open Apache.Arrow
-open Apache.Arrow.Types
 
 module Udf =
 

@@ -1,6 +1,5 @@
 #nullable enable
-using Xunit;
-using Polars.CSharp;
+
 using Apache.Arrow;
 using Apache.Arrow.Types;
 

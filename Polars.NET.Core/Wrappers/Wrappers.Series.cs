@@ -1,7 +1,6 @@
-using System;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
-using Apache.Arrow.C; // 需要引用 Apache.Arrow
+using Apache.Arrow.C; 
 
 namespace Polars.NET.Core;
 

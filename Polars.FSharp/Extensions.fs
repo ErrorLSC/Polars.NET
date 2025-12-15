@@ -110,7 +110,7 @@ module Serialization =
         /// </summary>
         member this.ToRecords<'T when 'T : (new : unit -> 'T)>() : seq<'T> =
             // 1. 导出为 RecordBatch
-            use batch = Polars.NET.Core.Arrow.ArrowFfiBridge.ExportDataFrame(this.Handle)
+            use batch = Polars.NET.Core.Arrow.ArrowFfiBridge.ExportDataFrame this.Handle
             
             // 2. 高性能读取
             // ToList 是为了立即执行读取，避免 batch 被 Dispose 后再延迟枚举导致 AccessViolation
@@ -129,14 +129,14 @@ module Serialization =
             
             // 2. C# Build RecordBatch
             // 这一步完成了所有的反射、类型转换、内存填充
-            let batch = Polars.NET.Core.Arrow.ArrowFfiBridge.BuildRecordBatch(data)
+            let batch = Polars.NET.Core.Arrow.ArrowFfiBridge.BuildRecordBatch data
             
             // 3. Import via FFI
             // 注意：ImportDataFrame 成功后，Rust 会接管 batch 的内存
             // 如果这里抛出异常，我们需要 dispose batch
             // 但 ArrowFfiBridge.ImportDataFrame 内部已经处理了 Dispose 逻辑
             
-            let handle = Polars.NET.Core.Arrow.ArrowFfiBridge.ImportDataFrame(batch)
+            let handle = Polars.NET.Core.Arrow.ArrowFfiBridge.ImportDataFrame batch
             new DataFrame(handle)
         member this.Describe() : DataFrame =
             // 1. 筛选数值列 (Int/Float)

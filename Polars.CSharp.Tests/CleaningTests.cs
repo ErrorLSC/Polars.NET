@@ -1,6 +1,4 @@
-using Xunit;
-using Polars.CSharp;
-using static Polars.CSharp.Polars; // 方便使用 Col, Lit
+using static Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;
 
@@ -9,13 +7,6 @@ public class CleaningTests
     [Fact]
     public void Test_Forward_Backward_Fill()
     {
-        // [关键] 绝对不要用 @"" 里的缩进空格
-        // val
-        // 1
-        // null
-        // null
-        // 2
-        // null
         var content = "val\n1\n\n\n2\n\n"; 
         
         using var csv = new DisposableFile(content, ".csv");

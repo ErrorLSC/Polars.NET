@@ -2,7 +2,6 @@ namespace Polars.FSharp.Tests
 
 module UdfLogic =
     open Apache.Arrow
-    open Apache.Arrow.Types
 
     // 场景 A: 类型转换 (Int32 -> String)
     let intToString (arr: IArrowArray) : IArrowArray =

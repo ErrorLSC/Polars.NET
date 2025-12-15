@@ -109,19 +109,19 @@ public enum TimeUnit
     /// <summary>
     /// Hours
     /// </summary>
-    Hour=5,
+    Hour = 5,
     /// <summary>
     /// Days
     /// </summary>
-    Day=6,
+    Day = 6,
     /// <summary>
     /// Months
     /// </summary>
-    Month=7,
+    Month = 7,
     /// <summary>
     /// Years
     /// </summary>
-    Year=8
+    Year = 8
 }
 /// <summary>
 /// Concat Type Enum

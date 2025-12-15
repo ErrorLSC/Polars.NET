@@ -1,7 +1,3 @@
-using Xunit;
-using Polars.CSharp;
-using System;
-
 namespace Polars.CSharp.Tests;
 
 public class ScalarTests

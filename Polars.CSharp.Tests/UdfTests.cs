@@ -1,9 +1,4 @@
-using Xunit;
-using Polars.CSharp;
-using Polars.NET.Core;
 using Apache.Arrow;
-using Apache.Arrow.Types;
-using System;
 using static Polars.CSharp.Polars; // 方便使用 Col, Lit
 
 namespace Polars.CSharp.Tests;

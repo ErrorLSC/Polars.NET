@@ -1,6 +1,3 @@
-using System.Threading.Tasks;
-using Xunit;
-using Polars.CSharp;
 using static Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;

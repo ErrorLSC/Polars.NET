@@ -1,7 +1,3 @@
-using Xunit;
-using Polars.CSharp;
-using System.Collections.Generic;
-
 namespace Polars.CSharp.Tests;
 
 public class MetadataTests

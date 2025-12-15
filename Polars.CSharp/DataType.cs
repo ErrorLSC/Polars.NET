@@ -2,11 +2,7 @@ using Polars.NET.Core;
 
 namespace Polars.CSharp;
 
-/// <summary>
-/// Represents a Polars data type. 
-/// Wraps the underlying Rust DataType.
-/// </summary>
-/// <summary>
+    /// <summary>
     /// Represents a Polars data type. 
     /// Wraps the underlying Rust DataType Handle and provides high-level metadata.
     /// </summary>
@@ -55,10 +51,10 @@ public class DataType : IDisposable
     };
 
     // ==========================================
-    // Schema Parsing Logic (C# 侧解析)
+    // Schema Parsing Logic
     // ==========================================
     /// <summary>
-    /// 解析形如 "list[i64]" 或 "list[list[str]]" 的字符串
+    /// Parse "list[i64]" or "list[list[str]]" like string
     /// </summary>
     private static DataType ParseListType(string typeStr)
     {

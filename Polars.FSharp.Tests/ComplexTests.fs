@@ -2,8 +2,6 @@ namespace Polars.FSharp.Tests
 
 open Xunit
 open Polars.FSharp
-open System.IO
-open System
 
 type ``Complex Query Tests`` () =
     

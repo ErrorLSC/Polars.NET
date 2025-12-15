@@ -1,5 +1,3 @@
-using Apache.Arrow.C;
-using Apache.Arrow;
 using System.Runtime.InteropServices;
 
 namespace Polars.NET.Core;

@@ -62,7 +62,7 @@ public class DataFrame : IDisposable
     // ==========================================
     // Static IO Read
     // ==========================================
-/// <summary>
+    /// <summary>
     /// Reads a CSV file into a DataFrame.
     /// </summary>
     /// <param name="path">Path to the CSV file.</param>
@@ -338,7 +338,6 @@ public class DataFrame : IDisposable
         // Wrapper: Drop(df, name)
         // 注意：Polars 操作通常返回新 DataFrame，原 DataFrame 可能会被消耗（取决于 Rust 实现）。
         // 如果 Rust 的 pl_dataframe_drop 是消耗性的 (Move)，我们这里应该 new DataFrame(handle)。
-        // 假设 Wrapper 里的 Drop 返回的是新的 DataFrameHandle。
         return new DataFrame(PolarsWrapper.Drop(Handle, columnName));
     }
 
@@ -577,7 +576,6 @@ public class DataFrame : IDisposable
             }
         }
     }
-
     private static bool IsNumeric(string dtype)
     {
         // 简单判断：i, u, f 开头
@@ -698,39 +696,15 @@ public class DataFrame : IDisposable
     /// <param name="s"></param>
     /// <param name="maxLength"></param>
     /// <returns></returns>
-    private string Truncate(string s, int maxLength)
+    static private string Truncate(string s, int maxLength)
     {
         if (string.IsNullOrEmpty(s)) return "";
         if (s.Length <= maxLength) return s;
         return string.Concat(s.AsSpan(0, Math.Max(0, maxLength - 3)), "...");
     }
     // ==========================================
-    // Scalar Access & Interop
+    // Interop
     // ==========================================
-    /// <summary>
-    /// Get Scalar Int from DataFrame
-    /// </summary>
-    /// <param name="colName"></param>
-    /// <param name="row"></param>
-    /// <returns></returns>
-    public long? GetInt(string colName, int row) 
-        => PolarsWrapper.GetInt(Handle, colName, row); //
-    /// <summary>
-    /// Get Scalar Double from DataFrame
-    /// </summary>
-    /// <param name="colName"></param>
-    /// <param name="row"></param>
-    /// <returns></returns>
-    public double? GetDouble(string colName, int row) 
-        => PolarsWrapper.GetDouble(Handle, colName, row); //
-    /// <summary>
-    /// Get Scalar String from DataFrame
-    /// </summary>
-    /// <param name="colName"></param>
-    /// <param name="row"></param>
-    /// <returns></returns>
-    public string? GetString(string colName, int row) 
-        => PolarsWrapper.GetString(Handle, colName, row); //
 
     /// <summary>
     /// Clone the DataFrame
@@ -829,10 +803,6 @@ public class DataFrame : IDisposable
     // ==========================================
 
     /// <summary>
-    /// Convert DataFrame rows back to a list of objects.
-    /// Note: This materializes the data (ToArrow) and uses reflection.
-    /// </summary>
- /// <summary>
     /// Convert DataFrame to a list of strongly-typed objects.
     /// This triggers a conversion to Arrow format internally.
     /// </summary>
@@ -841,18 +811,7 @@ public class DataFrame : IDisposable
         // 1. 转为 Arrow RecordBatch (这是 Polars.CSharp 这一层特有的能力)
         // ToArrow() 方法本身应该已经在 DataFrame 类里实现了
         using var batch = this.ToArrow(); 
-        // 🕵️‍♂️ 侦探代码：打印 Schema 看看列名到底是啥
-        // Console.WriteLine("--- Arrow Schema ---");
-        // foreach (var field in batch.Schema.FieldsList)
-        // {
-        //     Console.WriteLine($"Field: '{field.Name}' Type: {field.DataType.Name}");
-        //     if (field.DataType is Apache.Arrow.Types.StructType st)
-        //     {
-        //         foreach (var child in st.Fields)
-        //             Console.WriteLine($"  - Child: '{child.Name}' Type: {child.DataType.Name}");
-        //     }
-        // }
-        // Console.WriteLine("--------------------");
+
         // 2. 委托给 Core 层去解析
         foreach (var item in ArrowReader.ReadRecordBatch<T>(batch))
         {
@@ -909,15 +868,11 @@ public class DataFrame : IDisposable
     
     /// <summary>
     /// Get all columns as a list of Series.
-    /// </summary>
-/// <summary>
-    /// Get all columns as a list of Series.
     /// Order is guaranteed to match the physical column order.
     /// </summary>
     public Series[] GetColumns()
     {
-        // [修复] 不再使用 Schema.Keys (无序)
-        // 改用底层的按索引获取列名 (有序)
+        // 用底层的按索引获取列名 (有序)
         var names = PolarsWrapper.GetColumnNames(Handle);
         
         var cols = new Series[names.Length];

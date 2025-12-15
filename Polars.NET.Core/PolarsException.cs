@@ -1,4 +1,3 @@
-using System;
 using System.Runtime.InteropServices;
 
 namespace Polars.NET.Core;
@@ -47,12 +46,12 @@ internal static class ErrorHelper
     }
     internal static string CheckString(IntPtr ptr)
     {
-    if (ptr == IntPtr.Zero) 
-    {
-        ErrorHelper.CheckVoid(); // 检查是否有 Rust 错误
-        return string.Empty; 
-    }
-    try { return Marshal.PtrToStringUTF8(ptr) ?? ""; }
-    finally { NativeBindings.pl_free_string(ptr); }
+        if (ptr == IntPtr.Zero) 
+        {
+            CheckVoid(); // 检查是否有 Rust 错误
+            return string.Empty; 
+        }
+        try { return Marshal.PtrToStringUTF8(ptr) ?? ""; }
+        finally { NativeBindings.pl_free_string(ptr); }
     }
 }

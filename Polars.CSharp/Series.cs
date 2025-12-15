@@ -217,13 +217,13 @@ public class Series : IDisposable
     /// </summary>
     /// <param name="other"></param>
     /// <returns></returns>
-    public Series Eq(Series other) => new Series(PolarsWrapper.SeriesEq(Handle, other.Handle));
+    public Series Eq(Series other) => new(PolarsWrapper.SeriesEq(Handle, other.Handle));
     /// <summary>
     /// Compare whether two Series is not equal
     /// </summary>
     /// <param name="other"></param>
     /// <returns></returns>
-    public Series Neq(Series other) => new Series(PolarsWrapper.SeriesNeq(Handle, other.Handle));
+    public Series Neq(Series other) => new(PolarsWrapper.SeriesNeq(Handle, other.Handle));
     /// <summary>
     /// Compare whether left series is greater than right series
     /// </summary>
@@ -232,7 +232,7 @@ public class Series : IDisposable
     /// <returns></returns>
     // 大于小于可以用运算符重载，这在 C# 中比较常见用于自定义类型
     public static Series operator >(Series left, Series right) 
-        => new Series(PolarsWrapper.SeriesGt(left.Handle, right.Handle));
+        => new(PolarsWrapper.SeriesGt(left.Handle, right.Handle));
     /// <summary>
     /// Compare whether left series is less than right series
     /// </summary>
@@ -240,7 +240,7 @@ public class Series : IDisposable
     /// <param name="right"></param>
     /// <returns></returns>
     public static Series operator <(Series left, Series right) 
-        => new Series(PolarsWrapper.SeriesLt(left.Handle, right.Handle));
+        => new(PolarsWrapper.SeriesLt(left.Handle, right.Handle));
     /// <summary>
     /// Compare whether left series is greater than or equal to right series
     /// </summary>
@@ -248,7 +248,7 @@ public class Series : IDisposable
     /// <param name="right"></param>
     /// <returns></returns>
     public static Series operator >=(Series left, Series right) 
-        => new Series(PolarsWrapper.SeriesGtEq(left.Handle, right.Handle));
+        => new(PolarsWrapper.SeriesGtEq(left.Handle, right.Handle));
     /// <summary>
     /// Compare whether left series is less than or equal to right series
     /// </summary>
@@ -256,7 +256,7 @@ public class Series : IDisposable
     /// <param name="right"></param>
     /// <returns></returns>
     public static Series operator <=(Series left, Series right) 
-        => new Series(PolarsWrapper.SeriesLtEq(left.Handle, right.Handle));
+        => new(PolarsWrapper.SeriesLtEq(left.Handle, right.Handle));
 
     // 显式方法别名 (Fluent API 风格)
     /// <summary>
@@ -293,22 +293,22 @@ public class Series : IDisposable
     /// Sum series into 1 length series(Scalar)
     /// </summary>
     /// <returns></returns>
-    public Series Sum() => new Series(PolarsWrapper.SeriesSum(Handle));
+    public Series Sum() => new(PolarsWrapper.SeriesSum(Handle));
     /// <summary>
     /// Mean series into 1 length series(Scalar)
     /// </summary>
     /// <returns></returns>
-    public Series Mean() => new Series(PolarsWrapper.SeriesMean(Handle));
+    public Series Mean() => new(PolarsWrapper.SeriesMean(Handle));
     /// <summary>
     /// Min series into 1 length series(Scalar)
     /// </summary>
     /// <returns></returns>
-    public Series Min() => new Series(PolarsWrapper.SeriesMin(Handle));
+    public Series Min() => new(PolarsWrapper.SeriesMin(Handle));
     /// <summary>
     /// Max series into 1 length series(Scalar)
     /// </summary>
     /// <returns></returns>
-    public Series Max() => new Series(PolarsWrapper.SeriesMax(Handle));
+    public Series Max() => new(PolarsWrapper.SeriesMax(Handle));
 
     // 泛型辅助方法：直接获取标量值
     /// <summary>
@@ -868,22 +868,22 @@ public class Series : IDisposable
     /// Check whether this series is NaN
     /// </summary>
     /// <returns></returns>
-    public Series IsNan() => new Series(PolarsWrapper.SeriesIsNan(Handle));
+    public Series IsNan() => new(PolarsWrapper.SeriesIsNan(Handle));
     /// <summary>
     /// Check whether this series is not NaN
     /// </summary>
     /// <returns></returns>
-    public Series IsNotNan() => new Series(PolarsWrapper.SeriesIsNotNan(Handle));
+    public Series IsNotNan() => new(PolarsWrapper.SeriesIsNotNan(Handle));
     /// <summary>
     /// Check whether this series is finite
     /// </summary>
     /// <returns></returns>
-    public Series IsFinite() => new Series(PolarsWrapper.SeriesIsFinite(Handle));
+    public Series IsFinite() => new(PolarsWrapper.SeriesIsFinite(Handle));
     /// <summary>
     /// Check whether this series is infinite
     /// </summary>
     /// <returns></returns>
-    public Series IsInfinite() => new Series(PolarsWrapper.SeriesIsInfinite(Handle));
+    public Series IsInfinite() => new(PolarsWrapper.SeriesIsInfinite(Handle));
     // ==========================================
     // Conversions (Arrow / DataFrame)
     // ==========================================
