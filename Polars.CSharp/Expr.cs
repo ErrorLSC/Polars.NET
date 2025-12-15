@@ -780,6 +780,28 @@ public class DtOps
     {
         return new Expr(PolarsWrapper.DtTimestamp(_expr.Handle, (int)unit));
     }
+
+    // ==========================================
+    // TimeZone
+    // ==========================================
+    /// <summary>
+    /// Convert from one timezone to another.
+    /// Resulting Series will have the given time zone.
+    /// </summary>
+    /// <param name="timeZone">Target time zone (e.g. "Asia/Shanghai")</param>
+    public Expr ConvertTimeZone(string timeZone)
+    {
+        return new Expr(PolarsWrapper.DtConvertTimeZone(_expr.Handle, timeZone));
+    }
+
+    /// <summary>
+    /// Replace the time zone of a Series.
+    /// This does not change the underlying timestamp, only the metadata.
+    /// </summary>
+    public Expr ReplaceTimeZone(string? timeZone, string? ambiguous = null, string? nonExistent = "raise")
+    {
+        return new Expr(PolarsWrapper.DtReplaceTimeZone(_expr.Handle, timeZone, ambiguous, nonExistent));
+    }
     
 }
 

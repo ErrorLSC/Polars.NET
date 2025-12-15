@@ -340,6 +340,45 @@ public class DataTypeTests
         Assert.InRange(resOffsets[0].UtcTicks - offsetNow.UtcTicks, -tolerance, tolerance);
     }
     [Fact]
+    public void Test_Dt_ConvertTimeZone_RoundTrip()
+    {
+        // 1. 创建 UTC 时间 (2025-01-01 12:00:00 UTC)
+        // 对应北京时间应该是 20:00:00 (+8)
+        var utcTime = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        
+        using var df = DataFrame.From(
+        [
+            new { Time = utcTime } 
+        ]);
+
+        // 2. 在 Polars 内部执行转换: UTC -> Asia/Shanghai
+        // 这一步会修改 Arrow Schema 的 metadata，标记这列是 "Asia/Shanghai"
+        using var dfTz = df.WithColumns(
+            Col("Time").Dt.ConvertTimeZone("Asia/Shanghai").Alias("TimeShanghai")
+        );
+
+        Console.WriteLine(dfTz);
+        // Polars Output 应该显示: 2025-01-01 20:00:00 CST
+
+        // 3. 读取回 C#
+        var rows = dfTz.Rows<DateTimeOffset>().ToList(); // 假设 Rows 会读第一列，或者用 ToArray
+        
+        // 如果是多列，建议用 Unnest 或者 Select
+        // 这里我们要读 "TimeShanghai" 这一列
+        var shanghaiSeries = dfTz["TimeShanghai"];
+        var result = shanghaiSeries.ToArray<DateTimeOffset>()[0];
+
+        // 4. 验证
+        // Offset 必须是 +8
+        Assert.Equal(TimeSpan.FromHours(8), result.Offset);
+        
+        // 绝对时间点 (UtcTicks) 必须没变 (还是 12:00 UTC)
+        Assert.Equal(utcTime.Ticks, result.UtcTicks);
+        
+        // 墙上时间 (Local Time) 应该是 20:00
+        Assert.Equal(20, result.Hour);
+    }
+    [Fact]
     public void Test_GetValue_Complex()
     {
         // 1. 准备 Struct 数据

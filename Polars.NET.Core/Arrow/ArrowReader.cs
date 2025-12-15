@@ -251,7 +251,33 @@ namespace Polars.NET.Core.Arrow
                 }
                 else if (underlyingType == typeof(DateTimeOffset))
                 {
-                    baseAccessor = idx => array.GetDateTimeOffset(idx);
+                TimeZoneInfo? tzi = null;
+                
+                // 1. 尝试从 Arrow Schema 获取时区
+                if (array is TimestampArray tsArr && tsArr.Data.DataType is TimestampType tsType)
+                {
+                    string? arrowTz = tsType.Timezone;
+                    if (!string.IsNullOrEmpty(arrowTz))
+                    {
+                        try 
+                        {
+                            // 只查找一次！
+                            tzi = TimeZoneInfo.FindSystemTimeZoneById(arrowTz);
+                        }
+                        catch 
+                        {
+                            // 找不到就降级为 UTC，或者记录日志
+                        }
+                    }
+                }
+
+                // 2. 返回针对该 TimeZone 优化过的读取器
+                return baseAccessor = idx => 
+                {
+                    // 复用 GetDateTimeOffset，但我们把 tzi 传进去（需要重载一下扩展方法）
+                    // 或者直接在这里写逻辑
+                    return array.GetDateTimeOffsetOptimized(idx, tzi);
+                };
                 }
                 else if (underlyingType == typeof(DateOnly))
                 {

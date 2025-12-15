@@ -394,6 +394,59 @@ public static class ArrowExtensions
                 
             return null;
         }
+        /// <summary>
+        /// 高性能版本：使用预先查找好的 TimeZoneInfo
+        /// </summary>
+        public static DateTimeOffset? GetDateTimeOffsetOptimized(this IArrowArray array, int index, TimeZoneInfo? tzi)
+        {
+            if (array.IsNull(index)) return null;
+
+            if (array is TimestampArray tsArr)
+            {
+                long? v = tsArr.GetValue(index);
+                if (!v.HasValue) return null;
+
+                var unit = (tsArr.Data.DataType as TimestampType)?.Unit;
+                
+                // A. 计算 UTC Ticks
+                long ticks = unit switch
+                {
+                    TimeUnit.Nanosecond => v.Value / 100L,
+                    TimeUnit.Microsecond => v.Value * 10L,
+                    TimeUnit.Millisecond => v.Value * 10000L,
+                    TimeUnit.Second => v.Value * 10000000L,
+                    _ => v.Value
+                };
+                long utcTicks = DateTime.UnixEpoch.Ticks + ticks;
+
+                // B. 如果有时区信息，计算 Offset
+                TimeSpan offset = TimeSpan.Zero;
+                if (tzi != null)
+                {
+                    // TimeZoneInfo 已经缓存好了，直接算
+                    offset = tzi.GetUtcOffset(new DateTime(utcTicks, DateTimeKind.Utc));
+                }
+
+                return new DateTimeOffset(utcTicks, TimeSpan.Zero).ToOffset(offset);
+            }
+
+            // 兼容 Date32/Date64 (它们通常没有时区，默认为 UTC)
+            if (array is Date32Array d32)
+            {
+                int? days = d32.GetValue(index);
+                if (!days.HasValue) return null;
+                return new DateTimeOffset(new DateTime(1970, 1, 1).AddDays(days.Value), TimeSpan.Zero);
+            }
+            if (array is Date64Array d64)
+            {
+                long? ms = d64.GetValue(index);
+                if (!ms.HasValue) return null;
+                return new DateTimeOffset(new DateTime(1970, 1, 1).AddMilliseconds(ms.Value), TimeSpan.Zero);
+            }
+                
+
+            return null;
+        }
 
     // ==========================================
     // Internal Conversion Logic
