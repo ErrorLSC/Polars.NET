@@ -727,58 +727,20 @@ public class DataFrame : IDisposable
     // ==========================================
 
     /// <summary>
-    /// Create a DataFrame from a collection of objects (Records/Classes).
-    /// Uses reflection to map Properties to Columns.
+    /// Create a DataFrame from a collection of objects (POCOs).
+    /// High-performance implementation using Arrow Struct conversion.
     /// </summary>
-    public static DataFrame From<T>(IEnumerable<T> items)
+    public static DataFrame From<T>(IEnumerable<T> data)
     {
-        var properties = typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance);
-        var seriesHandles = new SeriesHandle[properties.Length];
-        var itemsList = items as IList<T> ?? [.. items];
-        var createdHandles = new List<SeriesHandle>();
-
-        try
-        {
-            for (int i = 0; i < properties.Length; i++)
-            {
-                var prop = properties[i];
-                var colName = prop.Name;
-                var colType = prop.PropertyType;
-
-                // 1. 获取原始数据 (IEnumerable<object>)
-                var rawValues = itemsList.Select(item => prop.GetValue(item));
-
-                // 2. [关键修复] 动态调用 Enumerable.Cast<ColType>()
-                // 将 IEnumerable<object> 转换为 IEnumerable<int> / IEnumerable<decimal?> 等
-                var castMethod = typeof(Enumerable)
-                    .GetMethod(nameof(Enumerable.Cast), BindingFlags.Public | BindingFlags.Static)!
-                    .MakeGenericMethod(colType);
-                
-                var castedValues = castMethod.Invoke(null, [rawValues]);
-
-                // 3. 调用 Series.Create<ColType>
-                var createMethod = typeof(Series)
-                    .GetMethod(nameof(Series.Create), BindingFlags.Public | BindingFlags.Static)!
-                    .MakeGenericMethod(colType);
-                
-                // 现在传入的是类型匹配的 castedValues
-                var seriesObj = (Series)createMethod.Invoke(null, [colName, castedValues!])!;
-                
-                seriesHandles[i] = seriesObj.Handle;
-                createdHandles.Add(seriesObj.Handle); 
-            }
-
-            // 调用 Wrapper 创建 DataFrame
-            // 你的 Wrapper: DataFrameNew(SeriesHandle[])
-            return new DataFrame(PolarsWrapper.DataFrameNew(seriesHandles));
-        }
-        finally
-        {      
-            foreach (var h in createdHandles)
-            {
-                if (!h.IsInvalid) h.Dispose();
-            }
-        }
+        // 1. 利用我们强大的 ArrowConverter 将对象列表转为 Struct Series
+        // 这是一次性遍历，性能最高，且支持嵌套类型
+        using var structSeries = Series.From("data", data);
+        
+        // 2. 将 Series 包装为 DataFrame
+        using var tmpDf = new DataFrame(structSeries);
+        
+        // 3. 调用 Polars 的 Unnest 将 Struct 字段炸开为独立列
+        return tmpDf.Unnest("data");
     }
     /// <summary>
     /// Create a DataFrame from a list of Series.

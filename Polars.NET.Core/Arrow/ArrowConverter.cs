@@ -33,6 +33,7 @@ public static class ArrowConverter
             var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
 
             // 1. 基础类型 (Primitives & String)
+            if (underlyingType == typeof(float)) return BuildFloat(data.Cast<float?>());
             if (underlyingType == typeof(int)) return BuildInt32(data.Cast<int?>());
             if (underlyingType == typeof(long)) return BuildInt64(data.Cast<long?>());
             if (underlyingType == typeof(double)) return BuildDouble(data.Cast<double?>());
@@ -43,6 +44,7 @@ public static class ArrowConverter
             if (underlyingType == typeof(DateTime)) return BuildTimestamp(data.Cast<DateTime?>());
             if (underlyingType == typeof(DateTimeOffset)) return BuildDateTimeOffset(data.Cast<DateTimeOffset?>());
             if (underlyingType == typeof(TimeSpan)) return BuildDuration(data.Cast<TimeSpan?>());
+            if (underlyingType == typeof(decimal)) return BuildDecimal(data.Cast<decimal?>());
             // 2. 递归支持 List<U>
             // 检查是否实现了 IEnumerable<U> 且不是 string
             if (type != typeof(string) && 
@@ -190,6 +192,27 @@ public static class ArrowConverter
 
             // 递归调用主入口 Build<T>
             return Build(classData);
+        }
+        private static FloatArray BuildFloat(IEnumerable<float?> data)
+        {
+            var b = new FloatArray.Builder();
+            foreach (var v in data) if (v.HasValue) b.Append(v.Value); else b.AppendNull();
+            return b.Build();
+        }
+
+        // [新增] Decimal Builder
+        private static Decimal128Array BuildDecimal(IEnumerable<decimal?> data)
+        {
+            // Polars 默认推断通常是 Decimal(38, 9) 或类似，这里我们用常见的 (28, 6) 或者根据数据推断
+            // 为了通用性，先给个足够大的精度。Arrow C# 需要显式指定 Type
+            var type = new Decimal128Type(38, 18); // 38位精度，18位小数 (标准高精度)
+            var b = new Decimal128Array.Builder(type);
+            foreach (var v in data)
+            {
+                if (v.HasValue) b.Append(v.Value);
+                else b.AppendNull();
+            }
+            return b.Build();
         }
         private static Int32Array BuildInt32(IEnumerable<int?> data)
         {
@@ -407,16 +430,36 @@ public static class ArrowConverter
         private static IArrowArray ProjectAndBuild<TParent>(IList<TParent> data, Type propType, Func<TParent, object?> getter)
         {
             bool isFSharpOption = FSharpHelper.IsFSharpOption(propType);
-            Type underlyingType = isFSharpOption ? FSharpHelper.GetUnderlyingType(propType) : propType;
-            Type targetType = underlyingType.IsValueType 
-                ? typeof(Nullable<>).MakeGenericType(underlyingType) 
-                : underlyingType;
-            // 利用反射调用泛型的 BuildColumn<TParent, TProp>
+            
+            // [关键修复] 如果是 Nullable<T>，我们把 T 传给 BuildColumn，避免 Nullable 嵌套问题
+            // 如果 propType 是 DateTime?，targetType 变成 DateTime
+            // 如果 propType 是 DateTime，targetType 还是 DateTime
+            Type cleanType = propType;
+
+            if (isFSharpOption)
+            {
+                cleanType = FSharpHelper.GetUnderlyingType(propType);
+            }
+            else
+            {
+                // 如果是 Nullable<int>，剥离出 int
+                cleanType = Nullable.GetUnderlyingType(propType) ?? propType;
+            }
+
+            // 2. 构建目标类型 (TargetType)
+            // 如果是值类型 (int, double)，强制包一层 Nullable (int?, double?)
+            // 如果是引用类型 (string, List)，保持原样
+            Type targetType = cleanType;
+            if (cleanType.IsValueType)
+            {
+                targetType = typeof(Nullable<>).MakeGenericType(cleanType);
+            }
+
             var method = typeof(StructBuilderHelper)
                 .GetMethod(nameof(BuildColumn), BindingFlags.NonPublic | BindingFlags.Static)!
                 .MakeGenericMethod(typeof(TParent), targetType);
 
-            return (IArrowArray)method.Invoke(null, [data, getter, isFSharpOption, propType])!;
+            return (IArrowArray)method.Invoke(null, [data, getter, isFSharpOption])!;
         }
 
         /// <summary>
@@ -425,13 +468,19 @@ public static class ArrowConverter
         private static IArrowArray BuildColumn<TParent, TProp>(
             IList<TParent> data, 
             Func<TParent, object?> getter, 
-            bool isOption, 
-            Type originalType)
+            bool isOption)
         {
             Func<object, object?>? unwrapper = null;
             if (isOption)
             {
-                unwrapper = FSharpHelper.CreateOptionUnwrapper(originalType);
+                // 获取 TProp 的底层类型 (e.g. int?, double?)
+                var innerType = Nullable.GetUnderlyingType(typeof(TProp)) ?? typeof(TProp);
+                
+                // [修复] 动态构造 FSharpOption<Inner> 类型
+                // 以前写 typeof(Microsoft.FSharp...) 会报错，现在调用 Helper
+                var optionType = FSharpHelper.MakeFSharpOptionType(innerType);
+                
+                unwrapper = FSharpHelper.CreateOptionUnwrapper(optionType);
             }
             // 1. 投影数据 (Projection)
             // 把 List<Parent> 变成 IEnumerable<Prop>
@@ -439,17 +488,18 @@ public static class ArrowConverter
             {
                 // 如果父对象是 null，子属性给默认值 (null 或 0)
                 // StructArray 的 ValidityBitmap 会负责标记这一行为空，所以这里填充默认值是安全的
-                if (item == null) return default;
+                if (item == null) return default(TProp?);
 
                 var rawVal = getter(item);
                 
                 // 处理值类型拆箱
-                if (rawVal == null) return default;
+                if (rawVal == null) return default(TProp?);
                 // [关键] 如果是 Option，先解包
                 if (isOption)
                 {
                     var unwrapped = unwrapper!(rawVal);
-                    if (unwrapped == null) return default;
+                    // [修复] 使用 default(TProp?)
+                    if (unwrapped == null) return default(TProp?);
                     return (TProp)unwrapped;
                 }
                 return (TProp)rawVal;

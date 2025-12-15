@@ -6,6 +6,7 @@ namespace Polars.NET.Core.Arrow
     internal static class FSharpHelper
     {
         private const string OptionTypeName = "Microsoft.FSharp.Core.FSharpOption`1";
+        private const string AssemblyName = "FSharp.Core";
 
         public static bool IsFSharpOption(Type type)
         {
@@ -16,7 +17,38 @@ namespace Polars.NET.Core.Arrow
         {
             return IsFSharpOption(type) ? type.GetGenericArguments()[0] : type;
         }
+        /// <summary>
+        /// [新增] 动态获取 FSharpOption<T> 类型
+        /// 替代 typeof(Microsoft.FSharp.Core.FSharpOption<>)
+        /// </summary>
+        public static Type MakeFSharpOptionType(Type innerType)
+        {
+            // 1. 尝试直接获取泛型定义 (Open Type)
+            // 格式: "FullName, AssemblyName"
+            var openType = Type.GetType($"{OptionTypeName}, {AssemblyName}");
 
+            if (openType == null)
+            {
+                // 2. 备选方案：遍历已加载的程序集查找 FSharp.Core
+                // 防止 FSharp.Core 版本号差异导致直接 GetType 失败
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    if (asm.GetName().Name == "FSharp.Core")
+                    {
+                        openType = asm.GetType(OptionTypeName);
+                        if (openType != null) break;
+                    }
+                }
+            }
+
+            if (openType == null)
+            {
+                throw new InvalidOperationException("Could not find FSharpOption type. Ensure FSharp.Core is loaded.");
+            }
+
+            // 3. 构造泛型类型 FSharpOption<InnerType>
+            return openType.MakeGenericType(innerType);
+        }
         /// <summary>
         /// [Fixed] Create Unwrapper: FSharpOption<T> -> T (or null)
         /// Logic: obj == null ? null : obj.Value
@@ -30,10 +62,7 @@ namespace Polars.NET.Core.Arrow
             var castedInput = Expression.Convert(inputParam, optionType);
 
             // 2. Access: .Value
-            var valueProp = optionType.GetProperty("Value");
-            if (valueProp == null) 
-                throw new InvalidOperationException($"Type {optionType.Name} missing 'Value' property.");
-
+            var valueProp = optionType.GetProperty("Value") ?? throw new InvalidOperationException($"Type {optionType.Name} missing 'Value' property.");
             var valueAccess = Expression.Property(castedInput, valueProp);
             
             // 3. Result: (object)Value
