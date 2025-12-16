@@ -219,13 +219,14 @@ namespace Polars.NET.Core.Arrow
                     };
                 }
 
-                else if (underlyingType == typeof(double) || underlyingType == typeof(float))
+                else if (underlyingType == typeof(double) || underlyingType == typeof(float) || underlyingType == typeof(Half))
                 {
                     baseAccessor = idx => 
                     {
                         double? v = array.GetDoubleValue(idx);
                         if (!v.HasValue) return null;
                         if (underlyingType == typeof(float)) return (float)v.Value;
+                        if (underlyingType == typeof(Half)) return (Half)v.Value;
                         return v.Value;
                     };
                 }

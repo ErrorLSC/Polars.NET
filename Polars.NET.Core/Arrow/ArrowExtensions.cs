@@ -32,6 +32,7 @@ public static class ArrowExtensions
             UInt16Array arr => arr.GetValue(index).ToString()!,
             UInt32Array arr => arr.GetValue(index).ToString()!,
             UInt64Array arr => arr.GetValue(index).ToString()!,
+            HalfFloatArray arr => arr.GetValue(index).ToString()!,
             FloatArray arr  => arr.GetValue(index).ToString()!,
             DoubleArray arr => arr.GetValue(index).ToString()!,
             DictionaryArray dictArr => $"\"{dictArr.GetStringValue(index)}\"",
@@ -111,6 +112,7 @@ public static class ArrowExtensions
         {
             DoubleArray d => d.GetValue(index),
             FloatArray f => f.GetValue(index),
+            HalfFloatArray h => (double?)h.GetValue(index),
             // 也可以支持整型转浮点
             Int64Array i => i.GetValue(index),
             Int32Array i => i.GetValue(index),
@@ -451,7 +453,7 @@ public static class ArrowExtensions
     // ==========================================
     // Internal Conversion Logic
     // ==========================================
-    private static readonly DateTime EpochUtc = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime EpochNaive = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Unspecified);
     private static DateTime ConvertTimestamp(TimestampArray arr, int index)
     {
         long v = arr.GetValue(index).GetValueOrDefault();
@@ -472,7 +474,26 @@ public static class ArrowExtensions
 
         try 
         {
-            var dt = EpochUtc.AddTicks(ticks);
+            // 1. 还原为墙上时间 (Unspecified)
+            // Arrow 里的 v 此时代表 "距离 1970-01-01 00:00:00 的墙上时间差"
+            var dt = EpochNaive.AddTicks(ticks);
+
+            // 2. 检查时区
+            // 如果 Arrow Schema 里真的带了时区 (比如是通过 CSV 读取带时区的列，或者 dt.convert_time_zone 产生的)
+            // 此时 Polars 物理存储的是 UTC。我们需要把这个 UTC 映射回 Local 吗？
+            // 不，Polars 的逻辑是：有时区 -> 物理存UTC -> 显示时转换。
+            // 但如果我们在 Converter 里存的是 Naive，这里 type.Timezone 应该是 null。
+            
+            if (!string.IsNullOrEmpty(type?.Timezone))
+            {
+                // 极端情况：如果 Arrow 里有时区，说明这是个"绝对时间"。
+                // 此时我们需要返回 UTC 吗？
+                // 为了保持一致性，如果 Polars 说是 Aware，我们最好返回 UTC (或者带 Offset)。
+                // 但这里我们主要讨论 Naive 场景。
+                return DateTime.SpecifyKind(dt, DateTimeKind.Utc); 
+            }
+
+            // 绝大多数情况：Naive -> Unspecified
             return dt;
         }
         catch (ArgumentOutOfRangeException)

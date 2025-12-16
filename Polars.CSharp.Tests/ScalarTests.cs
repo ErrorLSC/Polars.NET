@@ -99,11 +99,11 @@ public class ScalarTests
         // --- Decimal ---
         Assert.Equal(123.456m, df.GetValue<decimal>(0, "d"));
         
-        // --- DateTime (UTC ticks check) ---
-        // 我们之前修好了 ArrowReader，现在应该能直接读出 DateTime (UTC)
+        // --- DateTime (Naive ticks check) ---
+        // 我们之前修好了 ArrowReader，现在应该能直接读出 DateTime (Naive)
         var dtOut = df.GetValue<DateTime>(0, "dt");
         Assert.Equal(now.Ticks, dtOut.Ticks);
-        Assert.Equal(DateTimeKind.Utc, dtOut.Kind); // 确保是 UTC
+        Assert.Equal(DateTimeKind.Unspecified, dtOut.Kind); // 确保Naive Time
         
         // --- DateOnly ---
         Assert.Equal(date, df.GetValue<DateOnly>(0, "date"));

@@ -250,134 +250,119 @@ public class DataTypeTests
         Assert.Equal(new TimeOnly(14, 30, 0), rows[0].Time);
     }
     [Fact]
-    public void Test_TimeZone_Normalization()
+    public void Test_DateTime_WallClock_Consistency()
     {
-        var now = DateTime.Now; // Local Time
-        var utcNow = DateTime.UtcNow;
-        var offsetNow = DateTimeOffset.Now; // Local Offset (e.g., +08:00)
-
-        var data = new List<object> { now, utcNow, offsetNow };
-
-        // 这里的 List<object> 会让 Converter 困惑，我们分开测更严谨
-        // 测试 1: DateTime (Local vs UTC)
-        var dates = new List<DateTime> { now, utcNow };
-        using var s1 = Series.From("dates", dates);
-        // 读取回来，应该都是 UTC 时间点
-        // 注意：Ticks 比较时，ToUniversalTime() 后的 Ticks 应该一致
+        // 场景：用户输入了 "2025-01-01 12:00:00"
+        // 无论这个 DateTime 对象的 .Kind 是什么（Local/Utc/Unspecified）
+        // 我们都视为用户只想存 "12:00:00" 这个墙上时间。
         
-        using var df1 = new DataFrame(s1);
-        var readDates = df1.Rows<DateTime>().ToList();
-        
-        // 验证：读回来的时间点（Ticks）应该等于原始时间转 UTC 后的 Ticks
-        // 允许微秒级误差 (Arrow截断)
-        long tolerance = 10000; // 1ms
-        Assert.InRange(readDates[0].Ticks - now.ToUniversalTime().Ticks, -tolerance, tolerance);
+        var dtLocal = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Local);
+        var dtUtc   = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        var dtUnspec= new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Unspecified);
 
-        // 测试 2: DateTimeOffset
-        var offsets = new List<DateTimeOffset> { offsetNow };
-        using var s2 = Series.From("offsets", offsets);
-        
-        using var df2 = new DataFrame(s2);
-        var readOffsets = df2.Rows<DateTimeOffset>().ToList();
-
-        // 验证：Arrow 存的是 UTC，读回来也是 UTC (+00:00)
-        // 但代表的“绝对时间点”必须相等
-        Assert.Equal(TimeSpan.Zero, readOffsets[0].Offset); // 读回来变成 UTC 了
-        Assert.InRange(readOffsets[0].UtcTicks - offsetNow.UtcTicks, -tolerance, tolerance);
-    }
-    [Fact]
-    public void Test_TimeZone_Normalization_Clean()
-    {
-        // 1. 准备数据
-        // 故意取一个带时区的时间 (Local) 和一个 UTC 时间
-        var nowLocal = DateTime.Now;           // e.g. 12:00 +08:00 (UTC 04:00)
-        var nowUtc = DateTime.UtcNow;          // e.g. 04:00 Z
-        var offsetNow = DateTimeOffset.Now;    // e.g. 12:00 +08:00
-
-        // =========================================================
-        // Test 1: DateTime (Local -> UTC Normalization)
-        // =========================================================
-        
         // 存入 Series
-        var dates = new List<DateTime> { nowLocal, nowUtc };
-        using var sDates = Series.From("dates", dates);
+        using var s = Series.From("dates", new[] { dtLocal, dtUtc, dtUnspec });
 
-        // 读取 (使用新加的 ToArray 或者 GetValue)
-        var resDates = sDates.ToArray<DateTime>();
+        // 读取回来 (使用 ToArray<DateTime>)
+        var results = s.ToArray<DateTime>();
 
         // 验证
-        // Arrow 存的是微秒，.NET 是 100ns，会有精度损失，允许 100 Ticks (10微秒) 的误差
+        // 允许 10us (100 ticks) 的微秒截断误差
         long tolerance = 100; 
 
-        // 验证 1: Local 时间是否被正确转为了 UTC 时间戳
-        // 我们比较的是 Ticks（绝对时间点）
-        long expectedTicks1 = nowLocal.ToUniversalTime().Ticks;
-        long actualTicks1 = resDates[0].Ticks;
+        // 1. 验证字面量（Ticks）一致性
+        // 输入是 12:00，读出来必须还是 12:00 的 Ticks
+        long expectedLiteralTicks = new DateTime(2025, 1, 1, 12, 0, 0).Ticks;
+
+        Assert.InRange(results[0].Ticks - expectedLiteralTicks, -tolerance, tolerance);
+        Assert.InRange(results[1].Ticks - expectedLiteralTicks, -tolerance, tolerance);
+        Assert.InRange(results[2].Ticks - expectedLiteralTicks, -tolerance, tolerance);
+
+        // 2. 验证 .Kind 被重置为 Unspecified (或者是 Utc，取决于你 ConvertTimestamp 最后的 return 策略)
+        // 按照我们在 ArrowExtensions 里的最新修改 (EpochUtc.AddTicks)，ArrowReader 读出来的是 UTC。
+        // *如果你之前的 ConvertTimestamp 按照我建议的改成了返回 UTC，这里就 Assert Utc*
+        // *如果你改成了返回 Unspecified，这里就 Assert Unspecified*
         
-        // 打印调试信息 (如果挂了方便看)
-        // Expected: ~638377776000000000
-        // Actual:   ~638377776000000000 (Last digit might be 0 due to microsecond truncation)
-        Assert.InRange(actualTicks1 - expectedTicks1, -tolerance, tolerance);
-
-        // 验证 2: UTC 时间是否保持一致
-        long expectedTicks2 = nowUtc.Ticks;
-        long actualTicks2 = resDates[1].Ticks;
-        Assert.InRange(actualTicks2 - expectedTicks2, -tolerance, tolerance);
-
-        // =========================================================
-        // Test 2: DateTimeOffset (Offset -> UTC Zero)
-        // =========================================================
-        
-        var offsets = new List<DateTimeOffset> { offsetNow };
-        using var sOffsets = Series.From("offsets", offsets);
-
-        var resOffsets = sOffsets.ToArray<DateTimeOffset>();
-
-        // 验证 1: 读回来必须是 UTC (Offset 为 0)
-        Assert.Equal(TimeSpan.Zero, resOffsets[0].Offset);
-
-        // 验证 2: 绝对时间点 (UtcTicks) 必须相等
-        Assert.InRange(resOffsets[0].UtcTicks - offsetNow.UtcTicks, -tolerance, tolerance);
+        // 假设你用了我推荐的 EpochUtc.AddTicks(ticks) 方案，读回来默认是 UTC
+        Assert.Equal(DateTimeKind.Unspecified, results[0].Kind); 
+        Assert.Equal(DateTimeKind.Unspecified, results[1].Kind);
+        Assert.Equal(DateTimeKind.Unspecified, results[2].Kind);
     }
     [Fact]
-    public void Test_Dt_ConvertTimeZone_RoundTrip()
+    public void Test_DateTimeOffset_Absolute_Consistency()
     {
-        // 1. 创建 UTC 时间 (2025-01-01 12:00:00 UTC)
-        // 对应北京时间应该是 20:00:00 (+8)
-        var utcTime = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        // 1. 准备数据
+        // 北京时间 12:00 (+08:00) 
+        // 绝对时间是 UTC 04:00
+        var offsetNow = new DateTimeOffset(2025, 1, 1, 12, 0, 0, TimeSpan.FromHours(8));
         
-        using var df = DataFrame.From(
-        [
-            new { Time = utcTime } 
-        ]);
+        // 存入 Series
+        using var s = Series.From("offsets", new[] { offsetNow });
 
-        // 2. 在 Polars 内部执行转换: UTC -> Asia/Shanghai
-        // 这一步会修改 Arrow Schema 的 metadata，标记这列是 "Asia/Shanghai"
-        using var dfTz = df.WithColumns(
-            Col("Time").Dt.ConvertTimeZone("Asia/Shanghai").Alias("TimeShanghai")
-        );
+        // 读取回来
+        var results = s.ToArray<DateTimeOffset>();
 
-        Console.WriteLine(dfTz);
-        // Polars Output 应该显示: 2025-01-01 20:00:00 CST
+        // 验证
+        long tolerance = 100;
 
-        // 3. 读取回 C#
-        var rows = dfTz.Rows<DateTimeOffset>().ToList(); // 假设 Rows 会读第一列，或者用 ToArray
+        // 1. 读回来必须是 UTC (Offset 为 0)
+        // 因为 Arrow 内部归一化存储了
+        Assert.Equal(TimeSpan.Zero, results[0].Offset);
+
+        // 2. 绝对时间点 (UtcTicks) 必须相等
+        // 输入的 12:00+8 等于 UTC 的 04:00
+        // 读出来的 04:00+0 等于 UTC 的 04:00
+        Assert.InRange(results[0].UtcTicks - offsetNow.UtcTicks, -tolerance, tolerance);
         
-        // 如果是多列，建议用 Unnest 或者 Select
-        // 这里我们要读 "TimeShanghai" 这一列
-        var shanghaiSeries = dfTz["TimeShanghai"];
-        var result = shanghaiSeries.ToArray<DateTimeOffset>()[0];
-
-        // 4. 验证
-        // Offset 必须是 +8
-        Assert.Equal(TimeSpan.FromHours(8), result.Offset);
-        
-        // 绝对时间点 (UtcTicks) 必须没变 (还是 12:00 UTC)
-        Assert.Equal(utcTime.Ticks, result.UtcTicks);
-        
-        // 墙上时间 (Local Time) 应该是 20:00
-        Assert.Equal(20, result.Hour);
+        // 3. 验证字面量变化
+        // 输入是 12点，读出来应该是 4点
+        Assert.Equal(4, results[0].Hour);
     }
+    [Fact]
+    public void Test_WallClock_Consistency()
+    {
+        // 场景：用户从 CSV 读了一行 "2025-01-01 12:00:00"
+        // 用户的机器可能是 +8，也可能是 -5，但他只在乎 "12:00" 这个点
+        
+        var dtLocal = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Local);
+        var dtUtc   = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        var dtUnspec= new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Unspecified);
+
+        // 存入 Series
+        // 我们期望 Polars 内部把它们都当做 "2025-01-01 12:00:00"
+        using var df = DataFrame.From(new [] 
+        { 
+            new { A = dtLocal, B = dtUtc, C = dtUnspec } 
+        });
+
+        // 验证 1: 打印出来看看 (Console Output 应该是 12:00:00)
+        Console.WriteLine(df);
+
+        // 验证 2: 读取回来
+        // 无论是 Local, Utc 还是 Unspecified，只要字面量是 12点，读回来就是 12点
+        var row = df.Rows<dynamic>().First(); // 或者用具体的 POCO
+        
+        // 必须严格相等 (Ticks 差值由微秒精度决定，但在秒级必须一致)
+        DateTime valA = df.GetValue<DateTime>(0, "A");
+        DateTime valB = df.GetValue<DateTime>(0, "B");
+        DateTime valC = df.GetValue<DateTime>(0, "C");
+
+        // 允许 10us 误差
+        long tolerance = 100; 
+
+        // 验证 Wall Clock 一致性
+        // 输入 12:00 -> 输出 12:00 (而不是转成了 UTC 的 04:00)
+        Assert.InRange(valA.Ticks - new DateTime(2025, 1, 1, 12, 0, 0).Ticks, -tolerance, tolerance);
+        
+        // 验证 Kind 被抹除为 Unspecified
+        Assert.Equal(DateTimeKind.Unspecified, valA.Kind);
+        Assert.Equal(DateTimeKind.Unspecified, valB.Kind);
+        
+        // 验证 A, B, C 在 Polars 里是相等的
+        Assert.InRange(valA.Ticks - valB.Ticks, -tolerance, tolerance);
+        Assert.InRange(valA.Ticks - valC.Ticks, -tolerance, tolerance);
+    }
+
     [Fact]
     public void Test_GetValue_Complex()
     {

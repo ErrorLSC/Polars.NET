@@ -28,12 +28,13 @@ public static class ArrowConverter
                     .MakeGenericMethod(innerType);
 
                 // 注意：data 是 IEnumerable<Option<U>>，我们当作 IEnumerable<object> 传进去处理
-                return (IArrowArray)method.Invoke(null, new object[] { data, unwrapper })!;
+                return (IArrowArray)method.Invoke(null, [data, unwrapper])!;
             }
             var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
 
             // 1. 基础类型 (Primitives & String)
-            if (underlyingType == typeof(float)) return BuildFloat(data.Cast<float?>());
+            if (underlyingType == typeof(Half)) return BuildFloat16(data.Cast<Half?>());
+            if (underlyingType == typeof(float)) return BuildFloat32(data.Cast<float?>());
             if (underlyingType == typeof(int)) return BuildInt32(data.Cast<int?>());
             if (underlyingType == typeof(long)) return BuildInt64(data.Cast<long?>());
             if (underlyingType == typeof(double)) return BuildDouble(data.Cast<double?>());
@@ -193,14 +194,20 @@ public static class ArrowConverter
             // 递归调用主入口 Build<T>
             return Build(classData);
         }
-        private static FloatArray BuildFloat(IEnumerable<float?> data)
+        private static HalfFloatArray BuildFloat16(IEnumerable<Half?> data)
+        {
+            var b = new HalfFloatArray.Builder();
+            foreach (var v in data) if (v.HasValue) b.Append(v.Value); else b.AppendNull();
+            return b.Build();
+        }
+
+        private static FloatArray BuildFloat32(IEnumerable<float?> data)
         {
             var b = new FloatArray.Builder();
             foreach (var v in data) if (v.HasValue) b.Append(v.Value); else b.AppendNull();
             return b.Build();
         }
 
-        // [新增] Decimal Builder
         private static Decimal128Array BuildDecimal(IEnumerable<decimal?> data)
         {
             // Polars 默认推断通常是 Decimal(38, 9) 或类似，这里我们用常见的 (28, 6) 或者根据数据推断
@@ -214,6 +221,7 @@ public static class ArrowConverter
             }
             return b.Build();
         }
+        
         private static Int32Array BuildInt32(IEnumerable<int?> data)
         {
             var b = new Int32Array.Builder();
@@ -272,6 +280,7 @@ public static class ArrowConverter
             }
             return b.Build();
         }
+
         // [新增] DateTime -> Timestamp (Microsecond)
         private static TimestampArray BuildTimestamp(IEnumerable<DateTime?> data)
         {
@@ -279,23 +288,22 @@ public static class ArrowConverter
             // C# Ticks 是 100ns。为了兼顾范围和精度，我们选 Microsecond (us)
             // 1 us = 10 Ticks
             var b = new TimestampArray.Builder(TimeUnit.Microsecond);
-
+            
             foreach (var v in data)
             {
                 if (v.HasValue)
                 {
-                    DateTime val = v.Value;
+                    DateTime dt = v.Value;
                     
-                    // 1. 如果是 Local，转 UTC
-                    if (val.Kind == DateTimeKind.Local)
-                    {
-                        val = val.ToUniversalTime();
-                    }
-                    // 2. 如果是 Unspecified，我们默认它就是“墙上时间”（即 Naive），
-                    //    或者你可以选择把它当 UTC。Polars 默认通常喜欢 Naive。
-                    //    这里我们保持原值，但在转 Offset 时设为 Zero (UTC)
+                    // [核心技巧] 
+                    // 1. dt.Ticks 取的是"字面量时间"的 Ticks (即墙上时间)，无视 Kind。
+                    // 2. 我们构造一个 UTC 的 DateTimeOffset (Offset=Zero)。
+                    // 这样 Arrow Builder 在内部做 (Value - Epoch) 运算时，
+                    // 实际上就是把我们的"墙上时间"直接减去了 1970-01-01，达到了保存 Naive 时间的目的。
                     
-                    var dto = new DateTimeOffset(val, TimeSpan.Zero);
+                    var dto = new DateTimeOffset(dt.Ticks, TimeSpan.Zero);
+
+                    // Ticks (100ns) -> Microsecond (1000ns)
                     b.Append(dto);
                 }
                 else 

@@ -412,7 +412,7 @@ id;date_col;val_col
         // 验证 Naive (Unset)
         // 读取出来的应该是 UTC 的 DateTime,我们约定进入polars的一定是UTC
         let naiveRow = res.Column("naive").AsSeq<DateTime>() |> Seq.head |> Option.get
-        Assert.Equal(DateTimeKind.Utc, naiveRow.Kind)
+        Assert.Equal(DateTimeKind.Unspecified, naiveRow.Kind)
     [<Fact>]
     member _.``Conversion: DataFrame -> Lazy -> DataFrame`` () =
         // 1. 创建 Eager DF
