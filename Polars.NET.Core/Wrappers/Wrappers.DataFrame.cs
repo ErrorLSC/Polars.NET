@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Apache.Arrow.C;
 
 namespace Polars.NET.Core;
 
@@ -256,6 +257,14 @@ public static partial class PolarsWrapper
         // 调用 Native
         // 注意：ptrs 数组会被 Pin 住传给 Rust
         return ErrorHelper.Check(NativeBindings.pl_dataframe_new(ptrs, (UIntPtr)series.Length));
+    }
+    /// <summary>
+    /// Create a DataFrame from an Arrow C Stream.
+    /// </summary>
+    public static unsafe DataFrameHandle DataFrameNewFromStream(Polars.NET.Core.Arrow.CArrowArrayStream* stream)
+    {
+        var handle = NativeBindings.pl_dataframe_new_from_stream(stream);
+        return ErrorHelper.Check(handle);
     }
     /// <summary>
     /// Convert DataFrame to LazyFrame

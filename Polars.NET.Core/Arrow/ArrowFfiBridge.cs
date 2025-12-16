@@ -138,5 +138,82 @@ namespace Polars.NET.Core.Arrow
             // structArray.Fields 就是各列的数据
             return new RecordBatch(schema, structArray.Fields, structArray.Length);
         }
+        /// <summary>
+        /// 将 Arrow RecordBatch 导入为 Polars Series (Struct 类型)
+        /// </summary>
+        public static unsafe SeriesHandle ImportRecordBatchAsSeries(RecordBatch batch)
+        {
+            // 1. 构造 C Arrow Array/Schema
+            var cArray = CArrowArray.Create();
+            var cSchema = CArrowSchema.Create();
+
+            try
+            {
+                // 2. 导出 C# RecordBatch -> C Struct
+                // 这一步利用 Apache.Arrow 的 CDataInterface
+                // 注意：RecordBatch 需要被视为 StructArray 导出，或者逐列导出。
+                // 最稳妥的方法是使用 CArrowArrayExporter.ExportRecordBatch
+                CArrowSchemaExporter.ExportSchema(batch.Schema, cSchema);
+                CArrowArrayExporter.ExportRecordBatch(batch, cArray);
+
+                // 3. 导入到 Polars
+                // 我们给它起个固定名字 "data"，方便后面 Unnest
+                return NativeBindings.pl_arrow_to_series(
+                    "data", 
+                    cArray, 
+                    cSchema
+                );
+            }
+            catch
+            {
+                CArrowArray.Free(cArray);
+                CArrowSchema.Free(cSchema);
+                throw;
+            }
+        }
+    }
+    public static class ArrowStreamingExtensions
+    {
+        /// <summary>
+        /// 将巨大的数据流切分为多个 RecordBatch，以节省内存。
+        /// </summary>
+        /// <param name="source">源数据流</param>
+        /// <param name="batchSize">每批次的大小（建议 10w ~ 100w，取决于单行数据大小）</param>
+        public static IEnumerable<RecordBatch> ToArrowBatches<T>(
+            this IEnumerable<T> source, 
+            int batchSize = 100_000)
+        {
+            // 1. 准备缓冲区
+            // 指定 capacity 避免 List 扩容带来的拷贝开销
+            var buffer = new List<T>(batchSize);
+
+            foreach (var item in source)
+            {
+                buffer.Add(item);
+
+                // 2. 缓冲区满了，发射一个 Batch
+                if (buffer.Count >= batchSize)
+                {
+                    yield return BuildBatchFromBuffer(buffer);
+                    
+                    // 3. 清空缓冲区 (注意：Clear 不会释放底层数组内存，只是重置 Count，
+                    // 这非常好，因为下一次 Add 不会重新分配内存)
+                    buffer.Clear();
+                }
+            }
+
+            // 4. 处理剩余的数据
+            if (buffer.Count > 0)
+            {
+                yield return BuildBatchFromBuffer(buffer);
+            }
+        }
+
+        private static RecordBatch BuildBatchFromBuffer<T>(List<T> buffer)
+        {
+            // 直接复用你现有的逻辑！
+            // 这里 ArrowFfiBridge.BuildRecordBatch 会自动处理 Schema 和构建
+            return ArrowFfiBridge.BuildRecordBatch(buffer);
+        }
     }
 }

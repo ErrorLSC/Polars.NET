@@ -50,6 +50,10 @@ unsafe internal partial class NativeBindings
         IntPtr[] columns, 
         UIntPtr len
     );
+    [LibraryImport(LibName)]
+    public static partial DataFrameHandle pl_dataframe_new_from_stream(
+        Polars.NET.Core.Arrow.CArrowArrayStream* stream
+    );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
     public static partial ExprHandle pl_expr_col(string name);
     [LibraryImport(LibName)] 

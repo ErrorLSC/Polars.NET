@@ -152,8 +152,8 @@ public static class ArrowExtensions
     }
     private static string FormatBinary(ReadOnlySpan<byte> bytes)
     {
-        string hex = BitConverter.ToString(bytes.ToArray()).Replace("-", "").ToLower();
-        return hex.Length > 20 ? $"x'{hex.Substring(0, 20)}...'" : $"x'{hex}'";
+        string hex = Convert.ToHexStringLower(bytes.ToArray());
+        return hex.Length > 20 ? $"x'{hex[..20]}...'" : $"x'{hex}'";
     }
 
     private static string FormatDate32(Date32Array arr, int index)
@@ -167,8 +167,10 @@ public static class ArrowExtensions
         long v = arr.GetValue(index) ?? 0;
         var unit = (arr.Data.DataType as TimestampType)?.Unit;
         long ticks = unit switch {
-            Apache.Arrow.Types.TimeUnit.Nanosecond => v / 100L, Apache.Arrow.Types.TimeUnit.Microsecond => v * 10L,
-            Apache.Arrow.Types.TimeUnit.Millisecond => v * 10000L, Apache.Arrow.Types.TimeUnit.Second => v * 10000000L, _ => v
+            TimeUnit.Nanosecond => v / 100L,
+            TimeUnit.Microsecond => v * 10L,
+            TimeUnit.Millisecond => v * 10000L,
+            TimeUnit.Second => v * 10000000L, _ => v
         };
         try { return DateTime.UnixEpoch.AddTicks(ticks).ToString("yyyy-MM-dd HH:mm:ss.ffffff"); }
         catch { return v.ToString(); }
@@ -178,7 +180,7 @@ public static class ArrowExtensions
     {
         int v = arr.GetValue(index) ?? 0;
         var unit = (arr.Data.DataType as Time32Type)?.Unit;
-        var span = unit switch { Apache.Arrow.Types.TimeUnit.Millisecond => TimeSpan.FromMilliseconds(v), _ => TimeSpan.FromSeconds(v) };
+        var span = unit switch { TimeUnit.Millisecond => TimeSpan.FromMilliseconds(v), _ => TimeSpan.FromSeconds(v) };
         return span.ToString();
     }
 
@@ -186,7 +188,7 @@ public static class ArrowExtensions
     {
         long v = arr.GetValue(index) ?? 0;
         var unit = (arr.Data.DataType as Time64Type)?.Unit;
-        long ticks = unit switch { Apache.Arrow.Types.TimeUnit.Nanosecond => v / 100L, _ => v * 10L };
+        long ticks = unit switch { TimeUnit.Nanosecond => v / 100L, _ => v * 10L };
         return TimeSpan.FromTicks(ticks).ToString();
     }
 
@@ -195,8 +197,10 @@ public static class ArrowExtensions
         long v = arr.GetValue(index) ?? 0;
         var unit = (arr.Data.DataType as DurationType)?.Unit;
         string suffix = unit switch {
-            Apache.Arrow.Types.TimeUnit.Nanosecond => "ns", Apache.Arrow.Types.TimeUnit.Microsecond => "us",
-            Apache.Arrow.Types.TimeUnit.Millisecond => "ms", Apache.Arrow.Types.TimeUnit.Second => "s", _ => ""
+            TimeUnit.Nanosecond => "ns",
+            TimeUnit.Microsecond => "us",
+            TimeUnit.Millisecond => "ms",
+            TimeUnit.Second => "s", _ => ""
         };
         return $"{v}{suffix}";
     }
@@ -453,7 +457,7 @@ public static class ArrowExtensions
     // ==========================================
     // Internal Conversion Logic
     // ==========================================
-    private static readonly DateTime EpochNaive = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Unspecified);
+    private static readonly DateTime EpochNaive = new(1970, 1, 1, 0, 0, 0, DateTimeKind.Unspecified);
     private static DateTime ConvertTimestamp(TimestampArray arr, int index)
     {
         long v = arr.GetValue(index).GetValueOrDefault();
@@ -465,10 +469,10 @@ public static class ArrowExtensions
         // C# DateTime Ticks = 100ns
         long ticks = unit switch
         {
-            Apache.Arrow.Types.TimeUnit.Nanosecond => v / 100L,
-            Apache.Arrow.Types.TimeUnit.Microsecond => v * 10L,
-            Apache.Arrow.Types.TimeUnit.Millisecond => v * 10000L,
-            Apache.Arrow.Types.TimeUnit.Second => v * 10000000L,
+            TimeUnit.Nanosecond => v / 100L,
+            TimeUnit.Microsecond => v * 10L,
+            TimeUnit.Millisecond => v * 10000L,
+            TimeUnit.Second => v * 10000000L,
             _ => v
         };
 
@@ -490,7 +494,7 @@ public static class ArrowExtensions
                 // 此时我们需要返回 UTC 吗？
                 // 为了保持一致性，如果 Polars 说是 Aware，我们最好返回 UTC (或者带 Offset)。
                 // 但这里我们主要讨论 Naive 场景。
-                return DateTime.SpecifyKind(dt, DateTimeKind.Utc); 
+                return DateTime.UnixEpoch.AddTicks(ticks); 
             }
 
             // 绝大多数情况：Naive -> Unspecified
@@ -508,7 +512,7 @@ public static class ArrowExtensions
         var unit = (arr.Data.DataType as Time32Type)?.Unit;
         return unit switch
         {
-            Apache.Arrow.Types.TimeUnit.Millisecond => TimeSpan.FromMilliseconds(v),
+            TimeUnit.Millisecond => TimeSpan.FromMilliseconds(v),
             _ => TimeSpan.FromSeconds(v)
         };
     }
@@ -520,7 +524,7 @@ public static class ArrowExtensions
         
         long ticks = unit switch
         {
-            Apache.Arrow.Types.TimeUnit.Nanosecond => v / 100L,
+            TimeUnit.Nanosecond => v / 100L,
             _ => v * 10L // Microsecond
         };
         return TimeSpan.FromTicks(ticks);
@@ -533,10 +537,10 @@ public static class ArrowExtensions
         
         long ticks = unit switch
         {
-            Apache.Arrow.Types.TimeUnit.Nanosecond => v / 100L,
-            Apache.Arrow.Types.TimeUnit.Microsecond => v * 10L,
-            Apache.Arrow.Types.TimeUnit.Millisecond => v * 10000L,
-            Apache.Arrow.Types.TimeUnit.Second => v * 10000000L,
+            TimeUnit.Nanosecond => v / 100L,
+            TimeUnit.Microsecond => v * 10L,
+            TimeUnit.Millisecond => v * 10000L,
+            TimeUnit.Second => v * 10000000L,
             _ => v
         };
         return TimeSpan.FromTicks(ticks);

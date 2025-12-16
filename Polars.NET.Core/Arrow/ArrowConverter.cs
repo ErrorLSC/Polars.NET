@@ -79,16 +79,17 @@ public static class ArrowConverter
         /// 核心逻辑：构建 ListArray (支持递归)
         /// 逻辑：拍扁数据 -> 构建子数组 -> 组装
         /// </summary>
-        public static ListArray BuildListArray<U>(IEnumerable<IEnumerable<U>?> data)
+        public static LargeListArray BuildListArray<U>(IEnumerable<IEnumerable<U>?> data)
         {
-            // A. 拍扁数据 (Flatten)
-            // 比如 [[1, 2], null, [3]] -> [1, 2, 3]
             var flattenedData = new List<U>();
-            var offsetsBuilder = new Int32Array.Builder();
+            
+            // [改动 1] 使用 Int64 Builder 记录偏移量
+            var offsetsBuilder = new Int64Array.Builder();
             var validityBuilder = new BooleanArray.Builder();
             
-            int currentOffset = 0;
-            offsetsBuilder.Append(0); // Start offset
+            // [改动 2] Offset 使用 long
+            long currentOffset = 0;
+            offsetsBuilder.Append(0); 
 
             int nullCount = 0;
 
@@ -97,7 +98,7 @@ public static class ArrowConverter
                 if (subList == null)
                 {
                     validityBuilder.Append(false);
-                    offsetsBuilder.Append(currentOffset); // 长度为0
+                    offsetsBuilder.Append(currentOffset);
                     nullCount++;
                 }
                 else
@@ -116,19 +117,18 @@ public static class ArrowConverter
                 }
             }
 
-            // B. [递归] 构建子数组 (Values Array)
-            // 如果 U 是 int，这里造出来的就是 IntArray
-            // 如果 U 是 List<string>，这里造出来的就是 ListArray
+            // 构建子数组 (递归)
             IArrowArray valuesArray = Build(flattenedData);
 
-            // C. 组装
+            // [改动 3] 构建 Int64 Offsets
             var offsetsArray = offsetsBuilder.Build();
             var validityArray = validityBuilder.Build();
             
-            // 构造 ListType
-            var listType = new ListType(valuesArray.Data.DataType);
+            // [改动 4] 使用 LargeListType
+            var listType = new LargeListType(valuesArray.Data.DataType);
 
-            return new ListArray(
+            // [改动 5] 返回 LargeListArray
+            return new LargeListArray(
                 listType,
                 data.Count(),
                 offsetsArray.ValueBuffer,
@@ -250,9 +250,9 @@ public static class ArrowConverter
             return b.Build();
         }
 
-        private static StringArray BuildString(IEnumerable<string?> data)
+        private static StringViewArray BuildString(IEnumerable<string?> data)
         {
-            var b = new StringArray.Builder();
+            var b = new StringViewArray.Builder();
             foreach (var v in data) b.Append(v);
             return b.Build();
         }

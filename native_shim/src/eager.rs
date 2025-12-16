@@ -1,5 +1,7 @@
 use polars::prelude::*;
 use polars_core::utils::concat_df;
+use polars_arrow::ffi::{ArrowArrayStreamReader,ArrowArrayStream};
+use polars_arrow::array::Array;
 use std::ffi::CStr;
 use std::{ffi::CString, os::raw::c_char};
 use crate::types::*;
@@ -7,6 +9,7 @@ use polars::lazy::frame::pivot::pivot as pivot_impl;
 use polars::lazy::dsl::UnpivotArgsDSL;
 use polars::functions::{concat_df_horizontal,concat_df_diagonal};
 use crate::series::SeriesContext;
+use polars::prelude::{Field as PolarsField};
 // ==========================================
 // 0. Memory Safety
 // ==========================================
@@ -769,6 +772,111 @@ pub extern "C" fn pl_dataframe_new(
         Ok(Box::into_raw(Box::new(DataFrameContext { df })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_dataframe_new_from_stream(
+    stream_ptr: *mut ArrowArrayStream,
+) -> *mut DataFrameContext {
+    ffi_try!({
+        // 1. 校验空指针
+        if stream_ptr.is_null() {
+            return Err(PolarsError::ComputeError("Stream pointer is null".into()));
+        }
+        // 2. 指针转换 (Raw Pointer -> Mutable Reference)
+        // [关键] 我们使用引用 (&mut)，而不是 Box。
+        // 因为 C# 端的 CArrowArrayStream 结构体生命周期由 C# 控制 (在 P/Invoke 期间有效)。
+        // 如果用 Box::from_raw，Rust 会尝试释放这段内存，导致崩溃。
+        let stream = unsafe { &mut *stream_ptr};
+
+        // 3. 创建 Reader
+        // try_new 接受 impl DerefMut<Target=ArrowArrayStream>
+        // &mut ArrowArrayStream 完美满足这个条件
+        let mut reader = unsafe {ArrowArrayStreamReader::try_new(stream)
+            .map_err(|e| PolarsError::ComputeError(format!("Failed to create Arrow Stream Reader: {}", e).into()))?};
+
+        // 尝试获取第一个 Chunk
+        // 注意：这里我们显式调用 next()，这是 Iterator trait 的方法。
+        // 如果这里报错 "no method named next"，说明确实没引入 Iterator trait。
+        // 但 ArrowArrayStreamReader 绝对实现了 Iterator。
+        let first_chunk_result = unsafe {reader.next()};
+
+        // 如果流是空的，直接返回空 DataFrame
+        if first_chunk_result.is_none() {
+            let df = DataFrame::default();
+            return Ok(Box::into_raw(Box::new(DataFrameContext { df })));
+        }
+
+        let first_chunk = first_chunk_result.unwrap()
+            .map_err(|e| PolarsError::ComputeError(format!("Error reading first batch: {}", e).into()))?;
+
+        // 3. 从第一个 Chunk 反推 Schema (关键！)
+        // Arrow Stream 传输的是 StructArray
+        let struct_array = first_chunk
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .ok_or_else(|| PolarsError::ComputeError("First batch is not a StructArray".into()))?;
+
+        // 获取列的字段定义 (Fields)
+        // struct_array.data_type() 返回 DataType::Struct(fields)
+        let fields = match struct_array.dtype() {
+            ArrowDataType::Struct(f) => f,
+            _ => return Err(PolarsError::ComputeError("Stream data type is not Struct".into())),
+        };
+
+        let num_cols = fields.len();
+        let mut columns_chunks: Vec<Vec<Box<dyn Array>>> = vec![Vec::new(); num_cols];
+
+        // 4. 处理第一个 Chunk
+        for (col_idx, column) in struct_array.values().iter().enumerate() {
+            if col_idx < num_cols {
+                columns_chunks[col_idx].push(column.clone());
+            }
+        }
+
+        // 5. 循环处理剩余 Chunks
+        // 继续调用 next() 直到返回 None
+        while let Some(chunk_result) = unsafe {reader.next()} {
+            let chunk = chunk_result
+                .map_err(|e| PolarsError::ComputeError(format!("Error reading batch: {}", e).into()))?;
+
+            let struct_array = chunk
+                .as_any()
+                .downcast_ref::<StructArray>()
+                .ok_or_else(|| PolarsError::ComputeError("Subsequent batch is not a StructArray".into()))?;
+
+            for (col_idx, column) in struct_array.values().iter().enumerate() {
+                if col_idx < num_cols {
+                    columns_chunks[col_idx].push(column.clone());
+                }
+            }
+        }
+
+        // 6. 构建 Series
+        let mut series_vec = Vec::with_capacity(num_cols);
+
+        for (i, chunks) in columns_chunks.into_iter().enumerate() {
+            let arrow_field = &fields[i]; // &ArrowField
+            
+            // [核心修复] 通过 Field 进行转换
+            // PolarsField::from(&ArrowField) 是标准 API，它会自动推导 DataType
+            let p_field = PolarsField::from(arrow_field); 
+            let p_dtype = p_field.dtype;
+            let name = p_field.name.as_str();
+
+            // [核心修复] 使用 Unchecked 构造函数
+            // 我们已经有了正确的 Polars DataType，直接组装 Chunks
+            // 这绕过了 Series::try_from 的 trait bound 问题
+            let s = unsafe {Series::from_chunks_and_dtype_unchecked(name.into(), chunks, &p_dtype)};
+            
+            series_vec.push(s.into());
+        }
+
+        // 7. 返回 DataFrame
+        let df = DataFrame::new(series_vec)?;
+        Ok(Box::into_raw(Box::new(DataFrameContext { df })))
+    })
+}
+
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_lazy(df_ptr: *mut DataFrameContext) -> *mut LazyFrameContext {

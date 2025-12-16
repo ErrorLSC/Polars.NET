@@ -230,7 +230,7 @@ pub extern "C" fn pl_series_to_arrow(ptr: *mut SeriesContext) -> *mut ArrowArray
     })
 }
 
-fn upgrade_to_large_list(array: Box<dyn Array>) -> Box<dyn Array> {
+pub fn upgrade_to_large_list(array: Box<dyn Array>) -> Box<dyn Array> {
     match array.dtype() {
         // 🎯 命中目标：List (Int32 Offsets)
         ArrowDataType::List(inner_field) => {
