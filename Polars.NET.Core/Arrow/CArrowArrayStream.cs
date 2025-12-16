@@ -123,10 +123,10 @@ namespace Polars.NET.Core.Arrow
                     exporter.Dispose();
                     handle.Free(); // 释放 GCHandle，允许 Exporter 被 GC
                 }
-                stream->private_data = null;
+                // stream->private_data = null;
             }
             // 标记 Stream 自身已释放
-            stream->release = null;
+            Marshal.FreeHGlobal((IntPtr)stream);
         }
 
         private static ArrowStreamExporter GetExporter(CArrowArrayStream* stream)

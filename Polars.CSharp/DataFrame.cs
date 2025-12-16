@@ -761,76 +761,32 @@ public class DataFrame : IDisposable
     /// </summary>
     /// <param name="data">Source data collection</param>
     /// <param name="batchSize">Rows per chunk (default 100,000)</param>
-    public static unsafe DataFrame FromArrowStream<T>(IEnumerable<T> data, int batchSize = 100_000)
+    public static DataFrame FromArrowStream<T>(IEnumerable<T> data, int batchSize = 100_000)
     {
-        // 1. 获取迭代器并探测第一个 Batch
-        // ToArrowBatches 是我们之前定义的扩展方法 (在 ArrowStreamingExtensions 中)
+        // 1. 获取迭代器
         var originalEnumerator = data.ToArrowBatches(batchSize).GetEnumerator();
 
-        // 如果没有数据，直接返回空 DataFrame
+        // 2. 探测首帧 (Empty Check)
         if (!originalEnumerator.MoveNext())
         {
             originalEnumerator.Dispose();
             return From(Enumerable.Empty<T>());
         }
 
-        // 2. 提取首帧 Schema
         var firstBatch = originalEnumerator.Current;
         var schema = firstBatch.Schema;
 
-        // 3. 构建 "缝合" 迭代器 (First + Rest)
-        // 我们不能丢失 firstBatch，所以用 PrependEnumerator 把它塞回去
-        using var combinedEnumerator = new PrependEnumerator(firstBatch, originalEnumerator);
+        // 3. 缝合迭代器
+        // 这里我们使用刚刚抽离出去的通用类
+        var combinedEnumerator = new PrependEnumerator(firstBatch, originalEnumerator);
 
-        // 4. 初始化 Exporter
-        // Exporter 会被钉住(Pinned)在内存中，直到 Rust 端消费完毕
-        var cStream = new CArrowArrayStream();
-        using var exporter = new ArrowStreamExporter(combinedEnumerator, schema);
-        
-        // 将 C# Exporter 挂载到 C 结构体上
-        exporter.Export(&cStream);
-
-        // 5. 调用 Rust (Ownership Transferred)
-        // Rust 端会通过函数指针回调 C# 获取数据，直到流结束
-        var handle = PolarsWrapper.DataFrameNewFromStream(&cStream);
+        // 4. 调用 Interop 层执行导入
+        // 所有的 unsafe 指针操作、Exporter 生命周期管理都被封装在 ImportEager 里了
+        var handle = ArrowStreamInterop.ImportEager(combinedEnumerator, schema);
 
         return new DataFrame(handle);
     }
-
-    // --- 内部辅助类：把 peek 过的元素放回头部 ---
-    private class PrependEnumerator : IEnumerator<RecordBatch>
-    {
-        private bool _isFirst = true;
-        private readonly RecordBatch _head;
-        private readonly IEnumerator<RecordBatch> _tail;
-
-        public PrependEnumerator(RecordBatch head, IEnumerator<RecordBatch> tail)
-        {
-            _head = head;
-            _tail = tail;
-        }
-
-        public RecordBatch Current => _isFirst ? _head : _tail.Current;
-        object IEnumerator.Current => Current;
-
-        public bool MoveNext()
-        {
-            if (_isFirst)
-            {
-                _isFirst = false;
-                return true; // Yield head
-            }
-            return _tail.MoveNext(); // Yield tail
-        }
-
-        public void Reset() => throw new NotSupportedException();
-        
-        public void Dispose()
-        {
-            _tail.Dispose();
-            _head.Dispose();
-        }
-    }
+    
     // ==========================================
     // Object Mapping (To Records)
     // ==========================================

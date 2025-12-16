@@ -174,4 +174,13 @@ public static partial class PolarsWrapper
         
         return ErrorHelper.Check(h);
     }
+    public static unsafe LazyFrameHandle LazyFrameScanStream(
+        CArrowSchema* schema,
+        delegate* unmanaged[Cdecl]<void*, Polars.NET.Core.Arrow.CArrowArrayStream*> callback,
+        delegate* unmanaged[Cdecl]<void*, void> destroyCallback,
+        void* userData)
+    {
+        var handle = NativeBindings.pl_lazy_frame_scan_stream(schema, callback,destroyCallback, userData);
+        return ErrorHelper.Check(handle);
+    }
 }

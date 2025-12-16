@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::ffi::c_char;
 use polars::prelude::*;
 use crate::types::*;
@@ -505,5 +506,125 @@ pub extern "C" fn pl_lazy_frame_free(ptr: *mut LazyFrameContext) {
             unsafe { let _ = Box::from_raw(ptr); }
         }
         Ok(())
+    })
+}
+
+// 定义回调函数签名：C# 返回一个 ArrowArrayStream 指针
+type StreamFactoryCallback = unsafe extern "C" fn(*mut core::ffi::c_void) -> *mut polars_arrow::ffi::ArrowArrayStream;
+type DestroyUserDataCallback = unsafe extern "C" fn(*mut core::ffi::c_void); // [新增]
+// 1. 定义扫描器结构体
+// 这个结构体会被 Polars 的 Logical Plan 持有，直到执行时
+struct CSharpStreamScanner {
+    schema: SchemaRef,
+    callback: StreamFactoryCallback,
+    destroy_callback: Option<DestroyUserDataCallback>,
+    user_data: *mut core::ffi::c_void, // 指向 C# 端保持上下文的对象 (GCHandle)
+}
+
+// 必须实现 Send + Sync，因为 Lazy 执行可能是多线程的
+// 我们假设 C# 的回调是线程安全的，或者 Polars 只在一个线程调用它
+unsafe impl Send for CSharpStreamScanner {}
+unsafe impl Sync for CSharpStreamScanner {}
+
+impl Drop for CSharpStreamScanner {
+    fn drop(&mut self) {
+        if let Some(destroy) = self.destroy_callback {
+            unsafe {
+                // 通知 C# 释放 GCHandle
+                destroy(self.user_data);
+            }
+        }
+    }
+}
+
+impl AnonymousScan for CSharpStreamScanner {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    // 核心：当 Polars 需要数据时，会调用这个 scan 方法
+    fn scan(&self, _scan_opts: AnonymousScanArgs) -> PolarsResult<DataFrame> {
+        unsafe {
+            // A. 回调 C# 获取新的流指针
+            let stream_ptr = (self.callback)(self.user_data);
+            
+            if stream_ptr.is_null() {
+                return Err(PolarsError::ComputeError("C# callback returned null stream".into()));
+            }
+
+            // B. 复用我们在 Eager 模式下写好的逻辑！
+            // 把 stream_ptr 转成 DataFrameContext，再拆出 DataFrame
+            let ctx_ptr = super::eager::pl_dataframe_new_from_stream(stream_ptr);
+            
+            if ctx_ptr.is_null() {
+                return Err(PolarsError::ComputeError("Failed to consume stream".into()));
+            }
+
+            let ctx = Box::from_raw(ctx_ptr);
+            Ok(ctx.df) 
+        }
+    }
+
+    // 告诉 Polars 数据的结构
+    fn schema(&self, _infer_schema_length: Option<usize>) -> PolarsResult<SchemaRef> {
+        Ok(self.schema.clone())
+    }
+
+    // 允许谓词下推 (Predicate Pushdown) 等优化
+    // 如果我们要支持更高级的过滤下推，可以在这里扩展，但现在先允许全部扫描
+    fn allows_predicate_pushdown(&self) -> bool {
+        false 
+    }
+    fn allows_projection_pushdown(&self) -> bool {
+        true // 允许列裁剪 (只读需要的列)
+    }
+    fn allows_slice_pushdown(&self) -> bool {
+        true // 允许 Limit/Offset 下推
+    }
+}
+use polars::prelude::{Field as PolarsField};
+// 2. 导出 LazyFrame 构造函数
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_lazy_frame_scan_stream(
+    ptr_schema: *mut polars_arrow::ffi::ArrowSchema,
+    callback: StreamFactoryCallback,
+    destroy_callback: DestroyUserDataCallback,
+    user_data: *mut core::ffi::c_void,
+) -> *mut LazyFrameContext {
+    ffi_try!({
+        // 解析 C Schema
+        let field = unsafe { polars_arrow::ffi::import_field_from_c(&*ptr_schema)? };
+        
+        // Arrow Field -> Polars Schema
+        let arrow_dtype = field.dtype; // 注意：字段名可能是 data_type 而不是 dtype，视版本而定
+        
+        let schema = match arrow_dtype {
+            ArrowDataType::Struct(fields) => {
+                // [修复 2] Schema::new() 不存在，改用 Schema::with_capacity
+                let mut schema = Schema::with_capacity(fields.len());
+                for f in fields {
+                    let p_field = PolarsField::from(&f);
+                    // [修复 3] Schema 通常使用 insert 方法添加字段，而不是 with_column
+                    schema.insert(p_field.name, p_field.dtype);
+                }
+                Arc::new(schema)
+            },
+            _ => return Err(PolarsError::ComputeError("Schema must be a Struct".into())),
+        };
+
+        // 创建扫描器
+        let scanner = CSharpStreamScanner {
+            schema,
+            callback,
+            destroy_callback: Some(destroy_callback),
+            user_data,
+        };
+
+        // 创建 LazyFrame
+        let lf = LazyFrame::anonymous_scan(
+            std::sync::Arc::new(scanner),
+            ScanArgsAnonymous::default()
+        )?;
+
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: lf })))
     })
 }

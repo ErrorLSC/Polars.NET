@@ -10,6 +10,9 @@ namespace Polars.NET.Core;
 public delegate void CleanupCallback(IntPtr userData);
 
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+public unsafe delegate CArrowArrayStream* StreamFactoryCallback(void* userData);
+
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 public unsafe delegate int UdfCallback(
     CArrowArray* inArray, 
     CArrowSchema* inSchema, 
@@ -17,6 +20,8 @@ public unsafe delegate int UdfCallback(
     CArrowSchema* outSchema,
     byte* msgBuf
 );
+
+
 unsafe internal partial class NativeBindings
 {
     const string LibName = "native_shim";
@@ -54,6 +59,15 @@ unsafe internal partial class NativeBindings
     public static partial DataFrameHandle pl_dataframe_new_from_stream(
         Polars.NET.Core.Arrow.CArrowArrayStream* stream
     );
+
+    [LibraryImport(LibName)]
+    public static partial LazyFrameHandle pl_lazy_frame_scan_stream(
+        CArrowSchema* schema,
+        delegate* unmanaged[Cdecl]<void*, Polars.NET.Core.Arrow.CArrowArrayStream*> callback,
+        delegate* unmanaged[Cdecl]<void*, void> destroyCallback,
+        void* userData
+    );
+
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
     public static partial ExprHandle pl_expr_col(string name);
     [LibraryImport(LibName)] 

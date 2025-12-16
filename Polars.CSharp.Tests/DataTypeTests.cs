@@ -230,8 +230,7 @@ public class DataTypeTests
         // 2. 写入 Polars (ArrowConverter 生效)
         using var s = Series.From("times", data);
         using var df = new DataFrame(s).Unnest("times");
-
-        Console.WriteLine(df);
+        
         // 检查 Schema，Duration 应该被识别
         Assert.Equal(DataTypeKind.Duration, df.Schema["Duration"].Kind);
 
@@ -334,9 +333,6 @@ public class DataTypeTests
         { 
             new { A = dtLocal, B = dtUtc, C = dtUnspec } 
         });
-
-        // 验证 1: 打印出来看看 (Console Output 应该是 12:00:00)
-        Console.WriteLine(df);
 
         // 验证 2: 读取回来
         // 无论是 Local, Utc 还是 Unspecified，只要字面量是 12点，读回来就是 12点

@@ -1,4 +1,9 @@
+using System.Collections;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using Apache.Arrow.C;
 using Polars.NET.Core;
+using Polars.NET.Core.Arrow;
 
 namespace Polars.CSharp;
 
@@ -76,6 +81,57 @@ public class LazyFrame : IDisposable
         //
         return new LazyFrame(PolarsWrapper.ScanNdjson(path));
     }
+    /// <summary>
+    /// Scan Arrow Stream As LazyFrame
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="data"></param>
+    /// <param name="batchSize"></param>
+    /// <returns></returns>
+    public static unsafe LazyFrame ScanArrowStream<T>(IEnumerable<T> data, int batchSize = 100_000)
+        {
+            // 1. 预读 Schema (这一步还是省不了，得知道长啥样)
+            var enumerator = data.ToArrowBatches(batchSize).GetEnumerator();
+            
+            if (!enumerator.MoveNext()) 
+            {
+                enumerator.Dispose();
+                using var emptyDf = DataFrame.From(Enumerable.Empty<T>());
+                return emptyDf.Lazy();
+            }
+            
+            var schema = enumerator.Current.Schema;
+            // 这里的枚举器只为了看 Schema，看一眼就扔掉
+            enumerator.Dispose(); 
+
+            // 2. 准备上下文 (交给 Interop 类处理)
+            // 获取 UserData 指针 (GCHandle)
+            var userData = ArrowStreamInterop.CreateScanContext(data, batchSize, schema);
+
+            // 3. 导出 Schema 用于 Rust 校验
+            var cSchema = CArrowSchema.Create();
+            CArrowSchemaExporter.ExportSchema(schema, cSchema);
+
+            try
+            {
+                // 4. 调用 Rust
+                // 代码极度简化：不需要在这里写 UnmanagedCallersOnly 了
+                var handle = PolarsWrapper.LazyFrameScanStream(
+                    cSchema, 
+                    ArrowStreamInterop.GetFactoryCallback(), // 获取工厂回调
+                    ArrowStreamInterop.GetDestroyCallback(), // 获取销毁回调
+                    userData
+                );
+                
+                return new LazyFrame(handle);
+            }
+            finally
+            {
+                CArrowSchema.Free(cSchema);
+                // 注意：userData (GCHandle) 不需要在这里释放，
+                // 它已经传给了 Rust，Rust 会在 Query 结束时通过 DestroyCallback 释放它。
+            }
+        }
 
     // ==========================================
     // Meta / Inspection
