@@ -1,5 +1,5 @@
 use std::any::Any;
-use std::ffi::c_char;
+use std::ffi::{CStr, c_char};
 use polars::prelude::*;
 use crate::types::*;
 use polars::lazy::dsl::UnpivotArgsDSL;
@@ -133,7 +133,96 @@ pub extern "C" fn pl_lazy_groupby_agg(
         let aggs = unsafe { consume_exprs_array(aggs_ptr, aggs_len) };
 
         // 链式调用
-        let new_lf = lf_ctx.inner.group_by(keys).agg(aggs);
+        let new_lf = lf_ctx.inner.group_by_stable(keys).agg(aggs);
+        
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_lazy_group_by_dynamic(
+    lf_ptr: *mut LazyFrameContext,
+    // --- 动态分组参数 ---
+    index_col: *const c_char,
+    every: *const c_char,
+    period: *const c_char,
+    offset: *const c_char,
+    label_idx: i32,         // [修改] 0=Left, 1=Right, 2=DataPoint
+    include_boundaries: bool,
+    closed_window_idx: i32, // 0=Left, 1=Right, 2=Both, 3=None
+    start_by_idx: i32,      // 0=WindowBound, 1=DataPoint...
+    // --- Keys & Aggs ---
+    keys_ptr: *const *mut ExprContext, keys_len: usize,
+    aggs_ptr: *const *mut ExprContext, aggs_len: usize
+) -> *mut LazyFrameContext {
+    ffi_try!({
+        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+        
+        // 1. 解析字符串
+        let index_col_str = unsafe { CStr::from_ptr(index_col).to_str().unwrap() };
+        let every_str = unsafe { CStr::from_ptr(every).to_str().unwrap() };
+        let period_str = unsafe { CStr::from_ptr(period).to_str().unwrap() };
+        let offset_str = unsafe { CStr::from_ptr(offset).to_str().unwrap() };
+
+        // 2. 映射 Enum (ClosedWindow)
+        let closed_window = match closed_window_idx {
+            0 => ClosedWindow::Left,
+            1 => ClosedWindow::Right,
+            2 => ClosedWindow::Both,
+            3 => ClosedWindow::None,
+            _ => ClosedWindow::Left,
+        };
+
+        // 3. [新增] 映射 Enum (Label)
+        // pub enum Label { Left, Right, DataPoint }
+        let label = match label_idx {
+            0 => Label::Left,
+            1 => Label::Right,
+            2 => Label::DataPoint,
+            _ => Label::Left,
+        };
+
+        // 4. [新增] 映射 Enum (StartBy)
+        let start_by = match start_by_idx {
+            0 => StartBy::WindowBound,
+            1 => StartBy::DataPoint,
+            2 => StartBy::Monday,
+            3 => StartBy::Tuesday,
+            4 => StartBy::Wednesday,
+            5 => StartBy::Thursday,
+            6 => StartBy::Friday,
+            7 => StartBy::Saturday,
+            8 => StartBy::Sunday,
+            _ => StartBy::WindowBound,
+        };
+
+        // 5. 构建 Options
+        // 注意：根据源代码，index_column 字段虽然在结构体里，但 group_by_dynamic 会处理它
+        // 我们这里初始化为一个空 PlSmallStr 或者直接填对都行
+        let options = DynamicGroupOptions {
+            index_column: PlSmallStr::from_str(index_col_str), // 初始化一下
+            every: Duration::parse(every_str),
+            period: Duration::parse(period_str),
+            offset: Duration::parse(offset_str),
+            label,               // [修改] 替代了 truncate
+            include_boundaries,
+            closed_window,
+            start_by,
+        };
+
+        // 6. 解析 Exprs
+        let keys = unsafe { consume_exprs_array(keys_ptr, keys_len) };
+        let aggs = unsafe { consume_exprs_array(aggs_ptr, aggs_len) };
+
+        // 7. 执行
+        // group_by_dynamic(self, index_column: Expr, group_by: E, options: DynamicGroupOptions)
+        let new_lf = lf_ctx.inner
+            .group_by_dynamic(
+                col(index_col_str), // 传入 index 列的表达式
+                keys, 
+                options
+            )
+            .agg(aggs);
         
         Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
     })

@@ -72,3 +72,31 @@ public enum PlConcatType
     Horizontal = 1,
     Diagonal = 2
 }
+
+public enum Label
+{
+    Left = 0,
+    Right = 1,
+    DataPoint = 2
+}
+
+public enum StartBy
+{
+    WindowBound = 0,
+    DataPoint = 1,
+    Monday = 2,
+    Tuesday = 3,
+    Wednesday = 4,
+    Thursday = 5,
+    Friday = 6,
+    Saturday = 7,
+    Sunday = 8
+}
+
+public enum ClosedWindow
+{
+    Left = 0,
+    Right = 1,
+    Both = 2,
+    None = 3
+}

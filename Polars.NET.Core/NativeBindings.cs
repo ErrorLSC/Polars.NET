@@ -257,7 +257,20 @@ unsafe internal partial class NativeBindings
         IntPtr[] byExprs, UIntPtr byLen,
         IntPtr[] aggExprs, UIntPtr aggLen
     );
-
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LazyFrameHandle pl_lazy_group_by_dynamic(
+        LazyFrameHandle lf,
+        string indexCol,
+        string every,
+        string period,
+        string offset,
+        int label, // [修改] bool -> int
+        [MarshalAs(UnmanagedType.I1)] bool includeBoundaries,
+        int closedWindow,
+        int startBy,
+        IntPtr[] keys, UIntPtr keysLen,
+        IntPtr[] aggs, UIntPtr aggsLen
+    );
     // Join 签名
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_join(
@@ -500,7 +513,7 @@ unsafe internal partial class NativeBindings
     // Struct
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_as_struct(IntPtr[] exprs, UIntPtr len);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_struct_field_by_name(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
-[LibraryImport(LibName)]
+    [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_struct_field_by_index(ExprHandle e, long index);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]

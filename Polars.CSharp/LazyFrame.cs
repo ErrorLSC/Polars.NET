@@ -387,6 +387,40 @@ public class LazyFrame : IDisposable
         
         return new LazyGroupBy(lfClone, keys);
     }
+    /// <summary>
+    /// Group by dynamic windows based on a time index.
+    /// </summary>
+    public LazyDynamicGroupBy GroupByDynamic(
+        string indexColumn,
+        TimeSpan every,
+        TimeSpan? period = null,
+        TimeSpan? offset = null,
+        Expr[]? by = null,
+        Label label = Label.Left, // [修改] 默认 Left
+        bool includeBoundaries = false,
+        ClosedWindow closedWindow = ClosedWindow.Left,
+        StartBy startBy = StartBy.WindowBound
+    )
+    {
+        string everyStr = DurationFormatter.ToPolarsString(every);
+        string periodStr = DurationFormatter.ToPolarsString(period) ?? everyStr;
+        string offsetStr = DurationFormatter.ToPolarsString(offset) ?? "0s";
+
+        var keys = by ?? Array.Empty<Expr>();
+        var lfClone = this.CloneHandle();
+        return new LazyDynamicGroupBy(
+            this.CloneHandle(),
+            indexColumn,
+            everyStr,
+            periodStr,
+            offsetStr,
+            keys,
+            label, // [修改]
+            includeBoundaries,
+            closedWindow,
+            startBy
+        );
+    }
     // ==========================================
     // Execution (Collect)
     // ==========================================

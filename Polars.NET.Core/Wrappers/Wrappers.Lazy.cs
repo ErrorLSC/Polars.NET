@@ -80,6 +80,42 @@ public static partial class PolarsWrapper
         lf.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    /// <summary>
+    /// Wrapper for Lazy GroupBy Dynamic.
+    /// </summary>
+    public static LazyFrameHandle LazyGroupByDynamic(
+        LazyFrameHandle lf,
+        string indexCol,
+        string every,
+        string period,
+        string offset,
+        int label,
+        bool includeBoundaries,
+        int closedWindow,
+        int startBy,
+        ExprHandle[] keys,  // 接收转换好的指针数组
+        ExprHandle[] aggs)  // 接收转换好的指针数组
+    {
+        var keyPtrs = HandlesToPtrs(keys);
+        var aggPtrs = HandlesToPtrs(aggs);
+        var h = NativeBindings.pl_lazy_group_by_dynamic(
+            lf,
+            indexCol,
+            every,
+            period,
+            offset,
+            label,
+            includeBoundaries,
+            closedWindow,
+            startBy,
+            keyPtrs, (UIntPtr)keys.Length,
+            aggPtrs, (UIntPtr)aggs.Length
+        );
+        lf.TransferOwnership();
+
+        return ErrorHelper.Check(h);
+    }
+    
     public static LazyFrameHandle LazyWithColumns(LazyFrameHandle lf, ExprHandle[] handles)
     {
         var raw = HandlesToPtrs(handles);
@@ -188,6 +224,6 @@ public static partial class PolarsWrapper
         // 注意：这里不需要 Invalidate lf，因为 Rust 侧只是借用
         return ErrorHelper.Check(NativeBindings.pl_lazy_clone(lf));
     }
-
+    
 
 }

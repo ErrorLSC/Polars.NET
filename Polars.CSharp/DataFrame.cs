@@ -738,6 +738,59 @@ public class DataFrame : IDisposable
         return tmpDf.Unnest("data");
     }
     /// <summary>
+    /// Create a DataFrame from an object where properties represent columns (Arrays/Lists).
+    /// This is useful for "Structure of Arrays" (SoA) data layout.
+    /// </summary>
+    /// <example>
+    /// var df = DataFrame.FromColumns(new { 
+    ///     Time = new[] { dt1, dt2 }, 
+    ///     Val = new[] { 1.0, 2.0 } 
+    /// });
+    /// </example>
+    public static DataFrame FromColumns(object columns)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+
+        var props = columns.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        if (props.Length == 0)
+                throw new ArgumentException("The provided object has no public properties to treat as columns.");
+        var seriesList = new List<Series>(props.Length);
+
+        foreach (var prop in props)
+        {
+            var colName = prop.Name;
+            var colValue = prop.GetValue(columns) ?? throw new ArgumentNullException($"Column '{colName}' cannot be null.");
+
+            // 1. 获取元素类型 T (e.g., int[] -> int)
+            Type elemType;
+            try 
+            {
+                elemType = ReflectionHelper.GetEnumerableElementType(colValue.GetType());
+            }
+            catch
+            {
+                throw new ArgumentException($"Property '{colName}' is not an IEnumerable<T> or Array.");
+            }
+
+            // 2. 反射调用 ArrowConverter.Build<T>(IEnumerable<T>)
+            // ArrowConverter.Build 是我们要调用的目标，它能处理 DateOnly, TimeSpan, StringView 等所有黑科技
+            var buildMethod = (typeof(ArrowConverter)
+                .GetMethod("Build", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                ?.MakeGenericMethod(elemType)) ?? throw new InvalidOperationException($"Could not find ArrowConverter.Build<{elemType.Name}>.");
+
+            // 3. 生成 IArrowArray
+            var arrowArray = (IArrowArray)buildMethod.Invoke(null, [colValue])!;
+
+            // 4. 转为 Series
+            var series = Series.FromArrow(colName, arrowArray);
+            seriesList.Add(series);
+        }
+
+        // 5. 组装 DataFrame
+        // 假设你有一个构造函数接受 IEnumerable<Series>
+        return new DataFrame([.. seriesList]);
+    }
+    /// <summary>
     /// Create a DataFrame from a list of Series.
     /// </summary>
     public DataFrame(params Series[] series)

@@ -5,7 +5,7 @@ namespace Polars.NET.Core;
 public static partial class PolarsWrapper
 {
     // 辅助：批量转换 Handle
-    private static IntPtr[] HandlesToPtrs(PolarsHandle[] handles)
+    internal static IntPtr[] HandlesToPtrs(PolarsHandle[] handles)
     {
         if (handles == null || handles.Length == 0) return [];
         

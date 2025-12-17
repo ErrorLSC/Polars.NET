@@ -1,3 +1,4 @@
+use polars::prelude::pivot::pivot_stable;
 use polars::prelude::*;
 use polars_core::utils::concat_df;
 use polars_arrow::ffi::{ArrowArrayStreamReader,ArrowArrayStream};
@@ -5,7 +6,6 @@ use polars_arrow::array::Array;
 use std::ffi::CStr;
 use std::{ffi::CString, os::raw::c_char};
 use crate::types::*;
-use polars::lazy::frame::pivot::pivot as pivot_impl; 
 use polars::lazy::dsl::UnpivotArgsDSL;
 use polars::functions::{concat_df_horizontal,concat_df_diagonal};
 use crate::series::SeriesContext;
@@ -110,7 +110,7 @@ pub extern "C" fn pl_groupby_agg(
 
         // 链式调用
         let res_df = ctx.df.clone().lazy()
-            .group_by(by_exprs)
+            .group_by_stable(by_exprs)
             .agg(agg_exprs)
             .collect()?;
 
@@ -542,7 +542,7 @@ pub extern "C" fn pl_pivot(
 
         // 3. 调用 polars::lazy::frame::pivot::pivot
         // 这个函数就是你贴出的那个源代码，它接受 &DataFrame 和 Expr
-        let res_df = pivot_impl(
+        let res_df = pivot_stable(
             &ctx.df,
             columns,          // I0
             Some(index),  // Option<I1>
