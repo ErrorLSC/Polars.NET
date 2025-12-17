@@ -12,7 +12,7 @@ type DataType =
     | Boolean
     | Int8 | Int16 | Int32 | Int64
     | UInt8 | UInt16 | UInt32 | UInt64
-    | Float32 | Float64
+    | Float16 | Float32 | Float64
     | String
     | Date | Datetime | Time
     | Duration
@@ -45,6 +45,7 @@ type DataType =
         | Binary -> PolarsWrapper.NewPrimitiveType 17
         | Null -> PolarsWrapper.NewPrimitiveType 18
         | Struct -> PolarsWrapper.NewPrimitiveType 19
+        | Float16 -> PolarsWrapper.NewPrimitiveType 20
         | Unknown -> PolarsWrapper.NewPrimitiveType 0
         | Categorical -> PolarsWrapper.NewCategoricalType()
         | Decimal (p, s) -> 
@@ -61,6 +62,7 @@ type DataType =
         | "u16" -> UInt16
         | "u32" -> UInt32
         | "u64" -> UInt64
+        | "f16" -> Float16
         | "f32" -> Float32
         | "f64" -> Float64
         | "str" | "String" -> String // 兼容一下旧版
@@ -79,7 +81,7 @@ type DataType =
         match this with
         | UInt8 | UInt16 | UInt32 | UInt64
         | Int8 | Int16 | Int32 | Int64
-        | Float32 | Float64 
+        | Float16 | Float32 | Float64 
         | Decimal _ -> true
         | _ -> false
 

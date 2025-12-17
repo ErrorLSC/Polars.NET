@@ -602,4 +602,74 @@ TooShort,1990-05-20,1.60";
         // 格式是 Y/m/d，所以 parsed_dt 有值
         Assert.NotNull(res.GetValue<DateTime?>(1, "parsed_dt"));
     }
+    [Fact]
+    public void Test_Struct_Operations()
+    {
+        // 1. 准备数据
+        var df = DataFrame.From(
+        [
+            new { A = 1, B = 2 },
+            new { A = 3, B = 4 }
+        ]);
+
+        // 2. 构造 Struct 并重命名
+        // 逻辑：把 A 和 B 打包成 Struct，然后重命名为 "First", "Second"
+        var q = df.Lazy()
+            .Select(
+                AsStruct(Col("A"), Col("B"))
+                    .Struct.RenameFields("First", "Second")
+                    .Alias("MyStruct")
+            );
+
+        using var result = q.Collect();
+
+        // 3. 验证 FieldByindex
+        // 取出 MyStruct 列，并进一步取出第 1 个字段 ("Second")
+        // 注意：这里是在 Eager 模式下验证结果，或者我们可以继续用 Lazy Expr
+        
+        // 让我们在 Lazy 阶段验证 Field(index)
+        var q2 = result.Select(
+            Col("MyStruct").Struct.Field(0).Alias("F0"), // 应该是 A (First)
+            Col("MyStruct").Struct.Field(1).Alias("F1")  // 应该是 B (Second)
+        );
+        
+        // using var result2 = q2.Collect();
+
+        // F0 应该等于 A
+        Assert.Equal(1, q2.GetValue<int>(0, "F0"));
+        // F1 应该等于 B
+        Assert.Equal(2, q2.GetValue<int>(0, "F1"));
+    }
+    [Fact]
+    public void Test_Struct_JsonEncode()
+    {
+        var df = DataFrame.From(
+        [
+            new { Id = 1, Info = new { Name = "Alice", Age = 18 } },
+            new { Id = 2, Info = new { Name = "Bob", Age = 20 } }
+        ]);
+
+        // 将 Info 列 (Struct) 转为 JSON 字符串
+        var q = df.Lazy()
+            .Select(
+                Col("Id"),
+                Col("Info").Struct.JsonEncode().Alias("InfoJson")
+            );
+
+        using var res = q.Collect();
+
+        // 验证类型
+        // 原来是 Struct，现在应该是 String
+        var jsonSeries = res["InfoJson"];
+        Assert.Equal(DataTypeKind.String, jsonSeries.DataType.Kind); // 或者 LargeString/StringView
+
+        // 验证内容
+        var jsonStr = res.GetValue<string>(0, "InfoJson");
+        // 简单的字符串包含验证 (JSON 字段顺序可能变，所以不建议全匹配，除非你确定 Rust 实现的顺序)
+        Assert.Contains("\"Name\":\"Alice\"", jsonStr);
+        Assert.Contains("\"Age\":18", jsonStr);
+        
+        Console.WriteLine(jsonStr); 
+        // 输出示例: {"Name":"Alice","Age":18}
+    }
 }

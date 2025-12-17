@@ -46,7 +46,7 @@ public class DataType : IDisposable
     {
         DataTypeKind.Int8 or DataTypeKind.Int16 or DataTypeKind.Int32 or DataTypeKind.Int64 or
         DataTypeKind.UInt8 or DataTypeKind.UInt16 or DataTypeKind.UInt32 or DataTypeKind.UInt64 or
-        DataTypeKind.Float32 or DataTypeKind.Float64 or DataTypeKind.Decimal => true,
+        DataTypeKind.Float16 or DataTypeKind.Float32 or DataTypeKind.Float64 or DataTypeKind.Decimal => true,
         _ => false
     };
 
@@ -70,7 +70,7 @@ public class DataType : IDisposable
 
             // 2. [关键递归] 再次调用 Parse 解析内部类型
             // 这一步会创建一个临时的 DataType 对象 (比如 Int64)
-            using var innerType = DataType.Parse(innerStr);
+            using var innerType = Parse(innerStr);
 
             // 3. 使用内部类型的 Handle 创建 List Handle
             // 注意：PolarsWrapper.NewListType 应该接受 innerType.Handle
@@ -104,6 +104,7 @@ public class DataType : IDisposable
             "u16" => UInt16,
             "u32" => UInt32,
             "u64" => UInt64,
+            "f16" => Float16,
             "f32" => Float32,
             "f64" => Float64,
             "str" or "String" or "Utf8" => String,
@@ -167,6 +168,10 @@ public class DataType : IDisposable
     /// UInt64
     /// </summary>
     public static DataType UInt64  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt64), DataTypeKind.UInt64);
+    /// <summary>
+    /// Float16 
+    /// </summary>
+    public static DataType Float16 => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Float16),DataTypeKind.Float16);
     /// <summary>
     /// Float32
     /// </summary>
@@ -270,6 +275,10 @@ public enum DataTypeKind
         /// UInt64
         /// </summary>
         UInt64,
+        /// <summary>
+        /// Float16
+        /// </summary>
+        Float16,
         /// <summary>
         /// Float32
         /// </summary>

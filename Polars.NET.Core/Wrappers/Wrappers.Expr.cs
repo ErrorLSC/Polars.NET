@@ -66,6 +66,17 @@ public static partial class PolarsWrapper
     public static ExprHandle Lit(float val) => ErrorHelper.Check(NativeBindings.pl_expr_lit_f32(val));
     public static ExprHandle Lit(long val) => ErrorHelper.Check(NativeBindings.pl_expr_lit_i64(val));
     public static ExprHandle Lit(bool val) => ErrorHelper.Check(NativeBindings.pl_expr_lit_bool(val));
+    public static ExprHandle Lit(DateTime dt)
+    {
+        // C# DateTime.Ticks 是自 0001-01-01 以来的 100ns 单位
+        // Unix Epoch 是 1970-01-01
+        long unixEpochTicks = 621355968000000000;
+        long ticksSinceEpoch = dt.Ticks - unixEpochTicks;
+        long micros = ticksSinceEpoch / 10; // 100ns -> 1us (除以10)
+        
+        return ErrorHelper.Check(NativeBindings.pl_expr_lit_datetime(micros));
+    }
+
     // Alias
 
     public static ExprHandle Alias(ExprHandle expr, string name) 
@@ -276,18 +287,6 @@ public static partial class PolarsWrapper
         return ErrorHelper.Check(h);
     }
 
-    // Lit DateTime
-    public static ExprHandle Lit(DateTime dt)
-    {
-        // C# DateTime.Ticks 是自 0001-01-01 以来的 100ns 单位
-        // Unix Epoch 是 1970-01-01
-        long unixEpochTicks = 621355968000000000;
-        long ticksSinceEpoch = dt.Ticks - unixEpochTicks;
-        long micros = ticksSinceEpoch / 10; // 100ns -> 1us (除以10)
-        
-        return ErrorHelper.Check(NativeBindings.pl_expr_lit_datetime(micros));
-    }
-
     // List
     public static ExprHandle ListFirst(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_first, e);
     
@@ -339,6 +338,25 @@ public static partial class PolarsWrapper
     public static ExprHandle StructFieldByName(ExprHandle e, string name)
     {
         var h = NativeBindings.pl_expr_struct_field_by_name(e, name);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle StructFieldByIndex(ExprHandle e, long index)
+        {
+            var h = NativeBindings.pl_expr_struct_field_by_index(e, index);
+            e.TransferOwnership(); // 链式调用惯例
+            return ErrorHelper.Check(h);
+        }
+
+    public static ExprHandle StructRenameFields(ExprHandle e, string[] names)
+    {
+        var h = NativeBindings.pl_expr_struct_rename_fields(e, names, (UIntPtr)names.Length);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle StructJsonEncode(ExprHandle e)
+    {
+        var h = NativeBindings.pl_expr_struct_json_encode(e);
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }

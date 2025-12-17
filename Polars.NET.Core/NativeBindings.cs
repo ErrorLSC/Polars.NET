@@ -500,6 +500,17 @@ unsafe internal partial class NativeBindings
     // Struct
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_as_struct(IntPtr[] exprs, UIntPtr len);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_struct_field_by_name(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+[LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_struct_field_by_index(ExprHandle e, long index);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_struct_rename_fields(
+        ExprHandle e, 
+        [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.LPStr, SizeParamIndex = 2)] 
+        string[] names, 
+        UIntPtr len
+    );
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_struct_json_encode(ExprHandle e);
     // Window
     [LibraryImport(LibName)] 
     public static partial ExprHandle pl_expr_over(

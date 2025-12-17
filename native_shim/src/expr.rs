@@ -923,6 +923,53 @@ pub extern "C" fn pl_expr_struct_field_by_name(
     })
 }
 
+// 1. 按索引取字段
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_expr_struct_field_by_index(
+    expr: *mut Expr, 
+    index: i64
+) -> *mut Expr {
+    let e = unsafe { Box::from_raw(expr)};
+
+    let new_expr = e.struct_().field_by_index(index);
+    Box::into_raw(Box::new(new_expr))
+}
+
+// 2. 重命名字段
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_expr_struct_rename_fields(
+    expr: *mut Expr,
+    names_ptr: *mut *mut c_char, // 字符串数组指针
+    len: usize
+) -> *mut Expr {
+    let e = unsafe { Box::from_raw(expr) };
+    
+    // 将 C 字符串数组转换为 Vec<String>
+    let names: Vec<String> = if names_ptr.is_null() || len == 0 {
+        Vec::new()
+    } else {
+        let slice = unsafe { std::slice::from_raw_parts(names_ptr, len) };
+        slice.iter()
+            .map(|&p| unsafe { 
+                std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned() 
+            })
+            .collect()
+    };
+
+    let new_expr = e.struct_().rename_fields(names);
+    Box::into_raw(Box::new(new_expr))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_expr_struct_json_encode(
+    expr: *mut Expr
+) -> *mut Expr {
+    let e = unsafe { Box::from_raw(expr)};
+    // Polars 原生支持 struct.json_encode()
+    let new_expr = e.struct_().json_encode();
+    Box::into_raw(Box::new(new_expr))
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_over(
     expr_ptr: *mut ExprContext,

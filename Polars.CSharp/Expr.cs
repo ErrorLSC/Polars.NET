@@ -577,27 +577,27 @@ public class Expr : IDisposable
     /// <summary>
     /// Access temporal (Date/Time) operations.
     /// </summary>
-    public DtOps Dt => new DtOps(this);
+    public DtOps Dt => new(this);
 
     /// <summary>
     /// Access string manipulation operations.
     /// </summary>
-    public StringOps Str => new StringOps(this);
+    public StringOps Str => new(this);
 
     /// <summary>
     /// Access list operations.
     /// </summary>
-    public ListOps List => new ListOps(this);
+    public ListOps List => new(this);
 
     /// <summary>
     /// Access struct operations.
     /// </summary>
-    public StructOps Struct => new StructOps(this);
+    public StructOps Struct => new(this);
 
     /// <summary>
     /// Access column renaming operations.
     /// </summary>
-    public NameOps Name => new NameOps(this);
+    public NameOps Name => new(this);
     // ---------------------------------------------------
     // Clean Up
     // ---------------------------------------------------
@@ -1098,6 +1098,32 @@ public class StructOps
     {
         var h = PolarsWrapper.CloneExpr(_expr.Handle);
         return new Expr(PolarsWrapper.StructFieldByName(h, name));
+    }
+    /// <summary>
+    /// Retrieve a field by its index.
+    /// </summary>
+    public Expr Field(int index)
+    {
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new Expr(PolarsWrapper.StructFieldByIndex(h, index));
+    }
+    
+    /// <summary>
+    /// Rename the fields of the struct.
+    /// </summary>
+    public Expr RenameFields(params string[] names)
+    {
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new Expr(PolarsWrapper.StructRenameFields(h, names));
+    }
+    /// <summary>
+    /// Convert the struct column into a JSON string column.
+    /// Useful for debugging or exporting to systems that support JSON strings.
+    /// </summary>
+    public Expr JsonEncode()
+    {
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new Expr(PolarsWrapper.StructJsonEncode(h));
     }
 }
 /// <summary>

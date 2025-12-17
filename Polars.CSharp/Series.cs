@@ -30,7 +30,10 @@ public class Series : IDisposable
     /// Get the string representation of the Series data type (e.g. "i64", "str", "datetime(μs)").
     /// </summary>
     public string DataTypeName => PolarsWrapper.GetSeriesDtypeString(Handle);
-
+    /// <summary>
+    /// Get the DataType of the series
+    /// </summary>
+    public DataType Dtype => DataType.Parse(DataTypeName);
     /// <summary>
     /// Gets the DataType of the Series.
     /// </summary>
