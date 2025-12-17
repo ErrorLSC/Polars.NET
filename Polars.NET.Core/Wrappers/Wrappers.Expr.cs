@@ -36,15 +36,15 @@ public static partial class PolarsWrapper
     }
     private static ExprHandle UnaryDtOp(Func<ExprHandle, ExprHandle> op, ExprHandle expr) 
         => UnaryOp(op, expr);
-    public static ExprHandle RollingOp(Func<ExprHandle, string ,ExprHandle> op, ExprHandle expr, string windowSize)
+    public static ExprHandle RollingOp(Func<ExprHandle, string ,UIntPtr,ExprHandle> op, ExprHandle expr, string windowSize,int minPeriods)
     {
-        var h = op(expr, windowSize);
+        var h = op(expr, windowSize,(UIntPtr)minPeriods);
         expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    private static ExprHandle RollingByOp(Func<ExprHandle, string, ExprHandle, string, ExprHandle> op, ExprHandle expr, string windowSize, ExprHandle by, string closed)
+    private static ExprHandle RollingByOp(Func<ExprHandle, string, UIntPtr,ExprHandle, string, ExprHandle> op, ExprHandle expr, string windowSize, int minPeriods,ExprHandle by, string closed)
     {
-        var h = op(expr, windowSize, by, closed);
+        var h = op(expr, windowSize,(UIntPtr)minPeriods, by, closed);
         expr.TransferOwnership();
         by.TransferOwnership(); // by 也是 Expr，会被消耗
         return ErrorHelper.Check(h);
@@ -430,14 +430,14 @@ public static partial class PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle RollingMean(ExprHandle e, string w) => RollingOp(NativeBindings.pl_expr_rolling_mean, e, w);
-    public static ExprHandle RollingMax(ExprHandle e, string w) => RollingOp(NativeBindings.pl_expr_rolling_max, e, w);
-    public static ExprHandle RollingMin(ExprHandle e, string w) => RollingOp(NativeBindings.pl_expr_rolling_min, e, w);
-    public static ExprHandle RollingSum(ExprHandle e, string w) => RollingOp(NativeBindings.pl_expr_rolling_sum, e, w);
-    public static ExprHandle RollingMeanBy(ExprHandle e, string w, ExprHandle by, string closed) => RollingByOp(NativeBindings.pl_expr_rolling_mean_by, e, w, by, closed);
-    public static ExprHandle RollingSumBy(ExprHandle e, string w, ExprHandle by, string closed) => RollingByOp(NativeBindings.pl_expr_rolling_sum_by, e, w, by, closed);
-    public static ExprHandle RollingMinBy(ExprHandle e, string w, ExprHandle by, string closed) => RollingByOp(NativeBindings.pl_expr_rolling_min_by, e, w, by, closed);
-    public static ExprHandle RollingMaxBy(ExprHandle e, string w, ExprHandle by, string closed) => RollingByOp(NativeBindings.pl_expr_rolling_max_by, e, w, by, closed);
+    public static ExprHandle RollingMean(ExprHandle e, string w, int minPeriods) => RollingOp(NativeBindings.pl_expr_rolling_mean, e, w, minPeriods);
+    public static ExprHandle RollingMax(ExprHandle e, string w, int minPeriods) => RollingOp(NativeBindings.pl_expr_rolling_max, e, w, minPeriods);
+    public static ExprHandle RollingMin(ExprHandle e, string w, int minPeriods) => RollingOp(NativeBindings.pl_expr_rolling_min, e, w, minPeriods);
+    public static ExprHandle RollingSum(ExprHandle e, string w, int minPeriods) => RollingOp(NativeBindings.pl_expr_rolling_sum, e, w, minPeriods);
+    public static ExprHandle RollingMeanBy(ExprHandle e, string w, int minPeriods, ExprHandle by, string closed) => RollingByOp(NativeBindings.pl_expr_rolling_mean_by, e, w, minPeriods, by, closed);
+    public static ExprHandle RollingSumBy(ExprHandle e, string w, int minPeriods, ExprHandle by, string closed) => RollingByOp(NativeBindings.pl_expr_rolling_sum_by, e, w, minPeriods, by, closed);
+    public static ExprHandle RollingMinBy(ExprHandle e, string w, int minPeriods, ExprHandle by, string closed) => RollingByOp(NativeBindings.pl_expr_rolling_min_by, e, w, minPeriods, by, closed);
+    public static ExprHandle RollingMaxBy(ExprHandle e, string w, int minPeriods, ExprHandle by, string closed) => RollingByOp(NativeBindings.pl_expr_rolling_max_by, e, w, minPeriods, by, closed);
     public static ExprHandle IfElse(ExprHandle pred, ExprHandle ifTrue, ExprHandle ifFalse)
     {
         var h = NativeBindings.pl_expr_if_else(pred, ifTrue, ifFalse);

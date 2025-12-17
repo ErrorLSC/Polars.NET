@@ -1,4 +1,5 @@
 using Apache.Arrow;
+using Apache.Arrow.Types;
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
@@ -384,28 +385,28 @@ public class Expr : IDisposable
     /// <summary>
     /// Count the number of values in this expression.
     /// </summary>
-    public Expr Count() => new Expr(PolarsWrapper.Count(Handle));
+    public Expr Count() => new(PolarsWrapper.Count(Handle));
 
     /// <summary>
     /// Get the standard deviation.
     /// </summary>
-    public Expr Std(int ddof = 1) => new Expr(PolarsWrapper.Std(Handle, ddof));
+    public Expr Std(int ddof = 1) => new(PolarsWrapper.Std(Handle, ddof));
 
     /// <summary>
     /// Get the variance.
     /// </summary>
-    public Expr Var(int ddof = 1) => new Expr(PolarsWrapper.Var(Handle, ddof));
+    public Expr Var(int ddof = 1) => new(PolarsWrapper.Var(Handle, ddof));
 
     /// <summary>
     /// Get the median value.
     /// </summary>
-    public Expr Median() => new Expr(PolarsWrapper.Median(Handle));
+    public Expr Median() => new(PolarsWrapper.Median(Handle));
 
     /// <summary>
     /// Get the quantile value.
     /// </summary>
     public Expr Quantile(double quantile, string method = "nearest") 
-        => new Expr(PolarsWrapper.Quantile(CloneHandle(), quantile, method)); // CloneHandle 因为 Quantile 消耗 Expr
+        => new(PolarsWrapper.Quantile(CloneHandle(), quantile, method)); // CloneHandle 因为 Quantile 消耗 Expr
     // ==========================================
     // Logic / Comparison
     // ==========================================
@@ -474,102 +475,215 @@ public class Expr : IDisposable
     // ==========================================
     // Rolling Window Functions
     // ==========================================
+    
     /// <summary>
-    /// Rolling Minimum
+    /// Static Rolling Minimum
     /// </summary>
     /// <param name="windowSize"></param>
+    /// <param name="minPeriods"></param>
     /// <returns></returns>
-    public Expr RollingMin(string windowSize) 
-        => new Expr(PolarsWrapper.RollingMin(CloneHandle(), windowSize));
+    public Expr RollingMin(string windowSize, int minPeriods = 1) 
+        => new(PolarsWrapper.RollingMin(CloneHandle(), windowSize, minPeriods));
     /// <summary>
-    /// Rolling Maximum
+    /// Stastic Rolling Minumum by timespan
     /// </summary>
     /// <param name="windowSize"></param>
+    /// <param name="minPeriods"></param>
     /// <returns></returns>
-    public Expr RollingMax(string windowSize) 
-        => new Expr(PolarsWrapper.RollingMax(CloneHandle(), windowSize));
+    public Expr RollingMin(TimeSpan windowSize, int minPeriods = 1) 
+        => RollingMin(DurationFormatter.ToPolarsString(windowSize),minPeriods);
     /// <summary>
-    /// Rolling Mean
+    /// Static Rolling Maximum
     /// </summary>
     /// <param name="windowSize"></param>
+    /// <param name="minPeriods"></param>
     /// <returns></returns>
-    public Expr RollingMean(string windowSize) 
-        => new Expr(PolarsWrapper.RollingMean(CloneHandle(), windowSize));
+    public Expr RollingMax(string windowSize,int minPeriods=1) 
+        => new(PolarsWrapper.RollingMax(CloneHandle(), windowSize, minPeriods));
     /// <summary>
-    /// Rolling Sum
+    /// Static Rolling Maximum by timespan
     /// </summary>
     /// <param name="windowSize"></param>
+    /// <param name="minPeriods"></param>
     /// <returns></returns>
-    public Expr RollingSum(string windowSize) 
-        => new Expr(PolarsWrapper.RollingSum(CloneHandle(), windowSize));
+    public Expr RollingMax(TimeSpan windowSize, int minPeriods = 1) 
+        => RollingMax(DurationFormatter.ToPolarsString(windowSize),minPeriods);
     /// <summary>
-    /// Rolling Mean By
+    /// Static Rolling Mean
     /// </summary>
     /// <param name="windowSize"></param>
+    /// <param name="minPeriods"></param>
+    /// <returns></returns>
+    public Expr RollingMean(string windowSize,int minPeriods=1) 
+        => new(PolarsWrapper.RollingMean(CloneHandle(), windowSize,minPeriods));
+    /// <summary>
+    /// Static Rolling Mean by timespan
+    /// </summary>
+    /// <param name="windowSize"></param>
+    /// <param name="minPeriods"></param>
+    /// <returns></returns>
+    public Expr RollingMean(TimeSpan windowSize, int minPeriods = 1) 
+        => RollingMean(DurationFormatter.ToPolarsString(windowSize),minPeriods);
+    /// <summary>
+    /// Static Rolling Sum
+    /// </summary>
+    /// <param name="windowSize"></param>
+    /// <param name="minPeriods"></param>
+    /// <returns></returns>
+    public Expr RollingSum(string windowSize,int minPeriods=1) 
+        => new(PolarsWrapper.RollingSum(CloneHandle(), windowSize,minPeriods));
+    /// <summary>
+    /// Static Rolling Sum by timespan
+    /// </summary>
+    /// <param name="windowSize"></param>
+    /// <param name="minPeriods"></param>
+    /// <returns></returns>
+    public Expr RollingSum(TimeSpan windowSize, int minPeriods = 1) 
+        => RollingSum(DurationFormatter.ToPolarsString(windowSize),minPeriods);
+    /// <summary>
+    /// Dynamic Rolling Mean By
+    /// </summary>
+    /// <param name="windowSize"></param>
+    /// <param name="minPeriods"></param>
     /// <param name="by"></param>
     /// <param name="closed"></param>
     /// <returns></returns>
-    public Expr RollingMeanBy(string windowSize, Expr by, string closed = "left")
+    public Expr RollingMeanBy(string windowSize, Expr by, int minPeriods=1,string closed = "left")
     {
         return new Expr(PolarsWrapper.RollingMeanBy(
             CloneHandle(), 
-            windowSize, 
+            windowSize,
+            minPeriods, 
             by.CloneHandle(), 
             closed
         ));
     }
     /// <summary>
-    /// Rolling Sum By
+    /// Dynamic Rolling Mean By timespan
     /// </summary>
     /// <param name="windowSize"></param>
+    /// <param name="minPeriods"></param>
     /// <param name="by"></param>
     /// <param name="closed"></param>
     /// <returns></returns>
-    public Expr RollingSumBy(string windowSize, Expr by, string closed = "left")
+    public Expr RollingMeanBy(TimeSpan windowSize, Expr by, int minPeriods=1,string closed = "left")
+    {
+        return RollingMeanBy( 
+            DurationFormatter.ToPolarsString(windowSize),
+            by, 
+            minPeriods, 
+            closed
+        );
+    }
+    /// <summary>
+    /// Dynamic Rolling Sum By
+    /// </summary>
+    /// <param name="windowSize"></param>
+    /// <param name="minPeriods"></param>
+    /// <param name="by"></param>
+    /// <param name="closed"></param>
+    /// <returns></returns>
+    public Expr RollingSumBy(string windowSize, Expr by,int minPeriods=1, string closed = "left")
     {
         return new Expr(PolarsWrapper.RollingSumBy(
             CloneHandle(), 
             windowSize, 
+            minPeriods,
             by.CloneHandle(), 
             closed
         ));
     }
     /// <summary>
-    /// Rolling Min By
+    /// Dynamic Rolling Sum By timespan
     /// </summary>
     /// <param name="windowSize"></param>
+    /// <param name="minPeriods"></param>
     /// <param name="by"></param>
     /// <param name="closed"></param>
     /// <returns></returns>
-    public Expr RollingMinBy(string windowSize, Expr by, string closed = "left")
+    public Expr RollingSumBy(TimeSpan windowSize, Expr by, int minPeriods=1,string closed = "left")
+    {
+        return RollingSumBy( 
+            DurationFormatter.ToPolarsString(windowSize),
+            by, 
+            minPeriods, 
+            closed
+        );
+    }
+    /// <summary>
+    /// Dynamic Rolling Min By
+    /// </summary>
+    /// <param name="windowSize"></param>
+    /// <param name="minPeriods"></param>
+    /// <param name="by"></param>
+    /// <param name="closed"></param>
+    /// <returns></returns>
+    public Expr RollingMinBy(string windowSize, Expr by,int minPeriods=1, string closed = "left")
     {
         return new Expr(PolarsWrapper.RollingMinBy(
             CloneHandle(), 
             windowSize, 
+            minPeriods,
             by.CloneHandle(), 
             closed
         ));
     }
     /// <summary>
-    /// Rolling Max By
+    /// Dynamic Rolling Min By timespan
     /// </summary>
     /// <param name="windowSize"></param>
+    /// <param name="minPeriods"></param>
     /// <param name="by"></param>
     /// <param name="closed"></param>
     /// <returns></returns>
-    public Expr RollingMaxBy(string windowSize, Expr by, string closed = "left")
+    public Expr RollingMinBy(TimeSpan windowSize, Expr by, int minPeriods=1,string closed = "left")
+    {
+        return RollingMinBy( 
+            DurationFormatter.ToPolarsString(windowSize),
+            by, 
+            minPeriods, 
+            closed
+        );
+    }
+    /// <summary>
+    /// Dynamic Rolling Max By
+    /// </summary>
+    /// <param name="windowSize"></param>
+    /// <param name="minPeriods"></param>
+    /// <param name="by"></param>
+    /// <param name="closed"></param>
+    /// <returns></returns>
+    public Expr RollingMaxBy(string windowSize, Expr by,int minPeriods=1,string closed = "left")
     {
         return new Expr(PolarsWrapper.RollingMaxBy(
             CloneHandle(), 
             windowSize, 
+            minPeriods,
             by.CloneHandle(), 
             closed
         ));
     }
     /// <summary>
+    /// Dynamic Rolling Max By timespan
+    /// </summary>
+    /// <param name="windowSize"></param>
+    /// <param name="minPeriods"></param>
+    /// <param name="by"></param>
+    /// <param name="closed"></param>
+    /// <returns></returns>
+    public Expr RollingMaxBy(TimeSpan windowSize, Expr by, int minPeriods=1,string closed = "left")
+    {
+        return RollingMaxBy( 
+            DurationFormatter.ToPolarsString(windowSize),
+            by, 
+            minPeriods, 
+            closed
+        );
+    }
+    /// <summary>
     /// Explode a list column into multiple rows.
     /// </summary>
-    public Expr Explode() => new Expr(PolarsWrapper.Explode(Handle));
+    public Expr Explode() => new(PolarsWrapper.Explode(CloneHandle()));
     // ==========================================
     // Namespaces
     // ==========================================
@@ -738,17 +852,37 @@ public class DtOps
     /// </summary>
     public Expr Truncate(string every)
     {
-        return new Expr(PolarsWrapper.DtTruncate(_expr.Handle, every));
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new Expr(PolarsWrapper.DtTruncate(h, every));
     }
-
+    /// <summary>
+    /// Truncate the datetimes to the given timespan
+    /// </summary>
+    /// <param name="every"></param>
+    /// <returns></returns>
+    public Expr Truncate(TimeSpan every)
+    {
+        string everyStr = DurationFormatter.ToPolarsString(every);
+        return Truncate(everyStr);
+    }
     /// <summary>
     /// Round the datetimes to the given interval.
     /// </summary>
     public Expr Round(string every)
     {
-        return new Expr(PolarsWrapper.DtRound(_expr.Handle, every));
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new Expr(PolarsWrapper.DtRound(h, every));
     }
-
+    /// <summary>
+    /// Round the datetimes to the given timespan interval.
+    /// </summary>
+    /// <param name="every"></param>
+    /// <returns></returns>
+    public Expr Round(TimeSpan every)
+    {
+        string everyStr = DurationFormatter.ToPolarsString(every);
+        return Round(everyStr);
+    }
     // ==========================================
     // Offset (时间平移)
     // ==========================================
@@ -768,6 +902,16 @@ public class DtOps
     {
         return OffsetBy(Polars.Lit(duration));
     }
+    /// <summary>
+    /// Offset the datetimes by TimeSpan
+    /// </summary>
+    /// <param name="duration"></param>
+    /// <returns></returns>
+    public Expr OffsetBy(TimeSpan duration)
+    {
+        string durationStr = DurationFormatter.ToPolarsString(duration);
+        return OffsetBy(Polars.Lit(durationStr));
+    }
 
     // ==========================================
     // Timestamp (转整数)
@@ -778,7 +922,8 @@ public class DtOps
     /// </summary>
     public Expr Timestamp(TimeUnit unit = TimeUnit.Microseconds)
     {
-        return new Expr(PolarsWrapper.DtTimestamp(_expr.Handle, (int)unit));
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new Expr(PolarsWrapper.DtTimestamp(h, (int)unit));
     }
 
     // ==========================================
@@ -791,7 +936,8 @@ public class DtOps
     /// <param name="timeZone">Target time zone (e.g. "Asia/Shanghai")</param>
     public Expr ConvertTimeZone(string timeZone)
     {
-        return new Expr(PolarsWrapper.DtConvertTimeZone(_expr.Handle, timeZone));
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new Expr(PolarsWrapper.DtConvertTimeZone(h, timeZone));
     }
 
     /// <summary>
@@ -800,7 +946,8 @@ public class DtOps
     /// </summary>
     public Expr ReplaceTimeZone(string? timeZone, string? ambiguous = null, string? nonExistent = "raise")
     {
-        return new Expr(PolarsWrapper.DtReplaceTimeZone(_expr.Handle, timeZone, ambiguous, nonExistent));
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new Expr(PolarsWrapper.DtReplaceTimeZone(h, timeZone, ambiguous, nonExistent));
     }
     
 }
@@ -1139,12 +1286,12 @@ public class NameOps
     /// <param name="prefix"></param>
     /// <returns></returns>
     public Expr Prefix(string prefix) 
-        => new Expr(PolarsWrapper.Prefix(_expr.Handle, prefix)); // Wrapper 需确认签名
+        => new(PolarsWrapper.Prefix(_expr.Handle, prefix)); // Wrapper 需确认签名
     /// <summary>
     /// Suffix the column name with a specified string.
     /// </summary>
     /// <param name="suffix"></param>
     /// <returns></returns>
     public Expr Suffix(string suffix) 
-        => new Expr(PolarsWrapper.Suffix(_expr.Handle, suffix));
+        => new(PolarsWrapper.Suffix(_expr.Handle, suffix));
 }

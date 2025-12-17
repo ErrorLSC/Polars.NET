@@ -112,7 +112,8 @@ macro_rules! gen_rolling_op {
         #[unsafe(no_mangle)]
         pub extern "C" fn $func_name(
             expr_ptr: *mut ExprContext,
-            window_size_ptr: *const c_char
+            window_size_ptr: *const c_char,
+            min_periods: usize,
         ) -> *mut ExprContext {
             ffi_try!({
                 let ctx = unsafe { Box::from_raw(expr_ptr) };
@@ -124,7 +125,7 @@ macro_rules! gen_rolling_op {
                 // 2. 构建 Fixed Window Options
                 let options = RollingOptionsFixedWindow {
                     window_size,
-                    min_periods: 1, // 默认至少1个数据，防止全Null
+                    min_periods: min_periods, // 默认至少1个数据，防止全Null
                     weights: None,
                     center: false,
                     fn_params: None,
@@ -153,6 +154,7 @@ macro_rules! gen_rolling_by_op {
         pub extern "C" fn $func_name(
             expr_ptr: *mut ExprContext,
             window_size_ptr: *const c_char,
+            min_periods: usize,
             by_ptr: *mut ExprContext,       // 时间索引列
             closed_ptr: *const c_char       // "left", "right" ...
         ) -> *mut ExprContext {
@@ -170,7 +172,7 @@ macro_rules! gen_rolling_by_op {
                 // 2. 构建 Options
                 let options = RollingOptionsDynamicWindow {
                     window_size: duration,
-                    min_periods: 1, // 默认 1，防止全 Null
+                    min_periods: min_periods,
                     closed_window: map_closed_window(closed_str),
                     fn_params: None,
                 };

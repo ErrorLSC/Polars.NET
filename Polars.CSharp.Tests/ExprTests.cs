@@ -1,4 +1,5 @@
 using Apache.Arrow;
+using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
 using static Polars.CSharp.Polars;
 namespace Polars.CSharp.Tests;
@@ -356,17 +357,17 @@ TooShort,1990-05-20,1.60";
             Col("ts"),
 
             // 1. Truncate "1h" -> 应该变成 10:00:00
-            Col("ts").Dt.Truncate("1h").Alias("trunc_1h"),
+            Col("ts").Dt.Truncate(new TimeSpan(0,1,0,0)).Alias("trunc_1h"),
             
             // 2. Round "30m" -> 
             // 10:30:55 -> 10:30:00
             // 10:45:10 -> 10:30:00 (就近) 还是 11:00? Round是四舍五入
-            Col("ts").Dt.Round("30m").Alias("round_30m"),
+            Col("ts").Dt.Round(new TimeSpan(0,0,30,0)).Alias("round_30m"),
 
             // 3. OffsetBy "1d" -> 加一天
             // 注意：这里我们测试 OffsetBy(Lit("1d")) 是否有效
             // 如果失败，可能需要先 Cast 为 Duration
-            Col("ts").Dt.OffsetBy(Polars.Lit("1d")).Alias("offset_1d"),
+            Col("ts").Dt.OffsetBy(TimeSpan.FromDays(1)).Alias("offset_1d"),
 
             // 4. Timestamp (转 Int64)
             Col("ts").Dt.Timestamp(TimeUnit.Milliseconds).Alias("ts_ms")
@@ -391,6 +392,27 @@ TooShort,1990-05-20,1.60";
         
         // 验证类型是否正确变换为 Int64
         Assert.Equal(DataTypeKind.Int64, res.Schema["ts_ms"].Kind);
+    }
+    [Fact]
+    public void Test_Duration_Formatter_HighPrecision()
+    {
+        // 1. 测试微秒
+        // 10微秒
+        var us = TimeSpan.FromMicroseconds(10);
+        Assert.Equal("10us", DurationFormatter.ToPolarsString(us));
+
+        // 2. 测试纳秒 (1 tick = 100ns)
+        // .NET 无法表达 50ns，最小单位是 100ns
+        var ns = TimeSpan.FromTicks(1); 
+        Assert.Equal("100ns", DurationFormatter.ToPolarsString(ns));
+
+        // 3. 混合高精度测试
+        // 1秒 + 500毫秒 + 30微秒 + 200纳秒
+        var complex = new TimeSpan(0, 0, 0, 1, 500)
+                      + TimeSpan.FromMicroseconds(30)
+                      + TimeSpan.FromTicks(2); // 200ns
+        
+        Assert.Equal("1s500ms30us200ns", DurationFormatter.ToPolarsString(complex));
     }
     // ==========================================
     // Cast Ops: Int to Float, String to Int

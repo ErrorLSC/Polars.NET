@@ -31,10 +31,6 @@ public class Series : IDisposable
     /// </summary>
     public string DataTypeName => PolarsWrapper.GetSeriesDtypeString(Handle);
     /// <summary>
-    /// Get the DataType of the series
-    /// </summary>
-    public DataType Dtype => DataType.Parse(DataTypeName);
-    /// <summary>
     /// Gets the DataType of the Series.
     /// </summary>
     /// <remarks>

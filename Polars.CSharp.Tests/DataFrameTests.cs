@@ -410,7 +410,7 @@ Bob,2024,History";
         // 10,20 -> 15
         // 10,20,30 -> 20
         var rollExpr = Col("val")
-            .RollingMeanBy(windowSize: "3d", by: Col("date"), closed: "left")
+            .RollingMeanBy(windowSize: new TimeSpan(3,0,0,0), by: Col("date"), closed: "left")
             .Alias("roll_mean");
 
         using var res = df.Select(
