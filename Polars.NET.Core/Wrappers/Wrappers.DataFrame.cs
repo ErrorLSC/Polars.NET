@@ -261,7 +261,7 @@ public static partial class PolarsWrapper
     /// <summary>
     /// Create a DataFrame from an Arrow C Stream.
     /// </summary>
-    public static unsafe DataFrameHandle DataFrameNewFromStream(Polars.NET.Core.Arrow.CArrowArrayStream* stream)
+    public static unsafe DataFrameHandle DataFrameNewFromStream(Arrow.CArrowArrayStream* stream)
     {
         var handle = NativeBindings.pl_dataframe_new_from_stream(stream);
         return ErrorHelper.Check(handle);

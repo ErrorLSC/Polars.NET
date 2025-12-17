@@ -1003,6 +1003,43 @@ and DataFrame(handle: DataFrameHandle) =
         new DataFrame(PolarsWrapper.ReadJson path)
     /// <summary> Read an IPC file into a DataFrame (Eager). </summary>
     static member ReadIpc (path: string) = new DataFrame(PolarsWrapper.ReadIpc path)
+
+    static member ofSeqStream<'T>(data: seq<'T>, ?batchSize: int) : DataFrame =
+        let size = defaultArg batchSize 100_000
+
+        // 1. 构建批次流 (Lazy Batch Stream)
+        // 使用 Seq.chunk 实现分块，然后惰性映射到 RecordBatch
+        let batchStream = 
+            data
+            |> Seq.chunkBySize size
+            |> Seq.map (fun chunk -> 
+                // 调用 Core 层的转换器，把一块数据转成 Arrow RecordBatch
+                ArrowFfiBridge.BuildRecordBatch chunk
+            )
+
+        // 获取枚举器 (此时还没开始转换数据)
+        let enumerator = batchStream.GetEnumerator()
+
+        // 2. 探测首帧 (Peek First Batch)
+        if not (enumerator.MoveNext()) then
+            // 空序列处理：释放枚举器，返回空 DataFrame
+            enumerator.Dispose()
+            DataFrame.create []
+        else
+            let firstBatch = enumerator.Current
+            let schema = firstBatch.Schema
+
+            // 3. 缝合迭代器 (Stitch)
+            // 使用 C# Core 定义的 PrependEnumerator 把探测出来的第一帧缝回去
+            // 这样 Interop 层能读到完整的数据流
+            let combinedEnumerator = new PrependEnumerator(firstBatch, enumerator)
+
+            // 4. 调用 Interop 层 (Zero-Copy Import)
+            // ImportEager 会接管 combinedEnumerator 的生命周期 (包括 Dispose)
+            // Rust 端会通过 C Stream Interface 拉取数据
+            let handle = ArrowStreamInterop.ImportEager(combinedEnumerator, schema)
+
+            new DataFrame(handle)
     static member FromArrow (batch: Apache.Arrow.RecordBatch) : DataFrame =
         new DataFrame(PolarsWrapper.FromArrow batch)
     /// <summary> Write DataFrame to CSV. </summary>
@@ -1280,13 +1317,75 @@ and LazyFrame(handle: LazyFrameHandle) =
         new LazyFrame(PolarsWrapper.ScanNdjson path)
     /// <summary> Scan an IPC file into a LazyFrame. </summary>
     static member ScanIpc (path: string) = new LazyFrame(PolarsWrapper.ScanIpc path)
+    
+    // ==========================================
+    // Streaming Scan (Lazy)
+    // ==========================================
+
+    /// <summary>
+    /// Lazily scan a sequence of objects using Apache Arrow Stream Interface.
+    /// This supports predicate pushdown and streaming execution.
+    /// Data is pulled from the sequence only when needed.
+    /// </summary>
+    /// <param name="data">The data source sequence.</param>
+    /// <param name="batchSize">Rows per Arrow batch (default: 100,000).</param>
+    static member scanSeq<'T>(data: seq<'T>, ?batchSize: int) : LazyFrame =
+        let size = defaultArg batchSize 100_000
+
+        // 1. 静态推断 Schema (无需触碰数据流)
+        // 我们利用 BuildRecordBatch 的反射能力，传入空序列即可得到正确的 Schema
+        let dummyBatch = ArrowFfiBridge.BuildRecordBatch Seq.empty<'T>
+        let schema = dummyBatch.Schema
+        
+        // 2. 准备上下文 (Context)
+        // 创建 GCHandle，封装数据源和 Schema
+        let ctxPtr = ArrowStreamInterop.CreateScanContext(data, size, schema)
+
+        // 3. 准备 C Schema 结构体 (用于传给 Rust 做校验)
+        let cSchema = Apache.Arrow.C.CArrowSchema.Create()
+        Apache.Arrow.C.CArrowSchemaExporter.ExportSchema(schema, cSchema)
+
+        try
+            // 4. 调用 Rust 
+            // 传入：Schema, Factory回调, Destroy回调, Context指针
+            let handle = PolarsWrapper.LazyFrameScanStream(
+                cSchema,
+                ArrowStreamInterop.GetFactoryCallback(),
+                ArrowStreamInterop.GetDestroyCallback(),
+                ctxPtr
+            )
+            new LazyFrame(handle)
+        finally
+            // Rust 会复制 Schema，所以我们可以释放这边的 C 结构体
+            // 注意：ctxPtr 不能释放，它的所有权已经移交给 Rust，会通过 DestroyCallback 释放
+            Apache.Arrow.C.CArrowSchema.Free cSchema
+
     /// <summary> Write LazyFrame execution result to Parquet (Streaming). </summary>
     member this.SinkParquet (path: string) : unit =
         PolarsWrapper.SinkParquet(this.CloneHandle(), path)
     /// <summary> Write LazyFrame execution result to IPC (Streaming). </summary>
     member this.SinkIpc (path: string) = 
         PolarsWrapper.SinkIpc(this.CloneHandle(), path)
-    /// <summary> Transform RecordBatch into DataFrame </summary>
+    /// <summary>
+    /// Join with another LazyFrame.
+    /// </summary>
+    member this.Join(other: LazyFrame, leftOn: Expr seq, rightOn: Expr seq, how: PlJoinType) : LazyFrame =
+        // 1. 准备 Left On 表达式数组 (Clone Handle, Move 语义)
+        let lOnArr = leftOn |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
+        
+        // 2. 准备 Right On 表达式数组
+        let rOnArr = rightOn |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
+        
+        // 3. 准备 LazyFrame Handles
+        // Join 算子会消耗左右两个 LazyFrame，所以我们需要传入 Clone 的 Handle
+        let lHandle = this.CloneHandle()
+        let rHandle = other.CloneHandle()
+
+        // 4. 调用 Wrapper (假设 Wrapper 接受 int 枚举作为 JoinType)
+        // 注意：Wrapper 签名通常是 (Left, Right, LeftExprs, RightExprs, JoinType)
+        let newHandle = PolarsWrapper.Join(lHandle, rHandle, lOnArr, rOnArr, how)
+        
+        new LazyFrame(newHandle)
     
 /// <summary>
 /// SQL Context for executing SQL queries on registered LazyFrames.

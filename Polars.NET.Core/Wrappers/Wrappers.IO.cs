@@ -176,7 +176,7 @@ public static partial class PolarsWrapper
     }
     public static unsafe LazyFrameHandle LazyFrameScanStream(
         CArrowSchema* schema,
-        delegate* unmanaged[Cdecl]<void*, Polars.NET.Core.Arrow.CArrowArrayStream*> callback,
+        delegate* unmanaged[Cdecl]<void*, Arrow.CArrowArrayStream*> callback,
         delegate* unmanaged[Cdecl]<void*, void> destroyCallback,
         void* userData)
     {

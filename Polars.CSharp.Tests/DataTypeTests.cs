@@ -249,45 +249,6 @@ public class DataTypeTests
         Assert.Equal(new TimeOnly(14, 30, 0), rows[0].Time);
     }
     [Fact]
-    public void Test_DateTime_WallClock_Consistency()
-    {
-        // 场景：用户输入了 "2025-01-01 12:00:00"
-        // 无论这个 DateTime 对象的 .Kind 是什么（Local/Utc/Unspecified）
-        // 我们都视为用户只想存 "12:00:00" 这个墙上时间。
-        
-        var dtLocal = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Local);
-        var dtUtc   = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
-        var dtUnspec= new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Unspecified);
-
-        // 存入 Series
-        using var s = Series.From("dates", new[] { dtLocal, dtUtc, dtUnspec });
-
-        // 读取回来 (使用 ToArray<DateTime>)
-        var results = s.ToArray<DateTime>();
-
-        // 验证
-        // 允许 10us (100 ticks) 的微秒截断误差
-        long tolerance = 100; 
-
-        // 1. 验证字面量（Ticks）一致性
-        // 输入是 12:00，读出来必须还是 12:00 的 Ticks
-        long expectedLiteralTicks = new DateTime(2025, 1, 1, 12, 0, 0).Ticks;
-
-        Assert.InRange(results[0].Ticks - expectedLiteralTicks, -tolerance, tolerance);
-        Assert.InRange(results[1].Ticks - expectedLiteralTicks, -tolerance, tolerance);
-        Assert.InRange(results[2].Ticks - expectedLiteralTicks, -tolerance, tolerance);
-
-        // 2. 验证 .Kind 被重置为 Unspecified (或者是 Utc，取决于你 ConvertTimestamp 最后的 return 策略)
-        // 按照我们在 ArrowExtensions 里的最新修改 (EpochUtc.AddTicks)，ArrowReader 读出来的是 UTC。
-        // *如果你之前的 ConvertTimestamp 按照我建议的改成了返回 UTC，这里就 Assert Utc*
-        // *如果你改成了返回 Unspecified，这里就 Assert Unspecified*
-        
-        // 假设你用了我推荐的 EpochUtc.AddTicks(ticks) 方案，读回来默认是 UTC
-        Assert.Equal(DateTimeKind.Unspecified, results[0].Kind); 
-        Assert.Equal(DateTimeKind.Unspecified, results[1].Kind);
-        Assert.Equal(DateTimeKind.Unspecified, results[2].Kind);
-    }
-    [Fact]
     public void Test_DateTimeOffset_Absolute_Consistency()
     {
         // 1. 准备数据

@@ -27,6 +27,27 @@ type UserRecord = {
         score: float option // Nullable Float
         joined: System.DateTime option // Timestamp -> DateTime
     }
+[<CLIMutable>]
+type SensorData = {
+    Id: int
+    Value: string
+    Timestamp: DateTime
+}
+
+// 场景 2: 过滤测试
+[<CLIMutable>]
+type Student = {
+    Id: int
+    Group: string
+    Score: double
+}
+
+// 场景 3: Join 测试 (Multi-pass)
+[<CLIMutable>]
+type JoinItem = {
+    Key: int
+    Val: int
+}
 type ``Basic Functionality Tests`` () =
 
     [<Fact>]
@@ -110,37 +131,37 @@ id;date_col;val_col
         use dfJson = DataFrame.ReadJson jsonFile.Path
         Assert.Equal(3L, dfJson.Rows)
         Assert.Equal(2L, dfJson.Int("a", 1).Value)
-    // [<Fact>]
-    // member _.``Streaming: Debug Sink`` () =
-    //     // 1. 准备数据
-    //     use csv = new DisposableFile(".csv", "a,b\n1,2\n3,4")
-    //     use parquetEager = new DisposableFile(".parquet")
-    //     use parquetSink = new DisposableFile(".parquet")
+    [<Fact(Skip = "Sink bug, will be skiped")>]
+    member _.``Streaming: Debug Sink`` () =
+        // 1. 准备数据
+        use csv = new DisposableFile(".csv", "a,b\n1,2\n3,4")
+        use parquetEager = new DisposableFile(".parquet")
+        use parquetSink = new DisposableFile(".parquet")
 
-    //     printfn "CSV Path: %s" csv.Path
-    //     printfn "Target Sink Path: %s" parquetSink.Path
+        printfn "CSV Path: %s" csv.Path
+        printfn "Target Sink Path: %s" parquetSink.Path
 
-    //     // Step A: 验证 LazyFrame 能否读取数据 (Collect)
-    //     // 如果这里挂了，说明 scanCsv 没读到文件，或者 CSV 格式 Polars 不认
-    //     let lf = LazyFrame.ScanCsv(csv.Path)
-    //     use df = lf.Collect()
+        // Step A: 验证 LazyFrame 能否读取数据 (Collect)
+        // 如果这里挂了，说明 scanCsv 没读到文件，或者 CSV 格式 Polars 不认
+        let lf = LazyFrame.ScanCsv(csv.Path)
+        use df = lf.Collect()
         
-    //     Assert.Equal(2L, df.Rows)
-    //     printfn "Step A: Collect Success. Rows: %d" df.Rows
+        Assert.Equal(2L, df.Rows)
+        printfn "Step A: Collect Success. Rows: %d" df.Rows
 
-    //     // Step B: 验证 Eager WriteParquet 是否正常
-    //     // 如果这里挂了，说明是文件系统/权限问题，与 Lazy 无关
-    //     df.WriteParquet(parquetEager.Path) |> ignore
-    //     Assert.True(System.IO.File.Exists parquetEager.Path, "Step B: Eager Write Failed")
-    //     printfn "Step B: Eager Write Success"
+        // Step B: 验证 Eager WriteParquet 是否正常
+        // 如果这里挂了，说明是文件系统/权限问题，与 Lazy 无关
+        df.WriteParquet(parquetEager.Path) |> ignore
+        Assert.True(System.IO.File.Exists parquetEager.Path, "Step B: Eager Write Failed")
+        printfn "Step B: Eager Write Success"
 
-    //     // Step C: 验证 Lazy Sink (使用新的 LazyFrame)
-    //     // 注意：之前的 lf 已经被 Collect 消耗了 (虽然我们 CloneHandle 了，但为了纯净环境重新 scan)
-    //     LazyFrame.ScanCsv(csv.Path)
-    //         .SinkParquet parquetSink.Path
+        // Step C: 验证 Lazy Sink (使用新的 LazyFrame)
+        // 注意：之前的 lf 已经被 Collect 消耗了 (虽然我们 CloneHandle 了，但为了纯净环境重新 scan)
+        LazyFrame.ScanCsv(csv.Path)
+            .SinkParquet parquetSink.Path
     
-    //     Assert.True(System.IO.File.Exists parquetSink.Path, "Step C: Lazy Sink Failed")
-    //     printfn "Step C: Lazy Sink Success"
+        Assert.True(System.IO.File.Exists parquetSink.Path, "Step C: Lazy Sink Failed")
+        printfn "Step C: Lazy Sink Success"
     [<Fact>]
     member _.``Metadata: Schema and Dtype`` () =
         // 1. 创建 DataFrame
@@ -644,3 +665,71 @@ id;date_col;val_col
         Assert.Equal(Some true, maskFin.Bool 0)
         Assert.Equal(Some false, maskFin.Bool 1) // NaN not finite
         Assert.Equal(Some false, maskFin.Bool 2) // Inf not finite
+    // ---------------------------------------------------
+    // Streaming Tests
+    // ---------------------------------------------------
+
+    [<Fact>]
+    member _.``Stream: Eager Ingestion (ofSeqStream)`` () =
+        // 1. 模拟一个较大的数据源 (10万行)
+        // 使用 Seq.init 惰性生成，不占内存
+        let count = 100_000
+        let data = Seq.init count (fun i -> 
+            { Id = i; Value = $"Val_{i}"; Timestamp = DateTime(2023, 1, 1).AddSeconds(float i) }
+        )
+
+        // 2. 流式导入 (Batch Size = 10,000)
+        // 这一步应该非常快，且内存占用极低
+        use df = DataFrame.ofSeqStream(data, batchSize = 10_000)
+
+        // 3. 验证
+        Assert.Equal(int64 count, df.Rows)
+        Assert.Equal("Val_99999", df.Column("Value").AsSeq<string>() |> Seq.last |> Option.get)
+        
+        // 验证 Schema 是否正确推断 (Timestamp)
+        Assert.Equal(DataType.Datetime, df.Schema.["Timestamp"])
+
+    [<Fact>]
+    member _.``Stream: Lazy Scan (scanSeq) with Filter`` () =
+        // 1. 数据源
+        let data = [
+            { Id = 1; Group = "A"; Score = 10.0 }
+            { Id = 2; Group = "B"; Score = 20.0 }
+            { Id = 3; Group = "A"; Score = 30.0 }
+        ]
+
+        // 2. Lazy Scan -> Filter -> Collect
+        // Polars 应该会将 Filter 下推，并在流式读取时就应用过滤
+        let res = 
+            LazyFrame.scanSeq data
+                |> Polars.filterLazy(Polars.col "Group" .== Polars.lit "A")
+                |> Polars.collectStreaming
+
+        // 3. 验证
+        Assert.Equal(2L, res.Rows) // 只剩下 Id 1 和 3
+        Assert.Equal(1L, res.Int("Id", 0).Value)
+        Assert.Equal(3L, res.Int("Id", 1).Value)
+
+    [<Fact>]
+    member _.``Stream: Lazy Multi-pass Scan (Self Join)`` () =
+        // 这是一个的高级测试
+        // Self Join 需要扫描同一份数据源两次
+        // 这将验证我们的 ArrowStreamInterop.Factory 机制是否能正确重置枚举器
+        
+        let data = Seq.init 10 (fun i -> { Key = i % 3; Val = i }) // Key: 0, 1, 2 重复
+        
+        let lf = LazyFrame.scanSeq data
+        
+        // Self Join: lf.Join(lf, on="Key")
+        // Rust 引擎会调用两次 StreamFactoryCallback
+        let res = 
+            lf
+            |> Polars.joinLazy lf [Polars.col "Key"] [Polars.col "Key"] Left
+            |> Polars.collect
+
+        // 简单验证行数 (笛卡尔积会膨胀)
+        // 0: 4 items -> 4*4 = 16
+        // 1: 3 items -> 3*3 = 9
+        // 2: 3 items -> 3*3 = 9
+        // Total = 34
+        Assert.Equal(34L, res.Rows)
