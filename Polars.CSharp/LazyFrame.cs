@@ -337,7 +337,7 @@ public class LazyFrame : IDisposable
         Expr[]? leftBy = null,
         Expr[]? rightBy = null)
     {
-        var lfClone = this.CloneHandle();
+        var lfClone = CloneHandle();
         var otherClone = other.CloneHandle();
         var lOn = PolarsWrapper.CloneExpr(leftOn.Handle);
         var rOn = PolarsWrapper.CloneExpr(rightOn.Handle);
@@ -345,7 +345,6 @@ public class LazyFrame : IDisposable
         var lBy = leftBy?.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
         var rBy = rightBy?.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
 
-        //
         return new LazyFrame(PolarsWrapper.JoinAsOf(
             lfClone, otherClone,
             lOn, rOn,
@@ -353,7 +352,27 @@ public class LazyFrame : IDisposable
             strategy, tolerance
         ));
     }
-
+    /// <summary>
+    /// Perform an As-Of Join with tolerance as timespan (time-series join)
+    /// </summary>
+    /// <param name="other"></param>
+    /// <param name="leftOn"></param>
+    /// <param name="rightOn"></param>
+    /// <param name="tolerance"></param>
+    /// <param name="strategy"></param>
+    /// <param name="leftBy"></param>
+    /// <param name="rightBy"></param>
+    /// <returns></returns>
+    public LazyFrame JoinAsOf(
+    LazyFrame other, 
+    Expr leftOn, Expr rightOn, 
+    TimeSpan tolerance,
+    string strategy = "backward",
+    Expr[]? leftBy = null,
+    Expr[]? rightBy = null)
+    {
+        return JoinAsOf(other,leftOn,rightOn,DurationFormatter.ToPolarsString(tolerance),strategy,leftBy,rightBy);
+    }
     // ==========================================
     // GroupBy
     // ==========================================

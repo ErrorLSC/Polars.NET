@@ -253,69 +253,63 @@ HR,50";
         Assert.True(price0 == 10 || price0 == 20);
     }
     [Fact]
-    public void Test_Lazy_JoinAsOf_With_Explain()
+    public void Test_Lazy_JoinAsOf_With_TimeSpan_Tolerance()
     {
-        // 场景: 股票交易 (Trades) 匹配最近的 报价 (Quotes)
-        // 这是一个经典的时序 Join 场景
+        // 场景: 股票交易匹配报价，但增加了 "2分钟" 的有效窗口
+        // 如果报价太旧（超过2分钟），则认为数据失效，不予匹配
         
-        // Trades: 在 10:00, 10:02, 10:05 发生交易
+        // 使用 ISO 格式日期，配合 tryParseDates: true，让 Polars 自动识别为 Datetime
         var tradesContent = @"time,sym,qty
-10:00,AAPL,10
-10:02,AAPL,20
-10:05,AAPL,5";
-        using var tradesCsv = new DisposableFile(tradesContent,".csv");
+2024-01-01 10:00:00,AAPL,10
+2024-01-01 10:02:00,AAPL,20
+2024-01-01 10:05:00,AAPL,5"; // 这个交易离最近的报价(10:01)有4分钟
+        using var tradesCsv = new DisposableFile(tradesContent, ".csv");
         
-        // Quotes: 报价更新时间
-        // 09:59 (Bid=150)
-        // 10:01 (Bid=151) -> 应该匹配 10:02 的交易
-        // 10:06 (Bid=152) -> 10:05 的交易应该匹配 10:01 的报价 (backward search)
         var quotesContent = @"time,sym,bid
-09:59,AAPL,150
-10:01,AAPL,151
-10:06,AAPL,152";
-        using var quotesCsv = new DisposableFile(quotesContent,".csv");
+2024-01-01 09:59:00,AAPL,150
+2024-01-01 10:01:00,AAPL,151
+2024-01-01 10:06:00,AAPL,152";
+        using var quotesCsv = new DisposableFile(quotesContent, ".csv");
 
-        // 使用 tryParseDates=false，这里演示用字符串/时间戳进行 JoinAsOf
-        // 只要列是可排序的 (Sortable)，JoinAsOf 就能工作。
-        // 字符串 "10:00" < "10:02"，逻辑成立。
-        using var lfTrades = LazyFrame.ScanCsv(tradesCsv.Path, tryParseDates: false);
-        using var lfQuotes = LazyFrame.ScanCsv(quotesCsv.Path, tryParseDates: false);
+        // [关键] tryParseDates: true
+        // 确保 'time' 列被解析为 Datetime 类型，而不是 String
+        using var lfTrades = LazyFrame.ScanCsv(tradesCsv.Path, tryParseDates: true);
+        using var lfQuotes = LazyFrame.ScanCsv(quotesCsv.Path, tryParseDates: true);
 
         // 构建 JoinAsOf
         var joinedLf = lfTrades.JoinAsOf(
             lfQuotes,
             leftOn: Col("time"),
             rightOn: Col("time"),
-            tolerance: null,      // 无容差限制
-            strategy: "backward", // 向后查找最近的历史记录
-            leftBy: [Col("sym")],  // 按股票代码分组
+            
+            // [核心升级] 使用 TimeSpan 强类型容差！
+            // 逻辑：只匹配最近 2 分钟内的报价
+            // 我们刚才实现的 DurationFormatter 会自动将其转为 "2m"
+            tolerance: TimeSpan.FromMinutes(2), 
+            
+            strategy: "backward",
+            leftBy: [Col("sym")],
             rightBy: [Col("sym")]
         );
 
-        // --- Explain 功能测试 ---
-        string plan = joinedLf.Explain();
-        // 检查是否包含 ASOF JOIN 关键字
-        Assert.Contains("ASOF JOIN", plan.ToUpper());
-
-        // 执行
         using var df = joinedLf.Collect();
         
         // 验证结果
-        // Trades 有 3 行，Left Join 应该保留 3 行
         Assert.Equal(3, df.Height);
 
-        // Row 0: Trade 10:00 -> 匹配 Quote 09:59 (Bid 150)
-        Assert.Equal("10:00", df.Column("time").GetValue<string>(0));
-        Assert.Equal(150, df.Column("bid").GetValue<long>(0));
+        // Row 0: Trade 10:00 -> Quote 09:59 (Diff: 1m)
+        // 1m <= 2m -> 匹配成功
+        Assert.Equal(150, df.Column("bid").GetValue<long?>(0));
 
-        // Row 1: Trade 10:02 -> 匹配 Quote 10:01 (Bid 151)
-        Assert.Equal("10:02", df.Column("time").GetValue<string>(1));
-        Assert.Equal(151, df.Column("bid").GetValue<long>(1));
+        // Row 1: Trade 10:02 -> Quote 10:01 (Diff: 1m)
+        // 1m <= 2m -> 匹配成功
+        Assert.Equal(151, df.Column("bid").GetValue<long?>(1));
 
-        // Row 2: Trade 10:05 -> 匹配 Quote 10:01 (Bid 151)
-        // 因为 10:06 的报价还没发生 (backward strategy)
-        Assert.Equal("10:05", df.Column("time").GetValue<string>(2));
-        Assert.Equal(151, df.Column("bid").GetValue<long>(2));
+        // Row 2: Trade 10:05 -> Quote 10:01 (Diff: 4m)
+        // backward 找到的最近记录是 10:01
+        // 但是 4m > 2m (Tolerance)
+        // -> 匹配失败，bid 应该为 null
+        Assert.Null(df.Column("bid").GetValue<long?>(2));
     }
     [Fact]
     public void Test_DataFrame_To_Lazy_And_Sql()

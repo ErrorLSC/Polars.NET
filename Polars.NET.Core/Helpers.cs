@@ -41,5 +41,20 @@ namespace Polars.NET.Core
 
             return sb.ToString();
         }
+        [return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(ts))] // 这一行是锦上添花，告诉编译器 null 传递关系
+        public static string? ToPolarsString(TimeSpan? ts)
+        {
+            return ts.HasValue ? ToPolarsString(ts.Value) : null;
+        }
+    }
+    public static class PolarsExtensions
+    {
+        // ts.ToPolarsDuration()
+        public static string ToPolarsDuration(this TimeSpan ts) 
+            => Core.DurationFormatter.ToPolarsString(ts);
+
+        // tsNullable.ToPolarsDuration()
+        public static string? ToPolarsDuration(this TimeSpan? ts) 
+            => Core.DurationFormatter.ToPolarsString(ts);
     }
 }
