@@ -356,5 +356,42 @@ namespace Polars.CSharp.Tests
             // Row 3 应该是 null
             Assert.Null(unnested.GetValue<int?>(2, "Level"));
         }
+        [Fact]
+        public void Test_DataFrame_FromDataReader_Eager_Nested()
+        {
+            // 1. 模拟数据库 (复用之前的复杂结构)
+            var table = new System.Data.DataTable();
+            table.Columns.Add("Id", typeof(int));
+            table.Columns.Add("Tags", typeof(int[])); // List
+            table.Columns.Add("Meta", typeof(UserMeta)); // Struct
+
+            table.Rows.Add(1, new int[] { 10, 20 }, new UserMeta { Level = 99, Score = 100.0 });
+            table.Rows.Add(2, DBNull.Value, DBNull.Value);
+
+            using var reader = table.CreateDataReader();
+
+            // 2. [高光时刻] 一行代码，Eager 加载！
+            // 此时数据已经在 C++ 堆内存里了，C# 端只有 handle
+            using var df = DataFrame.FromDataReader(reader);
+
+            // 3. 验证
+            Assert.Equal(2, df.Height);
+            
+            // 验证 Struct
+            var meta = df.Column("Meta");
+            Assert.Equal(DataTypeKind.Struct, meta.DataType.Kind);
+            
+            // 验证 List
+            var tags = df.Column("Tags");
+            Assert.Equal(DataTypeKind.List, tags.DataType.Kind);
+
+            // 验证值
+            var row1Tags = tags.GetValue<List<int?>>(0);
+            Assert.Equal(10, row1Tags[0]);
+            
+            // 验证 Unnest 也就是 Struct 的内容
+            var unnested = df.Unnest("Meta");
+            Assert.Equal(99, unnested.GetValue<int>(0, "Level"));
+        }
     }
 }

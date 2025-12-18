@@ -3,6 +3,7 @@ using System.Reflection;
 using Polars.NET.Core.Arrow;
 using Apache.Arrow;
 using System.Collections;
+using System.Data;
 namespace Polars.CSharp;
 
 /// <summary>
@@ -181,6 +182,39 @@ public class DataFrame : IDisposable
     {
         var handle = await PolarsWrapper.ReadParquetAsync(path);
         return new DataFrame(handle);
+    }
+
+    /// <summary>
+    /// Create a DataFrame directly from a DbDataReader.
+    /// Supports basic types, Arrays (as List), and POCOs (as Struct).
+    /// </summary>
+    /// <param name="reader">The open data reader.</param>
+    /// <param name="batchSize">Number of rows per Arrow batch.</param>
+    public static DataFrame FromDataReader(IDataReader reader, int batchSize = 50_000)
+    {
+        // 1. 显式获取 Schema (为了传给 Exporter)
+        // 复用了你的"邪修"逻辑，支持嵌套类型推断
+        var schema = NET.Core.Arrow.DataReaderExtensions.GetArrowSchema(reader);
+
+        // 2. 获取流
+        // 复用了 Buffer Pool + ArrowConverter
+        var batchEnumerable = reader.ToArrowBatches(batchSize);
+        
+        // 3. 获取枚举器 (准备移交控制权)
+        var enumerator = batchEnumerable.GetEnumerator();
+
+        // 4. 调用互操作层
+        try 
+        {
+            var handle = ArrowStreamInterop.ImportEager(enumerator, schema);
+            return new DataFrame(handle);
+        }
+        catch
+        {
+            // 如果出错，记得清理 enumerator
+            enumerator.Dispose();
+            throw;
+        }
     }
     // ==========================================
     // Properties
