@@ -343,6 +343,8 @@ pub extern "C" fn pl_dataframe_write_json(df_ptr: *mut DataFrameContext, path: *
         .finish(&mut ctx.df)
     })
 }
+
+
 // ==========================================
 // 3. 内存与转换操作
 // ==========================================
@@ -611,5 +613,56 @@ pub extern "C" fn pl_lazy_map_batches(
         );
 
         Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_export_batches(
+    df_ptr: *mut DataFrameContext,
+    callback: SinkCallback,
+    cleanup: CleanupCallback,
+    user_data: *mut c_void
+) {
+    ffi_try_void!({
+        let df_ctx = unsafe { &*df_ptr }; // 注意：这里是借用，不获取所有权，因为我们只是读
+        let df = &df_ctx.df;
+
+        let udf = CSharpSinkUdf { 
+            callback, 
+            cleanup, 
+            user_data 
+        };
+
+        // 复用之前的逻辑：转为 Struct Series 以获取 Chunks
+        // 这是一种零拷贝的技巧，把 DataFrame 的每一列视为 Struct 的字段
+        let struct_s = df.clone().into_struct("batch".into()).into_series();
+        let chunks = struct_s.chunks();
+
+        let mut error_msg_buf = [0u8; 1024]; 
+        let error_ptr = error_msg_buf.as_mut_ptr() as *mut std::os::raw::c_char;
+
+        for array_ref in chunks {
+            // Transfer Ownership via FFI
+            let field = ArrowField::new("".into(), array_ref.dtype().clone(), true);
+            // [核心: Transfer Ownership]
+            // 1. 将 Rust Array 导出为 FFI 结构体
+            // to_ffi 会生成 ArrowArray 和 ArrowSchema
+            let c_array = ffi::export_array_to_c(array_ref.clone());
+            let c_schema = ffi::export_field_to_c(&field);
+
+            let ptr_array = Box::into_raw(Box::new(c_array));
+            let ptr_schema = Box::into_raw(Box::new(c_schema));
+
+            let status = (udf.callback)(ptr_array, ptr_schema, error_ptr);
+
+            if status != 0 {
+                // 如果 C# 报错，直接返回
+                // CSharpSinkUdf 的 Drop 会自动调用 cleanup
+                return Ok(()); 
+            }
+        }
+        
+        // 运行结束，udf 离开作用域，自动触发 cleanup
+        Ok(())
     })
 }

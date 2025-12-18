@@ -284,23 +284,26 @@ public class StreamingTests
     public void Test_ArrowToDbStream_EndToEnd()
     {
         // 1. 构造一个模拟的 Arrow RecordBatch 流
-        var now = DateTime.UtcNow;
-        // 截断到秒，避免精度对比麻烦
-        now = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, now.Second);
+        // [核心修改] 使用 DateOnly，因为我们已经决定 Date32 映射到 DateOnly
+        var today = DateOnly.FromDateTime(DateTime.Now); 
 
         var schema = new Schema.Builder()
             .Field(new Field("Id", Int32Type.Default, true))
-            .Field(new Field("Name", StringViewType.Default, true)) // 你的邪修 String
-            .Field(new Field("Date", Date32Type.Default, true))      // 测试 Date32
+            .Field(new Field("Name", StringViewType.Default, true))
+            .Field(new Field("Date", Date32Type.Default, true)) // Date32
             .Build();
 
         IEnumerable<RecordBatch> MockArrowStream()
         {
-            // Batch 1: [1, "Alice", now]
+            // Batch 1: [1, "Alice", today]
+            // Arrow 的 Date32Builder 通常接受 DateTimeOffset 或 int (days)
+            // 这里我们把 DateOnly 转回午夜的 DateTimeOffset 传进去
+            var dtOffset = new DateTimeOffset(today.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+            
             yield return new RecordBatch(schema, [
                 new Int32Array.Builder().Append(1).Build(),
                 new StringViewArray.Builder().Append("Alice").Build(),
-                new Date32Array.Builder().Append(new DateTimeOffset(now)).Build() // Date32 存的是 Days
+                new Date32Array.Builder().Append(dtOffset).Build() 
             ], 1);
 
             // Batch 2: [2, "Bob", null]
@@ -311,13 +314,11 @@ public class StreamingTests
             ], 1);
         }
 
-        // 2. 核心测试：把 Arrow 流包装成 IDataReader
+        // 2. 核心测试
         using var dbReader = new ArrowToDbStream(MockArrowStream());
 
-        // 3. 模拟 SqlBulkCopy (使用 DataTable.Load)
+        // 3. 模拟 SqlBulkCopy
         var targetTable = new System.Data.DataTable();
-        
-        // 这一步会疯狂调用 dbReader.Read() 和 dbReader.GetValue()
         targetTable.Load(dbReader);
 
         // 4. 验证结果
@@ -326,19 +327,22 @@ public class StreamingTests
         // Row 1
         Assert.Equal(1, targetTable.Rows[0]["Id"]);
         Assert.Equal("Alice", targetTable.Rows[0]["Name"]);
-        // DataTable Load Date32 会变成 DateTime (00:00:00)
-        Assert.Equal(now.Date, ((DateTime)targetTable.Rows[0]["Date"]).Date);
+        
+        // [核心修改] 验证类型是 DateOnly，且值相等
+        var actualDate = targetTable.Rows[0]["Date"];
+        Assert.IsType<DateOnly>(actualDate);
+        Assert.Equal(today, (DateOnly)actualDate);
 
         // Row 2
         Assert.Equal(2, targetTable.Rows[1]["Id"]);
         Assert.Equal(DBNull.Value, targetTable.Rows[1]["Date"]);
     }
     [Fact]
-    public async Task Test_SinkDatabase_EndToEnd_Mock()
+    public void Test_SinkTo_Generic_EndToEnd()
     {
         // =========================================================
-        // 场景：全链路流式写入 (Rust -> C# Callback -> Buffer -> DataReader -> DB)
-        // 模式：Async / Await 非阻塞测试
+        // 场景：全链路流式写入 (Rust -> C# SinkTo -> ArrowToDbStream -> Mock DB)
+        // 验证：通过 SinkTo 接口是否能正确把流式数据灌入 DataTable (模拟 SqlBulkCopy)
         // =========================================================
 
         int totalRows = 50_000;
@@ -349,52 +353,163 @@ public class StreamingTests
             Id = Enumerable.Range(0, totalRows).ToArray(),
             Value = Enumerable.Repeat("test_val", totalRows).ToArray()
         });
-        var lf = df.Lazy();
-
-        // 2. 准备 "伪数据库" 消费者
+        
+        // 2. 准备 "伪数据库"
         var targetTable = new System.Data.DataTable();
-        
-        // 使用 BlockingCollection 连接 Producer 和 Consumer
-        using var buffer = new System.Collections.Concurrent.BlockingCollection<RecordBatch>(10);
 
-        // 启动消费者任务 (模拟 DB 写入)
-        var dbWriterTask = Task.Run(() => 
+        // 3. 调用通用 SinkTo 接口
+        // 这一步会阻塞直到 Polars 计算完成且 Mock DB 写入完成
+        df.Lazy().SinkTo(reader => 
         {
-            Console.WriteLine("[DB Writer] Waiting for data...");
+            Console.WriteLine("[MockDB] Start Bulk Insert...");
             
-            // ArrowToDbStream 把 Buffer 伪装成 DataReader
-            using var streamReader = new ArrowToDbStream(buffer.GetConsumingEnumerable());
+            // 模拟 SqlBulkCopy.WriteToServer(reader)
+            // DataTable.Load 内部会遍历 reader 直到结束
+            targetTable.Load(reader);
             
-            // 模拟 SqlBulkCopy
-            targetTable.Load(streamReader);
-            
-            Console.WriteLine($"[DB Writer] Finished writing {targetTable.Rows.Count} rows.");
+            Console.WriteLine($"[MockDB] Inserted {targetTable.Rows.Count} rows.");
         });
 
-        // 3. 触发流式 Sink (Producer)
-        // 注意：SinkBatches 本身是同步阻塞的 (因为它在驱动 Rust 引擎运算)
-        // 这在测试里没问题，因为消费者在另一个 Task 里跑
-        Console.WriteLine("[Polars] Starting SinkBatches...");
-        
-        lf.SinkBatches(batch => 
-        {
-            // 将 Rust 生产的数据推入 Buffer
-            buffer.Add(batch);
-        });
-
-        // 4. 结束信号
-        buffer.CompleteAdding();
-
-        // 5. [核心修复] 使用 await 非阻塞等待
-        // 如果 dbWriterTask 里抛出了异常 (比如 NRE)，await 会在这里重新抛出，让测试失败并打印堆栈
-        await dbWriterTask;
-
-        // 6. 验证结果
+        // 4. 验证结果
         Assert.Equal(totalRows, targetTable.Rows.Count);
         
-        // 验证数据内容
+        // 验证首尾数据
         Assert.Equal(0, targetTable.Rows[0]["Id"]);
         Assert.Equal("test_val", targetTable.Rows[0]["Value"]);
         Assert.Equal(totalRows - 1, targetTable.Rows[totalRows - 1]["Id"]);
+    }
+    [Fact]
+    public void Test_ETL_Stream_EndToEnd()
+    {
+        // ==================================================================================
+        // 场景模拟：每日订单处理 (ETL)
+        // Source DB (Mock) -> DataReader -> Polars Lazy -> Filter/Calc -> SinkTo -> Target DB
+        // 目标：处理 10 万行数据，内存不积压，类型全覆盖。
+        // ==================================================================================
+
+        int totalRows = 100_000;
+        
+        // ---------------------------------------------------------
+        // 1. [Extract] 准备源数据库 (Source)
+        // ---------------------------------------------------------
+        var sourceTable = new System.Data.DataTable();
+        sourceTable.Columns.Add("OrderId", typeof(int));
+        sourceTable.Columns.Add("Region", typeof(string));
+        sourceTable.Columns.Add("Amount", typeof(double));
+        sourceTable.Columns.Add("OrderDate", typeof(DateTime));
+
+        // 生成模拟数据
+        // 偶数行是 "US" 地区，奇数行是 "EU" 地区
+        // 金额随 ID 增加
+        // 日期固定为今天中午（避开时区坑）
+        var baseDate = DateTime.Now.Date.AddHours(12);
+        for (int i = 0; i < totalRows; i++)
+        {
+            string region = (i % 2 == 0) ? "US" : "EU";
+            sourceTable.Rows.Add(i, region, i * 1.5, baseDate.AddDays(i % 10)); // 日期循环
+        }
+
+        // 创建源 DataReader (模拟 SqlDataReader)
+        // 注意：IDataReader 是 forward-only 的，读过就没了，所以我们要小心处理 Schema
+        using var sourceReader = sourceTable.CreateDataReader();
+
+        // ---------------------------------------------------------
+        // 2. [Pipeline] 构建 Polars 流式管道
+        // ---------------------------------------------------------
+        
+        // Step A: 获取 Schema (元数据)
+        // 最佳实践：对于 forward-only 流，先通过元数据获取 Schema，避免 Peek 第一行导致数据丢失
+        var arrowSchema = DbToArrowStream.GetArrowSchema(sourceReader);
+
+        // Step B: 建立延迟读取节点 (Lazy Scan)
+        // 使用 ScanRecordBatches 并传入 explicit schema，实现绝对安全的流式读取
+        var lf = LazyFrame.ScanRecordBatches(sourceReader.ToArrowBatches(batchSize: 10_000), arrowSchema);
+
+        // Step C: 定义转换逻辑 (Transform)
+        // 业务需求：
+        // 1. 只保留 "US" 地区的订单
+        // 2. 计算税后金额 (Amount * 1.08)
+        // 3. 选取需要的列
+        var pipeline = lf
+            .Filter(Polars.Col("Region") == Polars.Lit("US"))
+            .WithColumns((Polars.Col("Amount") * 1.08).Alias("TaxedAmount"))
+            .Select(Polars.Col("OrderId").Cast(DataType.Int32), // 明确：我要 Int32
+            Polars.Col("TaxedAmount").Cast(DataType.Float64), // 明确：我要 Double
+            Polars.Col("OrderDate").Cast(DataType.Datetime));
+
+        // ---------------------------------------------------------
+        // 3. [Load] 准备目标数据库 & 执行 Sink
+        // ---------------------------------------------------------
+        
+        var targetTable = new System.Data.DataTable(); // 模拟目标表
+        
+        Console.WriteLine("[ETL] Starting Pipeline...");
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        // 模拟 SqlBulkCopy.WriteToServer(reader)
+        // 这一步会疯狂调用 reader.Read()，从而反向拉动整个链条
+
+        // 执行流式写入！
+        // 这一步会驱动：
+        // sourceReader -> Arrow转换 -> Rust引擎(Filter/Calc) -> Callback -> Buffer -> ArrowToDbStream -> targetTable.Load
+        pipeline.SinkTo(targetTable.Load, bufferSize: 5);
+
+        sw.Stop();
+        Console.WriteLine($"[ETL] Completed in {sw.Elapsed.TotalSeconds:F3}s. Rows written: {targetTable.Rows.Count}");
+
+        // ---------------------------------------------------------
+        // 4. [Verify] 验证结果
+        // ---------------------------------------------------------
+        
+        // 验证行数：只保留了 US (偶数行)，应该是 50,000 行
+        Assert.Equal(totalRows / 2, targetTable.Rows.Count);
+
+        // 验证第一行 (OrderId 0)
+        // 0 * 1.5 * 1.08 = 0
+        Assert.Equal(0, targetTable.Rows[0]["OrderId"]);
+        Assert.Equal(0.0, (double)targetTable.Rows[0]["TaxedAmount"], 4);
+        var actualVal = targetTable.Rows[0]["OrderDate"];
+        DateTime actualDate;
+
+        if (actualVal is DateTime dt)
+        {
+            actualDate = dt;
+        }
+        else if (actualVal is long ticks) // <--- 命中这里
+        {
+            // Polars 返回的是微秒 (Microseconds)
+            // 1766145600000000
+            // 还原逻辑：Epoch + Microseconds
+            var epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            
+            // 注意：这里还原出来的是 "12:00 UTC"
+            // 因为 Naive DateTime 在 Arrow 里被视为 Wall Clock Time 存储
+            // 所以这个 UTC 时间的值，就是我们要的墙上时间
+            actualDate = epoch.AddTicks(ticks * 10); 
+        }
+        else
+        {
+            throw new Exception($"Unexpected type: {actualVal.GetType()}");
+        }
+
+        // 比较：忽略 Kind (Utc vs Local)，只比较“钟表上的时间”是否一致
+        // baseDate: 12:00:00 (Local/Unspecified)
+        // actualDate: 12:00:00 (Utc)
+        // 只要它们显示的数字一样，ETL 就是成功的
+        
+        Assert.Equal(baseDate.ToString("yyyy-MM-dd HH:mm:ss"), actualDate.ToString("yyyy-MM-dd HH:mm:ss"));
+
+        // 验证最后一行 (OrderId 99998) -> 它是最后一个偶数
+        // 99998 * 1.5 * 1.08 = 161996.76
+        int lastId = 99998;
+        Assert.Equal(lastId, targetTable.Rows[targetTable.Rows.Count - 1]["OrderId"]);
+        
+        double expectedAmount = lastId * 1.5 * 1.08;
+        double actualAmount = (double)targetTable.Rows[targetTable.Rows.Count - 1]["TaxedAmount"];
+        Assert.Equal(expectedAmount, actualAmount, 0.001); // 允许浮点微小误差
+
+        // 验证列名 (确保 Select 生效)
+        Assert.True(targetTable.Columns.Contains("TaxedAmount"));
+        Assert.False(targetTable.Columns.Contains("Amount")); // 原列被排除了
+        Assert.False(targetTable.Columns.Contains("Region")); // 原列被排除了
     }
 }

@@ -89,92 +89,81 @@ public class LazyFrame : IDisposable
     /// <param name="data"></param>
     /// <param name="batchSize"></param>
     /// <returns></returns>
-    public static unsafe LazyFrame ScanArrowStream<T>(IEnumerable<T> data, int batchSize = 100_000)
+    public static LazyFrame ScanArrowStream<T>(IEnumerable<T> data, int batchSize = 100_000)
     {
-        // 1. 预读 Schema (这一步还是省不了，得知道长啥样)
-        var enumerator = data.ToArrowBatches(batchSize).GetEnumerator();
+        // 1. 定义流生成器
+        // 注意：这里只是定义，还没开始读
+        IEnumerable<RecordBatch> StreamGenerator() => data.ToArrowBatches(batchSize);
+
+        // 2. 预读 Schema (不可避免的开销)
+        // 我们必须先拿出一个枚举器来看看第一帧，从而确定 Schema
+        using var probeEnumerator = StreamGenerator().GetEnumerator();
         
-        if (!enumerator.MoveNext()) 
+        if (!probeEnumerator.MoveNext()) 
         {
-            enumerator.Dispose();
-            using var emptyDf = DataFrame.From(Enumerable.Empty<T>());
-            return emptyDf.Lazy();
+            // 空流兜底：利用 T 反射生成空 DataFrame
+            return DataFrame.From(Enumerable.Empty<T>()).Lazy();
         }
         
-        var schema = enumerator.Current.Schema;
-        // 这里的枚举器只为了看 Schema，看一眼就扔掉
-        enumerator.Dispose(); 
+        var schema = probeEnumerator.Current.Schema;
+        // 探测完毕，关闭这个探测用的枚举器
+        // (假设 data 是可重放的 IEnumerable，如果不是，需要由用户显式传入 Schema 的重载)
+        
+        // 3. 调用 Core 层
+        // 传入一个工厂 lambda，每次 Rust 需要扫描时，都会从头创建一个新的枚举器
+        var handle = ArrowStreamInterop.ScanStream(
+            () => StreamGenerator().GetEnumerator(), 
+            schema
+        );
+        
+        return new LazyFrame(handle);
+    }
 
-        // 2. 准备上下文 (交给 Interop 类处理)
-        // 获取 UserData 指针 (GCHandle)
-        var userData = ArrowStreamInterop.CreateScanContext(data, batchSize, schema);
-
-        // 3. 导出 Schema 用于 Rust 校验
-        var cSchema = CArrowSchema.Create();
-        CArrowSchemaExporter.ExportSchema(schema, cSchema);
-
-        try
-        {
-            // 4. 调用 Rust
-            // 代码极度简化：不需要在这里写 UnmanagedCallersOnly 了
-            var handle = PolarsWrapper.LazyFrameScanStream(
-                cSchema, 
-                ArrowStreamInterop.GetFactoryCallback(), // 获取工厂回调
-                ArrowStreamInterop.GetDestroyCallback(), // 获取销毁回调
-                userData
-            );
-            
-            return new LazyFrame(handle);
-        }
-        finally
-        {
-            CArrowSchema.Free(cSchema);
-            // 注意：userData (GCHandle) 不需要在这里释放，
-            // 它已经传给了 Rust，Rust 会在 Query 结束时通过 DestroyCallback 释放它。
-        }
+    /// <summary>
+    /// Scan Arrow Stream As LazyFrame with schema input
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="data"></param>
+    /// <param name="schema"></param>
+    /// <param name="batchSize"></param>
+    /// <returns></returns>
+    public static LazyFrame ScanArrowStream<T>(IEnumerable<T> data, Schema schema, int batchSize = 100_000)
+    {
+        var handle = ArrowStreamInterop.ScanStream(
+            () => data.ToArrowBatches(batchSize).GetEnumerator(),
+            schema
+        );
+        return new LazyFrame(handle);
     }
 
     /// <summary>
     /// 底层入口：直接扫描 RecordBatch 流。
     /// 如果提供了 schema，则不会尝试读取第一行来探测（避免副作用）。
     /// </summary>
-    public static unsafe LazyFrame ScanRecordBatches(IEnumerable<RecordBatch> stream, Schema schema = null!)
+    public static LazyFrame ScanRecordBatches(IEnumerable<RecordBatch> stream, Schema schema = null!)
     {
         // 1. 确定 Schema (防止空流 Peek)
         if (schema == null)
         {
+            // 这里必须短暂 Peek 一下流来获取 Schema
+            // 注意：这假设 stream 是可重放的 (IEnumerable)，
+            // 如果是只读一次的网络流，用户必须显式传递 schema，否则第一帧数据会丢失
             using var enumerator = stream.GetEnumerator();
+            
             if (!enumerator.MoveNext())
-                throw new InvalidOperationException("Cannot scan empty stream without schema.");
+                throw new InvalidOperationException("Cannot scan empty stream without schema. Please provide a schema explicitly.");
+            
             schema = enumerator.Current.Schema;
         }
 
-        // 2. 准备上下文
-        // 工厂直接返回 RecordBatch 的枚举器
-        IEnumerator<RecordBatch> contextFactory() => stream.GetEnumerator();
+        // 2. 委托给 Core 层处理所有脏活
+        // 我们只需要提供一个工厂方法，让 Rust 可以在需要时获取新的迭代器
+        var handle = ArrowStreamInterop.ScanStream(
+            stream.GetEnumerator, 
+            schema
+        );
 
-        // [关键修改] 调用新增的 Direct 方法！
-        // 不再使用那个带泛型的 CreateScanContext<T>
-        var userData = ArrowStreamInterop.CreateDirectScanContext(contextFactory, schema);
-
-        // 3. 导出 Schema
-        var cSchema = CArrowSchema.Create();
-        CArrowSchemaExporter.ExportSchema(schema, cSchema);
-
-        try
-        {
-            var handle = PolarsWrapper.LazyFrameScanStream(
-                cSchema, 
-                ArrowStreamInterop.GetFactoryCallback(),
-                ArrowStreamInterop.GetDestroyCallback(),
-                userData
-            );
-            return new LazyFrame(handle);
-        }
-        finally
-        {
-            CArrowSchema.Free(cSchema);
-        }
+        return new LazyFrame(handle);
     }
     /// <summary>
     /// 
@@ -182,7 +171,7 @@ public class LazyFrame : IDisposable
     /// <param name="reader"></param>
     /// <param name="batchSize"></param>
     /// <returns></returns>
-    public static LazyFrame ScanDataReader(IDataReader reader, int batchSize = 50_000)
+    public static LazyFrame ScanDatabase(IDataReader reader, int batchSize = 50_000)
     {
         // 1. 显式获取 Schema (为了传给 ScanRecordBatches，防止它去 Peek)
         var schema = DbToArrowStream.GetArrowSchema(reader);
@@ -563,39 +552,43 @@ public class LazyFrame : IDisposable
         using var _ = lfRes.CollectStreaming(); 
     }
     /// <summary>
-    /// [终极 API] 全流式写入数据库。
-    /// 内存占用极低，利用 SqlBulkCopy 高速写入。
+    /// 通用流式 Sink 接口：将 LazyFrame 计算结果流式转换为 IDataReader 并交给 writerAction 处理。
+    /// 全程内存占用极低 (O(1))。
+    /// 用户可以在 writerAction 里使用 SqlBulkCopy, NpgsqlBinaryImporter 等工具。
     /// </summary>
-    public void SinkDatabase(string connectionString, string tableName, int bufferSize = 5)
+    /// <param name="writerAction">接收 IDataReader 的回调 (在独立线程执行)</param>
+    /// <param name="bufferSize">缓冲区大小 (Batch 数量)</param>
+    public void SinkTo(Action<IDataReader> writerAction, int bufferSize = 5)
     {
-        // 1. 缓冲区
-        using var buffer = new BlockingCollection<RecordBatch>(bufferSize);
+        // 1. 生产者-消费者缓冲区
+        using var buffer = new BlockingCollection<RecordBatch>(boundedCapacity: bufferSize);
 
-        // 2. 消费者 (DB Writer)
+        // 2. 启动消费者 (DB Writer)
         var consumerTask = Task.Run(() => 
         {
-            // ArrowToDbStream 把 Buffer 伪装成 DataReader
+            // ArrowToDbStream 负责把 Buffer 伪装成 DataReader
+            // 它会自动处理 Dispose，所以 writerAction 读完后 Batch 就会被释放
             using var reader = new ArrowToDbStream(buffer.GetConsumingEnumerable());
             
-            // 模拟 SqlBulkCopy (真实场景用 SqlBulkCopy)
-            // using var bulk = new SqlBulkCopy(connectionString);
-            // bulk.DestinationTableName = tableName;
-            // bulk.WriteToServer(reader);
-            
-            // 为了通用性演示，这里假设用户会根据 provider 选 bulk copy
-            // 这里留白，实际测试用模拟的
+            // [核心] 将 reader 移交给用户逻辑
+            // 用户在这里调用 bulk.WriteToServer(reader)
+            writerAction(reader);
         });
 
-        // 3. 生产者 (Polars Engine)
+        // 3. 启动生产者 (Polars Engine - 当前线程阻塞执行)
         try
         {
-            this.SinkBatches(buffer.Add);
+            // 将 Rust 生产的数据推入 Buffer
+            // 如果 Buffer 满了，这里会阻塞，从而自动反压 Rust 引擎
+            SinkBatches(buffer.Add);
         }
         finally
         {
+            // 4. 通知消费者：没有更多数据了
             buffer.CompleteAdding();
         }
 
+        // 5. 等待消费者写入完成，并抛出可能的异常
         consumerTask.Wait();
     }
     /// <summary>

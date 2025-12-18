@@ -1,6 +1,4 @@
-using System;
 using System.Collections;
-using System.Collections.Generic;
 using Apache.Arrow;
 
 namespace Polars.NET.Core.Arrow

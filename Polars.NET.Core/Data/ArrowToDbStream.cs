@@ -114,8 +114,8 @@ namespace Polars.NET.Core.Data
                 // [修复] Date32Array
                 case Date32Array arr:
                     // arr.GetDateTime(index) 返回的是 DateTime?
-                    // 直接返回它，如果是 null 就给 DBNull.Value
-                    return arr.GetDateTime(index) ?? (object)DBNull.Value;
+                    var dt = arr.GetDateTime(index);
+                    return dt.HasValue ? DateOnly.FromDateTime(dt.Value) : DBNull.Value;
 
                 // [修复] TimestampArray
                 // Arrow C# 的 TimestampArray 通常返回 DateTimeOffset?
@@ -125,7 +125,21 @@ namespace Polars.NET.Core.Data
                 case Date64Array arr:
                      return arr.GetDateTime(index) ?? (object)DBNull.Value;                
                 case Time64Array arr:
-                     return arr.GetMicroSeconds(index) ?? (object)DBNull.Value;
+                    var micros = arr.GetMicroSeconds(index);
+                    if (!micros.HasValue) return DBNull.Value;
+                    // 1微秒 = 10 Ticks
+                    return TimeOnly.FromTimeSpan(TimeSpan.FromTicks(micros.Value * 10));
+                case DurationArray arr:
+                {
+                    // DurationArray 通常也是基于 long 存储的
+                    // 注意：这里假设 Unit 是 Microsecond (和 GetArrowType 保持一致)
+                    // 如果 Arrow C# 的 DurationArray API 不同，可能需要 arr.GetValue(index)
+                    var val = arr.GetValue(index); 
+                    if (!val.HasValue) return DBNull.Value;
+
+                    // 1 us = 10 ticks
+                    return new TimeSpan(val.Value * 10);
+                }
                 // 复杂类型兜底
                 case ListArray arr: return "List<...>"; 
                 case StructArray arr: return "{Struct}";
@@ -234,7 +248,11 @@ namespace Polars.NET.Core.Data
                 LargeStringType => typeof(string),
                 StringViewType => typeof(string), 
                 TimestampType => typeof(DateTime),
-                Date32Type => typeof(DateTime),
+                Date32Type => typeof(DateOnly),
+                Date64Type => typeof(DateTime), // 毫秒级日期
+                Time32Type => typeof(TimeOnly), // 或 TimeOnly
+                Time64Type => typeof(TimeOnly),
+                DurationType => typeof(TimeSpan),
                 BinaryType => typeof(byte[]),
                 _ => typeof(object)
             };

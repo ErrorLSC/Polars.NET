@@ -57,4 +57,30 @@ namespace Polars.NET.Core
         public static string? ToPolarsDuration(this TimeSpan? ts) 
             => Core.DurationFormatter.ToPolarsString(ts);
     }
+        public static class ReflectionHelper
+    {
+        // 从 IEnumerable<T> 或 T[] 中提取 T
+        public static Type GetEnumerableElementType(Type collectionType)
+        {
+            if (collectionType.IsArray)
+            {
+                return collectionType.GetElementType()!;
+            }
+
+            if (collectionType.IsGenericType && collectionType.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+            {
+                return collectionType.GetGenericArguments()[0];
+            }
+
+            foreach (var iface in collectionType.GetInterfaces())
+            {
+                if (iface.IsGenericType && iface.GetGenericTypeDefinition() == typeof(IEnumerable<>))
+                {
+                    return iface.GetGenericArguments()[0];
+                }
+            }
+
+            throw new ArgumentException($"Type {collectionType.Name} is not an IEnumerable<T>");
+        }
+    }
 }

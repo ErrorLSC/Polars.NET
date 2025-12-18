@@ -769,16 +769,17 @@ public class Series : IDisposable
                     DataTypeKind.Decimal => GetValue<decimal?>(index),
 
                     // 浮点数
+                    DataTypeKind.Float16 => GetValue<Half?>(index),
                     DataTypeKind.Float32 => GetValue<float?>(index),
                     DataTypeKind.Float64 => GetValue<double?>(index),
 
                     // 布尔
                     DataTypeKind.Boolean => GetValue<bool?>(index),
 
-                    // 字符串 (StringView 也是 String)
+                    // 字符串
                     DataTypeKind.String => GetValue<string>(index),
 
-                    // [修复 1] 时间跨度 (Duration) -> TimeSpan
+                    // Duration
                     DataTypeKind.Duration => GetValue<TimeSpan?>(index),
 
                     // [补全] 时间点 (Time) -> TimeOnly (如果 .NET 6+) 或 TimeSpan

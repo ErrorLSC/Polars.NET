@@ -5,6 +5,7 @@ using Apache.Arrow;
 using System.Collections;
 using System.Data;
 using Polars.NET.Core.Data;
+using System.Collections.Concurrent;
 namespace Polars.CSharp;
 
 /// <summary>
@@ -45,7 +46,7 @@ public class DataFrame : IDisposable
     /// </summary>
     public void PrintSchema()
     {
-        var schema = this.Schema; // 获取刚刚实现的 Dictionary
+        var schema = Schema; // 获取刚刚实现的 Dictionary
         
         System.Console.WriteLine("root");
         foreach (var kvp in schema)
@@ -191,7 +192,7 @@ public class DataFrame : IDisposable
     /// </summary>
     /// <param name="reader">The open data reader.</param>
     /// <param name="batchSize">Number of rows per Arrow batch.</param>
-    public static DataFrame FromDataReader(IDataReader reader, int batchSize = 50_000)
+    public static DataFrame ReadDatabase(IDataReader reader, int batchSize = 50_000)
     {
         // 1. 显式获取 Schema (为了传给 Exporter)
         // 复用了你的"邪修"逻辑，支持嵌套类型推断
@@ -540,6 +541,48 @@ public class DataFrame : IDisposable
         PolarsWrapper.WriteJson(Handle, path);
     }
     /// <summary>
+    /// 将 DataFrame 的数据按 Batch 导出（零拷贝）。
+    /// 这是实现自定义 Eager Sink (如 WriteDatabase) 的基础。
+    /// </summary>
+    /// <param name="onBatchReceived">接收 RecordBatch 的回调</param>
+    public void ExportBatches(Action<Apache.Arrow.RecordBatch> onBatchReceived)
+    {
+        // 调用 Wrapper，传递 Handle (DataFrameHandle)
+        // 注意：这是只读操作，不需要 TransferOwnership
+        PolarsWrapper.ExportBatches(Handle, onBatchReceived);
+    }
+    /// <summary>
+    /// 通用写入接口：将 DataFrame 转换为 IDataReader 并交给 writerAction 处理。
+    /// 用户可以在 writerAction 里使用 SqlBulkCopy, NpgsqlBinaryImporter 等任意工具。
+    /// </summary>
+    public void WriteTo( Action<IDataReader> writerAction, int bufferSize = 5)
+    {
+        using var buffer = new BlockingCollection<Apache.Arrow.RecordBatch>(bufferSize);
+
+        // Consumer Task
+        var consumerTask = Task.Run(() => 
+        {
+            // 这里创建了 ArrowToDbStream，它是 IDataReader 的实现
+            using var reader = new ArrowToDbStream(buffer.GetConsumingEnumerable());
+            
+            // [关键] 将 reader 交给用户的回调函数
+            // 用户在这里执行 bulk.WriteToServer(reader)
+            writerAction(reader);
+        });
+
+        // Producer
+        try
+        {
+            ExportBatches(batch => buffer.Add(batch));
+        }
+        finally
+        {
+            buffer.CompleteAdding();
+        }
+
+        consumerTask.Wait();
+    }
+    /// <summary>
     /// Generate a summary statistics DataFrame (count, mean, std, min, 25%, 50%, 75%, max).
     /// Similar to pandas/polars describe().
     /// </summary>
@@ -784,45 +827,19 @@ public class DataFrame : IDisposable
     /// </example>
     public static DataFrame FromColumns(object columns)
     {
-        ArgumentNullException.ThrowIfNull(columns);
+        // 1. 调用 Core 层进行反射和转换
+        // 返回的是 List<(string Name, IArrowArray Array)>
+        var rawColumns = ArrowConverter.BuildColumnsFromObject(columns);
 
-        var props = columns.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance);
-        if (props.Length == 0)
-                throw new ArgumentException("The provided object has no public properties to treat as columns.");
-        var seriesList = new List<Series>(props.Length);
-
-        foreach (var prop in props)
+        // 2. 将 Arrow Arrays 包装为 Series
+        // 这一步必须在 API 层做，因为 Series 是 API 层的类
+        var seriesList = new List<Series>(rawColumns.Count);
+        foreach (var (name, array) in rawColumns)
         {
-            var colName = prop.Name;
-            var colValue = prop.GetValue(columns) ?? throw new ArgumentNullException($"Column '{colName}' cannot be null.");
-
-            // 1. 获取元素类型 T (e.g., int[] -> int)
-            Type elemType;
-            try 
-            {
-                elemType = ReflectionHelper.GetEnumerableElementType(colValue.GetType());
-            }
-            catch
-            {
-                throw new ArgumentException($"Property '{colName}' is not an IEnumerable<T> or Array.");
-            }
-
-            // 2. 反射调用 ArrowConverter.Build<T>(IEnumerable<T>)
-            // ArrowConverter.Build 是我们要调用的目标，它能处理 DateOnly, TimeSpan, StringView 等所有黑科技
-            var buildMethod = (typeof(ArrowConverter)
-                .GetMethod("Build", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
-                ?.MakeGenericMethod(elemType)) ?? throw new InvalidOperationException($"Could not find ArrowConverter.Build<{elemType.Name}>.");
-
-            // 3. 生成 IArrowArray
-            var arrowArray = (IArrowArray)buildMethod.Invoke(null, [colValue])!;
-
-            // 4. 转为 Series
-            var series = Series.FromArrow(colName, arrowArray);
-            seriesList.Add(series);
+            seriesList.Add(Series.FromArrow(name, array));
         }
 
-        // 5. 组装 DataFrame
-        // 假设你有一个构造函数接受 IEnumerable<Series>
+        // 3. 组装 DataFrame
         return new DataFrame([.. seriesList]);
     }
     /// <summary>
@@ -851,26 +868,19 @@ public class DataFrame : IDisposable
     /// <param name="batchSize">Rows per chunk (default 100,000)</param>
     public static DataFrame FromArrowStream<T>(IEnumerable<T> data, int batchSize = 100_000)
     {
-        // 1. 获取迭代器
-        var originalEnumerator = data.ToArrowBatches(batchSize).GetEnumerator();
+        // 1. 转为 Arrow 流
+        var stream = data.ToArrowBatches(batchSize);
 
-        // 2. 探测首帧 (Empty Check)
-        if (!originalEnumerator.MoveNext())
+        // 2. 尝试 Eager 导入 (Core 层自动处理探测和缝合)
+        var handle = ArrowStreamInterop.ImportEager(stream);
+
+        // 3. 处理空流情况
+        // 如果 handle 无效，说明流里没有数据，ArrowStreamInterop 没法推断 Schema
+        if (handle.IsInvalid)
         {
-            originalEnumerator.Dispose();
+            // 回退到反射机制生成空 DataFrame (因为我们需要 T 的结构)
             return From(Enumerable.Empty<T>());
         }
-
-        var firstBatch = originalEnumerator.Current;
-        var schema = firstBatch.Schema;
-
-        // 3. 缝合迭代器
-        // 这里我们使用刚刚抽离出去的通用类
-        var combinedEnumerator = new PrependEnumerator(firstBatch, originalEnumerator);
-
-        // 4. 调用 Interop 层执行导入
-        // 所有的 unsafe 指针操作、Exporter 生命周期管理都被封装在 ImportEager 里了
-        var handle = ArrowStreamInterop.ImportEager(combinedEnumerator, schema);
 
         return new DataFrame(handle);
     }

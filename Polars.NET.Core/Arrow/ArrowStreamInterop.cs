@@ -145,6 +145,61 @@ namespace Polars.NET.Core.Arrow
             return (void*)GCHandle.ToIntPtr(gcHandle);
         }
 
+        public static DataFrameHandle ImportEager(IEnumerable<RecordBatch> stream)
+        {
+            var enumerator = stream.GetEnumerator();
+
+            // 1. 探测首帧
+            if (!enumerator.MoveNext())
+            {
+                // 流是空的
+                enumerator.Dispose();
+                return new DataFrameHandle(); // 返回无效句柄 (IsInvalid == true)
+            }
+
+            // 2. 获取元数据
+            var firstBatch = enumerator.Current;
+            var schema = firstBatch.Schema;
+
+            // 3. 缝合迭代器 (利用 PrependEnumerator)
+            // 注意：firstBatch 的所有权现在归 PrependEnumerator 管理，它负责 Dispose
+            var combinedEnumerator = new PrependEnumerator(firstBatch, enumerator);
+
+            // 4. 调用底层实现
+            // 这里传入 Schema，因为我们已经拿到它了
+            return ImportEager(combinedEnumerator, schema);
+        }
+        /// <summary>
+        /// 封装 Lazy Scan 的底层逻辑：创建上下文 -> 导出 Schema -> 调用 Rust -> 清理 C Schema
+        /// </summary>
+        public static LazyFrameHandle ScanStream(
+            Func<IEnumerator<RecordBatch>> streamFactory, 
+            Schema schema)
+        {
+            // 1. 准备上下文 (UserData)
+            // 使用我们之前做好的“直通”方法，不需要 T
+            var userData = CreateDirectScanContext(streamFactory, schema);
+
+            // 2. 导出 Schema
+            var cSchema = CArrowSchema.Create();
+            CArrowSchemaExporter.ExportSchema(schema, cSchema);
+
+            try
+            {
+                // 3. 调用 Rust
+                return PolarsWrapper.LazyFrameScanStream(
+                    cSchema,
+                    GetFactoryCallback(),
+                    GetDestroyCallback(),
+                    userData
+                );
+            }
+            finally
+            {
+                // 4. 清理 C Schema (UserData 由 Rust 的 DestroyCallback 负责释放)
+                CArrowSchema.Free(cSchema);
+            }
+        }
         // ------------------------------------------------------------
         // Sink to DataBase
         // ------------------------------------------------------------

@@ -165,7 +165,7 @@ type Expr(handle: ExprHandle) =
     static member ( / ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Div(lhs.Handle, rhs.Handle))
     static member ( % ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Rem(lhs.Handle, rhs.Handle))
     /// <summary> Power / Exponentiation. </summary>
-    static member (.**) (baseExpr: Expr, exponent: Expr) = baseExpr.Pow(exponent)
+    static member (.**) (baseExpr: Expr, exponent: Expr) = baseExpr.Pow exponent
     /// <summary> Logical AND. </summary>
     static member (.&&) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.And(lhs.Handle, rhs.Handle))
     /// <summary> Logical OR. </summary>
@@ -1006,6 +1006,27 @@ and DataFrame(handle: DataFrameHandle) =
             return new DataFrame(handle)
         }
 
+    /// <summary>
+    /// [Eager] Create a DataFrame from an IDataReader (e.g. SqlDataReader).
+    /// Uses high-performance streaming ingestion.
+    /// </summary>
+    /// <param name="reader">The open DataReader.</param>
+    /// <param name="batchSize">Rows per batch (default 50,000).</param>
+    static member readDb(reader: Data.IDataReader, ?batchSize: int) : DataFrame =
+        let size = defaultArg batchSize 50_000
+        
+        // 1. 将 DataReader 转为 Arrow Batch 流
+        // 这是一个 C# 扩展方法，在 F# 中作为静态方法调用
+        let batchStream = Polars.NET.Core.Data.DbToArrowStream.ToArrowBatches(reader, size)
+        
+        // 2. 直接导入
+        let handle = Polars.NET.Core.Arrow.ArrowStreamInterop.ImportEager batchStream
+        
+        if handle.IsInvalid then
+            DataFrame.create []
+        else
+            new DataFrame(handle)
+
     /// <summary> Read a parquet file into a DataFrame (Eager). </summary>
     static member ReadParquet (path: string) = new DataFrame(PolarsWrapper.ReadParquet path)
     /// <summary> Read a JSON file into a DataFrame (Eager). </summary>
@@ -1017,38 +1038,21 @@ and DataFrame(handle: DataFrameHandle) =
     static member ofSeqStream<'T>(data: seq<'T>, ?batchSize: int) : DataFrame =
         let size = defaultArg batchSize 100_000
 
-        // 1. 构建批次流 (Lazy Batch Stream)
-        // 使用 Seq.chunk 实现分块，然后惰性映射到 RecordBatch
+        // 1. 构建惰性流 (Lazy Stream)
+        // 只有当底层 Rust 开始拉取数据时，这里才会真正执行 chunk 和 BuildRecordBatch
         let batchStream = 
             data
             |> Seq.chunkBySize size
-            |> Seq.map (fun chunk -> 
-                // 调用 Core 层的转换器，把一块数据转成 Arrow RecordBatch
-                ArrowFfiBridge.BuildRecordBatch chunk
-            )
+            |> Seq.map Polars.NET.Core.Arrow.ArrowFfiBridge.BuildRecordBatch
 
-        // 获取枚举器 (此时还没开始转换数据)
-        let enumerator = batchStream.GetEnumerator()
+        // 2. 一键导入
+        // C# 的 ImportEager 会自动处理 peek schema 和缝合逻辑
+        let handle = Polars.NET.Core.Arrow.ArrowStreamInterop.ImportEager batchStream
 
-        // 2. 探测首帧 (Peek First Batch)
-        if not (enumerator.MoveNext()) then
-            // 空序列处理：释放枚举器，返回空 DataFrame
-            enumerator.Dispose()
+        // 3. 处理空流情况 (ImportEager 返回 InvalidHandle 时)
+        if handle.IsInvalid then
             DataFrame.create []
         else
-            let firstBatch = enumerator.Current
-            let schema = firstBatch.Schema
-
-            // 3. 缝合迭代器 (Stitch)
-            // 使用 C# Core 定义的 PrependEnumerator 把探测出来的第一帧缝回去
-            // 这样 Interop 层能读到完整的数据流
-            let combinedEnumerator = new PrependEnumerator(firstBatch, enumerator)
-
-            // 4. 调用 Interop 层 (Zero-Copy Import)
-            // ImportEager 会接管 combinedEnumerator 的生命周期 (包括 Dispose)
-            // Rust 端会通过 C Stream Interface 拉取数据
-            let handle = ArrowStreamInterop.ImportEager(combinedEnumerator, schema)
-
             new DataFrame(handle)
     static member FromArrow (batch: Apache.Arrow.RecordBatch) : DataFrame =
         new DataFrame(PolarsWrapper.FromArrow batch)
@@ -1343,32 +1347,53 @@ and LazyFrame(handle: LazyFrameHandle) =
         let size = defaultArg batchSize 100_000
 
         // 1. 静态推断 Schema (无需触碰数据流)
-        // 我们利用 BuildRecordBatch 的反射能力，传入空序列即可得到正确的 Schema
-        let dummyBatch = ArrowFfiBridge.BuildRecordBatch Seq.empty<'T>
+        // 相比 C# 的 ProbeEnumerator (预读首帧)，F# 这里利用 BuildRecordBatch 的反射能力，
+        // 传入空序列即可得到正确的 Schema。这样更安全，不会消耗流的任何元素。
+        let dummyBatch = Polars.NET.Core.Arrow.ArrowFfiBridge.BuildRecordBatch(Seq.empty<'T>)
         let schema = dummyBatch.Schema
+
+        // 2. 定义流工厂 (The Stream Factory)
+        // 每次 Polars 引擎需要扫描数据时，都会调用这个工厂。
+        let streamFactory = System.Func<System.Collections.Generic.IEnumerator<Apache.Arrow.RecordBatch>>(fun () ->
+            data
+            |> Seq.chunkBySize size
+            |> Seq.map Polars.NET.Core.Arrow.ArrowFfiBridge.BuildRecordBatch
+            // [修复] Seq 模块没有 getEnumerator，直接调用接口方法
+            |> fun s -> s.GetEnumerator()
+        )
+
+        // 3. 调用 Core 层封装
+        // ArrowStreamInterop.ScanStream 封装了 CreateDirectScanContext, ExportSchema, CallWrapper, FreeSchema 等所有逻辑
+        let handle = Polars.NET.Core.Arrow.ArrowStreamInterop.ScanStream(streamFactory, schema)
         
-        // 2. 准备上下文 (Context)
-        // 创建 GCHandle，封装数据源和 Schema
-        let ctxPtr = ArrowStreamInterop.CreateScanContext(data, size, schema)
+        new LazyFrame(handle)
 
-        // 3. 准备 C Schema 结构体 (用于传给 Rust 做校验)
-        let cSchema = Apache.Arrow.C.CArrowSchema.Create()
-        Apache.Arrow.C.CArrowSchemaExporter.ExportSchema(schema, cSchema)
+    /// <summary>
+    /// [Lazy] Scan a database query lazily.
+    /// Requires a factory function to create new IDataReaders for potential multi-pass scans.
+    /// </summary>
+    static member scanDb(readerFactory: unit -> System.Data.IDataReader, ?batchSize: int) : LazyFrame =
+        let size = defaultArg batchSize 50_000
+        
+        // 1. 预读 Schema (Open -> GetSchema -> Close)
+        let schema = 
+            use tempReader = readerFactory()
+            Polars.NET.Core.Data.DbToArrowStream.GetArrowSchema(tempReader)
 
-        try
-            // 4. 调用 Rust 
-            // 传入：Schema, Factory回调, Destroy回调, Context指针
-            let handle = PolarsWrapper.LazyFrameScanStream(
-                cSchema,
-                ArrowStreamInterop.GetFactoryCallback(),
-                ArrowStreamInterop.GetDestroyCallback(),
-                ctxPtr
-            )
-            new LazyFrame(handle)
-        finally
-            // Rust 会复制 Schema，所以我们可以释放这边的 C 结构体
-            // 注意：ctxPtr 不能释放，它的所有权已经移交给 Rust，会通过 DestroyCallback 释放
-            Apache.Arrow.C.CArrowSchema.Free cSchema
+        // 2. 定义流工厂
+        let streamFactory = System.Func<System.Collections.Generic.IEnumerator<Apache.Arrow.RecordBatch>>(fun () ->
+            // 注意：这里我们创建一个 seq，并让它负责 reader 的生命周期
+            let batchSeq = seq {
+                use reader = readerFactory()
+                // yield! 展开枚举器
+                yield! Polars.NET.Core.Data.DbToArrowStream.ToArrowBatches(reader, size)
+            }
+            batchSeq.GetEnumerator()
+        )
+
+        // 3. 调用 Core
+        let handle = Polars.NET.Core.Arrow.ArrowStreamInterop.ScanStream(streamFactory, schema)
+        new LazyFrame(handle)
 
     /// <summary> Write LazyFrame execution result to Parquet (Streaming). </summary>
     member this.SinkParquet (path: string) : unit =

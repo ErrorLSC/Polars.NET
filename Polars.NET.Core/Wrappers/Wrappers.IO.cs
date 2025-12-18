@@ -195,6 +195,22 @@ public static partial class PolarsWrapper
         var handle = NativeBindings.pl_lazy_frame_scan_stream(schema, callback,destroyCallback, userData);
         return ErrorHelper.Check(handle);
     }
+    public static void ExportBatches(DataFrameHandle dfHandle, Action<Apache.Arrow.RecordBatch> onBatchReceived)
+    {
+        // 复用 PrepareSink 逻辑
+        var (callback, cleanup, userData) = ArrowStreamInterop.PrepareSink(onBatchReceived);
+
+        // 注意：DataFrameHandle 是 SafeHandle，我们需要传递它的指针
+        // 这里不需要 TransferOwnership，因为 Rust 端只是 &DataFrame (借用)
+        // 使用 DangerousGetHandle 是安全的，只要调用期间 Handle 不被 Dispose
+        NativeBindings.pl_dataframe_export_batches(
+            dfHandle, 
+            callback, 
+            cleanup, 
+            userData
+        );
+        ErrorHelper.CheckVoid();
+    }
     /// <summary>
     /// 封装 Sink 逻辑：准备回调上下文 -> 调用 Native -> 返回新的 LazyFrameHandle
     /// </summary>

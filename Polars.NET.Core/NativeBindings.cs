@@ -303,6 +303,14 @@ unsafe internal partial class NativeBindings
     public static partial void pl_dataframe_write_json(DataFrameHandle df, string path);
     [LibraryImport(LibName)] 
     public static partial DataFrameHandle pl_read_parquet([MarshalAs(UnmanagedType.LPUTF8Str)] string path);
+    [LibraryImport(LibName)]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]
+    public static partial void pl_dataframe_export_batches(
+        DataFrameHandle df,
+        ArrowStreamInterop.SinkCallback callback,
+        ArrowStreamInterop.CleanupCallback cleanup,
+        IntPtr userData
+    );
     // --- JSON IO ---
 
     // Read JSON

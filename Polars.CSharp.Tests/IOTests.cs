@@ -337,7 +337,7 @@ namespace Polars.CSharp.Tests
             // 或者，更直接地，我们只往 DataTable 里放数值列试试？
             
             // 既然 ScanDataReader 默认读所有列，我们通过 Lazy Select 来过滤
-            var lf = LazyFrame.ScanDataReader(reader, batchSize: 100);
+            var lf = LazyFrame.ScanDatabase(reader, batchSize: 100);
 
             // [测试 A] 只查数值列
             var q = lf.Select(Col("Id"), Col("Value")).Filter(Col("Id") > 500);
@@ -372,7 +372,7 @@ namespace Polars.CSharp.Tests
             // 这里的 reader.GetFieldType("Tags") 会返回 typeof(int[])
             // 你的 DataReaderExtensions 会识别为 IEnumerable -> LargeList
             // 然后 Buffer 会收集这些数组，交给 ArrowConverter 递归处理
-            var lf = LazyFrame.ScanDataReader(reader);
+            var lf = LazyFrame.ScanDatabase(reader);
 
             using var df = lf.Collect();
 
@@ -425,7 +425,7 @@ namespace Polars.CSharp.Tests
             // 2. 执行 Scan
             // DataReaderExtensions 会发现 UserMeta 不认识 -> 兜底扔给 ArrowConverter
             // ArrowConverter 反射 UserMeta -> 发现是 Class -> BuildStructArray -> 生成 Struct
-            var lf = LazyFrame.ScanDataReader(reader);
+            var lf = LazyFrame.ScanDatabase(reader);
 
             using var df = lf.Collect();
 
@@ -464,7 +464,7 @@ namespace Polars.CSharp.Tests
 
             // 2. [高光时刻] 一行代码，Eager 加载！
             // 此时数据已经在 C++ 堆内存里了，C# 端只有 handle
-            using var df = DataFrame.FromDataReader(reader);
+            using var df = DataFrame.ReadDatabase(reader);
 
             // 3. 验证
             Assert.Equal(2, df.Height);
@@ -484,6 +484,38 @@ namespace Polars.CSharp.Tests
             // 验证 Unnest 也就是 Struct 的内容
             var unnested = df.Unnest("Meta");
             Assert.Equal(99, unnested.GetValue<int>(0, "Level"));
+        }
+        [Fact]
+        public async Task Test_WriteTo_Generic_EndToEnd()
+        {
+            // 1. 准备数据 (故意搞点 null)
+            var df = DataFrame.FromColumns(new 
+            {
+                Id = new[] { 1, 2, 3 },
+                // Date 列，中间有个 null
+                Date = new DateTime?[] { DateTime.Now.Date, null, DateTime.Now.Date.AddDays(1) }
+            });
+
+            var targetTable = new System.Data.DataTable();
+
+            // 2. 调用通用 WriteTo 接口
+            // 这里模拟 "SQL Server Extension" 的行为
+            await Task.Run(() => 
+            {
+                df.WriteTo(reader => 
+                {
+                    // 假装这是 SqlBulkCopy.WriteToServer
+                    targetTable.Load(reader);
+                });
+            });
+
+            // 3. 验证
+            Assert.Equal(3, targetTable.Rows.Count);
+            Assert.Equal(1, targetTable.Rows[0]["Id"]);
+            Assert.NotNull(targetTable.Rows[0]["Date"]);
+            
+            // 验证 null 处理
+            Assert.Equal(DBNull.Value, targetTable.Rows[1]["Date"]);
         }
     }
 }
