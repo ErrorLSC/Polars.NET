@@ -1,3 +1,6 @@
+using Apache.Arrow;
+using Apache.Arrow.Types;
+using Polars.NET.Core.Data;
 using static Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests
@@ -482,5 +485,58 @@ namespace Polars.CSharp.Tests
             var unnested = df.Unnest("Meta");
             Assert.Equal(99, unnested.GetValue<int>(0, "Level"));
         }
-    }
+        [Fact]
+        public void Test_ArrowToDbStream_EndToEnd()
+        {
+            // 1. 构造一个模拟的 Arrow RecordBatch 流
+            var now = DateTime.Now;
+            // 截断到秒，避免精度对比麻烦
+            now = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, now.Second);
+
+            var schema = new Schema.Builder()
+                .Field(new Field("Id", Int32Type.Default, true))
+                .Field(new Field("Name", StringViewType.Default, true)) // 你的邪修 String
+                .Field(new Field("Date", Date32Type.Default, true))      // 测试 Date32
+                .Build();
+
+            IEnumerable<RecordBatch> MockArrowStream()
+            {
+                // Batch 1: [1, "Alice", now]
+                yield return new RecordBatch(schema, [
+                    new Int32Array.Builder().Append(1).Build(),
+                    new StringViewArray.Builder().Append("Alice").Build(),
+                    new Date32Array.Builder().Append(new DateTimeOffset(now)).Build() // Date32 存的是 Days
+                ], 1);
+
+                // Batch 2: [2, "Bob", null]
+                yield return new RecordBatch(schema, [
+                    new Int32Array.Builder().Append(2).Build(),
+                    new StringViewArray.Builder().Append("Bob").Build(),
+                    new Date32Array.Builder().AppendNull().Build()
+                ], 1);
+            }
+
+            // 2. 核心测试：把 Arrow 流包装成 IDataReader
+            using var dbReader = new ArrowToDbStream(MockArrowStream());
+
+            // 3. 模拟 SqlBulkCopy (使用 DataTable.Load)
+            var targetTable = new System.Data.DataTable();
+            
+            // 这一步会疯狂调用 dbReader.Read() 和 dbReader.GetValue()
+            targetTable.Load(dbReader);
+
+            // 4. 验证结果
+            Assert.Equal(2, targetTable.Rows.Count);
+            
+            // Row 1
+            Assert.Equal(1, targetTable.Rows[0]["Id"]);
+            Assert.Equal("Alice", targetTable.Rows[0]["Name"]);
+            // DataTable Load Date32 会变成 DateTime (00:00:00)
+            Assert.Equal(now.Date, ((DateTime)targetTable.Rows[0]["Date"]).Date);
+
+            // Row 2
+            Assert.Equal(2, targetTable.Rows[1]["Id"]);
+            Assert.Equal(DBNull.Value, targetTable.Rows[1]["Date"]);
+        }
+}
 }

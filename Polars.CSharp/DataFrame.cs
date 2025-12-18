@@ -4,6 +4,7 @@ using Polars.NET.Core.Arrow;
 using Apache.Arrow;
 using System.Collections;
 using System.Data;
+using Polars.NET.Core.Data;
 namespace Polars.CSharp;
 
 /// <summary>
@@ -194,7 +195,7 @@ public class DataFrame : IDisposable
     {
         // 1. 显式获取 Schema (为了传给 Exporter)
         // 复用了你的"邪修"逻辑，支持嵌套类型推断
-        var schema = NET.Core.Arrow.DataReaderExtensions.GetArrowSchema(reader);
+        var schema = DbToArrowStream.GetArrowSchema(reader);
 
         // 2. 获取流
         // 复用了 Buffer Pool + ArrowConverter

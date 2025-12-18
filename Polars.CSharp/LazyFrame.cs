@@ -1,7 +1,9 @@
+using System.Data;
 using Apache.Arrow;
 using Apache.Arrow.C;
 using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
+using Polars.NET.Core.Data;
 
 namespace Polars.CSharp;
 
@@ -179,10 +181,10 @@ public class LazyFrame : IDisposable
     /// <param name="reader"></param>
     /// <param name="batchSize"></param>
     /// <returns></returns>
-    public static LazyFrame ScanDataReader(System.Data.IDataReader reader, int batchSize = 50_000)
+    public static LazyFrame ScanDataReader(IDataReader reader, int batchSize = 50_000)
     {
         // 1. 显式获取 Schema (为了传给 ScanRecordBatches，防止它去 Peek)
-        var schema = DataReaderExtensions.GetArrowSchema(reader);
+        var schema = DbToArrowStream.GetArrowSchema(reader);
         
         // 2. 获取流
         var stream = reader.ToArrowBatches(batchSize);

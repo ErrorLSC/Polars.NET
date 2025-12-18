@@ -2,10 +2,11 @@ using System.Collections;
 using System.Data;
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Polars.NET.Core.Arrow;
 
-namespace Polars.NET.Core.Arrow
+namespace Polars.NET.Core.Data
 {
-    public static class DataReaderExtensions
+    public static class DbToArrowStream
     {
         public static IEnumerable<RecordBatch> ToArrowBatches(this IDataReader reader, int batchSize = 50_000)
         {
@@ -24,19 +25,9 @@ namespace Polars.NET.Core.Arrow
             int rowCount = 0;
             bool hasYielded = false;
 
-            //Debug
-            int totalRowsRead = 0;
-
             // 3. 泵
             while (reader.Read())
             {
-                // [监控点 1] 监控这一行的数据
-                // 如果是在第 100 行左右，打印一下关键信息
-                totalRowsRead++;
-                if (totalRowsRead >= 99 && totalRowsRead <= 102)
-                {
-                    var val0 = reader.GetValue(0);
-                }
                 for (int i = 0; i < colCount; i++)
                 {
                     buffers[i].Add(reader.GetValue(i));
