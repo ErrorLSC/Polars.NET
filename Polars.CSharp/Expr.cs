@@ -17,6 +17,42 @@ public class Expr : IDisposable
     }
     private ExprHandle CloneHandle() => PolarsWrapper.CloneExpr(Handle);
     /// <summary>
+    /// Lit Int
+    /// </summary>
+    /// <param name="value"></param>
+    public static implicit operator Expr(int value) => Polars.Lit(value);
+    /// <summary>
+    /// Lit Double
+    /// </summary>
+    /// <param name="value"></param>
+    public static implicit operator Expr(double value) => Polars.Lit(value);
+    /// <summary>
+    /// Lit String
+    /// </summary>
+    /// <param name="value"></param>
+    public static implicit operator Expr(string value) => Polars.Lit(value);
+    /// <summary>
+    /// Lit DateTime
+    /// </summary>
+    /// <param name="value"></param>
+    public static implicit operator Expr(DateTime value) => Polars.Lit(value);
+    /// <summary>
+    /// Lit Boolean
+    /// </summary>
+    /// <param name="value"></param>
+    public static implicit operator Expr(bool value) => Polars.Lit(value);
+    /// <summary>
+    /// Lit Float
+    /// </summary>
+    /// <param name="value"></param>
+    public static implicit operator Expr(float value) => Polars.Lit(value);
+    /// <summary>
+    /// Lit Int64
+    /// </summary>
+    /// <param name="value"></param>
+    public static implicit operator Expr(long value) => Polars.Lit(value);
+
+    /// <summary>
     /// Creates an expression evaluating if the left operand is greater than the right operand.
     /// </summary>
     /// <param name="left">The left expression.</param>

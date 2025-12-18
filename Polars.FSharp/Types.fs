@@ -287,33 +287,41 @@ type Expr(handle: ExprHandle) =
         | "backward" | "bfill" -> this.BackwardFill()
         | _ -> failwith "Unsupported strategy"
 
-    member this.RollingMin(windowSize: string) = 
-        new Expr(PolarsWrapper.RollingMin(this.CloneHandle(), windowSize))
+    member this.RollingMin(windowSize: string, ?minPeriod: int) =
+        let m = defaultArg minPeriod 1
+        new Expr(PolarsWrapper.RollingMin(this.CloneHandle(), windowSize,m))
         
-    member this.RollingMax(windowSize: string) = 
-        new Expr(PolarsWrapper.RollingMax(this.CloneHandle(), windowSize))
+    member this.RollingMax(windowSize: string, ?minPeriod: int) =
+        let m = defaultArg minPeriod 1 
+        new Expr(PolarsWrapper.RollingMax(this.CloneHandle(), windowSize,m))
 
-    member this.RollingMean(windowSize: string) = 
-        new Expr(PolarsWrapper.RollingMean(this.CloneHandle(), windowSize))
+    member this.RollingMean(windowSize: string, ?minPeriod: int) = 
+        let m = defaultArg minPeriod 1 
+        new Expr(PolarsWrapper.RollingMean(this.CloneHandle(), windowSize, m))
         
-    member this.RollingSum(windowSize: string) = 
-        new Expr(PolarsWrapper.RollingSum(this.CloneHandle(), windowSize))
+    member this.RollingSum(windowSize: string, ?minPeriod: int) =
+        let m = defaultArg minPeriod 1  
+        new Expr(PolarsWrapper.RollingSum(this.CloneHandle(), windowSize, m))
     // 用法: col("price").RollingMeanBy("1d", col("date"))
-    member this.RollingMeanBy(windowSize: string, by: Expr, ?closed: string) =
+    member this.RollingMeanBy(windowSize: string, by: Expr,?closed: string,?minPeriod: int) =
         let c = defaultArg closed "left"
-        new Expr(PolarsWrapper.RollingMeanBy(this.CloneHandle(), windowSize, by.CloneHandle(), c))
+        let m = defaultArg minPeriod 1
+        new Expr(PolarsWrapper.RollingMeanBy(this.CloneHandle(), windowSize, m, by.CloneHandle(), c))
 
-    member this.RollingSumBy(windowSize: string, by: Expr, ?closed: string) =
+    member this.RollingSumBy(windowSize: string, by: Expr, ?closed: string,?minPeriod: int) =
         let c = defaultArg closed "left"
-        new Expr(PolarsWrapper.RollingSumBy(this.CloneHandle(), windowSize, by.CloneHandle(), c))
+        let m = defaultArg minPeriod 1 
+        new Expr(PolarsWrapper.RollingSumBy(this.CloneHandle(), windowSize, m, by.CloneHandle(), c))
     // 用法: col("price").RollingMeanBy("1d", col("date"))
-    member this.RollingMaxBy(windowSize: string, by: Expr, ?closed: string) =
+    member this.RollingMaxBy(windowSize: string, by: Expr, ?closed: string, ?minPeriod: int) =
         let c = defaultArg closed "left"
-        new Expr(PolarsWrapper.RollingMaxBy(this.CloneHandle(), windowSize, by.CloneHandle(), c))
+        let m = defaultArg minPeriod 1 
+        new Expr(PolarsWrapper.RollingMaxBy(this.CloneHandle(), windowSize, m, by.CloneHandle(), c))
 
-    member this.RollingMinBy(windowSize: string, by: Expr, ?closed: string) =
+    member this.RollingMinBy(windowSize: string, by: Expr, ?closed: string, ?minPeriod: int) =
         let c = defaultArg closed "left"
-        new Expr(PolarsWrapper.RollingMinBy(this.CloneHandle(), windowSize, by.CloneHandle(), c))
+        let m = defaultArg minPeriod 1 
+        new Expr(PolarsWrapper.RollingMinBy(this.CloneHandle(), windowSize, m, by.CloneHandle(), c))
 
 // --- Namespace Helpers ---
 

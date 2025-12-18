@@ -148,8 +148,8 @@ public class LazyFrame : IDisposable
 
         // 2. 准备上下文
         // 工厂直接返回 RecordBatch 的枚举器
-        Func<IEnumerator<RecordBatch>> contextFactory = () => stream.GetEnumerator();
-        
+        IEnumerator<RecordBatch> contextFactory() => stream.GetEnumerator();
+
         // [关键修改] 调用新增的 Direct 方法！
         // 不再使用那个带泛型的 CreateScanContext<T>
         var userData = ArrowStreamInterop.CreateDirectScanContext(contextFactory, schema);

@@ -337,7 +337,7 @@ namespace Polars.CSharp.Tests
             var lf = LazyFrame.ScanDataReader(reader, batchSize: 100);
 
             // [测试 A] 只查数值列
-            var q = lf.Select(Col("Id"), Col("Value")).Filter(Col("Id") > Lit(500));
+            var q = lf.Select(Col("Id"), Col("Value")).Filter(Col("Id") > 500);
 
             using var df = q.CollectStreaming();
             

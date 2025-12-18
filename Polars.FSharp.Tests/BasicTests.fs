@@ -131,12 +131,12 @@ id;date_col;val_col
         use dfJson = DataFrame.ReadJson jsonFile.Path
         Assert.Equal(3L, dfJson.Rows)
         Assert.Equal(2L, dfJson.Int("a", 1).Value)
-    [<Fact(Skip = "Sink bug, will be skiped")>]
+    [<Fact>]
     member _.``Streaming: Debug Sink`` () =
         // 1. 准备数据
         use csv = new DisposableFile(".csv", "a,b\n1,2\n3,4")
-        use parquetEager = new DisposableFile(".parquet")
-        use parquetSink = new DisposableFile(".parquet")
+        use parquetEager = new DisposableFile ".parquet"
+        use parquetSink = new DisposableFile ".parquet"
 
         printfn "CSV Path: %s" csv.Path
         printfn "Target Sink Path: %s" parquetSink.Path
