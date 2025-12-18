@@ -218,7 +218,7 @@ Bob,2024,History";
             using var csv2 = new DisposableFile("name,age\nAlice,20\nBob,30",".csv");
             using var df2 = DataFrame.ReadCsv(csv2.Path);
 
-            using var res = DataFrame.Concat(new[] { df1, df2 }, ConcatType.Horizontal);
+            using var res = DataFrame.Concat([df1, df2], ConcatType.Horizontal);
 
             Assert.Equal(2, res.Height);
             Assert.Equal(3, res.Width); // id + name + age

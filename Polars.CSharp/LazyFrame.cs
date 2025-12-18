@@ -1,6 +1,4 @@
-using System.Collections;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
+using Apache.Arrow;
 using Apache.Arrow.C;
 using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
@@ -89,50 +87,109 @@ public class LazyFrame : IDisposable
     /// <param name="batchSize"></param>
     /// <returns></returns>
     public static unsafe LazyFrame ScanArrowStream<T>(IEnumerable<T> data, int batchSize = 100_000)
+    {
+        // 1. 预读 Schema (这一步还是省不了，得知道长啥样)
+        var enumerator = data.ToArrowBatches(batchSize).GetEnumerator();
+        
+        if (!enumerator.MoveNext()) 
         {
-            // 1. 预读 Schema (这一步还是省不了，得知道长啥样)
-            var enumerator = data.ToArrowBatches(batchSize).GetEnumerator();
+            enumerator.Dispose();
+            using var emptyDf = DataFrame.From(Enumerable.Empty<T>());
+            return emptyDf.Lazy();
+        }
+        
+        var schema = enumerator.Current.Schema;
+        // 这里的枚举器只为了看 Schema，看一眼就扔掉
+        enumerator.Dispose(); 
+
+        // 2. 准备上下文 (交给 Interop 类处理)
+        // 获取 UserData 指针 (GCHandle)
+        var userData = ArrowStreamInterop.CreateScanContext(data, batchSize, schema);
+
+        // 3. 导出 Schema 用于 Rust 校验
+        var cSchema = CArrowSchema.Create();
+        CArrowSchemaExporter.ExportSchema(schema, cSchema);
+
+        try
+        {
+            // 4. 调用 Rust
+            // 代码极度简化：不需要在这里写 UnmanagedCallersOnly 了
+            var handle = PolarsWrapper.LazyFrameScanStream(
+                cSchema, 
+                ArrowStreamInterop.GetFactoryCallback(), // 获取工厂回调
+                ArrowStreamInterop.GetDestroyCallback(), // 获取销毁回调
+                userData
+            );
             
-            if (!enumerator.MoveNext()) 
-            {
-                enumerator.Dispose();
-                using var emptyDf = DataFrame.From(Enumerable.Empty<T>());
-                return emptyDf.Lazy();
-            }
-            
-            var schema = enumerator.Current.Schema;
-            // 这里的枚举器只为了看 Schema，看一眼就扔掉
-            enumerator.Dispose(); 
+            return new LazyFrame(handle);
+        }
+        finally
+        {
+            CArrowSchema.Free(cSchema);
+            // 注意：userData (GCHandle) 不需要在这里释放，
+            // 它已经传给了 Rust，Rust 会在 Query 结束时通过 DestroyCallback 释放它。
+        }
+    }
 
-            // 2. 准备上下文 (交给 Interop 类处理)
-            // 获取 UserData 指针 (GCHandle)
-            var userData = ArrowStreamInterop.CreateScanContext(data, batchSize, schema);
-
-            // 3. 导出 Schema 用于 Rust 校验
-            var cSchema = CArrowSchema.Create();
-            CArrowSchemaExporter.ExportSchema(schema, cSchema);
-
-            try
-            {
-                // 4. 调用 Rust
-                // 代码极度简化：不需要在这里写 UnmanagedCallersOnly 了
-                var handle = PolarsWrapper.LazyFrameScanStream(
-                    cSchema, 
-                    ArrowStreamInterop.GetFactoryCallback(), // 获取工厂回调
-                    ArrowStreamInterop.GetDestroyCallback(), // 获取销毁回调
-                    userData
-                );
-                
-                return new LazyFrame(handle);
-            }
-            finally
-            {
-                CArrowSchema.Free(cSchema);
-                // 注意：userData (GCHandle) 不需要在这里释放，
-                // 它已经传给了 Rust，Rust 会在 Query 结束时通过 DestroyCallback 释放它。
-            }
+    /// <summary>
+    /// 底层入口：直接扫描 RecordBatch 流。
+    /// 如果提供了 schema，则不会尝试读取第一行来探测（避免副作用）。
+    /// </summary>
+    public static unsafe LazyFrame ScanRecordBatches(IEnumerable<RecordBatch> stream, Schema schema = null!)
+    {
+        // 1. 确定 Schema (防止空流 Peek)
+        if (schema == null)
+        {
+            using var enumerator = stream.GetEnumerator();
+            if (!enumerator.MoveNext())
+                throw new InvalidOperationException("Cannot scan empty stream without schema.");
+            schema = enumerator.Current.Schema;
         }
 
+        // 2. 准备上下文
+        // 工厂直接返回 RecordBatch 的枚举器
+        Func<IEnumerator<RecordBatch>> contextFactory = () => stream.GetEnumerator();
+        
+        // [关键修改] 调用新增的 Direct 方法！
+        // 不再使用那个带泛型的 CreateScanContext<T>
+        var userData = ArrowStreamInterop.CreateDirectScanContext(contextFactory, schema);
+
+        // 3. 导出 Schema
+        var cSchema = CArrowSchema.Create();
+        CArrowSchemaExporter.ExportSchema(schema, cSchema);
+
+        try
+        {
+            var handle = PolarsWrapper.LazyFrameScanStream(
+                cSchema, 
+                ArrowStreamInterop.GetFactoryCallback(),
+                ArrowStreamInterop.GetDestroyCallback(),
+                userData
+            );
+            return new LazyFrame(handle);
+        }
+        finally
+        {
+            CArrowSchema.Free(cSchema);
+        }
+    }
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="reader"></param>
+    /// <param name="batchSize"></param>
+    /// <returns></returns>
+    public static LazyFrame ScanDataReader(System.Data.IDataReader reader, int batchSize = 50_000)
+    {
+        // 1. 显式获取 Schema (为了传给 ScanRecordBatches，防止它去 Peek)
+        var schema = DataReaderExtensions.GetArrowSchema(reader);
+        
+        // 2. 获取流
+        var stream = reader.ToArrowBatches(batchSize);
+
+        // 3. 调用底层，传入 Schema
+        return ScanRecordBatches(stream, schema);
+    }
     // ==========================================
     // Meta / Inspection
     // ==========================================
@@ -406,8 +463,7 @@ public class LazyFrame : IDisposable
         string periodStr = DurationFormatter.ToPolarsString(period) ?? everyStr;
         string offsetStr = DurationFormatter.ToPolarsString(offset) ?? "0s";
 
-        var keys = by ?? Array.Empty<Expr>();
-        var lfClone = this.CloneHandle();
+        var keys = by ?? [];
         return new LazyDynamicGroupBy(
             this.CloneHandle(),
             indexColumn,

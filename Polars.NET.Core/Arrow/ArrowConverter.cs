@@ -31,21 +31,22 @@ public static class ArrowConverter
                 return (IArrowArray)method.Invoke(null, [data, unwrapper])!;
             }
             var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
+            Type checkType = underlyingType ?? type;
 
             // 1. 基础类型 (Primitives & String)
-            if (underlyingType == typeof(Half)) return BuildFloat16(data.Cast<Half?>());
-            if (underlyingType == typeof(float)) return BuildFloat32(data.Cast<float?>());
-            if (underlyingType == typeof(int)) return BuildInt32(data.Cast<int?>());
-            if (underlyingType == typeof(long)) return BuildInt64(data.Cast<long?>());
-            if (underlyingType == typeof(double)) return BuildDouble(data.Cast<double?>());
-            if (underlyingType == typeof(bool)) return BuildBoolean(data.Cast<bool?>());
-            if (underlyingType == typeof(string)) return BuildString(data.Cast<string?>());
-            if (underlyingType == typeof(DateOnly)) return BuildDate32(data.Cast<DateOnly?>());
-            if (underlyingType == typeof(TimeOnly)) return BuildTime64(data.Cast<TimeOnly?>());
-            if (underlyingType == typeof(DateTime)) return BuildTimestamp(data.Cast<DateTime?>());
-            if (underlyingType == typeof(DateTimeOffset)) return BuildDateTimeOffset(data.Cast<DateTimeOffset?>());
-            if (underlyingType == typeof(TimeSpan)) return BuildDuration(data.Cast<TimeSpan?>());
-            if (underlyingType == typeof(decimal)) return BuildDecimal(data.Cast<decimal?>());
+            if (checkType == typeof(Half)) return BuildFloat16(data.Cast<Half?>());
+            if (checkType == typeof(float)) return BuildFloat32(data.Cast<float?>());
+            if (checkType == typeof(int)) return BuildInt32(data.Cast<int?>());
+            if (checkType == typeof(long)) return BuildInt64(data.Cast<long?>());
+            if (checkType == typeof(double)) return BuildDouble(data.Cast<double?>());
+            if (checkType == typeof(bool)) return BuildBoolean(data.Cast<bool?>());
+            if (checkType == typeof(string)) return BuildString(data.Cast<string?>());
+            if (checkType == typeof(DateOnly)) return BuildDate32(data.Cast<DateOnly?>());
+            if (checkType == typeof(TimeOnly)) return BuildTime64(data.Cast<TimeOnly?>());
+            if (checkType == typeof(DateTime)) return BuildTimestamp(data.Cast<DateTime?>());
+            if (checkType == typeof(DateTimeOffset)) return BuildDateTimeOffset(data.Cast<DateTimeOffset?>());
+            if (checkType == typeof(TimeSpan)) return BuildDuration(data.Cast<TimeSpan?>());
+            if (checkType == typeof(decimal)) return BuildDecimal(data.Cast<decimal?>());
             // 2. 递归支持 List<U>
             // 检查是否实现了 IEnumerable<U> 且不是 string
             if (type != typeof(string) && 
@@ -72,7 +73,19 @@ public static class ArrowConverter
                 return StructBuilderHelper.BuildStructArray(data);
             }
 
+            if (IsKeyValuePair(type))
+            {
+                // KeyValuePair<K, V> 本质上就是一个 Struct
+                // 我们直接用通用的 StructBuilderHelper 来处理它
+                // 这会将 Key 和 Value 映射为 Struct 的两个字段
+                return StructBuilderHelper.BuildStructArray(data);
+            }
             throw new NotSupportedException($"Type {type.Name} is not supported yet.");
+        }
+
+        private static bool IsKeyValuePair(Type t)
+        {
+            return t.IsGenericType && t.GetGenericTypeDefinition() == typeof(KeyValuePair<,>);
         }
 
         /// <summary>
@@ -372,6 +385,9 @@ public static class ArrowConverter
             // 2. 获取属性 (过滤索引器)
             var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.GetIndexParameters().Length == 0)
+                .Where(p => !p.PropertyType.IsInterface && !p.PropertyType.IsAbstract)
+                // [新增] 过滤掉 IntPtr 等指针类型
+                .Where(p => p.PropertyType != typeof(IntPtr) && p.PropertyType != typeof(UIntPtr))
                 .ToArray();
 
             var fields = new List<Field>();

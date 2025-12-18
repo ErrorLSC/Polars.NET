@@ -207,12 +207,17 @@ pub extern "C" fn pl_lazy_sink_ipc(
 
         // 3. [修复] 调用 sink_ipc (4个参数)
         // target, options, cloud_options, sink_options
-        let _ = lf_ctx.inner.sink_ipc(
+        let sink_lf = lf_ctx.inner.sink_ipc(
             target, 
             writer_options, 
             None, // CloudOptions
             sink_options
         )?;
+
+        
+        let _ = sink_lf
+        .with_new_streaming(true)
+        .collect()?;
         
         Ok(())
     })
@@ -409,12 +414,16 @@ pub extern "C" fn pl_lazy_sink_parquet(
         let sink_options = SinkOptions::default();
 
         // 5. 执行
-        let _ = lf_ctx.inner.sink_parquet(
+        let sink_lf = lf_ctx.inner.sink_parquet(
             target, 
             write_options, 
             None, // cloud_options
             sink_options
         )?;
+
+        let _ = sink_lf
+        .with_new_streaming(true)
+        .collect()?;
 
         Ok(())
     })
@@ -434,12 +443,17 @@ pub extern "C" fn pl_lazy_sink_json(
         let writer_options = JsonWriterOptions::default();
         let sink_options = SinkOptions::default();
 
-        let _ = lf_ctx.inner.sink_json(
+        let sink_lf = lf_ctx.inner.sink_json(
             target, 
             writer_options, 
             None, 
             sink_options
         )?;
+        
+        let _ = sink_lf
+        .with_new_streaming(true)
+        .collect()?;
+
         Ok(())
     })
 }

@@ -125,5 +125,20 @@ namespace Polars.NET.Core.Arrow
             // Rust 端会立即开始拉取数据，直到流结束
             return PolarsWrapper.DataFrameNewFromStream(&cStream);
         }
+
+        public static void* CreateDirectScanContext(
+            Func<IEnumerator<Apache.Arrow.RecordBatch>> factory, 
+            Apache.Arrow.Schema schema)
+        {
+            var context = new ScanContext
+            {
+                // 直接使用传入的工厂，不需要再包一层 ToArrowBatches
+                Factory = factory,
+                Schema = schema
+            };
+
+            var gcHandle = GCHandle.Alloc(context);
+            return (void*)GCHandle.ToIntPtr(gcHandle);
+        }
     }
 }
