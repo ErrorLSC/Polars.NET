@@ -1,5 +1,6 @@
 using Apache.Arrow;
 using Apache.Arrow.C;
+using Polars.NET.Core.Arrow;
 
 namespace Polars.NET.Core;
 
@@ -192,6 +193,27 @@ public static partial class PolarsWrapper
         void* userData)
     {
         var handle = NativeBindings.pl_lazy_frame_scan_stream(schema, callback,destroyCallback, userData);
+        return ErrorHelper.Check(handle);
+    }
+    /// <summary>
+    /// 封装 Sink 逻辑：准备回调上下文 -> 调用 Native -> 返回新的 LazyFrameHandle
+    /// </summary>
+    /// <param name="lfPtr">已经 TransferOwnership 的裸指针</param>
+    /// <param name="onBatchReceived">用户回调</param>
+    /// <returns>新的 LazyFrameHandle (通常是空的，用于驱动执行)</returns>
+    public static LazyFrameHandle SinkBatches(LazyFrameHandle lf, Action<Apache.Arrow.RecordBatch> onBatchReceived)
+    {
+        // 1. 准备互操作资源 (Delegate, GCHandle, Cleanup)
+        // PrepareSink 逻辑我们在 ArrowStreamInterop 里写好了
+        var (callback, cleanup, userData) = ArrowStreamInterop.PrepareSink(onBatchReceived);
+
+        var handle = NativeBindings.pl_lazy_map_batches(
+            lf,
+            callback,
+            cleanup,
+            userData
+        );
+        lf.TransferOwnership();
         return ErrorHelper.Check(handle);
     }
 }

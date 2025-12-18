@@ -69,6 +69,7 @@ namespace Polars.NET.Core.Data
             // 为了逻辑简单，我们重置标记，强制 MoveNext
             if (_batchEnumerator.MoveNext())
             {
+                _currentBatch?.Dispose();
                 _currentBatch = _batchEnumerator.Current;
                 _schema = _currentBatch.Schema; // Schema 可能会变 (但在 SQL 场景不应变)
                 _currentRowIndex = 0;
@@ -89,7 +90,7 @@ namespace Polars.NET.Core.Data
         {
             if (_currentBatch == null) throw new InvalidOperationException("No data available.");
             var column = _currentBatch.Column(ordinal);
-            
+            if (column == null) return DBNull.Value;
             if (column.IsNull(_currentRowIndex))
                 return DBNull.Value;
 
@@ -105,8 +106,11 @@ namespace Polars.NET.Core.Data
                 case FloatArray arr: return arr.GetValue(index).GetValueOrDefault();
                 case DoubleArray arr: return arr.GetValue(index).GetValueOrDefault();
                 case BooleanArray arr: return arr.GetValue(index).GetValueOrDefault();
+                case StringArray arr: return arr.GetString(index);
+                case LargeStringArray arr: return arr.GetString(index);
                 case StringViewArray arr: return arr.GetString(index);
                 case BinaryArray arr: return arr.GetBytes(index).ToArray();
+                case BinaryViewArray arr: return arr.GetBytes(index).ToArray();
                 // [修复] Date32Array
                 case Date32Array arr:
                     // arr.GetDateTime(index) 返回的是 DateTime?
@@ -118,7 +122,10 @@ namespace Polars.NET.Core.Data
                 // 而 DataTable/SQL 需要 DateTime，所以这里保留 .DateTime
                 case TimestampArray arr: 
                     return arr.GetTimestamp(index)?.DateTime ?? (object)DBNull.Value;
-
+                case Date64Array arr:
+                     return arr.GetDateTime(index) ?? (object)DBNull.Value;                
+                case Time64Array arr:
+                     return arr.GetMicroSeconds(index) ?? (object)DBNull.Value;
                 // 复杂类型兜底
                 case ListArray arr: return "List<...>"; 
                 case StructArray arr: return "{Struct}";

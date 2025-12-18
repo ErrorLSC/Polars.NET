@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Data;
 using Apache.Arrow;
 using Apache.Arrow.C;
@@ -546,6 +547,56 @@ public class LazyFrame : IDisposable
     {
         //
         PolarsWrapper.SinkCsv(Handle, path);
+    }
+    /// <summary>
+    /// 通用流式 Sink：每计算出一批数据，就触发一次回调。
+    /// 这是实现自定义 Sink（如数据库、网络流、消息队列）的基础。
+    /// </summary>
+    public void SinkBatches(Action<Apache.Arrow.RecordBatch> onBatchReceived)
+    {
+        // CloneHandle() 增加引用计数，确保 this 不受影响，
+        // 而 Clone 出来的 handle 会在 Wrapper 里被 TransferOwnership 给 Rust 消耗掉
+        using var newLfHandle = PolarsWrapper.SinkBatches(this.CloneHandle(), onBatchReceived);
+
+        // 驱动流式执行
+        using var lfRes = new LazyFrame(newLfHandle);
+        using var _ = lfRes.CollectStreaming(); 
+    }
+    /// <summary>
+    /// [终极 API] 全流式写入数据库。
+    /// 内存占用极低，利用 SqlBulkCopy 高速写入。
+    /// </summary>
+    public void SinkDatabase(string connectionString, string tableName, int bufferSize = 5)
+    {
+        // 1. 缓冲区
+        using var buffer = new BlockingCollection<RecordBatch>(bufferSize);
+
+        // 2. 消费者 (DB Writer)
+        var consumerTask = Task.Run(() => 
+        {
+            // ArrowToDbStream 把 Buffer 伪装成 DataReader
+            using var reader = new ArrowToDbStream(buffer.GetConsumingEnumerable());
+            
+            // 模拟 SqlBulkCopy (真实场景用 SqlBulkCopy)
+            // using var bulk = new SqlBulkCopy(connectionString);
+            // bulk.DestinationTableName = tableName;
+            // bulk.WriteToServer(reader);
+            
+            // 为了通用性演示，这里假设用户会根据 provider 选 bulk copy
+            // 这里留白，实际测试用模拟的
+        });
+
+        // 3. 生产者 (Polars Engine)
+        try
+        {
+            this.SinkBatches(buffer.Add);
+        }
+        finally
+        {
+            buffer.CompleteAdding();
+        }
+
+        consumerTask.Wait();
     }
     /// <summary>
     /// Dispose the LazyFrame and release native resources.

@@ -538,5 +538,69 @@ namespace Polars.CSharp.Tests
             Assert.Equal(2, targetTable.Rows[1]["Id"]);
             Assert.Equal(DBNull.Value, targetTable.Rows[1]["Date"]);
         }
-}
+        [Fact]
+        public async Task Test_SinkDatabase_EndToEnd_Mock()
+        {
+            // =========================================================
+            // 场景：全链路流式写入 (Rust -> C# Callback -> Buffer -> DataReader -> DB)
+            // 模式：Async / Await 非阻塞测试
+            // =========================================================
+
+            int totalRows = 50_000;
+            
+            // 1. 准备数据源
+            var df = DataFrame.FromColumns(new 
+            {
+                Id = Enumerable.Range(0, totalRows).ToArray(),
+                Value = Enumerable.Repeat("test_val", totalRows).ToArray()
+            });
+            var lf = df.Lazy();
+
+            // 2. 准备 "伪数据库" 消费者
+            var targetTable = new System.Data.DataTable();
+            
+            // 使用 BlockingCollection 连接 Producer 和 Consumer
+            using var buffer = new System.Collections.Concurrent.BlockingCollection<RecordBatch>(10);
+
+            // 启动消费者任务 (模拟 DB 写入)
+            var dbWriterTask = Task.Run(() => 
+            {
+                Console.WriteLine("[DB Writer] Waiting for data...");
+                
+                // ArrowToDbStream 把 Buffer 伪装成 DataReader
+                using var streamReader = new ArrowToDbStream(buffer.GetConsumingEnumerable());
+                
+                // 模拟 SqlBulkCopy
+                targetTable.Load(streamReader);
+                
+                Console.WriteLine($"[DB Writer] Finished writing {targetTable.Rows.Count} rows.");
+            });
+
+            // 3. 触发流式 Sink (Producer)
+            // 注意：SinkBatches 本身是同步阻塞的 (因为它在驱动 Rust 引擎运算)
+            // 这在测试里没问题，因为消费者在另一个 Task 里跑
+            Console.WriteLine("[Polars] Starting SinkBatches...");
+            
+            lf.SinkBatches(batch => 
+            {
+                // 将 Rust 生产的数据推入 Buffer
+                buffer.Add(batch);
+            });
+
+            // 4. 结束信号
+            buffer.CompleteAdding();
+
+            // 5. [核心修复] 使用 await 非阻塞等待
+            // 如果 dbWriterTask 里抛出了异常 (比如 NRE)，await 会在这里重新抛出，让测试失败并打印堆栈
+            await dbWriterTask;
+
+            // 6. 验证结果
+            Assert.Equal(totalRows, targetTable.Rows.Count);
+            
+            // 验证数据内容
+            Assert.Equal(0, targetTable.Rows[0]["Id"]);
+            Assert.Equal("test_val", targetTable.Rows[0]["Value"]);
+            Assert.Equal(totalRows - 1, targetTable.Rows[totalRows - 1]["Id"]);
+        }
+    }
 }

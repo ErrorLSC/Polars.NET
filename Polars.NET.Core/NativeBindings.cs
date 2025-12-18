@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Apache.Arrow.C;
+using Polars.NET.Core.Arrow;
 
 [assembly: DisableRuntimeMarshalling]
 
@@ -10,7 +11,7 @@ namespace Polars.NET.Core;
 public delegate void CleanupCallback(IntPtr userData);
 
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-public unsafe delegate CArrowArrayStream* StreamFactoryCallback(void* userData);
+public unsafe delegate Arrow.CArrowArrayStream* StreamFactoryCallback(void* userData);
 
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 public unsafe delegate int UdfCallback(
@@ -406,6 +407,15 @@ unsafe internal partial class NativeBindings
     public static partial void pl_lazy_sink_parquet(
         LazyFrameHandle lf, 
         [MarshalAs(UnmanagedType.LPUTF8Str)] string path
+    );
+
+    [LibraryImport(LibName)]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]
+    public static partial LazyFrameHandle pl_lazy_map_batches(
+        LazyFrameHandle lf, 
+        ArrowStreamInterop.SinkCallback callback,
+        ArrowStreamInterop.CleanupCallback cleanup,
+        IntPtr userData // 这里用 IntPtr 接应
     );
     // String Ops
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_contains(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string pat);

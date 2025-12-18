@@ -224,6 +224,4 @@ public static partial class PolarsWrapper
         // 注意：这里不需要 Invalidate lf，因为 Rust 侧只是借用
         return ErrorHelper.Check(NativeBindings.pl_lazy_clone(lf));
     }
-    
-
 }

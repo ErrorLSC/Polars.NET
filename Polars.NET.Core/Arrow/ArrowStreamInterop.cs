@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
+using Apache.Arrow.C;
+using Apache.Arrow;
 
 namespace Polars.NET.Core.Arrow
 {
@@ -101,6 +103,8 @@ namespace Polars.NET.Core.Arrow
                 Console.WriteLine($"[Polars.NET Critical] Error in Destroy Callback: {ex}");
             }
         }
+
+        
         // ---------------------------------------------------------
         // Eager Mode (立即执行)
         // ---------------------------------------------------------
@@ -139,6 +143,95 @@ namespace Polars.NET.Core.Arrow
 
             var gcHandle = GCHandle.Alloc(context);
             return (void*)GCHandle.ToIntPtr(gcHandle);
+        }
+
+        // ------------------------------------------------------------
+        // Sink to DataBase
+        // ------------------------------------------------------------
+        // ------------------------------------------------------------
+        // 1. 委托定义 (Delegates)
+        // ------------------------------------------------------------
+
+        // 对应 Rust: fn(*mut ArrowArray, *mut ArrowSchema, *mut char) -> i32
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        public delegate int SinkCallback(
+            CArrowArray* array, 
+            CArrowSchema* schema, 
+            byte* errorMsg // 接收错误信息的 buffer (1KB)
+        );
+
+        // [新增] 对应 Rust: fn(*mut c_void)
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        public delegate void CleanupCallback(void* userData);
+
+        // ------------------------------------------------------------
+        // 2. 上下文管理 (Context)
+        // ------------------------------------------------------------
+
+        /// <summary>
+        /// 这是一个纯内部类，用来保活 Delegate 和传递 User Action
+        /// </summary>
+        private class SinkContext
+        {
+            public Action<RecordBatch> UserAction = null!;
+            // [关键] 必须强引用这个 Native Delegate，防止在 Rust 调用期间被 C# GC 回收
+            public SinkCallback KeepAliveCallback = null!; 
+        }
+
+        // ------------------------------------------------------------
+        // 3. 静态辅助方法 (对外暴露的工厂)
+        // ------------------------------------------------------------
+
+        /// <summary>
+        /// 准备 Sink 所需的所有非托管资源。
+        /// 返回: (Callback委托, Cleanup委托, UserData指针)
+        /// </summary>
+        public static (SinkCallback, CleanupCallback, IntPtr) PrepareSink(Action<RecordBatch> onBatchReceived)
+        {
+            // 1. 创建上下文
+            var ctx = new SinkContext
+            {
+                UserAction = onBatchReceived
+            };
+
+            // 2. 定义核心 Native 回调 (在这里处理指针 -> C# 对象)
+            // 这样 LazyFrame 就不需要碰 CArrowArray* 这种脏东西了
+            ctx.KeepAliveCallback = (arrPtr, schemaPtr, errPtr) =>
+            {
+                try
+                {
+                    // Import 会接管所有权
+                    // 1. 先把 C Schema 指针转为 C# Schema 对象
+                    var schema = CArrowSchemaImporter.ImportSchema(schemaPtr);
+                    // 2. 再导入 RecordBatch
+                    // 注意：这里 ImportRecordBatch 会接管 arrPtr 的所有权
+                    var batch = CArrowArrayImporter.ImportRecordBatch(arrPtr, schema);
+                    ctx.UserAction(batch);
+                    return 0; // Success
+                }
+                catch (Exception ex)
+                {
+                    // 异常传回 Rust
+                    var msgBytes = System.Text.Encoding.UTF8.GetBytes(ex.Message);
+                    int len = Math.Min(msgBytes.Length, 1023);
+                    Marshal.Copy(msgBytes, 0, (IntPtr)errPtr, len);
+                    errPtr[len] = 0;
+                    return 1; // Error
+                }
+            };
+
+            // 3. 打包 UserData (GCHandle)
+            var handle = GCHandle.Alloc(ctx);
+            IntPtr userDataPtr = GCHandle.ToIntPtr(handle);
+
+            // 4. 定义 Cleanup 回调 (静态闭包即可，不需要保活)
+            CleanupCallback cleanup = (ptr) =>
+            {
+                var h = GCHandle.FromIntPtr((IntPtr)ptr);
+                if (h.IsAllocated) h.Free();
+            };
+
+            return (ctx.KeepAliveCallback, cleanup, userDataPtr);
         }
     }
 }
