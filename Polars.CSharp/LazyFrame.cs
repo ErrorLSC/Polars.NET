@@ -528,6 +528,24 @@ public class LazyFrame : IDisposable
         PolarsWrapper.SinkIpc(Handle, path);
     }
     /// <summary>
+    /// Sink the LazyFrame to JSON file.
+    /// </summary>
+    /// <param name="path"></param>
+    public void SinkJson(string path)
+    {
+        //
+        PolarsWrapper.SinkJson(Handle, path);
+    }
+    /// <summary>
+    /// Sink the LazyFrame to CSV file.
+    /// </summary>
+    /// <param name="path"></param>
+    public void SinkCsv(string path)
+    {
+        //
+        PolarsWrapper.SinkCsv(Handle, path);
+    }
+    /// <summary>
     /// Dispose the LazyFrame and release native resources.
     /// </summary>
     public void Dispose()

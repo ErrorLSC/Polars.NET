@@ -134,6 +134,14 @@ public class Expr : IDisposable
     public static Expr operator /(Expr left, Expr right) => 
         new(PolarsWrapper.Div(left.Handle, right.Handle));
     
+    /// <summary>
+    /// Creates an expression representing the remaining of the left expression by the right expression.
+    /// </summary>
+    /// <param name="left">The left expression.</param>
+    /// <param name="right">The right expression.</param>
+    /// <returns>A numeric expression representing the quotient.</returns>
+    public static Expr operator %(Expr left, Expr right) => 
+        new(PolarsWrapper.Rem(left.Handle, right.Handle));
     // ==========================================
     // Logical Operators
     // ==========================================

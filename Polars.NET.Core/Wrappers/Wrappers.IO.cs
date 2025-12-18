@@ -97,7 +97,12 @@ public static partial class PolarsWrapper
         NativeBindings.pl_write_csv(df, path);
         ErrorHelper.CheckVoid();
     }
-
+    public static void SinkCsv(LazyFrameHandle lf, string path)
+    {
+        NativeBindings.pl_lazy_sink_csv(lf, path);
+        lf.TransferOwnership();
+        ErrorHelper.CheckVoid();
+    }
     public static void WriteParquet(DataFrameHandle df, string path)
     {
         NativeBindings.pl_write_parquet(df, path);
@@ -133,6 +138,12 @@ public static partial class PolarsWrapper
     {
         if (!File.Exists(path)) throw new FileNotFoundException($"NDJSON file not found: {path}");
         return ErrorHelper.Check(NativeBindings.pl_scan_ndjson(path));
+    }
+    public static void SinkJson(LazyFrameHandle lf, string path)
+    {
+        NativeBindings.pl_lazy_sink_json(lf, path);
+        lf.TransferOwnership();
+        ErrorHelper.CheckVoid();
     }
     public static DataFrameHandle ReadIpc(string path)
     {

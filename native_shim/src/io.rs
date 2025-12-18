@@ -458,4 +458,34 @@ pub extern "C" fn pl_lazy_sink_json(
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazy_sink_csv(
+    lf_ptr: *mut LazyFrameContext,
+    path_ptr: *const c_char
+) {
+    ffi_try_void!({
+        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+        let path_str = ptr_to_str(path_ptr).unwrap();
+        let pl_path = PlPath::new(path_str);
+        
+        let target = SinkTarget::Path(pl_path.into());
+        let writer_options = CsvWriterOptions::default();
+        let sink_options = SinkOptions::default();
+
+        let sink_lf = lf_ctx.inner.sink_csv(
+            target, 
+            writer_options, 
+            None, 
+            sink_options
+        )?;
+        
+        let _ = sink_lf
+        .with_new_streaming(true)
+        .collect()?;
+
+        Ok(())
+    })
+}
+
+
 

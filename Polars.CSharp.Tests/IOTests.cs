@@ -221,6 +221,95 @@ namespace Polars.CSharp.Tests
                 if (File.Exists(path)) File.Delete(path);
             }
         }
+        [Fact]
+    public void Test_Streaming_SinkParquet_ComplexTypes_EndToEnd()
+    {
+        // ====================================================
+        // 场景：生成包含数组和对象的复杂数据流，流式写入 Parquet
+        // 目的：验证 "邪修" ArrowConverter 在流式 Sink 下的稳定性
+        // ====================================================
+
+        int totalRows = 100_000; // 稍微减小一点量，侧重测结构
+        int batchSize = 10_000;
+        string path = Path.Combine(Path.GetTempPath(), $"polars_complex_{Guid.NewGuid()}.parquet");
+
+        try
+        {
+            // 1. 数据源 (包含 List 和 Struct)
+            IEnumerable<ComplexPoco> GenerateData()
+            {
+                for (int i = 0; i < totalRows; i++)
+                {
+                    yield return new ComplexPoco
+                    {
+                        Id = i,
+                        // 测试 List<int> -> Parquet LIST
+                        Tags = new[] { i, i * 2 }, 
+                        // 测试 POCO -> Parquet STRUCT
+                        Meta = new MetaInfo { Score = i * 0.5, Label = $"L_{i}" } 
+                    };
+                }
+            }
+
+            // 2. 建立管道
+            // ScanArrowStream 内部会调用 ToArrowBatches -> ArrowConverter
+            // 这里会触发你的 "邪修" 递归反射逻辑
+            var lf = LazyFrame.ScanArrowStream(GenerateData(), batchSize);
+
+            // 3. 简单的转换 (确保 Lazy 引擎介入)
+            // 比如只保留 Id 偶数的
+            var q = lf.Filter(Col("Id") % Lit(2) == Lit(0));
+
+            Console.WriteLine("Starting Complex Streaming Sink...");
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+
+            // 4. 执行写入
+            q.SinkParquet(path);
+
+            sw.Stop();
+            Console.WriteLine($"Sink completed in {sw.Elapsed.TotalSeconds:F2}s");
+
+            // 5. 验证文件
+            Assert.True(File.Exists(path));
+
+            // 6. 读回验证 (Eager Load)
+            // 这里验证 Parquet 是否真的存对了结构
+            using var lfCheck = LazyFrame.ScanParquet(path);
+            using var df = lfCheck.Collect();
+            
+            Assert.Equal(totalRows / 2, df.Height); // 过滤了一半
+
+            // 验证 List
+            var tags = df.Column("Tags");
+            Assert.Equal(DataTypeKind.List, tags.DataType.Kind);
+            var row0Tags = tags.GetValue<List<int?>>(0); // Id=0: [0, 0]
+            Assert.Equal(0, row0Tags[0]);
+            
+            // 验证 Struct (Unnest 验证)
+            var unnested = df.Unnest("Meta");
+            Assert.True(unnested.ColumnNames.Contains("Score"));
+            Assert.True(unnested.ColumnNames.Contains("Label"));
+            Assert.Equal(0.0, unnested.GetValue<double>(0, "Score")); // Id=0
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    // --- 辅助 POCO ---
+    private class ComplexPoco
+    {
+        public int Id { get; set; }
+        public int[] Tags { get; set; }     // 映射为 List<Int32>
+        public MetaInfo Meta { get; set; }  // 映射为 Struct
+    }
+
+    private class MetaInfo
+    {
+        public double Score { get; set; }
+        public string Label { get; set; }
+    }
         [Fact]  
         public void Test_ScanDataReader_Integration()
         {

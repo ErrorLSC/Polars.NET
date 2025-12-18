@@ -336,6 +336,11 @@ unsafe internal partial class NativeBindings
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
     public static partial void pl_lazy_sink_ipc(LazyFrameHandle lf, string path);
+    
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
+    public static partial void pl_lazy_sink_csv(LazyFrameHandle lf, string path);
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
+    public static partial void pl_lazy_sink_json(LazyFrameHandle lf, string path);
     // Lazy Introspection
     [LibraryImport(LibName)] public static partial IntPtr pl_lazy_schema(LazyFrameHandle lf);
     [LibraryImport(LibName)] public static partial IntPtr pl_lazy_explain(LazyFrameHandle lf,[MarshalAs(UnmanagedType.U1)] bool optimized);
