@@ -126,4 +126,42 @@ public class ScalarTests
         Assert.IsType<TimeOnly>(df[0, "time"]);
         Assert.IsType<decimal>(df[0, "d"]);
     }
+    [Fact]
+    public void Test_SyntaxSugar_Indexer()
+    {
+        var df = DataFrame.FromColumns(new 
+        {
+            Id = new[] { 1, 2, 3 },
+            Name = new[] { "Alice", "Bob", "Charlie" },
+            Score = new[] { 99.5, 88.0, 77.5 }
+        });
+
+        // ==========================================
+        // 旧写法 (虽然强类型，但有点啰嗦)
+        // ==========================================
+        Assert.Equal("Alice", df.GetValue<string>(0, "Name"));
+
+        // ==========================================
+        // 新写法 (DataTable 风格)
+        // ==========================================
+        
+        // 1. [行, 列名] - 最常用的
+        // 就像 targetTable.Rows[0]["Name"]，但更短！
+        Assert.Equal("Alice", df[0, "Name"]); 
+        
+        // 2. [行, 列索引]
+        Assert.Equal(1, df[0, 0]); // Id
+
+        // 3. 链式写法: df["Name"][0]
+        // 这也很直观：先取列，再取第几行
+        Assert.Equal("Bob", df["Name"][1]);
+
+        // 4. 类型转换 (和 DataTable 一样，取出来是 object，需要强转)
+        // 如果你需要 int，直接 cast，C# 会自动拆箱
+        int id = (int)df[0, "Id"]!; 
+        Assert.Equal(1, id);
+
+        double score = (double)df[2, "Score"]!;
+        Assert.Equal(77.5, score);
+    }
 }
