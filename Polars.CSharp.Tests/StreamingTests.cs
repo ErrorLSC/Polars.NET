@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using Apache.Arrow;
+using Apache.Arrow.Types;
+using Polars.NET.Core.Data;
 
 namespace Polars.CSharp.Tests;
 public class StreamingTests
@@ -276,5 +279,122 @@ public class StreamingTests
         // 注意：结果会非常大，需要 decimal 或 ulong 防止溢出，Polars SumId 可能是 Int64 或 Float64
         // 这里做一个近似验证或类型转换验证
         // 这里只是演示，只要不报错且 Count 对了，基本就稳了
+    }
+    [Fact]
+    public void Test_ArrowToDbStream_EndToEnd()
+    {
+        // 1. 构造一个模拟的 Arrow RecordBatch 流
+        var now = DateTime.UtcNow;
+        // 截断到秒，避免精度对比麻烦
+        now = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, now.Second);
+
+        var schema = new Schema.Builder()
+            .Field(new Field("Id", Int32Type.Default, true))
+            .Field(new Field("Name", StringViewType.Default, true)) // 你的邪修 String
+            .Field(new Field("Date", Date32Type.Default, true))      // 测试 Date32
+            .Build();
+
+        IEnumerable<RecordBatch> MockArrowStream()
+        {
+            // Batch 1: [1, "Alice", now]
+            yield return new RecordBatch(schema, [
+                new Int32Array.Builder().Append(1).Build(),
+                new StringViewArray.Builder().Append("Alice").Build(),
+                new Date32Array.Builder().Append(new DateTimeOffset(now)).Build() // Date32 存的是 Days
+            ], 1);
+
+            // Batch 2: [2, "Bob", null]
+            yield return new RecordBatch(schema, [
+                new Int32Array.Builder().Append(2).Build(),
+                new StringViewArray.Builder().Append("Bob").Build(),
+                new Date32Array.Builder().AppendNull().Build()
+            ], 1);
+        }
+
+        // 2. 核心测试：把 Arrow 流包装成 IDataReader
+        using var dbReader = new ArrowToDbStream(MockArrowStream());
+
+        // 3. 模拟 SqlBulkCopy (使用 DataTable.Load)
+        var targetTable = new System.Data.DataTable();
+        
+        // 这一步会疯狂调用 dbReader.Read() 和 dbReader.GetValue()
+        targetTable.Load(dbReader);
+
+        // 4. 验证结果
+        Assert.Equal(2, targetTable.Rows.Count);
+        
+        // Row 1
+        Assert.Equal(1, targetTable.Rows[0]["Id"]);
+        Assert.Equal("Alice", targetTable.Rows[0]["Name"]);
+        // DataTable Load Date32 会变成 DateTime (00:00:00)
+        Assert.Equal(now.Date, ((DateTime)targetTable.Rows[0]["Date"]).Date);
+
+        // Row 2
+        Assert.Equal(2, targetTable.Rows[1]["Id"]);
+        Assert.Equal(DBNull.Value, targetTable.Rows[1]["Date"]);
+    }
+    [Fact]
+    public async Task Test_SinkDatabase_EndToEnd_Mock()
+    {
+        // =========================================================
+        // 场景：全链路流式写入 (Rust -> C# Callback -> Buffer -> DataReader -> DB)
+        // 模式：Async / Await 非阻塞测试
+        // =========================================================
+
+        int totalRows = 50_000;
+        
+        // 1. 准备数据源
+        var df = DataFrame.FromColumns(new 
+        {
+            Id = Enumerable.Range(0, totalRows).ToArray(),
+            Value = Enumerable.Repeat("test_val", totalRows).ToArray()
+        });
+        var lf = df.Lazy();
+
+        // 2. 准备 "伪数据库" 消费者
+        var targetTable = new System.Data.DataTable();
+        
+        // 使用 BlockingCollection 连接 Producer 和 Consumer
+        using var buffer = new System.Collections.Concurrent.BlockingCollection<RecordBatch>(10);
+
+        // 启动消费者任务 (模拟 DB 写入)
+        var dbWriterTask = Task.Run(() => 
+        {
+            Console.WriteLine("[DB Writer] Waiting for data...");
+            
+            // ArrowToDbStream 把 Buffer 伪装成 DataReader
+            using var streamReader = new ArrowToDbStream(buffer.GetConsumingEnumerable());
+            
+            // 模拟 SqlBulkCopy
+            targetTable.Load(streamReader);
+            
+            Console.WriteLine($"[DB Writer] Finished writing {targetTable.Rows.Count} rows.");
+        });
+
+        // 3. 触发流式 Sink (Producer)
+        // 注意：SinkBatches 本身是同步阻塞的 (因为它在驱动 Rust 引擎运算)
+        // 这在测试里没问题，因为消费者在另一个 Task 里跑
+        Console.WriteLine("[Polars] Starting SinkBatches...");
+        
+        lf.SinkBatches(batch => 
+        {
+            // 将 Rust 生产的数据推入 Buffer
+            buffer.Add(batch);
+        });
+
+        // 4. 结束信号
+        buffer.CompleteAdding();
+
+        // 5. [核心修复] 使用 await 非阻塞等待
+        // 如果 dbWriterTask 里抛出了异常 (比如 NRE)，await 会在这里重新抛出，让测试失败并打印堆栈
+        await dbWriterTask;
+
+        // 6. 验证结果
+        Assert.Equal(totalRows, targetTable.Rows.Count);
+        
+        // 验证数据内容
+        Assert.Equal(0, targetTable.Rows[0]["Id"]);
+        Assert.Equal("test_val", targetTable.Rows[0]["Value"]);
+        Assert.Equal(totalRows - 1, targetTable.Rows[totalRows - 1]["Id"]);
     }
 }

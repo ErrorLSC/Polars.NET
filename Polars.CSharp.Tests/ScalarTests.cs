@@ -118,7 +118,7 @@ public class ScalarTests
         // 索引器返回的是 object，我们需要验证它是否被正确拆箱为强类型
         
         // DateTimeOffset 自动处理验证 (Series indexer 对于 Datetime 返回 DateTimeOffset)
-        Assert.IsType<DateTimeOffset>(df[0, "dt"]); 
+        Assert.IsType<DateTime>(df[0, "dt"]); 
         Assert.IsType<Boolean>(df[0,"b"]);
         Assert.IsType<string>(df[0,"s"]);
         Assert.IsType<TimeSpan>(df[0, "dur"]);

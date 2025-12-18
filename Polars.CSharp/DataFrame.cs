@@ -942,7 +942,25 @@ public class DataFrame : IDisposable
     {
         get => Column(columnName);
     }
-    
+    /// <summary>
+    ///  Get a column as a Series by Index.
+    /// </summary>
+    /// <param name="index"></param>
+    /// <returns></returns>
+    /// <exception cref="IndexOutOfRangeException"></exception>
+    public Series Column(int index)
+    {
+        if (index < 0 || index >= Width)
+            throw new IndexOutOfRangeException($"Column index {index} is out of bounds. Width: {Width}");
+
+        // 调用底层 Rust 接口直接按索引取，或者通过 Name 绕一下
+        // 这里为了简单且复用现有逻辑，我们通过 Name 绕一下（性能损耗极小，只是一次 string 查找）
+        var name = ColumnNames[index];
+        return Column(name);
+        
+        // 如果你想追求极致性能，可以在 PolarsWrapper 加个 DataFrameGetColumnAt
+        // 但对于 C# 侧的索引器语法糖来说，上面的写法足够了
+    }
     /// <summary>
     /// Get all columns as a list of Series.
     /// Order is guaranteed to match the physical column order.
@@ -964,4 +982,35 @@ public class DataFrame : IDisposable
     /// Get column names in order.
     /// </summary>
     public string[] ColumnNames => PolarsWrapper.GetColumnNames(Handle);
+
+    /// <summary>
+    /// Syntax Suger: df[row, colName]
+    /// </summary>
+    /// <param name="rowIndex"></param>
+    /// <param name="columnName"></param>
+    /// <returns></returns>
+    public object? this[int rowIndex, string columnName]
+    {
+        get
+        {
+            // 1. 先拿列 (Series)
+            var series = Column(columnName);
+            // 2. 再拿值 (利用刚才写的 Series 索引器)
+            return series[rowIndex];
+        }
+    }
+    /// <summary>
+    /// Syntax Suger
+    /// </summary>
+    /// <param name="rowIndex"></param>
+    /// <param name="columnIndex"></param>
+    /// <returns></returns>
+    public object? this[int rowIndex, int columnIndex]
+    {
+        get
+        {
+            var series = Column(columnIndex);
+            return series[rowIndex];
+        }
+    }
 }

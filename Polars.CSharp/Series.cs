@@ -742,4 +742,64 @@ public class Series : IDisposable
     {
         Handle.Dispose();
     }
+    /// <summary>
+    /// 语法糖 1: s[index]
+    /// 让你可以写: var val = df["Name"][0];
+    /// </summary>
+    /// <param name="index"></param>
+    /// <returns></returns>
+    /// <exception cref="NotSupportedException"></exception>
+    public object? this[int index]
+    {
+        get
+        {
+            // 根据 DataType 分发到具体的泛型实现
+            // 这就是 object 拆箱的代价，为了语法糖是值得的
+            return DataType.Kind switch
+            {
+                    // 整数家族
+                    DataTypeKind.Int8 => GetValue<sbyte?>(index),
+                    DataTypeKind.Int16 => GetValue<short?>(index),
+                    DataTypeKind.Int32 => GetValue<int?>(index),
+                    DataTypeKind.Int64 => GetValue<long?>(index),
+                    DataTypeKind.UInt8 => GetValue<byte?>(index),
+                    DataTypeKind.UInt16 => GetValue<ushort?>(index),
+                    DataTypeKind.UInt32 => GetValue<uint?>(index),
+                    DataTypeKind.UInt64 => GetValue<ulong?>(index),
+                    DataTypeKind.Decimal => GetValue<decimal?>(index),
+
+                    // 浮点数
+                    DataTypeKind.Float32 => GetValue<float?>(index),
+                    DataTypeKind.Float64 => GetValue<double?>(index),
+
+                    // 布尔
+                    DataTypeKind.Boolean => GetValue<bool?>(index),
+
+                    // 字符串 (StringView 也是 String)
+                    DataTypeKind.String => GetValue<string>(index),
+
+                    // [修复 1] 时间跨度 (Duration) -> TimeSpan
+                    DataTypeKind.Duration => GetValue<TimeSpan?>(index),
+
+                    // [补全] 时间点 (Time) -> TimeOnly (如果 .NET 6+) 或 TimeSpan
+                    DataTypeKind.Time => GetValue<TimeOnly?>(index),
+
+                    // [补全] 日期
+                    DataTypeKind.Date => GetValue<DateOnly?>(index), // 或 DateOnly?
+                    DataTypeKind.Datetime => GetValue<DateTime?>(index), 
+                    // 注意：这里我们选择返回 DateTime 而不是 DateTimeOffset，
+                    // 以符合 .NET 数据处理（如 DataTable）的习惯。
+
+                    // [补全] 二进制
+                    DataTypeKind.Binary => GetValue<byte[]>(index),
+
+                    // 复杂类型 (返回 List 或 Struct 的 object 形式)
+                    // 注意：Series.GetValue<object> 需要在内部处理好 List/Struct 的装箱
+                    DataTypeKind.List => GetValue<object>(index), 
+                    DataTypeKind.Struct => GetValue<object>(index),
+                
+                _ => throw new NotSupportedException($"Indexer not supported for type {DataType.Kind}")
+            };
+        }
+    }
 }
