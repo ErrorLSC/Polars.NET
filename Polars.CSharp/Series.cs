@@ -1,7 +1,6 @@
 using Polars.NET.Core;
 using Apache.Arrow;
 using Polars.NET.Core.Arrow;
-using Apache.Arrow.Types;
 
 namespace Polars.CSharp;
 

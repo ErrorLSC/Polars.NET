@@ -694,4 +694,50 @@ TooShort,1990-05-20,1.60";
         Console.WriteLine(jsonStr); 
         // 输出示例: {"Name":"Alice","Age":18}
     }
+    [Fact]
+    public void Test_Window_Shift_Diff_Len()
+    {
+        // 准备数据
+        var df = DataFrame.FromColumns(new 
+        {
+            Group = new[] { "A", "A", "A", "B", "B" },
+            Value = new[] { 10, 20, 30, 100, 200 },
+        });
+
+        // 验证 Len()
+        // select count(*)
+        var count = df.Select(Len()).Row(0)[0];
+        Assert.Equal(5u, count); // Polars Len 返回的是 UInt32
+
+        // 复杂计算
+        var result = df.Select(
+            Col("Group"),
+            Col("Value"),
+            
+            // 1. Over: 组内总和
+            Col("Value").Sum().Over("Group").Alias("GroupSum"),
+            
+            // 2. Shift: 向下移动 1 行
+            Col("Value").Shift(1).Alias("PrevValue"),
+            
+            // 3. Diff: 当前值 - 上一行值 (相当于 Value - PrevValue)
+            Col("Value").Diff(1).Alias("DiffValue")
+        );
+
+        // 验证 A 组 (10, 20, 30) -> Sum = 60
+        Assert.Equal(60, result[0, "GroupSum"]); // A1
+        Assert.Equal(60, result[2, "GroupSum"]); // A3
+
+        // 验证 B 组 (100, 200) -> Sum = 300
+        Assert.Equal(300, result[3, "GroupSum"]); // B1
+
+        // 验证 Shift (第一行前面没有，应该是 null)
+        Assert.Null(result[0, "PrevValue"]); 
+        Assert.Equal(10, result[1, "PrevValue"]); // 20 的前一个是 10
+
+        // 验证 Diff
+        Assert.Null(result[0, "DiffValue"]);
+        Assert.Equal(10, result[1, "DiffValue"]); // 20 - 10 = 10
+        Assert.Equal(100, result[4, "DiffValue"]); // 200 - 100 = 100
+    }
 }

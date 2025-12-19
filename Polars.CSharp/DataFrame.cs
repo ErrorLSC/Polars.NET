@@ -1,8 +1,6 @@
 using Polars.NET.Core;
-using System.Reflection;
 using Polars.NET.Core.Arrow;
 using Apache.Arrow;
-using System.Collections;
 using System.Data;
 using Polars.NET.Core.Data;
 using System.Collections.Concurrent;
@@ -917,10 +915,6 @@ public class DataFrame : IDisposable
     public LazyFrame Lazy()
     {
         // 1. 先克隆 DataFrame Handle。
-        // 为什么？因为 Rust 的 into_lazy() 会消耗掉 DataFrame。
-        // 如果我们直接传 Handle，这个 C# DataFrame 对象就会变废（底层指针被释放或转移），
-        // 用户如果再次使用这个 DataFrame 就会崩。
-        // 为了符合 C# 的直觉（调用 .Lazy() 不应该销毁原对象），我们先 Clone 一份传给 Lazy。
         var clonedHandle = PolarsWrapper.CloneDataFrame(Handle);
         
         // 2. 转换为 LazyFrame
@@ -1022,5 +1016,22 @@ public class DataFrame : IDisposable
             var series = Column(columnIndex);
             return series[rowIndex];
         }
+    }
+    /// <summary>
+    /// 获取指定行的数据，返回对象数组。
+    /// 类似于 DataTable.Rows[i].ItemArray
+    /// </summary>
+    public object?[] Row(int index)
+    {
+        if (index < 0 || index >= Height)
+            throw new IndexOutOfRangeException($"Row index {index} is out of bounds. Height: {Height}");
+
+        var rowData = new object?[Width];
+        for (int i = 0; i < Width; i++)
+        {
+            // 复用之前实现的 this[row, col] 索引器
+            rowData[i] = this[index, i];
+        }
+        return rowData;
     }
 }

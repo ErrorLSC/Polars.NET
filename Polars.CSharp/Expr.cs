@@ -1,5 +1,4 @@
 using Apache.Arrow;
-using Apache.Arrow.Types;
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
@@ -516,6 +515,56 @@ public class Expr : IDisposable
         // 3. 调用底层 Wrapper (传递 DataType.Handle)
         return new Expr(PolarsWrapper.Map(h, function, outputType.Handle));
     }
+
+    #region Window & Offset Functions
+
+    /// <summary>
+    /// Window function: Apply aggregation over specific groups.
+    /// Example: Col("Amt").Sum().Over(Col("Group"))
+    /// </summary>
+    public Expr Over(params Expr[] partitionBy)
+    {
+        // 1. 准备 Partition Handles (需要 Clone，因为 Wrapper 会接管所有权)
+        var partitionHandles = System.Array.ConvertAll(partitionBy, e => e.CloneHandle());
+
+        // 2. 调用 Wrapper (注意：this.CloneHandle() 防止当前对象被消费)
+        var h = PolarsWrapper.Over(this.CloneHandle(), partitionHandles);
+        
+        return new Expr(h);
+    }
+
+    /// <summary>
+    /// 语法糖: 允许直接传字符串列名
+    /// Example: Col("Amt").Sum().Over("Group", "Date")
+    /// </summary>
+    public Expr Over(params string[] partitionBy)
+    {
+        var exprs = System.Array.ConvertAll(partitionBy, Polars.Col);
+        return Over(exprs);
+    }
+
+    /// <summary>
+    /// Shift values by the given number of indices.
+    /// Positive values shift downstream, negative values shift upstream.
+    /// </summary>
+    public Expr Shift(long n = 1)
+    {
+        var h = PolarsWrapper.Shift(this.CloneHandle(), n);
+        return new Expr(h);
+    }
+
+    /// <summary>
+    /// Calculate the difference with the previous value (n-th lag).
+    /// Null values are propagated.
+    /// </summary>
+    public Expr Diff(long n = 1)
+    {
+        var h = PolarsWrapper.Diff(this.CloneHandle(), n);
+        return new Expr(h);
+    }
+
+    #endregion
+
     // ==========================================
     // Rolling Window Functions
     // ==========================================

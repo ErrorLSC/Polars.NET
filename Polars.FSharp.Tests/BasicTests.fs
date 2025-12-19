@@ -19,7 +19,7 @@ type DisposableFile (extension: string, ?content: string) =
     interface IDisposable with
         member _.Dispose() =
             try 
-                if File.Exists(path) then File.Delete(path)
+                if File.Exists path then File.Delete path
             with _ -> ()
 type UserRecord = {
         name: string

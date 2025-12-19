@@ -21,7 +21,7 @@ public static class Polars
     /// </summary>
     /// <param name="names"></param>
     /// <returns></returns>
-    public static Expr Cols(params string[] names)
+    public static Expr Col(params string[] names)
     {
         return new Expr(PolarsWrapper.Cols(names));
     }
@@ -33,50 +33,54 @@ public static class Polars
     {
         return Col("*"); 
     }
-
+    /// <summary>
+    /// Return the lines count of current context.
+    /// </summary>
+    public static Expr Len()
+        => new(PolarsWrapper.Len());
     // --- Literals ---
     /// <summary>
     /// Create a literal expression from a string value.
     /// </summary>
     /// <param name="value"></param>
     /// <returns></returns>
-    public static Expr Lit(string value) => new Expr(PolarsWrapper.Lit(value));
+    public static Expr Lit(string value) => new(PolarsWrapper.Lit(value));
     /// <summary>
     /// Create a literal expression from a int value.
     /// </summary>
     /// <param name="value"></param>
     /// <returns></returns>
-    public static Expr Lit(int value)    => new Expr(PolarsWrapper.Lit(value));
+    public static Expr Lit(int value)    => new(PolarsWrapper.Lit(value));
     /// <summary>
     /// Create a literal expression from a double value.
     /// </summary>
     /// <param name="value"></param>
     /// <returns></returns>
-    public static Expr Lit(double value) => new Expr(PolarsWrapper.Lit(value));
+    public static Expr Lit(double value) => new(PolarsWrapper.Lit(value));
     /// <summary>
     /// Create a literal expression from a DateTime value.
     /// </summary>
     /// <param name="value"></param>
     /// <returns></returns>
-    public static Expr Lit(DateTime value) => new Expr(PolarsWrapper.Lit(value));
+    public static Expr Lit(DateTime value) => new(PolarsWrapper.Lit(value));
     /// <summary>
     /// Create a literal expression from a long value.
     /// </summary>
     /// <param name="value"></param>
     /// <returns></returns>
-    public static Expr Lit(bool value) => new Expr(PolarsWrapper.Lit(value));
+    public static Expr Lit(bool value) => new(PolarsWrapper.Lit(value));
     /// <summary>
     /// Create a literal expression from a long value.
     /// </summary>
     /// <param name="value"></param>
     /// <returns></returns>
-    public static Expr Lit(long value) => new Expr(PolarsWrapper.Lit(value));
+    public static Expr Lit(long value) => new(PolarsWrapper.Lit(value));
     /// <summary>
     /// Create a literal expression from a float value.
     /// </summary>
     /// <param name="value"></param>
     /// <returns></returns>
-    public static Expr Lit(float value) => new Expr(PolarsWrapper.Lit(value));
+    public static Expr Lit(float value) => new(PolarsWrapper.Lit(value));
     // ==========================================
     // Control Flow
     // ==========================================

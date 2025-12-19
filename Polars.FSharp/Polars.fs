@@ -59,7 +59,7 @@ module Polars =
     /// <summary> Create a Struct expression from a list of expressions. </summary>
     let asStruct (exprs: Expr list) =
         let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        new Expr(PolarsWrapper.AsStruct(handles))
+        new Expr(PolarsWrapper.AsStruct handles)
     // --- Eager Ops ---
     /// <summary> Add or replace columns. </summary>
     let withColumn (expr: Expr) (df: DataFrame) : DataFrame =
