@@ -555,7 +555,7 @@ public class DataFrame : IDisposable
     /// 通用写入接口：将 DataFrame 转换为 IDataReader 并交给 writerAction 处理。
     /// 用户可以在 writerAction 里使用 SqlBulkCopy, NpgsqlBinaryImporter 等任意工具。
     /// </summary>
-    public void WriteTo( Action<IDataReader> writerAction, int bufferSize = 5)
+    public void WriteTo( Action<IDataReader> writerAction, int bufferSize = 5,Dictionary<string, Type>? typeOverrides = null)
     {
         using var buffer = new BlockingCollection<Apache.Arrow.RecordBatch>(bufferSize);
 
@@ -563,7 +563,7 @@ public class DataFrame : IDisposable
         var consumerTask = Task.Run(() => 
         {
             // 这里创建了 ArrowToDbStream，它是 IDataReader 的实现
-            using var reader = new ArrowToDbStream(buffer.GetConsumingEnumerable());
+            using var reader = new ArrowToDbStream(buffer.GetConsumingEnumerable(),typeOverrides = null);
             
             // [关键] 将 reader 交给用户的回调函数
             // 用户在这里执行 bulk.WriteToServer(reader)
@@ -573,7 +573,7 @@ public class DataFrame : IDisposable
         // Producer
         try
         {
-            ExportBatches(batch => buffer.Add(batch));
+            ExportBatches(buffer.Add);
         }
         finally
         {

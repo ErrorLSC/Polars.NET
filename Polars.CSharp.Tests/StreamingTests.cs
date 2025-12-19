@@ -442,16 +442,30 @@ public class StreamingTests
         // ---------------------------------------------------------
         
         var targetTable = new System.Data.DataTable(); // 模拟目标表
-        
+
+        var schemaContract = new Dictionary<string, Type>
+        {
+            { "OrderDate", typeof(DateTime) }
+        };
         Console.WriteLine("[ETL] Starting Pipeline...");
-        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var sw = Stopwatch.StartNew();
         // 模拟 SqlBulkCopy.WriteToServer(reader)
         // 这一步会疯狂调用 reader.Read()，从而反向拉动整个链条
 
         // 执行流式写入！
         // 这一步会驱动：
         // sourceReader -> Arrow转换 -> Rust引擎(Filter/Calc) -> Callback -> Buffer -> ArrowToDbStream -> targetTable.Load
-        pipeline.SinkTo(targetTable.Load, bufferSize: 5);
+        pipeline.SinkTo(reader => 
+        {
+            // 验证点 1: Reader 敢不敢对外宣称它是 DateTime?
+            // (如果没有 Override，它只能宣称是 Int64)
+            int dateColIndex = reader.GetOrdinal("OrderDate");
+            Assert.Equal(typeof(DateTime), reader.GetFieldType(dateColIndex));
+            
+            // 模拟加载
+            targetTable.Load(reader);
+
+        }, bufferSize: 5, typeOverrides: schemaContract);
 
         sw.Stop();
         Console.WriteLine($"[ETL] Completed in {sw.Elapsed.TotalSeconds:F3}s. Rows written: {targetTable.Rows.Count}");
@@ -467,36 +481,7 @@ public class StreamingTests
         // 0 * 1.5 * 1.08 = 0
         Assert.Equal(0, targetTable.Rows[0]["OrderId"]);
         Assert.Equal(0.0, (double)targetTable.Rows[0]["TaxedAmount"], 4);
-        var actualVal = targetTable.Rows[0]["OrderDate"];
-        DateTime actualDate;
-
-        if (actualVal is DateTime dt)
-        {
-            actualDate = dt;
-        }
-        else if (actualVal is long ticks) // <--- 命中这里
-        {
-            // Polars 返回的是微秒 (Microseconds)
-            // 1766145600000000
-            // 还原逻辑：Epoch + Microseconds
-            var epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-            
-            // 注意：这里还原出来的是 "12:00 UTC"
-            // 因为 Naive DateTime 在 Arrow 里被视为 Wall Clock Time 存储
-            // 所以这个 UTC 时间的值，就是我们要的墙上时间
-            actualDate = epoch.AddTicks(ticks * 10); 
-        }
-        else
-        {
-            throw new Exception($"Unexpected type: {actualVal.GetType()}");
-        }
-
-        // 比较：忽略 Kind (Utc vs Local)，只比较“钟表上的时间”是否一致
-        // baseDate: 12:00:00 (Local/Unspecified)
-        // actualDate: 12:00:00 (Utc)
-        // 只要它们显示的数字一样，ETL 就是成功的
-        
-        Assert.Equal(baseDate.ToString("yyyy-MM-dd HH:mm:ss"), actualDate.ToString("yyyy-MM-dd HH:mm:ss"));
+        Assert.Equal(baseDate,targetTable.Rows[0]["OrderDate"]);     
 
         // 验证最后一行 (OrderId 99998) -> 它是最后一个偶数
         // 99998 * 1.5 * 1.08 = 161996.76

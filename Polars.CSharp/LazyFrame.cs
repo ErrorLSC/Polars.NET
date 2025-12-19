@@ -558,7 +558,8 @@ public class LazyFrame : IDisposable
     /// </summary>
     /// <param name="writerAction">接收 IDataReader 的回调 (在独立线程执行)</param>
     /// <param name="bufferSize">缓冲区大小 (Batch 数量)</param>
-    public void SinkTo(Action<IDataReader> writerAction, int bufferSize = 5)
+    /// <param name="typeOverrides">Target Schema</param>
+    public void SinkTo(Action<IDataReader> writerAction, int bufferSize = 5,Dictionary<string, Type>? typeOverrides = null)
     {
         // 1. 生产者-消费者缓冲区
         using var buffer = new BlockingCollection<RecordBatch>(boundedCapacity: bufferSize);
@@ -568,7 +569,7 @@ public class LazyFrame : IDisposable
         {
             // ArrowToDbStream 负责把 Buffer 伪装成 DataReader
             // 它会自动处理 Dispose，所以 writerAction 读完后 Batch 就会被释放
-            using var reader = new ArrowToDbStream(buffer.GetConsumingEnumerable());
+            using var reader = new ArrowToDbStream(buffer.GetConsumingEnumerable(),typeOverrides);
             
             // [核心] 将 reader 移交给用户逻辑
             // 用户在这里调用 bulk.WriteToServer(reader)

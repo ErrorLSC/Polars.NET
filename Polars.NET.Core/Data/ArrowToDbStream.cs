@@ -18,12 +18,15 @@ namespace Polars.NET.Core.Data
         private RecordBatch? _currentBatch;
         private int _currentRowIndex;
         private bool _isClosed;
+        // 类型覆盖字典 (列名 -> 强行指定的类型)
+        private readonly Dictionary<string, Type>? _typeOverrides;
 
-        public ArrowToDbStream(IEnumerable<RecordBatch> stream)
+        public ArrowToDbStream(IEnumerable<RecordBatch> stream,Dictionary<string, Type>? typeOverrides = null)
         {
             ArgumentNullException.ThrowIfNull(stream);
             _batchEnumerator = stream.GetEnumerator();
             _currentRowIndex = -1;
+            _typeOverrides = typeOverrides ?? new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase);
         }
 
         private bool EnsureSchema()
@@ -88,15 +91,72 @@ namespace Polars.NET.Core.Data
 
         public override object GetValue(int ordinal)
         {
-            if (_currentBatch == null) throw new InvalidOperationException("No data available.");
-            var column = _currentBatch.Column(ordinal);
-            if (column == null) return DBNull.Value;
-            if (column.IsNull(_currentRowIndex))
-                return DBNull.Value;
+            // 1. 获取原始值 (可能是退化后的 long 或 int)
+            // 先通过 base 获取，确保做了基础的 null 检查等
+            // 但这里我们要复用 GetValueFromArray 的逻辑，所以直接调
+            if (_currentBatch == null) throw new InvalidOperationException("No batch");
+            var col = _currentBatch.Column(ordinal);
+            if (col.IsNull(_currentRowIndex)) return DBNull.Value;
+            
+            var val = GetValueFromArray(col, _currentRowIndex);
+            
+            // 2. 获取目标类型 (可能是用户 Override 的，也可能是 Schema 自带的)
+            var targetType = GetFieldType(ordinal);
 
-            return GetValueFromArray(column, _currentRowIndex);
+            // 如果原始值类型和目标类型一致，直接返回 (性能优化)
+            if (val.GetType() == targetType) return val;
+
+            // -------------------------------------------------------------
+            // 魔法转换区域：物理类型 -> 逻辑类型
+            // -------------------------------------------------------------
+
+            // A. 处理 Long (Int64) 的退化 -> Timestamp, Time, Duration
+            if (val is long lVal)
+            {
+                // 1. long -> DateTime (Timestamp)
+                if (targetType == typeof(DateTime))
+                {
+                    // 假设 Microseconds (Polars 默认)
+                    return DateTime.UnixEpoch.AddTicks(lVal * 10); 
+                }
+
+                // 2. [新增] long -> DateTimeOffset (带时区支持)
+                if (targetType == typeof(DateTimeOffset))
+                {
+                    // 返回 UTC 时间点 (+00:00)
+                    // 数据库通常能处理 UTC 的 DateTimeOffset
+                    return new DateTimeOffset(DateTime.UnixEpoch.Ticks + (lVal * 10), TimeSpan.Zero);
+                }
+
+                // 3. [新增] long -> TimeSpan (Duration)
+                if (targetType == typeof(TimeSpan))
+                {
+                    // 1 us = 10 ticks
+                    return new TimeSpan(lVal * 10);
+                }
+
+                // 4. [新增] long -> TimeOnly (Time64)
+                if (targetType == typeof(TimeOnly))
+                {
+                    return new TimeOnly(lVal * 10);
+                }
+            }
+
+            // B. 处理 Int (Int32) 的退化 -> Date32
+            else if (val is int iVal)
+            {
+                // 5. [新增] int -> DateOnly (Date32)
+                if (targetType == typeof(DateOnly))
+                {
+                    // Arrow Date32 是 "Days since Unix Epoch"
+                    return DateOnly.FromDateTime(DateTime.UnixEpoch.AddDays(iVal));
+                }
+            }
+
+            // C. 其他情况 (比如 float -> decimal 之类的，如果需要也可以加)
+            
+            return val;
         }
-
         private object GetValueFromArray(IArrowArray array, int index)
         {
             switch (array)
@@ -237,6 +297,11 @@ namespace Polars.NET.Core.Data
             EnsureSchema();
             if (_schema == null) return typeof(object);
             var field = _schema.GetFieldByIndex(ordinal);
+            // [新增] 如果用户指定了覆盖类型，优先返回用户指定的！
+            if (_typeOverrides!.TryGetValue(field.Name, out var targetType))
+            {   
+                return targetType;
+            }
             return field.DataType switch
             {
                 Int32Type => typeof(int),
