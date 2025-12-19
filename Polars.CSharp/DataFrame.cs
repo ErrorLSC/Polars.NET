@@ -196,7 +196,7 @@ public class DataFrame : IDisposable
     {
         // 1. 显式获取 Schema (为了传给 Exporter)
         // 复用了你的"邪修"逻辑，支持嵌套类型推断
-        var schema = DbToArrowStream.GetArrowSchema(reader);
+        var schema = reader.GetArrowSchema();
 
         // 2. 获取流
         // 复用了 Buffer Pool + ArrowConverter

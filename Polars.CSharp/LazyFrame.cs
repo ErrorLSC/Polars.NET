@@ -174,13 +174,50 @@ public class LazyFrame : IDisposable
     public static LazyFrame ScanDatabase(IDataReader reader, int batchSize = 50_000)
     {
         // 1. 显式获取 Schema (为了传给 ScanRecordBatches，防止它去 Peek)
-        var schema = DbToArrowStream.GetArrowSchema(reader);
+        var schema = reader.GetArrowSchema();
         
         // 2. 获取流
         var stream = reader.ToArrowBatches(batchSize);
 
         // 3. 调用底层，传入 Schema
         return ScanRecordBatches(stream, schema);
+    }
+    /// <summary>
+    /// Lazy scan from a database using a factory.
+    /// Recommended for scenarios where the query might be executed multiple times.
+    /// </summary>
+    /// <param name="readerFactory">A function that creates a NEW IDataReader instance each time.</param>
+    /// <param name="batchSize">Define the size of the batch</param>
+    public static LazyFrame ScanDatabase(Func<IDataReader> readerFactory, int batchSize = 50_000)
+    {
+        // 1. 预读 Schema (Probe)
+        // 因为我们需要先构建 Logical Plan，所以必须先看一眼元数据
+        // 我们创建一个临时的 Reader，看完 Schema 立刻销毁
+        Schema schema;
+        using (var probeReader = readerFactory())
+        {
+            schema = probeReader.GetArrowSchema();
+        }
+
+        // 2. 定义可重放的流 (Replayable Stream)
+        // 这是一个本地函数，利用 C# 的迭代器状态机
+        IEnumerable<RecordBatch> ReplayableStream()
+        {
+            // 每次枚举开始时，调用工厂创建一个全新的 Reader
+            using var reader = readerFactory();
+            
+            // 转换为 Arrow 流并透传
+            foreach (var batch in reader.ToArrowBatches(batchSize))
+            {
+                yield return batch;
+            }
+            
+            // 循环结束，reader 自动 Dispose
+        }
+
+        // 3. 调用底层 Scan
+        // 我们显式传入 schema，避免底层再次探测
+        return ScanRecordBatches(ReplayableStream(), schema);
     }
     // ==========================================
     // Meta / Inspection

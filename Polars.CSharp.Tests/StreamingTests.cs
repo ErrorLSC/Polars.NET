@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using static Polars.CSharp.Polars;
 using Polars.NET.Core.Data;
 
 namespace Polars.CSharp.Tests;
@@ -414,16 +415,10 @@ public class StreamingTests
         using var sourceReader = sourceTable.CreateDataReader();
 
         // ---------------------------------------------------------
-        // 2. [Pipeline] 构建 Polars 流式管道
+        // 2. [Transform] 构建 Polars 流式管道
         // ---------------------------------------------------------
-        
-        // Step A: 获取 Schema (元数据)
-        // 最佳实践：对于 forward-only 流，先通过元数据获取 Schema，避免 Peek 第一行导致数据丢失
-        var arrowSchema = DbToArrowStream.GetArrowSchema(sourceReader);
 
-        // Step B: 建立延迟读取节点 (Lazy Scan)
-        // 使用 ScanRecordBatches 并传入 explicit schema，实现绝对安全的流式读取
-        var lf = LazyFrame.ScanRecordBatches(sourceReader.ToArrowBatches(batchSize: 10_000), arrowSchema);
+        var lf = LazyFrame.ScanDatabase(sourceReader,50000);
 
         // Step C: 定义转换逻辑 (Transform)
         // 业务需求：
@@ -431,11 +426,10 @@ public class StreamingTests
         // 2. 计算税后金额 (Amount * 1.08)
         // 3. 选取需要的列
         var pipeline = lf
-            .Filter(Polars.Col("Region") == Polars.Lit("US"))
-            .WithColumns((Polars.Col("Amount") * 1.08).Alias("TaxedAmount"))
-            .Select(Polars.Col("OrderId").Cast(DataType.Int32), // 明确：我要 Int32
-            Polars.Col("TaxedAmount").Cast(DataType.Float64), // 明确：我要 Double
-            Polars.Col("OrderDate").Cast(DataType.Datetime));
+            .Filter(Col("Region") == Lit("US"))
+            .WithColumns((Col("Amount") * 1.08).Alias("TaxedAmount"))
+            .Select(Col("OrderId"),Col("TaxedAmount"),
+                    Col("OrderDate"));
 
         // ---------------------------------------------------------
         // 3. [Load] 准备目标数据库 & 执行 Sink
@@ -486,15 +480,45 @@ public class StreamingTests
         // 验证最后一行 (OrderId 99998) -> 它是最后一个偶数
         // 99998 * 1.5 * 1.08 = 161996.76
         int lastId = 99998;
-        Assert.Equal(lastId, targetTable.Rows[targetTable.Rows.Count - 1]["OrderId"]);
+        Assert.Equal(lastId, targetTable.Rows[^1]["OrderId"]);
         
         double expectedAmount = lastId * 1.5 * 1.08;
-        double actualAmount = (double)targetTable.Rows[targetTable.Rows.Count - 1]["TaxedAmount"];
+        double actualAmount = (double)targetTable.Rows[^1]["TaxedAmount"];
         Assert.Equal(expectedAmount, actualAmount, 0.001); // 允许浮点微小误差
 
         // 验证列名 (确保 Select 生效)
         Assert.True(targetTable.Columns.Contains("TaxedAmount"));
         Assert.False(targetTable.Columns.Contains("Amount")); // 原列被排除了
         Assert.False(targetTable.Columns.Contains("Region")); // 原列被排除了
+    }
+    [Fact]
+    public void Test_ScanDatabase_Factory_Reusability()
+    {
+        // 1. 准备源数据
+        var table = new System.Data.DataTable();
+        table.Columns.Add("Id", typeof(int));
+        table.Rows.Add(1);
+        table.Rows.Add(2);
+
+        // 2. 定义工厂
+        // 每次调用都会生成一个新的 DataTableReader (状态重置)
+        System.Data.IDataReader factory() => table.CreateDataReader();
+
+        // 3. 创建 LazyFrame (Factory 模式)
+        var lf1 = LazyFrame.ScanDatabase(factory);
+        var lf2 = lf1.Clone();
+
+        // 4. [第一次执行]
+        // 这一步会调用 factory() -> 读完 -> dispose reader
+        var df1 = lf1.Collect();
+        Assert.Equal(2, df1.Height);
+        Assert.Equal(1, df1[0, "Id"]);
+        
+        // 5. [第二次执行] - 关键点！
+        // 如果我们传的是普通 reader，这里就会崩 (ObjectDisposedException 或 Empty)
+        // 但因为是 factory，这里会再次调用 factory() -> 全新 reader
+        var df2 = lf2.Collect();
+        Assert.Equal(2, df2.Height);
+        Assert.Equal(2, df2[1, "Id"]);
     }
 }
