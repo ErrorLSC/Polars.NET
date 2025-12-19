@@ -2,7 +2,10 @@ namespace Polars.FSharp.Tests
 
 open Xunit
 open Polars.FSharp
-
+open System
+open System.Data
+open System.Diagnostics
+module pl = Polars
 type ``Complex Query Tests`` () =
     
     [<Fact>]
@@ -453,7 +456,7 @@ type ``Complex Query Tests`` () =
 
         let res = 
             lfUsers
-            |> Polars.joinLazy lfOrders [Polars.col "id"] [Polars.col "uid"] JoinType.Left
+            |> Polars.joinLazy lfOrders [Polars.col "id"] [Polars.col "uid"] Left
             |> Polars.collect
             |> Polars.sort (Polars.col "id") false
 
@@ -527,3 +530,122 @@ type ``Complex Query Tests`` () =
         // 1005, AAPL (超时，应为 null)
         Assert.Equal("AAPL", res.String("ticker", 2).Value)
         Assert.True(res.Float("bid", 2).IsNone) // 验证 Tolerance 生效
+    [<Fact>]
+    member _.``Test_ETL_Stream_EndToEnd: DataTable -> Polars -> DataTable`` () =
+        // ==================================================================================
+        // 场景模拟：每日订单处理 (ETL)
+        // Source DB (Mock DataTable) -> DataReader -> Polars Lazy -> Filter/Calc -> SinkTo -> Target DB
+        // 目标：处理 10 万行数据，内存不积压，类型全覆盖。
+        // ==================================================================================
+
+        let totalRows = 100_000
+        
+        // ---------------------------------------------------------
+        // 1. [Extract] 准备源数据库 (Source)
+        // ---------------------------------------------------------
+        let sourceTable = new DataTable()
+        sourceTable.Columns.Add("OrderId", typeof<int>) |> ignore
+        sourceTable.Columns.Add("Region", typeof<string>) |> ignore
+        sourceTable.Columns.Add("Amount", typeof<double>) |> ignore
+        sourceTable.Columns.Add("OrderDate", typeof<DateTime>) |> ignore
+
+        // 生成模拟数据
+        // 偶数行是 "US"，奇数行是 "EU"
+        // 日期固定为今天中午（避开时区坑）
+        let baseDate = DateTime.Now.Date.AddHours 12.0
+        
+        for i in 0 .. totalRows - 1 do
+            let region = if i % 2 = 0 then "US" else "EU"
+            let amount = float i * 1.5
+            let date = baseDate.AddDays(float (i % 10))
+            sourceTable.Rows.Add(i, region, amount, date) |> ignore
+
+        // 定义 Reader 工厂
+        // scanDb 需要一个工厂函数，以便在需要时(重新)创建连接
+        let readerFactory = fun () -> sourceTable.CreateDataReader() :> IDataReader
+
+        // ---------------------------------------------------------
+        // 2. [Transform] 构建 Polars 流式管道
+        // ---------------------------------------------------------
+
+        // 这里的 batchSize=50_000 意味着 Polars 每次只从 Reader 拉取 5万行进内存
+        let lf = LazyFrame.scanDb(readerFactory, batchSize=50_000)
+
+        // Step C: 定义转换逻辑 (Transform)
+        // 业务需求：
+        // 1. 只保留 "US" 地区的订单
+        // 2. 计算税后金额 (Amount * 1.08)
+        // 3. 选取需要的列
+        let pipeline = 
+            lf
+            |> Polars.filterLazy(Polars.col "Region".== Polars.lit "US")
+            |> Polars.withColumnLazy((Polars.col "Amount" * Polars.lit 1.08).Alias "TaxedAmount")
+            |> Polars.selectLazy([
+                Polars.col "OrderId"
+                Polars.col "TaxedAmount"
+                Polars.col "OrderDate"
+            ])
+
+        // ---------------------------------------------------------
+        // 3. [Load] 准备目标数据库 & 执行 Sink
+        // ---------------------------------------------------------
+        
+        let targetTable = new DataTable() // 模拟目标表
+
+        // 定义类型契约：强制要求 OrderDate 为 DateTime
+        // (Arrow 默认可能识别为 Date32/Date64/Timestamp，我们需要确保 DataReader 对外暴露的是 DateTime)
+        let schemaContract = dict [
+            "OrderDate", typeof<DateTime>
+        ]
+
+        printfn "[ETL] Starting Pipeline..."
+        let sw = Stopwatch.StartNew()
+
+        // 执行流式写入！
+        // 这一步会驱动：
+        // sourceReader -> Arrow转换 -> Rust引擎(Filter/Calc) -> Buffer -> ArrowToDbStream -> targetTable.Load
+        pipeline.SinkTo(
+            (fun reader -> 
+                // 验证点 1: Reader 敢不敢对外宣称它是 DateTime?
+                let dateColIndex = reader.GetOrdinal "OrderDate"
+                Assert.Equal(typeof<DateTime>, reader.GetFieldType dateColIndex)
+                
+                // 模拟加载 (SqlBulkCopy 的行为就是一直 Read 到结束)
+                targetTable.Load reader
+            ),
+            bufferSize = 50000,
+            typeOverrides = schemaContract
+        )
+
+        sw.Stop()
+        printfn "[ETL] Completed in %.3fs. Rows written: %d" sw.Elapsed.TotalSeconds targetTable.Rows.Count
+
+        // ---------------------------------------------------------
+        // 4. [Verify] 验证结果
+        // ---------------------------------------------------------
+        
+        // 验证行数：只保留了 US (偶数行)，应该是 50,000 行
+        Assert.Equal(totalRows / 2, targetTable.Rows.Count)
+
+        // 验证第一行 (OrderId 0)
+        // 0 * 1.5 * 1.08 = 0
+        let row0 = targetTable.Rows.[0]
+        Assert.Equal(0, unbox<int> row0.["OrderId"])
+        Assert.Equal(0.0, unbox<double> row0.["TaxedAmount"], 4)
+        Assert.Equal(baseDate, unbox<DateTime> row0.["OrderDate"])
+
+        // 验证最后一行 (OrderId 99998) -> 它是最后一个偶数
+        // 99998 * 1.5 * 1.08 = 161996.76
+        let lastRow = targetTable.Rows.[targetTable.Rows.Count - 1]
+        let lastId = 99998
+        
+        Assert.Equal(lastId, unbox<int> lastRow.["OrderId"])
+        
+        let expectedAmount = float lastId * 1.5 * 1.08
+        let actualAmount = Convert.ToDouble(lastRow.["TaxedAmount"])
+        Assert.Equal(expectedAmount, actualAmount, 0.001)
+
+        // 验证列名 (确保 Select 生效)
+        Assert.True(targetTable.Columns.Contains "TaxedAmount")
+        Assert.False(targetTable.Columns.Contains "Amount") // 原列被排除了
+        Assert.False(targetTable.Columns.Contains "Region") // 原列被排除了

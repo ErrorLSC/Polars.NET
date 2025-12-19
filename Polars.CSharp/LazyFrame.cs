@@ -578,7 +578,7 @@ public class LazyFrame : IDisposable
     /// 通用流式 Sink：每计算出一批数据，就触发一次回调。
     /// 这是实现自定义 Sink（如数据库、网络流、消息队列）的基础。
     /// </summary>
-    public void SinkBatches(Action<Apache.Arrow.RecordBatch> onBatchReceived)
+    public void SinkBatches(Action<RecordBatch> onBatchReceived)
     {
         // CloneHandle() 增加引用计数，确保 this 不受影响，
         // 而 Clone 出来的 handle 会在 Wrapper 里被 TransferOwnership 给 Rust 消耗掉

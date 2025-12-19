@@ -5,6 +5,10 @@ open Polars.NET.Core
 open Apache.Arrow
 open System.Collections.Generic
 open Polars.NET.Core.Arrow
+open Polars.NET.Core.Data
+open System.Data
+open System.Threading.Tasks
+open System.Collections.Concurrent
 /// <summary>
 /// Polars data types for casting and schema definitions.
 /// </summary>
@@ -1012,12 +1016,12 @@ and DataFrame(handle: DataFrameHandle) =
     /// </summary>
     /// <param name="reader">The open DataReader.</param>
     /// <param name="batchSize">Rows per batch (default 50,000).</param>
-    static member readDb(reader: Data.IDataReader, ?batchSize: int) : DataFrame =
+    static member ReadDb(reader: Data.IDataReader, ?batchSize: int) : DataFrame =
         let size = defaultArg batchSize 50_000
         
         // 1. 将 DataReader 转为 Arrow Batch 流
         // 这是一个 C# 扩展方法，在 F# 中作为静态方法调用
-        let batchStream = Polars.NET.Core.Data.DbToArrowStream.ToArrowBatches(reader, size)
+        let batchStream = reader.ToArrowBatches size
         
         // 2. 直接导入
         let handle = Polars.NET.Core.Arrow.ArrowStreamInterop.ImportEager batchStream
@@ -1077,6 +1081,71 @@ and DataFrame(handle: DataFrameHandle) =
     member this.WriteJson(path: string) =
         PolarsWrapper.WriteJson(this.Handle, path)
         this 
+    /// <summary>
+    /// Export the DataFrame as a stream of Arrow RecordBatches (Zero-Copy).
+    /// Calls 'onBatch' for each chunk in the DataFrame.
+    /// Useful for custom eager sinks (e.g. WriteDatabase).
+    /// </summary>
+    member this.ExportBatches(onBatch: Action<RecordBatch>) : unit =
+        // Eager 操作通常是只读的，不需要 TransferOwnership
+        // PolarsWrapper.ExportBatches 负责遍历内部 Chunks 并回调 C#
+        PolarsWrapper.ExportBatches(this.Handle, onBatch)
+
+    /// <summary>
+    /// Stream the DataFrame directly to a database or other IDataReader consumer.
+    /// Uses a producer-consumer pattern with bounded capacity.
+    /// </summary>
+    /// <param name="writerAction">Callback to consume the IDataReader (e.g. using SqlBulkCopy).</param>
+    /// <param name="bufferSize">Max number of batches to buffer in memory (default: 5).</param>
+    /// <param name="typeOverrides">Force specific C# types for columns (Target Schema).</param>
+    member this.WriteTo(writerAction: Action<IDataReader>, ?bufferSize: int, ?typeOverrides: IDictionary<string, Type>) : unit =
+        let capacity = defaultArg bufferSize 5
+        
+        // 1. 生产者-消费者缓冲区
+        // use 确保 Collection 释放
+        use buffer = new BlockingCollection<Apache.Arrow.RecordBatch>(capacity)
+
+        // 2. 启动消费者任务 (Consumer: DB Writer)
+        // 在后台线程运行，避免阻塞主线程（虽然 Eager WriteTo 本身通常是阻塞调用）
+        let consumerTask = Task.Run(fun () ->
+            // 获取消费流
+            let stream = buffer.GetConsumingEnumerable()
+            
+            // 处理类型覆盖
+            let overrides = 
+                match typeOverrides with 
+                | Some d -> new Dictionary<string, Type>(d) 
+                | None -> null
+            
+            // 构造伪装的 DataReader
+            use reader = new ArrowToDbStream(stream, overrides)
+            
+            // 执行用户回调 (如 SqlBulkCopy.WriteToServer)
+            writerAction.Invoke reader
+        )
+
+        // 3. 启动生产者 (Producer: DataFrame Iterator)
+        // 当前线程执行，遍历 DataFrame 的内存块
+        try
+            try
+                // 将 DataFrame 的 Chunks 推入 Buffer
+                // 如果 Buffer 满了，这里会阻塞
+                this.ExportBatches(fun batch -> buffer.Add batch)
+            finally
+                // 4. 通知消费者：没有更多数据了
+                buffer.CompleteAdding()
+        with
+        | _ -> 
+            // 确保异常抛出
+            reraise()
+
+        // 5. 等待消费者完成
+        try
+            consumerTask.Wait()
+        with
+        | :? AggregateException as aggEx ->
+            // 解包 Task 异常，抛出真实的 SqlException 等
+            raise (aggEx.Flatten().InnerException)
     
     /// <summary>
     /// Get the schema as Map<ColumnName, DataType>.
@@ -1287,6 +1356,9 @@ and LazyFrame(handle: LazyFrameHandle) =
     member this.Collect() = 
         let dfHandle = PolarsWrapper.LazyCollect handle
         new DataFrame(dfHandle)
+    member this.CollectStreaming() =
+        let dfHandle = PolarsWrapper.CollectStreaming handle
+        new DataFrame(dfHandle)
     /// <summary> Get the schema string of the LazyFrame without executing it. </summary>
     member _.SchemaRaw = PolarsWrapper.GetSchemaString handle
 
@@ -1349,22 +1421,22 @@ and LazyFrame(handle: LazyFrameHandle) =
         // 1. 静态推断 Schema (无需触碰数据流)
         // 相比 C# 的 ProbeEnumerator (预读首帧)，F# 这里利用 BuildRecordBatch 的反射能力，
         // 传入空序列即可得到正确的 Schema。这样更安全，不会消耗流的任何元素。
-        let dummyBatch = Polars.NET.Core.Arrow.ArrowFfiBridge.BuildRecordBatch(Seq.empty<'T>)
+        let dummyBatch = ArrowFfiBridge.BuildRecordBatch(Seq.empty<'T>)
         let schema = dummyBatch.Schema
 
         // 2. 定义流工厂 (The Stream Factory)
         // 每次 Polars 引擎需要扫描数据时，都会调用这个工厂。
-        let streamFactory = System.Func<System.Collections.Generic.IEnumerator<Apache.Arrow.RecordBatch>>(fun () ->
+        let streamFactory = Func<IEnumerator<RecordBatch>>(fun () ->
             data
             |> Seq.chunkBySize size
-            |> Seq.map Polars.NET.Core.Arrow.ArrowFfiBridge.BuildRecordBatch
+            |> Seq.map ArrowFfiBridge.BuildRecordBatch
             // [修复] Seq 模块没有 getEnumerator，直接调用接口方法
             |> fun s -> s.GetEnumerator()
         )
 
         // 3. 调用 Core 层封装
         // ArrowStreamInterop.ScanStream 封装了 CreateDirectScanContext, ExportSchema, CallWrapper, FreeSchema 等所有逻辑
-        let handle = Polars.NET.Core.Arrow.ArrowStreamInterop.ScanStream(streamFactory, schema)
+        let handle = ArrowStreamInterop.ScanStream(streamFactory, schema)
         
         new LazyFrame(handle)
 
@@ -1372,27 +1444,27 @@ and LazyFrame(handle: LazyFrameHandle) =
     /// [Lazy] Scan a database query lazily.
     /// Requires a factory function to create new IDataReaders for potential multi-pass scans.
     /// </summary>
-    static member scanDb(readerFactory: unit -> System.Data.IDataReader, ?batchSize: int) : LazyFrame =
+    static member scanDb(readerFactory: unit -> IDataReader, ?batchSize: int) : LazyFrame =
         let size = defaultArg batchSize 50_000
         
         // 1. 预读 Schema (Open -> GetSchema -> Close)
         let schema = 
             use tempReader = readerFactory()
-            Polars.NET.Core.Data.DbToArrowStream.GetArrowSchema(tempReader)
+            tempReader.GetArrowSchema()
 
         // 2. 定义流工厂
-        let streamFactory = System.Func<System.Collections.Generic.IEnumerator<Apache.Arrow.RecordBatch>>(fun () ->
+        let streamFactory = Func<IEnumerator<RecordBatch>>(fun () ->
             // 注意：这里我们创建一个 seq，并让它负责 reader 的生命周期
             let batchSeq = seq {
                 use reader = readerFactory()
                 // yield! 展开枚举器
-                yield! Polars.NET.Core.Data.DbToArrowStream.ToArrowBatches(reader, size)
+                yield! reader.ToArrowBatches size
             }
             batchSeq.GetEnumerator()
         )
 
         // 3. 调用 Core
-        let handle = Polars.NET.Core.Arrow.ArrowStreamInterop.ScanStream(streamFactory, schema)
+        let handle = ArrowStreamInterop.ScanStream(streamFactory, schema)
         new LazyFrame(handle)
 
     /// <summary> Write LazyFrame execution result to Parquet (Streaming). </summary>
@@ -1401,6 +1473,81 @@ and LazyFrame(handle: LazyFrameHandle) =
     /// <summary> Write LazyFrame execution result to IPC (Streaming). </summary>
     member this.SinkIpc (path: string) = 
         PolarsWrapper.SinkIpc(this.CloneHandle(), path)
+    // ==========================================
+    // Streaming Sink (Lazy)
+    // ==========================================
+    /// <summary>
+    /// Stream the query result in batches.
+    /// This executes the query and calls 'onBatch' for each RecordBatch produced.
+    /// </summary>
+    member this.SinkBatches(onBatch: Action<RecordBatch>) : unit =
+        // 这里假设 Wrapper 返回 void，或者是阻塞的
+        // 如果 Wrapper 返回 Handle (如 C# 示例)，我们需要确保它被执行
+        let newHandle = PolarsWrapper.SinkBatches(this.CloneHandle(), onBatch)
+        
+        // C# 示例里为了触发执行，手动调了 CollectStreaming。
+        // 这说明 SinkBatches 只是构建了 Plan，还没跑。
+        let lfRes = new LazyFrame(newHandle)
+        use _ = lfRes.CollectStreaming()
+        () 
+    /// <summary>
+    /// Stream query results directly to a database or other IDataReader consumer.
+    /// Uses a producer-consumer pattern with bounded capacity for memory efficiency.
+    /// </summary>
+    /// <param name="writerAction">Callback to consume the IDataReader (e.g., using SqlBulkCopy).</param>
+    /// <param name="bufferSize">Max number of batches to buffer in memory (default: 5).</param>
+    /// <param name="typeOverrides">Force specific C# types for columns (e.g. map Date32 to DateTime).</param>
+    member this.SinkTo(writerAction: Action<IDataReader>, ?bufferSize: int, ?typeOverrides: IDictionary<string, Type>) : unit =
+        let capacity = defaultArg bufferSize 5
+        
+        // 1. 生产者-消费者缓冲区
+        // 使用 use 确保 Collection 在结束后 Dispose (虽然它主要是清理句柄)
+        use buffer = new BlockingCollection<RecordBatch>(boundedCapacity = capacity)
+
+        // 2. 启动消费者任务 (Consumer: DB Writer)
+        // Task.Run 启动后台线程
+        let consumerTask = Task.Run(fun () ->
+            // 获取消费枚举器 (GetConsumingEnumerable 会阻塞等待直到 CompleteAdding)
+            let stream = buffer.GetConsumingEnumerable()
+            
+            // 将 override 字典传给 ArrowToDbStream (如果提供了的话)
+            // C# 的 ArrowToDbStream 构造函数应该接受 IEnumerable 和 Dictionary
+            let overrides = 
+                    match typeOverrides with 
+                    | Some d -> new Dictionary<string, Type>(d) 
+                    | None -> null
+            
+            // 构造伪装的 DataReader
+            use reader = new ArrowToDbStream(stream, overrides)
+            
+            // 执行用户逻辑 (如 SqlBulkCopy)
+            writerAction.Invoke reader
+        )
+
+        // 3. 启动生产者 (Producer: Polars Engine)
+        // 在当前线程阻塞执行
+        try
+            try
+                // 将 Polars 生产的 Batch 推入 Buffer
+                // 如果 Buffer 满了，Buffer.Add 会阻塞，从而反压 Rust 引擎
+                this.SinkBatches(fun batch -> buffer.Add batch)
+            finally
+                // 4. 通知消费者：没有更多数据了
+                buffer.CompleteAdding()
+        with
+        | _ -> 
+            // 如果生产者崩溃，确保 Task 也能收到异常或取消，防止死锁
+            // (CompleteAdding 已经在 finally 里了，消费者会读完剩余数据后退出)
+            reraise()
+
+        // 4. 等待消费者完成并抛出可能的聚合异常
+        try
+            consumerTask.Wait()
+        with
+        | :? AggregateException as aggEx ->
+            // 拆包 AggregateException，抛出真正的首个错误，让调用方好处理
+            raise (aggEx.Flatten().InnerException)
+    
     /// <summary>
     /// Join with another LazyFrame.
     /// </summary>

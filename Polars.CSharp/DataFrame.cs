@@ -545,7 +545,7 @@ public class DataFrame : IDisposable
     /// 这是实现自定义 Eager Sink (如 WriteDatabase) 的基础。
     /// </summary>
     /// <param name="onBatchReceived">接收 RecordBatch 的回调</param>
-    public void ExportBatches(Action<Apache.Arrow.RecordBatch> onBatchReceived)
+    public void ExportBatches(Action<RecordBatch> onBatchReceived)
     {
         // 调用 Wrapper，传递 Handle (DataFrameHandle)
         // 注意：这是只读操作，不需要 TransferOwnership
@@ -557,7 +557,7 @@ public class DataFrame : IDisposable
     /// </summary>
     public void WriteTo( Action<IDataReader> writerAction, int bufferSize = 5,Dictionary<string, Type>? typeOverrides = null)
     {
-        using var buffer = new BlockingCollection<Apache.Arrow.RecordBatch>(bufferSize);
+        using var buffer = new BlockingCollection<RecordBatch>(bufferSize);
 
         // Consumer Task
         var consumerTask = Task.Run(() => 

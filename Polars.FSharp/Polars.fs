@@ -3,8 +3,8 @@ namespace Polars.FSharp
 open System
 open Apache.Arrow
 open Polars.NET.Core
-open System.Collections.Generic
 open System.Threading.Tasks
+
 /// <summary>
 /// The main entry point for Polars operations in F#.
 /// </summary>
