@@ -72,4 +72,40 @@ public class CleaningTests
         Assert.Equal(1, droppedDf.Height); 
         Assert.Equal(1, droppedDf.GetValue<int>(0,"A"));
     }
+    [Fact]
+    public void Test_Cleaning_Dirty_Data()
+    {
+        // 1. 模拟脏数据 (字符串列，混有数字、垃圾字符、NaN文字)
+        var df = DataFrame.FromColumns(new 
+        {
+            RawData = new[] { "100", "200.5", "NotANumber", "NaN", null }
+        });
+
+        // 2. 清洗流程
+        var cleanExpr = Polars.Col("RawData")
+            // Step A: 强转为 Double，strict=false
+            // "100" -> 100.0
+            // "200.5" -> 200.5
+            // "NotANumber" -> null (因为非严格转换)
+            // "NaN" -> NaN (Polars能识别字符串 "NaN")
+            // null -> null
+            .Cast(DataType.Float64, strict: false)
+            
+            // Step B: 处理 NaN (针对那行 "NaN")
+            .FillNan(0) 
+            
+            // Step C: 处理 Null (针对那行 "NotANumber" 和原本的 null)
+            .FillNull(0);
+
+        var result = df.Select(cleanExpr.Alias("Cleaned"));
+
+        // 3. 验证
+        var rows = result["Cleaned"].ToArray<double?>();
+        
+        Assert.Equal(100.0, rows[0]);
+        Assert.Equal(200.5, rows[1]);
+        Assert.Equal(0.0, rows[2]); // "NotANumber" -> null -> 0
+        Assert.Equal(0.0, rows[3]); // "NaN" -> NaN -> 0
+        Assert.Equal(0.0, rows[4]); // null -> 0
+    }
 }

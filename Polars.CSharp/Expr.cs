@@ -403,43 +403,7 @@ public class Expr : IDisposable
     /// </summary>
     /// <param name="value"></param>
     /// <returns></returns>
-    public Expr FillNull(int value) => FillNull(Polars.Lit(value));
-    /// <summary>
-    /// Fill null values with a specified literal value.
-    /// </summary>
-    /// <param name="value"></param>
-    /// <returns></returns>
-    public Expr FillNull(double value) => FillNull(Polars.Lit(value));
-    /// <summary>
-    /// Fill null values with a specified literal value.    
-    /// </summary>
-    /// <param name="value"></param>
-    /// <returns></returns>
-    public Expr FillNull(string value) => FillNull(Polars.Lit(value));
-    /// <summary>
-    /// Fill null values with a specified literal value.
-    /// </summary>
-    /// <param name="value"></param>
-    /// <returns></returns>
-    public Expr FillNull(bool value) => FillNull(Polars.Lit(value));
-    /// <summary>
-    /// Fill null values with a specified literal value.
-    /// </summary>
-    /// <param name="value"></param>
-    /// <returns></returns>
-    public Expr FillNull(long value) => FillNull(Polars.Lit(value));
-    /// <summary>
-    /// Fill null values with a specified literal value.
-    /// </summary>
-    /// <param name="value"></param>
-    /// <returns></returns>
-    public Expr FillNull(float value) => FillNull(Polars.Lit(value));
-    /// <summary>
-    /// Fill null values with a specified literal value.
-    /// </summary>
-    /// <param name="value"></param>
-    /// <returns></returns>
-    public Expr FillNull(DateTime value) => FillNull(Polars.Lit(value));
+    public Expr FillNull(object value) => FillNull(MakeLit(value));
     /// <summary>
     /// Fill null values with a specific strategy (Forward).
     /// </summary>
@@ -457,7 +421,15 @@ public class Expr : IDisposable
     /// Evaluate whether the expression is not null.
     /// </summary>
     public Expr IsNotNull() => new(PolarsWrapper.IsNotNull(CloneHandle()));
-    
+    /// <summary>
+    /// Fill floating point NaN values with a specified value.
+    /// Note: This is different from FillNull. It only handles IEEE 754 NaN.
+    /// </summary>
+    public Expr FillNan(object value)
+    {
+        // 自动把 value 转为 Lit Expr
+        return new Expr(PolarsWrapper.FillNan(CloneHandle(), MakeLit(value).Handle));
+    }
     // ==========================================
     // Statistical Ops
     // ==========================================

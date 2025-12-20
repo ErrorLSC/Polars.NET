@@ -233,7 +233,8 @@ public static partial class PolarsWrapper
     // Null Handling
     public static ExprHandle FillNull(ExprHandle expr, ExprHandle fillValue) 
         => BinaryOp(NativeBindings.pl_expr_fill_null, expr, fillValue);
-
+    public static ExprHandle FillNan(ExprHandle expr, ExprHandle fillValue) 
+        => BinaryOp(NativeBindings.pl_expr_fill_nan, expr, fillValue);
     public static ExprHandle IsNull(ExprHandle expr) 
         => UnaryOp(NativeBindings.pl_expr_is_null, expr);
 

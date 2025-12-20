@@ -1163,3 +1163,19 @@ pub extern "C" fn pl_expr_quantile(
     let new_expr = ctx.inner.quantile(lit(quantile), method);
     Box::into_raw(Box::new(ExprContext { inner: new_expr }))
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_fill_nan(
+    expr: *mut ExprContext,
+    fill_value: *mut ExprContext
+) -> *mut ExprContext {
+    ffi_try!({
+        let e = unsafe { Box::from_raw(expr) };
+        let v = unsafe { Box::from_raw(fill_value) };
+        
+        // fill_nan 接受一个 Expr
+        let out = e.inner.fill_nan(v.inner);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: out })))
+    })
+}
