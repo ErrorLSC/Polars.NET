@@ -322,7 +322,7 @@ Bob,2024,History";
         // 比如第一行应该是 2024-01-01, NY, 5 (或者 LA, 20，取决于排序稳定性，我们这里不深究具体排序，只验证数据存在性)
         // 简单验证第一行的数据类型正确
         Assert.NotNull(unpivoted.Column("city").GetValue<string>(0));
-}
+    }
     // ==========================================
     // Display Tests (Head & Show)
     // ==========================================
@@ -546,43 +546,78 @@ B,5";
         foreach (var col in columns) col.Dispose();
     }
     [Fact]
-public void Test_DataFrame_Explode_Eager()
-{
-    // 1. 构造数据: 模拟逗号分隔的字符串
-    // Row 0: "1,2" (炸开后应变2行)
-    // Row 1: "3"   (炸开后保持1行)
-    using var s = new Series("nums", ["1,2", "3"]);
-    using var df = new DataFrame(s);
+    public void Test_DataFrame_Explode_Eager()
+    {
+        // 1. 构造数据: 模拟逗号分隔的字符串
+        // Row 0: "1,2" (炸开后应变2行)
+        // Row 1: "3"   (炸开后保持1行)
+        using var s = new Series("nums", ["1,2", "3"]);
+        using var df = new DataFrame(s);
 
-    // 2. 预处理: 用 Split 生成 List 列
-    // 此时 df 结构:
-    // ┌──────┬───────────┐
-    // │ nums ┆ list_vals │
-    // ╞══════╪═══════════╡
-    // │ 1,2  ┆ ["1","2"] │
-    // │ 3    ┆ ["3"]     │
-    // └──────┴───────────┘
-    using var dfWithList = df.Select(
-        Col("nums"),
-        Col("nums").Str.Split(",").Alias("list_vals")
-    );
+        // 2. 预处理: 用 Split 生成 List 列
+        // 此时 df 结构:
+        // ┌──────┬───────────┐
+        // │ nums ┆ list_vals │
+        // ╞══════╪═══════════╡
+        // │ 1,2  ┆ ["1","2"] │
+        // │ 3    ┆ ["3"]     │
+        // └──────┴───────────┘
+        using var dfWithList = df.Select(
+            Col("nums"),
+            Col("nums").Str.Split(",").Alias("list_vals")
+        );
 
-    // 3. 执行 Explode
-    // 这一步调用了你的 public DataFrame Explode(params Expr[] exprs)
-    using var exploded = dfWithList.Explode(Col("list_vals"));
+        // 3. 执行 Explode
+        // 这一步调用了你的 public DataFrame Explode(params Expr[] exprs)
+        using var exploded = dfWithList.Explode(Col("list_vals"));
 
-    // 4. 验证结果
-    // 总行数应该是 2 + 1 = 3
-    Assert.Equal(3, exploded.Height);
+        // 4. 验证结果
+        // 总行数应该是 2 + 1 = 3
+        Assert.Equal(3, exploded.Height);
 
-    // 验证 list_vals 列的内容是否已展平为 String
-    Assert.Equal("1", exploded.GetValue<string>(0, "list_vals"));
-    Assert.Equal("2", exploded.GetValue<string>(1, "list_vals"));
-    Assert.Equal("3", exploded.GetValue<string>(2, "list_vals"));
+        // 验证 list_vals 列的内容是否已展平为 String
+        Assert.Equal("1", exploded.GetValue<string>(0, "list_vals"));
+        Assert.Equal("2", exploded.GetValue<string>(1, "list_vals"));
+        Assert.Equal("3", exploded.GetValue<string>(2, "list_vals"));
 
-    // 验证其它列 (nums) 是否被正确复制 (Duplicated)
-    Assert.Equal("1,2", exploded.GetValue<string>(0, "nums"));
-    Assert.Equal("1,2", exploded.GetValue<string>(1, "nums"));
-    Assert.Equal("3",   exploded.GetValue<string>(2, "nums"));
-}
+        // 验证其它列 (nums) 是否被正确复制 (Duplicated)
+        Assert.Equal("1,2", exploded.GetValue<string>(0, "nums"));
+        Assert.Equal("1,2", exploded.GetValue<string>(1, "nums"));
+        Assert.Equal("3",   exploded.GetValue<string>(2, "nums"));
+    }
+    [Fact]
+    public void Test_Column_ByIndex_And_Iteration()
+    {
+        // 1. 准备数据
+        var df = DataFrame.FromColumns(new 
+        {
+            Name = new[] { "A", "B" }, // Index 0
+            Age = new[] { 10, 20 },    // Index 1
+            Score = new[] { 99, 88 }   // Index 2
+        });
+
+        // 2. 测试 Column(int)
+        var col0 = df.Column(0);
+        Assert.Equal("Name", col0.Name);
+        Assert.Equal("A", col0[0]);
+
+        // 3. 测试 Indexer df[int]
+        var col2 = df[2];
+        Assert.Equal("Score", col2.Name);
+        Assert.Equal(99, col2.Cast(DataType.Int32)[0]);
+
+        // 4. 测试越界
+        Assert.Throws<IndexOutOfRangeException>(() => df[99]);
+        Assert.Throws<IndexOutOfRangeException>(() => df[-1]);
+
+        // 5. [Bonus] 测试 foreach
+        int count = 0;
+        foreach (var series in df)
+        {
+            if (count == 0) Assert.Equal("Name", series.Name);
+            if (count == 1) Assert.Equal("Age", series.Name);
+            count++;
+        }
+        Assert.Equal(3, count);
+    }
 }

@@ -1,6 +1,4 @@
-using System.Threading.Tasks;
 using Testcontainers.MsSql;
-using Xunit;
 
 namespace Polars.CSharp.Tests.Fixtures
 {

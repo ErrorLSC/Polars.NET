@@ -1,11 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Data;
-using System.Threading.Tasks;
-using Microsoft.Data.SqlClient; // 真实驱动！
+using Microsoft.Data.SqlClient;
 using Polars.CSharp.Tests.Fixtures;
-using Xunit;
-using Polars.CSharp; // 引用你的库
 
 namespace Polars.CSharp.Tests
 {

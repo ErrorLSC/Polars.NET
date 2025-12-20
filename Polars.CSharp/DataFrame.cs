@@ -4,12 +4,13 @@ using Apache.Arrow;
 using System.Data;
 using Polars.NET.Core.Data;
 using System.Collections.Concurrent;
+using System.Collections;
 namespace Polars.CSharp;
 
 /// <summary>
 /// DataFrame represents a 2-dimensional labeled data structure similar to a table or spreadsheet.
 /// </summary>
-public class DataFrame : IDisposable
+public class DataFrame : IDisposable,IEnumerable<Series>
 {
     internal DataFrameHandle Handle { get; }
 
@@ -17,6 +18,7 @@ public class DataFrame : IDisposable
     {
         Handle = handle;
     }
+
     // ==========================================
     // Metadata
     // ==========================================
@@ -946,24 +948,17 @@ public class DataFrame : IDisposable
     {
         get => Column(columnName);
     }
-    /// <summary>
-    ///  Get a column as a Series by Index.
-    /// </summary>
-    /// <param name="index"></param>
-    /// <returns></returns>
+
     /// <exception cref="IndexOutOfRangeException"></exception>
+    /// <summary>
+    /// Get a column by its positional index (0-based).
+    /// </summary>
     public Series Column(int index)
     {
-        if (index < 0 || index >= Width)
-            throw new IndexOutOfRangeException($"Column index {index} is out of bounds. Width: {Width}");
-
-        // 调用底层 Rust 接口直接按索引取，或者通过 Name 绕一下
-        // 这里为了简单且复用现有逻辑，我们通过 Name 绕一下（性能损耗极小，只是一次 string 查找）
-        var name = ColumnNames[index];
-        return Column(name);
-        
-        // 如果你想追求极致性能，可以在 PolarsWrapper 加个 DataFrameGetColumnAt
-        // 但对于 C# 侧的索引器语法糖来说，上面的写法足够了
+        // 直接调用 Wrapper
+        // 错误检查已经在 Wrapper 里做过了 (抛 IndexOutOfRangeException)
+        var h = PolarsWrapper.DataFrameGetColumnAt(Handle, index);
+        return new Series(h);
     }
     /// <summary>
     /// Get all columns as a list of Series.
@@ -986,7 +981,11 @@ public class DataFrame : IDisposable
     /// Get column names in order.
     /// </summary>
     public string[] ColumnNames => PolarsWrapper.GetColumnNames(Handle);
-
+    /// <summary>
+    /// Indexer to get a column by position.
+    /// Usage: var s = df[0];
+    /// </summary>
+    public Series this[int index] => Column(index);
     /// <summary>
     /// Syntax Suger: df[row, colName]
     /// </summary>
@@ -1034,4 +1033,17 @@ public class DataFrame : IDisposable
         }
         return rowData;
     }
+    /// <summary>
+    /// Enable foreach (var series in df) { ... }
+    /// </summary>
+    /// <returns></returns>
+    public IEnumerator<Series> GetEnumerator()
+    {
+        for (int i = 0; i < Width; i++)
+        {
+            yield return Column(i);
+        }
+    }
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
