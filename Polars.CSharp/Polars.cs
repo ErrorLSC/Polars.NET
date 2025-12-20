@@ -26,14 +26,6 @@ public static class Polars
         return new Expr(PolarsWrapper.Cols(names));
     }
     /// <summary>
-    /// Select all columns.
-    /// Can be chained with .Exclude().
-    /// </summary>
-    public static Selector All()
-    {
-        return new Selector(PolarsWrapper.SelectorAll());
-    }
-    /// <summary>
     /// Return the lines count of current context.
     /// </summary>
     public static Expr Len()
@@ -81,7 +73,82 @@ public static class Polars
     /// <param name="value"></param>
     /// <returns></returns>
     public static Expr Lit(float value) => new(PolarsWrapper.Lit(value));
+    
+    // ---------------------------------------------------------
+    // Selectors Entry Points
+    // ---------------------------------------------------------
 
+    /// <summary>
+    /// Select all columns.
+    /// </summary>
+    public static Selector All() 
+        => new(PolarsWrapper.SelectorAll());
+
+    /// <summary>
+    /// Select all numeric columns (Int, Float, etc.).
+    /// </summary>
+    public static Selector Numeric() 
+        => new(PolarsWrapper.SelectorNumeric());
+
+    /// <summary>
+    /// Select all string/utf8 columns.
+    /// </summary>
+    public static Selector String() 
+        => new(PolarsWrapper.SelectorByDtype(PlDataType.String));
+
+    /// <summary>
+    /// Select all date columns.
+    /// </summary>
+    public static Selector Date() 
+        => new(PolarsWrapper.SelectorByDtype(PlDataType.Date));
+
+    /// <summary>
+    /// Select all datetime columns (any precision/timezone).
+    /// </summary>
+    public static Selector Datetime() 
+        => new(PolarsWrapper.SelectorByDtype(PlDataType.Datetime));
+
+    /// <summary>
+    /// Select columns by specific PlDataType.
+    /// </summary>
+    public static Selector DType(PlDataType type) 
+        => new(PolarsWrapper.SelectorByDtype(type));
+
+    /// <summary>
+    /// String matching selectors namespace.
+    /// Usage: Polars.Selectors.StartsWith("A")
+    /// </summary>
+    public static class Selectors
+    {
+        /// <summary>
+        /// Select column whose name starts with given prefix.
+        /// </summary>
+        /// <param name="prefix"></param>
+        /// <returns></returns>
+        public static Selector StartsWith(string prefix) 
+            => new(PolarsWrapper.SelectorStartsWith(prefix));
+        /// <summary>
+        /// Select column whose name ends with given suffix.
+        /// </summary>
+        /// <param name="suffix"></param>
+        /// <returns></returns>
+        public static Selector EndsWith(string suffix) 
+            => new(PolarsWrapper.SelectorEndsWith(suffix));
+        /// <summary>
+        /// Select column whose name contains given string.
+        /// </summary>
+        /// <param name="str"></param>
+        /// <returns></returns>
+        public static Selector Contains(string str) 
+            => new(PolarsWrapper.SelectorContains(str));
+        /// <summary>
+        /// Select column whose name matches given string.
+        /// </summary>
+        /// <param name="regex"></param>
+        /// <returns></returns>
+        public static Selector Matches(string regex) 
+            => new(PolarsWrapper.SelectorMatch(regex));
+    }
     // ==========================================
     // Control Flow
     // ==========================================

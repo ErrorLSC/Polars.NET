@@ -17,6 +17,11 @@ namespace Polars.CSharp
         {
             Handle = handle;
         }
+
+        internal SelectorHandle CloneHandle()
+        {
+            return PolarsWrapper.CloneSelector(Handle);
+        }
         // --- Int ---
         public static Expr operator *(Selector s, int other) => s.ToExpr() * other;
         public static Expr operator +(Selector s, int other) => s.ToExpr() + other;
@@ -161,6 +166,23 @@ namespace Polars.CSharp
             return new Expr(exprHandle);
         }
 
+        // --- Set Operations ( &, |, !, - ) ---
+
+        public static Selector operator &(Selector left, Selector right)
+            => new(PolarsWrapper.SelectorAnd(left.CloneHandle(), right.CloneHandle()));
+
+        public static Selector operator |(Selector left, Selector right)
+            => new(PolarsWrapper.SelectorOr(left.CloneHandle(), right.CloneHandle()));
+
+        public static Selector operator !(Selector s)
+            => new(PolarsWrapper.SelectorNot(s.CloneHandle()));
+
+        // Difference: A - B
+        public static Selector operator -(Selector left, Selector right)
+        {
+            // 实现为: Left & (!Right)
+            return left & (!right);
+        }
         /// <summary>
         /// Implicitly convert Selector to Expr.
         /// This is the magic that allows df.Select(Polars.All())

@@ -5,10 +5,7 @@ public static partial class PolarsWrapper
     public static SelectorHandle SelectorAll() 
         => ErrorHelper.Check(NativeBindings.pl_selector_all());
     public static SelectorHandle CloneSelector(SelectorHandle sel)
-    {
-        // Clone 操作不消耗原 Handle，只做 Check
-        return ErrorHelper.Check(NativeBindings.pl_selector_clone(sel));
-    }
+        => ErrorHelper.Check(NativeBindings.pl_selector_clone(sel));
     public static SelectorHandle SelectorExclude(SelectorHandle sel, string[] names)
     {
         // 使用 Helper 自动处理内存分配和释放
@@ -18,6 +15,59 @@ public static partial class PolarsWrapper
             sel.TransferOwnership();
             return ErrorHelper.Check(h);
         });
+    }
+    // --- String Matchers ---
+        
+    public static SelectorHandle SelectorStartsWith(string pattern)
+         => ErrorHelper.Check(NativeBindings.pl_selector_starts_with(pattern));
+
+
+    public static SelectorHandle SelectorEndsWith(string pattern)
+        => ErrorHelper.Check(NativeBindings.pl_selector_ends_with(pattern));
+
+    public static SelectorHandle SelectorContains(string pattern)
+        => ErrorHelper.Check(NativeBindings.pl_selector_contains(pattern));
+
+    public static SelectorHandle SelectorMatch(string regex)
+        => ErrorHelper.Check(NativeBindings.pl_selector_match(regex));
+
+    // --- Type Selectors ---
+
+    public static SelectorHandle SelectorByDtype(PlDataType kind)
+    {
+        // Enum 直接转 int 传给 Rust
+        return ErrorHelper.Check(NativeBindings.pl_selector_by_dtype((int)kind));
+    }
+
+    public static SelectorHandle SelectorNumeric()
+        => ErrorHelper.Check(NativeBindings.pl_selector_numeric());
+
+    // --- Set Operations ---
+
+    public static SelectorHandle SelectorAnd(SelectorHandle left, SelectorHandle right)
+    {
+        var h = NativeBindings.pl_selector_and(left, right);
+        
+        // [Ownership] Rust 端的 Intersect 消耗了 left 和 right
+        left.TransferOwnership();
+        right.TransferOwnership();
+        
+        return ErrorHelper.Check(h);
+    }
+
+    public static SelectorHandle SelectorOr(SelectorHandle left, SelectorHandle right)
+    {
+        var h = NativeBindings.pl_selector_or(left, right);
+        left.TransferOwnership();
+        right.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+
+    public static SelectorHandle SelectorNot(SelectorHandle sel)
+    {
+        var h = NativeBindings.pl_selector_not(sel);
+        sel.TransferOwnership();
+        return ErrorHelper.Check(h);
     }
 
     public static ExprHandle SelectorToExpr(SelectorHandle sel)

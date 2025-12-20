@@ -523,6 +523,9 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_len();
     [LibraryImport(LibName)] public static partial IntPtr pl_get_last_error();
     [LibraryImport(LibName)] public static partial void pl_free_error_msg(IntPtr ptr);
+    // =================================================================
+    // Selectors
+    // =================================================================
     [LibraryImport(LibName)] 
     public static partial SelectorHandle pl_selector_clone(SelectorHandle sel);
     // Selectors
@@ -535,6 +538,37 @@ unsafe internal partial class NativeBindings
         UIntPtr len
     );
 
+    // String Matchers
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    public static partial SelectorHandle pl_selector_starts_with(string pattern);
+
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    public static partial SelectorHandle pl_selector_ends_with(string pattern);
+
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    public static partial SelectorHandle pl_selector_contains(string pattern);
+
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    public static partial SelectorHandle pl_selector_match(string pattern);
+
+    // Type Selectors
+    // Rust 端接收的是 i32，C# 传 int 即可
+    [LibraryImport(LibName)]
+    public static partial SelectorHandle pl_selector_by_dtype(int kind);
+
+    [LibraryImport(LibName)]
+    public static partial SelectorHandle pl_selector_numeric();
+
+    // Set Operations
+    [LibraryImport(LibName)]
+    public static partial SelectorHandle pl_selector_and(SelectorHandle left, SelectorHandle right);
+
+    [LibraryImport(LibName)]
+    public static partial SelectorHandle pl_selector_or(SelectorHandle left, SelectorHandle right);
+
+    [LibraryImport(LibName)]
+    public static partial SelectorHandle pl_selector_not(SelectorHandle sel);
+    // Bridges
     [LibraryImport(LibName)] public static partial ExprHandle pl_selector_into_expr(SelectorHandle sel);
     // Struct
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_as_struct(IntPtr[] exprs, UIntPtr len);
