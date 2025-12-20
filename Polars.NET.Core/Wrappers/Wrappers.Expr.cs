@@ -66,6 +66,7 @@ public static partial class PolarsWrapper
     public static ExprHandle Lit(float val) => ErrorHelper.Check(NativeBindings.pl_expr_lit_f32(val));
     public static ExprHandle Lit(long val) => ErrorHelper.Check(NativeBindings.pl_expr_lit_i64(val));
     public static ExprHandle Lit(bool val) => ErrorHelper.Check(NativeBindings.pl_expr_lit_bool(val));
+    public static ExprHandle LitNull() => ErrorHelper.Check(NativeBindings.pl_expr_lit_null());
     public static ExprHandle Lit(DateTime dt)
     {
         // C# DateTime.Ticks 是自 0001-01-01 以来的 100ns 单位
@@ -76,7 +77,6 @@ public static partial class PolarsWrapper
         
         return ErrorHelper.Check(NativeBindings.pl_expr_lit_datetime(micros));
     }
-
     // Alias
 
     public static ExprHandle Alias(ExprHandle expr, string name) 
@@ -228,6 +228,7 @@ public static partial class PolarsWrapper
     public static ExprHandle And(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_and, l, r);
     public static ExprHandle Or(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_or, l, r);
     public static ExprHandle Not(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_not, e);
+    public static ExprHandle Xor(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_xor, l, r);
 
     // Null Handling
     public static ExprHandle FillNull(ExprHandle expr, ExprHandle fillValue) 

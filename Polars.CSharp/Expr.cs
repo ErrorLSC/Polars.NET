@@ -1,3 +1,4 @@
+#pragma warning disable CS1591 // 缺少对公共可见类型或成员的 XML 注释
 using Apache.Arrow;
 using Polars.NET.Core;
 
@@ -14,41 +15,60 @@ public class Expr : IDisposable
     {
         Handle = handle;
     }
+    private static Expr MakeLit(object val)
+    {
+        // 1. 如果传进来的已经是 Expr，直接返回（防止套娃）
+        if (val is Expr e) return e;
+
+        // 2. 如果是 Selector，隐式转为 Expr
+        if (val is Selector s) return s.ToExpr();
+
+        // 3. 根据运行时类型分发给具体的 Wrapper 方法
+        return val switch
+        {
+            // --- 整数 ---
+            int i => new Expr(PolarsWrapper.Lit(i)),
+            long l => new Expr(PolarsWrapper.Lit(l)),
+            // short, byte 也可以转为 int 或 long 处理
+            short sh => new Expr(PolarsWrapper.Lit(sh)),
+            byte by => new Expr(PolarsWrapper.Lit(by)),
+
+            // --- 浮点 ---
+            double d => new Expr(PolarsWrapper.Lit(d)),
+            float f => new Expr(PolarsWrapper.Lit(f)),
+            // decimal 通常需要转 double，因为 Polars 内核没有 decimal128 的直接 Lit 入口(通常)
+            // 或者如果有 pl_lit_decimal 再改
+            // decimal dec => new Expr(PolarsWrapper.Lit((double)dec)), 
+
+            // --- 基础 ---
+            string str => new Expr(PolarsWrapper.Lit(str)),
+            bool b => new Expr(PolarsWrapper.Lit(b)),
+            
+            // --- 时间 ---
+            // 假设 Wrapper 里有对应实现
+            DateTime dt => new Expr(PolarsWrapper.Lit(dt)),
+            
+            // --- Null ---
+            null => new Expr(PolarsWrapper.LitNull()),
+
+            // --- 报错 ---
+            _ => throw new NotSupportedException($"Unsupported literal type: {val.GetType().Name}")
+        };
+    }
     private ExprHandle CloneHandle() => PolarsWrapper.CloneExpr(Handle);
-    /// <summary>
-    /// Lit Int
-    /// </summary>
-    /// <param name="value"></param>
+
     public static implicit operator Expr(int value) => Polars.Lit(value);
-    /// <summary>
-    /// Lit Double
-    /// </summary>
-    /// <param name="value"></param>
+
     public static implicit operator Expr(double value) => Polars.Lit(value);
-    /// <summary>
-    /// Lit String
-    /// </summary>
-    /// <param name="value"></param>
+
     public static implicit operator Expr(string value) => Polars.Lit(value);
-    /// <summary>
-    /// Lit DateTime
-    /// </summary>
-    /// <param name="value"></param>
+
     public static implicit operator Expr(DateTime value) => Polars.Lit(value);
-    /// <summary>
-    /// Lit Boolean
-    /// </summary>
-    /// <param name="value"></param>
+
     public static implicit operator Expr(bool value) => Polars.Lit(value);
-    /// <summary>
-    /// Lit Float
-    /// </summary>
-    /// <param name="value"></param>
+
     public static implicit operator Expr(float value) => Polars.Lit(value);
-    /// <summary>
-    /// Lit Int64
-    /// </summary>
-    /// <param name="value"></param>
+
     public static implicit operator Expr(long value) => Polars.Lit(value);
 
     /// <summary>
@@ -59,10 +79,14 @@ public class Expr : IDisposable
     /// <returns>A boolean expression representing the comparison.</returns>
     public static Expr operator >(Expr left, Expr right)
     {
-        var l = PolarsWrapper.CloneExpr(left.Handle);
-        var r = PolarsWrapper.CloneExpr(right.Handle);
+        var l = left.CloneHandle();
+        var r = right.CloneHandle();
         return new Expr(PolarsWrapper.Gt(l, r));
     }
+    public static Expr operator >(Expr left, object right) => 
+        new(PolarsWrapper.Gt(left.CloneHandle(), MakeLit(right).Handle));
+    public static Expr operator >(object left, Expr right) => 
+        new(PolarsWrapper.Gt(MakeLit(left).Handle, right.CloneHandle()));
 
     /// <summary>
     /// Creates an expression evaluating if the left operand is less than the right operand.
@@ -72,11 +96,14 @@ public class Expr : IDisposable
     /// <returns>A boolean expression representing the comparison.</returns>
     public static Expr operator <(Expr left, Expr right)
     {
-        var l = PolarsWrapper.CloneExpr(left.Handle);
-        var r = PolarsWrapper.CloneExpr(right.Handle);
+        var l = left.CloneHandle();
+        var r = right.CloneHandle();
         return new Expr(PolarsWrapper.Lt(l, r));
     }
-
+    public static Expr operator <(Expr left, object right) => 
+        new(PolarsWrapper.Lt(left.CloneHandle(), MakeLit(right).Handle));
+    public static Expr operator <(object left, Expr right) => 
+        new(PolarsWrapper.Lt(MakeLit(left).Handle, right.CloneHandle()));
     /// <summary>
     /// Creates an expression evaluating if the left operand is greater than or equal to the right operand.
     /// </summary>
@@ -85,11 +112,14 @@ public class Expr : IDisposable
     /// <returns>A boolean expression representing the comparison.</returns>
     public static Expr operator >=(Expr left, Expr right)
     {
-        var l = PolarsWrapper.CloneExpr(left.Handle);
-        var r = PolarsWrapper.CloneExpr(right.Handle);
+        var l = left.CloneHandle();
+        var r = right.CloneHandle();
         return new Expr(PolarsWrapper.GtEq(l, r)); 
     }
-
+    public static Expr operator >=(Expr left, object right) => 
+        new(PolarsWrapper.GtEq(left.CloneHandle(), MakeLit(right).Handle));
+    public static Expr operator >=(object left, Expr right) => 
+        new(PolarsWrapper.GtEq(MakeLit(left).Handle, right.CloneHandle()));
     /// <summary>
     /// Creates an expression evaluating if the left operand is less than or equal to the right operand.
     /// </summary>
@@ -98,11 +128,14 @@ public class Expr : IDisposable
     /// <returns>A boolean expression representing the comparison.</returns>
     public static Expr operator <=(Expr left, Expr right)
     {
-        var l = PolarsWrapper.CloneExpr(left.Handle);
-        var r = PolarsWrapper.CloneExpr(right.Handle);
+        var l = left.CloneHandle();
+        var r = right.CloneHandle();
         return new Expr(PolarsWrapper.LtEq(l, r)); 
     }
-
+    public static Expr operator <=(Expr left, object right) => 
+        new(PolarsWrapper.LtEq(left.CloneHandle(), MakeLit(right).Handle));
+    public static Expr operator <=(object left, Expr right) => 
+        new(PolarsWrapper.LtEq(MakeLit(left).Handle, right.CloneHandle()));
     /// <summary>
     /// Creates an expression evaluating if the left operand is equal to the right operand.
     /// </summary>
@@ -111,11 +144,14 @@ public class Expr : IDisposable
     /// <returns>A boolean expression representing the comparison.</returns>
     public static Expr operator ==(Expr left, Expr right)
     {
-        var l = PolarsWrapper.CloneExpr(left.Handle);
-        var r = PolarsWrapper.CloneExpr(right.Handle);
+        var l = left.CloneHandle();
+        var r = right.CloneHandle();
         return new Expr(PolarsWrapper.Eq(l, r));   
     }
-
+    public static Expr operator ==(Expr left, object right) => 
+        new(PolarsWrapper.Eq(left.CloneHandle(), MakeLit(right).Handle));
+    public static Expr operator ==(object left, Expr right) => 
+        new(PolarsWrapper.Eq(MakeLit(left).Handle, right.CloneHandle()));
     /// <summary>
     /// Creates an expression evaluating if the left operand is not equal to the right operand.
     /// </summary>
@@ -124,11 +160,14 @@ public class Expr : IDisposable
     /// <returns>A boolean expression representing the comparison.</returns>
     public static Expr operator !=(Expr left, Expr right)
     {
-        var l = PolarsWrapper.CloneExpr(left.Handle);
-        var r = PolarsWrapper.CloneExpr(right.Handle);
+        var l = left.CloneHandle();
+        var r = right.CloneHandle();
         return new Expr(PolarsWrapper.Neq(l, r));  
     }
-
+    public static Expr operator !=(Expr left, object right) => 
+        new(PolarsWrapper.Neq(left.CloneHandle(), MakeLit(right).Handle));
+    public static Expr operator !=(object left, Expr right) => 
+        new(PolarsWrapper.Neq(MakeLit(left).Handle, right.CloneHandle()));
     // ==========================================
     // Arithmetic Operators
     // ==========================================
@@ -139,44 +178,80 @@ public class Expr : IDisposable
     /// <param name="left">The left expression.</param>
     /// <param name="right">The right expression.</param>
     /// <returns>A numeric expression representing the sum.</returns>
-    public static Expr operator +(Expr left, Expr right) => 
-        new(PolarsWrapper.Add(left.Handle, right.Handle));
-
+    public static Expr operator +(Expr left, Expr right)
+    {
+        var l = left.CloneHandle();
+        var r = right.CloneHandle();
+        return new Expr(PolarsWrapper.Add(l, r));
+    }
+    public static Expr operator +(Expr left, object right) => 
+        new(PolarsWrapper.Add(left.CloneHandle(), MakeLit(right).Handle));
+    public static Expr operator +(object left, Expr right) => 
+        new(PolarsWrapper.Add(MakeLit(left).Handle, right.CloneHandle()));
     /// <summary>
     /// Creates an expression representing the subtraction of the right expression from the left expression.
     /// </summary>
     /// <param name="left">The left expression.</param>
     /// <param name="right">The right expression.</param>
     /// <returns>A numeric expression representing the difference.</returns>
-    public static Expr operator -(Expr left, Expr right) => 
-        new(PolarsWrapper.Sub(left.Handle, right.Handle));
-
+    public static Expr operator -(Expr left, Expr right)
+    {
+        var l = left.CloneHandle();
+        var r = right.CloneHandle();
+        return new Expr(PolarsWrapper.Sub(l, r));
+    }
+    public static Expr operator -(Expr left, object right) => 
+        new(PolarsWrapper.Sub(left.CloneHandle(), MakeLit(right).Handle));
+    public static Expr operator -(object left, Expr right) => 
+        new(PolarsWrapper.Sub(MakeLit(left).Handle, right.CloneHandle()));
     /// <summary>
     /// Creates an expression representing the multiplication of two expressions.
     /// </summary>
     /// <param name="left">The left expression.</param>
     /// <param name="right">The right expression.</param>
     /// <returns>A numeric expression representing the product.</returns>
-    public static Expr operator *(Expr left, Expr right) => 
-        new(PolarsWrapper.Mul(left.Handle, right.Handle));
-
+    public static Expr operator *(Expr left, Expr right)   
+    {
+        var l = left.CloneHandle();
+        var r = right.CloneHandle();
+        return new Expr(PolarsWrapper.Mul(l, r));
+    }
+    public static Expr operator *(Expr left, object right) => 
+        new(PolarsWrapper.Mul(left.CloneHandle(), MakeLit(right).Handle));
+    public static Expr operator *(object left, Expr right) => 
+        new(PolarsWrapper.Mul(MakeLit(left).Handle, right.CloneHandle()));
     /// <summary>
     /// Creates an expression representing the division of the left expression by the right expression.
     /// </summary>
     /// <param name="left">The left expression.</param>
     /// <param name="right">The right expression.</param>
     /// <returns>A numeric expression representing the quotient.</returns>
-    public static Expr operator /(Expr left, Expr right) => 
-        new(PolarsWrapper.Div(left.Handle, right.Handle));
-    
+    public static Expr operator /(Expr left, Expr right)   
+    {
+        var l = left.CloneHandle();
+        var r = right.CloneHandle();
+        return new Expr(PolarsWrapper.Div(l, r));
+    }
+    public static Expr operator /(Expr left, object right) => 
+        new(PolarsWrapper.Div(left.CloneHandle(), MakeLit(right).Handle));
+    public static Expr operator /(object left, Expr right) => 
+        new(PolarsWrapper.Div(MakeLit(left).Handle, right.CloneHandle()));
     /// <summary>
     /// Creates an expression representing the remaining of the left expression by the right expression.
     /// </summary>
     /// <param name="left">The left expression.</param>
     /// <param name="right">The right expression.</param>
     /// <returns>A numeric expression representing the quotient.</returns>
-    public static Expr operator %(Expr left, Expr right) => 
-        new(PolarsWrapper.Rem(left.Handle, right.Handle));
+    public static Expr operator %(Expr left, Expr right)   
+    {
+        var l = left.CloneHandle();
+        var r = right.CloneHandle();
+        return new Expr(PolarsWrapper.Rem(l, r));
+    }
+    public static Expr operator %(Expr left, object right) => 
+        new(PolarsWrapper.Rem(left.CloneHandle(), MakeLit(right).Handle));
+    public static Expr operator %(object left, Expr right) => 
+        new(PolarsWrapper.Rem(MakeLit(left).Handle, right.CloneHandle()));
     // ==========================================
     // Logical Operators
     // ==========================================
@@ -187,26 +262,55 @@ public class Expr : IDisposable
     /// <param name="left">The left boolean expression.</param>
     /// <param name="right">The right boolean expression.</param>
     /// <returns>A boolean expression that evaluates to true if both operands are true.</returns>
-    public static Expr operator &(Expr left, Expr right) => 
-        new(PolarsWrapper.And(left.Handle, right.Handle));
-
+    public static Expr operator &(Expr left, Expr right)  
+    {
+        var l = left.CloneHandle();
+        var r = right.CloneHandle();
+        return new Expr(PolarsWrapper.And(l, r));
+    }
+    public static Expr operator &(Expr left, bool right) => 
+        new(PolarsWrapper.And(left.CloneHandle(), MakeLit(right).Handle));
     /// <summary>
     /// Creates an expression representing the logical OR operation.
     /// </summary>
     /// <param name="left">The left boolean expression.</param>
     /// <param name="right">The right boolean expression.</param>
     /// <returns>A boolean expression that evaluates to true if at least one operand is true.</returns>
-    public static Expr operator |(Expr left, Expr right) => 
-        new(PolarsWrapper.Or(left.Handle, right.Handle));
-
+    public static Expr operator |(Expr left, Expr right)  
+    {
+        var l = left.CloneHandle();
+        var r = right.CloneHandle();
+        return new Expr(PolarsWrapper.Or(l, r));
+    }
+    public static Expr operator |(Expr left, bool right) => 
+        new(PolarsWrapper.Or(left.CloneHandle(), MakeLit(right).Handle));
     /// <summary>
     /// Creates an expression representing the logical NOT operation.
     /// </summary>
     /// <param name="expr">The boolean expression to negate.</param>
     /// <returns>A boolean expression that evaluates to the opposite truth value.</returns>
-    public static Expr operator !(Expr expr) => 
-        new(PolarsWrapper.Not(expr.Handle));
-
+    public static Expr operator !(Expr expr)    
+    {
+        var e = expr.CloneHandle();
+        return new Expr(PolarsWrapper.Not(e));
+    }
+    /// <summary>
+    /// Creates an expression representing the logical XOR operation.
+    /// </summary>
+    /// <param name="left"></param>
+    /// <param name="right"></param>
+    /// <returns></returns>
+    public static Expr operator ^(Expr left, Expr right)  
+    {
+        var l = left.CloneHandle();
+        var r = right.CloneHandle();
+        return new Expr(PolarsWrapper.Xor(l, r));
+    }
+    public static Expr operator ^(Expr left, bool right) 
+        => new(PolarsWrapper.Xor(left.CloneHandle(), MakeLit(right).Handle));
+        
+    public static Expr operator ^(bool left, Expr right) 
+        => new(PolarsWrapper.Xor(MakeLit(left).Handle, right.CloneHandle()));
     // ---------------------------------------------------
     // 基础方法
     // ---------------------------------------------------
@@ -226,40 +330,22 @@ public class Expr : IDisposable
     /// <summary>
     /// Sum
     /// </summary>
-    public Expr Sum()
-    {
-        // 1. 克隆 Handle (防止当前对象被底层消耗)
-        var cloned = PolarsWrapper.CloneExpr(Handle);
-        // 2. 调用底层 Wrapper
-        return new Expr(PolarsWrapper.Sum(cloned));
-    }
+    public Expr Sum() => new(PolarsWrapper.Sum(CloneHandle()));
 
     /// <summary>
     /// Mean
     /// </summary>
-    public Expr Mean()
-    {
-        var cloned = PolarsWrapper.CloneExpr(Handle);
-        return new Expr(PolarsWrapper.Mean(cloned));
-    }
+    public Expr Mean() => new(PolarsWrapper.Mean(CloneHandle()));
 
     /// <summary>
     /// Max
     /// </summary>
-    public Expr Max()
-    {
-        var cloned = PolarsWrapper.CloneExpr(Handle);
-        return new Expr(PolarsWrapper.Max(cloned));
-    }
+    public Expr Max() => new(PolarsWrapper.Max(CloneHandle()));
 
     /// <summary>
     /// Min
     /// </summary>
-    public Expr Min()
-    {
-        var cloned = PolarsWrapper.CloneExpr(Handle);
-        return new Expr(PolarsWrapper.Min(cloned));
-    }
+    public Expr Min() => new(PolarsWrapper.Min(CloneHandle()));
 
     // ==========================================
     // Math
@@ -268,69 +354,40 @@ public class Expr : IDisposable
     /// <summary>
     /// Calculate the absolute value of the expression.
     /// </summary>
-    public Expr Abs()
-    {
-        var cloned = PolarsWrapper.CloneExpr(Handle);
-        return new Expr(PolarsWrapper.Abs(cloned));
-    }
+    public Expr Abs() => new(PolarsWrapper.Abs(CloneHandle()));
 
     /// <summary>
     /// Calculate the square root of the expression.
     /// </summary>
-    public Expr Sqrt()
-    {
-        var e = PolarsWrapper.CloneExpr(Handle);
-        return new Expr(PolarsWrapper.Sqrt(e));
-    }
+    public Expr Sqrt() => new(PolarsWrapper.Sqrt(CloneHandle()));
 
     /// <summary>
     /// Calculate the power of the expression with a given exponent expression.
     /// </summary>
-    public Expr Pow(Expr exponent)
-    {
-        var b = PolarsWrapper.CloneExpr(Handle);
-        var e = PolarsWrapper.CloneExpr(exponent.Handle);
-        return new Expr(PolarsWrapper.Pow(b, e));
-    }
+    public Expr Pow(Expr exponent) => new(PolarsWrapper.Pow(CloneHandle(), exponent.CloneHandle()));
 
     /// <summary>
     /// Calculate the power of the expression with a given numeric exponent.
     /// </summary>
-    public Expr Pow(double exponent)
-    {
-        var b = PolarsWrapper.CloneExpr(Handle);
-        var e = PolarsWrapper.Lit(exponent); 
-        return new Expr(PolarsWrapper.Pow(b, e));
-    }
+    public Expr Pow(double exponent) => new(PolarsWrapper.Pow(CloneHandle(),PolarsWrapper.Lit(exponent)));
 
     /// <summary>
     /// Calculate the power of the Euler's number.
     /// </summary>
-    public Expr Exp()
-    {
-        var e = PolarsWrapper.CloneExpr(Handle);
-        return new Expr(PolarsWrapper.Exp(e));
-    }
+    public Expr Exp() => new(PolarsWrapper.Exp(CloneHandle()));
+
     /// <summary>
     /// Calculate the ln of Number 
     /// </summary>
     /// <param name="baseVal"></param>
     /// <returns></returns>
-    public Expr Ln(double baseVal = Math.E)
-    {
-        var e = PolarsWrapper.CloneExpr(Handle);
-        return new Expr(PolarsWrapper.Log(e, baseVal));
-    }
+    public Expr Ln(double baseVal = Math.E) => new(PolarsWrapper.Log(CloneHandle(), baseVal));
     /// <summary>
     /// Round the number
     /// </summary>
     /// <param name="decimals"></param>
     /// <returns></returns>
-    public Expr Round(uint decimals)
-    {
-        var e = PolarsWrapper.CloneExpr(Handle);
-        return new Expr(PolarsWrapper.Round(e, decimals));
-    }
+    public Expr Round(uint decimals) => new(PolarsWrapper.Round(CloneHandle(), decimals));
 
     // ==========================================
     // Null Handling
@@ -340,12 +397,7 @@ public class Expr : IDisposable
     /// Fill null values with a specified value.
     /// </summary>
     /// <param name="fillValue">The expression (or literal) to replace nulls with.</param>
-    public Expr FillNull(Expr fillValue)
-    {
-        var e = PolarsWrapper.CloneExpr(Handle);
-        var f = PolarsWrapper.CloneExpr(fillValue.Handle);
-        return new Expr(PolarsWrapper.FillNull(e, f));
-    }
+    public Expr FillNull(Expr fillValue) => new (PolarsWrapper.FillNull(CloneHandle(), fillValue.CloneHandle()));
     /// <summary>
     /// Fill null values with a specified literal value.
     /// </summary>
@@ -392,35 +444,20 @@ public class Expr : IDisposable
     /// Fill null values with a specific strategy (Forward).
     /// </summary>
     /// <param name="limit">Max number of consecutive nulls to fill. (Default null = infinite)</param>
-    public Expr ForwardFill(uint? limit = null)
-    {
-        return new Expr(PolarsWrapper.ForwardFill(Handle, limit ?? 0));
-    }
-
+    public Expr ForwardFill(uint? limit = null) => new(PolarsWrapper.ForwardFill(CloneHandle(), limit ?? 0));
     /// <summary>
     /// Fill null values with a specific strategy (Backward).
     /// </summary>
-    public Expr BackwardFill(uint? limit = null)
-    {
-        return new Expr(PolarsWrapper.BackwardFill(Handle, limit ?? 0));
-    }
+    public Expr BackwardFill(uint? limit = null)=> new(PolarsWrapper.BackwardFill(CloneHandle(), limit ?? 0));
     /// <summary>
     /// Evaluate whether the expression is null.
     /// </summary>
-    public Expr IsNull()
-    {
-        var e = PolarsWrapper.CloneExpr(Handle);
-        return new Expr(PolarsWrapper.IsNull(e));
-    }
-
+    public Expr IsNull() => new(PolarsWrapper.IsNull(CloneHandle()));
     /// <summary>
     /// Evaluate whether the expression is not null.
     /// </summary>
-    public Expr IsNotNull()
-    {
-        var e = PolarsWrapper.CloneExpr(Handle);
-        return new Expr(PolarsWrapper.IsNotNull(e));
-    }
+    public Expr IsNotNull() => new(PolarsWrapper.IsNotNull(CloneHandle()));
+    
     // ==========================================
     // Statistical Ops
     // ==========================================
@@ -428,22 +465,22 @@ public class Expr : IDisposable
     /// <summary>
     /// Count the number of values in this expression.
     /// </summary>
-    public Expr Count() => new(PolarsWrapper.Count(Handle));
+    public Expr Count() => new(PolarsWrapper.Count(CloneHandle()));
 
     /// <summary>
     /// Get the standard deviation.
     /// </summary>
-    public Expr Std(int ddof = 1) => new(PolarsWrapper.Std(Handle, ddof));
+    public Expr Std(int ddof = 1) => new(PolarsWrapper.Std(CloneHandle(), ddof));
 
     /// <summary>
     /// Get the variance.
     /// </summary>
-    public Expr Var(int ddof = 1) => new(PolarsWrapper.Var(Handle, ddof));
+    public Expr Var(int ddof = 1) => new(PolarsWrapper.Var(CloneHandle(), ddof));
 
     /// <summary>
     /// Get the median value.
     /// </summary>
-    public Expr Median() => new(PolarsWrapper.Median(Handle));
+    public Expr Median() => new(PolarsWrapper.Median(CloneHandle()));
 
     /// <summary>
     /// Get the quantile value.
@@ -457,14 +494,9 @@ public class Expr : IDisposable
     /// <summary>
     /// Check if the value is between lower and upper bounds (inclusive).
     /// </summary>
-    public Expr IsBetween(Expr lower, Expr upper)
-    {
-        var e = PolarsWrapper.CloneExpr(Handle);
-        var l = PolarsWrapper.CloneExpr(lower.Handle);
-        var u = PolarsWrapper.CloneExpr(upper.Handle);
-        
-        return new Expr(PolarsWrapper.IsBetween(e, l, u));
-    }
+    public Expr IsBetween(Expr lower, Expr upper)  
+        => new(PolarsWrapper.IsBetween(CloneHandle(), lower.CloneHandle(), upper.CloneHandle()));
+
     // ==========================================
     // Casting
     // ==========================================
@@ -473,10 +505,8 @@ public class Expr : IDisposable
     /// Cast the expression to a different data type.
     /// </summary>
     public Expr Cast(DataType dtype, bool strict = false)
-    {
-        var h = PolarsWrapper.CloneExpr(Handle);
-        return new Expr(PolarsWrapper.ExprCast(h, dtype.Handle, strict));
-    }
+        => new(PolarsWrapper.ExprCast(CloneHandle(), dtype.Handle, strict));
+
     // ==========================================
     // UDF / Map
     // ==========================================
@@ -492,29 +522,13 @@ public class Expr : IDisposable
     /// Apply a custom C# function to the expression (High-Level).
     /// </summary>
     public Expr Map<TInput, TOutput>(Func<TInput, TOutput> function, DataType outputType)
-    {
-        // 1. 将用户的强类型 Func 转换为 Arrow Func
-        var arrowFunc = UdfUtils.Wrap(function);
-
-        // 2. Clone Handle
-        var h = PolarsWrapper.CloneExpr(Handle);
-
-        // 3. 调用底层 Wrapper (传递 DataType.Handle)
-        return new Expr(PolarsWrapper.Map(h, arrowFunc, outputType.Handle));
-    }
-
+        => new(PolarsWrapper.Map(CloneHandle(), UdfUtils.Wrap(function), outputType.Handle));
+    
     /// <summary>
     /// Apply a raw Arrow-to-Arrow UDF. (Advanced / Internal use)
     /// </summary>
     public Expr Map(Func<IArrowArray, IArrowArray> function, DataType outputType)
-    {
-        // 1. 直接使用用户提供的 Arrow 函数
-        // 2. Clone Handle
-        var h = PolarsWrapper.CloneExpr(Handle);
-
-        // 3. 调用底层 Wrapper (传递 DataType.Handle)
-        return new Expr(PolarsWrapper.Map(h, function, outputType.Handle));
-    }
+        => new(PolarsWrapper.Map(CloneHandle(), function, outputType.Handle));
 
     #region Window & Offset Functions
 
@@ -528,7 +542,7 @@ public class Expr : IDisposable
         var partitionHandles = System.Array.ConvertAll(partitionBy, e => e.CloneHandle());
 
         // 2. 调用 Wrapper (注意：this.CloneHandle() 防止当前对象被消费)
-        var h = PolarsWrapper.Over(this.CloneHandle(), partitionHandles);
+        var h = PolarsWrapper.Over(CloneHandle(), partitionHandles);
         
         return new Expr(h);
     }
@@ -547,21 +561,13 @@ public class Expr : IDisposable
     /// Shift values by the given number of indices.
     /// Positive values shift downstream, negative values shift upstream.
     /// </summary>
-    public Expr Shift(long n = 1)
-    {
-        var h = PolarsWrapper.Shift(this.CloneHandle(), n);
-        return new Expr(h);
-    }
+    public Expr Shift(long n = 1) => new(PolarsWrapper.Shift(CloneHandle(), n));
 
     /// <summary>
     /// Calculate the difference with the previous value (n-th lag).
     /// Null values are propagated.
     /// </summary>
-    public Expr Diff(long n = 1)
-    {
-        var h = PolarsWrapper.Diff(this.CloneHandle(), n);
-        return new Expr(h);
-    }
+    public Expr Diff(long n = 1) => new(PolarsWrapper.Diff(CloneHandle(), n));
 
     #endregion
 
@@ -830,12 +836,12 @@ public class Expr : IDisposable
         if (obj is not Expr other) return false;
 
         // 3. 句柄有效性检查 (防止操作已释放的句柄)
-        if (this.Handle.IsInvalid || other.Handle.IsInvalid) return false;
+        if (Handle.IsInvalid || other.Handle.IsInvalid) return false;
 
         // 4. 严谨的底层指针比较
         // 两个 Expr 即使逻辑相同，如果它们对应 Rust 侧不同的内存地址，也被视为不等。
         // 这对于防止 Dictionary<Expr, T> 产生意外行为至关重要。
-        return this.Handle.DangerousGetHandle() == other.Handle.DangerousGetHandle();
+        return Handle.DangerousGetHandle() == other.Handle.DangerousGetHandle();
     }
 
     /// <summary>
@@ -954,10 +960,7 @@ public class DtOps
     /// <param name="every"></param>
     /// <returns></returns>
     public Expr Truncate(TimeSpan every)
-    {
-        string everyStr = DurationFormatter.ToPolarsString(every);
-        return Truncate(everyStr);
-    }
+        => Truncate(DurationFormatter.ToPolarsString(every));
     /// <summary>
     /// Round the datetimes to the given interval.
     /// </summary>
@@ -972,10 +975,7 @@ public class DtOps
     /// <param name="every"></param>
     /// <returns></returns>
     public Expr Round(TimeSpan every)
-    {
-        string everyStr = DurationFormatter.ToPolarsString(every);
-        return Round(everyStr);
-    }
+        => Round(DurationFormatter.ToPolarsString(every));
     // ==========================================
     // Offset (时间平移)
     // ==========================================
@@ -1140,7 +1140,8 @@ public class StringOps
     /// <param name="matches">The set of characters to be removed.</param>
     public Expr StripChars(string? matches = null)
     {
-        return new Expr(PolarsWrapper.StrStripChars(_expr.Handle, matches));
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new Expr(PolarsWrapper.StrStripChars(h, matches));
     }
 
     /// <summary>
@@ -1149,7 +1150,8 @@ public class StringOps
     /// </summary>
     public Expr StripCharsStart(string? matches = null)
     {
-        return new Expr(PolarsWrapper.StrStripCharsStart(_expr.Handle, matches));
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new Expr(PolarsWrapper.StrStripCharsStart(h, matches));
     }
 
     /// <summary>
@@ -1158,7 +1160,8 @@ public class StringOps
     /// </summary>
     public Expr StripCharsEnd(string? matches = null)
     {
-        return new Expr(PolarsWrapper.StrStripCharsEnd(_expr.Handle, matches));
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new Expr(PolarsWrapper.StrStripCharsEnd(h, matches));
     }
 
     /// <summary>
@@ -1166,7 +1169,8 @@ public class StringOps
     /// </summary>
     public Expr StripPrefix(string prefix)
     {
-        return new Expr(PolarsWrapper.StrStripPrefix(_expr.Handle, prefix));
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new Expr(PolarsWrapper.StrStripPrefix(h, prefix));
     }
 
     /// <summary>
@@ -1174,7 +1178,8 @@ public class StringOps
     /// </summary>
     public Expr StripSuffix(string suffix)
     {
-        return new Expr(PolarsWrapper.StrStripSuffix(_expr.Handle, suffix));
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new Expr(PolarsWrapper.StrStripSuffix(h, suffix));
     }
 
     // ==========================================
@@ -1186,7 +1191,8 @@ public class StringOps
     /// </summary>
     public Expr StartsWith(string prefix)
     {
-        return new Expr(PolarsWrapper.StrStartsWith(_expr.Handle, prefix));
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new Expr(PolarsWrapper.StrStartsWith(h, prefix));
     }
 
     /// <summary>
@@ -1194,7 +1200,8 @@ public class StringOps
     /// </summary>
     public Expr EndsWith(string suffix)
     {
-        return new Expr(PolarsWrapper.StrEndsWith(_expr.Handle, suffix));
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new Expr(PolarsWrapper.StrEndsWith(h, suffix));
     }
 
     // ==========================================
@@ -1206,7 +1213,8 @@ public class StringOps
     /// </summary>
     public Expr ToDate(string format)
     {
-        return new Expr(PolarsWrapper.StrToDate(_expr.Handle, format));
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new Expr(PolarsWrapper.StrToDate(h, format));
     }
 
     /// <summary>
@@ -1214,7 +1222,8 @@ public class StringOps
     /// </summary>
     public Expr ToDatetime(string format)
     {
-        return new Expr(PolarsWrapper.StrToDatetime(_expr.Handle, format));
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new Expr(PolarsWrapper.StrToDatetime(h, format));
     }
 }
 
@@ -1366,6 +1375,7 @@ public class StructOps
         return new Expr(PolarsWrapper.StructJsonEncode(h));
     }
 }
+
 /// <summary>
 /// Offers methods for renaming columns.
 /// </summary>
@@ -1378,13 +1388,20 @@ public class NameOps
     /// </summary>
     /// <param name="prefix"></param>
     /// <returns></returns>
-    public Expr Prefix(string prefix) 
-        => new(PolarsWrapper.Prefix(_expr.Handle, prefix)); // Wrapper 需确认签名
+    public Expr Prefix(string prefix)
+    {
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new(PolarsWrapper.Prefix(h, prefix)); // Wrapper 需确认签名 
+    }
+
     /// <summary>
     /// Suffix the column name with a specified string.
     /// </summary>
     /// <param name="suffix"></param>
     /// <returns></returns>
     public Expr Suffix(string suffix) 
-        => new(PolarsWrapper.Suffix(_expr.Handle, suffix));
+    {
+        var h = PolarsWrapper.CloneExpr(_expr.Handle);
+        return new(PolarsWrapper.Suffix(h, suffix)); // Wrapper 需确认签名 
+    }
 }

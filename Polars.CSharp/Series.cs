@@ -120,7 +120,7 @@ public class Series : IDisposable
         // ==============================================================
         
         // 1. 切片：只取这一行
-        using var slice = this.Slice(index, 1);
+        using var slice = Slice(index, 1);
         
         // 2. 导出为 Arrow Array
         // 因为 ArrowReader 需要 IArrowArray，我们暂时没有 Series.ToArrow 直接绑定

@@ -84,6 +84,8 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_lit_f32(float val);
     [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_lit_null();
+    [LibraryImport(LibName)]
     public static partial IntPtr pl_dataframe_schema(DataFrameHandle df);
     [LibraryImport(LibName)]
     public static partial UIntPtr pl_dataframe_height(DataFrameHandle df);
@@ -172,6 +174,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_and(ExprHandle l, ExprHandle r);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_or(ExprHandle l, ExprHandle r);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_not(ExprHandle e);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_xor(ExprHandle l, ExprHandle r);
     // 聚合
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_sum(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_mean(ExprHandle expr);

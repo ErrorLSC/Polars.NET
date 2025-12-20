@@ -26,12 +26,12 @@ public static class Polars
         return new Expr(PolarsWrapper.Cols(names));
     }
     /// <summary>
-    /// All Columns Exprs (name: string)
+    /// Select all columns.
+    /// Can be chained with .Exclude().
     /// </summary>
-    /// <returns></returns>
-    public static Expr All()
+    public static Selector All()
     {
-        return Col("*"); 
+        return new Selector(PolarsWrapper.SelectorAll());
     }
     /// <summary>
     /// Return the lines count of current context.
@@ -81,6 +81,7 @@ public static class Polars
     /// <param name="value"></param>
     /// <returns></returns>
     public static Expr Lit(float value) => new(PolarsWrapper.Lit(value));
+
     // ==========================================
     // Control Flow
     // ==========================================

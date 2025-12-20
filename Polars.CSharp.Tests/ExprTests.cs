@@ -638,7 +638,7 @@ TooShort,1990-05-20,1.60";
         // 逻辑：把 A 和 B 打包成 Struct，然后重命名为 "First", "Second"
         var q = df.Lazy()
             .Select(
-                AsStruct(Col("A"), Col("B"))
+                AsStruct(Col("A","B"))
                     .Struct.RenameFields("First", "Second")
                     .Alias("MyStruct")
             );

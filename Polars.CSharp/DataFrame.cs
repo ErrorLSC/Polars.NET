@@ -5,6 +5,7 @@ using System.Data;
 using Polars.NET.Core.Data;
 using System.Collections.Concurrent;
 using System.Collections;
+
 namespace Polars.CSharp;
 
 /// <summary>
@@ -48,11 +49,11 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     {
         var schema = Schema; // 获取刚刚实现的 Dictionary
         
-        System.Console.WriteLine("root");
+        Console.WriteLine("root");
         foreach (var kvp in schema)
         {
             // 格式模仿 Spark:  |-- name: type
-            System.Console.WriteLine($" |-- {kvp.Key}: {kvp.Value}");
+            Console.WriteLine($" |-- {kvp.Key}: {kvp.Value}");
         }
     }
     /// <summary>
@@ -427,7 +428,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
         
         //
     return new DataFrame(PolarsWrapper.Join(
-            this.Handle, 
+            Handle, 
             other.Handle, 
             lHandles, 
             rHandles, 
@@ -589,7 +590,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     public DataFrame Describe()
     {
         // 1. 筛选数值列
-        var schema = this.Schema;
+        var schema = Schema;
         var numericCols = schema
             .Where(kv => kv.Value.IsNumeric)
             .Select(kv => kv.Key)
@@ -633,7 +634,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
 
                 // 执行 Select -> 得到 1 行 N 列的 DataFrame
                 // 注意：Select 返回新 DF，我们需要收集起来
-                rowFrames.Add(this.Select([.. exprs]));
+                rowFrames.Add(Select([.. exprs]));
             }
 
             // 4. 垂直拼接
@@ -667,7 +668,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     {
         // 1. 获取预览数据 (Head)
         // 限制 rows 不超过实际高度
-        int n = (int)Math.Min(rows, this.Height);
+        int n = (int)Math.Min(rows, Height);
         if (n <= 0) 
         {
             Console.WriteLine("Empty DataFrame");
@@ -675,7 +676,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
         }
 
         // 使用 Head 获取前 n 行
-        using var previewDf = this.Head(n);
+        using var previewDf = Head(n);
         using var batch = previewDf.ToArrow();
 
         // 2. 准备列信息
@@ -897,7 +898,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     {
         // 1. 转为 Arrow RecordBatch (这是 Polars.CSharp 这一层特有的能力)
         // ToArrow() 方法本身应该已经在 DataFrame 类里实现了
-        using var batch = this.ToArrow(); 
+        using var batch = ToArrow(); 
 
         // 2. 委托给 Core 层去解析
         foreach (var item in ArrowReader.ReadRecordBatch<T>(batch))

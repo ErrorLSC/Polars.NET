@@ -235,7 +235,7 @@ gen_binary_op!(pl_expr_rem, rem); // % (取余)
 // 逻辑运算
 gen_binary_op!(pl_expr_and, and); // &
 gen_binary_op!(pl_expr_or, or);   // |
-gen_binary_op!(pl_expr_xor, xor);
+gen_binary_op!(pl_expr_xor, xor); // xor
 // Null Ops
 gen_binary_op!(pl_expr_fill_null, fill_null);
 // Math Ops
@@ -286,6 +286,14 @@ pub extern "C" fn pl_expr_alias(expr_ptr: *mut ExprContext, name_ptr: *const c_c
         // alias 逻辑
         let new_expr = expr_ctx.inner.alias(name);
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_lit_null() -> *mut Expr {
+    ffi_try!({
+    let e = lit(Null {});
+    Ok(Box::into_raw(Box::new(e)))
     })
 }
 
