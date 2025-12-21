@@ -1175,6 +1175,22 @@ and DataFrame(handle: DataFrameHandle) =
             printfn "%-15s | %A" name dtype
         )
         printfn "------------------------"
+    // ==========================================
+    // Printing / String Representation
+    // ==========================================
+
+    /// <summary>
+    /// Returns the native Polars string representation of the DataFrame.
+    /// Includes shape, header, and truncated data.
+    /// </summary>
+    override this.ToString() =
+        PolarsWrapper.DataFrameToString handle
+
+    /// <summary>
+    /// Print the DataFrame to Console (Stdout).
+    /// </summary>
+    member this.Show() =
+        printfn "%s" (this.ToString())
     static member create(series: Series list) : DataFrame =
         let handles = 
             series 
@@ -1346,6 +1362,9 @@ and DataFrame(handle: DataFrameHandle) =
     member this.IsInfinite (col:string) =
         use s = this.Column col
         s.IsInfinite()
+    member this.Head (rows:int) =
+        use newdf = PolarsWrapper.Head(this.Handle, uint rows)
+        newdf
 /// <summary>
 /// A LazyFrame represents a logical plan of operations that will be optimized and executed only when collected.
 /// </summary>

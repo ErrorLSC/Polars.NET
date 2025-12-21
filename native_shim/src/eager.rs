@@ -877,7 +877,6 @@ pub unsafe extern "C" fn pl_dataframe_new_from_stream(
     })
 }
 
-
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_lazy(df_ptr: *mut DataFrameContext) -> *mut LazyFrameContext {
     let ctx = unsafe { &*df_ptr };

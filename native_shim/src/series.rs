@@ -206,6 +206,16 @@ pub extern "C" fn pl_series_rename(ptr: *mut SeriesContext, name: *const c_char)
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_series_to_string(s_ptr: *mut SeriesContext) -> *mut c_char {
+    ffi_try!({
+        let ctx = unsafe { &*s_ptr };
+        let s = std::string::ToString::to_string(&ctx.series); // Native Display
+        let c_str = CString::new(s).unwrap();
+        Ok(c_str.into_raw())
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_series_slice(series: *mut Series, offset: i64, length: usize) -> *mut Series {
     let s = unsafe { &*series };
     let new_s = s.slice(offset, length);

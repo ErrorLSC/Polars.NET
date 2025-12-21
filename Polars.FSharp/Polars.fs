@@ -329,189 +329,6 @@ module Polars =
             return new DataFrame(dfHandle)
         }
 
-    [<AutoOpen>]
-    module Printing =
-        open Apache.Arrow.Types
-        
-        // 1. 格式化辅助函数
-        let private formatBytes (bytes: byte[]) =
-            let hex = BitConverter.ToString(bytes).Replace("-", "").ToLower()
-            if hex.Length > 20 then sprintf "x'%s...'" (hex.Substring(0, 20)) else sprintf "x'%s'" hex
-
-        let private formatTimestamp (arr: TimestampArray) (index: int) =
-            let v = arr.GetValue(index).Value
-            let unit = (arr.Data.DataType :?> TimestampType).Unit
-            try
-                let dt = 
-                    match unit with
-                    | TimeUnit.Nanosecond -> DateTime.UnixEpoch.AddTicks(v / 100L)
-                    | TimeUnit.Microsecond -> DateTime.UnixEpoch.AddTicks(v * 10L)
-                    | TimeUnit.Millisecond -> DateTime.UnixEpoch.AddMilliseconds(float v)
-                    | TimeUnit.Second -> DateTime.UnixEpoch.AddSeconds(float v)
-                    | _ -> DateTime.UnixEpoch
-                dt.ToString "yyyy-MM-dd HH:mm:ss.ffffff"
-            with _ -> v.ToString()
-
-        // 2. 核心值格式化 (递归，补全了 Decimal 和 Categorical)
-        let rec formatValue (col: IArrowArray) (index: int) : string =
-            if col.IsNull(index) then "null"
-            else
-                match col with
-                // --- Base numbers ---
-                | :? Int8Array as arr -> (arr.GetValue(index).Value).ToString()
-                | :? Int16Array as arr -> (arr.GetValue(index).Value).ToString()
-                | :? Int32Array as arr -> (arr.GetValue(index).Value).ToString()
-                | :? Int64Array as arr -> (arr.GetValue(index).Value).ToString()
-                | :? UInt8Array as arr -> (arr.GetValue(index).Value).ToString()
-                | :? UInt16Array as arr -> (arr.GetValue(index).Value).ToString()
-                | :? UInt32Array as arr -> (arr.GetValue(index).Value).ToString()
-                | :? UInt64Array as arr -> (arr.GetValue(index).Value).ToString()
-                | :? FloatArray as arr -> (arr.GetValue(index).Value).ToString()
-                | :? DoubleArray as arr -> (arr.GetValue(index).Value).ToString()
-                
-                // --- [新增] Decimal ---
-                | :? Decimal128Array as arr -> (arr.GetValue(index).Value).ToString()
-
-                // --- String ---
-                | :? StringArray as arr -> sprintf "\"%s\"" (arr.GetString index)
-                | :? StringViewArray as arr -> sprintf "\"%s\"" (arr.GetString index)
-                
-                // --- Boolean ---
-                | :? BooleanArray as arr -> if arr.GetValue(index).Value then "true" else "false"
-                
-                // --- [新增] Categorical (Dictionary) ---
-                | :? DictionaryArray as arr ->
-                    // 1. 获取索引
-                    let indices = arr.Indices
-                    let key = 
-                        match indices with
-                        | :? UInt32Array as idx -> int (idx.GetValue(index).Value)
-                        | :? Int32Array as idx -> idx.GetValue(index).Value
-                        | :? Int8Array as idx -> int (idx.GetValue(index).Value)
-                        | _ -> -1 // Should not happen
-                    
-                    if key < 0 then "null"
-                    else
-                        // 2. 递归去字典里查值
-                        formatValue arr.Dictionary key
-
-                // --- Binary ---
-                | :? BinaryArray as arr -> formatBytes (arr.GetBytes(index).ToArray())
-                | :? LargeBinaryArray as arr -> formatBytes (arr.GetBytes(index).ToArray())
-
-                // --- Temporal ---
-                | :? Date32Array as arr -> 
-                    DateTime(1970, 1, 1).AddDays(float (arr.GetValue(index).Value)).ToString("yyyy-MM-dd")
-                | :? TimestampArray as arr -> formatTimestamp arr index
-                | :? Time32Array as arr -> (TimeSpan.FromMilliseconds(float (arr.GetValue(index).Value))).ToString() // 简化处理
-                | :? Time64Array as arr -> (TimeSpan.FromTicks(int64 (arr.GetValue(index).Value) * 10L)).ToString()
-
-                // --- Nested ---
-                | :? ListArray as arr ->
-                    let start = arr.ValueOffsets.[index]
-                    let end_ = arr.ValueOffsets.[index + 1]
-                    let items = [ for i in start .. end_ - 1 -> formatValue arr.Values i ]
-                    sprintf "[%s]" (String.Join(", ", items))
-                
-                | :? StructArray as arr ->
-                    let structType = arr.Data.DataType :?> StructType
-                    let fields = 
-                        structType.Fields 
-                        |> Seq.mapi (fun i field -> 
-                            let childCol = arr.Fields.[i]
-                            sprintf "%s: %s" field.Name (formatValue childCol index)
-                        )
-                    sprintf "{%s}" (String.Join(", ", fields))
-
-                | _ -> sprintf "<%s>" (col.GetType().Name)
-
-        // 3. 打印表格逻辑 (从原来的 showRows 升级而来)
-        let printTable (df: DataFrame) (nRows: int) =
-            let totalRows = df.Rows
-            let limit = Math.Min(int64 nRows, totalRows)
-            
-            // 1. 获取数据
-            let previewDf = if totalRows > limit then head (int limit) df else df
-            use batch = previewDf.ToArrow()
-            
-            let schema = batch.Schema
-            let columns = [ for field in schema.FieldsList -> batch.Column field.Name ]
-            let headers = [ for field in schema.FieldsList -> field.Name ]
-            
-            // 简化的类型名称 (类似 Polars 官方)
-            let getShortTypeName (n: string) =
-                match n with
-                | "Int32" -> "i32" | "Int64" -> "i64" | "Double" -> "f64" | "Float" -> "f32"
-                | "String" | "StringView" -> "str" | "Boolean" -> "bool"
-                | "Date32" -> "date" | "Timestamp" -> "time"
-                | _ -> n
-            
-            let types = [ for field in schema.FieldsList -> getShortTypeName field.DataType.Name ]
-            
-            // 2. 预生成数据矩阵
-            let dataRows = 
-                [ for r in 0 .. int batch.Length - 1 -> 
-                    [ for c in 0 .. columns.Length - 1 -> formatValue columns.[c] r ] 
-                ]
-                
-            // 3. 计算列宽 (内容 + 2空格Padding)
-            let colWidths = Array.zeroCreate<int> columns.Length
-            for i in 0 .. headers.Length - 1 do
-                let typeLen = types.[i].Length
-                // 宽度 = Max(表头, 类型, 最长数据) + 2 (Padding)
-                let maxContent = 
-                    if dataRows.Length > 0 then
-                        let maxData = dataRows |> List.map (fun row -> row.[i].Length) |> List.max
-                        Math.Max(headers.[i].Length, Math.Max(typeLen, maxData))
-                    else
-                        Math.Max(headers.[i].Length, typeLen)
-                colWidths.[i] <- maxContent + 2
-
-            // 4. 绘图辅助函数
-            let sb = System.Text.StringBuilder()
-            
-            // 画分割线: +------+------+
-            let appendSeparator (borderChar: char) =
-                sb.Append("+") |> ignore
-                for w in colWidths do
-                    sb.Append(String(borderChar, w)) |> ignore
-                    sb.Append("+") |> ignore
-                sb.AppendLine() |> ignore
-
-            // 画内容行: | val1 | val2 |
-            let appendRow (items: string list) =
-                sb.Append("|") |> ignore
-                for i in 0 .. items.Length - 1 do
-                    // 默认左对齐 (PadRight)
-                    // 左右各空一格: " " + text + " " (利用 PadRight 补齐剩余)
-                    let text = " " + items.[i]
-                    sb.Append(text.PadRight(colWidths.[i])) |> ignore
-                    sb.Append("|") |> ignore
-                sb.AppendLine() |> ignore
-
-            // 5. 开始绘制
-            sb.AppendLine(sprintf "shape: (%d, %d)" totalRows df.Columns) |> ignore
-            
-            appendSeparator '-'
-            appendRow headers
-            
-            // 类型行 (灰色/不同风格，这里简单处理)
-            let paddedTypes = types |> List.map (fun t -> sprintf "<%s>" t) // <i32> 风格
-            // 这里为了对齐，我们需要稍微处理一下类型行的宽度逻辑，或者直接打印
-            // 简单起见，我们直接打印类型行
-            // appendRow types // 可选：打印类型行
-
-            appendSeparator '=' // 表头和数据的强分隔符
-            
-            for row in dataRows do
-                appendRow row
-                
-            appendSeparator '-' // 底部封口
-
-            if totalRows > limit then 
-                sb.AppendLine(sprintf "... with %d more rows" (totalRows - limit)) |> ignore
-            Console.WriteLine(sb.ToString())
-
     // ==========================================
     // Public API (保持简单，返回 DataFrame 以支持管道)
     // ==========================================
@@ -520,7 +337,7 @@ module Polars =
     /// Print the DataFrame to Console (Table format).
     /// </summary>
     let show (df: DataFrame) : DataFrame =
-        Printing.printTable df 10
+        df.Show()
         df
 
     /// <summary>
@@ -530,5 +347,5 @@ module Polars =
         // 临时转为 DataFrame 打印，最省事
         let h = PolarsWrapper.SeriesToFrame(s.Handle)
         use df = new DataFrame(h)
-        Printing.printTable df 10
+        df.Show()
         s
