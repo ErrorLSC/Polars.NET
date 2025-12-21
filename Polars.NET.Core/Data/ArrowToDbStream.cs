@@ -157,7 +157,7 @@ namespace Polars.NET.Core.Data
             
             return val;
         }
-        private object GetValueFromArray(IArrowArray array, int index)
+        private static object GetValueFromArray(IArrowArray array, int index)
         {
             switch (array)
             {

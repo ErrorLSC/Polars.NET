@@ -1,3 +1,4 @@
+#pragma warning disable CS1591 // 缺少对公共可见类型或成员的 XML 注释
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
@@ -6,121 +7,28 @@ namespace Polars.CSharp;
 /// </summary>
 public enum JoinType
 {
-    /// <summary>
-    /// Inner Join
-    /// </summary>
-    Inner,
-    /// <summary>
-    /// Left Join
-    /// </summary>
-    Left,
-    /// <summary>
-    /// Full Join
-    /// </summary>
-    Outer,
-    /// <summary>
-    /// Cross Join
-    /// </summary>
-    Cross,
-    /// <summary>
-    /// Semi Join
-    /// </summary>
-    Semi,
-    /// <summary>
-    /// Anti Join
-    /// </summary>
-    Anti
+    Inner,Left, Outer,Cross,Semi,Anti
 }
 /// <summary>
 /// Specifies the aggregation function for pivot operations.
 /// </summary>
 public enum PivotAgg
 {
-    /// <summary>
-    /// Selects the first value encountered in the group.
-    /// </summary>
-    First,
-
-    /// <summary>
-    /// Computes the sum of the values in the group.
-    /// </summary>
-    Sum, 
-
-    /// <summary>
-    /// Finds the minimum value in the group.
-    /// </summary>
-    Min, 
-
-    /// <summary>
-    /// Finds the maximum value in the group.
-    /// </summary>
-    Max, 
-
-    /// <summary>
-    /// Computes the arithmetic mean (average) of the values in the group.
-    /// </summary>
-    Mean, 
-
-    /// <summary>
-    /// Computes the median of the values in the group.
-    /// </summary>
-    Median, 
-
-    /// <summary>
-    /// Counts the number of non-null values in the group.
-    /// </summary>
-    Count, 
-
-    /// <summary>
-    /// Computes the length of the group (number of rows).
-    /// </summary>
-    Len, 
-
-    /// <summary>
-    /// Selects the last value encountered in the group.
-    /// </summary>
-    Last
+    First,Sum,Min,Max, Mean,Median,Count,Len,Last
 }
 /// <summary>
 /// TimeUnit Enums
 /// </summary>
 public enum TimeUnit
 {
-    /// <summary>
-    /// Nanoseconds
-    /// </summary>
     Nanoseconds = 0,
-    /// <summary>
-    /// Microseconds
-    /// </summary>
     Microseconds = 1,
-    /// <summary>
-    /// Milliseconds
-    /// </summary>
     Milliseconds = 2,
-    /// <summary>
-    /// Seconds
-    /// </summary>
     Second = 3,
-    /// <summary>
-    /// Minutes
-    /// </summary>
     Minute = 4,
-    /// <summary>
-    /// Hours
-    /// </summary>
     Hour = 5,
-    /// <summary>
-    /// Days
-    /// </summary>
     Day = 6,
-    /// <summary>
-    /// Months
-    /// </summary>
     Month = 7,
-    /// <summary>
-    /// Years
-    /// </summary>
     Year = 8
 }
 /// <summary>
@@ -128,18 +36,7 @@ public enum TimeUnit
 /// </summary>
 public enum ConcatType
 {
-    /// <summary>
-    /// Vertical Concatenation
-    /// </summary>
-    Vertical,
-    /// <summary>
-    /// Horizontal Concatenation
-    /// </summary>
-    Horizontal,
-    /// <summary>
-    /// Diagonal Concatenation
-    /// </summary>
-    Diagonal
+    Vertical,Horizontal,Diagonal
 }
 internal static class EnumExtensions
 {

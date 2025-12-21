@@ -1,3 +1,4 @@
+#pragma warning disable CS1591 // 缺少对公共可见类型或成员的 XML 注释
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
@@ -31,47 +32,12 @@ public static class Polars
     public static Expr Len()
         => new(PolarsWrapper.Len());
     // --- Literals ---
-    /// <summary>
-    /// Create a literal expression from a string value.
-    /// </summary>
-    /// <param name="value"></param>
-    /// <returns></returns>
-    public static Expr Lit(string value) => new(PolarsWrapper.Lit(value));
-    /// <summary>
-    /// Create a literal expression from a int value.
-    /// </summary>
-    /// <param name="value"></param>
-    /// <returns></returns>
+     public static Expr Lit(string value) => new(PolarsWrapper.Lit(value));
     public static Expr Lit(int value)    => new(PolarsWrapper.Lit(value));
-    /// <summary>
-    /// Create a literal expression from a double value.
-    /// </summary>
-    /// <param name="value"></param>
-    /// <returns></returns>
     public static Expr Lit(double value) => new(PolarsWrapper.Lit(value));
-    /// <summary>
-    /// Create a literal expression from a DateTime value.
-    /// </summary>
-    /// <param name="value"></param>
-    /// <returns></returns>
     public static Expr Lit(DateTime value) => new(PolarsWrapper.Lit(value));
-    /// <summary>
-    /// Create a literal expression from a long value.
-    /// </summary>
-    /// <param name="value"></param>
-    /// <returns></returns>
     public static Expr Lit(bool value) => new(PolarsWrapper.Lit(value));
-    /// <summary>
-    /// Create a literal expression from a long value.
-    /// </summary>
-    /// <param name="value"></param>
-    /// <returns></returns>
     public static Expr Lit(long value) => new(PolarsWrapper.Lit(value));
-    /// <summary>
-    /// Create a literal expression from a float value.
-    /// </summary>
-    /// <param name="value"></param>
-    /// <returns></returns>
     public static Expr Lit(float value) => new(PolarsWrapper.Lit(value));
     
     // ---------------------------------------------------------
@@ -175,7 +141,6 @@ public static class Polars
     /// </summary>
     public static Expr AsStruct(params Expr[] exprs)
     {
-        // 必须 Clone 所有输入的 Handle，因为 Wrapper 会消耗它们
         var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
         return new Expr(PolarsWrapper.AsStruct(handles));
     }

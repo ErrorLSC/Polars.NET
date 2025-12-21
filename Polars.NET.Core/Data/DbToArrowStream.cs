@@ -68,7 +68,6 @@ internal static class DbToArrowStream
             if (buffer.Count != length)
             {
                 Console.WriteLine($"[CRITICAL PANIC PREDICTION] Column {i} ('{schema.GetFieldByIndex(i).Name}') has {buffer.Count} elements, but we are creating a batch of length {length}!");
-                // 这就是 101 vs 100 的根源！如果这里触发了，我们就破案了。
             }
 
             var array = buffer.BuildArray();
@@ -116,7 +115,7 @@ internal static class DbToArrowStream
         if (checkType == typeof(double)) return DoubleType.Default;
         if (checkType == typeof(decimal)) return DoubleType.Default;
         if (checkType == typeof(bool)) return BooleanType.Default;
-        if (checkType == typeof(string)) return StringViewType.Default; // 坚持 StringView!
+        if (checkType == typeof(string)) return StringViewType.Default;
         if (checkType == typeof(DateTime)) return new TimestampType(TimeUnit.Microsecond, (string)null!);
         if (checkType == typeof(TimeSpan)) return DurationType.FromTimeUnit(TimeUnit.Microsecond);
         if (checkType == typeof(DateOnly)) return Date32Type.Default;

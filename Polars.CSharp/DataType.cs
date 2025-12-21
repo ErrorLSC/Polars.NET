@@ -1,3 +1,4 @@
+#pragma warning disable CS1591 // 缺少对公共可见类型或成员的 XML 注释
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
@@ -132,89 +133,24 @@ public class DataType : IDisposable
     
     // 每次调用都会创建一个新的 Handle，由 SafeHandle 负责释放
     // 关键修改：在创建时传入对应的 DataTypeKind
-    /// <summary>
-    /// Boolean
-    /// </summary>
     public static DataType Boolean => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Boolean), DataTypeKind.Boolean);
-    /// <summary>
-    /// Int8
-    /// </summary>
     public static DataType Int8    => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int8), DataTypeKind.Int8);
-    /// <summary>
-    /// Int16
-    /// </summary>
     public static DataType Int16   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int16), DataTypeKind.Int16);
-    /// <summary>
-    /// Int32
-    /// </summary>
-    public static DataType Int32   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int32), DataTypeKind.Int32);
-    /// <summary>
-    /// Int64
-    /// </summary>
-    public static DataType Int64   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int64), DataTypeKind.Int64);
-    /// <summary>
-    /// UInt8
-    /// </summary>
+    public static DataType Int32   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int32), DataTypeKind.Int32);    public static DataType Int64   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int64), DataTypeKind.Int64);
     public static DataType UInt8   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt8), DataTypeKind.UInt8);
-    /// <summary>
-    /// UInt16
-    /// </summary>
     public static DataType UInt16  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt16), DataTypeKind.UInt16);
-    /// <summary>
-    /// UInt32
-    /// </summary>
     public static DataType UInt32  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt32), DataTypeKind.UInt32);
-    /// <summary>
-    /// UInt64
-    /// </summary>
     public static DataType UInt64  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt64), DataTypeKind.UInt64);
-    /// <summary>
-    /// Float16 
-    /// </summary>
     public static DataType Float16 => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Float16),DataTypeKind.Float16);
-    /// <summary>
-    /// Float32
-    /// </summary>
     public static DataType Float32 => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Float32), DataTypeKind.Float32);
-    /// <summary>
-    /// Float64
-    /// </summary>
     public static DataType Float64 => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Float64), DataTypeKind.Float64);
-    /// <summary>
-    /// String
-    /// </summary>
     public static DataType String  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.String), DataTypeKind.String);
-    /// <summary>
-    /// DateOnly
-    /// </summary>
     public static DataType Date    => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Date), DataTypeKind.Date);
-    /// <summary>
-    /// DateTime
-    /// </summary>
     public static DataType Datetime=> new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Datetime), DataTypeKind.Datetime);
-    /// <summary>
-    /// TimeOnly
-    /// </summary>
     public static DataType Time    => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Time), DataTypeKind.Time);
-    /// <summary>
-    /// Duration
-    /// </summary>
-    public static DataType Duration=> new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Duration), DataTypeKind.Duration);
-    /// <summary>
-    /// Binary
-    /// </summary>
-    public static DataType Binary  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Binary), DataTypeKind.Binary);
-    /// <summary>
-    /// Null
-    /// </summary>
+    public static DataType Duration=> new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Duration), DataTypeKind.Duration);    public static DataType Binary  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Binary), DataTypeKind.Binary);
     public static DataType Null  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Null), DataTypeKind.Null);
-    /// <summary>
-    /// Struct
-    /// </summary>
     public static DataType Struct  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Struct), DataTypeKind.Struct);
-    /// <summary>
-    /// SameAsInput
-    /// </summary>
     public static DataType SameAsInput => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.SameAsInput), DataTypeKind.Unknown);
 
     // ==========================================
@@ -239,104 +175,10 @@ public class DataType : IDisposable
 /// </summary>
 public enum DataTypeKind
     {
-        /// <summary>
-        /// Boolean
-        /// </summary>
-        Boolean,
-        /// <summary>
-        /// Int8
-        /// </summary>
-        Int8,
-        /// <summary>
-        /// Int16
-        /// </summary>
-        Int16,
-        /// <summary>
-        /// Int32
-        /// </summary>
-        Int32,
-        /// <summary>
-        /// Int64
-        /// </summary>
-        Int64,
-        /// <summary>
-        /// UInt8
-        /// </summary>
-        UInt8,
-        /// <summary>
-        /// UInt16
-        /// </summary>
-        UInt16,
-        /// <summary>
-        /// UInt 
-        /// </summary>
-        UInt32,
-        /// <summary>
-        /// UInt64
-        /// </summary>
-        UInt64,
-        /// <summary>
-        /// Float16
-        /// </summary>
-        Float16,
-        /// <summary>
-        /// Float32
-        /// </summary>
-        Float32,
-        /// <summary>
-        /// Float64
-        /// </summary>
-        Float64,
-        /// <summary>
-        /// String
-        /// </summary>
-        String,
-        /// <summary>
-        /// DateOnly
-        /// </summary>
-        Date,
-        /// <summary>
-        /// DateTime
-        /// </summary>
-        Datetime,
-        /// <summary>
-        /// Duration
-        /// </summary>
-        Duration,
-        /// <summary>
-        /// Time
-        /// </summary>
-        Time,
-        /// <summary>
-        /// List
-        /// </summary>
-        List,
-        /// <summary>
-        /// Struct
-        /// </summary>
-        Struct,
-        /// <summary>
-        /// Object
-        /// </summary>
-        Object,
-        /// <summary>
-        /// Categorical
-        /// </summary>
-        Categorical,
-        /// <summary>
-        /// Decimal
-        /// </summary>
-        Decimal,
-        /// <summary>
-        /// Binary
-        /// </summary>
-        Binary,
-        /// <summary>
-        /// Null
-        /// </summary>
-        Null,
-        /// <summary>
-        /// Unknown
-        /// </summary>
-        Unknown
+        Boolean,Int8,Int16,Int32,Int64,UInt8,UInt16,UInt32,UInt64,
+        Float16,Float32,Float64,
+        String,Date,Datetime,Duration,Time,
+        List,Struct,Object,Categorical,
+        Decimal,Binary,
+        Null,Unknown
     }

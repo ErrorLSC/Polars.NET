@@ -5,6 +5,7 @@ using System.Data;
 using Polars.NET.Core.Data;
 using System.Collections.Concurrent;
 using System.Collections;
+using System.Text;
 
 namespace Polars.CSharp;
 
@@ -1047,4 +1048,90 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     }
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    /// <summary>
+    /// Generates an HTML representation of the DataFrame.
+    /// Useful for rendering in Jupyter/Polyglot Notebooks.
+    /// </summary>
+    /// <param name="limit">Max rows to display (default 10).</param>
+    public string ToHtml(int limit = 10)
+    {
+        var sb = new StringBuilder();
+        
+        // 1. 基础样式 (仿 Polars/Pandas 风格)
+        sb.Append(@"
+<style>
+.pl-dataframe { font-family: sans-serif; border-collapse: collapse; width: auto; }
+.pl-dataframe th { background-color: #f0f0f0; color: #333; font-weight: bold; text-align: left; padding: 8px; border-bottom: 2px solid #ddd; }
+.pl-dataframe td { padding: 8px; border-bottom: 1px solid #ddd; text-align: left; color: #444; }
+.pl-dataframe tr:hover { background-color: #f9f9f9; }
+.pl-dtype { font-size: 0.8em; color: #888; display: block; font-weight: normal; }
+.pl-null { color: #d66; font-style: italic; }
+.pl-dim { font-size: 0.8em; color: #666; margin-top: 5px; }
+</style>");
+
+        sb.Append("<table class='pl-dataframe'>");
+
+        // 2. 表头 (Name + Type)
+        sb.Append("<thead><tr>");
+        
+        // 既然我们要遍历列，这里顺便把列类型也取出来
+        // 我们可以利用 Schema 或者直接取 Series 的 dtype
+        for (int i = 0; i < Width; i++)
+        {
+            var col = Column(i);
+            // HTML Encode 防止列名里有 <script> 等坏东西
+            var colName = System.Net.WebUtility.HtmlEncode(col.Name);
+            var colType = col.DataType.ToString(); // 或者更短的 string 
+            
+            sb.Append($"<th>{colName}<span class='pl-dtype'>{colType}</span></th>");
+        }
+        sb.Append("</tr></thead>");
+
+        // 3. 数据体 (Body)
+        sb.Append("<tbody>");
+        
+        int rowsToShow = (int)Math.Min(Height, limit);
+        for (int r = 0; r < rowsToShow; r++)
+        {
+            sb.Append("<tr>");
+            var rowData = Row(r); // 利用刚才实现的 Row() 方法
+            
+            foreach (var val in rowData)
+            {
+                if (val == null || val == DBNull.Value)
+                {
+                    sb.Append("<td class='pl-null'>null</td>");
+                }
+                else
+                {
+                    // 针对不同类型做一点简单的格式化
+                    string cellStr = val switch
+                    {
+                        DateTime dt => dt.ToString("yyyy-MM-dd HH:mm:ss"),
+                        // 还可以针对 float 做精度截断
+                        double d => d.ToString("G6"), 
+                        _ => val.ToString() ?? ""
+                    };
+                    
+                    // 截断过长的字符串
+                    if (cellStr.Length > 50) cellStr = cellStr[..47] + "...";
+                    
+                    sb.Append($"<td>{System.Net.WebUtility.HtmlEncode(cellStr)}</td>");
+                }
+            }
+            sb.Append("</tr>");
+        }
+        sb.Append("</tbody>");
+        sb.Append("</table>");
+
+        // 4. 底部信息 (Shape)
+        var hiddenRows = Height - rowsToShow;
+        if (hiddenRows > 0)
+        {
+            sb.Append($"<div class='pl-dim'>... and {hiddenRows} more rows.</div>");
+        }
+        sb.Append($"<div class='pl-dim'>shape: ({Height}, {Width})</div>");
+
+        return sb.ToString();
+    }
 }

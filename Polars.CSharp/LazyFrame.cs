@@ -262,7 +262,7 @@ public class LazyFrame : IDisposable
     /// <returns></returns>
     public LazyFrame Select(params Expr[] exprs)
     {
-        var lfClone = this.CloneHandle();
+        var lfClone = CloneHandle();
         var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
         // LazySelect 会消耗当前的 Handle
         return new LazyFrame(PolarsWrapper.LazySelect(lfClone, handles));
@@ -274,7 +274,7 @@ public class LazyFrame : IDisposable
     /// <returns></returns>
     public LazyFrame Filter(Expr expr)
     {
-        var lfClone = this.CloneHandle();
+        var lfClone = CloneHandle();
         var h = PolarsWrapper.CloneExpr(expr.Handle);
         //
         return new LazyFrame(PolarsWrapper.LazyFilter(lfClone, h));
@@ -286,7 +286,7 @@ public class LazyFrame : IDisposable
     /// <returns></returns>
     public LazyFrame WithColumns(params Expr[] exprs)
     {
-        var lfClone = this.CloneHandle();
+        var lfClone = CloneHandle();
         var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
         //
         return new LazyFrame(PolarsWrapper.LazyWithColumns(lfClone, handles));
@@ -299,7 +299,7 @@ public class LazyFrame : IDisposable
     /// <returns></returns>
     public LazyFrame Sort(Expr by, bool descending = false)
     {
-        var lfClone = this.CloneHandle();
+        var lfClone = CloneHandle();
         var h = PolarsWrapper.CloneExpr(by.Handle);
         //
         return new LazyFrame(PolarsWrapper.LazySort(lfClone, h, descending));
@@ -311,7 +311,7 @@ public class LazyFrame : IDisposable
     /// <returns></returns>
     public LazyFrame Limit(uint n)
     {
-        var lfClone = this.CloneHandle();
+        var lfClone = CloneHandle();
         return new LazyFrame(PolarsWrapper.LazyLimit(lfClone, n));
     }
     /// <summary>
@@ -321,7 +321,7 @@ public class LazyFrame : IDisposable
     /// <returns></returns>
     public LazyFrame Explode(params Expr[] exprs)
     {
-        var lfClone = this.CloneHandle();
+        var lfClone = CloneHandle();
         var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
         //
         return new LazyFrame(PolarsWrapper.LazyExplode(lfClone, handles));
@@ -340,7 +340,7 @@ public class LazyFrame : IDisposable
     /// <returns></returns>
     public LazyFrame Unpivot(string[] index, string[] on, string variableName = "variable", string valueName = "value")
     {
-        var lfClone = this.CloneHandle();
+        var lfClone = CloneHandle();
         return new LazyFrame(PolarsWrapper.LazyUnpivot(lfClone, index, on, variableName, valueName));
     }
     /// <summary>
@@ -387,7 +387,7 @@ public class LazyFrame : IDisposable
     {
         var lOn = leftOn.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
         var rOn = rightOn.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
-        var lfClone = this.CloneHandle();
+        var lfClone = CloneHandle();
         var otherClone = other.CloneHandle();
         // Join 消耗 left(this) 和 right(other)
         return new LazyFrame(PolarsWrapper.Join(
@@ -468,7 +468,7 @@ public class LazyFrame : IDisposable
     /// <returns></returns>
     public LazyGroupBy GroupBy(params Expr[] keys)
     {
-        var lfClone = this.CloneHandle();
+        var lfClone = CloneHandle();
         
         return new LazyGroupBy(lfClone, keys);
     }
@@ -493,7 +493,7 @@ public class LazyFrame : IDisposable
 
         var keys = by ?? [];
         return new LazyDynamicGroupBy(
-            this.CloneHandle(),
+            CloneHandle(),
             indexColumn,
             everyStr,
             periodStr,
@@ -581,7 +581,7 @@ public class LazyFrame : IDisposable
     {
         // CloneHandle() 增加引用计数，确保 this 不受影响，
         // 而 Clone 出来的 handle 会在 Wrapper 里被 TransferOwnership 给 Rust 消耗掉
-        using var newLfHandle = PolarsWrapper.SinkBatches(this.CloneHandle(), onBatchReceived);
+        using var newLfHandle = PolarsWrapper.SinkBatches(CloneHandle(), onBatchReceived);
 
         // 驱动流式执行
         using var lfRes = new LazyFrame(newLfHandle);

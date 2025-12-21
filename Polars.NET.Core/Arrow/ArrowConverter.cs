@@ -6,7 +6,7 @@ using Apache.Arrow.Types;
 namespace Polars.NET.Core.Arrow;
 public static class ArrowConverter
 {
-    // 缓存泛型方法定义，避免每次循环都反射获取 MethodInfo (微优化)
+    // 缓存泛型方法定义，避免每次循环都反射获取 MethodInfo
     private static readonly MethodInfo _buildMethodDef = typeof(ArrowConverter)
         .GetMethod("Build", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
         ?? throw new InvalidOperationException("ArrowConverter.Build<T> method not found.");
@@ -39,7 +39,7 @@ public static class ArrowConverter
             // 3. 调用并获取 IArrowArray
             try 
             {
-                var arrowArray = (IArrowArray)buildMethod.Invoke(null, new[] { colValue })!;
+                var arrowArray = (IArrowArray)buildMethod.Invoke(null, [colValue])!;
                 result.Add((colName, arrowArray));
             }
             catch (TargetInvocationException ex)
