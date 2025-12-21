@@ -277,4 +277,18 @@ public static partial class PolarsWrapper
         // 原来的 df 不会被 Dispose (因为 Rust 端做了 clone)
         return ErrorHelper.Check(NativeBindings.pl_dataframe_lazy(df));
     }
+    public static string DataFrameToString(DataFrameHandle handle)
+    {
+        var ptr = NativeBindings.pl_dataframe_to_string(handle);
+        try
+        {
+            // 将非托管 UTF8 指针转为 C# String
+            return Marshal.PtrToStringUTF8(ptr) ?? "";
+        }
+        finally
+        {
+            // 释放 Rust 分配的内存
+            NativeBindings.pl_free_string(ptr);
+        }
+    }
 }

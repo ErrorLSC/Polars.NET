@@ -93,6 +93,8 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial UIntPtr pl_dataframe_width(DataFrameHandle df);
     [LibraryImport(LibName)] public static partial IntPtr pl_dataframe_get_column_name(DataFrameHandle df, UIntPtr index);
+    [LibraryImport(LibName)]
+    public static partial IntPtr pl_dataframe_to_string(DataFrameHandle df);
     // Scalars
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     [return: MarshalAs(UnmanagedType.U1)]
@@ -115,6 +117,8 @@ unsafe internal partial class NativeBindings
     public static partial DataFrameHandle pl_dataframe_clone(DataFrameHandle df);
     [LibraryImport(LibName)]
     public static partial LazyFrameHandle pl_dataframe_lazy(DataFrameHandle df);
+
+
     [LibraryImport(LibName)] public static partial IntPtr pl_dataframe_get_string(DataFrameHandle df, [MarshalAs(UnmanagedType.LPUTF8Str)] string colName, UIntPtr row);
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_head(DataFrameHandle df, UIntPtr n);

@@ -888,3 +888,16 @@ pub extern "C" fn pl_dataframe_lazy(df_ptr: *mut DataFrameContext) -> *mut LazyF
     
     Box::into_raw(Box::new(LazyFrameContext { inner }))
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_to_string(df_ptr: *mut DataFrameContext) -> *mut c_char {
+    ffi_try!({
+        let ctx = unsafe { &mut *df_ptr };
+        // Polars 的 Display 实现会自动处理格式化、对齐、截断
+        let s = ctx.df.to_string();
+        
+        // 转为 C String 传给 C#
+        let c_str = CString::new(s).unwrap();
+        Ok(c_str.into_raw())
+    })
+}

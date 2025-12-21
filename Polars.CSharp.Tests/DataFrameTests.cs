@@ -354,8 +354,8 @@ Bob,2024,History";
         Assert.Equal(14, tailDf.GetValue<int>(4,"id"));
         // 2. Test Show (No exception should be thrown)
         // 这会在控制台打印表格
-        System.Console.WriteLine("\n--- Testing DataFrame.Show() output ---");
-        df.Show(10); 
+        Console.WriteLine("\n--- Testing DataFrame.Show() output ---");
+        df.Show(); 
         
         // 测试小数据 Show
         headDf.Show();

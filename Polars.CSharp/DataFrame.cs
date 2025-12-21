@@ -57,14 +57,14 @@ public class DataFrame : IDisposable,IEnumerable<Series>
             Console.WriteLine($" |-- {kvp.Key}: {kvp.Value}");
         }
     }
-    /// <summary>
-    /// Get a string representation of the DataFrame schema.
-    /// </summary>
-    /// <returns></returns>
-    public override string ToString()
-    {
-        return $"DataFrame: {Height}x{Width} {string.Join(", ", Schema.Select(kv => $"{kv.Key}:{kv.Value}"))}";
-    }
+    // /// <summary>
+    // /// Get a string representation of the DataFrame schema.
+    // /// </summary>
+    // /// <returns></returns>
+    // public override string ToString()
+    // {
+    //     return $"DataFrame: {Height}x{Width} {string.Join(", ", Schema.Select(kv => $"{kv.Key}:{kv.Value}"))}";
+    // }
     // ==========================================
     // Static IO Read
     // ==========================================
@@ -660,123 +660,142 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     // ==========================================
     // Display (Show)
     // ==========================================
-    /// <summary>
-    /// Print the DataFrame to Console in a tabular format.
-    /// </summary>
-    /// <param name="rows">Number of rows to show.</param>
-    /// <param name="maxColWidth">Maximum characters per column before truncation.</param>
-    public void Show(int rows = 10, int maxColWidth = 30)
-    {
-        // 1. 获取预览数据 (Head)
-        // 限制 rows 不超过实际高度
-        int n = (int)Math.Min(rows, Height);
-        if (n <= 0) 
-        {
-            Console.WriteLine("Empty DataFrame");
-            return;
-        }
+    // /// <summary>
+    // /// Print the DataFrame to Console in a tabular format.
+    // /// </summary>
+    // /// <param name="rows">Number of rows to show.</param>
+    // /// <param name="maxColWidth">Maximum characters per column before truncation.</param>
+    // public void Show(int rows = 10, int maxColWidth = 30)
+    // {
+    //     // 1. 获取预览数据 (Head)
+    //     // 限制 rows 不超过实际高度
+    //     int n = (int)Math.Min(rows, Height);
+    //     if (n <= 0) 
+    //     {
+    //         Console.WriteLine("Empty DataFrame");
+    //         return;
+    //     }
 
-        // 使用 Head 获取前 n 行
-        using var previewDf = Head(n);
-        using var batch = previewDf.ToArrow();
+    //     // 使用 Head 获取前 n 行
+    //     using var previewDf = Head(n);
+    //     using var batch = previewDf.ToArrow();
 
-        // 2. 准备列信息
-        var columns = batch.Schema.FieldsList;
-        int colCount = columns.Count;
-        var colWidths = new int[colCount];
-        var colNames = new string[colCount];
+    //     // 2. 准备列信息
+    //     var columns = batch.Schema.FieldsList;
+    //     int colCount = columns.Count;
+    //     var colWidths = new int[colCount];
+    //     var colNames = new string[colCount];
 
-        // 3. 计算每列的最佳宽度
-        // 宽度 = Max(列名长度, 前n行中最长值的长度)
-        for (int i = 0; i < colCount; i++)
-        {
-            colNames[i] = columns[i].Name;
-            int maxLen = colNames[i].Length;
+    //     // 3. 计算每列的最佳宽度
+    //     // 宽度 = Max(列名长度, 前n行中最长值的长度)
+    //     for (int i = 0; i < colCount; i++)
+    //     {
+    //         colNames[i] = columns[i].Name;
+    //         int maxLen = colNames[i].Length;
 
-            var colArray = batch.Column(i);
+    //         var colArray = batch.Column(i);
 
-            // 扫描数据计算宽度 (为了性能，只扫描显示的这几行)
-            for (int r = 0; r < n; r++)
-            {
-                // 使用我们之前写的 FormatValue！
-                string val = colArray.FormatValue(r);
-                if (val.Length > maxLen) maxLen = val.Length;
-            }
+    //         // 扫描数据计算宽度 (为了性能，只扫描显示的这几行)
+    //         for (int r = 0; r < n; r++)
+    //         {
+    //             // 使用我们之前写的 FormatValue！
+    //             string val = colArray.FormatValue(r);
+    //             if (val.Length > maxLen) maxLen = val.Length;
+    //         }
 
-            // 应用最大宽度限制
-            colWidths[i] = Math.Min(maxLen, maxColWidth) + 2; // +2 padding
-        }
+    //         // 应用最大宽度限制
+    //         colWidths[i] = Math.Min(maxLen, maxColWidth) + 2; // +2 padding
+    //     }
 
-        // 4. 打印 Header
-        Console.WriteLine($"shape: ({Height}, {Width})");
-        Console.Write("┌");
-        for (int i = 0; i < colCount; i++)
-        {
-            // 简单的边框绘制
-            Console.Write(new string('─', colWidths[i]));
-            Console.Write(i == colCount - 1 ? "┐" : "┬");
-        }
-        Console.WriteLine();
+    //     // 4. 打印 Header
+    //     Console.WriteLine($"shape: ({Height}, {Width})");
+    //     Console.Write("┌");
+    //     for (int i = 0; i < colCount; i++)
+    //     {
+    //         // 简单的边框绘制
+    //         Console.Write(new string('─', colWidths[i]));
+    //         Console.Write(i == colCount - 1 ? "┐" : "┬");
+    //     }
+    //     Console.WriteLine();
 
-        Console.Write("│");
-        for (int i = 0; i < colCount; i++)
-        {
-            string content = Truncate(colNames[i], colWidths[i] - 2);
-            Console.Write($" {content.PadRight(colWidths[i] - 2)} │");
-        }
-        Console.WriteLine();
+    //     Console.Write("│");
+    //     for (int i = 0; i < colCount; i++)
+    //     {
+    //         string content = Truncate(colNames[i], colWidths[i] - 2);
+    //         Console.Write($" {content.PadRight(colWidths[i] - 2)} │");
+    //     }
+    //     Console.WriteLine();
 
-        // 分隔线
-        Console.Write("├");
-        for (int i = 0; i < colCount; i++)
-        {
-            Console.Write(new string('─', colWidths[i]));
-            Console.Write(i == colCount - 1 ? "┤" : "┼");
-        }
-        Console.WriteLine();
+    //     // 分隔线
+    //     Console.Write("├");
+    //     for (int i = 0; i < colCount; i++)
+    //     {
+    //         Console.Write(new string('─', colWidths[i]));
+    //         Console.Write(i == colCount - 1 ? "┤" : "┼");
+    //     }
+    //     Console.WriteLine();
 
-        // 5. 打印数据行
-        for (int r = 0; r < n; r++)
-        {
-            Console.Write("│");
-            for (int i = 0; i < colCount; i++)
-            {
-                string val = batch.Column(i).FormatValue(r);
-                string content = Truncate(val, colWidths[i] - 2);
+    //     // 5. 打印数据行
+    //     for (int r = 0; r < n; r++)
+    //     {
+    //         Console.Write("│");
+    //         for (int i = 0; i < colCount; i++)
+    //         {
+    //             string val = batch.Column(i).FormatValue(r);
+    //             string content = Truncate(val, colWidths[i] - 2);
                 
-                // 数值右对齐，其他左对齐 (简单起见全部左对齐，或根据类型判断)
-                // 这里统一左对齐
-                Console.Write($" {content.PadRight(colWidths[i] - 2)} │");
-            }
-            Console.WriteLine();
-        }
+    //             // 数值右对齐，其他左对齐 (简单起见全部左对齐，或根据类型判断)
+    //             // 这里统一左对齐
+    //             Console.Write($" {content.PadRight(colWidths[i] - 2)} │");
+    //         }
+    //         Console.WriteLine();
+    //     }
 
-        // 底部边框
-        Console.Write("└");
-        for (int i = 0; i < colCount; i++)
-        {
-            Console.Write(new string('─', colWidths[i]));
-            Console.Write(i == colCount - 1 ? "┘" : "┴");
-        }
-        Console.WriteLine();
+    //     // 底部边框
+    //     Console.Write("└");
+    //     for (int i = 0; i < colCount; i++)
+    //     {
+    //         Console.Write(new string('─', colWidths[i]));
+    //         Console.Write(i == colCount - 1 ? "┘" : "┴");
+    //     }
+    //     Console.WriteLine();
         
-        if (Height > n)
-        {
-            Console.WriteLine($"--- (showing {n} of {Height} rows) ---");
-        }
-    }
+    //     if (Height > n)
+    //     {
+    //         Console.WriteLine($"--- (showing {n} of {Height} rows) ---");
+    //     }
+    // }
     /// <summary>
-    /// Truncate a string to a maximum length, adding "..." if truncated.
+    /// Returns the string representation of the DataFrame (ASCII table).
+    /// This allows Console.WriteLine(df) to print the table directly.
     /// </summary>
-    /// <param name="s"></param>
-    /// <param name="maxLength"></param>
-    /// <returns></returns>
-    static private string Truncate(string s, int maxLength)
+    public override string ToString()
     {
-        if (string.IsNullOrEmpty(s)) return "";
-        if (s.Length <= maxLength) return s;
-        return string.Concat(s.AsSpan(0, Math.Max(0, maxLength - 3)), "...");
+        if (Handle.IsInvalid) return "DataFrame (Disposed)";
+        
+        // 调用 Rust 获取漂亮的表格
+        return PolarsWrapper.DataFrameToString(Handle);
     }
+
+    /// <summary>
+    /// Print the DataFrame to Console.
+    /// </summary>
+    public void Show()
+    {
+        Console.WriteLine(this.ToString());
+    }
+    // /// <summary>
+    // /// Truncate a string to a maximum length, adding "..." if truncated.
+    // /// </summary>
+    // /// <param name="s"></param>
+    // /// <param name="maxLength"></param>
+    // /// <returns></returns>
+    // static private string Truncate(string s, int maxLength)
+    // {
+    //     if (string.IsNullOrEmpty(s)) return "";
+    //     if (s.Length <= maxLength) return s;
+    //     return string.Concat(s.AsSpan(0, Math.Max(0, maxLength - 3)), "...");
+    // }
     // ==========================================
     // Interop
     // ==========================================
