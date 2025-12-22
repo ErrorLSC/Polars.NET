@@ -19,7 +19,7 @@ type Expr(handle: ExprHandle) =
     /// <summary> Access struct operations. </summary>
     member this.Struct = new StructOps(this.CloneHandle())
     /// <summary> Access temporal (date/time) operations. </summary>
-    member this.Dt = new DtOps(handle)
+    member this.Dt = new DtOps(this.CloneHandle())
     /// <summary> Access string manipulation operations. </summary>
     member this.Str = new StringOps(this.CloneHandle())
 
@@ -28,34 +28,34 @@ type Expr(handle: ExprHandle) =
 
     // --- Operators ---
     /// <summary> Greater than. </summary>
-    static member (.>) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Gt(lhs.Handle, rhs.Handle))
+    static member (.>) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Gt(lhs.CloneHandle(), rhs.CloneHandle()))
     /// <summary> Less than. </summary>
-    static member (.<) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Lt(lhs.Handle, rhs.Handle))
+    static member (.<) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Lt(lhs.CloneHandle(), rhs.CloneHandle()))
     /// <summary> Greater than or equal to. </summary>
-    static member (.>=) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.GtEq(lhs.Handle, rhs.Handle))
+    static member (.>=) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.GtEq(lhs.CloneHandle(), rhs.CloneHandle()))
     /// <summary> Less than or equal to. </summary>
-    static member (.<=) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.LtEq(lhs.Handle, rhs.Handle))
+    static member (.<=) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.LtEq(lhs.CloneHandle(), rhs.CloneHandle()))
     /// <summary> Equal to. </summary>
-    static member (.==) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Eq(lhs.Handle, rhs.Handle))
+    static member (.==) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Eq(lhs.CloneHandle(), rhs.CloneHandle()))
     /// <summary> Not equal to. </summary>
-    static member (.!=) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Neq(lhs.Handle, rhs.Handle))
+    static member (.!=) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Neq(lhs.CloneHandle(), rhs.CloneHandle()))
     // 运算符重载, Arithmetic
-    static member ( + ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Add(lhs.Handle, rhs.Handle))
-    static member ( - ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Sub(lhs.Handle, rhs.Handle))
-    static member ( * ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Mul(lhs.Handle, rhs.Handle))
-    static member ( / ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Div(lhs.Handle, rhs.Handle))
-    static member ( % ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Rem(lhs.Handle, rhs.Handle))
+    static member ( + ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Add(lhs.CloneHandle(), rhs.CloneHandle()))
+    static member ( - ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Sub(lhs.CloneHandle(), rhs.CloneHandle()))
+    static member ( * ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Mul(lhs.CloneHandle(), rhs.CloneHandle()))
+    static member ( / ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Div(lhs.CloneHandle(), rhs.CloneHandle()))
+    static member ( % ) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Rem(lhs.CloneHandle(), rhs.CloneHandle()))
     /// <summary> Power / Exponentiation. </summary>
     static member (.**) (baseExpr: Expr, exponent: Expr) = baseExpr.Pow exponent
     /// <summary> Logical AND. </summary>
-    static member (.&&) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.And(lhs.Handle, rhs.Handle))
+    static member (.&&) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.And(lhs.CloneHandle(), rhs.CloneHandle()))
     /// <summary> Logical OR. </summary>
-    static member (.||) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Or(lhs.Handle, rhs.Handle))
+    static member (.||) (lhs: Expr, rhs: Expr) = new Expr(PolarsWrapper.Or(lhs.CloneHandle(), rhs.CloneHandle()))
     /// <summary> Logical NOT. </summary>
-    static member (!!) (e: Expr) = new Expr(PolarsWrapper.Not e.Handle)
+    static member (!!) (e: Expr) = new Expr(PolarsWrapper.Not (e.CloneHandle()))
     // --- Methods ---
     /// <summary> Rename the output column. </summary>
-    member this.Alias(name: string) = new Expr(PolarsWrapper.Alias(handle, name))
+    member this.Alias(name: string) = new Expr(PolarsWrapper.Alias(this.CloneHandle(), name))
 
     /// <summary> Cast the expression to a different data type. </summary>
     member this.Cast(dtype: DataType, ?strict: bool) =
@@ -65,17 +65,16 @@ type Expr(handle: ExprHandle) =
         use typeHandle = dtype.CreateHandle()
         
         // 2. 调用更新后的 Wrapper
-        // 注意：CloneHandle 是必须的，因为 Expr 是不可变的，操作产生新 Expr
         let newHandle = PolarsWrapper.ExprCast(this.CloneHandle(), typeHandle, isStrict)
         
         new Expr(newHandle)
     // Aggregations
-    member this.Sum() = new Expr(PolarsWrapper.Sum handle)
-    member this.Mean() = new Expr(PolarsWrapper.Mean handle)
-    member this.Max() = new Expr(PolarsWrapper.Max handle)
-    member this.Min() = new Expr(PolarsWrapper.Min handle)
+    member this.Sum() = new Expr(PolarsWrapper.Sum (this.CloneHandle()))
+    member this.Mean() = new Expr(PolarsWrapper.Mean (this.CloneHandle()))
+    member this.Max() = new Expr(PolarsWrapper.Max (this.CloneHandle()))
+    member this.Min() = new Expr(PolarsWrapper.Min (this.CloneHandle()))
     // Math
-    member this.Abs() = new Expr(PolarsWrapper.Abs handle)
+    member this.Abs() = new Expr(PolarsWrapper.Abs (this.CloneHandle()))
     member this.Sqrt() = new Expr(PolarsWrapper.Sqrt(this.CloneHandle()))
     member this.Exp() = new Expr(PolarsWrapper.Exp(this.CloneHandle()))
     member this.Pow(exponent: Expr) = 
@@ -96,16 +95,16 @@ type Expr(handle: ExprHandle) =
     /// <summary>
     /// Count the number of valid (non-null) values.
     /// </summary>
-    member this.Count() = new Expr(PolarsWrapper.Count handle)
+    member this.Count() = new Expr(PolarsWrapper.Count (this.CloneHandle()))
     member this.Std(?ddof: int) = 
         let d = defaultArg ddof 1 // Default sample std dev
-        new Expr(PolarsWrapper.Std(handle, d))
+        new Expr(PolarsWrapper.Std(this.CloneHandle(), d))
         
     member this.Var(?ddof: int) = 
         let d = defaultArg ddof 1
-        new Expr(PolarsWrapper.Var(handle, d))
+        new Expr(PolarsWrapper.Var(this.CloneHandle(), d))
         
-    member this.Median() = new Expr(PolarsWrapper.Median handle)
+    member this.Median() = new Expr(PolarsWrapper.Median (this.CloneHandle()))
     
     member this.Quantile(q: float, ?interpolation: string) =
         let method = defaultArg interpolation "linear"
@@ -116,6 +115,8 @@ type Expr(handle: ExprHandle) =
         new Expr(PolarsWrapper.IsBetween(this.CloneHandle(), lower.CloneHandle(), upper.CloneHandle()))
     member this.FillNull(fillValue: Expr) = 
         new Expr(PolarsWrapper.FillNull(this.CloneHandle(), fillValue.CloneHandle()))
+    member this.FillNan(fillValue:Expr) =
+        new Expr(PolarsWrapper.FillNan(this.CloneHandle(), fillValue.CloneHandle()));
     member this.IsNull() = 
         new Expr(PolarsWrapper.IsNull(this.CloneHandle()))
     member this.IsNotNull() = 
@@ -171,38 +172,64 @@ type Expr(handle: ExprHandle) =
     member this.RollingMin(windowSize: string, ?minPeriod: int) =
         let m = defaultArg minPeriod 1
         new Expr(PolarsWrapper.RollingMin(this.CloneHandle(), windowSize,m))
+    member this.RollingMin(windowSize: TimeSpan, ?minPeriod: int) =
+        let m = defaultArg minPeriod 1
+        this.RollingMin(DurationFormatter.ToPolarsString windowSize,m)
         
     member this.RollingMax(windowSize: string, ?minPeriod: int) =
         let m = defaultArg minPeriod 1 
         new Expr(PolarsWrapper.RollingMax(this.CloneHandle(), windowSize,m))
+    member this.RollingMax(windowSize: TimeSpan, ?minPeriod: int) =
+        let m = defaultArg minPeriod 1
+        this.RollingMax(DurationFormatter.ToPolarsString windowSize,m)
 
     member this.RollingMean(windowSize: string, ?minPeriod: int) = 
         let m = defaultArg minPeriod 1 
         new Expr(PolarsWrapper.RollingMean(this.CloneHandle(), windowSize, m))
+    member this.RollingMean(windowSize: TimeSpan, ?minPeriod: int) =
+        let m = defaultArg minPeriod 1
+        this.RollingMean(DurationFormatter.ToPolarsString windowSize,m)
         
     member this.RollingSum(windowSize: string, ?minPeriod: int) =
         let m = defaultArg minPeriod 1  
         new Expr(PolarsWrapper.RollingSum(this.CloneHandle(), windowSize, m))
+    member this.RollingSum(windowSize: TimeSpan, ?minPeriod: int) =
+        let m = defaultArg minPeriod 1
+        this.RollingSum(DurationFormatter.ToPolarsString windowSize,m)
     // 用法: col("price").RollingMeanBy("1d", col("date"))
     member this.RollingMeanBy(windowSize: string, by: Expr,?closed: string,?minPeriod: int) =
         let c = defaultArg closed "left"
         let m = defaultArg minPeriod 1
         new Expr(PolarsWrapper.RollingMeanBy(this.CloneHandle(), windowSize, m, by.CloneHandle(), c))
-
+    member this.RollingMeanBy(windowSize: TimeSpan, by: Expr,?closed: string,?minPeriod: int) =
+        let c = defaultArg closed "left"
+        let m = defaultArg minPeriod 1
+        this.RollingMeanBy(DurationFormatter.ToPolarsString windowSize,by,c,m)
     member this.RollingSumBy(windowSize: string, by: Expr, ?closed: string,?minPeriod: int) =
         let c = defaultArg closed "left"
         let m = defaultArg minPeriod 1 
         new Expr(PolarsWrapper.RollingSumBy(this.CloneHandle(), windowSize, m, by.CloneHandle(), c))
+    member this.RollingSumBy(windowSize: TimeSpan, by: Expr,?closed: string,?minPeriod: int) =
+        let c = defaultArg closed "left"
+        let m = defaultArg minPeriod 1
+        this.RollingSumBy(DurationFormatter.ToPolarsString windowSize,by,c,m)
     // 用法: col("price").RollingMeanBy("1d", col("date"))
     member this.RollingMaxBy(windowSize: string, by: Expr, ?closed: string, ?minPeriod: int) =
         let c = defaultArg closed "left"
         let m = defaultArg minPeriod 1 
         new Expr(PolarsWrapper.RollingMaxBy(this.CloneHandle(), windowSize, m, by.CloneHandle(), c))
-
+    member this.RollingMaxBy(windowSize: TimeSpan, by: Expr,?closed: string,?minPeriod: int) =
+        let c = defaultArg closed "left"
+        let m = defaultArg minPeriod 1
+        this.RollingMaxBy(DurationFormatter.ToPolarsString windowSize,by,c,m)
     member this.RollingMinBy(windowSize: string, by: Expr, ?closed: string, ?minPeriod: int) =
         let c = defaultArg closed "left"
         let m = defaultArg minPeriod 1 
         new Expr(PolarsWrapper.RollingMinBy(this.CloneHandle(), windowSize, m, by.CloneHandle(), c))
+    member this.RollingMinBy(windowSize: TimeSpan, by: Expr,?closed: string,?minPeriod: int) =
+        let c = defaultArg closed "left"
+        let m = defaultArg minPeriod 1
+        this.RollingMinBy(DurationFormatter.ToPolarsString windowSize,by,c,m)
 
 // --- Namespace Helpers ---
 
@@ -395,14 +422,22 @@ and ListOps(handle: ExprHandle) =
         new Expr(PolarsWrapper.ListContains(handle, item.CloneHandle()))
     member _.Contains(item: int) = 
         let itemHandle = PolarsWrapper.Lit item
-        new Expr(PolarsWrapper.ListContains(PolarsWrapper.CloneExpr(handle), itemHandle))
+        new Expr(PolarsWrapper.ListContains(PolarsWrapper.CloneExpr handle, itemHandle))
     member _.Contains(item: string) = 
         let itemHandle = PolarsWrapper.Lit item
-        new Expr(PolarsWrapper.ListContains(PolarsWrapper.CloneExpr(handle), itemHandle))
+        new Expr(PolarsWrapper.ListContains(PolarsWrapper.CloneExpr handle, itemHandle))
 
 and StructOps(handle: ExprHandle) =
     /// <summary> Retrieve a field from the struct by name. </summary>
     member _.Field(name: string) = 
         new Expr(PolarsWrapper.StructFieldByName(handle, name))
+    member _.Field(index: int) = 
+        new Expr(PolarsWrapper.StructFieldByIndex(handle, index))
+    member _.RenameFields(names: string list) =
+        let cArr = List.toArray names
+        new Expr(PolarsWrapper.StructRenameFields(handle, cArr));
+    member _.JsonEncode() = 
+        new Expr(PolarsWrapper.StructJsonEncode handle);
+
 
 

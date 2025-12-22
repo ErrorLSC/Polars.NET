@@ -23,7 +23,7 @@ public enum PlDataType : int
     Binary = 17,
     Null = 18,
     Struct = 19,
-    Float16 = 20
+    List = 20
 }
 
 public enum PlJoinType

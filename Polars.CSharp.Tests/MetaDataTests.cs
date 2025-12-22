@@ -10,7 +10,7 @@ public class MetadataTests
         Assert.Equal("i64", sInt.DataTypeName);
 
         // 2. Decimal (自动推断 Scale)
-        using var sDec = new Series("b", new Decimal[]{1.5m, 2.345m}); 
+        using var sDec = new Series("b", new Decimal[] {1.5m, 2.345m}); 
         // 1.5 -> 1.500, Scale=3. Polars 的 decimal 显示格式通常是 "decimal(precision, scale)"
         // 注意：具体字符串取决于 Polars 版本，通常包含 "decimal"
         Assert.Contains("decimal", sDec.DataTypeName); 
@@ -33,9 +33,9 @@ public class MetadataTests
         using var df = DataFrame.From(data);
 
         // 2. 捕获控制台输出
-        using var sw = new System.IO.StringWriter();
-        var originalOut = System.Console.Out;
-        System.Console.SetOut(sw);
+        using var sw = new StringWriter();
+        var originalOut = Console.Out;
+        Console.SetOut(sw);
 
         try
         {
@@ -45,7 +45,7 @@ public class MetadataTests
         finally
         {
             // 恢复控制台
-            System.Console.SetOut(originalOut);
+            Console.SetOut(originalOut);
         }
 
         // 4. 验证输出内容
@@ -53,10 +53,10 @@ public class MetadataTests
         
         // 应该包含 root 和列信息
         Assert.Contains("root", output);
-        Assert.Contains("|-- Id: Int32", output);
-        Assert.Contains("|-- Name: String", output);     // 或者 String
-        Assert.Contains("|-- IsActive: Boolean", output); // 或者 Boolean
+        Assert.Contains("|-- Id: i32", output);
+        Assert.Contains("|-- Name: str", output);     // 或者 String
+        Assert.Contains("|-- IsActive: bool", output); // 或者 Boolean
         
-        System.Console.WriteLine(output);
+        Console.WriteLine(output);
     }
 }

@@ -87,3 +87,25 @@ internal static class EnumExtensions
         _ => PlConcatType.Vertical
     };
 }
+
+/// <summary>
+/// Enum of DataTypeKind
+/// </summary>
+public enum DataTypeKind
+{
+    Boolean = 1 ,
+    Int8 =2,
+    Int16=3,
+    Int32=4,
+    Int64=5,
+    UInt8=6,
+    UInt16=7,
+    UInt32=8,UInt64=9,
+    Float32=10,Float64=11,
+    String=12,Date=13,Datetime=14,Time=15,Duration=16,
+    Binary=17,
+    Null=18,
+    Struct=19,List=20,Categorical=21,
+    Decimal=22,
+    Unknown = 0
+}

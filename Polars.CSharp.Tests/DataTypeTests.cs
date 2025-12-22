@@ -230,7 +230,7 @@ public class DataTypeTests
         // 2. 写入 Polars (ArrowConverter 生效)
         using var s = Series.From("times", data);
         using var df = new DataFrame(s).Unnest("times");
-        
+
         // 检查 Schema，Duration 应该被识别
         Assert.Equal(DataTypeKind.Duration, df.Schema["Duration"].Kind);
 
@@ -355,5 +355,4 @@ public class DataTypeTests
         Assert.Equal(2, list0.Count);
         Assert.Equal(2, list0[1]);
     }
-    
 }

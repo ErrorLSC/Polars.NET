@@ -30,7 +30,9 @@ type Series(handle: SeriesHandle) =
     /// Get the string representation of the Series Data Type (e.g., "Int64", "String").
     /// </summary>
     member _.DtypeStr = PolarsWrapper.GetSeriesDtypeString handle
-
+    member this.DataType : DataType =
+        let dtypeStr = this.DtypeStr
+        DataType.Parse dtypeStr
     /// <summary>
     /// Returns a boolean Series indicating which values are null.
     /// </summary>

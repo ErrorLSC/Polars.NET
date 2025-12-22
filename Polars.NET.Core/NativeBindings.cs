@@ -788,6 +788,20 @@ unsafe internal partial class NativeBindings
     public static partial DataTypeHandle pl_datatype_new_categorical();
     [LibraryImport(LibName)]
     public static partial DataTypeHandle pl_datatype_new_list(DataTypeHandle inner);
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial DataTypeHandle pl_datatype_new_datetime(int unit, string? timezone);
+    [LibraryImport(LibName)]
+    public static partial DataTypeHandle pl_datatype_new_duration(int unit);
+    [LibraryImport(LibName)]
+    public static partial DataTypeHandle pl_datatype_new_struct(
+    [In] IntPtr[] names, 
+    [In] IntPtr[] types, 
+    UIntPtr len
+    );
+    [LibraryImport(LibName)]
+    public static partial IntPtr pl_datatype_to_string(DataTypeHandle handle);
+    [LibraryImport(LibName)]
+    public static partial DataTypeHandle pl_datatype_clone(DataTypeHandle handle);
     // Arithmetic
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_add(SeriesHandle s1, SeriesHandle s2);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_sub(SeriesHandle s1, SeriesHandle s2);

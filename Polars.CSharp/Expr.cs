@@ -1328,7 +1328,6 @@ public class StructOps
         var h = PolarsWrapper.CloneExpr(_expr.Handle);
         return new Expr(PolarsWrapper.StructFieldByIndex(h, index));
     }
-    
     /// <summary>
     /// Rename the fields of the struct.
     /// </summary>

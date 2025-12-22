@@ -638,8 +638,8 @@ B,5";
         Assert.Contains("Bob", html);
         
         // 验证表头包含类型
-        Assert.Contains("String", html); 
-        Assert.Contains("Int32", html);
+        Assert.Contains("str", html); 
+        Assert.Contains("i32", html);
 
         // 验证 null 处理
         Assert.Contains("class='pl-null'>null", html);

@@ -206,7 +206,7 @@ public class StreamingTests
             };
         }
     }
-    [Fact(Skip = "Stress test, will be skiped")]
+    [Fact(Skip ="Stress test")]
     [Trait("Category", "StressTest")] // 标记为压力测试，CI 中可选跳过
     public void Test_100_Million_Rows_Streaming()
     {

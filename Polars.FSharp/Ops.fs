@@ -9,7 +9,7 @@ module Series =
     let mean (s: Series) = s.Mean()
     let min (s: Series) = s.Min()
     let max (s: Series) = s.Max()
-    let count (s: Series) = s.Length // 或者 s.Length
+    let count (s: Series) = s.Length
     let nullCount (s: Series) = s.NullCount
 
     // --- Arithmetic (Pipe-friendly) ---

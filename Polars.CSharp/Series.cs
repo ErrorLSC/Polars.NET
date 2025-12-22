@@ -768,7 +768,6 @@ public class Series : IDisposable
                     DataTypeKind.Decimal => GetValue<decimal?>(index),
 
                     // 浮点数
-                    DataTypeKind.Float16 => GetValue<Half?>(index),
                     DataTypeKind.Float32 => GetValue<float?>(index),
                     DataTypeKind.Float64 => GetValue<double?>(index),
 

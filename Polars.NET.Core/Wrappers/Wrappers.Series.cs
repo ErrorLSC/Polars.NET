@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.C; 
@@ -362,15 +363,5 @@ public static partial class PolarsWrapper
     {
         // 将 long 长度转为 UIntPtr
         return ErrorHelper.Check(NativeBindings.pl_series_slice(handle, offset, (UIntPtr)length));
-    }
-    // DataType Helpers
-    public static DataTypeHandle NewPrimitiveType(int code) => NativeBindings.pl_datatype_new_primitive(code);
-    public static DataTypeHandle NewDecimalType(int precision, int scale) => NativeBindings.pl_datatype_new_decimal((UIntPtr)precision, (UIntPtr)scale);
-    public static DataTypeHandle NewCategoricalType() => NativeBindings.pl_datatype_new_categorical();
-    public static DataTypeHandle NewListType(DataTypeHandle innerType)
-    {
-        // 调用底层，注意这里传入的是 handle (SafeHandle 会自动转为 IntPtr)
-        var newHandle = NativeBindings.pl_datatype_new_list(innerType);
-        return ErrorHelper.Check(newHandle);
     }
 }

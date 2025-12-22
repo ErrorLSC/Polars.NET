@@ -106,4 +106,27 @@ public class ScalarTests
         double score = (double)df[2, "Score"]!;
         Assert.Equal(77.5, score);
     }
+    [Fact]
+    public void Test_Datetime_TimeZone_Cast()
+    {
+        var df = DataFrame.FromColumns(new 
+        {
+            // 默认是 Microseconds, No Timezone
+            Ts = new[] { DateTime.Parse("2024-01-01 12:00:00") } 
+        });
+
+        // 1. 定义目标类型：毫秒精度 + 东京时间
+        var targetType = DataType.Datetime(TimeUnit.Milliseconds, "Asia/Tokyo");
+
+        // 2. 使用 Cast
+        var res = df.Select(
+            Polars.Col("Ts")
+                .Cast(targetType) // <--- 关键用法！
+                .Alias("Ts_Tokyo")
+        );
+        
+        // 验证
+        // 打印 Schema 看看类型是不是变了
+        Console.WriteLine(res.Schema["Ts_Tokyo"]); // output should indicate datetime[ms, Asia/Tokyo]
+    }
 }
