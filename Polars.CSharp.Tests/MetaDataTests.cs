@@ -50,13 +50,13 @@ public class MetadataTests
 
         // 4. 验证输出内容
         var output = sw.ToString();
-        
+        Console.WriteLine(output);
         // 应该包含 root 和列信息
         Assert.Contains("root", output);
         Assert.Contains("|-- Id: i32", output);
         Assert.Contains("|-- Name: str", output);     // 或者 String
         Assert.Contains("|-- IsActive: bool", output); // 或者 Boolean
         
-        Console.WriteLine(output);
+
     }
 }

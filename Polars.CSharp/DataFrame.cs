@@ -32,14 +32,29 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     {
         get
         {
-            var json = PolarsWrapper.GetDataFrameSchemaString(Handle);
-            if (string.IsNullOrEmpty(json)) return new Dictionary<string, DataType>();
-
-            var rawDict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            // [重构] 遍历列构建 Schema，确保类型安全且无需解析字符串
             
-            // 现在 DataType.Parse 会返回带 Kind 的 DataType 对象
-            return rawDict?.ToDictionary(k => k.Key, v => DataType.Parse(v.Value)) 
-                ?? new Dictionary<string, DataType>();
+            int width = (int)PolarsWrapper.DataFrameWidth(Handle);
+            var schema = new Dictionary<string, DataType>(width);
+
+            for (int i = 0; i < width; i++)
+            {
+                // 1. 获取第 i 列的 SeriesHandle (这是 Rust 端 Clone 出来的新 Handle，需要释放)
+                using var seriesHandle = PolarsWrapper.DataFrameGetColumnAt(Handle, i);
+                
+                // 2. 获取列名 (Wrapper 需封装 pl_series_name)
+                // 假设 PolarsWrapper.GetSeriesName(SeriesHandle) 存在
+                string name = PolarsWrapper.SeriesName(seriesHandle);
+
+                // 3. 获取 DataType (直接拿 Handle)
+                var dtHandle = PolarsWrapper.GetSeriesDataType(seriesHandle);
+                
+                // 4. 构造 DataType 对象并加入字典
+                // 注意：DataType 对象会接管 dtHandle 的生命周期
+                schema[name] = new DataType(dtHandle);
+            }
+
+            return schema;
         }
     }
     /// <summary>

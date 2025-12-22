@@ -356,3 +356,53 @@ pub unsafe extern "C" fn pl_datatype_get_decimal_info(
         set_error("Panic in pl_datatype_get_decimal_info".to_string());
     }
 }
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_datatype_get_inner(ptr: *mut DataType) -> *mut DataType {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if ptr.is_null() { return std::ptr::null_mut(); }
+        let dtype = unsafe {&*ptr};
+        match dtype {
+            DataType::List(inner) => {
+                // Clone inner type and box it
+                Box::into_raw(Box::new(*inner.clone())) 
+            },
+            _ => std::ptr::null_mut() // Not a list
+        }
+    }));
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+// 获取 Struct 的字段数量
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_datatype_get_struct_len(ptr: *mut DataType) -> usize {
+    let dtype = unsafe {&*ptr};
+    if let DataType::Struct(fields) = dtype {
+        fields.len()
+    } else {
+        0
+    }
+}
+
+// 获取 Struct 指定索引的字段名和类型
+// name_ptr: 用于返回 CString, type_ptr: 用于返回 DataTypeHandle
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_datatype_get_struct_field(
+    ptr: *mut DataType, 
+    index: usize, 
+    name_out: *mut *mut c_char, 
+    type_out: *mut *mut DataType
+) {
+    let dtype = unsafe {&*ptr};
+    if let DataType::Struct(fields) = dtype {
+        if index < fields.len() {
+            let field = &fields[index]; // Field { name, dtype }
+            
+            // 1. 设置 Name
+            unsafe {*name_out = CString::new(field.name.as_str()).unwrap().into_raw()};
+            
+            // 2. 设置 Type (Clone handle)
+            unsafe {*type_out = Box::into_raw(Box::new(field.dtype.clone()))};
+        }
+    }
+}

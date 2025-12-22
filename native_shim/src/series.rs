@@ -756,3 +756,12 @@ pub extern "C" fn pl_series_is_infinite(s_ptr: *mut SeriesContext) -> *mut Serie
         Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_series_get_dtype(ptr: *mut Series) -> *mut DataType {
+    ffi_try!({
+        let s = unsafe {&*ptr};
+        // Series::dtype() 返回 &DataType，我们需要 Clone 并 Box 传给 C#
+        Ok(Box::into_raw(Box::new(s.dtype().clone())))
+    })
+}

@@ -143,6 +143,13 @@ public static partial class PolarsWrapper
         var ptr = NativeBindings.pl_series_dtype_str(h);
         return ErrorHelper.CheckString(ptr);
     }
+    /// <summary>
+    /// 直接从 Series 获取 DataType Handle (Zero Parse)
+    /// </summary>
+    public static DataTypeHandle GetSeriesDataType(SeriesHandle handle)
+    {
+        return ErrorHelper.Check(NativeBindings.pl_series_get_dtype(handle));
+    }
     public static long SeriesLen(SeriesHandle h) => (long)NativeBindings.pl_series_len(h);
     
     public static string SeriesName(SeriesHandle h) 

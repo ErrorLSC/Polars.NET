@@ -40,11 +40,12 @@ public class Series : IDisposable
     {
         get
         {
-            // 1. 调用底层获取类型字符串 (例如 "i64", "date", "list[i64]")
-            var dtypeStr = PolarsWrapper.GetSeriesDtypeString(Handle);
+            // [重构] 不再进行字符串解析
+            // 1. 直接从底层获取 DataTypeHandle
+            var handle = PolarsWrapper.GetSeriesDataType(Handle);
             
-            // 2. 解析为 C# DataType 对象
-            return DataType.Parse(dtypeStr);
+            // 2. 使用 Handle 构造 C# 对象 (Kind 会自动从 Rust 获取)
+            return new DataType(handle);
         }
     }
     

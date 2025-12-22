@@ -733,6 +733,8 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial IntPtr pl_series_dtype_str(SeriesHandle s);
     [LibraryImport(LibName)]
+    public static partial DataTypeHandle pl_series_get_dtype(SeriesHandle handle);
+    [LibraryImport(LibName)]
     public static partial UIntPtr pl_series_len(SeriesHandle h);
 
     [LibraryImport(LibName)]
@@ -802,6 +804,36 @@ unsafe internal partial class NativeBindings
     public static partial IntPtr pl_datatype_to_string(DataTypeHandle handle);
     [LibraryImport(LibName)]
     public static partial DataTypeHandle pl_datatype_clone(DataTypeHandle handle);
+    // 1. GetKind - 返回 i32
+    [LibraryImport(LibName)]
+    public static partial int pl_datatype_get_kind(IntPtr handle);
+
+    // 2. GetTimeUnit - 返回 i32
+    [LibraryImport(LibName)]
+    public static partial int pl_datatype_get_time_unit(IntPtr handle);
+
+    // 3. GetDecimalInfo - out 参数
+    [LibraryImport(LibName)]
+    public static partial void pl_datatype_get_decimal_info(IntPtr handle, out int precision, out int scale);
+
+    // 4. GetTimeZone - 返回字符串指针
+    [LibraryImport(LibName)]
+    public static partial IntPtr pl_datatype_get_timezone(IntPtr handle);
+    [LibraryImport(LibName)]
+    public static partial DataTypeHandle pl_datatype_get_inner(IntPtr handle);
+
+    [LibraryImport(LibName)]
+    public static partial UIntPtr pl_datatype_get_struct_len(IntPtr handle);
+
+    // 注意：这是一个比较复杂的签名，因为我们要返回两个指针
+    [LibraryImport(LibName)]
+    public static partial void pl_datatype_get_struct_field(
+        IntPtr handle, 
+        UIntPtr index, 
+        out IntPtr namePtr,       // 输出字符串指针
+        out DataTypeHandle typeHandle // 输出类型句柄
+    );
+
     // Arithmetic
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_add(SeriesHandle s1, SeriesHandle s2);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_sub(SeriesHandle s1, SeriesHandle s2);
