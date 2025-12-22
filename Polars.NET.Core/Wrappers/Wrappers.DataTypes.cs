@@ -43,21 +43,23 @@ public static partial class PolarsWrapper
     /// </summary>
     public static string GetDataTypeString(DataTypeHandle handle)
     {
-        // Rust 会 Box::from_raw(ptrToConsume) -> 使用 -> Drop
-        IntPtr strPtr = NativeBindings.pl_datatype_to_string(handle);
-        handle.TransferOwnership();
-        // 4. 读取字符串并清理
+        // 1. 调用 Rust (Borrow 模式)
+        IntPtr strPtr = NativeBindings.pl_datatype_to_string(handle.DangerousGetHandle());
+        
+        if (strPtr == IntPtr.Zero) return "unknown";
+
+        // 2. 读取字符串并清理 (字符串本身的内存还是要释放的)
         try
         {
             return Marshal.PtrToStringUTF8(strPtr) ?? "unknown";
         }
         finally
         {
-            // 必须调用 Rust 的 free 来释放字符串内存
-            // 千万不能用 Marshal.FreeCoTaskMem，否则立马崩
+            // 释放 Rust 分配的字符串内存 (CString)
             NativeBindings.pl_free_string(strPtr);
         }
     }
+
     /// <summary>
     /// 获取 TimeZone 字符串。
     /// 严格遵循: Rust Alloc -> C# Copy -> Rust Free

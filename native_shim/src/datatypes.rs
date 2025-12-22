@@ -7,52 +7,79 @@ pub struct DataTypeContext {
     pub dtype: DataType,
 }
 
-#[repr(i32)]
-pub enum PlDataTypeKind {
-    Unknown = 0,
-    Boolean,
-    Int8, Int16, Int32, Int64,
-    UInt8, UInt16, UInt32, UInt64,
-    Float32, Float64,
-    String, // Utf8
-    Date,
-    Datetime,
-    Time,
-    Duration,
-    Binary,
-    Null,
-    Struct,
-    List,
-    Categorical,
-    Decimal,
-    // ... 其他类型
+macro_rules! define_pl_datatype_kind {
+    (
+        $(#[$meta:meta])*
+        pub enum PlDataTypeKind {
+            // 格式: Variant = Discriminant <=> MatchPattern => Constructor
+            $($Variant:ident = $Val:literal <=> $MatchPat:pat => $Constructor:expr),* $(,)?
+        }
+    ) => {
+        // 1. 生成枚举定义
+        #[repr(i32)]
+        $(#[$meta])*
+        #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+        pub enum PlDataTypeKind {
+            $($Variant = $Val),*
+        }
+
+        impl PlDataTypeKind {
+            // 辅助：从 i32 安全转换为 Enum
+            pub fn from_i32(code: i32) -> Option<Self> {
+                match code {
+                    $($Val => Some(PlDataTypeKind::$Variant)),*,
+                    _ => None,
+                }
+            }
+
+            // 核心：Kind -> Default DataType
+            pub fn to_default_datatype(self) -> DataType {
+                match self {
+                    $(PlDataTypeKind::$Variant => $Constructor),*
+                }
+            }
+        }
+
+        // 核心：DataType -> Kind
+        pub fn map_dtype_to_kind(dtype: &DataType) -> PlDataTypeKind {
+            match dtype {
+                $($MatchPat => PlDataTypeKind::$Variant),*,
+                // 兜底处理：如果在宏里没定义的类型，统一返回 Unknown
+                _ => PlDataTypeKind::Unknown,
+            }
+        }
+    };
 }
 
-fn map_dtype_to_kind(dtype: &DataType) -> PlDataTypeKind {
-    match dtype {
-        DataType::Boolean => PlDataTypeKind::Boolean,
-        DataType::Int8 => PlDataTypeKind::Int8,
-        DataType::Int16 => PlDataTypeKind::Int16,
-        DataType::Int32 => PlDataTypeKind::Int32,
-        DataType::Int64 => PlDataTypeKind::Int64,
-        DataType::UInt8 => PlDataTypeKind::UInt8,
-        DataType::UInt16 => PlDataTypeKind::UInt16,
-        DataType::UInt32 => PlDataTypeKind::UInt32,
-        DataType::UInt64 => PlDataTypeKind::UInt64,
-        DataType::Float32 => PlDataTypeKind::Float32,
-        DataType::Float64 => PlDataTypeKind::Float64,
-        DataType::String => PlDataTypeKind::String,
-        DataType::Binary => PlDataTypeKind::Binary,
-        DataType::Date => PlDataTypeKind::Date,
-        DataType::Time => PlDataTypeKind::Time,
-        DataType::Datetime(_, _) => PlDataTypeKind::Datetime,
-        DataType::Duration(_) => PlDataTypeKind::Duration,
-        DataType::Categorical(_, _) => PlDataTypeKind::Categorical, // 注意：Polars新版Categorical有泛型
-        DataType::List(_) => PlDataTypeKind::List,
-        DataType::Struct(_) => PlDataTypeKind::Struct,
-        DataType::Null => PlDataTypeKind::Null,
-        DataType::Decimal(_, _) => PlDataTypeKind::Decimal,
-        _ => PlDataTypeKind::Unknown,
+// === 使用宏定义所有类型 ===
+// 这里是唯一的维护点！
+define_pl_datatype_kind! {
+    pub enum PlDataTypeKind {
+        Unknown     = 0  <=> DataType::Unknown(_)      => DataType::Unknown(Default::default()), // 注意：UnknownKind::Any 在新版可能是 Default
+        Boolean     = 1  <=> DataType::Boolean         => DataType::Boolean,
+        Int8        = 2  <=> DataType::Int8            => DataType::Int8,
+        Int16       = 3  <=> DataType::Int16           => DataType::Int16,
+        Int32       = 4  <=> DataType::Int32           => DataType::Int32,
+        Int64       = 5  <=> DataType::Int64           => DataType::Int64,
+        UInt8       = 6  <=> DataType::UInt8           => DataType::UInt8,
+        UInt16      = 7  <=> DataType::UInt16          => DataType::UInt16,
+        UInt32      = 8  <=> DataType::UInt32          => DataType::UInt32,
+        UInt64      = 9  <=> DataType::UInt64          => DataType::UInt64,
+        Float32     = 10 <=> DataType::Float32         => DataType::Float32,
+        Float64     = 11 <=> DataType::Float64         => DataType::Float64,
+        String      = 12 <=> DataType::String          => DataType::String,
+        Date        = 13 <=> DataType::Date            => DataType::Date,
+        // Datetime 比较特殊：匹配所有 Datetime，但构造时给默认值
+        Datetime    = 14 <=> DataType::Datetime(_, _)  => DataType::Datetime(TimeUnit::Microseconds, None),
+        Time        = 15 <=> DataType::Time            => DataType::Time,
+        Duration    = 16 <=> DataType::Duration(_)     => DataType::Duration(TimeUnit::Microseconds),
+        Binary      = 17 <=> DataType::Binary          => DataType::Binary,
+        Null        = 18 <=> DataType::Null            => DataType::Null,
+        Struct      = 19 <=> DataType::Struct(_)       => DataType::Struct(vec![]),
+        List        = 20 <=> DataType::List(_)         => DataType::List(Box::new(DataType::Null)),
+        // Categorical 逻辑较复杂，直接内联你的构造代码
+        Categorical = 21 <=> DataType::Categorical(_, _) => DataType::Categorical(Categories::random(PlSmallStr::EMPTY, CategoricalPhysical::U32),Categories::random(PlSmallStr::EMPTY, CategoricalPhysical::U32).mapping()),
+        Decimal     = 22 <=> DataType::Decimal(_, _)   => DataType::Decimal(None, None),
     }
 }
 // --- Constructors ---
@@ -60,33 +87,17 @@ fn map_dtype_to_kind(dtype: &DataType) -> PlDataTypeKind {
 // 1. 基础类型 (通过枚举值创建)
 // 0=Bool, 1=Int8, ... (与 C# 定义的 enum 对应)
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_datatype_new_primitive(code: i32) -> *mut DataTypeContext {
-    let dtype = match code {
-        1 => DataType::Boolean,
-        2 => DataType::Int8,
-        3 => DataType::Int16,
-        4 => DataType::Int32,
-        5 => DataType::Int64,
-        6 => DataType::UInt8,
-        7 => DataType::UInt16,
-        8 => DataType::UInt32,
-        9 => DataType::UInt64,
-        10 => DataType::Float32,
-        11 => DataType::Float64,
-        12 => DataType::String,
-        13 => DataType::Date,
-        14 => DataType::Datetime(TimeUnit::Microseconds, None), // 默认无时区
-        15 => DataType::Time,
-        16 => DataType::Duration(TimeUnit::Microseconds),
-        17 => DataType::Binary,
-        18 => DataType::Null,
-        19 => DataType::Struct(vec![]),
-        20 => DataType::List(Box::new(DataType::Null)),
-        21 => DataType::Categorical(Categories::random(PlSmallStr::EMPTY, CategoricalPhysical::U32),Categories::random(PlSmallStr::EMPTY, CategoricalPhysical::U32).mapping()),
-        22 => DataType::Decimal(None, None),
-        _ => DataType::Unknown(UnknownKind::Any),
-    };
-    Box::into_raw(Box::new(DataTypeContext { dtype }))
+pub unsafe extern "C" fn pl_datatype_new_primitive(code: i32) -> *mut DataType {
+    // 1. 尝试将 code 转为 Kind
+    if let Some(kind) = PlDataTypeKind::from_i32(code) {
+        // 2. 将 Kind 转为 DataType
+        let dtype = kind.to_default_datatype();
+        Box::into_raw(Box::new(dtype))
+    } else {
+        // 处理无效 code，返回 Unknown
+        let dtype = DataType::Unknown(Default::default());
+        Box::into_raw(Box::new(dtype))
+    }
 }
 
 // 2. Decimal 类型
@@ -227,10 +238,10 @@ fn dtype_to_string_verbose(dt: &DataType) -> String {
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_to_string(dt_ptr: *mut DataTypeContext) -> *mut c_char {
     ffi_try!({
-        let ctx = unsafe { Box::from_raw(dt_ptr) };
+        let ctx = unsafe { &*dt_ptr };
         // Polars 的 Display 实现非常详细，包含了时区、单位、Struct 字段等
         let s = dtype_to_string_verbose(&ctx.dtype);
-        let c_str = CString::new(s).unwrap();
+        let c_str = CString::new(s).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
         Ok(c_str.into_raw())
     })
 }
@@ -259,19 +270,10 @@ pub extern "C" fn pl_datatype_clone(ptr: *mut DataTypeContext) -> *mut DataTypeC
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pl_datatype_get_kind(ptr: *mut DataType) -> i32 {
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        if ptr.is_null() { return 0; } // Unknown
-        let dtype = unsafe { &*ptr}; // Borrow
-        map_dtype_to_kind(dtype) as i32
-    }));
-
-    match result {
-        Ok(val) => val,
-        Err(_) => {
-            set_error("Panic in pl_datatype_get_kind".to_string());
-            0 // Return Unknown on panic
-        }
-    }
+    if ptr.is_null() { return 0; }
+    let dtype = unsafe {&*ptr};
+    // 直接调用宏生成的函数
+    map_dtype_to_kind(dtype) as i32
 }
 
 #[unsafe(no_mangle)]

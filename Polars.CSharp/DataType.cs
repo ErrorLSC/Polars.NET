@@ -10,7 +10,6 @@ namespace Polars.CSharp;
 public class DataType : IDisposable
 {
     internal DataTypeHandle Handle { get; }
-    private DataTypeHandle CloneHandle() => PolarsWrapper.CloneHandle(Handle);
     
     /// <summary>
     /// Gets the high-level kind of this data type.
@@ -75,12 +74,9 @@ public class DataType : IDisposable
     /// </summary>
     public override string ToString()
     {
-        if (_displayString == null)
-        {
-            // ToString requires ownership transfer in our binding design
-            using var clone = PolarsWrapper.CloneHandle(Handle);
-            _displayString = PolarsWrapper.GetDataTypeString(clone);
-        }
+        // [关键修改] 直接传入 Handle，不再需要 CloneHandle()
+        // 性能更高，且符合只读语义
+        _displayString ??= PolarsWrapper.GetDataTypeString(Handle);
         return _displayString;
     }
     // ==========================================

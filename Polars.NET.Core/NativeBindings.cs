@@ -801,7 +801,7 @@ unsafe internal partial class NativeBindings
     UIntPtr len
     );
     [LibraryImport(LibName)]
-    public static partial IntPtr pl_datatype_to_string(DataTypeHandle handle);
+    public static partial IntPtr pl_datatype_to_string(IntPtr handle);
     [LibraryImport(LibName)]
     public static partial DataTypeHandle pl_datatype_clone(DataTypeHandle handle);
     // 1. GetKind - 返回 i32
