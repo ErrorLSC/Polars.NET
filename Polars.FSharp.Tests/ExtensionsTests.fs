@@ -110,7 +110,7 @@ type ``Extensions Tests`` () =
         
         // 我们需要 Unnest 才能用 ToRecords 映射回扁平的 Record
         let dfFlat =
-            df |>Polars.unnestColumn "data"
+            df |>pl.unnestColumn "data"
         
         let readBack = dfFlat.ToRecords<ComplexData>() |> Seq.toList
 

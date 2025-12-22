@@ -95,7 +95,7 @@ module Udf =
                 let values = valuesBuilder.Build()
                 
                 // 2. 构建 DictionaryType (Key=UInt32, Value=String, Ordered=false)
-                let dictType = new Apache.Arrow.Types.DictionaryType(
+                let dictType = new Types.DictionaryType(
                     indices.Data.DataType,
                     values.Data.DataType,
                     false

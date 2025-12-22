@@ -52,13 +52,13 @@ type ``UDF Tests`` () =
         // 关键点：必须传入 PlDataType.String，否则 Polars 可能会把结果当成 Int 处理导致乱码
         let df = 
             lf 
-            |> Polars.withColumnLazy (
-                Polars.col "num"
+            |> pl.withColumnLazy (
+                pl.col "num"
                 |> fun e -> e.Map(udf, DataType.String)
-                |> Polars.alias "desc"
+                |> pl.alias "desc"
             )
-            |> Polars.selectLazy [ Polars.col "desc" ]
-            |> Polars.collect
+            |> pl.selectLazy [ pl.col "desc" ]
+            |> pl.collect
 
         // 4. 验证结果
         let arrowBatch = df.ToArrow()
@@ -78,12 +78,12 @@ type ``UDF Tests`` () =
         // 2. 断言会抛出异常
         let ex = Assert.Throws<Exception>(fun () -> 
             lf 
-            |> Polars.withColumnLazy (
-                Polars.col "num" 
+            |> pl.withColumnLazy (
+                pl.col "num" 
                 |> fun e -> e.Map(udf, DataType.SameAsInput)
             )
             // UDF 是 Lazy 执行的，只有 Collect/ToArrow 时才会触发
-            |> Polars.collect 
+            |> pl.collect 
             |> ignore
         )
 
@@ -103,15 +103,15 @@ type ``UDF Tests`` () =
 
         let df = 
             lf 
-            |> Polars.withColumnLazy (
-                Polars.col "num"
+            |> pl.withColumnLazy (
+                pl.col "num"
                 // 2. 直接调用 Udf.map
                 // 泛型 'T 和 'U 会自动推断为 int 和 string
                 |> fun e -> e.Map(Udf.map myLogic DataType.String, DataType.String) 
-                |> Polars.alias "res"
+                |> pl.alias "res"
             )
-            |> Polars.selectLazy [ Polars.col "res" ]
-            |> Polars.collect
+            |> pl.selectLazy [ pl.col "res" ]
+            |> pl.collect
 
         // 验证
         let arrow = df.ToArrow()
@@ -137,13 +137,13 @@ type ``UDF Tests`` () =
 
         let df = 
             lf 
-            |> Polars.withColumnLazy (
-                Polars.col "val"
+            |> pl.withColumnLazy (
+                pl.col "val"
                 // 使用 mapOption，显式处理 Option 类型
                 |> fun e -> e.Map(Udf.mapOption logic DataType.Int32, DataType.Int32)
-                |> Polars.alias "res"
+                |> pl.alias "res"
             )
-            |> Polars.collect
+            |> pl.collect
 
         // 验证
         let arrow = df.ToArrow()
@@ -182,8 +182,8 @@ type ``UDF Tests`` () =
 
             // 或者我们可以直接在 Series 上实现 Map? 目前 Series.Map 没暴露，只有 Expr.Map
             // 我们用 Expr 方式：
-            |> Polars.withColumn (
-                Polars.col("str_vals")
+            |> pl.withColumn (
+                pl.col("str_vals")
                     .Cast(DataType.Decimal(Some 10, 2)) // 先转 Decimal
                     .Map(Udf.mapOption logic (DataType.Decimal(Some 10, 2)), DataType.Decimal(Some 10, 2)) // 跑 UDF
                     .Alias "doubled"
@@ -193,4 +193,4 @@ type ``UDF Tests`` () =
         let col = arrow.Column "doubled" :?> Decimal128Array
         Assert.Equal(21.00m, col.GetValue(0).Value)
         Assert.Equal(40.50m, col.GetValue(1).Value)
-        Assert.True(col.IsNull(2))
+        Assert.True(col.IsNull 2)

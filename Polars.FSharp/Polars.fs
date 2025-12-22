@@ -1,15 +1,25 @@
 namespace Polars.FSharp
 
 open System
-open Apache.Arrow
+open System.ComponentModel
 open Polars.NET.Core
 open System.Threading.Tasks
 
-/// <summary>
-/// The main entry point for Polars operations in F#.
-/// </summary>
-module Polars =
-    
+// =========================================================================
+// 1. 核心实现层 (Internal / Private Implementation)
+//    这里放所有的逻辑，但不对外直接暴露，防止命名污染
+// =========================================================================
+[<EditorBrowsable(EditorBrowsableState.Never)>]
+type LitMechanism = LitMechanism with
+    static member ($) (LitMechanism, v: int) = new Expr(PolarsWrapper.Lit v)
+    static member ($) (LitMechanism, v: string) = new Expr(PolarsWrapper.Lit v)
+    static member ($) (LitMechanism, v: double) = new Expr(PolarsWrapper.Lit v)
+    static member ($) (LitMechanism, v: DateTime) = new Expr(PolarsWrapper.Lit v)
+    static member ($) (LitMechanism, v: bool) = new Expr(PolarsWrapper.Lit v)
+    static member ($) (LitMechanism, v: float32) = new Expr(PolarsWrapper.Lit v)
+    static member ($) (LitMechanism, v: int64) = new Expr(PolarsWrapper.Lit v)
+module pl =
+
     // --- Factories ---
     /// <summary> Reference a column by name. </summary>
     let col (name: string) = new Expr(PolarsWrapper.Col name)
@@ -20,27 +30,23 @@ module Polars =
     /// <summary> Select all columns (returns a Selector). </summary>
     let all () = new Selector(PolarsWrapper.SelectorAll())
 
-    // --- Lit (SRTP) ---
-    type LitMechanism = LitMechanism with
-        static member ($) (LitMechanism, v: int) = new Expr(PolarsWrapper.Lit v)
-        static member ($) (LitMechanism, v: string) = new Expr(PolarsWrapper.Lit v)
-        static member ($) (LitMechanism, v: double) = new Expr(PolarsWrapper.Lit v)
-        static member ($) (LitMechanism, v: DateTime) = new Expr(PolarsWrapper.Lit v)
-        static member ($) (LitMechanism, v: bool) = new Expr(PolarsWrapper.Lit v)
-        static member ($) (LitMechanism, v: float32) = new Expr(PolarsWrapper.Lit v)
-        static member ($) (LitMechanism, v: int64) = new Expr(PolarsWrapper.Lit v)
-
     /// <summary> Create a literal expression from a value. </summary>
     let inline lit (value: ^T) : Expr = 
         ((^T or LitMechanism) : (static member ($) : LitMechanism * ^T -> Expr) (LitMechanism, value))
     // --- Expr Helpers ---
     /// <summary> Cast an expression to a different data type. </summary>
     let cast (dtype: DataType) (e: Expr) = e.Cast dtype
-    /// Common DataTypes
+
     let boolean = DataType.Boolean
     let int32 = DataType.Int32
+    let int64 = DataType.Int64
     let float64 = DataType.Float64
     let string = DataType.String
+    let Date = DataType.Date
+    let Datetime = DataType.Datetime
+    let TimeSpan = DataType.Duration
+    let Time = DataType.Time
+
     /// <summary> Count the number of elements in an expression. </summary>
     let count () = new Expr(PolarsWrapper.Len())
     /// Alias for count
@@ -316,10 +322,6 @@ module Polars =
     /// </summary>
     let collectAsync (lf: LazyFrame) : Async<DataFrame> =
         async {
-            // 这里必须 CloneHandle！
-            // 因为 collectAsync 会立即返回一个 Async 对象，
-            // 原始的 lf 可能会在 Async 还没真正运行前就被 dispose 或者修改（虽然 LazyFrame 是不可变的）。
-            // 最安全的方式是让后台线程持有一个独立的 Handle。
             let lfClone = lf.CloneHandle()
             
             let! dfHandle = 
@@ -349,3 +351,17 @@ module Polars =
         use df = new DataFrame(h)
         df.Show()
         s
+
+// =========================================================================
+// 3. AutoOpen 层 (The "Magic" Layer)
+//    只暴露最核心、最不会冲突的东西到全局
+// =========================================================================
+[<AutoOpen>]
+module PolarsAutoOpen =
+
+    // A. 暴露核心原子 col 和 lit
+    // 允许用户直接写: col("A") .> lit(10)
+    let inline col name = pl.col name
+    let inline lit value = pl.lit value
+
+    let inline alias column = pl.alias column

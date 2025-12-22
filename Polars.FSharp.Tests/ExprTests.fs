@@ -13,18 +13,18 @@ type ``Expression Logic Tests`` () =
             // 像 Python 一样写在 list 里面！
             let res = 
                 df
-                |> Polars.select [
-                    Polars.col "name"
+                |> pl.select [
+                    col "name"
                     
                     // Inline 1: 简单的 alias
-                    Polars.col "birthdate" |> Polars.alias "b_date"
+                    col "birthdate" |> alias "b_date"
                     
                     // Inline 2: 链式调用
-                    (Polars.col "birthdate").Dt.Year().Alias "year"
+                    (col "birthdate").Dt.Year().Alias "year"
                     
                     // Inline 3: 算术表达式
-                    Polars.col "weight" / (Polars.col "height" * Polars.col "height")
-                    |> Polars.alias "bmi"
+                    col "weight" / (col "height" * col "height")
+                    |> alias "bmi"
                 ]
 
             // 验证
@@ -40,7 +40,7 @@ type ``Expression Logic Tests`` () =
         use csv = new TempCsv "val\n10\n20\n30"
         let df = DataFrame.ReadCsv csv.Path
         
-        let res = df |> Polars.filter (Polars.col "val" .> Polars.lit 15)
+        let res = df |> pl.filter (col "val" .> lit 15)
         
         Assert.Equal(2L, res.Rows)
     [<Fact>]
@@ -48,7 +48,7 @@ type ``Expression Logic Tests`` () =
         use csv = new TempCsv "name,birthdate,weight,height\nBen Brown,1985-02-15,72.5,1.77\nQinglei,2025-11-25,70.0,1.80\nZhang,2025-10-31,55,1.75"
         let df = DataFrame.ReadCsv (path=csv.Path,tryParseDates=true)
 
-        let res = df |> Polars.filter ((Polars.col "birthdate").Dt.Year() .< Polars.lit 1990 )
+        let res = df |> pl.filter ((col "birthdate").Dt.Year() .< lit 1990 )
 
         Assert.Equal(1L,res.Rows)
 
@@ -58,7 +58,7 @@ type ``Expression Logic Tests`` () =
         let df = DataFrame.ReadCsv csv.Path
         
         // SRTP 魔法测试
-        let res = df |> Polars.filter (Polars.col "name" .== Polars.lit "Alice")
+        let res = df |> pl.filter (pl.col "name" .== pl.lit "Alice")
         
         Assert.Equal(2L, res.Rows)
 
@@ -68,7 +68,7 @@ type ``Expression Logic Tests`` () =
         let df = DataFrame.ReadCsv csv.Path
         
         // SRTP 魔法测试
-        let res = df |> Polars.filter (Polars.col "value" .== Polars.lit 3.36)
+        let res = df |> pl.filter (col "value" .== lit 3.36)
         
         Assert.Equal(2L, res.Rows)
 
@@ -84,19 +84,19 @@ type ``Expression Logic Tests`` () =
         // 结果应该是 3 行 (10, 0, 30)
         let res = 
             lf 
-            |> Polars.withColumnLazy (
-                Polars.col "age" 
-                |> Polars.fillNull (Polars.lit 0) 
-                |> Polars.alias "age_filled"
+            |> pl.withColumnLazy (
+                col "age" 
+                |> pl.fillNull (pl.lit 0) 
+                |> pl.alias "age_filled"
             )
-            |> Polars.filterLazy (Polars.col "age_filled" .>= Polars.lit 0)
-            |> Polars.collect
+            |> pl.filterLazy (col "age_filled" .>= lit 0)
+            |> pl.collect
         Assert.Equal(3L, res.Rows)
         
         // 测试 2: is_null
         // 筛选出 null 的行
         let df= DataFrame.ReadCsv csv.Path 
-        let nulls = df |> Polars.filter (Polars.col "age" |> Polars.isNull)
+        let nulls = df |> pl.filter (pl.col "age" |> pl.isNull)
         Assert.Equal(1L, nulls.Rows)
     [<Fact>]
     member _.``IsBetween with DateTime Literals`` () =
@@ -118,12 +118,12 @@ type ``Expression Logic Tests`` () =
 
         let res = 
             df 
-            |> Polars.filter (
+            |> pl.filter (
                 // 条件 1: 生日区间
-                (Polars.col "birthdate").IsBetween(Polars.lit startDt, Polars.lit endDt)
+                (pl.col "birthdate").IsBetween(pl.lit startDt, pl.lit endDt)
                 .&& // 条件 2: AND
                 // 条件 3: 身高
-                (Polars.col "height" .> Polars.lit 1.7)
+                (pl.col "height" .> pl.lit 1.7)
             )
 
         // 验证: 只有 Qinglei 符合
@@ -137,28 +137,28 @@ type ``Expression Logic Tests`` () =
         use df_origin = DataFrame.create [s]
         let df =
             df_origin 
-            |> Polars.select([
-            Polars.col("ts").Str.ToDatetime("%Y-%m-%d %H:%M:%S").Alias "ts"
+            |> pl.select([
+            pl.col("ts").Str.ToDatetime("%Y-%m-%d %H:%M:%S").Alias "ts"
             ])
 
         let res = 
             df
-            |> Polars.select([
-                Polars.col "ts"
+            |> pl.select([
+                pl.col "ts"
 
                 // 1. Truncate to 1 hour (10:15 -> 10:00)
-                Polars.col("ts").Dt.Truncate("1h").Alias "truncated"
+                pl.col("ts").Dt.Truncate("1h").Alias "truncated"
 
                 // 2. Round to 1 hour (10:45 -> 11:00)
-                Polars.col("ts").Dt.Round("1h").Alias "rounded"
+                pl.col("ts").Dt.Round("1h").Alias "rounded"
 
                 // 3. Offset by 30m (10:15 -> 10:45)
-                Polars.col("ts").Dt.OffsetBy("30m").Alias "offset"
+                pl.col("ts").Dt.OffsetBy("30m").Alias "offset"
 
                 // 4. Timestamp (Micros)
-                Polars.col("ts").Dt.TimestampMicros().Alias "micros"
+                pl.col("ts").Dt.TimestampMicros().Alias "micros"
             ])
-            |> Polars.show
+            |> pl.show
         // 验证 Row 0: 10:15
         // let row0 = res.Row(0) // 假设你以后会实现 Row 访问，或者用 .Date(..).Value
         // 这里用原来的列式访问
@@ -194,7 +194,7 @@ type ``String Logic Tests`` () =
         // Row 5: 脏日期 -> 测试 链式调用 Strip().ToDate()
         let s = Series.create("raw", [
             "  abc  "           // 0
-            "https://polars.rs" // 1
+            "https://pl.rs" // 1
             "data.csv"          // 2
             "__key__"           // 3
             "20250101"          // 4
@@ -205,39 +205,39 @@ type ``String Logic Tests`` () =
 
         let res = 
             df
-            |> Polars.select([
-                Polars.col "raw"
+            |> pl.select([
+                pl.col "raw"
 
                 // 1. Strip 测试 (默认去空格)
                 // "  abc  " -> "abc"
-                Polars.col("raw").Str.Strip().Alias "strip_default"
+                pl.col("raw").Str.Strip().Alias "strip_default"
                 
                 // 2. LStrip / RStrip 测试
                 // "  abc  " -> "abc  " / "  abc"
-                Polars.col("raw").Str.LStrip().Alias "lstrip"
-                Polars.col("raw").Str.RStrip().Alias "rstrip"
+                pl.col("raw").Str.LStrip().Alias "lstrip"
+                pl.col("raw").Str.RStrip().Alias "rstrip"
 
                 // 3. Strip Matches 测试 (去自定义字符)
                 // "__key__" -> "key"
-                Polars.col("raw").Str.Strip(matches="_").Alias "strip_custom"
+                pl.col("raw").Str.Strip(matches="_").Alias "strip_custom"
 
                 // 4. Prefix / Suffix 测试
-                // "https://polars.rs" -> "polars.rs"
+                // "https://pl.rs" -> "pl.rs"
                 // "data.csv" -> "data"
-                Polars.col("raw").Str.StripPrefix("https://").Alias "strip_prefix"
-                Polars.col("raw").Str.StripSuffix(".csv").Alias "strip_suffix"
+                pl.col("raw").Str.StripPrefix("https://").Alias "strip_prefix"
+                pl.col("raw").Str.StripSuffix(".csv").Alias "strip_suffix"
 
                 // 5. Anchors 测试 (StartsWith / EndsWith) -> Boolean
-                Polars.col("raw").Str.StartsWith("https").Alias "is_url"
-                Polars.col("raw").Str.EndsWith(".csv").Alias "is_csv"
+                pl.col("raw").Str.StartsWith("https").Alias "is_url"
+                pl.col("raw").Str.EndsWith(".csv").Alias "is_csv"
 
                 // 6. ToDate 测试 (解析)
                 // "20250101" -> Date
-                Polars.col("raw").Str.ToDate("%Y%m%d").Alias "parsed_date"
+                pl.col("raw").Str.ToDate("%Y%m%d").Alias "parsed_date"
 
                 // 7. 链式调用测试 (清洗 + 解析)
                 // "  2025-12-31  " -> "2025-12-31" -> Date
-                Polars.col("raw").Str.Strip().Str.ToDate("%Y-%m-%d").Alias "chain_date"
+                pl.col("raw").Str.Strip().Str.ToDate("%Y-%m-%d").Alias "chain_date"
             ])
 
         // --- 验证结果 ---
@@ -251,7 +251,7 @@ type ``String Logic Tests`` () =
         Assert.Equal("key", res.String("strip_custom", 3).Value) // __key__ -> key
 
         // 3. Prefix / Suffix
-        Assert.Equal("polars.rs", res.String("strip_prefix", 1).Value)
+        Assert.Equal("pl.rs", res.String("strip_prefix", 1).Value)
         Assert.Equal("data", res.String("strip_suffix", 2).Value) // data.csv -> data
 
         // 4. Anchors (Boolean)
@@ -288,16 +288,16 @@ type ``String Logic Tests`` () =
 
         // 目标逻辑: weight / (height ^ 2)
         let bmiExpr = 
-            Polars.col "weight" / Polars.col "height" .** Polars.lit 2
-            |> Polars.alias "bmi"
+            pl.col "weight" / pl.col "height" .** pl.lit 2
+            |> pl.alias "bmi"
 
         let res = 
             df 
-            |> Polars.select [
-                Polars.col "name"
+            |> pl.select [
+                pl.col "name"
                 bmiExpr
                 // 顺便测一下 sqrt: sqrt(height)
-                (Polars.col "height").Sqrt().Alias "sqrt_h"
+                (pl.col "height").Sqrt().Alias "sqrt_h"
             ]
 
         // 验证 Bob 的 BMI: 80 / 1.8^2 = 24.691358...
@@ -321,25 +321,25 @@ type ``String Logic Tests`` () =
 
         let res =
             df
-            |> Polars.select [
-                Polars.col "ts"
+            |> pl.select [
+                pl.col "ts"
 
                 // 1. 提取组件 (Components)
-                (Polars.col "ts").Dt.Year().Alias "y"
-                (Polars.col "ts").Dt.Month().Alias "m"
-                (Polars.col "ts").Dt.Day().Alias "d"
-                (Polars.col "ts").Dt.Hour().Alias "h"
+                (pl.col "ts").Dt.Year().Alias "y"
+                (pl.col "ts").Dt.Month().Alias "m"
+                (pl.col "ts").Dt.Day().Alias "d"
+                (pl.col "ts").Dt.Hour().Alias "h"
                 
                 // Polars 定义: Monday=1, Sunday=7
-                (Polars.col "ts").Dt.Weekday().Alias "w_day"
+                (pl.col "ts").Dt.Weekday().Alias "w_day"
                 
                 // 2. 格式化 (Format to String)
                 // 测试自定义格式: "2023/12/25"
-                (Polars.col "ts").Dt.ToString("%Y/%m/%d").Alias "fmt_custom"
+                (pl.col "ts").Dt.ToString("%Y/%m/%d").Alias "fmt_custom"
                 
                 // 3. 类型转换 (Cast to Date)
                 // Datetime (含时分秒) -> Date (只含日期)
-                (Polars.col "ts").Dt.Date().Alias "date_only"
+                (pl.col "ts").Dt.Date().Alias "date_only"
             ]
         // --- 验证 Row 0: 2023-12-25 15:30:00 ---
         
@@ -382,12 +382,12 @@ type ``String Logic Tests`` () =
 
         let res = 
             df 
-            |> Polars.select [
+            |> pl.select [
                 // 1. String -> Int64
-                (Polars.col "val_str").Cast(DataType.Int64).Alias "str_to_int"
+                (pl.col "val_str").Cast(DataType.Int64).Alias "str_to_int"
                 
                 // 2. Int64 -> Float64
-                (Polars.col "val_int").Cast(DataType.Float64).Alias "int_to_float"
+                (pl.col "val_int").Cast(DataType.Float64).Alias "int_to_float"
             ]
 
         // 验证
@@ -410,22 +410,22 @@ type ``String Logic Tests`` () =
         // else "Fail"
         
         let gradeExpr = 
-            Polars.ifElse 
-                (Polars.col "score" .>= Polars.lit 90) 
-                (Polars.lit "A") 
+            pl.ifElse 
+                (pl.col "score" .>= pl.lit 90) 
+                (pl.lit "A") 
                 (
                     // 嵌套 IfElse
-                    Polars.ifElse 
-                        (Polars.col "score" .>= Polars.lit 60)
-                        (Polars.lit "Pass")
-                        (Polars.lit "Fail")
+                    pl.ifElse 
+                        (pl.col "score" .>= pl.lit 60)
+                        (pl.lit "Pass")
+                        (pl.lit "Fail")
                 )
-            |> Polars.alias "grade"
+            |> pl.alias "grade"
 
         let res = 
             df 
-            |> Polars.withColumn gradeExpr
-            |> Polars.sort (Polars.col "score") true // 降序
+            |> pl.withColumn gradeExpr
+            |> pl.sort (pl.col "score") true // 降序
 
         // 验证
         // Alice (95) -> A
@@ -442,14 +442,14 @@ type ``String Logic Tests`` () =
 
         let res = 
             df 
-            |> Polars.select [
+            |> pl.select [
                 // 1. Regex Replace: 把数字换成 #
                 // \d+ 是正则
-                (Polars.col "text").Str.ReplaceAll("\d+", "#", useRegex=true).Alias "masked"
+                (pl.col "text").Str.ReplaceAll("\d+", "#", useRegex=true).Alias "masked"
                 
                 // 2. Regex Extract: 提取数字部分
                 // (\d+) 是第 1 组
-                (Polars.col "text").Str.Extract("(\d+)", 1).Alias "extracted_id"
+                (pl.col "text").Str.Extract("(\d+)", 1).Alias "extracted_id"
             ]
 
         // 验证 Replace

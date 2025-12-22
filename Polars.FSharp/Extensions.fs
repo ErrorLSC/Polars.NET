@@ -25,7 +25,7 @@ module SeriesExtensions =
             let arrowArray = ArrowConverter.Build data
             
             // 2. 零拷贝导入 Polars
-            let handle = Polars.NET.Core.Arrow.ArrowFfiBridge.ImportSeries(name, arrowArray)
+            let handle = ArrowFfiBridge.ImportSeries(name, arrowArray)
             
             new Series(handle)
 
@@ -43,7 +43,7 @@ module SeriesExtensions =
                 
                 // 2. 获取 C# 高性能 Accessor (预编译的委托)
                 // accessor 签名: int -> object?
-                let accessor = Polars.NET.Core.Arrow.ArrowReader.GetSeriesAccessor<'T>(cArray)
+                let accessor = ArrowReader.GetSeriesAccessor<'T>(cArray)
                 let len = cArray.Length
 
                 // 3. 高速循环
@@ -77,12 +77,12 @@ module SeriesExtensions =
             let outputArrow = func.Invoke inputArrow
             
             // 3. 将结果封装回 Series
-            // 这里的巧妙之处：Extensions.fs 可以看到 Polars.fromArrow
+            // 这里的巧妙之处：Extensions.fs 可以看到 pl.fromArrow
             
             // 3.1 构建 RecordBatch 包装纸
-            let field = new Apache.Arrow.Field(this.Name, outputArrow.Data.DataType, true)
-            let schema = new Apache.Arrow.Schema([| field |], null)
-            use batch = new Apache.Arrow.RecordBatch(schema, [| outputArrow |], outputArrow.Length)
+            let field = new Field(this.Name, outputArrow.Data.DataType, true)
+            let schema = new Schema([| field |], null)
+            use batch = new RecordBatch(schema, [| outputArrow |], outputArrow.Length)
             
             // 3.2 借道 DataFrame (Zero-Copy import)
             use df = DataFrame.FromArrow batch
@@ -110,12 +110,12 @@ module Serialization =
         /// </summary>
         member this.ToRecords<'T>() : seq<'T> =
             // 1. 导出为 RecordBatch
-            use batch = Polars.NET.Core.Arrow.ArrowFfiBridge.ExportDataFrame this.Handle
+            use batch = ArrowFfiBridge.ExportDataFrame this.Handle
             
             // 2. 高性能读取
             // ToList 是为了立即执行读取，避免 batch 被 Dispose 后再延迟枚举导致 AccessViolation
             // 如果数据量巨大，可以考虑不 ToList，但要小心 batch 的生命周期
-            Polars.NET.Core.Arrow.ArrowReader.ReadRecordBatch<'T> batch |> Seq.toList |> List.toSeq
+            ArrowReader.ReadRecordBatch<'T> batch |> Seq.toList |> List.toSeq
 
         /// <summary>
         /// Create a DataFrame from a sequence of F# Records or Objects.
@@ -129,14 +129,14 @@ module Serialization =
             
             // 2. C# Build RecordBatch
             // 这一步完成了所有的反射、类型转换、内存填充
-            let batch = Polars.NET.Core.Arrow.ArrowFfiBridge.BuildRecordBatch data
+            let batch = ArrowFfiBridge.BuildRecordBatch data
             
             // 3. Import via FFI
             // 注意：ImportDataFrame 成功后，Rust 会接管 batch 的内存
             // 如果这里抛出异常，我们需要 dispose batch
             // 但 ArrowFfiBridge.ImportDataFrame 内部已经处理了 Dispose 逻辑
             
-            let handle = Polars.NET.Core.Arrow.ArrowFfiBridge.ImportDataFrame batch
+            let handle = ArrowFfiBridge.ImportDataFrame batch
             new DataFrame(handle)
         member this.Describe() : DataFrame =
             // 1. 筛选数值列 (Int/Float)
@@ -153,15 +153,15 @@ module Serialization =
             // 2. 定义统计指标
             // 每个指标生成一行数据
             let metrics = [
-                "count",      fun (c: string) -> Polars.col(c).Count().Cast Float64
-                "null_count", fun c -> Polars.col(c).IsNull().Sum().Cast Float64
-                "mean",       fun c -> Polars.col(c).Mean()
-                "std",        fun c -> Polars.col(c).Std()
-                "min",        fun c -> Polars.col(c).Min().Cast Float64
-                "25%",        fun c -> Polars.col(c).Quantile 0.25
-                "50%",        fun c -> Polars.col(c).Median().Cast Float64 
-                "75%",        fun c -> Polars.col(c).Quantile 0.75
-                "max",        fun c -> Polars.col(c).Max().Cast Float64
+                "count",      fun (c: string) -> pl.col(c).Count().Cast Float64
+                "null_count", fun c -> pl.col(c).IsNull().Sum().Cast Float64
+                "mean",       fun c -> pl.col(c).Mean()
+                "std",        fun c -> pl.col(c).Std()
+                "min",        fun c -> pl.col(c).Min().Cast Float64
+                "25%",        fun c -> pl.col(c).Quantile 0.25
+                "50%",        fun c -> pl.col(c).Median().Cast Float64 
+                "75%",        fun c -> pl.col(c).Quantile 0.75
+                "max",        fun c -> pl.col(c).Max().Cast Float64
             ]
 
             // 3. 构建聚合查询
@@ -179,12 +179,12 @@ module Serialization =
                 |> List.map (fun (statName, op) ->
                     // 构造 Select 列表: [ Lit(statName).Alias("statistic"), op(col1), op(col2)... ]
                     let exprs = 
-                        [ Polars.lit(statName).Alias "statistic" ] @
+                        [ pl.lit(statName).Alias "statistic" ] @
                         (numericCols |> List.map (fun c -> op c))
                     
                     // 对原 DF 执行 Select -> 得到 1 行 N 列的 DF
-                    this |> Polars.select exprs
+                    this |> pl.select exprs
                 )
 
             // 4. 垂直拼接 (Concat Vertical)
-            Polars.concat rowFrames
+            pl.concat rowFrames

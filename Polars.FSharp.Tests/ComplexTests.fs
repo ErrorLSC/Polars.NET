@@ -5,7 +5,7 @@ open Polars.FSharp
 open System
 open System.Data
 open System.Diagnostics
-module pl = Polars
+
 type ``Complex Query Tests`` () =
     
     [<Fact>]
@@ -18,7 +18,7 @@ type ``Complex Query Tests`` () =
 
         let res = 
             uDf 
-            |> Polars.join sDf [Polars.col "id"] [Polars.col "uid"] JoinType.Left
+            |> pl.join sDf [pl.col "id"] [pl.col "uid"] JoinType.Left
         
         // Left join: id 1 (2 rows), id 2 (1 row null match) -> Total 3
         Assert.Equal(3L, res.Rows)
@@ -30,9 +30,9 @@ type ``Complex Query Tests`` () =
         
         let df = 
             lf
-            |> Polars.filterLazy (Polars.col "a" .> Polars.lit 1)
-            |> Polars.limit 1u
-            |> Polars.collect
+            |> pl.filterLazy (pl.col "a" .> pl.lit 1)
+            |> pl.limit 1u
+            |> pl.collect
 
         Assert.Equal(1L, df.Rows)
 
@@ -43,11 +43,11 @@ type ``Complex Query Tests`` () =
 
         let res = 
             lf 
-            |> Polars.groupByLazy
-                [(Polars.col "birthdate").Dt.Year() / Polars.lit 10 * Polars.lit 10 |> Polars.alias "decade" ]
-                [ Polars.count().Alias "cnt"] 
-            |> Polars.sortLazy (Polars.col "decade") false
-            |> Polars.collect
+            |> pl.groupByLazy
+                [(pl.col "birthdate").Dt.Year() / pl.lit 10 * pl.lit 10 |> pl.alias "decade" ]
+                [ pl.count().Alias "cnt"] 
+            |> pl.sortLazy (pl.col "decade") false
+            |> pl.collect
 
         // 验证
         // Row 0: 1980 -> 2
@@ -71,33 +71,33 @@ type ``Complex Query Tests`` () =
 
         let res = 
             lf
-            |> Polars.withColumnsLazy (
+            |> pl.withColumnsLazy (
                 // 1. String Split -> List -> First
                 [
-                (Polars.col "name").Str.Split(" ").List.First()
-                (Polars.col "birthdate").Dt.Year() / Polars.lit 10 * Polars.lit 10 |> Polars.alias "decade"
+                (pl.col "name").Str.Split(" ").List.First()
+                (pl.col "birthdate").Dt.Year() / pl.lit 10 * pl.lit 10 |> pl.alias "decade"
             ])
-            |> Polars.selectLazy [
+            |> pl.selectLazy [
                 // 2. Exclude (all except "ignore_me")
-                Polars.all() |> Polars.exclude ["birthdate"] |> Polars.asExpr
+                pl.all() |> pl.exclude ["birthdate"] |> pl.asExpr
             ]
-            |> Polars.groupByLazy 
+            |> pl.groupByLazy 
                 // Keys
-                [ Polars.col "decade" ] 
+                [ pl.col "decade" ] 
                 // Aggs
                 [
                     // Agg A: 名字列表 (Polars 默认行为：非 Key 列在 agg 中会聚合成 List)
                     // 但 Rust 原例写的是 col("name")，如果 context 是 agg，它就是 list
                     // 这里我们显式一点，或者直接传 col "name" 让 Polars 处理
-                    Polars.col "name"
+                    pl.col "name"
                     // Agg B: Weight & Height 的均值 + 四舍五入 + 重命名
                     // Rust 原例: cols(["weight", "height"]).mean().round(2).prefix("avg_")
                     // F# 复刻: 展开写两个 Expr (效果等价)
-                    (Polars.col "weight").Mean().Round(2).Name.Prefix("avg_")
-                    (Polars.col "height").Mean().Round(2).Name.Prefix("avg_")
+                    (pl.col "weight").Mean().Round(2).Name.Prefix("avg_")
+                    (pl.col "height").Mean().Round(2).Name.Prefix("avg_")
                 ]
-            |> Polars.collect
-            |> Polars.sort (Polars.col "decade") false
+            |> pl.collect
+            |> pl.sort (pl.col "decade") false
 
     // 验证列名 (birthdate 应该没了，新增了 decade 和 avg_ 前缀)
         let cols = res.ColumnNames
@@ -134,21 +134,21 @@ type ``Complex Query Tests`` () =
 
         let res = 
             lf
-            |> Polars.withColumnLazy (
+            |> pl.withColumnLazy (
                 // 1. Split 变成 List
-                (Polars.col "tags").Str.Split(" ").Alias "tag_list"
+                (pl.col "tags").Str.Split(" ").Alias "tag_list"
             )
-            |> Polars.withColumnLazy (
+            |> pl.withColumnLazy (
                 // 2. 演示 cols([...]): 同时选中 name 和 tag_list，加上前缀
                 // 虽然这里只是演示，通常用于批量数学运算
-                Polars.cols ["name"; "tag_list"]
+                pl.cols ["name"; "tag_list"]
                 |> fun e -> e.Name.Prefix("my_")
             )
-            |> Polars.withColumnLazy (
+            |> pl.withColumnLazy (
                 // 3. List Join (还原回去)
-                (Polars.col "my_tag_list").List.Join("-").Alias "joined_tags"
+                (pl.col "my_tag_list").List.Join("-").Alias "joined_tags"
             )
-            |> Polars.collect
+            |> pl.collect
 
         // 验证 1: cols 产生的前缀
         let cols = res.ColumnNames
@@ -168,9 +168,9 @@ type ``Complex Query Tests`` () =
         // Alice 有 2 个 tag，Bob 有 1 个 -> Explode 后应该是 3 行
         let exploded = 
             res 
-            |> Polars.select [ Polars.col "my_name"; Polars.col "my_tag_list" ]
+            |> pl.select [ pl.col "my_name"; pl.col "my_tag_list" ]
             // [修改] 加上列表括号 []
-            |> Polars.explode [ Polars.col "my_tag_list" ] 
+            |> pl.explode [ pl.col "my_tag_list" ] 
         
         Assert.Equal(3L, exploded.Rows)
         Assert.Equal("coding", exploded.String("my_tag_list", 0).Value)
@@ -183,33 +183,33 @@ type ``Complex Query Tests`` () =
         use csv = new TempCsv "name,score1,score2\nAlice,80,90\nBob,60,70"
         let lf = LazyFrame.ScanCsv csv.Path
         let maxCharExpr = 
-            (Polars.col "raw_nums").Str.Split(" ")
+            (pl.col "raw_nums").Str.Split(" ")
                 .List.Sort(true) // Descending
                 .List.First()
                 .Alias("max_char")
         let res = 
             lf
             // 1. Struct 测试: 把 score1, score2 打包成 "scores_struct"
-            |> Polars.withColumnLazy (
-                Polars.asStruct [Polars.col "score1"; Polars.col "score2"]
-                |> Polars.alias "scores_struct"
+            |> pl.withColumnLazy (
+                pl.asStruct [pl.col "score1"; pl.col "score2"]
+                |> pl.alias "scores_struct"
             )
             // 2. List 测试: 
             // 假设我们把 struct 里的字段取出来，做一个计算 (演示 Struct.Field)
-            |> Polars.withColumnLazy (
-                (Polars.col "scores_struct").Struct.Field("score1").Alias("s1_extracted")
+            |> pl.withColumnLazy (
+                (pl.col "scores_struct").Struct.Field("score1").Alias("s1_extracted")
             )
             // 3. List Agg 测试 (既然没有 concat_list，我们造一个伪需求：如果 split 后的 list)
             // 我们手动 split 一个字符串 "1 5 2"
-            |> Polars.withColumnLazy (
-                Polars.lit "1 5 2"
-                |> Polars.alias "raw_nums"
+            |> pl.withColumnLazy (
+                pl.lit "1 5 2"
+                |> pl.alias "raw_nums"
             )
             // 4. 处理 List: Split -> Sort(Desc) -> First
             // "1 5 2" -> ["1", "5", "2"] -> ["5", "2", "1"] -> "5"
             // 注意：Split 出来是 String，Sort 默认按字典序，"5" > "2" > "1"
-            |> Polars.withColumnLazy maxCharExpr
-            |> Polars.collect
+            |> pl.withColumnLazy maxCharExpr
+            |> pl.collect
 
         // 验证 Struct Field
         // Alice score1 = 80
@@ -225,14 +225,14 @@ type ``Complex Query Tests`` () =
 
         let res = 
             lf
-            |> Polars.withColumnLazy (
+            |> pl.withColumnLazy (
                 // 逻辑: col("salary") - col("salary").mean().over([col("dept")])
-                Polars.col "salary" - 
-                (Polars.col "salary").Mean().Over [Polars.col "dept"]
-                |> Polars.alias "diff_from_avg"
+                pl.col "salary" - 
+                (pl.col "salary").Mean().Over [pl.col "dept"]
+                |> pl.alias "diff_from_avg"
             )
-            |> Polars.collect
-            |> Polars.sort (Polars.col "name") false
+            |> pl.collect
+            |> pl.sort (pl.col "name") false
 
         // 验证
         // Alice (IT): 1000 - 1500 = -500
@@ -257,8 +257,8 @@ type ``Complex Query Tests`` () =
         // 结果: year, quarter, revenue
         let longDf = 
             df 
-            |> Polars.unpivot ["year"] ["Q1"; "Q2"] (Some "quarter") (Some "revenue")
-            |> Polars.sort (Polars.col "year") false
+            |> pl.unpivot ["year"] ["Q1"; "Q2"] (Some "quarter") (Some "revenue")
+            |> pl.sort (pl.col "year") false
 
         Assert.Equal(4L, longDf.Rows)
         Assert.Equal("Q1", longDf.String("quarter", 0).Value)
@@ -268,8 +268,8 @@ type ``Complex Query Tests`` () =
         // 还原回: year, Q1, Q2
         let wideDf = 
             longDf
-            |> Polars.pivot ["year"] ["quarter"] ["revenue"] PivotAgg.Sum
-            |> Polars.sort (Polars.col "year") false
+            |> pl.pivot ["year"] ["quarter"] ["revenue"] PivotAgg.Sum
+            |> pl.sort (pl.col "year") false
 
         Assert.Equal(2L, wideDf.Rows)
         Assert.Equal(3L, wideDf.Columns) // year, Q1, Q2
@@ -287,8 +287,8 @@ type ``Complex Query Tests`` () =
 
         // 1. Horizontal: [a, b]
         let dfHorz = 
-            Polars.concatLazyHorizontal [lf1; lf2]
-            |> Polars.collect
+            pl.concatLazyHorizontal [lf1; lf2]
+            |> pl.collect
         
         Assert.Equal(1L, dfHorz.Rows)
         Assert.Equal(2L, dfHorz.Columns)
@@ -297,8 +297,8 @@ type ``Complex Query Tests`` () =
 
         // 2. Vertical: [a] (rows=2)        
         let dfVert = 
-            Polars.concatLazy [lf1; lf3]
-            |> Polars.collect
+            pl.concatLazy [lf1; lf3]
+            |> pl.collect
         
         Assert.Equal(2L, dfVert.Rows)
         Assert.Equal(1L, dfVert.Columns)
@@ -307,8 +307,8 @@ type ``Complex Query Tests`` () =
         // lf1 (a=1, b=null)
         // lf2 (a=null, b=2)
         let dfDiag =
-            Polars.concatLazyDiagonal [lf1; lf2]
-            |> Polars.collect
+            pl.concatLazyDiagonal [lf1; lf2]
+            |> pl.collect
         
         Assert.Equal(2L, dfDiag.Rows)
         Assert.Equal(2L, dfDiag.Columns)
@@ -324,7 +324,7 @@ type ``Complex Query Tests`` () =
         let df2 = DataFrame.ReadCsv csv2.Path
 
         // 1. 执行 Concat
-        let bigDf = Polars.concat [df1; df2]
+        let bigDf = pl.concat [df1; df2]
 
         // 验证结果
         Assert.Equal(2L, bigDf.Rows)
@@ -341,14 +341,14 @@ type ``Complex Query Tests`` () =
         let lf = LazyFrame.ScanCsv csv.Path
 
         // 1. 创建 Context
-        use ctx = Polars.sqlContext()
+        use ctx = pl.sqlContext()
         
         // 2. 注册表 "people"
         ctx.Register("people", lf)
 
         // 3. 写 SQL
         let resLf = ctx.Execute "SELECT name, age * 2 AS age_double FROM people WHERE age > 25"
-        let res = resLf |> Polars.collect
+        let res = resLf |> pl.collect
 
         // 验证
         Assert.Equal(1L, res.Rows)
@@ -365,18 +365,18 @@ type ``Complex Query Tests`` () =
 
         let res = 
             df 
-            |> Polars.select [
-                Polars.col "price"
+            |> pl.select [
+                pl.col "price"
                 
                 // 1. Forward Fill: null 变成 10
-                (Polars.col "price").ForwardFill().Alias "price_ffill"
+                (pl.col "price").ForwardFill().Alias "price_ffill"
                 
                 // 2. Shift(1): 向下平移一行
-                (Polars.col "price").Shift(1L).Alias "price_lag1"
+                (pl.col "price").Shift(1L).Alias "price_lag1"
             ]
-            |> Polars.withColumn (
+            |> pl.withColumn (
                 // 3. Diff: 当前值 - 上一个值 (基于 ffill 后的数据)
-                (Polars.col "price_ffill").Diff(1L).Alias "price_diff"
+                (pl.col "price_ffill").Diff(1L).Alias "price_diff"
             )
 
         // 验证
@@ -400,8 +400,8 @@ type ``Complex Query Tests`` () =
 
         let res = 
             lf
-            |> Polars.sortLazy (Polars.col "date") false // Rolling 必须先排序
-            |> Polars.withColumnLazy (
+            |> pl.sortLazy (pl.col "date") false // Rolling 必须先排序
+            |> pl.withColumnLazy (
                 // 2天移动平均 (包括当前行)
                 // 1.1: 10
                 // 1.2: (10+20)/2 = 15
@@ -409,9 +409,9 @@ type ``Complex Query Tests`` () =
                 // 注意：Polars "2d" 窗口不仅看行数，还看时间列。
                 // 如果没有设置 by="date"，这里其实是按行数 "2i" (2 rows) 来算的，或者依赖 Implicit Index。
                 // 为了简单测试，我们假设它是按行滚动 (2i)
-                (Polars.col "price").RollingMean("2i").Alias "ma_2"
+                (pl.col "price").RollingMean("2i").Alias "ma_2"
             )
-            |> Polars.collect
+            |> pl.collect
 
         Assert.Equal(15.0, res.Float("ma_2", 1).Value)
         Assert.Equal(25.0, res.Float("ma_2", 2).Value)
@@ -428,17 +428,17 @@ type ``Complex Query Tests`` () =
         let res = 
             lf
             // 必须先按时间排序，虽然 Polars 有时会自动排，但显式排是好习惯
-            |> Polars.sortLazy (Polars.col "time") false
-            |> Polars.withColumnLazy (
+            |> pl.sortLazy (pl.col "time") false
+            |> pl.withColumnLazy (
                 // 计算 "1h" (1小时) 内的 sum
                 // 10:00: 窗口 [09:00, 10:00) -> 10
                 // 10:30: 窗口 [09:30, 10:30) -> 10 + 20 = 30
                 // 12:00: 窗口 [11:00, 12:00) -> 30 (前面的都过期了)
-                (Polars.col "val")
-                    .RollingSumBy("1h", Polars.col "time", closed="right") // closed="left" means [ )
+                (pl.col "val")
+                    .RollingSumBy("1h", pl.col "time", closed="right") // closed="left" means [ )
                     .Alias "sum_1h"
             )
-            |> Polars.collect
+            |> pl.collect
 
         // 验证
         Assert.Equal(10L, res.Int("sum_1h", 0).Value)
@@ -456,9 +456,9 @@ type ``Complex Query Tests`` () =
 
         let res = 
             lfUsers
-            |> Polars.joinLazy lfOrders [Polars.col "id"] [Polars.col "uid"] Left
-            |> Polars.collect
-            |> Polars.sort (Polars.col "id") false
+            |> pl.joinLazy lfOrders [pl.col "id"] [pl.col "uid"] Left
+            |> pl.collect
+            |> pl.sort (pl.col "id") false
 
         // 验证
         // Alice (id=1) 有两单
@@ -494,8 +494,8 @@ type ``Complex Query Tests`` () =
             "1001,AAPL,101.0"
         use quotesCsv = new TempCsv(quotesContent)
 
-        let lfTrades = LazyFrame.ScanCsv tradesCsv.Path |> Polars.sortLazy (Polars.col "time") false
-        let lfQuotes = LazyFrame.ScanCsv quotesCsv.Path |> Polars.sortLazy (Polars.col "time") false
+        let lfTrades = LazyFrame.ScanCsv tradesCsv.Path |> pl.sortLazy (pl.col "time") false
+        let lfQuotes = LazyFrame.ScanCsv quotesCsv.Path |> pl.sortLazy (pl.col "time") false
 
         // 3. 执行 AsOf Join
         // 逻辑：找到交易发生时刻(time)之前(backward)最近的一次报价
@@ -503,14 +503,14 @@ type ``Complex Query Tests`` () =
         // 容差: 2个时间单位 (tolerance="2")
         let res = 
             lfTrades
-            |> Polars.joinAsOf lfQuotes 
-                (Polars.col "time") (Polars.col "time") // On Time
-                [Polars.col "ticker"] [Polars.col "ticker"] // By Ticker
+            |> pl.joinAsOf lfQuotes 
+                (pl.col "time") (pl.col "time") // On Time
+                [pl.col "ticker"] [pl.col "ticker"] // By Ticker
                 (Some "backward") // Strategy
                 (Some "2")        // Tolerance: 只匹配最近2ms内的数据
-            |> Polars.sortLazy (Polars.col "ticker") false // 排序方便断言
-            |> Polars.sortLazy (Polars.col "time") false
-            |> Polars.collect
+            |> pl.sortLazy (pl.col "ticker") false // 排序方便断言
+            |> pl.sortLazy (pl.col "time") false
+            |> pl.collect
 
         // 4. 验证结果
         // 预期：
@@ -578,12 +578,12 @@ type ``Complex Query Tests`` () =
         // 3. 选取需要的列
         let pipeline = 
             lf
-            |> Polars.filterLazy(Polars.col "Region".== Polars.lit "US")
-            |> Polars.withColumnLazy((Polars.col "Amount" * Polars.lit 1.08).Alias "TaxedAmount")
-            |> Polars.selectLazy([
-                Polars.col "OrderId"
-                Polars.col "TaxedAmount"
-                Polars.col "OrderDate"
+            |> pl.filterLazy(pl.col "Region".== pl.lit "US")
+            |> pl.withColumnLazy((pl.col "Amount" * pl.lit 1.08).Alias "TaxedAmount")
+            |> pl.selectLazy([
+                pl.col "OrderId"
+                pl.col "TaxedAmount"
+                pl.col "OrderDate"
             ])
 
         // ---------------------------------------------------------

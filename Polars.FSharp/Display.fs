@@ -23,7 +23,7 @@ module Display =
         // Head 会返回一个新的 DataFrame，ToArrow 导出为 RecordBatch
         // 注意：ToArrow 返回的是单个 Batch，适合小数据预览
         let previewDf = df.Head(int n)
-        use batch = Polars.NET.Core.Arrow.ArrowFfiBridge.ExportDataFrame previewDf
+        use batch = ArrowFfiBridge.ExportDataFrame previewDf
         let schema = batch.Schema
 
         let sb = StringBuilder()

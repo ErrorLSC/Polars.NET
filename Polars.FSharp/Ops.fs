@@ -1,7 +1,5 @@
 namespace Polars.FSharp
 
-open Polars.NET.Core
-
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Series =
 

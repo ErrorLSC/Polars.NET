@@ -194,10 +194,10 @@ id;date_col;val_col
         
         let lf2 = 
             lf 
-            |> Polars.withColumnLazy (
-                (Polars.col "a" * Polars.lit 2).Alias "a_double"
+            |> pl.withColumnLazy (
+                (pl.col "a" * pl.lit 2).Alias "a_double"
             )
-            |> Polars.filterLazy (Polars.col "b" .> Polars.lit 0)
+            |> pl.filterLazy (pl.col "b" .> pl.lit 0)
 
         // 1. 验证 Schema (使用 Map API，更加精准)
         let schema = lf2.Schema // 类型是 Map<string, string>
@@ -239,7 +239,7 @@ id;date_col;val_col
         // 2. 传给 Polars (C# -> Rust)
         // 这一步应该能成功，因为内存是 C# 分配的，Exporter 能够处理
         let df = DataFrame.FromArrow batch
-        df |> Polars.show |> ignore
+        df |> pl.show |> ignore
         // 3. 验证
         Assert.Equal(3L, df.Rows)
         Assert.Equal(100L, df.Int("num", 0).Value)
@@ -326,7 +326,7 @@ id;date_col;val_col
         Assert.Equal(3L, s1.Length)
         
         // 5. 打印看看
-        Polars.show df |> ignore
+        pl.show df |> ignore
     [<Fact>]
     member _.``Convenience: Drop, Rename, DropNulls, Sample`` () =
         // Test DataFrame
@@ -398,24 +398,24 @@ id;date_col;val_col
 
         let res = 
             df
-            |> Polars.select([
-                Polars.col "ts"
+            |> pl.select([
+                pl.col "ts"
                 
                 // 1. Convert (Naive -> Error, so we must Replace first)
                 // 先 Replace 设置为 UTC，再 Convert 到 Shanghai
-                Polars.col("ts")
+                pl.col("ts")
                     .Dt.ReplaceTimeZone("UTC")
                     .Dt.ConvertTimeZone("Asia/Shanghai")
                     .Alias "shanghai"
 
                 // 2. Replace with Strategy (Full signature check)
                 // "raise" is default, explicitly passing it to verify API binding
-                Polars.col("ts")
+                pl.col("ts")
                     .Dt.ReplaceTimeZone("Europe/London", ambiguous="earliest", nonExistent="null")
                     .Alias "london_explicit"
                 
                 // 3. Unset TimeZone (Make Naive)
-                Polars.col("ts")
+                pl.col("ts")
                     .Dt.ReplaceTimeZone("UTC")
                     .Dt.ReplaceTimeZone(None) // Set back to None
                     .Alias "naive"
@@ -445,8 +445,8 @@ id;date_col;val_col
         
         let res = 
             lf
-            |> Polars.filterLazy(Polars.col "age" .> Polars.lit 18)
-            |> Polars.collect
+            |> pl.filterLazy(pl.col "age" .> pl.lit 18)
+            |> pl.collect
 
         // 3. 验证结果
         Assert.Equal(1L, res.Rows)
@@ -461,7 +461,7 @@ id;date_col;val_col
 
         let desc = df.Describe()
         
-        Polars.show desc |> ignore
+        pl.show desc |> ignore
         
         // 验证行数 (9个指标)
         Assert.Equal(9L, desc.Rows)
@@ -490,7 +490,7 @@ id;date_col;val_col
         // 结果应该包含 3 列: [a, b, c]
         // Row 1 (来自 df1): a=1, b=2, c=null
         // Row 2 (来自 df2): a=3, b=null, c=4
-        let res = Polars.concatDiagonal [df1; df2]
+        let res = pl.concatDiagonal [df1; df2]
 
         Assert.Equal(2L, res.Rows)
         Assert.Equal(3L, res.Columns)
@@ -546,8 +546,8 @@ id;date_col;val_col
         use csv1 = new TempCsv "a,b\n1,2\n3,4"
         let df = 
             LazyFrame.ScanCsv (path=csv1.Path, tryParseDates=false)
-            |> Polars.filterLazy (Polars.col "a" .> Polars.lit 0)
-            |> Polars.collectAsync // 返回 Async<DataFrame>
+            |> pl.filterLazy (pl.col "a" .> pl.lit 0)
+            |> pl.collectAsync // 返回 Async<DataFrame>
             |> Async.RunSynchronously // 在测试里阻塞等待结果
 
         Assert.Equal(2L, df.Rows)
@@ -584,7 +584,7 @@ id;date_col;val_col
         // Polars Rust boolean.sum() returns u32/u64 usually.
         
         let mask = demand .> 0.0 // 广播比较
-        // Polars.NET Sum() 返回的是 Series。对于 Bool，Rust sum 返回的是 number。
+        // pl.NET Sum() 返回的是 Series。对于 Bool，Rust sum 返回的是 number。
         // 我们验证一下类型
         let countPos = mask.Sum()
         // demand全是 > 0，所以应该是 3
@@ -702,8 +702,8 @@ id;date_col;val_col
         // Polars 应该会将 Filter 下推，并在流式读取时就应用过滤
         let res = 
             LazyFrame.scanSeq data
-                |> Polars.filterLazy(Polars.col "Group" .== Polars.lit "A")
-                |> Polars.collectStreaming
+                |> pl.filterLazy(pl.col "Group" .== pl.lit "A")
+                |> pl.collectStreaming
 
         // 3. 验证
         Assert.Equal(2L, res.Rows) // 只剩下 Id 1 和 3
@@ -724,8 +724,8 @@ id;date_col;val_col
         // Rust 引擎会调用两次 StreamFactoryCallback
         let res = 
             lf
-            |> Polars.joinLazy lf [Polars.col "Key"] [Polars.col "Key"] Left
-            |> Polars.collect
+            |> pl.joinLazy lf [pl.col "Key"] [pl.col "Key"] Left
+            |> pl.collect
 
         // 简单验证行数 (笛卡尔积会膨胀)
         // 0: 4 items -> 4*4 = 16
