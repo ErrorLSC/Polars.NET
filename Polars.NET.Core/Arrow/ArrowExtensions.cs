@@ -150,10 +150,40 @@ public static class ArrowExtensions
         var values = dictArr.Dictionary;
         return values.GetStringValue((int)key.Value);
     }
+    // 静态查找表，避免重复计算
+    private static readonly char[] HexLookup = new []
+        {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+
     private static string FormatBinary(ReadOnlySpan<byte> bytes)
     {
-        string hex = Convert.ToHexStringLower(bytes.ToArray());
-        return hex.Length > 20 ? $"x'{hex[..20]}...'" : $"x'{hex}'";
+        if (bytes.IsEmpty) return "x''";
+
+        // 如果太长，只取前 20 个字节
+        bool truncated = false;
+        ReadOnlySpan<byte> target = bytes;
+        
+        if (bytes.Length > 20)
+        {
+            target = bytes[..20];
+            truncated = true;
+        }
+
+        // 手动构造字符串，避免 ToArray 的内存分配
+        // 在 .NET Standard 2.1+ / .NET Core 3.0+ 可以用 string.Create 进一步优化，
+        // 但为了兼容老版本，我们要么用 StringBuilder，要么用 char[]。
+        // char[] 在短字符串场景下通常比 StringBuilder 快。
+        
+        char[] chars = new char[target.Length * 2];
+        
+        for (int i = 0; i < target.Length; i++)
+        {
+            byte b = target[i];
+            chars[i * 2] = HexLookup[b >> 4];      // 高4位
+            chars[i * 2 + 1] = HexLookup[b & 0xF]; // 低4位
+        }
+
+        string hex = new(chars);
+        return truncated ? $"x'{hex}...'" : $"x'{hex}'";
     }
 
     private static string FormatDate32(Date32Array arr, int index)

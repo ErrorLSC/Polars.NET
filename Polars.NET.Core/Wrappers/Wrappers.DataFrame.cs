@@ -93,7 +93,7 @@ public static partial class PolarsWrapper
 
     public static DataFrameHandle DropNulls(DataFrameHandle df, string[]? subset)
     {
-        return UseUtf8StringArray(subset ?? [], ptrs => 
+        return UseUtf8StringArray(subset ?? Array.Empty<string>(), ptrs => 
         {
             // 如果 subset 是空，传给 Rust 空数组，Rust 会处理为 drop all nulls
             // 但我们要区分 "subset=null" (all columns) 和 "subset=[]" (no columns?? logic check)

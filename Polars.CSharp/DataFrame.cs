@@ -33,13 +33,13 @@ public class DataFrame : IDisposable,IEnumerable<Series>
         get
         {
             var json = PolarsWrapper.GetDataFrameSchemaString(Handle);
-            if (string.IsNullOrEmpty(json)) return [];
+            if (string.IsNullOrEmpty(json)) return new Dictionary<string, DataType>();
 
             var rawDict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
             
             // 现在 DataType.Parse 会返回带 Kind 的 DataType 对象
             return rawDict?.ToDictionary(k => k.Key, v => DataType.Parse(v.Value)) 
-                ?? [];
+                ?? new Dictionary<string, DataType>();
         }
     }
     /// <summary>
@@ -635,7 +635,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
 
                 // 执行 Select -> 得到 1 行 N 列的 DataFrame
                 // 注意：Select 返回新 DF，我们需要收集起来
-                rowFrames.Add(Select([.. exprs]));
+                rowFrames.Add(Select(exprs.ToArray()));
             }
 
             // 4. 垂直拼接
@@ -738,7 +738,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
         }
 
         // 3. 组装 DataFrame
-        return new DataFrame([.. seriesList]);
+        return new DataFrame(seriesList.ToArray());
     }
     /// <summary>
     /// Create a DataFrame from a list of Series.
@@ -747,7 +747,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     {
         if (series == null || series.Length == 0)
         {
-            Handle = PolarsWrapper.DataFrameNew([]);
+            Handle = PolarsWrapper.DataFrameNew(System.Array.Empty<SeriesHandle>());
             return;
         }
 

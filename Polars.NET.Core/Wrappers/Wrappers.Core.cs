@@ -7,7 +7,7 @@ public static partial class PolarsWrapper
     // 辅助：批量转换 Handle
     internal static IntPtr[] HandlesToPtrs(PolarsHandle[] handles)
     {
-        if (handles == null || handles.Length == 0) return [];
+        if (handles == null || handles.Length == 0) return Array.Empty<IntPtr>();
         
         var ptrs = new IntPtr[handles.Length];
         for (int i = 0; i < handles.Length; i++)
@@ -27,7 +27,7 @@ public static partial class PolarsWrapper
     {
         if (strings == null || strings.Length == 0)
         {
-            return action([]);
+            return action(Array.Empty<IntPtr>());
         }
 
         var ptrs = new IntPtr[strings.Length];

@@ -36,11 +36,17 @@ namespace Polars.NET.Core.Arrow
         // 私有数据指针 (存放我们的 C# Enumerator)
         public void* private_data;
     }
-    public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Schema schema) : IDisposable
+    public unsafe class ArrowStreamExporter : IDisposable
     {
-        private readonly IEnumerator<RecordBatch> _enumerator = enumerator;
-        private readonly Schema _schema = schema;
+        private readonly IEnumerator<RecordBatch> _enumerator;
+        private readonly Schema _schema;
         private bool _isDisposed;
+
+        public ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Schema schema)
+        {
+            _enumerator = enumerator;
+            _schema = schema;
+        }
 
         // 导出到 C 指针
         public void Export(CArrowArrayStream* outStream)

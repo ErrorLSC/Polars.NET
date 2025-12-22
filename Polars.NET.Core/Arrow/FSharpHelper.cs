@@ -116,9 +116,9 @@ namespace Polars.NET.Core.Arrow
             
             // We must cast IList to IEnumerable<T> for OfSeq to work
             var castMethod = typeof(System.Linq.Enumerable).GetMethod("Cast")!.MakeGenericMethod(elementType);
-            var typedEnumerable = castMethod.Invoke(null, [list]);
+            var typedEnumerable = castMethod.Invoke(null, new []{list});
 
-            return ofSeqMethod.Invoke(null, [typedEnumerable])!;
+            return ofSeqMethod.Invoke(null,new []{typedEnumerable})!;
         }
     }
 }

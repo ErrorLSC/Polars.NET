@@ -50,8 +50,8 @@ namespace Polars.CSharp.Tests
         public void Test_Parquet_RoundTrip()
         {
             // 1. 创建数据
-            using var s1 = new Series("a", [1, 2, 3]);
-            using var s2 = new Series("b", ["x", "y", "z"]);
+            using var s1 = new Series("a", new int[]{1, 2, 3});
+            using var s2 = new Series("b", new string[]{"x", "y", "z"});
             using var dfOriginal = new DataFrame(s1, s2);
 
             // 2. 写入 Parquet (需要 DataFrame.WriteParquet 实现)
@@ -75,7 +75,7 @@ namespace Polars.CSharp.Tests
         public void Test_Ipc_RoundTrip()
         {
             // IPC (Feather) 格式测试
-            using var s = new Series("ts", [new DateTime(2023,1,1), new DateTime(2024,1,1)]);
+            using var s = new Series("ts", new DateTime[]{new DateTime(2023,1,1), new DateTime(2024,1,1)});
             using var dfOriginal = new DataFrame(s);
 
             using var f = new DisposableFile(".ipc"); // 或 .arrow

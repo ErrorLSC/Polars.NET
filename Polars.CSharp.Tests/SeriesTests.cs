@@ -11,7 +11,7 @@ public class SeriesTests
     public void Test_Series_Creation_And_Arrow()
     {
         // 1. 创建 Series (Int32)
-        using var s = new Series("my_series", [1, 2, 3]);
+        using var s = new Series("my_series", new int[]{1, 2, 3});
         
         Assert.Equal(3, s.Length);
         Assert.Equal("my_series", s.Name);
@@ -317,7 +317,7 @@ public class SeriesTests
     public void Test_Series_Cast_Decimal()
     {
         // 1. 创建 Double Series
-        using var s = new Series("prices", [10.5, 20.0]);
+        using var s = new Series("prices", new double[]{10.5, 20.0});
 
         // 2. Cast 到 Decimal(10, 2)
         // 这需要 DataType 类发挥作用
@@ -373,14 +373,14 @@ public class SeriesTests
         Assert.Equal(2, sAllNull.NullCount);
         
         // Case 4: 没有 Null
-        using var sClean = new Series("clean", [1, 2, 3]);
+        using var sClean = new Series("clean", new int[]{1, 2, 3});
         Assert.Equal(0, sClean.NullCount);
     }
     [Fact]
     public void Test_Series_Arithmetic()
     {
-        using var s1 = new Series("a", [1, 2, 3]);
-        using var s2 = new Series("b", [10, 20, 30]);
+        using var s1 = new Series("a", new int[]{1, 2, 3});
+        using var s2 = new Series("b", new int[]{10, 20, 30});
 
         // Test Add (+)
         using var sum = s1 + s2;
@@ -397,8 +397,8 @@ public class SeriesTests
     [Fact]
     public void Test_Series_Comparison()
     {
-        using var s1 = new Series("a", [1, 5, 10]);
-        using var s2 = new Series("b", [1, 4, 20]);
+        using var s1 = new Series("a", new int[]{1, 5, 10});
+        using var s2 = new Series("b", new int[]{1, 4, 20});
 
         // Test Eq (1==1, 5!=4, 10!=20) -> [true, false, false]
         using var eq = s1.Eq(s2);
@@ -415,7 +415,7 @@ public class SeriesTests
     [Fact]
     public void Test_Series_Aggregations()
     {
-        using var s = new Series("nums", [1, 2, 3, 4, 5]);
+        using var s = new Series("nums", new int[]{1, 2, 3, 4, 5});
 
         // Sum: 15
         using var sumSeries = s.Sum();
@@ -439,7 +439,7 @@ public class SeriesTests
     {
         // 构造包含 NaN 和 Inf 的 Series
         // C# double.NaN 对应 Polars Float64 NaN
-        using var s = new Series("f", [1.0, double.NaN, double.PositiveInfinity]);
+        using var s = new Series("f", new double[]{1.0, double.NaN, double.PositiveInfinity});
 
         // IsNan -> [false, true, false]
         using var isNan = s.IsNan();

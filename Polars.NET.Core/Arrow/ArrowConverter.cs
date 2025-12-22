@@ -39,7 +39,7 @@ public static class ArrowConverter
             // 3. 调用并获取 IArrowArray
             try 
             {
-                var arrowArray = (IArrowArray)buildMethod.Invoke(null, [colValue])!;
+                var arrowArray = (IArrowArray)buildMethod.Invoke(null, new[]{colValue})!;
                 result.Add((colName, arrowArray));
             }
             catch (TargetInvocationException ex)
@@ -71,7 +71,7 @@ public static class ArrowConverter
                 .MakeGenericMethod(innerType);
 
             // 注意：data 是 IEnumerable<Option<U>>，我们当作 IEnumerable<object> 传进去处理
-            return (IArrowArray)method.Invoke(null, [data, unwrapper])!;
+            return (IArrowArray)method.Invoke(null,new object[]{data, unwrapper})!;
         }
         var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
         Type checkType = underlyingType ?? type;
@@ -107,7 +107,7 @@ public static class ArrowConverter
                 .GetMethod(nameof(BuildListArray), BindingFlags.Public | BindingFlags.Static)!
                 .MakeGenericMethod(elementType);
 
-            return (IArrowArray)method.Invoke(null, [data])!;
+            return (IArrowArray)method.Invoke(null, new[]{data})!;
         }
 
         // 3. 支持 Struct (对象)
@@ -207,7 +207,7 @@ public static class ArrowConverter
             var method = typeof(ArrowConverter)
                 .GetMethod(nameof(BuildStructOption), BindingFlags.NonPublic | BindingFlags.Static)!
                 .MakeGenericMethod(typeof(U));
-            return (IArrowArray)method.Invoke(null, [data, unwrapper])!;
+            return (IArrowArray)method.Invoke(null, new object[]{data, unwrapper})!;
         }
         else
         {
@@ -525,7 +525,7 @@ public static class ArrowConverter
                 .GetMethod(nameof(BuildColumn), BindingFlags.NonPublic | BindingFlags.Static)!
                 .MakeGenericMethod(typeof(TParent), targetType);
 
-            return (IArrowArray)method.Invoke(null, [data, getter, isFSharpOption])!;
+            return (IArrowArray)method.Invoke(null,new object[] {data, getter, isFSharpOption})!;
         }
 
         /// <summary>

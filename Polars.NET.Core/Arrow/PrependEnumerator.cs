@@ -6,11 +6,18 @@ namespace Polars.NET.Core.Arrow
     /// <summary>
     /// 缝合枚举器：将预读的 Head (First Batch) 与剩余的 Tail 重新组合成一个完整的流。
     /// </summary>
-    public class PrependEnumerator(RecordBatch head, IEnumerator<RecordBatch> tail) : IEnumerator<RecordBatch>
+    public class PrependEnumerator: IEnumerator<RecordBatch>
     {
         private bool _isFirst = true;
-        private readonly RecordBatch _head = head;
-        private readonly IEnumerator<RecordBatch> _tail = tail;
+        private readonly RecordBatch _head;
+        private readonly IEnumerator<RecordBatch> _tail;
+
+        // [修复] 显式定义构造函数以支持 .NET 7 / C# 11
+        public PrependEnumerator(RecordBatch head, IEnumerator<RecordBatch> tail)
+        {
+            _head = head;
+            _tail = tail;
+        }
 
         public RecordBatch Current => _isFirst ? _head : _tail.Current;
         object IEnumerator.Current => Current;

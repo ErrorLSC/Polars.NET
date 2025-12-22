@@ -11,18 +11,18 @@ public static partial class PolarsWrapper
     public static Dictionary<string, string> GetSchema(LazyFrameHandle lf)
     {
         var json = GetSchemaString(lf);
-        if (string.IsNullOrEmpty(json)) return [];
+        if (string.IsNullOrEmpty(json)) return new Dictionary<string, string>();
         
         // 简单解析 (假设没有嵌套 JSON 结构，只是简单的 Key:Value)
         // 或者引入 System.Text.Json
         try 
         {
             return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json) 
-                   ?? [];
+                   ?? new Dictionary<string, string>();
         }
         catch 
         {
-            return [];
+            return new Dictionary<string, string>();
         }
     }
     public static string Explain(LazyFrameHandle lf, bool optimized)
@@ -185,8 +185,8 @@ public static partial class PolarsWrapper
         string strategy, string? tolerance)
     {
         // 1. 处理数组 (HandlesToPtrs 内部已经处理了 null 检查，如果是 null 会返回空数组)
-        var lByPtrs = HandlesToPtrs(leftBy ?? []);
-        var rByPtrs = HandlesToPtrs(rightBy ?? []);
+        var lByPtrs = HandlesToPtrs(leftBy ?? Array.Empty<ExprHandle>());
+        var rByPtrs = HandlesToPtrs(rightBy ?? Array.Empty<ExprHandle>());
 
         // 2. 直接调用 Native
         var h = NativeBindings.pl_lazy_join_asof(

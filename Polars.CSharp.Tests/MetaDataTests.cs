@@ -10,7 +10,7 @@ public class MetadataTests
         Assert.Equal("i64", sInt.DataTypeName);
 
         // 2. Decimal (自动推断 Scale)
-        using var sDec = new Series("b", [1.5m, 2.345m]); 
+        using var sDec = new Series("b", new Decimal[]{1.5m, 2.345m}); 
         // 1.5 -> 1.500, Scale=3. Polars 的 decimal 显示格式通常是 "decimal(precision, scale)"
         // 注意：具体字符串取决于 Polars 版本，通常包含 "decimal"
         Assert.Contains("decimal", sDec.DataTypeName); 

@@ -408,7 +408,7 @@ public class LazyFrame : IDisposable
     /// <returns></returns>
     public LazyFrame Join(LazyFrame other, Expr leftOn, Expr rightOn, JoinType how = JoinType.Inner)
     {
-        return Join(other, [leftOn], [rightOn], how);
+        return Join(other,new Expr[] {leftOn}, new Expr[] {rightOn}, how);
     }
 
     /// <summary>
@@ -491,7 +491,7 @@ public class LazyFrame : IDisposable
         string periodStr = DurationFormatter.ToPolarsString(period) ?? everyStr;
         string offsetStr = DurationFormatter.ToPolarsString(offset) ?? "0s";
 
-        var keys = by ?? [];
+        var keys = by ?? new Expr[]{};
         return new LazyDynamicGroupBy(
             CloneHandle(),
             indexColumn,
