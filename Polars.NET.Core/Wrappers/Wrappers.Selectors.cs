@@ -21,7 +21,6 @@ public static partial class PolarsWrapper
     public static SelectorHandle SelectorStartsWith(string pattern)
          => ErrorHelper.Check(NativeBindings.pl_selector_starts_with(pattern));
 
-
     public static SelectorHandle SelectorEndsWith(string pattern)
         => ErrorHelper.Check(NativeBindings.pl_selector_ends_with(pattern));
 

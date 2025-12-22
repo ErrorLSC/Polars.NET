@@ -7,23 +7,26 @@ namespace Polars.NET.Core;
 public static partial class PolarsWrapper
 {
     private static T WithSchemaArrays<T>(
-            Dictionary<string, DataTypeHandle>? schema, 
-            Func<IntPtr[]?, IntPtr[]?, UIntPtr, T> action)
+        Dictionary<string, DataTypeHandle>? schema, 
+        Func<IntPtr[]?, IntPtr[]?, UIntPtr, T> action)
+    {
+        // 1. 处理空 Schema 情况
+        if (schema == null || schema.Count == 0)
         {
-            if (schema == null || schema.Count == 0)
-            {
-                return action(null, null, UIntPtr.Zero);
-            }
-
-            var names = schema.Keys.ToArray();
-            // DataTypeHandle 是 SafeHandle，DangerousGetHandle() 获取原始指针
-            var typeHandles = schema.Values.Select(h => h.DangerousGetHandle()).ToArray();
-            
-            return UseUtf8StringArray(names, namePtrs => 
-            {
-                return action(namePtrs, typeHandles, (UIntPtr)names.Length);
-            });
+            return action(null, null, UIntPtr.Zero);
         }
+
+        var names = schema.Keys.ToArray();
+        var handles = schema.Values.ToArray(); // 拿到所有 SafeHandle 对象
+        using var locker = new SafeHandleLock<DataTypeHandle>(handles);
+        var rawTypePtrs = locker.Pointers;
+        // 字符串数组的处理
+        return UseUtf8StringArray(names, namePtrs => 
+        {
+            // locker.Pointers 就是我们要的 IntPtr[] typePtrs
+            return action(namePtrs, rawTypePtrs, (UIntPtr)names.Length);
+        });
+    }
     public static DataFrameHandle ReadCsv(
             string path, 
             Dictionary<string, DataTypeHandle>? schema = null,

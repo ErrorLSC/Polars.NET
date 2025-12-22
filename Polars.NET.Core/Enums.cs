@@ -23,7 +23,9 @@ public enum PlDataType : int
     Binary = 17,
     Null = 18,
     Struct = 19,
-    List = 20
+    List = 20,
+    Categorical=21,
+    Decimal=22
 }
 
 public enum PlJoinType

@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using Apache.Arrow.C;
 
 namespace Polars.NET.Core;
 
@@ -240,23 +239,15 @@ public static partial class PolarsWrapper
     public static DataFrameHandle DataFrameNew(SeriesHandle[] series)
     {
         if (series == null || series.Length == 0)
-        {
-            // 传空数组给 Rust，或者直接报错，视需求而定
-            // 这里传空数组，Rust 会返回空 DF
-            return ErrorHelper.Check(NativeBindings.pl_dataframe_new(Array.Empty<IntPtr>(), UIntPtr.Zero));
-        }
+            {
+                return ErrorHelper.Check(NativeBindings.pl_dataframe_new(Array.Empty<IntPtr>(), UIntPtr.Zero));
+            }
 
-        // 提取原始指针 (Borrow, not Consume)
-        var ptrs = new IntPtr[series.Length];
-        for (int i = 0; i < series.Length; i++)
-        {
-            // DangerousGetHandle 不会转移所有权，仅仅是读取
-            ptrs[i] = series[i].DangerousGetHandle();
-        }
+        // 一行代码搞定：锁定、提取指针、自动释放
+        using var locker = new SafeHandleLock<SeriesHandle>(series);
 
-        // 调用 Native
-        // 注意：ptrs 数组会被 Pin 住传给 Rust
-        return ErrorHelper.Check(NativeBindings.pl_dataframe_new(ptrs, (UIntPtr)series.Length));
+        // 直接使用 locker.Pointers 传给 Rust
+        return ErrorHelper.Check(NativeBindings.pl_dataframe_new(locker.Pointers, (UIntPtr)series.Length));
     }
     /// <summary>
     /// Create a DataFrame from an Arrow C Stream.

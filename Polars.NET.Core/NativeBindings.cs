@@ -58,13 +58,13 @@ unsafe internal partial class NativeBindings
     );
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_dataframe_new_from_stream(
-        Polars.NET.Core.Arrow.CArrowArrayStream* stream
+        Arrow.CArrowArrayStream* stream
     );
 
     [LibraryImport(LibName)]
     public static partial LazyFrameHandle pl_lazy_frame_scan_stream(
         CArrowSchema* schema,
-        delegate* unmanaged[Cdecl]<void*, Polars.NET.Core.Arrow.CArrowArrayStream*> callback,
+        delegate* unmanaged[Cdecl]<void*, Arrow.CArrowArrayStream*> callback,
         delegate* unmanaged[Cdecl]<void*, void> destroyCallback,
         void* userData
     );
@@ -100,9 +100,9 @@ unsafe internal partial class NativeBindings
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_dataframe_get_i64(
         DataFrameHandle df, 
-        string colName, // 这里不需要 [MarshalAs] 了，上面统一定义了
+        string colName, 
         UIntPtr row, 
-        out long outVal // <--- 基础类型的 out 不需要任何修饰，直接用！
+        out long outVal
     );
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
@@ -801,34 +801,34 @@ unsafe internal partial class NativeBindings
     UIntPtr len
     );
     [LibraryImport(LibName)]
-    public static partial IntPtr pl_datatype_to_string(IntPtr handle);
+    public static partial IntPtr pl_datatype_to_string(DataTypeHandle handle);
     [LibraryImport(LibName)]
     public static partial DataTypeHandle pl_datatype_clone(DataTypeHandle handle);
     // 1. GetKind - 返回 i32
     [LibraryImport(LibName)]
-    public static partial int pl_datatype_get_kind(IntPtr handle);
+    public static partial int pl_datatype_get_kind(DataTypeHandle handle);
 
     // 2. GetTimeUnit - 返回 i32
     [LibraryImport(LibName)]
-    public static partial int pl_datatype_get_time_unit(IntPtr handle);
+    public static partial int pl_datatype_get_time_unit(DataTypeHandle handle);
 
     // 3. GetDecimalInfo - out 参数
     [LibraryImport(LibName)]
-    public static partial void pl_datatype_get_decimal_info(IntPtr handle, out int precision, out int scale);
+    public static partial void pl_datatype_get_decimal_info(DataTypeHandle handle, out int precision, out int scale);
 
     // 4. GetTimeZone - 返回字符串指针
     [LibraryImport(LibName)]
-    public static partial IntPtr pl_datatype_get_timezone(IntPtr handle);
+    public static partial IntPtr pl_datatype_get_timezone(DataTypeHandle handle);
     [LibraryImport(LibName)]
-    public static partial DataTypeHandle pl_datatype_get_inner(IntPtr handle);
+    public static partial DataTypeHandle pl_datatype_get_inner(DataTypeHandle handle);
 
     [LibraryImport(LibName)]
-    public static partial UIntPtr pl_datatype_get_struct_len(IntPtr handle);
+    public static partial UIntPtr pl_datatype_get_struct_len(DataTypeHandle handle);
 
     // 注意：这是一个比较复杂的签名，因为我们要返回两个指针
     [LibraryImport(LibName)]
     public static partial void pl_datatype_get_struct_field(
-        IntPtr handle, 
+        DataTypeHandle handle, 
         UIntPtr index, 
         out IntPtr namePtr,       // 输出字符串指针
         out DataTypeHandle typeHandle // 输出类型句柄

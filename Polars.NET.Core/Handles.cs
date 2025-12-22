@@ -1,6 +1,4 @@
-using System;
 using System.Runtime.InteropServices;
-using Microsoft.Win32.SafeHandles;
 
 namespace Polars.NET.Core;
 
@@ -58,7 +56,6 @@ public class SelectorHandle : PolarsHandle
 {
     protected override bool ReleaseHandle()
     {
-        // [修复] 必须调用专门的 Selector 释放函数
         NativeBindings.pl_selector_free(handle);
         return true;
     }
@@ -89,7 +86,6 @@ public class SeriesHandle : PolarsHandle
     }
 }
 
-// [修复] 继承自 PolarsHandle
 public class ArrowArrayContextHandle : PolarsHandle
 {
     public ArrowArrayContextHandle() : base() { }
@@ -109,7 +105,10 @@ public class DataTypeHandle : PolarsHandle
     public DataTypeHandle() : base() { }
     protected override bool ReleaseHandle()
     {
-        NativeBindings.pl_datatype_free(handle);
+        if (!IsInvalid)
+        {
+            NativeBindings.pl_datatype_free(handle);
+        }
         return true;
     }
 }

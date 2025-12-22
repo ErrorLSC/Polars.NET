@@ -44,7 +44,7 @@ public static partial class PolarsWrapper
     public static string GetDataTypeString(DataTypeHandle handle)
     {
         // 1. 调用 Rust (Borrow 模式)
-        IntPtr strPtr = NativeBindings.pl_datatype_to_string(handle.DangerousGetHandle());
+        IntPtr strPtr = NativeBindings.pl_datatype_to_string(handle);
         
         if (strPtr == IntPtr.Zero) return "unknown";
 
@@ -67,15 +67,13 @@ public static partial class PolarsWrapper
     public static string? GetTimeZone(DataTypeHandle handle)
     {
         // 既然是 Get 属性，其实不需要 TransferOwnership (Clone)，
-        // 直接传 handle.DangerousGetHandle() 给 Rust Borrow 即可。
         // 这样性能最好，且只要 Handle 没死，指针就安全。
         
         IntPtr ptr = IntPtr.Zero;
         try
         {
-            // 这里传入 handle 会自动调用 handle.DangerousGetHandle()
             // 如果你定义 Parameter 是 IntPtr，LibraryImport 生成的代码会处理
-            ptr = NativeBindings.pl_datatype_get_timezone(handle.DangerousGetHandle());
+            ptr = NativeBindings.pl_datatype_get_timezone(handle);
             
             if (ptr == IntPtr.Zero) return null;
             
@@ -96,8 +94,7 @@ public static partial class PolarsWrapper
     /// </summary>
     public static int GetDataTypeKind(DataTypeHandle handle)
     {
-        // 只要 handle 没有被 Dispose，DangerousGetHandle 就是安全的
-        return NativeBindings.pl_datatype_get_kind(handle.DangerousGetHandle());
+        return NativeBindings.pl_datatype_get_kind(handle);
     }
 
     /// <summary>
@@ -106,7 +103,7 @@ public static partial class PolarsWrapper
     /// </summary>
     public static int GetTimeUnit(DataTypeHandle handle)
     {
-        return NativeBindings.pl_datatype_get_time_unit(handle.DangerousGetHandle());
+        return NativeBindings.pl_datatype_get_time_unit(handle);
     }
 
     /// <summary>
@@ -115,7 +112,7 @@ public static partial class PolarsWrapper
     /// </summary>
     public static void GetDecimalInfo(DataTypeHandle handle, out int precision, out int scale)
     {
-        NativeBindings.pl_datatype_get_decimal_info(handle.DangerousGetHandle(), out precision, out scale);
+        NativeBindings.pl_datatype_get_decimal_info(handle, out precision, out scale);
     }
     // ==========================================
     // DataType Introspection Wrappers
@@ -127,8 +124,7 @@ public static partial class PolarsWrapper
     public static DataTypeHandle GetListInnerType(DataTypeHandle handle)
     {
         // 这里的 NativeBindings.pl_datatype_get_inner 返回的是一个新的 Handle (Clone)
-        // 使用 DangerousGetHandle 借用传入的 handle
-        return ErrorHelper.Check(NativeBindings.pl_datatype_get_inner(handle.DangerousGetHandle()));
+        return ErrorHelper.Check(NativeBindings.pl_datatype_get_inner(handle));
     }
 
     /// <summary>
@@ -136,7 +132,7 @@ public static partial class PolarsWrapper
     /// </summary>
     public static ulong GetStructLen(DataTypeHandle handle)
     {
-        return (ulong)NativeBindings.pl_datatype_get_struct_len(handle.DangerousGetHandle());
+        return (ulong)NativeBindings.pl_datatype_get_struct_len(handle);
     }
 
     /// <summary>
@@ -145,7 +141,7 @@ public static partial class PolarsWrapper
     public static void GetStructField(DataTypeHandle handle, ulong index, out string name, out DataTypeHandle typeHandle)
     {
         NativeBindings.pl_datatype_get_struct_field(
-            handle.DangerousGetHandle(), 
+            handle, 
             (UIntPtr)index, 
             out IntPtr namePtr, 
             out var outTypeHandle

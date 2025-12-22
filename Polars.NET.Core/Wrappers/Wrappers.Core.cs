@@ -54,4 +54,74 @@ public static partial class PolarsWrapper
             }
         }
     }
+    /// <summary>
+    /// 安全锁定一组 SafeHandle，并提取其原始指针。
+    /// 使用 ref struct 确保零 GC 开销且只能在栈上使用。
+    /// </summary>
+    /// <typeparam name="T">具体的 SafeHandle 类型</typeparam>
+    internal ref struct SafeHandleLock<T> where T : SafeHandle
+    {
+        private readonly T[] _handles;
+        private readonly bool[] _locks;
+        
+        // [改进] 直接对外提供指针数组，省去调用方再次遍历的开销
+        public readonly IntPtr[] Pointers;
+
+        public SafeHandleLock(T[] handles)
+        {
+            if (handles == null)
+            {
+                _handles = Array.Empty<T>();
+                _locks = Array.Empty<bool>();
+                Pointers = Array.Empty<IntPtr>();
+                return;
+            }
+
+            _handles = handles;
+            int len = handles.Length;
+            _locks = new bool[len];
+            Pointers = new IntPtr[len];
+
+            bool success = false;
+            try
+            {
+                for (int i = 0; i < len; i++)
+                {
+                    // 1. 尝试锁定
+                    handles[i].DangerousAddRef(ref _locks[i]);
+                    
+                    // 2. 只有锁定成功且未抛出异常，才获取指针
+                    // (虽然 DangerousAddRef 如果失败通常抛异常，或者是 bool ref 为 false，双重保险)
+                    if (_locks[i])
+                    {
+                        Pointers[i] = handles[i].DangerousGetHandle();
+                    }
+                }
+                success = true;
+            }
+            finally
+            {
+                // [关键改进] 如果构造过程中发生异常（success == false），
+                // 必须手动回滚，释放那些已经成功锁定的 Handle
+                if (!success)
+                {
+                    Dispose();
+                }
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_handles == null) return;
+
+            for (int i = 0; i < _handles.Length; i++)
+            {
+                if (_locks[i])
+                {
+                    _handles[i].DangerousRelease();
+                    _locks[i] = false; // 防止多次 Dispose 导致的多次 Release
+                }
+            }
+        }
+    }
 }
