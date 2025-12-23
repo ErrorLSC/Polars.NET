@@ -28,7 +28,7 @@ type ``Expression Logic Tests`` () =
                 ]
 
             // 验证
-            Assert.Equal(4L, res.Columns) // name, b_date, year, bmi
+            Assert.Equal(4L, res.Width) // name, b_date, year, bmi
             
             // 使用新的 Option 取值 API 验证
             // Qinglei

@@ -40,6 +40,7 @@ module Udf =
             // Arrow 需要显式的 Decimal128Type 来初始化 Builder
             // 如果用户没给 precision，我们给个默认值 (比如 38，最大值)
             let p = defaultArg pOpt 38
+            let s = defaultArg s 9
             let arrowType = new Apache.Arrow.Types.Decimal128Type(p, s)
             let b = (new Decimal128Array.Builder(arrowType)).Reserve(capacity)
             

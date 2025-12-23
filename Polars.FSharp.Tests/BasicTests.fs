@@ -57,7 +57,7 @@ type ``Basic Functionality Tests`` () =
         let df = DataFrame.ReadCsv (path=csv.Path)
         
         Assert.Equal(2L, df.Rows)    // 注意：现在 Rows 返回的是 long (int64)
-        Assert.Equal(3L, df.Columns) // 注意：现在 Columns 返回的是 long
+        Assert.Equal(3L, df.Width) // 注意：现在 Width 返回的是 long
     [<Fact>]
     member _.``IO: Advanced CSV Reading (Schema, Skip, Dates)`` () =
         let path = "advanced_test.csv"
@@ -200,7 +200,7 @@ id;date_col;val_col
             |> pl.filterLazy (pl.col "b" .> pl.lit 0)
 
         // 1. 验证 Schema (使用 Map API，更加精准)
-        let schema = lf2.Schema // 类型是 Map<string, string>
+        let schema = lf2.Schema 
         
         // 验证列名是否存在 (Key)
         Assert.True(schema.ContainsKey "a")
@@ -209,8 +209,9 @@ id;date_col;val_col
         
         // 验证列类型 (Value)
         // Polars 读取 CSV 整数默认是 Int64
-        Assert.Equal("i64", schema.["a"])
-        Assert.Equal("i64", schema.["a_double"])
+        Assert.Equal(DataType.Int64, schema.["a"])
+        Assert.Equal(DataType.Int64, schema.["b"])
+        Assert.Equal(DataType.Int64, schema.["a_double"])
 
         // 2. 验证 Explain 和 Optimization
         let plan = lf2.Explain false
@@ -268,7 +269,7 @@ id;date_col;val_col
     member _.``Ingestion: Create DataFrame from F# Records`` () =
         // 1. 定义数据
         let data = [
-            { name = "Alice"; age = 30; score = Some 99.5; joined = Some (System.DateTime(2023,1,1)) }
+            { name = "Alice"; age = 30; score = Some 99.5; joined = Some (DateTime(2023,1,1)) }
             { name = "Bob"; age = 25; score = None; joined = None }
         ]
 
@@ -277,7 +278,7 @@ id;date_col;val_col
 
         // 3. 验证结构
         Assert.Equal(2L, df.Rows)
-        Assert.Equal(4L, df.Columns)
+        Assert.Equal(4L, df.Width)
 
         // 4. 验证数据
         
@@ -305,7 +306,8 @@ id;date_col;val_col
         
         // Joined 是 None
         // [修复] 不要用 = null 判断 Option，要用 .IsNone
-        let joinedBob = df.String("joined", 1)
+        let joinedCol = df.Column("joined").AsSeq<DateTime option>()
+        let joinedBob = Seq.item 1 joinedCol
         Assert.True joinedBob.IsNone
     [<Fact>]
     member _.``DataFrame: Create from Series`` () =
@@ -318,7 +320,7 @@ id;date_col;val_col
 
         // 3. 验证
         Assert.Equal(3L, df.Rows)
-        Assert.Equal(2L, df.Columns)
+        Assert.Equal(2L, df.Width)
         Assert.Equal<string seq>(["id"; "name"], df.ColumnNames)
         
         // 4. [关键] 验证原来的 Series 依然可用 (未被 Move)
@@ -336,9 +338,9 @@ id;date_col;val_col
 
         // 1. Drop
         let dfDrop = df.Drop "a"
-        Assert.Equal(1L, dfDrop.Columns)
+        Assert.Equal(1L, dfDrop.Width)
         Assert.Equal<string seq>(["b"], dfDrop.ColumnNames)
-        Assert.Equal(2L, df.Columns) |> ignore
+        Assert.Equal(2L, df.Width) |> ignore
         Assert.Equal<string seq>(["a"; "b"], df.ColumnNames)
 
         // 2. Rename
@@ -493,7 +495,7 @@ id;date_col;val_col
         let res = pl.concatDiagonal [df1; df2]
 
         Assert.Equal(2L, res.Rows)
-        Assert.Equal(3L, res.Columns)
+        Assert.Equal(3L, res.Width)
         
         // 验证列名
         let cols = res.ColumnNames
@@ -685,9 +687,10 @@ id;date_col;val_col
         // 3. 验证
         Assert.Equal(int64 count, df.Rows)
         Assert.Equal("Val_99999", df.Column("Value").AsSeq<string>() |> Seq.last |> Option.get)
+        let expectedType = Datetime(Microseconds, Some "")
         
         // 验证 Schema 是否正确推断 (Timestamp)
-        Assert.Equal(DataType.Datetime, df.Schema.["Timestamp"])
+        Assert.Equal(expectedType, df.Schema.["Timestamp"])
 
     [<Fact>]
     member _.``Stream: Lazy Scan (scanSeq) with Filter`` () =

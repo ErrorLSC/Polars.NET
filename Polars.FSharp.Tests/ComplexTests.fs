@@ -272,7 +272,7 @@ type ``Complex Query Tests`` () =
             |> pl.sort (pl.col "year") false
 
         Assert.Equal(2L, wideDf.Rows)
-        Assert.Equal(3L, wideDf.Columns) // year, Q1, Q2
+        Assert.Equal(3L, wideDf.Width) // year, Q1, Q2
         Assert.Equal(100L, wideDf.Int("Q1", 0).Value)
         Assert.Equal(400L, wideDf.Int("Q2", 1).Value)
 
@@ -291,7 +291,7 @@ type ``Complex Query Tests`` () =
             |> pl.collect
         
         Assert.Equal(1L, dfHorz.Rows)
-        Assert.Equal(2L, dfHorz.Columns)
+        Assert.Equal(2L, dfHorz.Width)
         Assert.Equal(1L, dfHorz.Int("a", 0).Value)
         Assert.Equal(2L, dfHorz.Int("b", 0).Value)
 
@@ -301,7 +301,7 @@ type ``Complex Query Tests`` () =
             |> pl.collect
         
         Assert.Equal(2L, dfVert.Rows)
-        Assert.Equal(1L, dfVert.Columns)
+        Assert.Equal(1L, dfVert.Width)
 
         // 3. Diagonal: [a, b] (rows=2)
         // lf1 (a=1, b=null)
@@ -311,7 +311,7 @@ type ``Complex Query Tests`` () =
             |> pl.collect
         
         Assert.Equal(2L, dfDiag.Rows)
-        Assert.Equal(2L, dfDiag.Columns)
+        Assert.Equal(2L, dfDiag.Width)
 
     [<Fact>]
     member _.``Concatenation: Eager Stack (Safety Check)`` () =

@@ -41,7 +41,7 @@ module Display =
         </style>""") |> ignore
 
         // 3. 维度信息
-        sb.AppendFormat("<div class='pl-dim'>Polars DataFrame: <b>({0} rows, {1} columns)</b></div>", totalRows, df.Columns) |> ignore
+        sb.AppendFormat("<div class='pl-dim'>Polars DataFrame: <b>({0} rows, {1} columns)</b></div>", totalRows, df.ColumnNames) |> ignore
         
         // 4. 构建表格
         sb.Append "<div style='overflow-x:auto'><table class='pl-frame'>" |> ignore

@@ -77,7 +77,7 @@ type ``Series Tests`` () =
 
         // 5. Series -> DataFrame
         let dfNew = sAge.ToFrame()
-        Assert.Equal(1L, dfNew.Columns)
+        Assert.Equal(1L, dfNew.Width)
         Assert.Equal(2L, dfNew.Rows)
         Assert.Equal("age", dfNew.ColumnNames.[0])
     [<Fact>]
@@ -119,7 +119,7 @@ type ``Series Tests`` () =
         
         // 2. String -> Decimal (Precision=10, Scale=2)
         // Polars 解析字符串 "4.56" -> 456 (int128) -> 正确
-        use sDec = s.Cast(Decimal(Some 10, 2))
+        use sDec = s.Cast(Decimal(Some 10,Some 2))
         
         // 3. 验证
         let arrow = sDec.ToArrow()

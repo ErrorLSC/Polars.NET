@@ -174,7 +174,7 @@ type ``UDF Tests`` () =
         // 3. 执行 UDF
         // 先 Cast 成 Decimal，再跑 UDF，再输出 Decimal
         // 注意：Series.Cast 已经支持了
-        use sDec = s.Cast(DataType.Decimal(Some 10, 2))
+        use sDec = s.Cast(DataType.Decimal(Some 10, Some 2))
         
         // 这里的 DataType.Decimal(Some 10, 2) 会告诉 createBuilder 创建 Decimal128Array
         let res = 
@@ -184,8 +184,8 @@ type ``UDF Tests`` () =
             // 我们用 Expr 方式：
             |> pl.withColumn (
                 pl.col("str_vals")
-                    .Cast(DataType.Decimal(Some 10, 2)) // 先转 Decimal
-                    .Map(Udf.mapOption logic (DataType.Decimal(Some 10, 2)), DataType.Decimal(Some 10, 2)) // 跑 UDF
+                    .Cast(DataType.Decimal(Some 10, Some 2)) // 先转 Decimal
+                    .Map(Udf.mapOption logic (DataType.Decimal(Some 10, Some 2)), DataType.Decimal(Some 10,Some 2)) // 跑 UDF
                     .Alias "doubled"
             )// 这里如果源是 Eager DataFrame，withColumn 返回 Eager DataFrame
         

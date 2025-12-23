@@ -31,8 +31,12 @@ type Series(handle: SeriesHandle) =
     /// </summary>
     member _.DtypeStr = PolarsWrapper.GetSeriesDtypeString handle
     member this.DataType : DataType =
-        let dtypeStr = this.DtypeStr
-        DataType.Parse dtypeStr
+        // 1. 获取 Series 的类型 Handle
+        // Wrapper 会调用 pl_series_get_dtype 返回一个新的 Handle
+        use typeHandle = PolarsWrapper.GetSeriesDataType handle
+        
+        // 2. 递归构建 F# 类型
+        DataType.FromHandle typeHandle
     /// <summary>
     /// Returns a boolean Series indicating which values are null.
     /// </summary>
@@ -151,7 +155,7 @@ type Series(handle: SeriesHandle) =
         // 1. 创建 Int64 Series
         let s = Series.create(name, longs)
         // 2. 转换为 Datetime 类型 (Microseconds, No Timezone)
-        s.Cast DataType.Datetime
+        s.Cast(Datetime(Microseconds, None))
 
     static member create(name: string, data: DateTime option seq) = 
         let arr = Seq.toArray data
@@ -170,7 +174,7 @@ type Series(handle: SeriesHandle) =
 
         // 直接调用底层 Wrapper 创建带 Validity 的 Int64 Series
         let s = new Series(PolarsWrapper.SeriesNew(name, longs, valid))
-        s.Cast DataType.Datetime
+        s.Cast(Datetime(Microseconds, None))
 
     // --- Decimal ---
     /// <summary>
@@ -185,7 +189,7 @@ type Series(handle: SeriesHandle) =
         // 转换逻辑稍复杂，我们在 Wrapper 里处理了 nullable 数组转换
         // 这里我们需要把 seq<decimal option> 转为 decimal?[] (Nullable<decimal>[]) 传给 C#
         let nullableArr = 
-            arr |> Array.map (function Some v -> System.Nullable(v) | None -> System.Nullable())
+            arr |> Array.map (function Some v -> Nullable(v) | None -> Nullable())
             
         new Series(PolarsWrapper.SeriesNewDecimal(name, nullableArr, scale))
     // ==========================================
@@ -202,7 +206,7 @@ type Series(handle: SeriesHandle) =
             days.[i] <- arr.[i].DayNumber - epochOffset
             
         let s = Series.create(name, days)
-        s.Cast DataType.Date
+        s.Cast Date
 
     static member create(name: string, data: DateOnly option seq) =
         let arr = Seq.toArray data
@@ -221,7 +225,7 @@ type Series(handle: SeriesHandle) =
                 
         // 调用底层 int32 (SeriesNew)
         let s = new Series(PolarsWrapper.SeriesNew(name, days, valid))
-        s.Cast(DataType.Date)
+        s.Cast DataType.Date
 
     // --- TimeOnly (Polars Time: i64 nanoseconds) ---
     static member create(name: string, data: TimeOnly seq) =
@@ -233,7 +237,7 @@ type Series(handle: SeriesHandle) =
             nanos.[i] <- arr.[i].Ticks * 100L
             
         let s = Series.create(name, nanos)
-        s.Cast(DataType.Time)
+        s.Cast DataType.Time
 
     static member create(name: string, data: TimeOnly option seq) =
         let arr = Seq.toArray data
@@ -263,7 +267,7 @@ type Series(handle: SeriesHandle) =
             micros.[i] <- arr.[i].Ticks / 10L
             
         let s = Series.create(name, micros)
-        s.Cast(DataType.Duration)
+        s.Cast(Duration Microseconds)
 
     static member create(name: string, data: TimeSpan option seq) =
         let arr = Seq.toArray data
@@ -280,7 +284,7 @@ type Series(handle: SeriesHandle) =
                 valid.[i] <- false
                 
         let s = new Series(PolarsWrapper.SeriesNew(name, micros, valid))
-        s.Cast DataType.Duration
+        s.Cast(Duration Microseconds)
     /// <summary>
     /// Smart Constructor:
     /// 1. Handles primitive types (int, double...).
@@ -617,17 +621,21 @@ and DataFrame(handle: DataFrameHandle) =
     /// Get the schema as Map<ColumnName, DataType>.
     /// </summary>
     member this.Schema : Map<string, DataType> =
-        let json = PolarsWrapper.GetDataFrameSchemaString handle
-        if String.IsNullOrEmpty json then Map.empty
-        else
-            try
-                // 依赖 System.Text.Json
-                let dict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json)
-                dict 
-                |> Seq.map (fun kv -> kv.Key, DataType.Parse kv.Value) 
-                |> Map.ofSeq
-            with _ ->
-                Map.empty
+        // 1. 获取所有列名 (string[])
+        // 假设 this.Columns 属性已经实现了 (调用 PolarsWrapper.GetColumnNames)
+        let names = this.ColumnNames
+        
+        // 2. 遍历列名，获取每一列的 Series 和 DataType
+        names
+        |> Array.map (fun (name: string) ->
+            // [关键] 这是一个非常轻量的操作
+            // 我们只是获取了一个指向现有 Series 的 Handle，没有数据拷贝
+            let s = this.Column name
+            
+            // s.DataType 现在调用的是我们刚写的 DataType.FromHandle (递归 Native 读取)
+            name, s.DataType
+        )
+        |> Map.ofArray
     member this.Lazy() : LazyFrame =
         let lfHandle = PolarsWrapper.DataFrameToLazy handle
         new LazyFrame(lfHandle)
@@ -641,6 +649,7 @@ and DataFrame(handle: DataFrameHandle) =
             printfn "%-15s | %A" name dtype
         )
         printfn "------------------------"
+
     // ==========================================
     // Printing / String Representation
     // ==========================================
@@ -714,8 +723,9 @@ and DataFrame(handle: DataFrameHandle) =
     // Interop
     member this.ToArrow() = ArrowFfiBridge.ExportDataFrame handle
     member _.Rows = PolarsWrapper.DataFrameHeight handle
-    member _.Columns = PolarsWrapper.DataFrameWidth handle
-    member _.ColumnNames = PolarsWrapper.GetColumnNames handle |> Array.toList
+    member _.Len = PolarsWrapper.DataFrameHeight handle
+    member _.Width = PolarsWrapper.DataFrameWidth handle
+    member _.ColumnNames = PolarsWrapper.GetColumnNames handle
     member this.Item 
         with get(colName: string, rowIndex: int) =
             PolarsWrapper.GetDouble(handle, colName, int64 rowIndex)
@@ -803,7 +813,7 @@ and DataFrame(handle: DataFrameHandle) =
         with get(index: int) = this.Column index
 
     member this.GetSeries() : Series list =
-        [ for i in 0 .. int this.Columns - 1 -> this.Column i ]
+        [ for i in 0 .. int this.Width - 1 -> this.Column i ]
     /// <summary>
     /// Check if the value at the specified column and row is null.
     /// </summary>
@@ -847,10 +857,38 @@ and LazyFrame(handle: LazyFrameHandle) =
     /// <summary> Get the schema string of the LazyFrame without executing it. </summary>
     member _.SchemaRaw = PolarsWrapper.GetSchemaString handle
 
-    /// <summary> Get the schema of the LazyFrame without executing it. </summary>
-    member _.Schema = 
-        let dict = PolarsWrapper.GetSchema handle
-        dict |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+    /// <summary>
+    /// Get the schema of the LazyFrame without executing it.
+    /// Uses Zero-Copy native introspection.
+    /// </summary>
+    member _.Schema : Map<string, DataType> =
+        // 1. 获取 Native Schema Handle
+        // 使用 use 确保 Handle 用完即焚
+        use schemaHandle = PolarsWrapper.GetLazySchema handle
+
+        // 2. 获取字段数量
+        let len = PolarsWrapper.GetSchemaLen schemaHandle
+
+        // 3. 遍历并构建 Map
+        if len = 0UL then 
+            Map.empty
+        else
+            [| for i in 0UL .. len - 1UL do
+                let mutable name = Unchecked.defaultof<string>
+                let mutable typeHandle = Unchecked.defaultof<DataTypeHandle>
+                
+                // 调用 C# Wrapper 获取第 i 个字段的信息
+                PolarsWrapper.GetSchemaFieldAt(schemaHandle, i, &name, &typeHandle)
+                
+                // [关键] typeHandle 是新创建的，必须 Dispose
+                use h = typeHandle
+                
+                // 递归构建 F# DataType (复用我们之前的成果)
+                let dtype = DataType.FromHandle(h)
+                
+                yield name, dtype
+            |]
+            |> Map.ofArray
 
     /// <summary> Print the query plan. </summary>
     member this.Explain(?optimized: bool) = 
