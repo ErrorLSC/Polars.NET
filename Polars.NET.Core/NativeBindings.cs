@@ -359,6 +359,24 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
     public static partial void pl_lazy_sink_json(LazyFrameHandle lf, string path);
     // Lazy Introspection
+    [LibraryImport(LibName)]
+    public static partial void pl_schema_free(IntPtr ptr);
+    // Get Schema form LazyFrame
+    // 注意：Rust 需要 &mut self，但 C# 只需要传 Handle，不用担心 Mutability
+    [LibraryImport(LibName)]
+    public static partial SchemaHandle pl_lazy_frame_get_schema(LazyFrameHandle lf);
+
+    // Introspection
+    [LibraryImport(LibName)]
+    public static partial UIntPtr pl_schema_len(SchemaHandle schema);
+
+    [LibraryImport(LibName)]
+    public static partial void pl_schema_get_at_index(
+        SchemaHandle schema,
+        UIntPtr index,
+        out IntPtr namePtr,
+        out DataTypeHandle dtypeHandle
+    );
     [LibraryImport(LibName)] public static partial IntPtr pl_lazy_schema(LazyFrameHandle lf);
     [LibraryImport(LibName)] public static partial IntPtr pl_lazy_explain(LazyFrameHandle lf,[MarshalAs(UnmanagedType.U1)] bool optimized);
     [LibraryImport(LibName)] 
@@ -490,6 +508,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_first(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_get(ExprHandle expr, long index);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_explode(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_implode(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_join(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string sep);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_len(ExprHandle expr);
     // List Aggs

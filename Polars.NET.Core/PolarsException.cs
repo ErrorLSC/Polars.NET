@@ -54,4 +54,47 @@ internal static class ErrorHelper
         try { return Marshal.PtrToStringUTF8(ptr) ?? ""; }
         finally { NativeBindings.pl_free_string(ptr); }
     }
+    /// <summary>
+    /// 专门用于处理可能包含 null 的字符串数组（用于 Series 数据）。
+    /// Null 字符串会被转换为 IntPtr.Zero。
+    /// </summary>
+    internal static T UseNullableUtf8StringArray<T>(string?[]? arr, Func<IntPtr[], T> action)
+    {
+        if (arr == null || arr.Length == 0)
+        {
+            return action(Array.Empty<IntPtr>());
+        }
+
+        int len = arr.Length;
+        var ptrs = new IntPtr[len];
+
+        try
+        {
+            for (int i = 0; i < len; i++)
+            {
+                // [关键逻辑] Null -> Zero, Non-Null -> Alloc
+                if (arr[i] == null)
+                {
+                    ptrs[i] = IntPtr.Zero;
+                }
+                else
+                {
+                    ptrs[i] = Marshal.StringToCoTaskMemUTF8(arr[i]);
+                }
+            }
+
+            return action(ptrs);
+        }
+        finally
+        {
+            // 统一清理
+            for (int i = 0; i < len; i++)
+            {
+                if (ptrs[i] != IntPtr.Zero)
+                {
+                    Marshal.FreeCoTaskMem(ptrs[i]);
+                }
+            }
+        }
+    }
 }

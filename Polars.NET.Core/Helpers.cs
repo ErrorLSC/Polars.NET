@@ -51,11 +51,11 @@ namespace Polars.NET.Core
     {
         // ts.ToPolarsDuration()
         public static string ToPolarsDuration(this TimeSpan ts) 
-            => Core.DurationFormatter.ToPolarsString(ts);
+            => DurationFormatter.ToPolarsString(ts);
 
         // tsNullable.ToPolarsDuration()
         public static string? ToPolarsDuration(this TimeSpan? ts) 
-            => Core.DurationFormatter.ToPolarsString(ts);
+            => DurationFormatter.ToPolarsString(ts);
     }
         public static class ReflectionHelper
     {

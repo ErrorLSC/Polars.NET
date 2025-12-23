@@ -225,12 +225,63 @@ public class LazyFrame : IDisposable
     /// <summary>
     /// Fetch the schema as a dictionary of column names and their data types.
     /// </summary>
-    public Dictionary<string, string> Schema => PolarsWrapper.GetSchema(Handle);
+    /// <summary>
+    /// Gets the Schema of the LazyFrame.
+    /// <para>
+    /// This operation triggers type inference on the query plan.
+    /// The returned DataTypes are strongly typed and backed by native handles.
+    /// </para>
+    /// </summary>
+    public Dictionary<string, DataType> Schema
+    {
+        get
+        {
+            // 1. 获取 Schema Handle
+            // (这一步在 Rust 内部会调用 collect_schema，缓存 plan)
+            using var schemaHandle = PolarsWrapper.GetLazySchema(Handle);
+            
+            // 2. 获取 Schema 长度
+            ulong len = PolarsWrapper.GetSchemaLen(schemaHandle);
+            
+            // 3. 预分配字典
+            var result = new Dictionary<string, DataType>((int)len);
+
+            // 4. 遍历并构建对象
+            for (ulong i = 0; i < len; i++)
+            {
+                // 获取 Name 和 DataTypeHandle
+                PolarsWrapper.GetSchemaFieldAt(schemaHandle, i, out string name, out DataTypeHandle dtHandle);
+                
+                // 构造 DataType 对象 (接管 dtHandle 所有权)
+                result[name] = new DataType(dtHandle);
+            }
+
+            return result;
+        }
+    }
 
     /// <summary>
-    /// Fetch the schema as a JSON string.
+    /// 获取 Schema 的字符串表示。
+    /// <para>
+    /// 这里的实现完全基于 C# 端的强类型 Schema 遍历，
+    /// 复用了 DataType.ToString() (底层调用 Rust Display)，
+    /// 避免了在 Rust 端分配大字符串和额外的 FFI 开销。
+    /// </para>
     /// </summary>
-    public string SchemaString => PolarsWrapper.GetSchemaString(Handle);
+    public string SchemaString
+    {
+        get
+        {
+            // 1. 获取强类型 Schema (触发 Zero-Parse 逻辑)
+            var schema = this.Schema;
+
+            // 2. 在 C# 端优雅拼接
+            // 格式示例: {"a": i32, "b": list[str], "c": datetime[ms]}
+            var parts = schema.Select(kv => $"\"{kv.Key}\": {kv.Value}");
+            
+            return "{" + string.Join(", ", parts) + "}";
+        }
+    }
 
     /// <summary>
     /// Get an explanation of the query plan.
@@ -245,7 +296,6 @@ public class LazyFrame : IDisposable
     /// <returns></returns>
     public LazyFrame Clone()
     {
-        //
         return new LazyFrame(PolarsWrapper.LazyClone(Handle));
     }
     internal LazyFrameHandle CloneHandle()

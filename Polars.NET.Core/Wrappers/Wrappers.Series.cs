@@ -1,5 +1,3 @@
-using System.ComponentModel.DataAnnotations;
-using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.C; 
 
@@ -35,33 +33,21 @@ public static partial class PolarsWrapper
         return ErrorHelper.Check(NativeBindings.pl_series_new_bool(name, dataBytes, validBytes, (UIntPtr)data.Length));
     }
 
-    // 字符串 Marshalling 比较特殊：需要手动分配非托管内存
     public static SeriesHandle SeriesNew(string name, string?[] data)
     {
-        var len = data.Length;
-        var ptrs = new IntPtr[len];
-        
-        try
+        return UseNullableUtf8StringArray(data, ptrs => 
         {
-            for(int i=0; i<len; i++) 
-            {
-                if (data[i] == null)
-                    ptrs[i] = IntPtr.Zero; // Rust 端会识别为 None
-                else
-                    ptrs[i] = Marshal.StringToCoTaskMemUTF8(data[i]);
-            }
-            
-            return ErrorHelper.Check(NativeBindings.pl_series_new_str(name, ptrs, (UIntPtr)len));
-        }
-        finally 
-        {
-            // 必须释放刚刚分配的非托管字符串内存
-            foreach(var p in ptrs) 
-            {
-                if (p != IntPtr.Zero) Marshal.FreeCoTaskMem(p);
-            }
-        }
+            // ptrs 里的 IntPtr.Zero 会被 Rust 正确识别为 Null
+            return ErrorHelper.Check(
+                NativeBindings.pl_series_new_str(
+                    name, 
+                    ptrs, 
+                    (UIntPtr)data.Length
+                )
+            );
+        });
     }
+    
     // 预计算 10 的幂次，避免重复 Math.Pow
     private static readonly decimal[] PowersOf10;
 
@@ -155,11 +141,7 @@ public static partial class PolarsWrapper
     public static string SeriesName(SeriesHandle h) 
     {
         var ptr = NativeBindings.pl_series_name(h);
-        try {
-            return Marshal.PtrToStringUTF8(ptr) ?? "";
-        } finally {
-            NativeBindings.pl_free_c_string(ptr);
-        }
+        return ErrorHelper.CheckString(ptr) ;
     }
     
     public static void SeriesRename(SeriesHandle h, string name) => NativeBindings.pl_series_rename(h, name);

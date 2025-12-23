@@ -300,6 +300,7 @@ public static partial class PolarsWrapper
     }
 
     public static ExprHandle Explode(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_explode, e);
+    public static ExprHandle Implode(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_implode, e);
     
     public static ExprHandle ListJoin(ExprHandle e, string sep)
     {

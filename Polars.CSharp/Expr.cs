@@ -755,6 +755,10 @@ public class Expr : IDisposable
     /// Explode a list column into multiple rows.
     /// </summary>
     public Expr Explode() => new(PolarsWrapper.Explode(CloneHandle()));
+    /// <summary>
+    /// Aggregate values into a list.
+    /// </summary>
+    public Expr Implode() => new Expr(PolarsWrapper.Implode(CloneHandle()));
     // ==========================================
     // Namespaces
     // ==========================================

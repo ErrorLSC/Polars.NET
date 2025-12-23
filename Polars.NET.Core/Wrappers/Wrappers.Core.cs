@@ -12,7 +12,6 @@ public static partial class PolarsWrapper
         var ptrs = new IntPtr[handles.Length];
         for (int i = 0; i < handles.Length; i++)
         {
-            // [修改] 使用 TransferOwnership()
             // 这步操作做了两件事：
             // 1. 获取原始指针传给 Rust
             // 2. 标记 C# Handle 为无效，防止 GC 二次释放
@@ -21,7 +20,37 @@ public static partial class PolarsWrapper
         }
         return ptrs;
     }
+    /// <summary>
+    /// 封装单个字符串的 Marshaling (针对有返回值的场景)
+    /// </summary>
+    private static T UseUtf8String<T>(string str, Func<IntPtr, T> action)
+    {
+        IntPtr ptr = Marshal.StringToCoTaskMemUTF8(str);
+        try
+        {
+            return action(ptr);
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem(ptr);
+        }
+    }
 
+    /// <summary>
+    /// 封装单个字符串的 Marshaling (针对 void 场景)
+    /// </summary>
+    private static void UseUtf8String(string str, Action<IntPtr> action)
+    {
+        IntPtr ptr = Marshal.StringToCoTaskMemUTF8(str);
+        try
+        {
+            action(ptr);
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem(ptr);
+        }
+    }
 
     private static R UseUtf8StringArray<R>(string[] strings, Func<IntPtr[], R> action)
     {
@@ -55,11 +84,54 @@ public static partial class PolarsWrapper
         }
     }
     /// <summary>
+    /// 专门用于处理可能包含 null 的字符串数组（用于 Series 数据）。
+    /// Null 字符串会被转换为 IntPtr.Zero。
+    /// </summary>
+    internal static T UseNullableUtf8StringArray<T>(string?[]? arr, Func<IntPtr[], T> action)
+    {
+        if (arr == null || arr.Length == 0)
+        {
+            return action(Array.Empty<IntPtr>());
+        }
+
+        int len = arr.Length;
+        var ptrs = new IntPtr[len];
+
+        try
+        {
+            for (int i = 0; i < len; i++)
+            {
+                // [关键逻辑] Null -> Zero, Non-Null -> Alloc
+                if (arr[i] == null)
+                {
+                    ptrs[i] = IntPtr.Zero;
+                }
+                else
+                {
+                    ptrs[i] = Marshal.StringToCoTaskMemUTF8(arr[i]);
+                }
+            }
+
+            return action(ptrs);
+        }
+        finally
+        {
+            // 统一清理
+            for (int i = 0; i < len; i++)
+            {
+                if (ptrs[i] != IntPtr.Zero)
+                {
+                    Marshal.FreeCoTaskMem(ptrs[i]);
+                }
+            }
+        }
+    }
+    /// <summary>
     /// 安全锁定一组 SafeHandle，并提取其原始指针。
     /// 使用 ref struct 确保零 GC 开销且只能在栈上使用。
     /// </summary>
     /// <typeparam name="T">具体的 SafeHandle 类型</typeparam>
-    internal ref struct SafeHandleLock<T> where T : SafeHandle
+    internal readonly ref struct SafeHandleLock<T> where T : SafeHandle
     {
         private readonly T[] _handles;
         private readonly bool[] _locks;

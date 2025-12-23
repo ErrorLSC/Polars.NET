@@ -1,5 +1,3 @@
-using System.Runtime.InteropServices;
-
 namespace Polars.NET.Core;
 public static partial class PolarsWrapper
 {
@@ -49,15 +47,7 @@ public static partial class PolarsWrapper
         if (strPtr == IntPtr.Zero) return "unknown";
 
         // 2. 读取字符串并清理 (字符串本身的内存还是要释放的)
-        try
-        {
-            return Marshal.PtrToStringUTF8(strPtr) ?? "unknown";
-        }
-        finally
-        {
-            // 释放 Rust 分配的字符串内存 (CString)
-            NativeBindings.pl_free_string(strPtr);
-        }
+        return ErrorHelper.CheckString(strPtr);
     }
 
     /// <summary>
@@ -66,27 +56,13 @@ public static partial class PolarsWrapper
     /// </summary>
     public static string? GetTimeZone(DataTypeHandle handle)
     {
+
         // 既然是 Get 属性，其实不需要 TransferOwnership (Clone)，
         // 这样性能最好，且只要 Handle 没死，指针就安全。
+        // 如果你定义 Parameter 是 IntPtr，LibraryImport 生成的代码会处理
+        nint ptr = NativeBindings.pl_datatype_get_timezone(handle);
         
-        IntPtr ptr = IntPtr.Zero;
-        try
-        {
-            // 如果你定义 Parameter 是 IntPtr，LibraryImport 生成的代码会处理
-            ptr = NativeBindings.pl_datatype_get_timezone(handle);
-            
-            if (ptr == IntPtr.Zero) return null;
-            
-            // UTF8 处理
-            return Marshal.PtrToStringUTF8(ptr);
-        }
-        finally
-        {
-            if (ptr != IntPtr.Zero)
-            {
-                NativeBindings.pl_free_string(ptr);
-            }
-        }
+        return ErrorHelper.CheckString(ptr);
     }
     /// <summary>
     /// 获取 DataType 的 Kind。
@@ -149,15 +125,8 @@ public static partial class PolarsWrapper
 
         // 检查 Handle 有效性
         typeHandle = ErrorHelper.Check(outTypeHandle);
-
+        
         // 处理字符串 (Copy & Free)
-        try
-        {
-            name = Marshal.PtrToStringUTF8(namePtr) ?? "";
-        }
-        finally
-        {
-            NativeBindings.pl_free_string(namePtr);
-        }
+        name = ErrorHelper.CheckString(namePtr);
     }
 }

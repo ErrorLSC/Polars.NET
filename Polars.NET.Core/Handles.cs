@@ -14,7 +14,7 @@ public abstract class PolarsHandle : SafeHandle
     public IntPtr TransferOwnership()
     {
         IntPtr ptr = handle;
-        this.SetHandleAsInvalid(); // 标记无效，阻止 GC 调用 ReleaseHandle
+        SetHandleAsInvalid(); // 标记无效，阻止 GC 调用 ReleaseHandle
         return ptr;
     }
 }
@@ -45,7 +45,6 @@ public class LazyFrameHandle : PolarsHandle
 {
     protected override bool ReleaseHandle()
     {
-        // [修复] 必须调用专门的 LazyFrame 释放函数
         NativeBindings.pl_lazy_frame_free(handle);
         return true;
     }
@@ -108,6 +107,20 @@ public class DataTypeHandle : PolarsHandle
         if (!IsInvalid)
         {
             NativeBindings.pl_datatype_free(handle);
+        }
+        return true;
+    }
+}
+
+public class SchemaHandle : PolarsHandle
+{
+    public SchemaHandle() : base() { }
+
+    protected override bool ReleaseHandle()
+    {
+        if (!IsInvalid)
+        {
+            NativeBindings.pl_schema_free(handle);
         }
         return true;
     }

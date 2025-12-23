@@ -813,6 +813,16 @@ pub extern "C" fn pl_expr_explode(expr_ptr: *mut ExprContext) -> *mut ExprContex
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_expr_implode(expr: *mut Expr) -> *mut Expr {
+    ffi_try!({
+        let e = unsafe { Box::from_raw(expr) };
+        // 调用 polars expr 的 implode
+        let new_expr = e.implode();
+        Ok(Box::into_raw(Box::new(new_expr)))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_list_join(
     expr_ptr: *mut ExprContext,
     sep_ptr: *const c_char

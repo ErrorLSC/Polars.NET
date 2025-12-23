@@ -72,14 +72,6 @@ public class DataFrame : IDisposable,IEnumerable<Series>
             Console.WriteLine($" |-- {kvp.Key}: {kvp.Value}");
         }
     }
-    // /// <summary>
-    // /// Get a string representation of the DataFrame schema.
-    // /// </summary>
-    // /// <returns></returns>
-    // public override string ToString()
-    // {
-    //     return $"DataFrame: {Height}x{Width} {string.Join(", ", Schema.Select(kv => $"{kv.Key}:{kv.Value}"))}";
-    // }
     // ==========================================
     // Static IO Read
     // ==========================================

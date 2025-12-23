@@ -1,5 +1,3 @@
-using System.Runtime.InteropServices;
-
 namespace Polars.NET.Core;
 
 public static partial class PolarsWrapper
@@ -9,31 +7,28 @@ public static partial class PolarsWrapper
 
     public static void SqlRegister(SqlContextHandle ctx, string name, LazyFrameHandle lf)
     {
-        var namePtr = Marshal.StringToCoTaskMemUTF8(name);
-        try 
+        // 使用 void 版本的 Helper
+        UseUtf8String(name, namePtr => 
         {
             NativeBindings.pl_sql_context_register(ctx, namePtr, lf);
-            // 注册会消耗 LazyFrame
+            
+            // 注册操作会将 LazyFrame 的所有权移交给 Rust 的 SQL Context
+            // 所以我们必须通知 C# 不要再释放它
             lf.TransferOwnership();
+            
+            // 检查 Rust 端是否有错误
             ErrorHelper.CheckVoid();
-        }
-        finally
-        {
-            Marshal.FreeCoTaskMem(namePtr);
-        }
+        });
     }
 
     public static LazyFrameHandle SqlExecute(SqlContextHandle ctx, string query)
     {
-        var queryPtr = Marshal.StringToCoTaskMemUTF8(query);
-        try
+        // 使用泛型 T 版本的 Helper
+        return UseUtf8String(query, queryPtr => 
         {
-            var h = NativeBindings.pl_sql_context_execute(ctx, queryPtr);
-            return ErrorHelper.Check(h);
-        }
-        finally
-        {
-            Marshal.FreeCoTaskMem(queryPtr);
-        }
+            return ErrorHelper.Check(
+                NativeBindings.pl_sql_context_execute(ctx, queryPtr)
+            );
+        });
     }
 }

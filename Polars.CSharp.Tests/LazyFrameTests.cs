@@ -390,4 +390,80 @@ HR,50";
         Assert.Equal("b", res.GetValue<string>(1, "expanded"));
         Assert.Equal("c", res.GetValue<string>(2, "expanded"));
     }
+    [Fact]
+    public void TestLazySchema_ZeroParse()
+    {
+        Console.WriteLine("===  LazyFrame Schema Zero-Parse Test ===");
+
+        // 1. 准备数据
+        // Schema: { "a": Int32, "b": Float64, "c": String }
+        using var s1 = Series.From("a", new[] { 1, 2, 3 });
+        using var s2 = Series.From("b", new[] { 1.1, 2.2, 3.3 });
+        using var s3 = Series.From("c", new[] { "apple", "banana", "cherry" });
+        using var df = new DataFrame(s1, s2, s3);
+        
+        using var lf = df.Lazy();
+
+        // 2. 获取初始 Schema
+        Console.WriteLine("--- 1. Initial Schema ---");
+        var schema1 = lf.Schema; // 这里触发 Rust collect_schema
+
+        Assert.Equal(3, schema1.Count);
+        
+        // 验证类型 (强类型枚举匹配)
+        Assert.Equal(DataTypeKind.Int32, schema1["a"].Kind);
+        Assert.Equal(DataTypeKind.Float64, schema1["b"].Kind);
+        Assert.Equal(DataTypeKind.String, schema1["c"].Kind);
+
+        PrintSchema(schema1);
+
+        // 3. 执行 Lazy 操作并验证 Schema 变更
+        // 操作：
+        // - "a" 转为 Float64
+        // - "c" 进行聚合 (Implode) 变成 List<String>
+        Console.WriteLine("\n--- 2. Modified Schema (Type Inference) ---");
+        
+        using var lf2 = lf.Select(
+            Col("a").Cast(DataType.Float64).Alias("a_cast"),
+            Col("c").Implode().Alias("c_list") // 变成 List
+        );
+
+        var schema2 = lf2.Schema;
+
+        // 验证 "a_cast" 变成了 Float64
+        Assert.Equal(DataTypeKind.Float64, schema2["a_cast"].Kind);
+        Console.WriteLine($"[Check] a_cast is Float64: {schema2["a_cast"].Kind == DataTypeKind.Float64}");
+
+        // 验证 "c_list" 变成了 List
+        var cListType = schema2["c_list"];
+        Assert.Equal(DataTypeKind.List, cListType.Kind);
+        Console.WriteLine($"[Check] c_list is List: {cListType.Kind == DataTypeKind.List}");
+
+        // 4. [高光时刻] 验证嵌套类型 (Introspection)
+        // 我们没有解析字符串 "list[str]"，而是直接问 Rust 内部类型是什么
+        // cListType.InnerType 会触发 pl_datatype_get_inner FFI 调用
+        var innerType = cListType.InnerType; 
+        
+        Assert.NotNull(innerType);
+        Assert.Equal(DataTypeKind.String, innerType!.Kind);
+        Console.WriteLine($"[Check] c_list inner type is String: {innerType.Kind == DataTypeKind.String}");
+
+        PrintSchema(schema2);
+        
+        Console.WriteLine("=== NO STRING PARSE! ===");
+    }
+
+    // 辅助打印方法
+    private void PrintSchema(Dictionary<string, DataType> schema)
+    {
+        foreach (var kvp in schema)
+        {
+            var dt = kvp.Value;
+            string extraInfo = dt.Kind == DataTypeKind.List 
+                ? $"<Inner: {dt.InnerType?.Kind}>" 
+                : "";
+                
+            Console.WriteLine($"Column: {kvp.Key.PadRight(10)} | Kind: {dt.Kind.ToString().PadRight(10)} | {dt} {extraInfo}");
+        }
+    }
 }

@@ -8,22 +8,41 @@ public static partial class PolarsWrapper
         IntPtr ptr = NativeBindings.pl_lazy_schema(lf);
         return ErrorHelper.CheckString(ptr); // 假设你提取了 CheckString 逻辑，或者手动写 try-finally
     }
-    public static Dictionary<string, string> GetSchema(LazyFrameHandle lf)
+    /// <summary>
+    /// 获取 LazyFrame 的 Schema Handle。
+    /// 这可能会触发 Rust 端的类型推断和 LogicalPlan 优化。
+    /// </summary>
+    public static SchemaHandle GetLazySchema(LazyFrameHandle lf)
     {
-        var json = GetSchemaString(lf);
-        if (string.IsNullOrEmpty(json)) return new Dictionary<string, string>();
-        
-        // 简单解析 (假设没有嵌套 JSON 结构，只是简单的 Key:Value)
-        // 或者引入 System.Text.Json
-        try 
-        {
-            return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json) 
-                   ?? new Dictionary<string, string>();
-        }
-        catch 
-        {
-            return new Dictionary<string, string>();
-        }
+        // 必须使用 DangerousAddRef 吗？
+        // 对于单个 Handle，LibraryImport 会自动处理。
+        // 但这里 lf 只是传进去获取一个新的 Handle，不用特殊处理。
+        return ErrorHelper.Check(NativeBindings.pl_lazy_frame_get_schema(lf));
+    }
+
+    /// <summary>
+    /// 获取 Schema 长度
+    /// </summary>
+    public static ulong GetSchemaLen(SchemaHandle schema)
+    {
+        return (ulong)NativeBindings.pl_schema_len(schema);
+    }
+
+    /// <summary>
+    /// 获取 Schema 指定索引的字段
+    /// </summary>
+    public static void GetSchemaFieldAt(SchemaHandle schema, ulong index, out string name, out DataTypeHandle typeHandle)
+    {
+        NativeBindings.pl_schema_get_at_index(
+            schema, 
+            (UIntPtr)index, 
+            out IntPtr namePtr, 
+            out var outTypeHandle
+        );
+
+        typeHandle = ErrorHelper.Check(outTypeHandle);
+
+        name = ErrorHelper.CheckString(namePtr);
     }
     public static string Explain(LazyFrameHandle lf, bool optimized)
     {

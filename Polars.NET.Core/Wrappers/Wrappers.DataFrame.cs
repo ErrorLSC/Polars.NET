@@ -1,5 +1,3 @@
-using System.Runtime.InteropServices;
-
 namespace Polars.NET.Core;
 
 public static partial class PolarsWrapper
@@ -16,16 +14,11 @@ public static partial class PolarsWrapper
         
         for (long i = 0; i < width; i++)
         {
+            // 调用 Native 获取指针 (Owner 是 Rust，我们需要 Free)
             IntPtr ptr = NativeBindings.pl_dataframe_get_column_name(df, (UIntPtr)i);
-            if (ptr == IntPtr.Zero)
-            {
-                names[i] = string.Empty; // Should not happen
-            }
-            else
-            {
-                try { names[i] = Marshal.PtrToStringUTF8(ptr)?? string.Empty; }
-                finally { NativeBindings.pl_free_string(ptr); }
-            }
+            
+            // Helper 负责判空、转换字符串、以及调用 pl_free_string
+            names[i] = ErrorHelper.CheckString(ptr);
         }
         return names;
     }
@@ -63,9 +56,7 @@ public static partial class PolarsWrapper
     public static string? GetString(DataFrameHandle df, string colName, long row)
     {
         IntPtr ptr = NativeBindings.pl_dataframe_get_string(df, colName, (UIntPtr)row);
-        if (ptr == IntPtr.Zero) return null; // Null or Error
-        try { return Marshal.PtrToStringUTF8(ptr); }
-        finally { NativeBindings.pl_free_string(ptr); }
+        return ErrorHelper.CheckString(ptr);
     }
     // ==========================================
     // Eager Ops (立即执行操作)
@@ -271,15 +262,6 @@ public static partial class PolarsWrapper
     public static string DataFrameToString(DataFrameHandle handle)
     {
         var ptr = NativeBindings.pl_dataframe_to_string(handle);
-        try
-        {
-            // 将非托管 UTF8 指针转为 C# String
-            return Marshal.PtrToStringUTF8(ptr) ?? "";
-        }
-        finally
-        {
-            // 释放 Rust 分配的内存
-            NativeBindings.pl_free_string(ptr);
-        }
+        return ErrorHelper.CheckString(ptr);
     }
 }

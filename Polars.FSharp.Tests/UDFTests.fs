@@ -19,7 +19,7 @@ module UdfLogic =
         | :? Int32Array as i32Arr ->
             let builder = new StringViewArray.Builder()
             for i in 0 .. i32Arr.Length - 1 do
-                if i32Arr.IsNull(i) then 
+                if i32Arr.IsNull i then 
                     builder.AppendNull() |> ignore
                 else 
                     let v = i32Arr.GetValue(i).Value

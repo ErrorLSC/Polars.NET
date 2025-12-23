@@ -79,6 +79,26 @@ public class DataType : IDisposable
         _displayString ??= PolarsWrapper.GetDataTypeString(Handle);
         return _displayString;
     }
+    /// <summary>
+    /// 如果是 List 类型，返回内部元素的类型。否则返回 null。
+    /// </summary>
+    public DataType? InnerType 
+    {
+        get 
+        {
+            // 1. 快速检查，避免不必要的 FFI 调用
+            if (Kind != DataTypeKind.List) return null;
+
+            // 2. 调用 Wrapper 获取内部 Handle (Rust Clone 的新对象)
+            var innerHandle = PolarsWrapper.GetListInnerType(Handle);
+            
+            // 3. 检查是否无效 (虽然理论上 Kind==List 不会失败，但防一手)
+            if (innerHandle.IsInvalid) return null;
+            
+            // 4. 构造新的 DataType 对象 (它会接管 innerHandle 的生命周期)
+            return new DataType(innerHandle); 
+        }
+    }
     // ==========================================
     // Helper Properties
     // ==========================================
