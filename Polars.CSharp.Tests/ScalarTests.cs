@@ -1,3 +1,4 @@
+using static Polars.CSharp.Polars;
 namespace Polars.CSharp.Tests;
 
 public class ScalarTests
@@ -61,7 +62,7 @@ public class ScalarTests
         
         // DateTimeOffset 自动处理验证 (Series indexer 对于 Datetime 返回 DateTimeOffset)
         Assert.IsType<DateTime>(df[0, "dt"]); 
-        Assert.IsType<Boolean>(df[0,"b"]);
+        Assert.IsType<bool>(df[0,"b"]);
         Assert.IsType<string>(df[0,"s"]);
         Assert.IsType<TimeSpan>(df[0, "dur"]);
         Assert.IsType<DateOnly>(df[0, "date"]);
@@ -120,7 +121,7 @@ public class ScalarTests
 
         // 2. 使用 Cast
         var res = df.Select(
-            Polars.Col("Ts")
+            Col("Ts")
                 .Cast(targetType) // <--- 关键用法！
                 .Alias("Ts_Tokyo")
         );

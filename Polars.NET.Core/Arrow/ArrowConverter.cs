@@ -90,6 +90,25 @@ public static class ArrowConverter
         if (checkType == typeof(DateTimeOffset)) return BuildDateTimeOffset(data.Cast<DateTimeOffset?>());
         if (checkType == typeof(TimeSpan)) return BuildDuration(data.Cast<TimeSpan?>());
         if (checkType == typeof(decimal)) return BuildDecimal(data.Cast<decimal?>());
+        // [修正] 1.5 混合类型/Object 处理 (RawData 场景)
+        // 如果 T 是 object，说明这一列是混合类型，或者是 object[] 传入的
+        // 我们将其统一视为 String 处理
+        if (checkType == typeof(object))
+        {
+            var stringBuilder = new StringViewArray.Builder();
+            foreach (var item in data)
+            {
+                if (item == null)
+                {
+                    stringBuilder.AppendNull();
+                }
+                else
+                {
+                    stringBuilder.Append(item.ToString());
+                }
+            }
+            return stringBuilder.Build();
+        }
         // 2. 递归支持 List<U>
         // 检查是否实现了 IEnumerable<U> 且不是 string
         if (type != typeof(string) && 

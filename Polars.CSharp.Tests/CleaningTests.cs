@@ -78,11 +78,11 @@ public class CleaningTests
         // 1. 模拟脏数据 (字符串列，混有数字、垃圾字符、NaN文字)
         var df = DataFrame.FromColumns(new 
         {
-            RawData = new[] { "100", "200.5", "NotANumber", "NaN", null }
+            RawData = new object[] { 100, 200.5, "NotANumber", "NaN", null }
         });
 
         // 2. 清洗流程
-        var cleanExpr = Polars.Col("RawData")
+        var cleanExpr = Col("RawData")
             // Step A: 强转为 Double，strict=false
             // "100" -> 100.0
             // "200.5" -> 200.5
