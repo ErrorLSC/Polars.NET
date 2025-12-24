@@ -135,6 +135,8 @@ type Expr(handle: ExprHandle) =
     /// Advanced
     /// <summary> Explode a list column into multiple rows. </summary>
     member this.Explode() = new Expr(PolarsWrapper.Explode(this.CloneHandle()))
+    /// <summary> Implode multiple rows to a list. </summary>
+    member this.Implode() = new Expr(PolarsWrapper.Implode(this.CloneHandle()))
     /// <summary> Apply a window function over specific partition columns. </summary>
     member this.Over(partitionBy: Expr list) =
         let mainHandle = this.CloneHandle()

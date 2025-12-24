@@ -69,93 +69,53 @@ module pl =
     // --- Eager Ops ---
     /// <summary> Add or replace columns. </summary>
     let withColumn (expr: Expr) (df: DataFrame) : DataFrame =
-        let exprHandle = expr.CloneHandle()
-        let h = PolarsWrapper.WithColumns(df.Handle, [| exprHandle |])
-        new DataFrame(h)
+        df.WithColumn expr
     /// <summary> Add or replace multiple columns. </summary>
     let withColumns (exprs: Expr list) (df: DataFrame) : DataFrame =
-        let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        let h = PolarsWrapper.WithColumns(df.Handle, handles)
-        new DataFrame(h)
+        df.WithColumns exprs
+
     /// <summary> Filter rows based on a boolean expression. </summary>
     let filter (expr: Expr) (df: DataFrame) : DataFrame =
-        let h = PolarsWrapper.Filter(df.Handle, expr.CloneHandle())
-        new DataFrame(h)
+        df.Filter expr
     /// <summary> Select columns from DataFrame. </summary>
     let select (exprs: Expr list) (df: DataFrame) : DataFrame =
-        let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        let h = PolarsWrapper.Select(df.Handle, handles)
-        new DataFrame(h)
+        df.Select exprs
     /// <summary> Sort (Order By) the DataFrame. </summary>
     let sort (expr: Expr) (desc: bool) (df: DataFrame) : DataFrame =
-        let h = PolarsWrapper.Sort(df.Handle, expr.CloneHandle(), desc)
-        new DataFrame(h)
+        df.Sort expr desc 
     let orderBy (expr: Expr) (desc: bool) (df: DataFrame) = sort expr desc df
     /// <summary> Group by keys and apply aggregations. </summary>
     let groupBy (keys: Expr list) (aggs: Expr list) (df: DataFrame) : DataFrame =
-        let kHandles = keys |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        let aHandles = aggs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        let h = PolarsWrapper.GroupByAgg(df.Handle, kHandles, aHandles)
-        new DataFrame(h)
+        df.GroupBy keys aggs
     /// <summary> Perform a join between two DataFrames. </summary>
     let join (other: DataFrame) (leftOn: Expr list) (rightOn: Expr list) (how: JoinType) (left: DataFrame) : DataFrame =
-        let lHandles = leftOn |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        let rHandles = rightOn |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        let h = PolarsWrapper.Join(left.Handle, other.Handle, lHandles, rHandles, how.ToNative())
-        new DataFrame(h)
-    /// <summary> Concatenate multiple DataFrames vertically. </summary>
-    let concat (dfs: DataFrame list) : DataFrame =
-        let handles = dfs |> List.map (fun df -> df.CloneHandle()) |> List.toArray
-        new DataFrame(PolarsWrapper.Concat (handles,PlConcatType.Vertical))
-    /// <summary> Concatenate multiple DataFrames horizontally (hstack). </summary>
-    let concatHorizontal (dfs: DataFrame list) : DataFrame =
-        let handles = dfs |> List.map (fun df -> df.CloneHandle()) |> List.toArray
-        new DataFrame(PolarsWrapper.Concat(handles, PlConcatType.Horizontal))
-    /// <summary> 
-    /// Concatenate multiple DataFrames diagonally. 
-    /// Columns are aligned by name; missing columns are filled with nulls.
-    /// </summary>
-    let concatDiagonal (dfs: DataFrame list) : DataFrame =
-        let handles = dfs |> List.map (fun df -> df.CloneHandle()) |> List.toArray
-        new DataFrame(PolarsWrapper.Concat(handles, PlConcatType.Diagonal))
+        left.Join other leftOn rightOn how
+    /// <summary> Concatenate multiple DataFrames. </summary>
+    let concat (dfs: DataFrame list) (how:ConcatType) : DataFrame =
+        DataFrame.Concat dfs how
     /// <summary> Get the first n rows of the DataFrame. </summary>
     let head (n: int) (df: DataFrame) : DataFrame =
-        let h = PolarsWrapper.Head(df.Handle, uint n)
-        new DataFrame(h)
+        df.Head n
     /// <summary> Get the last n rows of the DataFrame. </summary>
     let tail (n: int) (df: DataFrame) : DataFrame =
-        let h = PolarsWrapper.Tail(df.Handle, uint n)
-        new DataFrame(h)
+        df.Tail n
     /// <summary> Explode list-like columns into multiple rows. </summary>
     let explode (exprs: Expr list) (df: DataFrame) : DataFrame =
-        let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        let h = PolarsWrapper.Explode(df.Handle, handles)
-        new DataFrame(h)
+        df.Explode exprs
     let unnestColumn(column: string) (df:DataFrame) : DataFrame =
-        let cols = [| column |]
-        let newHandle = PolarsWrapper.Unnest(df.Handle, cols)
-        new DataFrame(newHandle)
+        df.UnnestColumn column
     let unnestColumns(columns: string list) (df:DataFrame) : DataFrame =
-        let cArr = List.toArray columns
-        let newHandle = PolarsWrapper.Unnest(df.Handle, cArr)
-        new DataFrame(newHandle)
+        df.UnnestColumns columns
 
     // --- Reshaping (Eager) ---
 
     /// <summary> Pivot the DataFrame from long to wide format. </summary>
     let pivot (index: string list) (columns: string list) (values: string list) (aggFn: PivotAgg) (df: DataFrame) : DataFrame =
-        let iArr = List.toArray index
-        let cArr = List.toArray columns
-        let vArr = List.toArray values
-        new DataFrame(PolarsWrapper.Pivot(df.Handle, iArr, cArr, vArr, aggFn.ToNative()))
+        df.Pivot index columns values aggFn
 
     /// <summary> Unpivot (Melt) the DataFrame from wide to long format. </summary>
     let unpivot (index: string list) (on: string list) (variableName: string option) (valueName: string option) (df: DataFrame) : DataFrame =
-        let iArr = List.toArray index
-        let oArr = List.toArray on
-        let varN = Option.toObj variableName 
-        let valN = Option.toObj valueName 
-        new DataFrame(PolarsWrapper.Unpivot(df.Handle, iArr, oArr, varN, valN))
+        df.Unpivot index on variableName valueName
     /// Alias for unpivot
     let melt = unpivot    
     /// Aggregation Helpers

@@ -324,7 +324,7 @@ type ``Complex Query Tests`` () =
         let df2 = DataFrame.ReadCsv csv2.Path
 
         // 1. 执行 Concat
-        let bigDf = pl.concat [df1; df2]
+        let bigDf = pl.concat [df1; df2] Vertical
 
         // 验证结果
         Assert.Equal(2L, bigDf.Rows)

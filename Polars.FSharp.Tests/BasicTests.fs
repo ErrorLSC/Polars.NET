@@ -492,7 +492,7 @@ id;date_col;val_col
         // 结果应该包含 3 列: [a, b, c]
         // Row 1 (来自 df1): a=1, b=2, c=null
         // Row 2 (来自 df2): a=3, b=null, c=4
-        let res = pl.concatDiagonal [df1; df2]
+        let res = pl.concat [df1; df2] Diagonal
 
         Assert.Equal(2L, res.Rows)
         Assert.Equal(3L, res.Width)

@@ -243,3 +243,18 @@ type PivotAgg =
         | Median -> PlPivotAgg.Median
         | Count -> PlPivotAgg.Count
         | Last -> PlPivotAgg.Last
+
+/// <summary>
+/// Specifies the type of concat operations.
+/// </summary>
+type ConcatType =
+    | Vertical
+    | Horizonal
+    | Diagonal
+    
+    // 内部转换 helper
+    member internal this.ToNative() =
+        match this with
+        | Vertical -> PlConcatType.Vertical
+        | Horizonal -> PlConcatType.Horizontal
+        | Diagonal -> PlConcatType.Diagonal

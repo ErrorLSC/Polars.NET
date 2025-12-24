@@ -649,7 +649,77 @@ and DataFrame(handle: DataFrameHandle) =
             printfn "%-15s | %A" name dtype
         )
         printfn "------------------------"
+    // ==========================================
+    // Eager Ops
+    // ==========================================
+    member this.WithColumns (exprs:Expr list) : DataFrame =
+        let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        let h = PolarsWrapper.WithColumns(this.Handle,handles)
+        new DataFrame(h)
+    member this.WithColumn (expr: Expr) : DataFrame =
+        let handle = expr.CloneHandle()
+        let h = PolarsWrapper.WithColumns(this.Handle,[| handle |])
+        new DataFrame(h)
+    member this.Select (exprs:Expr list) : DataFrame =
+         let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+         let h = PolarsWrapper.Select(this.Handle,handles)
+         new DataFrame(h)
+    member this.Filter (expr: Expr) : DataFrame = 
+        let h = PolarsWrapper.Filter(this.Handle,expr.CloneHandle())
+        new DataFrame(h)
+    member this.Sort (expr: Expr) (desc :bool) : DataFrame =
+        let h = PolarsWrapper.Sort(this.Handle,expr.CloneHandle(),desc)
+        new DataFrame(h)
+    member this.Orderby (expr: Expr) (desc :bool) : DataFrame =
+        this.Sort expr desc
+    member this.GroupBy (keys: Expr list) (aggs: Expr list) : DataFrame =
+        let kHandles = keys |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        let aHandles = aggs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        let h = PolarsWrapper.GroupByAgg(this.Handle, kHandles, aHandles)
+        new DataFrame(h)
+    member this.Join (other: DataFrame) (leftOn: Expr list) (rightOn: Expr list) (how: JoinType) : DataFrame =
+        let lHandles = leftOn |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        let rHandles = rightOn |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        let h = PolarsWrapper.Join(this.Handle, other.Handle, lHandles, rHandles, how.ToNative())
+        new DataFrame(h)
+    static member Concat (dfs: DataFrame list) (how: ConcatType): DataFrame =
+        let handles = dfs |> List.map (fun df -> df.CloneHandle()) |> List.toArray
+        new DataFrame(PolarsWrapper.Concat (handles,how.ToNative()))
+    member this.Head (?rows: int) : DataFrame  =
+        let n = defaultArg rows 5
+        use h = PolarsWrapper.Head(this.Handle, uint n) 
+        new DataFrame(h)
+    member this.Tail (?n: int) : DataFrame =
+        let rows = defaultArg n 5
+        let h = PolarsWrapper.Tail(this.Handle, uint rows) 
+        new DataFrame(h)
+    member this.Explode (exprs: Expr list) : DataFrame =
+        let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        let h = PolarsWrapper.Explode(this.Handle, handles)
+        new DataFrame(h)
+    member this.UnnestColumn(column: string) : DataFrame =
+        let cols = [| column |]
+        let newHandle = PolarsWrapper.Unnest(this.Handle, cols)
+        new DataFrame(newHandle)
+    member this.UnnestColumns(columns: string list) : DataFrame =
+        let cArr = List.toArray columns
+        let newHandle = PolarsWrapper.Unnest(this.Handle, cArr)
+        new DataFrame(newHandle)
+       /// <summary> Pivot the DataFrame from long to wide format. </summary>
+    member this.Pivot (index: string list) (columns: string list) (values: string list) (aggFn: PivotAgg) : DataFrame =
+        let iArr = List.toArray index
+        let cArr = List.toArray columns
+        let vArr = List.toArray values
+        new DataFrame(PolarsWrapper.Pivot(this.Handle, iArr, cArr, vArr, aggFn.ToNative()))
 
+    /// <summary> Unpivot (Melt) the DataFrame from wide to long format. </summary>
+    member this.Unpivot (index: string list) (on: string list) (variableName: string option) (valueName: string option) : DataFrame =
+        let iArr = List.toArray index
+        let oArr = List.toArray on
+        let varN = Option.toObj variableName 
+        let valN = Option.toObj valueName 
+        new DataFrame(PolarsWrapper.Unpivot(this.Handle, iArr, oArr, varN, valN))
+    member this.Melt = this.Unpivot
     // ==========================================
     // Printing / String Representation
     // ==========================================
@@ -838,9 +908,6 @@ and DataFrame(handle: DataFrameHandle) =
     member this.IsInfinite (col:string) =
         use s = this.Column col
         s.IsInfinite()
-    member this.Head (rows:int) =
-        use newdf = PolarsWrapper.Head(this.Handle, uint rows)
-        newdf
 /// <summary>
 /// A LazyFrame represents a logical plan of operations that will be optimized and executed only when collected.
 /// </summary>

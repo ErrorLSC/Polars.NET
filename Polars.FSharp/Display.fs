@@ -22,8 +22,8 @@ module Display =
         // 1. 获取预览数据 (Zero-Copy Export)
         // Head 会返回一个新的 DataFrame，ToArrow 导出为 RecordBatch
         // 注意：ToArrow 返回的是单个 Batch，适合小数据预览
-        let previewDf = df.Head(int n)
-        use batch = ArrowFfiBridge.ExportDataFrame previewDf
+        use previewDf = df.Head(int n)
+        use batch = ArrowFfiBridge.ExportDataFrame previewDf.Handle
         let schema = batch.Schema
 
         let sb = StringBuilder()

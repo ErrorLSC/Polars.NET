@@ -187,4 +187,4 @@ module Serialization =
                 )
 
             // 4. 垂直拼接 (Concat Vertical)
-            pl.concat rowFrames
+            pl.concat rowFrames Vertical
