@@ -287,7 +287,7 @@ type ``Complex Query Tests`` () =
 
         // 1. Horizontal: [a, b]
         let dfHorz = 
-            pl.concatLazyHorizontal [lf1; lf2]
+            pl.concatLazy [lf1; lf2] Horizonal
             |> pl.collect
         
         Assert.Equal(1L, dfHorz.Rows)
@@ -297,7 +297,7 @@ type ``Complex Query Tests`` () =
 
         // 2. Vertical: [a] (rows=2)        
         let dfVert = 
-            pl.concatLazy [lf1; lf3]
+            pl.concatLazy [lf1; lf3] Vertical
             |> pl.collect
         
         Assert.Equal(2L, dfVert.Rows)
@@ -307,7 +307,7 @@ type ``Complex Query Tests`` () =
         // lf1 (a=1, b=null)
         // lf2 (a=null, b=2)
         let dfDiag =
-            pl.concatLazyDiagonal [lf1; lf2]
+            pl.concatLazy [lf1; lf2] Diagonal
             |> pl.collect
         
         Assert.Equal(2L, dfDiag.Rows)

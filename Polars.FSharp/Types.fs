@@ -1141,7 +1141,7 @@ and LazyFrame(handle: LazyFrameHandle) =
     /// <summary>
     /// Join with another LazyFrame.
     /// </summary>
-    member this.Join(other: LazyFrame, leftOn: Expr seq, rightOn: Expr seq, how: PlJoinType) : LazyFrame =
+    member this.Join(other: LazyFrame, leftOn: Expr seq, rightOn: Expr seq, how: JoinType) : LazyFrame =
         // 1. 准备 Left On 表达式数组 (Clone Handle, Move 语义)
         let lOnArr = leftOn |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
         
@@ -1155,10 +1155,114 @@ and LazyFrame(handle: LazyFrameHandle) =
 
         // 4. 调用 Wrapper (假设 Wrapper 接受 int 枚举作为 JoinType)
         // 注意：Wrapper 签名通常是 (Left, Right, LeftExprs, RightExprs, JoinType)
-        let newHandle = PolarsWrapper.Join(lHandle, rHandle, lOnArr, rOnArr, how)
+        let newHandle = PolarsWrapper.Join(lHandle, rHandle, lOnArr, rOnArr, how.ToNative())
         
         new LazyFrame(newHandle)
     
+    member this.Filter (expr: Expr) : LazyFrame =
+        let lfClone = this.CloneHandle()
+        let exprClone = expr.CloneHandle()
+        
+        let h = PolarsWrapper.LazyFilter(lfClone, exprClone)
+        new LazyFrame(h)
+    
+    member this.Select (exprs: Expr list) : LazyFrame =
+        let lfClone = this.CloneHandle()
+        let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        
+        let h = PolarsWrapper.LazySelect(lfClone, handles)
+        new LazyFrame(h)
+    member this.Sort (expr: Expr) (desc: bool) : LazyFrame =
+        let lfClone = this.CloneHandle()
+        let exprClone = expr.CloneHandle()
+        let h = PolarsWrapper.LazySort(lfClone, exprClone, desc)
+        new LazyFrame(h)
+    member this.OrderBy = this.Sort
+    member this.Limit (n: uint) : LazyFrame =
+        let lfClone = this.CloneHandle()
+        let h = PolarsWrapper.LazyLimit(lfClone, n)
+        new LazyFrame(h)
+    member this.WithColumn (expr: Expr) : LazyFrame =
+        let lfClone = this.CloneHandle()
+        let exprClone = expr.CloneHandle()
+        let handles = [| exprClone |] // 使用克隆的 handle
+        let h = PolarsWrapper.LazyWithColumns(lfClone, handles)
+        new LazyFrame(h)
+    member this.WithColumns (exprs: Expr list) : LazyFrame =
+        let lfClone = this.CloneHandle()
+        let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        let h = PolarsWrapper.LazyWithColumns(lfClone, handles)
+        new LazyFrame(h)
+    member this.GroupBy (keys: Expr list) (aggs: Expr list) : LazyFrame =
+        let lfClone = this.CloneHandle()
+        let kHandles = keys |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        let aHandles = aggs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        let h = PolarsWrapper.LazyGroupByAgg(lfClone, kHandles, aHandles)
+        new LazyFrame(h)
+    member this.Unpivot (index: string list) (on: string list) (variableName: string option) (valueName: string option) : LazyFrame =
+        let lfClone = this.CloneHandle() // 必须 Clone
+        let iArr = List.toArray index
+        let oArr = List.toArray on
+        let varN = Option.toObj variableName
+        let valN = Option.toObj valueName 
+        new LazyFrame(PolarsWrapper.LazyUnpivot(lfClone, iArr, oArr, varN, valN))
+    member this.Melt = this.Unpivot
+/// <summary>
+    /// JoinAsOf with string tolerance (e.g., "2d", "1h").
+    /// </summary>
+    member this.JoinAsOf(other: LazyFrame, 
+                         leftOn: Expr, 
+                         rightOn: Expr, 
+                         byLeft: Expr list, 
+                         byRight: Expr list, 
+                         strategy: string option, 
+                         tolerance: string option) : LazyFrame =
+        
+        let lClone = this.CloneHandle()
+        let rClone = other.CloneHandle()
+        
+        let lOn = leftOn.CloneHandle()
+        let rOn = rightOn.CloneHandle()
+        
+        // 处理分组列
+        let lByArr = byLeft |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        let rByArr = byRight |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+
+        // 处理可选参数
+        let strat = defaultArg strategy "backward"
+        let tol = Option.toObj tolerance 
+
+        let h = PolarsWrapper.JoinAsOf(
+            lClone, rClone, 
+            lOn, rOn, 
+            lByArr, rByArr,
+            strat, tol
+        )
+        new LazyFrame(h)
+
+    /// <summary>
+    /// JoinAsOf with TimeSpan tolerance.
+    /// </summary>
+    member this.JoinAsOf(other: LazyFrame, 
+                         leftOn: Expr, 
+                         rightOn: Expr, 
+                         byLeft: Expr list, 
+                         byRight: Expr list, 
+                         strategy: string option, 
+                         tolerance: TimeSpan option) : LazyFrame =
+        
+        // 将 TimeSpan 转换为 Polars 字符串格式 (e.g. "1h30m")
+        let tolStr = 
+            tolerance 
+            |> Option.map DurationFormatter.ToPolarsString
+
+        // 调用上面的主重载
+        this.JoinAsOf(other, leftOn, rightOn, byLeft, byRight, strategy, tolStr)
+    static member Concat  (lfs: LazyFrame list) (how: ConcatType) : LazyFrame =
+        let handles = lfs |> List.map (fun lf -> lf.CloneHandle()) |> List.toArray
+        // 默认 rechunk=false, parallel=true (Lazy 的常见默认值)
+        new LazyFrame(PolarsWrapper.LazyConcat(handles, how.ToNative(), false, true))
+
 /// <summary>
 /// SQL Context for executing SQL queries on registered LazyFrames.
 /// </summary>

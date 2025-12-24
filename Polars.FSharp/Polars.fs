@@ -55,9 +55,7 @@ module pl =
     let alias (name: string) (expr: Expr) = expr.Alias name
     /// <summary> Collect LazyFrame into DataFrame (Eager execution). </summary>
     let collect (lf: LazyFrame) : DataFrame = 
-        let lfClone = lf.CloneHandle()
-        let dfHandle = PolarsWrapper.LazyCollect lfClone
-        new DataFrame(dfHandle)
+        lf.Collect()
     /// <summary> Convert Selector to Expr. </summary>
     let asExpr (s: Selector) = s.ToExpr()
     /// <summary> Exclude columns from Selector. </summary>
@@ -143,74 +141,38 @@ module pl =
     let schema (lf: LazyFrame) = lf.Schema
     /// <summary> Filter rows based on a boolean expression. </summary>
     let filterLazy (expr: Expr) (lf: LazyFrame) : LazyFrame =
-        let lfClone = lf.CloneHandle()
-        let exprClone = expr.CloneHandle()
-        
-        let h = PolarsWrapper.LazyFilter(lfClone, exprClone)
-        new LazyFrame(h)
+        lf.Filter expr
 
     /// <summary> Select columns from LazyFrame. </summary>
     let selectLazy (exprs: Expr list) (lf: LazyFrame) : LazyFrame =
-        let lfClone = lf.CloneHandle()
-        let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        
-        let h = PolarsWrapper.LazySelect(lfClone, handles)
-        new LazyFrame(h)
+        lf.Select exprs
 
     /// <summary> Sort (Order By) the LazyFrame. </summary>
     let sortLazy (expr: Expr) (desc: bool) (lf: LazyFrame) : LazyFrame =
-        let lfClone = lf.CloneHandle()
-        let exprClone = expr.CloneHandle()
-        let h = PolarsWrapper.LazySort(lfClone, exprClone, desc)
-        new LazyFrame(h)
+        lf.Sort expr desc
     /// <summary> Alias for sortLazy </summary>
     let orderByLazy (expr: Expr) (desc: bool) (lf: LazyFrame) = sortLazy expr desc lf
 
     /// <summary> Limit the number of rows in the LazyFrame. </summary>
     let limit (n: uint) (lf: LazyFrame) : LazyFrame =
-        let lfClone = lf.CloneHandle()
-        let h = PolarsWrapper.LazyLimit(lfClone, n)
-        new LazyFrame(h)
+        lf.Limit n
     /// <summary> Add or replace columns in the LazyFrame. </summary>
     let withColumnLazy (expr: Expr) (lf: LazyFrame) : LazyFrame =
-        let lfClone = lf.CloneHandle()
-        let exprClone = expr.CloneHandle()
-        let handles = [| exprClone |] // 使用克隆的 handle
-        let h = PolarsWrapper.LazyWithColumns(lfClone, handles)
-        new LazyFrame(h)
+        lf.WithColumn expr
     /// <summary> Add or replace multiple columns in the LazyFrame. </summary>
     let withColumnsLazy (exprs: Expr list) (lf: LazyFrame) : LazyFrame =
-        let lfClone = lf.CloneHandle()
-        let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        let h = PolarsWrapper.LazyWithColumns(lfClone, handles)
-        new LazyFrame(h)
+        lf.WithColumns exprs
     /// <summary> Group by keys and apply aggregations. </summary>
     let groupByLazy (keys: Expr list) (aggs: Expr list) (lf: LazyFrame) : LazyFrame =
-        let lfClone = lf.CloneHandle()
-        let kHandles = keys |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        let aHandles = aggs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        
-        let h = PolarsWrapper.LazyGroupByAgg(lfClone, kHandles, aHandles)
-        new LazyFrame(h)
+        lf.GroupBy keys aggs
     /// <summary> Unpivot (Melt) the LazyFrame from wide to long format. </summary>
     let unpivotLazy (index: string list) (on: string list) (variableName: string option) (valueName: string option) (lf: LazyFrame) : LazyFrame =
-        let lfClone = lf.CloneHandle() // 必须 Clone
-        let iArr = List.toArray index
-        let oArr = List.toArray on
-        let varN = Option.toObj variableName
-        let valN = Option.toObj valueName 
-        new LazyFrame(PolarsWrapper.LazyUnpivot(lfClone, iArr, oArr, varN, valN))
+        lf.Unpivot index on variableName valueName
     /// Alias for unpivotLazy
     let meltLazy = unpivotLazy
     /// <summary> Perform a join between two LazyFrames. </summary>
     let joinLazy (other: LazyFrame) (leftOn: Expr list) (rightOn: Expr list) (how: JoinType) (lf: LazyFrame) : LazyFrame =
-        let lClone = lf.CloneHandle()
-        let rClone = other.CloneHandle()
-        
-        let lOnArr = leftOn |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        let rOnArr = rightOn |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        
-        new LazyFrame(PolarsWrapper.Join(lClone, rClone, lOnArr, rOnArr, how.ToNative()))
+        lf.Join(other,leftOn, rightOn, how)
     /// <summary> Perform an As-Of Join (time-series join). </summary>
     let joinAsOf (other: LazyFrame) 
                  (leftOn: Expr) (rightOn: Expr) 
@@ -218,50 +180,13 @@ module pl =
                  (strategy: string option) 
                  (tolerance: string option) 
                  (lf: LazyFrame) : LazyFrame =
-        
-        let lClone = lf.CloneHandle()
-        let rClone = other.CloneHandle()
-        
-        let lOn = leftOn.CloneHandle()
-        let rOn = rightOn.CloneHandle()
-        
-        // 处理分组列 (Clone List)
-        let lByArr = byLeft |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        let rByArr = byRight |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-
-        // 处理可选参数
-        let strat = defaultArg strategy "backward"
-        let tol = Option.toObj tolerance // 转为 string 或 null
-
-        let h = PolarsWrapper.JoinAsOf(
-            lClone, rClone, 
-            lOn, rOn, 
-            lByArr, rByArr,
-            strat, tol
-        )
-        new LazyFrame(h)
-    /// <summary> Concatenate multiple LazyFrames vertically. </summary>
-    let concatLazy (lfs: LazyFrame list) : LazyFrame =
-        let handles = lfs |> List.map (fun lf -> lf.CloneHandle()) |> List.toArray
-        // 默认 rechunk=false, parallel=true (Lazy 的常见默认值)
-        new LazyFrame(PolarsWrapper.LazyConcat(handles, PlConcatType.Vertical, false, true))
-    /// <summary> 
-    /// Lazily concatenate multiple LazyFrames horizontally.
-    /// Note: Duplicate column names will cause an error during collection.
-    /// </summary>
-    let concatLazyHorizontal (lfs: LazyFrame list) : LazyFrame =
-        let handles = lfs |> List.map (fun lf -> lf.CloneHandle()) |> List.toArray
-        new LazyFrame(PolarsWrapper.LazyConcat(handles, PlConcatType.Horizontal, false, false))
-    /// <summary> 
-    /// Lazily concatenate multiple LazyFrames diagonally. 
-    /// </summary>
-    let concatLazyDiagonal (lfs: LazyFrame list) : LazyFrame =
-        let handles = lfs |> List.map (fun lf -> lf.CloneHandle()) |> List.toArray
-        new LazyFrame(PolarsWrapper.LazyConcat(handles, PlConcatType.Diagonal, false, true))
+        lf.JoinAsOf(other,leftOn,rightOn,byLeft, byRight, strategy, tolerance)
+    /// <summary> Concatenate multiple LazyFrames. </summary>
+    let concatLazy (lfs: LazyFrame list) (how: ConcatType) : LazyFrame =
+        LazyFrame.Concat lfs how
     /// <summary> Collect LazyFrame into DataFrame (Streaming execution). </summary>
     let collectStreaming (lf: LazyFrame) : DataFrame =
-        let lfClone = lf.CloneHandle()
-        new DataFrame(PolarsWrapper.CollectStreaming lfClone)
+        lf.CollectStreaming()
     /// <summary> Define a window over which to perform an aggregation. </summary>
     let over (partitionBy: Expr list) (e: Expr) = e.Over partitionBy
     /// <summary> Create a SQL context for executing SQL queries on LazyFrames. </summary>
