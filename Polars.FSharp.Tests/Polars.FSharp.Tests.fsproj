@@ -20,6 +20,7 @@
     <Compile Include="UDFTests.fs" />
     <Compile Include="SeriesTests.fs" />
     <Compile Include="ExtensionsTests.fs" />
+    <Compile Include="SelectorTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

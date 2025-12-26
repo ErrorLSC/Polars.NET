@@ -91,6 +91,28 @@ type Expr(handle: ExprHandle) =
     /// <summary> Calculate the natural logarithm (base e). </summary>
     member this.Ln() = 
         this.Log Math.E
+
+    /// <summary>
+    /// Divide this expression by another.
+    /// Result is always a float (True Division).
+    /// </summary>
+    member this.Truediv(other: Expr) =
+        // 必须 CloneHandle，因为 Wrapper/Rust 会消耗掉它们
+        new Expr(PolarsWrapper.Div(this.CloneHandle(), other.CloneHandle()))
+
+    /// <summary>
+    /// Integer division (floor division).
+    /// </summary>
+    member this.FloorDiv(other: Expr) =
+        new Expr(PolarsWrapper.FloorDiv(this.CloneHandle(), other.CloneHandle()))
+
+    /// <summary>
+    /// Modulo operator (remainder).
+    /// </summary>
+    member this.Mod(other: Expr) =
+        new Expr(PolarsWrapper.Rem(this.CloneHandle(), other.CloneHandle()))
+    member this.Rem(other: Expr) = 
+        this.Mod other
     // Stats
     /// <summary>
     /// Count the number of valid (non-null) values.

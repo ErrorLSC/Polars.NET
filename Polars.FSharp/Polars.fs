@@ -37,11 +37,11 @@ module pl =
     /// <summary> Cast an expression to a different data type. </summary>
     let cast (dtype: DataType) (e: Expr) = e.Cast dtype
 
-    let boolean = DataType.Boolean
-    let int32 = DataType.Int32
-    let int64 = DataType.Int64
-    let float64 = DataType.Float64
-    let string = DataType.String
+    let Boolean = DataType.Boolean
+    let Int32 = DataType.Int32
+    let Int64 = DataType.Int64
+    let Float64 = DataType.Float64
+    let String = DataType.String
     let Date = DataType.Date
     let Datetime = DataType.Datetime
     let TimeSpan = DataType.Duration
@@ -131,6 +131,10 @@ module pl =
     let sqrt (e: Expr) = e.Sqrt()
     let exp (e: Expr) = e.Exp()
 
+    let inline truediv (other: Expr) (e: Expr) = e.Truediv other
+    let inline floorDiv (other: Expr) (e: Expr) = e.FloorDiv other
+    let inline mod_ (other: Expr) (e: Expr) = e.Mod other
+
     // --- Lazy API ---
 
     /// <summary> Explain the LazyFrame execution plan. </summary>
@@ -215,6 +219,49 @@ module pl =
                 
             return new DataFrame(dfHandle)
         }
+    // ==========================================
+    // Column Selectors (pl.cs)
+    // ==========================================
+    module cs =
+        
+        /// <summary> Select all columns. </summary>
+        let inline all () = 
+            new Selector(PolarsWrapper.SelectorAll())
+        
+        /// <summary> Select numeric columns (Int, Float, Decimal). </summary>
+        let inline numeric () = 
+            new Selector(PolarsWrapper.SelectorNumeric())
+        
+        /// <summary> Select columns by DataType. </summary>
+        let inline byType (dt: DataType) = 
+            // 1. 获取 F# DataType 的 Code (int)
+            let code = dt.Code
+            // 2. 强转为 C# Wrapper 需要的枚举 (PlDataType)
+            // F# 中 enum<T> 可以把 int 转为枚举
+            let kind = enum<PlDataType> code
+            
+            new Selector(PolarsWrapper.SelectorByDtype kind)
+        
+        /// <summary> Select columns starting with a pattern. </summary>
+        let inline startsWith (pattern: string) = 
+            new Selector(PolarsWrapper.SelectorStartsWith pattern)
+        
+        /// <summary> Select columns ending with a pattern. </summary>
+        let inline endsWith (pattern: string) = 
+            new Selector(PolarsWrapper.SelectorEndsWith pattern)
+        
+        /// <summary> Select columns containing a pattern. </summary>
+        let inline contains (pattern: string) = 
+            new Selector(PolarsWrapper.SelectorContains pattern)
+        
+        /// <summary> Select columns matching a regex pattern. </summary>
+        let inline matches (regex: string) = 
+            new Selector(PolarsWrapper.SelectorMatch regex)
+        
+        /// <summary> Invert a selector. </summary>
+        let not (s: Selector) = 
+            // 注意：CloneHandle 是必须的，因为 Rust 会消耗 Ownership
+            new Selector(PolarsWrapper.SelectorNot(s.CloneHandle()))
 
     // ==========================================
     // Public API (保持简单，返回 DataFrame 以支持管道)
@@ -249,4 +296,4 @@ module PolarsAutoOpen =
     let inline col name = pl.col name
     let inline lit value = pl.lit value
 
-    let inline alias column = pl.alias column
+    let inline alias column = pl.alias column    

@@ -172,6 +172,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_add(ExprHandle l, ExprHandle r);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_sub(ExprHandle l, ExprHandle r);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_div(ExprHandle l, ExprHandle r);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_floor_div(ExprHandle l, ExprHandle r);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rem(ExprHandle l, ExprHandle r);
 
     // 逻辑

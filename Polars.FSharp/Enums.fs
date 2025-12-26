@@ -26,7 +26,31 @@ and DataType =
     | Decimal of precision: int option * scale: int option
     | Unknown | SameAsInput | Null | List of DataType
     | Struct of Field list
-
+    member this.Code : int =
+        match this with
+        | Unknown | SameAsInput -> 0
+        | Boolean -> 1
+        | Int8 -> 2
+        | Int16 -> 3
+        | Int32 -> 4
+        | Int64 -> 5
+        | UInt8 -> 6
+        | UInt16 -> 7
+        | UInt32 -> 8
+        | UInt64 -> 9
+        | Float32 -> 10
+        | Float64 -> 11
+        | String -> 12
+        | Date -> 13
+        | Datetime _ -> 14 // Selector 通常只看大类
+        | Time -> 15
+        | Duration _ -> 16
+        | Binary -> 17
+        | Null -> 18
+        | Struct _ -> 19
+        | List _ -> 20
+        | Categorical -> 21
+        | Decimal _ -> 22
     // 转换 helper
     static member FromHandle (handle: DataTypeHandle) : DataType =
         // 1. 获取类型枚举值 (Kind)
