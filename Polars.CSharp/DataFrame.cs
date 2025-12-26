@@ -233,15 +233,23 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     /// <summary>
     /// Return DataFrame Height
     /// </summary>
-    public long Height => PolarsWrapper.DataFrameHeight(Handle); //
+    public long Height => PolarsWrapper.DataFrameHeight(Handle);
+    /// <summary>
+    /// Return DataFrame Height
+    /// </summary>
+    public long Len => PolarsWrapper.DataFrameHeight(Handle); 
     /// <summary>
     /// Return DataFrame Width
     /// </summary>
-    public long Width => PolarsWrapper.DataFrameWidth(Handle);   //
+    public long Width => PolarsWrapper.DataFrameWidth(Handle);  
     /// <summary>
     /// Return DataFrame Columns' Name
     /// </summary>
-    public string[] Columns => PolarsWrapper.GetColumnNames(Handle); //
+    public string[] Columns => PolarsWrapper.GetColumnNames(Handle);
+    /// <summary>
+    /// Get column names in order.
+    /// </summary>
+    public string[] ColumnNames => PolarsWrapper.GetColumnNames(Handle);
 
     // ==========================================
     // Scalar Access (Direct)
@@ -267,7 +275,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     /// <param name="rowIndex"></param>
     /// <param name="colName"></param>
     /// <returns></returns>
-    public object? this[long rowIndex, string colName]
+    public object? this[int rowIndex, string colName]
     {
         get
         {
@@ -883,30 +891,10 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     }
     
     /// <summary>
-    /// Get column names in order.
-    /// </summary>
-    public string[] ColumnNames => PolarsWrapper.GetColumnNames(Handle);
-    /// <summary>
     /// Indexer to get a column by position.
     /// Usage: var s = df[0];
     /// </summary>
     public Series this[int index] => Column(index);
-    /// <summary>
-    /// Syntax Suger: df[row, colName]
-    /// </summary>
-    /// <param name="rowIndex"></param>
-    /// <param name="columnName"></param>
-    /// <returns></returns>
-    public object? this[int rowIndex, string columnName]
-    {
-        get
-        {
-            // 1. 先拿列 (Series)
-            var series = Column(columnName);
-            // 2. 再拿值 (利用刚才写的 Series 索引器)
-            return series[rowIndex];
-        }
-    }
     /// <summary>
     /// Syntax Suger
     /// </summary>

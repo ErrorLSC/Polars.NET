@@ -188,3 +188,12 @@ module Serialization =
 
             // 4. 垂直拼接 (Concat Vertical)
             pl.concat rowFrames Vertical
+
+        /// <summary>
+        /// Get a value from the DataFrame using a generic type argument.
+        /// Eliminates the need for unbox, but throws if type mismatches.
+        /// </summary>
+        member this.Cell<'T>(rowIndex: int, colName: string) : 'T =
+            // 利用 Series.GetValue<'T> 的高性能路径
+            let s = this.Column colName
+            s.GetValue<'T>(int64 rowIndex)

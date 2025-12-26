@@ -366,22 +366,25 @@ id;date_col;val_col
     member _.``Full Temporal Types: Create & Retrieve`` () =
         let date = DateOnly(2023, 1, 1)
         let time = TimeOnly(12, 30, 0)
-        let dur = TimeSpan.FromHours(1.5) // 90 mins
+        let dur = TimeSpan.FromHours 1.5 // 90 mins
 
         // 1. Series Create
         use sDate = Series.create("d", [date])
         use sTime = Series.create("t", [time])
         use sDur = Series.create("dur", [dur])
 
-        // 2. 验证类型字符串
-        Assert.Equal("date", sDate.DtypeStr)
-        Assert.Equal("time", sTime.DtypeStr)
-        Assert.Equal("duration[μs]", sDur.DtypeStr) // Polars 默认 Duration 是 us
+        // 2. 验证类型 (使用强类型 DU，告别字符串魔法值)
+        Assert.Equal(pl.Date, sDate.DataType)
+        Assert.Equal(pl.Time, sTime.DataType)
+        // Polars 默认 Duration 是 Microseconds
+        Assert.Equal(DataType.Duration TimeUnit.Microseconds, sDur.DataType)
 
         // 3. 验证读取 (Scalar Access)
-        Assert.Equal(date, sDate.Date(0).Value)
-        Assert.Equal(time, sTime.Time(0).Value)
-        Assert.Equal(dur, sDur.Duration(0).Value)
+        Assert.Equal(date, sDate.GetValue<DateOnly> 0)
+        Assert.Equal(time, sTime.GetValue<TimeOnly> 0)
+        Assert.Equal(dur, sDur.GetValue<TimeSpan> 0)
+        
+        Assert.Equal(Some date, unbox<DateOnly option> sDate.[0])
 
         // 4. DataFrame.ofRecords 集成测试
         let records = [
@@ -389,9 +392,19 @@ id;date_col;val_col
         ]
         let df = DataFrame.ofRecords records
         
-        Assert.Equal(date, df.Date("DoB", 0).Value)
-        Assert.Equal(time, df.Time("WakeUp", 0).Value)
-        Assert.Equal(dur, df.Duration("Shift", 0).Value)
+        // A. 列索引器: df.["ColName"] 返回 Series
+        let sDoB = df.["DoB"]
+        Assert.Equal(pl.Date, sDoB.DataType)
+        
+        // B. 二维索引器: df.[row, col] 返回 obj
+        Assert.Equal(Some date, df.Cell<DateOnly option>(0, "DoB"))
+        Assert.Equal(Some time, df.Cell<TimeOnly option>(0, "WakeUp"))
+        // 显式拆箱验证
+        Assert.Equal(Some dur,  unbox<TimeSpan option> df.[0, "Shift"])
+        
+        // C. 验证 Option 支持 (GetValueOption)
+        // 虽然这里数据不是 Option，但 API 应该能兼容返回 Some
+        Assert.Equal(Some date, sDoB.GetValueOption<DateOnly> 0)
     [<Fact>]
     member _.``Expr: TimeZone Ops (Convert & Replace)`` () =
         // 1. 创建 Naive Datetime

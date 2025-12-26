@@ -9,6 +9,7 @@ open Polars.NET.Core.Data
 open System.Data
 open System.Threading.Tasks
 open System.Collections.Concurrent
+open System.Collections
 /// --- Series ---
 /// <summary>
 /// An eager Series holding a single column of data.
@@ -20,6 +21,9 @@ type Series(handle: SeriesHandle) =
 
     member _.Name = PolarsWrapper.SeriesName handle
     member _.Length = PolarsWrapper.SeriesLen handle
+    member _.Len = PolarsWrapper.SeriesLen handle
+    member _.Count = PolarsWrapper.SeriesLen handle
+    member _.NullCount : int64 = PolarsWrapper.SeriesNullCount handle
     
     member this.Rename(name: string) = 
         PolarsWrapper.SeriesRename(handle, name)
@@ -58,8 +62,7 @@ type Series(handle: SeriesHandle) =
     /// Get the number of null values in the Series.
     /// This is an O(1) operation (metadata access).
     /// </summary>
-    member _.NullCount : int64 = 
-        PolarsWrapper.SeriesNullCount handle
+
     /// <summary> Check if floating point values are NaN. </summary>
     member this.IsNan() = new Series(PolarsWrapper.SeriesIsNan handle)
 
@@ -393,6 +396,148 @@ type Series(handle: SeriesHandle) =
     static member (.!=) (lhs: Series, rhs: int) = lhs != Series.create("lit", [rhs])
     static member (.!=) (lhs: Series, rhs: string) = lhs != Series.create("lit", [rhs])
     // ==========================================
+    // Unified Accessor (Fast Path + Universal Path)
+    // ==========================================
+
+    /// <summary>
+    /// Get an item at the specified index.
+    /// Supports primitives (int, float, bool, string) via fast native path,
+    /// and complex types (Struct, List, DateTime) via Arrow infrastructure.
+    /// </summary>
+    member this.GetValue<'T>(index: int64) : 'T =
+        let len = this.Length
+        if index < 0L || index >= len then
+            raise (IndexOutOfRangeException(sprintf "Index %d is out of bounds for Series length %d." index len))
+
+        let t = typeof<'T>
+        let underlying = Nullable.GetUnderlyingType(t)
+        let targetType = if isNull underlying then t else underlying
+
+        // ----------------------------------------------------------
+        // 🚀 1. Fast Path (Native Bindings)
+        // ----------------------------------------------------------
+        
+        // F# 中泛型转换需要先 box 再 unbox
+        // 注意：Rust 返回的通常是 Option 类型或者 Nullable，我们需要处理 null
+
+        if targetType = typeof<int> then
+             // Rust SeriesGetInt 返回 int64 (long)，需要截断为 int
+             let valOpt = PolarsWrapper.SeriesGetInt(handle, index)
+             if valOpt.HasValue then 
+                 box (int valOpt.Value) |> unbox<'T>
+             else 
+                 Unchecked.defaultof<'T> // Return null for Nullable<int>
+
+        else if targetType = typeof<int64> then
+             let valOpt = PolarsWrapper.SeriesGetInt(handle, index)
+             if valOpt.HasValue then box valOpt.Value |> unbox<'T> else Unchecked.defaultof<'T>
+
+        else if targetType = typeof<double> then
+             let valOpt = PolarsWrapper.SeriesGetDouble(handle, index)
+             if valOpt.HasValue then box valOpt.Value |> unbox<'T> else Unchecked.defaultof<'T>
+
+        else if targetType = typeof<float32> then
+             let valOpt = PolarsWrapper.SeriesGetDouble(handle, index)
+             if valOpt.HasValue then box (float32 valOpt.Value) |> unbox<'T> else Unchecked.defaultof<'T>
+
+        else if targetType = typeof<bool> then
+             let valOpt = PolarsWrapper.SeriesGetBool(handle, index)
+             if valOpt.HasValue then box valOpt.Value |> unbox<'T> else Unchecked.defaultof<'T>
+
+        else if targetType = typeof<string> then
+             if PolarsWrapper.SeriesIsNullAt(handle, index) then
+                 Unchecked.defaultof<'T> // null string
+             else
+                 let s = PolarsWrapper.SeriesGetString(handle, index)
+                 box s |> unbox<'T>
+
+        else if targetType = typeof<decimal> then
+             let valOpt = PolarsWrapper.SeriesGetDecimal(handle, index)
+             if valOpt.HasValue then box valOpt.Value |> unbox<'T> else Unchecked.defaultof<'T>
+
+        else if targetType = typeof<DateOnly> then
+             let valOpt = PolarsWrapper.SeriesGetDate(handle, index)
+             if valOpt.HasValue then box valOpt.Value |> unbox<'T> else Unchecked.defaultof<'T>
+
+        else if targetType = typeof<TimeOnly> then
+             let valOpt = PolarsWrapper.SeriesGetTime(handle, index)
+             if valOpt.HasValue then box valOpt.Value |> unbox<'T> else Unchecked.defaultof<'T>
+             
+        else if targetType = typeof<TimeSpan> then
+             let valOpt = PolarsWrapper.SeriesGetDuration(handle, index)
+             if valOpt.HasValue then box valOpt.Value |> unbox<'T> else Unchecked.defaultof<'T>
+
+        // ----------------------------------------------------------
+        // 🐢 2. Universal Path (Arrow Infrastructure)
+        // 针对 Struct, List, DateTime, F# Option 等复杂类型
+        // ----------------------------------------------------------
+        else
+            // A. 切片：只取这一行
+            // 我们需要利用 PolarsWrapper 的 Slice 功能 (SeriesSlice 应该暴露在 Wrapper 中)
+            use slicedHandle = PolarsWrapper.SeriesSlice(handle, index, 1L)
+            
+            // B. 包装为 DataFrame 以便导出 Arrow
+            // Polars Series 转 DataFrame 很简单，就是单列 DataFrame
+            use dfHandle = PolarsWrapper.SeriesToFrame slicedHandle
+            
+            // C. 导出为 RecordBatch (Zero Copy)
+            use batch = ArrowFfiBridge.ExportDataFrame dfHandle
+            
+            // D. 获取 Arrow Column
+            let column = batch.Column 0
+
+            // E. 调用强大的 ArrowReader 解析
+            // 这一步是精华：ArrowReader 会自动处理 F# Option, List 递归, Struct 等
+            ArrowReader.ReadItem<'T>(column, 0)
+    /// <summary>
+    /// [Indexer] Access value at specific index as boxed object.
+    /// Syntax: series.[index]
+    /// </summary>
+    member this.Item (index: int) : obj =
+        let idx = int64 index
+        
+        // 利用我们强大的 DataType DU 进行分发
+        match this.DataType with
+        | DataType.Boolean -> box (this.GetValue<bool option> idx) // 使用 Option 以便显示 Some/None
+        
+        | DataType.Int8 -> box (this.GetValue<int8 option> idx)
+        | DataType.Int16 -> box (this.GetValue<int16 option> idx)
+        | DataType.Int32 -> box (this.GetValue<int32 option> idx)
+        | DataType.Int64 -> box (this.GetValue<int64 option> idx)
+        
+        | DataType.UInt8 -> box (this.GetValue<uint8 option> idx)
+        | DataType.UInt16 -> box (this.GetValue<uint16 option> idx)
+        | DataType.UInt32 -> box (this.GetValue<uint32 option> idx)
+        | DataType.UInt64 -> box (this.GetValue<uint64 option> idx)
+        
+        | DataType.Float32 -> box (this.GetValue<float32 option> idx)
+        | DataType.Float64 -> box (this.GetValue<double option> idx)
+        
+        | DataType.Decimal _ -> box (this.GetValue<decimal option> idx)
+        
+        | DataType.String -> box (this.GetValue<string option> idx) // F# 习惯用 string option
+        
+        | DataType.Date -> box (this.GetValue<DateOnly option> idx)
+        | DataType.Time -> box (this.GetValue<TimeOnly option> idx)
+        | DataType.Datetime _ -> box (this.GetValue<DateTime option> idx)
+        | DataType.Duration _ -> box (this.GetValue<TimeSpan option> idx)
+        
+        | DataType.Binary -> box (this.GetValue<byte[] option> idx)
+
+        // 复杂类型：走通用路径，返回 obj (可能是 F# List, Map 等)
+        | DataType.List _ -> this.GetValue<obj> idx
+        | DataType.Struct _ -> this.GetValue<obj> idx
+        
+        | _ -> failwithf "Indexer not fully implemented for type: %A" this.DataType
+    /// <summary>
+    /// Get an item as an F# Option.
+    /// Ideal for safe handling of nulls in Polars series.
+    /// </summary>
+    member this.GetValueOption<'T>(index: int64) : 'T option =
+        // 我们利用 ArrowReader 的能力，它能自动把 Arrow 的 null 映射为 F# Option
+        // 只要传入的泛型是 'T option
+        this.GetValue<'T option> index
+    // ==========================================
     // Interop with DataFrame
     // ==========================================
     member this.ToFrame() : DataFrame =
@@ -417,6 +562,19 @@ and DataFrame(handle: DataFrameHandle) =
     member this.Clone() = new DataFrame(PolarsWrapper.CloneDataFrame handle)
     member internal this.CloneHandle() = PolarsWrapper.CloneDataFrame handle
     member _.Handle = handle
+    static member create(series: Series list) : DataFrame =
+        let handles = 
+            series 
+            |> List.map (fun s -> s.Handle) 
+            |> List.toArray
+            
+        let h = PolarsWrapper.DataFrameNew handles
+        new DataFrame(h)
+    static member create([<ParamArray>] series: Series[]) : DataFrame =
+        let handles = series |> Array.map (fun s -> s.Handle)
+        let h = PolarsWrapper.DataFrameNew handles
+        new DataFrame(h)
+    /// <summary>
     static member ReadCsv (path: string, 
                                ?schema: Map<string, DataType>, // 注意逗号
                                ?hasHeader: bool,               // 注意逗号
@@ -486,7 +644,7 @@ and DataFrame(handle: DataFrameHandle) =
     /// </summary>
     /// <param name="reader">The open DataReader.</param>
     /// <param name="batchSize">Rows per batch (default 50,000).</param>
-    static member ReadDb(reader: Data.IDataReader, ?batchSize: int) : DataFrame =
+    static member ReadDb(reader: IDataReader, ?batchSize: int) : DataFrame =
         let size = defaultArg batchSize 50_000
         
         // 1. 将 DataReader 转为 Arrow Batch 流
@@ -503,6 +661,12 @@ and DataFrame(handle: DataFrameHandle) =
 
     /// <summary> Read a parquet file into a DataFrame (Eager). </summary>
     static member ReadParquet (path: string) = new DataFrame(PolarsWrapper.ReadParquet path)
+    static member ReadParquetAsync (path: string): Async<DataFrame> = 
+        async {
+            let! handle = PolarsWrapper.ReadParquetAsync path |> Async.AwaitTask
+        return new DataFrame(handle)
+        }
+
     /// <summary> Read a JSON file into a DataFrame (Eager). </summary>
     static member ReadJson (path: string) : DataFrame =
         new DataFrame(PolarsWrapper.ReadJson path)
@@ -517,11 +681,11 @@ and DataFrame(handle: DataFrameHandle) =
         let batchStream = 
             data
             |> Seq.chunkBySize size
-            |> Seq.map Polars.NET.Core.Arrow.ArrowFfiBridge.BuildRecordBatch
+            |> Seq.map ArrowFfiBridge.BuildRecordBatch
 
         // 2. 一键导入
         // C# 的 ImportEager 会自动处理 peek schema 和缝合逻辑
-        let handle = Polars.NET.Core.Arrow.ArrowStreamInterop.ImportEager batchStream
+        let handle = ArrowStreamInterop.ImportEager batchStream
 
         // 3. 处理空流情况 (ImportEager 返回 InvalidHandle 时)
         if handle.IsInvalid then
@@ -736,21 +900,6 @@ and DataFrame(handle: DataFrameHandle) =
     /// </summary>
     member this.Show() =
         printfn "%s" (this.ToString())
-    static member create(series: Series list) : DataFrame =
-        let handles = 
-            series 
-            |> List.map (fun s -> s.Handle) 
-            |> List.toArray
-            
-        let h = PolarsWrapper.DataFrameNew handles
-        new DataFrame(h)
-    
-    // 重载：允许变长参数 (df = DataFrame.create(s1, s2, s3))
-    static member create([<System.ParamArray>] series: Series[]) : DataFrame =
-        let handles = series |> Array.map (fun s -> s.Handle)
-        let h = PolarsWrapper.DataFrameNew handles
-        new DataFrame(h)
-    /// <summary>
     /// Remove a column by name. Returns a new DataFrame.
     /// </summary>
     member this.Drop(name: string) : DataFrame =
@@ -792,13 +941,13 @@ and DataFrame(handle: DataFrameHandle) =
         new DataFrame(PolarsWrapper.SampleFrac(handle, frac, replace, shuff, s))
     // Interop
     member this.ToArrow() = ArrowFfiBridge.ExportDataFrame handle
+    // Properties
     member _.Rows = PolarsWrapper.DataFrameHeight handle
+    member _.Height = PolarsWrapper.DataFrameHeight handle
     member _.Len = PolarsWrapper.DataFrameHeight handle
     member _.Width = PolarsWrapper.DataFrameWidth handle
     member _.ColumnNames = PolarsWrapper.GetColumnNames handle
-    member this.Item 
-        with get(colName: string, rowIndex: int) =
-            PolarsWrapper.GetDouble(handle, colName, int64 rowIndex)
+    member _.Columns = PolarsWrapper.GetColumnNames handle
     member this.Int(colName: string, rowIndex: int) : int64 option = 
         let nullableVal = PolarsWrapper.GetInt(handle, colName, int64 rowIndex)
         if nullableVal.HasValue then Some nullableVal.Value else None
@@ -869,18 +1018,11 @@ and DataFrame(handle: DataFrameHandle) =
         use s = this.Column col
         s.Duration row
     member this.Column(name: string) : Series =
-    // 我们假设 Rust 端有 pl_dataframe_get_column
         let h = PolarsWrapper.DataFrameGetColumn(this.Handle, name)
         new Series(h)
     member this.Column(index: int) : Series =
         let h = PolarsWrapper.DataFrameGetColumnAt(this.Handle, index)
         new Series(h)
-        
-    member this.Item 
-        with get(name: string) = this.Column name
-    
-    member this.Item 
-        with get(index: int) = this.Column index
 
     member this.GetSeries() : Series list =
         [ for i in 0 .. int this.Width - 1 -> this.Column i ]
@@ -908,6 +1050,77 @@ and DataFrame(handle: DataFrameHandle) =
     member this.IsInfinite (col:string) =
         use s = this.Column col
         s.IsInfinite()
+    // ==========================================
+    // Indexers (Syntax Sugar)
+    // ==========================================
+    member this.Item (columnName: string) : Series =
+        this.Column columnName
+    
+    member this.Item (columnIndex: int) : Series =
+        this.Column columnIndex
+    /// <summary>
+    /// [Indexer] Access cell value by Row Index and Column Name.
+    /// Syntax: df.[rowIndex, "colName"]
+    /// </summary>
+    member this.Item (rowIndex: int, columnName: string) : obj =
+        // 1. 先拿列 (Series)
+        let series = this.Column columnName
+        // 2. 再拿值 (Series Indexer)
+        series.[rowIndex]
+
+    /// <summary>
+    /// [Indexer] Access cell value by Row Index and Column Index.
+    /// Syntax: df.[rowIndex, colIndex]
+    /// </summary>
+    member this.Item (rowIndex: int, columnIndex: int) : obj =
+        let series = this.Column columnIndex
+        series.[rowIndex]
+
+    // ==========================================
+    // Row Access
+    // ==========================================
+
+    /// <summary>
+    /// Get data for a specific row as an object array.
+    /// Similar to DataTable.Rows[i].ItemArray.
+    /// </summary>
+    member this.Row (index: int) : obj[] =
+        let h = int64 this.Rows // 假设 this.Rows 返回 long
+        if int64 index < 0L || int64 index >= h then
+            raise (IndexOutOfRangeException(sprintf "Row index %d is out of bounds. Height: %d" index h))
+
+        let w = this.Columns.Length // 假设 this.Columns 是 string[]
+        let rowData = Array.zeroCreate<obj> w
+
+        // F# 的 for 循环是包含上界的，所以用 0 .. w-1
+        for i in 0 .. w - 1 do
+            // 复用 this.[row, colIndex] 索引器
+            rowData.[i] <- this.[index, i]
+
+        rowData
+
+    // ==========================================
+    // IEnumerable<Series> Support
+    // ==========================================
+
+    /// <summary>
+    /// Enable usage in sequences and loops: for series in df do ...
+    /// </summary>
+    interface IEnumerable<Series> with
+        member this.GetEnumerator() : IEnumerator<Series> =
+            let seq = seq {
+                let w = this.Columns.Length
+                for i in 0 .. w - 1 do
+                    yield this.Column(i)
+            }
+            seq.GetEnumerator()
+
+    /// <summary>
+    /// Explicit implementation for non-generic IEnumerable.
+    /// </summary>
+    interface IEnumerable with
+        member this.GetEnumerator() : IEnumerator =
+            (this :> IEnumerable<Series>).GetEnumerator() :> IEnumerator
 /// <summary>
 /// A LazyFrame represents a logical plan of operations that will be optimized and executed only when collected.
 /// </summary>
