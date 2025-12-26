@@ -62,19 +62,24 @@ type ``Basic Functionality Tests`` () =
     member _.``IO: Advanced CSV Reading (Schema, Skip, Dates)`` () =
         let path = "advanced_test.csv"
         try
-            let content = """IGNORE_THIS_LINE
-id;date_col;val_col
-007;2023-01-01;99.9
-008;2023-12-31;10.5"""
+            let content = 
+                "IGNORE_THIS_LINE\n" +
+                "id;date_col;val_col\n" +
+                "007;2023-01-01;99.9\n" +
+                "008;2023-12-31;10.5"
             System.IO.File.WriteAllText(path, content)
 
-            // [修改] 调用 DataFrame.ReadCsv
+            // 调用 DataFrame.ReadCsv
             use df = DataFrame.ReadCsv(
                 path,
                 skipRows = 1,
                 separator = ';',
                 tryParseDates = true,
-                schema = Map [("id", DataType.String)]
+                schema = Map.ofList [
+                    "id", DataType.String
+                    // "date_col", DataType.Date   // 明确告诉它这是 Date
+                    // "val_col", DataType.Float64 // 明确告诉它这是 Float
+                ]
             )
 
             Assert.Equal(2L, df.Rows)
@@ -83,7 +88,7 @@ id;date_col;val_col
             Assert.Equal(99.9, df.Float("val_col", 0).Value)
 
         finally
-            if System.IO.File.Exists path then System.IO.File.Delete path
+            if File.Exists path then File.Delete path
     [<Fact>]
     member _.``Can read&write Parquet`` () =
         // 1. 准备 CSV 数据

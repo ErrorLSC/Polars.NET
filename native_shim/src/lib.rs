@@ -11,6 +11,7 @@ mod selectors;
 mod sql;
 mod series;
 mod datatypes;
+mod schema;
 
 
 

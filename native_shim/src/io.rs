@@ -7,8 +7,8 @@ use std::ffi::{CStr, c_void};
 use std::io::BufReader;
 use std::os::raw::c_char;
 use std::fs::File;
+use crate::schema::SchemaContext;
 use crate::types::{DataFrameContext,LazyFrameContext, ptr_to_str};
-use crate::datatypes::DataTypeContext;
 
 // ==========================================
 // 读取 csv
@@ -16,9 +16,7 @@ use crate::datatypes::DataTypeContext;
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_read_csv(
     path: *const c_char,
-    schema_names: *const *const c_char,
-    schema_types: *const *mut DataTypeContext,
-    schema_len: usize,
+    schema_ptr: *mut SchemaContext,
     has_header: bool,
     separator: u8,
     skip_rows: usize,
@@ -32,28 +30,23 @@ pub extern "C" fn pl_read_csv(
         let parse_options = CsvParseOptions::default()
             .with_separator(separator)
             .with_try_parse_dates(try_parse_dates);
+        
+        // 2. 处理 Schema Overrides
+        // 处理 Schema: 如果指针为空，则为 None；否则 clone 出 SchemaRef
+        let schema = if schema_ptr.is_null() {
+            None
+        } else {
+            // 注意：SchemaContext { schema: SchemaRef }
+            // SchemaRef 是 Arc<Schema>，Clone 开销极小
+            Some(unsafe { &*schema_ptr }.schema.clone())
+        };
 
-        // 2. 构建 ReadOptions (注入 parse_options)
-        let mut options = CsvReadOptions::default()
+        // 3. 构建 ReadOptions (注入 parse_options)
+        let options = CsvReadOptions::default()
             .with_has_header(has_header)
             .with_skip_rows(skip_rows)
-            .with_parse_options(parse_options);
-
-        // 3. 处理 Schema Overrides
-        if !schema_names.is_null() && schema_len > 0 {
-            let names_slice = unsafe { std::slice::from_raw_parts(schema_names, schema_len) };
-            let types_slice = unsafe { std::slice::from_raw_parts(schema_types, schema_len) };
-            
-            // 使用 with_capacity
-            let mut schema = Schema::with_capacity(schema_len);
-            for i in 0..schema_len {
-                let name = unsafe { CStr::from_ptr(names_slice[i]).to_string_lossy().to_string() };
-                let ctx = unsafe { &*types_slice[i] };
-                schema.with_column(name.into(), ctx.dtype.clone());
-            }
-            
-            options = options.with_schema_overwrite(Some(Arc::new(schema)));
-        }
+            .with_parse_options(parse_options)
+            .with_schema_overwrite(schema);
 
         // 4. 执行读取
         // p.into_owned().into() -> String -> PathBuf
@@ -67,35 +60,31 @@ pub extern "C" fn pl_read_csv(
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_scan_csv(
     path: *const c_char,
-    schema_names: *const *const c_char,
-    schema_types: *const *mut DataTypeContext,
-    schema_len: usize,
+    schema_ptr: *mut SchemaContext,
     has_header: bool,
     separator: u8,
     skip_rows: usize,
-    try_parse_dates: bool // [新增参数]
+    try_parse_dates: bool
 ) -> *mut LazyFrameContext {
     ffi_try!({
         let p = unsafe { CStr::from_ptr(path).to_string_lossy() };
+
+        // 2. 处理 Schema Overrides
+        // 处理 Schema: 如果指针为空，则为 None；否则 clone 出 SchemaRef
+        let schema = if schema_ptr.is_null() {
+            None
+        } else {
+            // 注意：SchemaContext { schema: SchemaRef }
+            // SchemaRef 是 Arc<Schema>，Clone 开销极小
+            Some(unsafe { &*schema_ptr }.schema.clone())
+        };
         
-        let mut reader = LazyCsvReader::new(PlPath::new(&p))
+        let reader = LazyCsvReader::new(PlPath::new(&p))
             .with_has_header(has_header)
             .with_separator(separator)
             .with_skip_rows(skip_rows)
-            .with_try_parse_dates(try_parse_dates); // LazyReader 通常直接支持这个
-
-        // ... schema 逻辑 (记得用 Schema::with_capacity) ...
-        if !schema_names.is_null() && schema_len > 0 {
-             let names_slice = unsafe { std::slice::from_raw_parts(schema_names, schema_len) };
-             let types_slice = unsafe { std::slice::from_raw_parts(schema_types, schema_len) };
-             let mut schema = Schema::with_capacity(schema_len);
-             for i in 0..schema_len {
-                 let name = unsafe { CStr::from_ptr(names_slice[i]).to_string_lossy().to_string() };
-                 let ctx = unsafe { &*types_slice[i] };
-                 schema.with_column(name.into(), ctx.dtype.clone());
-             }
-             reader = reader.with_schema(Some(Arc::new(schema)));
-        }
+            .with_try_parse_dates(try_parse_dates)
+            .with_dtype_overwrite(schema); // LazyReader 通常直接支持这个
 
         let inner = reader.finish()?;
         Ok(Box::into_raw(Box::new(LazyFrameContext { inner })))

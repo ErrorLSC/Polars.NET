@@ -575,28 +575,55 @@ and DataFrame(handle: DataFrameHandle) =
         let h = PolarsWrapper.DataFrameNew handles
         new DataFrame(h)
     /// <summary>
-    static member ReadCsv (path: string, 
-                               ?schema: Map<string, DataType>, // 注意逗号
-                               ?hasHeader: bool,               // 注意逗号
-                               ?separator: char,
-                               ?skipRows: int,
-                               ?tryParseDates: bool) : DataFrame =
+    static member ReadCsv(
+        path: string, 
+        ?schema: Map<string, DataType>, 
+        ?separator: char,
+        ?hasHeader: bool,
+        ?skipRows: int,
+        ?tryParseDates: bool
+    ) : DataFrame =
         
-        let header = defaultArg hasHeader true
+        // 1. 处理默认参数
         let sep = defaultArg separator ','
-        let skip = defaultArg skipRows 0
-        let dates = defaultArg tryParseDates true
-        
-        let schemaDict = 
-            match schema with
-            | Some m -> 
-                let d = Dictionary<string, DataTypeHandle>()
-                m |> Map.iter (fun k v -> d.Add(k, v.CreateHandle()))
-                d
-            | None -> null
+        let header = defaultArg hasHeader true
+        // C# 接收 ulong (uint64)
+        let skip = defaultArg skipRows 0 |> uint64 
+        let parseDates = defaultArg tryParseDates true
 
-        let h = PolarsWrapper.ReadCsv(path, schemaDict, header, sep, uint64 skip, dates)
-        new DataFrame(h)
+        // 2. 准备 Schema Dictionary
+        // 我们需要一个可空的 Dictionary 传给 C#
+        let mutable dictArg : Dictionary<string, DataTypeHandle> = null
+        
+        // 我们需要追踪创建出来的 Handle 以便后续释放
+        // (因为 DataType.CreateHandle() 创建的是非托管资源)
+        let mutable handlesToDispose = new List<DataTypeHandle>()
+
+        try
+            // 3. 构建 Dictionary (如果用户提供了 Schema)
+            if schema.IsSome then
+                dictArg <- new Dictionary<string, DataTypeHandle>()
+                for kv in schema.Value do
+                    let h = kv.Value.CreateHandle()
+                    dictArg.Add(kv.Key, h)
+                    handlesToDispose.Add h
+
+            // 4. 调用 C# Wrapper
+            // 此时 C# 的 WithSchemaHandle 会：
+            // - 锁定我们传入的 handles
+            // - 创建临时的 Rust Schema
+            // - 调用 pl_read_csv
+            // - 释放临时的 Rust Schema
+            let dfHandle = PolarsWrapper.ReadCsv(path, dictArg, header, sep, skip, parseDates)
+            
+            new DataFrame(dfHandle)
+
+        finally
+            // 5. [关键] 释放我们在 F# 这边创建的 DataTypeHandle
+            // 虽然 C# 用了它们，但 C# 只是 Borrow (借用) 来创建 Schema
+            // 并没有接管这些 Handle 的生命周期，所以我们要负责清理
+            for h in handlesToDispose do
+                h.Dispose()
     /// <summary> Asynchronously read a CSV file into a DataFrame. </summary>
     static member ReadCsvAsync(path: string, 
                                ?schema: Map<string, DataType>,
@@ -824,10 +851,23 @@ and DataFrame(handle: DataFrameHandle) =
         let handle = expr.CloneHandle()
         let h = PolarsWrapper.WithColumns(this.Handle,[| handle |])
         new DataFrame(h)
-    member this.Select (exprs:Expr list) : DataFrame =
-         let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-         let h = PolarsWrapper.Select(this.Handle,handles)
-         new DataFrame(h)
+    member this.Select(exprs: Expr list) : DataFrame =
+        let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        let h = PolarsWrapper.Select(this.Handle, handles)
+        new DataFrame(h)
+
+    member this.Select(columns: seq<#IColumnExpr>) =
+            // 使用 Seq.collect 展平所有输入
+            // 不管是 Expr, Selector 还是 ColumnExpr，都会乖乖交出 Expr list
+            let exprs = 
+                columns 
+                |> Seq.collect (fun x -> x.ToExprs()) 
+                |> Seq.toList
+            
+            this.Select exprs
+    // member this.Select (expr:IIntoExpr): DataFrame = 
+    //     let handle = [expr] |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+    //     this.Select handle
     member this.Filter (expr: Expr) : DataFrame = 
         let h = PolarsWrapper.Filter(this.Handle,expr.CloneHandle())
         new DataFrame(h)
@@ -1102,10 +1142,6 @@ and DataFrame(handle: DataFrameHandle) =
     // ==========================================
     // IEnumerable<Series> Support
     // ==========================================
-
-    /// <summary>
-    /// Enable usage in sequences and loops: for series in df do ...
-    /// </summary>
     interface IEnumerable<Series> with
         member this.GetEnumerator() : IEnumerator<Series> =
             let seq = seq {
@@ -1115,9 +1151,6 @@ and DataFrame(handle: DataFrameHandle) =
             }
             seq.GetEnumerator()
 
-    /// <summary>
-    /// Explicit implementation for non-generic IEnumerable.
-    /// </summary>
     interface IEnumerable with
         member this.GetEnumerator() : IEnumerator =
             (this :> IEnumerable<Series>).GetEnumerator() :> IEnumerator
@@ -1492,3 +1525,22 @@ type SqlContext() =
     /// <summary> Execute a SQL query and return a LazyFrame. </summary>
     member _.Execute(query: string) =
         new LazyFrame(PolarsWrapper.SqlExecute(handle, query))
+
+type private TempSchema(schema: Map<string, DataType>) =
+    // 在构造时：创建所有 Handle 并放入 Dictionary
+    let handles = 
+        schema 
+        |> Seq.map (fun kv -> 
+            // 这里创建了非托管资源
+            kv.Key, kv.Value.CreateHandle()
+        )
+        |> dict
+        |> fun d -> new Dictionary<string, DataTypeHandle>(d)
+
+    // 对外提供给 C# 调用的字典
+    member this.Dictionary = handles
+
+    // 自动清理：释放所有创建的 Handle
+    interface IDisposable with
+        member _.Dispose() =
+            for h in handles.Values do h.Dispose()

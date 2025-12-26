@@ -33,9 +33,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial DataFrameHandle pl_read_csv(
         string path,
-        IntPtr[]? schemaNames,    // Schema Keys
-        IntPtr[]? schemaTypes,    // Schema Values (DataTypeContext*)
-        UIntPtr schemaLen,
+        SchemaHandle schema,
         [MarshalAs(UnmanagedType.I1)] bool hasHeader,
         byte separator,
         UIntPtr skipRows,
@@ -334,9 +332,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_scan_csv(
         string path,
-        IntPtr[]? schemaNames,
-        IntPtr[]? schemaTypes,
-        UIntPtr schemaLen,
+        SchemaHandle schema,
         [MarshalAs(UnmanagedType.I1)] bool hasHeader,
         byte separator,
         UIntPtr skipRows,
@@ -359,14 +355,19 @@ unsafe internal partial class NativeBindings
     public static partial void pl_lazy_sink_csv(LazyFrameHandle lf, string path);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
     public static partial void pl_lazy_sink_json(LazyFrameHandle lf, string path);
-    // Lazy Introspection
+    // Schema
     [LibraryImport(LibName)]
     public static partial void pl_schema_free(IntPtr ptr);
     // Get Schema form LazyFrame
     // 注意：Rust 需要 &mut self，但 C# 只需要传 Handle，不用担心 Mutability
     [LibraryImport(LibName)]
     public static partial SchemaHandle pl_lazy_frame_get_schema(LazyFrameHandle lf);
-
+    [LibraryImport(LibName)]
+    public static partial SchemaHandle pl_schema_new(
+        IntPtr[] names, 
+        IntPtr[] dtypes, 
+        UIntPtr len
+    );
     // Introspection
     [LibraryImport(LibName)]
     public static partial UIntPtr pl_schema_len(SchemaHandle schema);

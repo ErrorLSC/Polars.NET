@@ -23,8 +23,8 @@ type SelectorTests() =
         // Python: cs.numeric()
         let numSel = pl.cs.numeric()
         
-        // 注意：Select 接收 Expr list，Selector.ToExpr() 转为 Expr
-        let dfNum = df.Select [numSel.ToExpr()]
+        // 注意：Select 接收 Expr list
+        let dfNum = df.Select [numSel]
         
         Assert.Equal(2L, dfNum.Width)
         Assert.Contains("Age", dfNum.Columns)
@@ -33,14 +33,14 @@ type SelectorTests() =
 
         // --- 场景 B: 选布尔列 (IsActive) ---
         let boolSel = pl.cs.byType pl.Boolean
-        let dfBool = df.Select [boolSel.ToExpr()]
+        let dfBool = df.Select [boolSel]
         
         Assert.Equal(1L, dfBool.Width)
         Assert.Equal("IsActive", dfBool.Columns.[0])
 
         // --- 场景 C: 字符串模式 (Starts With) ---
         let nameSel = pl.cs.startsWith "Na"
-        let dfName = df.Select [nameSel.ToExpr()]
+        let dfName = df.Select [nameSel]
         
         Assert.Equal("Name", dfName.Columns.[0])
 
@@ -51,7 +51,7 @@ type SelectorTests() =
         // --- 场景 A: Intersection (&&&) ---
         // 需求：既是数值类型，名字又包含 "Ag" (即 Age，排除 Salary)
         let selAnd = pl.cs.numeric() &&& pl.cs.contains "Ag"
-        let dfAnd = df.Select [selAnd.ToExpr()]
+        let dfAnd = df.Select [selAnd]
 
         Assert.Single dfAnd.Columns |> ignore // 只有 1 列
         Assert.Equal("Age", dfAnd.Columns.[0])
@@ -59,7 +59,7 @@ type SelectorTests() =
         // --- 场景 B: Union (|||) ---
         // 需求：数值列 OR 布尔列 (Age, Salary, IsActive)
         let selOr = pl.cs.numeric() ||| pl.cs.byType pl.Boolean
-        let dfOr = df.Select([selOr.ToExpr()])
+        let dfOr = df.Select [selOr]
         
         Assert.Equal(3L, dfOr.Width)
         Assert.Contains("Age", dfOr.Columns)
@@ -69,7 +69,7 @@ type SelectorTests() =
         // --- 场景 C: Inversion (~~~) ---
         // 需求：非数值列 (Name, IsActive, JoinDate)
         let selNot = ~~~(pl.cs.numeric())
-        let dfNot = df.Select([selNot.ToExpr()])
+        let dfNot = df.Select [selNot]
         
         Assert.Equal(3L, dfNot.Width)
         Assert.Contains("Name", dfNot.Columns)
@@ -83,8 +83,8 @@ type SelectorTests() =
 
         // --- 场景 A: 显式 Exclude ---
         // 选所有列，但排除 "Salary" 和 "JoinDate"
-        let selExc = pl.cs.all().Exclude(["Salary"; "JoinDate"])
-        let dfExc = df.Select([selExc.ToExpr()])
+        let selExc = pl.cs.all().Exclude ["Salary"; "JoinDate"]
+        let dfExc = df.Select [selExc]
         
         Assert.DoesNotContain("Salary", dfExc.Columns)
         Assert.DoesNotContain("JoinDate", dfExc.Columns)
@@ -93,7 +93,7 @@ type SelectorTests() =
         // --- 场景 B: 减法操作符 (-) ---
         // Numeric - Float64 (只剩 Int: Age)
         let selDiff = pl.cs.numeric() - pl.cs.byType pl.Float64
-        let dfDiff = df.Select [selDiff.ToExpr()]
+        let dfDiff = df.Select [selDiff]
         
         Assert.Single dfDiff.Columns |> ignore
         Assert.Equal("Age", dfDiff.Columns.[0])
@@ -104,7 +104,7 @@ type SelectorTests() =
 
         // 匹配以 "Is" 开头或以 "me" 结尾的列 (IsActive, Name)
         let selRegex = pl.cs.matches "^Is.*|.*me$"
-        let dfRegex = df.Select [selRegex.ToExpr()]
+        let dfRegex = df.Select [selRegex]
         
         Assert.Equal(2L, dfRegex.Width)
         Assert.Contains("IsActive", dfRegex.Columns)
@@ -122,20 +122,20 @@ type SelectorTests() =
         
         let dfTransformed = 
             df.Select([
-                // 1. 数值列处理
-                pl.cs.numeric()
+                // 1. Expr (计算逻辑)
+                // 使用 !> 标记这是一个 IColumnExpr
+                !> pl.cs.numeric()
                     .ToExpr()
-                    .Truediv(pl.lit 100.0) // 这里演示 Selector 转 Expr 后可以直接链式调用计算！
-                    .Name.Suffix "_pct" // 重命名后缀
+                    .Truediv(pl.lit 100.0)
+                    .Name.Suffix("_pct")
                 
-                // 2. 字符串列处理 (假设有 Str.ToUpper)
-                // pl.cs.byType pl.String
-                //     .ToExpr()
-                //     .Str.ToUpper()
+                // 2. Selector (直接筛选)
+                // 字符串转大写 (假设你有 Str.ToUpper, 这里先用 Selector 占位)
+                !> pl.cs.byType(pl.String)
                 
-                // 3. 保留其他列 (JoinDate, IsActive)
-                // 排除 numeric 和 string
-                (~~~(pl.cs.numeric() ||| pl.cs.byType pl.String)).ToExpr()
+                // 3. Selector (排除逻辑)
+                // 也不需要 .ToExpr() 了，直接用 Selector
+                !> ~~~(pl.cs.numeric() ||| pl.cs.byType pl.String)
             ])
             
         // 验证数值列变了

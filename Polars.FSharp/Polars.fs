@@ -297,3 +297,8 @@ module PolarsAutoOpen =
     let inline lit value = pl.lit value
 
     let inline alias column = pl.alias column    
+    /// <summary>
+    /// Upcast operator: Converts Expr or Selector to IColumnExpr interface.
+    /// Helps mixing types in a list.
+    /// </summary>
+    let inline (!>) (x: #IColumnExpr) = x :> IColumnExpr

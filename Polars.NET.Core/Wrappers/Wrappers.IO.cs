@@ -6,49 +6,28 @@ namespace Polars.NET.Core;
 
 public static partial class PolarsWrapper
 {
-    private static T WithSchemaArrays<T>(
-        Dictionary<string, DataTypeHandle>? schema, 
-        Func<IntPtr[]?, IntPtr[]?, UIntPtr, T> action)
+    public static DataFrameHandle ReadCsv(
+        string path, 
+        Dictionary<string, DataTypeHandle>? schema = null,
+        bool hasHeader = true,
+        char separator = ',',
+        ulong skipRows = 0,
+        bool tryParseDates = true)
     {
-        // 1. 处理空 Schema 情况
-        if (schema == null || schema.Count == 0)
+        // 使用新的 WithSchemaHandle Helper
+        return WithSchemaHandle(schema, (schemaHandle) => 
         {
-            return action(null, null, UIntPtr.Zero);
-        }
-
-        var names = schema.Keys.ToArray();
-        var handles = schema.Values.ToArray(); // 拿到所有 SafeHandle 对象
-        using var locker = new SafeHandleLock<DataTypeHandle>(handles);
-        var rawTypePtrs = locker.Pointers;
-        // 字符串数组的处理
-        return UseUtf8StringArray(names, namePtrs => 
-        {
-            // locker.Pointers 就是我们要的 IntPtr[] typePtrs
-            return action(namePtrs, rawTypePtrs, (UIntPtr)names.Length);
+            // 现在的调用非常干净，只需要传一个 schemaHandle
+            return ErrorHelper.Check(NativeBindings.pl_read_csv(
+                path, 
+                schemaHandle, // <--- 强类型 Handle
+                hasHeader, 
+                (byte)separator, 
+                (UIntPtr)skipRows,
+                tryParseDates
+            ));
         });
     }
-    public static DataFrameHandle ReadCsv(
-            string path, 
-            Dictionary<string, DataTypeHandle>? schema = null,
-            bool hasHeader = true,
-            char separator = ',',
-            ulong skipRows = 0,
-            bool tryParseDates = true) // [新增] 默认开启
-        {
-            return WithSchemaArrays(schema, (namePtrs, typePtrs, len) => 
-            {
-                return ErrorHelper.Check(NativeBindings.pl_read_csv(
-                    path, 
-                    namePtrs, 
-                    typePtrs, 
-                    len, 
-                    hasHeader, 
-                    (byte)separator, 
-                    (UIntPtr)skipRows,
-                    tryParseDates
-                ));
-            });
-        }
     public static Task<DataFrameHandle> ReadCsvAsync(
             string path,
             Dictionary<string, DataTypeHandle>? schema = null,
@@ -60,27 +39,27 @@ public static partial class PolarsWrapper
         return Task.Run(() => ReadCsv(path,schema,hasHeader,separator,skipRows, tryParseDates));
     }
     public static LazyFrameHandle ScanCsv(
-            string path, 
-            Dictionary<string, DataTypeHandle>? schema = null,
-            bool hasHeader = true,
-            char separator = ',',
-            ulong skipRows = 0,
-            bool tryParseDates = true) // [新增]
+        string path, 
+        Dictionary<string, DataTypeHandle>? schema = null,
+        bool hasHeader = true,
+        char separator = ',',
+        ulong skipRows = 0,
+        bool tryParseDates = true)
+    {
+        // 使用新的 WithSchemaHandle Helper
+        return WithSchemaHandle(schema, (schemaHandle) => 
         {
-            return WithSchemaArrays(schema, (namePtrs, typePtrs, len) => 
-            {
-                return ErrorHelper.Check(NativeBindings.pl_scan_csv(
-                    path, 
-                    namePtrs, 
-                    typePtrs, 
-                    len, 
-                    hasHeader, 
-                    (byte)separator, 
-                    (UIntPtr)skipRows,
-                    tryParseDates
-                ));
-            });
-        }
+            // 现在的调用非常干净，只需要传一个 schemaHandle
+            return ErrorHelper.Check(NativeBindings.pl_scan_csv(
+                path, 
+                schemaHandle, // <--- 强类型 Handle
+                hasHeader, 
+                (byte)separator, 
+                (UIntPtr)skipRows,
+                tryParseDates
+            ));
+        });
+    }
 
     public static DataFrameHandle ReadParquet(string path)
     {

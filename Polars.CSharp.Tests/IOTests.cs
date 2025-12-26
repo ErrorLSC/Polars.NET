@@ -518,4 +518,193 @@ namespace Polars.CSharp.Tests
             Assert.Equal(DBNull.Value, targetTable.Rows[1]["Date"]);
         }
     }
+    public class CsvSchemaTests
+    {
+        [Fact]
+        public void Test_ReadCsv_With_Explicit_Schema()
+        {
+            // 1. 准备测试数据
+            // 默认情况下:
+            // "id"   会被推断为 Int64
+            // "rate" 会被推断为 Float64
+            // "date" 会被推断为 Date 或 String
+            string csvContent = @"id,name,rate,date
+1,Apple,1.5,2023-01-01
+2,Banana,3.7,2023-05-20
+3,Cherry,,2023-10-10";
+
+            string filePath = Path.GetTempFileName() + ".csv";
+            File.WriteAllText(filePath, csvContent);
+
+            try
+            {
+                Console.WriteLine($"[Test] Created temp CSV at: {filePath}");
+
+                // 2. 定义强制 Schema (覆盖默认推断)
+                // 我们故意使用非默认类型来验证 Schema 是否生效
+                var explicitSchema = new Dictionary<string, DataType>
+                {
+                    // 强制 id 为 Int32 (默认是 Int64)
+                    ["id"] = DataType.Int32,
+                    
+                    // name 保持 String
+                    ["name"] = DataType.String,
+                    
+                    // 强制 rate 为 Float32 (默认是 Float64)
+                    ["rate"] = DataType.Float32,
+                    
+                    // 强制 date 为 String (禁止自动解析日期)
+                    ["date"] = DataType.String 
+                };
+
+                // 3. 执行读取 (Eager Mode)
+                // 这里会触发 WithSchemaHandle -> pl_schema_new -> pl_read_csv
+                using var df = DataFrame.ReadCsv(filePath, schema: explicitSchema);
+
+                Console.WriteLine("[Test] DataFrame loaded successfully.");
+                Console.WriteLine(df); // 这里会打印 Schema 字符串，你可以人工检查
+
+                // 4. 验证 Schema (Introspection)
+                var resultSchema = df.Schema;
+
+                // 验证: id 应该是 Int32
+                Assert.Equal(DataTypeKind.Int32, resultSchema["id"].Kind);
+                
+                // 验证: rate 应该是 Float32
+                Assert.Equal(DataTypeKind.Float32, resultSchema["rate"].Kind);
+
+                // 验证: date 应该是 String (因为我们强制指定了)
+                Assert.Equal(DataTypeKind.String, resultSchema["date"].Kind);
+
+                // 5. 验证数据正确性 (可选)
+                // 确保数据没有因为类型转换而乱码
+                // 注意：这里需要你之前实现的 Series GetValue 相关方法支持
+                // 简单起见，我们检查 Null Count
+                Assert.Equal(1, df["rate"].NullCount);
+            }
+            finally
+            {
+                if (File.Exists(filePath))
+                    File.Delete(filePath);
+            }
+        }
+
+        [Fact]
+        public void Test_ScanCsv_With_Explicit_Schema()
+        {
+            // 测试 LazyFrame (ScanCsv)
+            string csvContent = "val\n100\n200";
+            string filePath = Path.GetTempFileName() + ".csv";
+            File.WriteAllText(filePath, csvContent);
+
+            try
+            {
+                // 强制转为 Float64 (默认 Int64)
+                var schema = new Dictionary<string, DataType>
+                {
+                    ["val"] = DataType.Float64
+                };
+
+                // Lazy Mode
+                // 这里触发 pl_scan_csv
+                using var lf = LazyFrame.ScanCsv(filePath, schema: schema);
+                
+                // 此时还未读取文件，但 Schema 应该是我们指定的
+                // 注意：LazyFrame.Schema 属性会触发 collect_schema
+                var lfSchema = lf.Schema;
+
+                Assert.Equal(DataTypeKind.Float64, lfSchema["val"].Kind);
+                Console.WriteLine("[Test] LazyFrame Schema validated.");
+
+                // Collect 并验证结果
+                using var df = lf.Collect();
+                Assert.Equal(DataTypeKind.Float64, df.Schema["val"].Kind);
+            }
+            finally
+            {
+                if (File.Exists(filePath))
+                    File.Delete(filePath);
+            }
+        }
+        [Fact]
+        public void Test_ReadCsv_AllOptions_EndToEnd()
+        {
+            // 1. 准备“非标准”的脏数据
+            // 特征：
+            // - 前两行是垃圾注释 (需要 skipRows=2)
+            // - 使用分号 ';' 分隔 (需要 separator=';')
+            // - 包含日期字符串 (需要 tryParseDates=true)
+            // - 我们希望 ID 是 Int32 而不是默认的 Int64 (需要 schema)
+            string csvContent = 
+@"# Metadata Line 1: Created by System X
+# Metadata Line 2: Version 1.0
+ID;ProductName;Weight;ReleaseDate
+101;Quantum Gadget;1.55;2023-12-25
+102;Hyper Widget;;2024-01-01";
+
+            string filePath = Path.GetTempFileName();
+            File.WriteAllText(filePath, csvContent);
+
+            try
+            {
+                // 2. 定义强制 Schema (Introspection 验证点)
+                var explicitSchema = new Dictionary<string, DataType>
+                {
+                    ["ID"] = DataType.Int32,        // 强制 Int32
+                    // ["ProductName"] = DataType.String,
+                    ["Weight"] = DataType.Float32,  // 强制 Float32
+                    ["ReleaseDate"] = DataType.Date // 强制 Date
+                };
+
+                // 3. 调用全参数 ReadCsv
+                using var df = DataFrame.ReadCsv(
+                    path: filePath,
+                    schema: explicitSchema,    // 验证 Schema 注入
+                    hasHeader: true,           // 验证表头解析
+                    separator: ';',            // 验证自定义分隔符
+                    skipRows: 2,               // 验证跳过行
+                    tryParseDates: true        // 验证日期解析
+                );
+
+                // 4. 验证结构 (Shape)
+                Assert.Equal(2, df.Height); // 2 行数据
+                Assert.Equal(4, df.Width);  // 4 列
+
+                // 5. 验证元数据 (Schema)
+                var resultSchema = df.Schema;
+                Assert.Equal(DataTypeKind.Int32, resultSchema["ID"].Kind);
+                Assert.Equal(DataTypeKind.Float32, resultSchema["Weight"].Kind);
+                Assert.Equal(DataTypeKind.Date, resultSchema["ReleaseDate"].Kind);
+
+                // 6. 验证标量值 (利用索引器)
+                
+                // 第一行数据验证
+                Assert.Equal(101, df["ID"][0]); 
+                Assert.Equal("Quantum Gadget", df["ProductName"][0]);
+                
+                // 浮点数精度验证
+                // 注意：Float32 在 C# 是 float，在 Assert.Equal 时最好指定精度
+                Assert.Equal(1.55f, (float)df["Weight"][0], 0.0001f);
+                
+                // 日期验证 (Polars Date 内部通常存储为 Days Int32，或者 C# Binding 映射为 DateTime/DateOnly)
+                // 这里假设你的 Binding 将 Date 映射为 DateTime 或 DateOnly
+                // 如果返回的是 DateTime：
+                var dateVal = df["ReleaseDate"][0];
+                Assert.Equal(new DateOnly(2023, 12, 25), dateVal);
+
+                // 7. 验证 Null 处理 (第二行 Weight 为 null)
+                // 方式 A: 检查 NullCount
+                Assert.Equal(1, df["Weight"].NullCount);
+                
+                // 方式 B: 标量值检查 (取决于你的 indexer 对 null 的返回是 null 还是 DBNull.Value)
+                // 假设是 null
+                Assert.Null(df["Weight"][1]);
+            }
+            finally
+            {
+                if (File.Exists(filePath)) 
+                    File.Delete(filePath);
+            }
+        }
+    }
 }

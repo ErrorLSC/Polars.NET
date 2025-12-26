@@ -4,12 +4,18 @@ open System
 open Polars.NET.Core
 open Apache.Arrow
 
+type IColumnExpr =
+    abstract member ToExprs : unit -> Expr list
+
 /// <summary>
 /// Represents a Polars Expression, which can be a column reference, a literal value, or a computation.
 /// </summary>
-type Expr(handle: ExprHandle) =
+and Expr(handle: ExprHandle) =
     member _.Handle = handle
     member internal this.CloneHandle() = PolarsWrapper.CloneExpr handle
+
+    interface IColumnExpr with
+        member this.ToExprs() = [this]
 
     // --- Namespaces ---
     /// <summary> Access naming operations (prefix/suffix). </summary>
@@ -464,4 +470,87 @@ and StructOps(handle: ExprHandle) =
         new Expr(PolarsWrapper.StructJsonEncode handle);
 
 
+/// <summary>
+/// A column selection strategy (e.g., all columns, or specific columns).
+/// </summary>
+and Selector(handle: SelectorHandle) =
+    member _.Handle = handle
+    
+    member internal this.CloneHandle() = 
+        PolarsWrapper.CloneSelector handle
 
+    // ==========================================
+    // Methods
+    // ==========================================
+
+    /// <summary> Exclude columns from a wildcard selection (col("*")). </summary>
+    member this.Exclude(names: string list) =
+        let arr = List.toArray names
+        new Selector(PolarsWrapper.SelectorExclude(this.CloneHandle(), arr))
+        
+    /// <summary>
+    /// Convert the Selector to an Expression.
+    /// Selectors are essentially dynamic Expressions that expand to column names.
+    /// </summary>
+    member this.ToExpr() =
+        new Expr(PolarsWrapper.SelectorToExpr(this.CloneHandle()))
+
+    interface IColumnExpr with
+        member this.ToExprs() = [this.ToExpr()]
+
+    // ==========================================
+    // Operators (The Magic 🪄)
+    // ==========================================
+
+    /// <summary> NOT operator: ~selector </summary>
+    /// <example> ~~~pl.cs.numeric() </example>
+    static member (~~~) (s: Selector) = 
+        new Selector(PolarsWrapper.SelectorNot(s.CloneHandle()))
+
+    /// <summary> AND operator: s1 &&& s2 (Intersection) </summary>
+    /// <example> pl.cs.numeric() &&& pl.cs.matches("Val") </example>
+    static member (&&&) (l: Selector, r: Selector) = 
+        new Selector(PolarsWrapper.SelectorAnd(l.CloneHandle(), r.CloneHandle()))
+
+    /// <summary> OR operator: s1 ||| s2 (Union) </summary>
+    /// <example> pl.cs.startsWith("A") ||| pl.cs.endsWith("Z") </example>
+    static member (|||) (l: Selector, r: Selector) = 
+        new Selector(PolarsWrapper.SelectorOr(l.CloneHandle(), r.CloneHandle()))
+
+    /// <summary> subtraction operator: s1 - s2 (Difference) </summary>
+    /// <remarks> Some Polars versions support this as a shorthand for Exclude or Difference </remarks>
+    static member (-) (l: Selector, r: Selector) =
+        // 逻辑通常等同于: l &&& (~~~r)
+        // 或者如果 Rust 有专门的 diff 接口
+         new Selector(PolarsWrapper.SelectorAnd(l.CloneHandle(), PolarsWrapper.SelectorNot(r.CloneHandle())))
+
+/// <summary>
+/// 高级列选择表达式 DSL。
+/// 允许包装 Expr，或者对 Selector 结果应用函数。
+/// </summary>
+type ColumnExpr =
+    /// <summary> 普通表达式 </summary>
+    | Plain of Expr
+    
+    /// <summary> 普通 Selector </summary>
+    | Select of Selector
+    
+    /// <summary> 带映射的 Selector (先选列，再计算) </summary>
+    /// <example> Map(pl.cs.numeric(), fun e -> e * pl.lit(2)) </example>
+    | MapCols of Selector * (Expr -> Expr)
+
+    // 实现接口：这是核心魔法
+    interface IColumnExpr with
+        member this.ToExprs() =
+            match this with
+            | Plain e -> [ e ]
+            
+            | Select s -> [ s.ToExpr() ]
+            
+            | MapCols (s, mapper) -> 
+                // 1. Selector -> Wildcard Expr (e.g. col("*"))
+                let wildcard = s.ToExpr()
+                // 2. 应用映射函数 (e.g. col("*") * 2)
+                let mappedExpr = mapper wildcard
+                // 3. 返回列表
+                [ mappedExpr ]
