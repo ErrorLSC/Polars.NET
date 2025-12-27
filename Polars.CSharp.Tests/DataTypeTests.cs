@@ -385,13 +385,16 @@ public class DataTypeTests
         Assert.Equal(DataTypeKind.Datetime, schema1.Kind);
         Assert.Equal("Asia/Shanghai", schema1.TimeZone); // 验证 Rust 接收到了时区字符串
 
-        // 验证数值 (Replace 不应该改变墙上时间)
-        // 注意：具体 C# 取出的 DateTime Kind 取决于 Binding 实现，
-        // 但 ToString() 应该包含时区信息或保持 10:00
-        // 这里我们简单验证 ToString 是否合理，或者通过 Convert 后的逻辑间接验证
-        // (假设我们还没实现精确的 Datetime -> C# DateTimeOffset 的 Marshaling，主要测 Schema)
-        
+        object valReplace = df1["ts_shanghai"][0];
 
+        Assert.IsType<DateTimeOffset>(valReplace); // 验证类型自动转换
+        var dtoReplace = (DateTimeOffset)valReplace;
+
+        // 验证墙上时间 (Wall Time)
+        Assert.Equal(10, dtoReplace.Hour); 
+        // 验证偏移量 (Offset) -> 上海是 +8
+        Assert.Equal(TimeSpan.FromHours(8), dtoReplace.Offset);
+        
         // --- 测试 2: ConvertTimeZone (Asia/Shanghai -> UTC) ---
         // 预期：上海时间 10:00 对应 UTC 时间 02:00
         // 墙上时间应该发生变化 (-8小时)
@@ -407,8 +410,8 @@ public class DataTypeTests
         Assert.Equal("UTC", schema2.TimeZone);
 
         // 验证值：10:00 Shanghai -> 02:00 UTC
-        // 如果你的索引器返回的是 DateTime，它应该是 02:00
-        var valUtc = (DateTime)df2["ts_utc"][0];
+        // 如果你的索引器返回的是 DateTimeOffset，它应该是 02:00
+        var valUtc = (DateTimeOffset)df2["ts_utc"][0];
         Assert.Equal(2, valUtc.Hour); 
 
 
@@ -425,7 +428,7 @@ public class DataTypeTests
         var schema3 = df3.Schema["ts_converted"];
         Assert.Equal("Asia/Shanghai", schema3.TimeZone);
 
-        var valConverted = (DateTime)df3["ts_converted"][0];
+        var valConverted = df3["ts_converted"][0];
         // 2. [修正] 验证数值
         // 不要直接取 C# DateTime (它看到的是底层的 UTC)
         // 而是让 Polars 计算 "这个时区下的小时是多少"

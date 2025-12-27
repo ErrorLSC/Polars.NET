@@ -184,9 +184,9 @@ public class Series : IDisposable
 
                     // [补全] 日期
                     DataTypeKind.Date => GetValue<DateOnly?>(index), // 或 DateOnly?
-                    DataTypeKind.Datetime => GetValue<DateTime?>(index), 
-                    // 注意：这里我们选择返回 DateTime 而不是 DateTimeOffset，
-                    // 以符合 .NET 数据处理（如 DataTable）的习惯。
+                    DataTypeKind.Datetime => string.IsNullOrEmpty(this.DataType.TimeZone) 
+                        ? GetValue<DateTime?>(index)      // 无时区：返回 DateTime
+                        : (object?)GetValue<DateTimeOffset?>(index),
 
                     // [补全] 二进制
                     DataTypeKind.Binary => GetValue<byte[]>(index),
