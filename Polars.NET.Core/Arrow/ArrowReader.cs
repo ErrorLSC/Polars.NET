@@ -210,12 +210,16 @@ namespace Polars.NET.Core.Arrow
 
                 else if (underlyingType == typeof(int) || underlyingType == typeof(long) 
                 || underlyingType == typeof(uint) || underlyingType == typeof(ushort)
-                || underlyingType == typeof(ulong) )
+                || underlyingType == typeof(ulong) || underlyingType == typeof(sbyte)
+                || underlyingType == typeof(byte) || underlyingType == typeof(short))
                 {
                     baseAccessor = idx => 
                     {
                         long? val = array.GetInt64Value(idx);
                         if (!val.HasValue) return null;
+                        if (underlyingType == typeof(sbyte)) return (sbyte)val.Value;
+                        if (underlyingType == typeof(byte))  return (byte)val.Value;
+                        if (underlyingType == typeof(short)) return (short)val.Value;
                         if (underlyingType == typeof(int)) return (int)val.Value;
                         if (underlyingType == typeof(uint)) return (uint)val.Value;
                         if (underlyingType == typeof(ushort)) return (ushort)val.Value;

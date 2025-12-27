@@ -692,7 +692,7 @@ type ``Complex Query Tests`` () =
                     // 对所有数值列 (这里只有 Value) 求和，并加后缀
                     !> pl.cs.numeric().ToExpr().Sum().Name.Suffix("_Sum") 
                 ]
-            ).Collect().Sort([pl.col "Category"; pl.col "Time"], [false; false]) // 排序以便断言
+            ).Collect().Sort([pl.col "Category"; pl.col "Time"], false) // 排序以便断言
 
         // 3. 验证结果
         // 预期窗口:

@@ -1,3 +1,5 @@
+using Apache.Arrow.Types;
+using Microsoft.VisualBasic;
 using static Polars.CSharp.Polars;
 namespace Polars.CSharp.Tests;
 
@@ -354,5 +356,100 @@ public class DataTypeTests
         var list0 = s.GetValue<List<int>>(0);
         Assert.Equal(2, list0.Count);
         Assert.Equal(2, list0[1]);
+    }
+    [Fact]
+    public void Test_TimeZone_Operations_EndToEnd()
+    {
+        // 1. 准备数据：无时区时间 (Naive DateTime)
+        // 2023-01-01 10:00:00
+        var dt = new DateTime(2023, 1, 1, 10, 0, 0);
+        
+        using var df = DataFrame.FromColumns(new 
+        {
+            // 创建一个名为 "ts" 的列
+            ts = new[] { dt } 
+        });
+
+        // --- 测试 1: ReplaceTimeZone (Naive -> Asia/Shanghai) ---
+        // 预期：元数据变为 Shanghai，但时间数值仍然是 10:00
+        
+        using var df1 = df.Select(
+            Col("ts")
+                .Dt
+                .ReplaceTimeZone("Asia/Shanghai")
+                .Alias("ts_shanghai")
+        );
+
+        // 验证 Schema
+        var schema1 = df1.Schema["ts_shanghai"];
+        Assert.Equal(DataTypeKind.Datetime, schema1.Kind);
+        Assert.Equal("Asia/Shanghai", schema1.TimeZone); // 验证 Rust 接收到了时区字符串
+
+        // 验证数值 (Replace 不应该改变墙上时间)
+        // 注意：具体 C# 取出的 DateTime Kind 取决于 Binding 实现，
+        // 但 ToString() 应该包含时区信息或保持 10:00
+        // 这里我们简单验证 ToString 是否合理，或者通过 Convert 后的逻辑间接验证
+        // (假设我们还没实现精确的 Datetime -> C# DateTimeOffset 的 Marshaling，主要测 Schema)
+        
+
+        // --- 测试 2: ConvertTimeZone (Asia/Shanghai -> UTC) ---
+        // 预期：上海时间 10:00 对应 UTC 时间 02:00
+        // 墙上时间应该发生变化 (-8小时)
+
+        using var df2 = df1.Select(
+            Col("ts_shanghai")
+            .Dt
+            .ConvertTimeZone("UTC")
+            .Alias("ts_utc")
+        );
+
+        var schema2 = df2.Schema["ts_utc"];
+        Assert.Equal("UTC", schema2.TimeZone);
+
+        // 验证值：10:00 Shanghai -> 02:00 UTC
+        // 如果你的索引器返回的是 DateTime，它应该是 02:00
+        var valUtc = (DateTime)df2["ts_utc"][0];
+        Assert.Equal(2, valUtc.Hour); 
+
+
+        // --- 测试 3: 链式操作 (Naive -> UTC -> Shanghai) ---
+        // 输入 10:00 (视为UTC) -> 转为 Shanghai (应该变成 18:00)
+        
+        using var df3 = df.Select(
+            Col("ts").Dt
+            .ReplaceTimeZone("UTC").Dt           // 标记为 UTC (10:00)
+            .ConvertTimeZone("Asia/Shanghai")  // 转为 Shanghai (+8h -> 18:00)
+            .Alias("ts_converted")
+        );
+
+        var schema3 = df3.Schema["ts_converted"];
+        Assert.Equal("Asia/Shanghai", schema3.TimeZone);
+
+        var valConverted = (DateTime)df3["ts_converted"][0];
+        // 2. [修正] 验证数值
+        // 不要直接取 C# DateTime (它看到的是底层的 UTC)
+        // 而是让 Polars 计算 "这个时区下的小时是多少"
+        using var dfCheck = df3.Select(
+            Col("ts_converted").Dt.Hour().Alias("h")
+        );
+        // Polars 知道是上海时间，所以它会返回 18(Int8)
+        var hour = dfCheck["h"][0];
+        Assert.Equal((sbyte)18, hour);
+
+        // --- 测试 4: Remove TimeZone (Aware -> Naive) ---
+        // 将上海时间移除时区，变回 Naive
+        
+        using var df4 = df3.Select(
+            Col("ts_converted").Dt
+            .ReplaceTimeZone(null) // 传入 null
+            .Alias("ts_naive")
+        );
+
+        var schema4 = df4.Schema["ts_naive"];
+        Assert.Equal("",schema4.TimeZone); // 验证时区被移除了
+        
+        // 值应该保持 18:00 (Replace 不改值)
+        var valNaive = (DateTime)df4["ts_naive"][0];
+        Assert.Equal(18, valNaive.Hour);
     }
 }
