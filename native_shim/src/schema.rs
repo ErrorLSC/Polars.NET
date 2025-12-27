@@ -1,10 +1,6 @@
-use crate::{datatypes::DataTypeContext, types::LazyFrameContext};
+use crate::types::{DataTypeContext, LazyFrameContext, SchemaContext};
 use std::{ffi::{CStr, CString}, os::raw::c_char};
 use polars_core::prelude::*;
-
-pub struct SchemaContext {
-    pub schema: SchemaRef, // 使用 Arc<Schema>
-}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pl_lazy_frame_get_schema(lf_ptr: *mut LazyFrameContext) -> *mut SchemaContext {

@@ -89,10 +89,10 @@ public class StreamingTests
         // 2. 构建查询计划 (Filter -> Select -> Alias)
         // 我们只保留偶数行，并且把 Value 翻倍
         var q = lf
-            .Filter(Polars.Col("Group") == Polars.Lit("Even"))
+            .Filter(Col("Group") == Lit("Even"))
             .Select(
-                Polars.Col("Id"),
-                (Polars.Col("Value") * Polars.Lit(2)).Alias("DoubleValue")
+                Col("Id"),
+                (Col("Value") * 2).Alias("DoubleValue")
             );
 
         // 3. 第一次执行 (Trigger!)
@@ -161,8 +161,8 @@ public class StreamingTests
         // 3. 定义计算图
         // 过滤条件非常苛刻，只有最后一行满足
         var q = lf
-            .Filter(Polars.Col("Id") > Polars.Lit(999_998)) 
-            .Select(Polars.Col("Id"), Polars.Col("Value"));
+            .Filter(Col("Id") > 999_998) 
+            .Select(Col("Id"), Col("Value"));
 
         // 4. 执行: Streaming Collect
         // Rust 引擎会：
@@ -233,11 +233,11 @@ public class StreamingTests
         // 3. 对 Id 求和 (测试大数聚合)
         // 4. 对 Value 求和
         var q = lf
-            .Filter(Polars.Col("Category") == Polars.Lit("Category_A"))
+            .Filter(Col("Category") == Lit("Category_A"))
             .Select(
-                Polars.Col("Id").Sum().Alias("SumId"),
-                (Polars.Col("Value") * Polars.Lit(2)).Sum().Alias("SumValue"), // 1.0 * 2 * 5000w = 1亿
-                Polars.Col("Id").Count().Alias("Count")
+                Col("Id").Sum().Alias("SumId"),
+                (Col("Value") * 2).Sum().Alias("SumValue"), // 1.0 * 2 * 5000w = 1亿
+                Col("Id").Count().Alias("Count")
             );
 
         // 3. 执行：CollectStreaming (开启流式引擎)

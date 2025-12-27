@@ -2,13 +2,8 @@ use polars::prelude::*;
 use polars_arrow::array::{Array, ListArray};
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
+use crate::types::{DataTypeContext, SeriesContext};
 use crate::utils::*;
-use crate::datatypes::DataTypeContext;
-
-// 包装结构体
-pub struct SeriesContext {
-    pub series: Series,
-}
 
 // ==========================================
 // Constructors 

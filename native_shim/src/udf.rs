@@ -1,7 +1,6 @@
 use polars::prelude::*;
 use polars_arrow::ffi;
-use crate::types::{ExprContext};
-use crate::datatypes::DataTypeContext;
+use crate::types::{ExprContext,DataTypeContext};
 use std::sync::Arc;
 use polars_arrow::datatypes::Field as ArrowField;
 use std::ffi::{CStr,c_void};

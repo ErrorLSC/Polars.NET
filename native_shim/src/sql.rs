@@ -1,7 +1,7 @@
 use polars::prelude::*;
 use polars::sql::SQLContext;
 use std::os::raw::c_char;
-use crate::types::{LazyFrameContext, ptr_to_str};
+use crate::{types::LazyFrameContext, utils::ptr_to_str};
 
 // 定义 Context 容器
 pub struct SqlContextWrapper {

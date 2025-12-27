@@ -1,11 +1,6 @@
 use std::{ffi::{CStr, CString, c_char}, panic::{AssertUnwindSafe, catch_unwind}};
-use crate::{error::set_error, types::ptr_to_str};
+use crate::{error::set_error, types::DataTypeContext, utils::ptr_to_str};
 use polars::prelude::*;
-
-// 包装 DataType，因为我们需要传递它给 cast 函数
-pub struct DataTypeContext {
-    pub dtype: DataType,
-}
 
 macro_rules! define_pl_datatype_kind {
     (

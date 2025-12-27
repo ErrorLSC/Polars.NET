@@ -1,8 +1,8 @@
 use polars::prelude::*;
 use std::{ffi::CStr, os::raw::c_char};
-use crate::types::{ExprContext, consume_exprs_array, ptr_to_str};
+use crate::types::{ExprContext,DataTypeContext};
 use std::ops::{Add, Sub, Mul, Div, Rem};
-use crate::datatypes::DataTypeContext;
+use crate::utils::{consume_exprs_array, ptr_to_str};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_free(ptr: *mut ExprContext) {

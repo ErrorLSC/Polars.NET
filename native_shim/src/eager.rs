@@ -8,8 +8,9 @@ use std::{ffi::CString, os::raw::c_char};
 use crate::types::*;
 use polars::lazy::dsl::UnpivotArgsDSL;
 use polars::functions::{concat_df_horizontal,concat_df_diagonal};
-use crate::series::SeriesContext;
 use polars::prelude::{Field as PolarsField};
+use crate::utils::{consume_exprs_array, map_jointype, ptr_to_str};
+
 // ==========================================
 // 0. Memory Safety
 // ==========================================
@@ -192,11 +193,9 @@ pub extern "C" fn pl_sort_multiple(
         let mut exprs = Vec::with_capacity(expr_len);
         let ptr_slice = unsafe { std::slice::from_raw_parts(expr_ptrs, expr_len) };
         for &ptr in ptr_slice {
-            // 注意：这里我们 Clone inner Expr，因为 Rust端 sort_by_exprs 会消耗 ownership
-            // 或者我们约定 C# 端 TransferOwnership，这里直接 Box::from_raw
-            // 通常做法：Sort 不消耗 Expr Handle (因为 Expr 可能是复用的)，所以这里 clone inner
+            // 我们约定 C# 端 TransferOwnership，这里直接 Box::from_raw
             let expr_ctx = unsafe { Box::from_raw(ptr) };
-            exprs.push(expr_ctx.inner.clone());
+            exprs.push(expr_ctx.inner);
         }
 
         // 2. 还原 Descending Vec

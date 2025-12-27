@@ -3,6 +3,7 @@ use std::ffi::{CStr, c_char};
 use polars::prelude::*;
 use crate::types::*;
 use polars::lazy::dsl::UnpivotArgsDSL;
+use crate::utils::{consume_exprs_array, map_jointype, ptr_to_str};
 
 // ==========================================
 // 宏定义

@@ -183,7 +183,7 @@ public class Series : IDisposable
                     DataTypeKind.Time => GetValue<TimeOnly?>(index),
 
                     // [补全] 日期
-                    DataTypeKind.Date => GetValue<DateOnly?>(index), // 或 DateOnly?
+                    DataTypeKind.Date => GetValue<DateOnly?>(index), 
                     DataTypeKind.Datetime => string.IsNullOrEmpty(this.DataType.TimeZone) 
                         ? GetValue<DateTime?>(index)      // 无时区：返回 DateTime
                         : (object?)GetValue<DateTimeOffset?>(index),

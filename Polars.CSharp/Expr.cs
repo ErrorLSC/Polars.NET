@@ -252,6 +252,19 @@ public class Expr : IDisposable
         new(PolarsWrapper.Rem(left.CloneHandle(), MakeLit(right).Handle));
     public static Expr operator %(object left, Expr right) => 
         new(PolarsWrapper.Rem(MakeLit(left).Handle, right.CloneHandle()));
+
+    /// <summary>
+    /// Integer division (floor division).
+    /// </summary>
+    public Expr FloorDiv(Expr other)
+    {
+        return new Expr(PolarsWrapper.FloorDiv(this.CloneHandle(), other.CloneHandle()));
+    }
+
+    public Expr FloorDiv(object other)
+    {
+        return new Expr(PolarsWrapper.FloorDiv(this.CloneHandle(), MakeLit(other).Handle));
+    }
     // ==========================================
     // Logical Operators
     // ==========================================

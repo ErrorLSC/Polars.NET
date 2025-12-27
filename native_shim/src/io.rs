@@ -7,8 +7,8 @@ use std::ffi::{CStr, c_void};
 use std::io::BufReader;
 use std::os::raw::c_char;
 use std::fs::File;
-use crate::schema::SchemaContext;
-use crate::types::{DataFrameContext,LazyFrameContext, ptr_to_str};
+use crate::types::{DataFrameContext, LazyFrameContext, SchemaContext};
+use crate::utils::ptr_to_str;
 
 // ==========================================
 // 读取 csv

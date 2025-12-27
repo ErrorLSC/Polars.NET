@@ -1,11 +1,8 @@
 use polars::prelude::*;
 use std::os::raw::c_char;
-use crate::types::{ExprContext, ptr_to_str};
+use crate::{types::{ExprContext, SelectorContext}, utils::ptr_to_str};
 
 // 定义 Selector 容器
-pub struct SelectorContext {
-    pub inner: Selector,
-}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_selector_free(ptr: *mut SelectorContext) {
