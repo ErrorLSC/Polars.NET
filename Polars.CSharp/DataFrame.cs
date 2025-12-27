@@ -297,7 +297,6 @@ public class DataFrame : IDisposable,IEnumerable<Series>
         // 必须 Clone Handle，因为 Wrapper 会消耗它们
         var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
         
-        //
         return new DataFrame(PolarsWrapper.Select(Handle, handles));
     }
     /// <summary>
@@ -308,7 +307,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     public DataFrame Filter(Expr expr)
     {
         var h = PolarsWrapper.CloneExpr(expr.Handle);
-        //
+
         return new DataFrame(PolarsWrapper.Filter(Handle, h));
     }
     /// <summary>
@@ -323,16 +322,82 @@ public class DataFrame : IDisposable,IEnumerable<Series>
         return new DataFrame(PolarsWrapper.WithColumns(Handle, handles));
     }
     /// <summary>
-    /// Sort (Order By) the DataFrame.
+    /// Sort the DataFrame by a single column.
     /// </summary>
-    /// <param name="by"></param>
-    /// <param name="descending"></param>
-    /// <returns></returns>
-    public DataFrame Sort(Expr by, bool descending = false)
+    public DataFrame Sort(string column, bool descending = false)
     {
-        var h = PolarsWrapper.CloneExpr(by.Handle);
-        //
-        return new DataFrame(PolarsWrapper.Sort(Handle, h, descending));
+        return Sort(new[] { column }, new[] { descending });
+    }
+    /// <summary>
+    /// Sort using a single expression.
+    /// </summary>
+    public DataFrame Sort(Expr expr, bool descending = false)
+    {
+        // 包装成数组，复用核心逻辑
+        return Sort(new[] { expr }, new[] { descending });
+    }
+    /// <summary>
+    /// Sort the DataFrame by multiple columns (all ascending or all descending).
+    /// </summary>
+    public DataFrame Sort(string[] columns, bool descending = false)
+    {
+        // 广播 bool 值
+        var descArray = new bool[columns.Length];
+        System.Array.Fill(descArray, descending);
+        
+        return Sort(columns, descArray);
+    }
+
+    /// <summary>
+    /// Sort the DataFrame by multiple columns with specific sort orders.
+    /// </summary>
+    public DataFrame Sort(string[] columns, bool[] descending)
+    {
+        if (columns.Length != descending.Length)
+            throw new ArgumentException("Columns and descending array must have the same length.");
+
+        // String -> Expr.Col()
+        var exprs = new Expr[columns.Length];
+        for (int i = 0; i < columns.Length; i++)
+        {
+            exprs[i] = Polars.Col(columns[i]);
+        }
+
+        // 调用核心 Expr[] 重载
+        return Sort(exprs, descending);
+    }
+
+    /// <summary>
+    /// Sort using multiple expressions (all ascending or all descending).
+    /// </summary>
+    public DataFrame Sort(Expr[] exprs, bool descending = false)
+    {
+        // 广播 bool 值
+        var descArray = new bool[exprs.Length];
+        System.Array.Fill(descArray, descending);
+
+        return Sort(exprs, descArray);
+    }
+
+    /// <summary>
+    /// Sort the DataFrame by multiple columns.
+    /// </summary>
+    public DataFrame Sort(Expr[] exprs, bool[] descending)
+    {
+        if (exprs.Length != descending.Length)
+            throw new ArgumentException("Expressions and descending array must have the same length.");
+
+        // 1. API 层 Clone (保护用户对象)
+        var clonedHandles = new ExprHandle[exprs.Length];
+        for (int i = 0; i < exprs.Length; i++)
+        {
+            clonedHandles[i] = PolarsWrapper.CloneExpr(exprs[i].Handle);
+        }
+
+        // 2. 调用 Wrapper (Consume Clone)
+        var h = PolarsWrapper.Sort(Handle, clonedHandles, descending);
+        
+        return new DataFrame(h);
     }
     /// <summary>
     /// Return head lines from a DataFrame
@@ -441,8 +506,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     {
         var lHandles = leftOn.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
         var rHandles = rightOn.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
-        
-        //
+
     return new DataFrame(PolarsWrapper.Join(
             Handle, 
             other.Handle, 
@@ -462,7 +526,6 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     {
         var handles = dfs.Select(d => PolarsWrapper.CloneDataFrame(d.Handle)).ToArray();
         
-        //
         return new DataFrame(PolarsWrapper.Concat(handles, how.ToNative()));
     }
 
@@ -493,7 +556,6 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     /// <returns></returns>
     public DataFrame Pivot(string[] index, string[] columns, string[] values, PivotAgg agg = PivotAgg.First)
     {
-        //
         return new DataFrame(PolarsWrapper.Pivot(Handle, index, columns, values, agg.ToNative()));
     }
     /// <summary>
@@ -506,7 +568,6 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     /// <returns></returns>
     public DataFrame Unpivot(string[] index, string[] on, string variableName = "variable", string valueName = "value")
     {
-        //
         return new DataFrame(PolarsWrapper.Unpivot(Handle, index, on, variableName, valueName));
     }
     /// <summary>
@@ -529,7 +590,6 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     /// <param name="path"></param>
     public void WriteCsv(string path)
     {
-        //
         PolarsWrapper.WriteCsv(Handle, path);
     }
     /// <summary>
@@ -538,7 +598,6 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     /// <param name="path"></param>
     public void WriteParquet(string path)
     {
-        //
         PolarsWrapper.WriteParquet(Handle, path);
     }
     /// <summary>
@@ -698,7 +757,6 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     /// <returns></returns>
     public DataFrame Clone()
     {
-        //
         return new DataFrame(PolarsWrapper.CloneDataFrame(Handle));
     }
     /// <summary>

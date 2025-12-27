@@ -77,6 +77,33 @@ public static partial class PolarsWrapper
         expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static LazyFrameHandle LazySort(LazyFrameHandle lf, ExprHandle[] exprs, bool[] descending)
+    {
+        // 1. 转换 Expr 数组 (提取内部指针)
+        // HandlesToPtrs 是你之前写好的辅助方法
+        var exprPtrs = HandlesToPtrs(exprs);
+
+        unsafe
+        {
+            // 2. 锁定 bool 数组内存，获取指针
+            // C# 的 bool 是 1 字节 (System.Boolean)，Rust 的 bool 也是 1 字节
+            // 它们在内存布局上是兼容的，可以直接传指针
+            fixed (bool* descPtr = descending)
+            {
+                // 3. 调用 Native
+                var h = NativeBindings.pl_lazy_sort_multiple(
+                    lf, 
+                    exprPtrs, 
+                    (UIntPtr)exprs.Length, 
+                    descPtr, 
+                    (UIntPtr)descending.Length
+                );
+                lf.TransferOwnership();
+                // 4. 检查错误
+                return ErrorHelper.Check(h);
+            }
+        }
+    }
 
     public static LazyFrameHandle LazyLimit(LazyFrameHandle lf, uint n)
     {
@@ -108,10 +135,10 @@ public static partial class PolarsWrapper
         string every,
         string period,
         string offset,
-        int label,
+        PlLabel label,
         bool includeBoundaries,
-        int closedWindow,
-        int startBy,
+        PlClosedWindow closedWindow,
+        PlStartBy startBy,
         ExprHandle[] keys,  // 接收转换好的指针数组
         ExprHandle[] aggs)  // 接收转换好的指针数组
     {
@@ -123,10 +150,10 @@ public static partial class PolarsWrapper
             every,
             period,
             offset,
-            label,
+            (int)label,
             includeBoundaries,
-            closedWindow,
-            startBy,
+            (int)closedWindow,
+            (int)startBy,
             keyPtrs, (UIntPtr)keys.Length,
             aggPtrs, (UIntPtr)aggs.Length
         );

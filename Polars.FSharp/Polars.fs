@@ -153,7 +153,7 @@ module pl =
 
     /// <summary> Sort (Order By) the LazyFrame. </summary>
     let sortLazy (expr: Expr) (desc: bool) (lf: LazyFrame) : LazyFrame =
-        lf.Sort expr desc
+        lf.Sort (expr,desc)
     /// <summary> Alias for sortLazy </summary>
     let orderByLazy (expr: Expr) (desc: bool) (lf: LazyFrame) = sortLazy expr desc lf
 

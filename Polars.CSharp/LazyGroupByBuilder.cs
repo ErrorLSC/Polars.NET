@@ -94,10 +94,10 @@ public class LazyDynamicGroupBy
                 _every,
                 _period,
                 _offset,
-                (int)_label,
+                _label.ToNative(),
                 _includeBoundaries,
-                (int)_closedWindow,
-                (int)_startBy,
+                _closedWindow.ToNative(),
+                _startBy.ToNative(),
                 keyHandles,
                 aggHandles
             );

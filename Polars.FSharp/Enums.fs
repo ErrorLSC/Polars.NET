@@ -282,3 +282,47 @@ type ConcatType =
         | Vertical -> PlConcatType.Vertical
         | Horizonal -> PlConcatType.Horizontal
         | Diagonal -> PlConcatType.Diagonal
+
+type Label =
+    | Left 
+    | Right 
+    | DataPoint
+    member internal this.ToNative() =
+        match this with
+        | Left -> PlLabel.Left
+        | Right -> PlLabel.Right
+        | DataPoint -> PlLabel.DataPoint 
+
+type StartBy =
+    | WindowBound
+    | DataPoint
+    | Monday
+    | Tuesday
+    | Wednesday
+    | Thursday
+    | Friday
+    | Saturday
+    | Sunday
+    member internal this.ToNative() =
+        match this with
+        | WindowBound -> PlStartBy.WindowBound
+        | DataPoint -> PlStartBy.DataPoint
+        | Monday -> PlStartBy.Monday
+        | Tuesday -> PlStartBy.Tuesday
+        | Wednesday -> PlStartBy.Wednesday
+        | Thursday -> PlStartBy.Thursday
+        | Friday -> PlStartBy.Friday    
+        | Saturday -> PlStartBy.Saturday
+        | Sunday -> PlStartBy.Sunday
+
+type ClosedWindow =
+    | Left
+    | Right
+    | Both
+    | NoWindow
+    member internal this.ToNative() =
+        match this with
+        | Left -> PlClosedWindow.Left
+        | Right -> PlClosedWindow.Right
+        | Both -> PlClosedWindow.Both
+        | NoWindow -> PlClosedWindow.None

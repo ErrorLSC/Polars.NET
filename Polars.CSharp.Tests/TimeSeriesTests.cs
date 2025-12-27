@@ -1,4 +1,3 @@
-using Polars.NET.Core;
 using static Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;

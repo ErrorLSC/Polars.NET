@@ -1,5 +1,3 @@
-using Xunit;
-
 namespace Polars.CSharp.Tests;
 public class SelectorTests
 {

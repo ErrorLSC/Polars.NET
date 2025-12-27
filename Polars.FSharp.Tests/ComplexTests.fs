@@ -456,7 +456,7 @@ type ``Complex Query Tests`` () =
 
         let res = 
             lfUsers
-            |> pl.joinLazy lfOrders [pl.col "id"] [pl.col "uid"] Left
+            |> pl.joinLazy lfOrders [pl.col "id"] [pl.col "uid"] JoinType.Left
             |> pl.collect
             |> pl.sort(pl.col "id", false)
 
@@ -649,3 +649,75 @@ type ``Complex Query Tests`` () =
         Assert.True(targetTable.Columns.Contains "TaxedAmount")
         Assert.False(targetTable.Columns.Contains "Amount") // 原列被排除了
         Assert.False(targetTable.Columns.Contains "Region") // 原列被排除了
+    [<Fact>]
+    member _.``Lazy: GroupBy Dynamic (Rolling Window)`` () =
+        // 1. 准备时序数据
+        // Start: 10:00
+        let start = DateTime(2023, 1, 1, 10, 0, 0)
+        let data = [
+            // Group A
+            {| Time = start;                     Category = "A"; Value = 10 |} // 10:00
+            {| Time = start.AddMinutes 30.0;    Category = "A"; Value = 20 |} // 10:30
+            {| Time = start.AddHours 1.0;       Category = "A"; Value = 30 |} // 11:00
+            {| Time = start.AddHours 1.5;       Category = "A"; Value = 40 |} // 11:30
+            
+            // Group B (验证 'by' 参数有效性)
+            {| Time = start;                     Category = "B"; Value = 100 |} // 10:00
+        ]
+        let df = DataFrame.ofRecords data
+        let lf = df.Lazy()
+
+        // 2. 执行动态分组
+        // 目标：每 1 小时为一个窗口起点 (every)，查看未来 2 小时的数据 (period)
+        // 这是一个典型的滑动窗口 (Rolling Window)
+        let res = 
+            lf.GroupByDynamic(
+                indexCol = "Time",
+                every = TimeSpan.FromHours 1.0,      // 窗口步长: 1h
+                period = TimeSpan.FromHours 2.0,     // 窗口大小: 2h (Overlapping)
+                
+                // 按 Category 分组
+                by = [ !> pl.col("Category") ],
+                
+                // 窗口闭合方式: 左闭右开 [t, t + period)
+                closedWindow = ClosedWindow.Left,
+                
+                // 聚合逻辑 (混合使用 Expr 和 Selector)
+                aggs = [
+                    // 标准 Expr 聚合
+                    !> pl.col("Value").Count().Alias("Count")
+                    !> pl.col("Value").Mean().Alias("Mean")
+                    
+                    // Selector 聚合 (验证 IColumnExpr 混写能力)
+                    // 对所有数值列 (这里只有 Value) 求和，并加后缀
+                    !> pl.cs.numeric().ToExpr().Sum().Name.Suffix("_Sum") 
+                ]
+            ).Collect().Sort([pl.col "Category"; pl.col "Time"], [false; false]) // 排序以便断言
+
+        // 3. 验证结果
+        // 预期窗口:
+        // Window 1 (10:00): 范围 [10:00, 12:00) -> 包含 10:00, 10:30, 11:00, 11:30
+        // Window 2 (11:00): 范围 [11:00, 13:00) -> 包含 11:00, 11:30
+        
+        Assert.Equal(3L, res.Rows) // A有2个窗口，B有1个窗口
+
+        // --- Row 0: Category A, Time 10:00 ---
+        Assert.Equal("A", res.Cell<string>(0, "Category"))
+        // Count: 4 (10, 20, 30, 40)
+        Assert.Equal(4, res.Cell<int>(0, "Count")) 
+        // Mean: (10+20+30+40)/4 = 25.0
+        Assert.Equal(25.0, res.Cell<double>(0, "Mean"))
+        // Sum (Selector): 100
+        Assert.Equal(100L, res.Cell<int64>(0, "Value_Sum"))
+
+        // --- Row 1: Category A, Time 11:00 ---
+        Assert.Equal(DateTime(2023, 1, 1, 11, 0, 0), res.Cell<DateTime>(1, "Time"))
+        // Count: 2 (30, 40)
+        Assert.Equal(2, res.Cell<int>(1, "Count"))
+        // Mean: (30+40)/2 = 35.0
+        Assert.Equal(35.0, res.Cell<double>(1, "Mean"))
+        
+        // --- Row 2: Category B, Time 10:00 ---
+        Assert.Equal("B", res.Cell<string>(2, "Category"))
+        Assert.Equal(1, res.Cell<int>(2, "Count"))
+        Assert.Equal(100.0, res.Cell<double>(2, "Mean"))

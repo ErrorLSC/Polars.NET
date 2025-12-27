@@ -874,21 +874,54 @@ and DataFrame(handle: DataFrameHandle) =
     member this.Filter (expr: Expr) : DataFrame = 
         let h = PolarsWrapper.Filter(this.Handle,expr.CloneHandle())
         new DataFrame(h)
-    member this.Sort (expr: Expr,desc :bool) : DataFrame =
-        let h = PolarsWrapper.Sort(this.Handle,expr.CloneHandle(),desc)
-        new DataFrame(h)
     /// <summary>
-    /// Overload: Sort ascending by default.
+    /// Sort by multiple expressions with a single direction for all.
     /// </summary>
-    member this.Sort(expr: Expr) =
-        this.Sort(expr, false)
+    member this.Sort(columns: seq<#IColumnExpr>, descending: bool) =
+        // 1. 展开 Expr 并克隆 Handle
+        // 我们约定：传递给 Wrapper 的 Expr 必须是所有权转移的
+        // 所以这里必须 map e.CloneHandle()
+        let exprHandles = 
+            columns 
+            |> Seq.collect (fun x -> x.ToExprs()) 
+            |> Seq.map (fun e -> e.CloneHandle()) // <--- 关键修改
+            |> Seq.toArray
+        
+        // 2. 构造 bool 数组 (长度为 1，Rust 端会广播)
+        let descArr = [| descending |]
+        
+        let h = PolarsWrapper.Sort(this.Handle, exprHandles, descArr)
+        new DataFrame(h)
 
     /// <summary>
-    /// Overload: Sort by column name.
+    /// Sort by multiple expressions with per-column direction.
     /// </summary>
+    member this.Sort(columns: seq<#IColumnExpr>, descending: seq<bool>) =
+        // 1. 同样展开并克隆
+        let exprHandles = 
+            columns 
+            |> Seq.collect (fun x -> x.ToExprs()) 
+            |> Seq.map (fun e -> e.CloneHandle()) // <--- 关键修改
+            |> Seq.toArray
+        
+        let descArr = descending |> Seq.toArray
+        
+        if exprHandles.Length <> descArr.Length then
+            invalidArg "descending" "Length of descending flags must match columns."
+
+        let h = PolarsWrapper.Sort(this.Handle, exprHandles, descArr)
+        new DataFrame(h)
+    // [兼容旧 API] 默认升序
+    member this.Sort(columns: seq<#IColumnExpr>) =
+        this.Sort(columns, false)
+
+    // [兼容单列 Expr]
+    member this.Sort(expr: Expr, descending: bool) =
+        this.Sort([expr], descending)
+        
+    // [兼容单列 Name]
     member this.Sort(colName: string, descending: bool) =
-        // 内部转为 col(name)
-        this.Sort(Expr.Col colName, descending)
+        this.Sort([Expr.Col colName], descending)
 
     member this.Orderby (expr: Expr,desc :bool) : DataFrame =
         this.Sort(expr,desc)
@@ -1453,12 +1486,61 @@ and LazyFrame(handle: LazyFrameHandle) =
                 |> Seq.toList
             
             this.Select exprs
-    member this.Sort (expr: Expr) (desc: bool) : LazyFrame =
-        let lfClone = this.CloneHandle()
-        let exprClone = expr.CloneHandle()
-        let h = PolarsWrapper.LazySort(lfClone, exprClone, desc)
+    /// <summary>
+    /// Sort by multiple expressions with a single direction for all.
+    /// </summary>
+    member this.Sort(columns: seq<#IColumnExpr>, descending: bool) =
+        // 1. 展开 Expr 并克隆 (Transfer Ownership)
+        let exprHandles = 
+            columns 
+            |> Seq.collect (fun x -> x.ToExprs()) 
+            |> Seq.map (fun e -> e.CloneHandle()) 
+            |> Seq.toArray
+        
+        let descArr = [| descending |]
+        
+        // 2. Clone LF Handle (因为底层会消耗它)
+        let lfHandle = this.CloneHandle()
+        
+        let h = PolarsWrapper.LazySort(lfHandle, exprHandles, descArr)
         new LazyFrame(h)
-    member this.OrderBy = this.Sort
+
+    /// <summary>
+    /// Sort by multiple expressions with per-column direction.
+    /// </summary>
+    member this.Sort(columns: seq<#IColumnExpr>, descending: seq<bool>) =
+        let exprHandles = 
+            columns 
+            |> Seq.collect (fun x -> x.ToExprs()) 
+            |> Seq.map (fun e -> e.CloneHandle()) 
+            |> Seq.toArray
+        
+        let descArr = descending |> Seq.toArray
+        
+        if exprHandles.Length <> descArr.Length then
+            invalidArg "descending" "Length of descending flags must match columns."
+
+        // Clone LF Handle
+        let lfHandle = this.CloneHandle()
+        let h = PolarsWrapper.LazySort(lfHandle, exprHandles, descArr)
+        new LazyFrame(h)
+
+    // [兼容性重载]
+    member this.Sort(columns: seq<#IColumnExpr>) =
+        this.Sort(columns, false)
+
+    member this.Sort(expr: Expr, descending: bool) =
+        this.Sort([expr], descending)
+        
+    member this.Sort(colName: string, descending: bool) =
+        this.Sort([Expr.Col colName], descending)
+
+    // Alias
+    member this.OrderBy(columns: seq<#IColumnExpr>, descending: bool) = 
+        this.Sort(columns, descending)
+        
+    member this.OrderBy(columns: seq<#IColumnExpr>) = 
+        this.Sort(columns, false)
     member this.Limit (n: uint) : LazyFrame =
         let lfClone = this.CloneHandle()
         let h = PolarsWrapper.LazyLimit(lfClone, n)
@@ -1554,6 +1636,80 @@ and LazyFrame(handle: LazyFrameHandle) =
         let handles = lfs |> List.map (fun lf -> lf.CloneHandle()) |> List.toArray
         // 默认 rechunk=false, parallel=true (Lazy 的常见默认值)
         new LazyFrame(PolarsWrapper.LazyConcat(handles, how.ToNative(), false, true))
+    /// <summary>
+    /// Perform a dynamic group-by (rolling window) and aggregation in one step.
+    /// </summary>
+    /// <param name="indexCol">Name of the time index column.</param>
+    /// <param name="every">Period of the window (step size).</param>
+    /// <param name="aggs">List of aggregation expressions to apply.</param>
+    /// <param name="period">Size of the window. Defaults to 'every'.</param>
+    /// <param name="offset">Offset of the window. Defaults to 0.</param>
+    /// <param name="by">Additional grouping keys (e.g. ID, Category).</param>
+    /// <param name="label">Label of the window (Left, Right, DataPoint).</param>
+    /// <param name="includeBoundaries">Whether to include the window boundaries.</param>
+    /// <param name="closedWindow">Which side of the window is closed.</param>
+    /// <param name="startBy">Strategy to determine the start of the first window.</param>
+    member this.GroupByDynamic(
+        indexCol: string,
+        every: TimeSpan,
+        aggs: seq<#IColumnExpr>, // [核心] 直接传入聚合表达式
+        ?period: TimeSpan,
+        ?offset: TimeSpan,
+        ?by: seq<#IColumnExpr>,  // [可选] 额外的分组键
+        ?label: Label,
+        ?includeBoundaries: bool,
+        ?closedWindow: ClosedWindow,
+        ?startBy: StartBy
+    ) : LazyFrame =
+        
+        // 1. 准备参数
+        let periodVal = defaultArg period every
+        let offsetVal = defaultArg offset TimeSpan.Zero
+        let labelVal = defaultArg label Label.Left
+        let includeBoundariesVal = defaultArg includeBoundaries false
+        let closedWindowVal = defaultArg closedWindow ClosedWindow.Left
+        let startByVal = defaultArg startBy StartBy.WindowBound
+
+        // 2. 转换 TimeSpan -> String
+        let everyStr = DurationFormatter.ToPolarsString every
+        let periodStr = DurationFormatter.ToPolarsString periodVal
+        let offsetStr = DurationFormatter.ToPolarsString offsetVal
+
+        // 3. 处理 Group Keys (by) -> Expr Handle Array
+        // 支持 Expr, Selector, IColumnExpr
+        let keyExprs = 
+            match by with
+            | Some cols -> cols |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toList
+            | None -> []
+        let keyHandles = keyExprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+
+        // 4. 处理 Aggregations (aggs) -> Expr Handle Array
+        // 同样支持混写
+        let aggExprs = 
+            aggs 
+            |> Seq.collect (fun x -> x.ToExprs()) 
+            |> Seq.toList
+        let aggHandles = aggExprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+
+        // 5. 调用 Native Wrapper
+        // Wrapper 消耗 LF 所有权，所以我们 Clone 一个传入
+        let lfHandle = this.CloneHandle()
+
+        let newH = PolarsWrapper.LazyGroupByDynamic(
+            lfHandle,
+            indexCol,
+            everyStr,
+            periodStr,
+            offsetStr,
+            labelVal.ToNative(),
+            includeBoundariesVal,
+            closedWindowVal.ToNative(),
+            startByVal.ToNative(),
+            keyHandles,
+            aggHandles
+        )
+
+        new LazyFrame(newH)
 
 /// <summary>
 /// SQL Context for executing SQL queries on registered LazyFrames.

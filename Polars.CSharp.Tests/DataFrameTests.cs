@@ -30,7 +30,7 @@ David,40,80000";
             // 3. 执行操作：筛选 age > 30 并选择 name 和 salary
             // SQL 逻辑: SELECT name, salary FROM df WHERE age > 30
             using var filtered = df
-                .Filter(Col("age") > Lit(30))
+                .Filter(Col("age") > 30)
                 .Select(Col("name"), Col("salary"));
 
             // 验证结果
@@ -65,8 +65,8 @@ David,40,80000";
 
         // 3. 做一些计算 (例如 value * 2)
         using var resultDf = df.Select(
-            Polars.Col("id"), 
-            (Polars.Col("value") * Polars.Lit(2.0)).Alias("value_doubled")
+            Col("id"), 
+            (Col("value") * 2.0).Alias("value_doubled")
         );
 
         // 4. 转回 Arrow 验证
@@ -295,8 +295,8 @@ Bob,2024,History";
 
         // 验证 2024-01-01 的 NY 气温 (假设第一行是 01-01)
         // 注意：Arrow 列名区分大小写
-        Assert.Equal(5, pivoted.GetValue<int>(0, "NY")); 
-        Assert.Equal(20, pivoted.GetValue<int>(0, "LA"));
+        Assert.Equal(5L, pivoted[0, "NY"]); 
+        Assert.Equal(20L, pivoted[0, "LA"]);
 
         // --- Step 2: Unpivot/Melt (宽 -> 长) ---
         // 把刚才的宽表还原。
@@ -307,7 +307,7 @@ Bob,2024,History";
             on: ["NY", "LA"],
             variableName: "city",
             valueName: "temp_restored"
-        ).Sort(Col("date")); // 排序以便断言
+        ).Sort("date"); // 排序以便断言
 
         // 验证 Unpivot 结果
         // 高度应该回到 4 行
@@ -321,7 +321,7 @@ Bob,2024,History";
         // 验证值是否还在
         // 比如第一行应该是 2024-01-01, NY, 5 (或者 LA, 20，取决于排序稳定性，我们这里不深究具体排序，只验证数据存在性)
         // 简单验证第一行的数据类型正确
-        Assert.NotNull(unpivoted.Column("city").GetValue<string>(0));
+        Assert.NotNull(unpivoted.Column("city")[0]);
     }
     // ==========================================
     // Display Tests (Head & Show)
@@ -455,7 +455,7 @@ B,5";
                 // 测试 List.Contains
                 Col("val_list").List.Contains(3).Alias("has_3")
             )
-            .Sort(Col("group"));
+            .Sort("group");
 
         // A (1,2) -> Sum=3, Max=2, Has3=false
         // B (3,4,5) -> Sum=12, Max=5, Has3=true
@@ -647,4 +647,43 @@ B,5";
         // 验证 Shape
         Assert.Contains("shape: (2, 3)", html);
     }
+    [Fact]
+        public void Test_MultiColumn_Sort()
+        {
+            // 准备数据：故意乱序
+            // a: 1, 1, 2, 2
+            // b: 10, 5, 2, 8
+            using var df = DataFrame.FromColumns(new 
+            {
+                a = new[] { 1, 1, 2, 2 },
+                b = new[] { 10, 5, 2, 8 }
+            });
+
+            // 场景 1: 按 "a" 升序，"b" 降序 (String API)
+            // 预期结果:
+            // a=1, b=10
+            // a=1, b=5
+            // a=2, b=8  <-- 注意这里，a=2时，b=8排在b=2前面
+            // a=2, b=2
+            using var sorted1 = df.Sort(
+                columns: new[] { "a", "b" }, 
+                descending: new[] { false, true } // a asc, b desc
+            );
+            
+            Assert.Equal(10, sorted1["b"][0]);
+            Assert.Equal(5, sorted1["b"][1]);
+            Assert.Equal(8, sorted1["b"][2]);
+            Assert.Equal(2, sorted1["b"][3]);
+
+            // 场景 2: 按表达式排序 (Expr API)
+            // 按 a 降序，b 升序
+            using var sorted2 = df.Sort(
+                exprs: new[] { Col("a"), Col("b") },
+                descending: new[] { true, false }
+            );
+
+            Assert.Equal(2, sorted2["a"][0]); // a desc, so 2 first
+            Assert.Equal(2, sorted2["b"][0]); // a=2 tied, b asc -> 2
+            Assert.Equal(8, sorted2["b"][1]); // a=2 tied, b asc -> 8
+        }
 }

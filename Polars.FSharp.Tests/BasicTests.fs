@@ -745,7 +745,7 @@ type ``Basic Functionality Tests`` () =
         // Rust 引擎会调用两次 StreamFactoryCallback
         let res = 
             lf
-            |> pl.joinLazy lf [pl.col "Key"] [pl.col "Key"] Left
+            |> pl.joinLazy lf [pl.col "Key"] [pl.col "Key"] JoinType.Left
             |> pl.collect
 
         // 简单验证行数 (笛卡尔积会膨胀)

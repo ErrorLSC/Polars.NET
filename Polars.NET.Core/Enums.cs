@@ -75,14 +75,14 @@ public enum PlConcatType
     Diagonal = 2
 }
 
-public enum Label
+public enum PlLabel
 {
     Left = 0,
     Right = 1,
     DataPoint = 2
 }
 
-public enum StartBy
+public enum PlStartBy
 {
     WindowBound = 0,
     DataPoint = 1,
@@ -95,7 +95,7 @@ public enum StartBy
     Sunday = 8
 }
 
-public enum ClosedWindow
+public enum PlClosedWindow
 {
     Left = 0,
     Right = 1,

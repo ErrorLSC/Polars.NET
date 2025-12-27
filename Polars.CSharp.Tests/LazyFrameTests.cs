@@ -194,7 +194,7 @@ HR,50";
         using var groupedlf = lf
             .GroupBy(Col("dept"))
             .Agg(Col("salary").Sum().Alias("total_salary"))
-            .Sort(Col("total_salary"), descending: true); // 排序方便断言
+            .Sort("total_salary", descending: true); // 排序方便断言
         var grouped = groupedlf.Collect();
         // 预期: 
         // IT: 300
@@ -451,6 +451,19 @@ HR,50";
         PrintSchema(schema2);
         
         Console.WriteLine("=== NO STRING PARSE! ===");
+    }
+    [Fact]
+    public void Test_Lazy_MultiSort()
+    {
+        using var df = DataFrame.FromColumns(new { val = new[] { 3, 1, 2 } });
+        using var lf = df.Lazy();
+
+        // 简单排序
+        using var sorted = lf.Sort("val", descending: false).Collect();
+        
+        Assert.Equal(1, sorted["val"][0]);
+        Assert.Equal(2, sorted["val"][1]);
+        Assert.Equal(3, sorted["val"][2]);
     }
 
     // 辅助打印方法

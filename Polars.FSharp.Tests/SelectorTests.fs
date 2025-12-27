@@ -131,7 +131,7 @@ type SelectorTests() =
                 
                 // 2. Selector (直接筛选)
                 // 字符串转大写 (假设你有 Str.ToUpper, 这里先用 Selector 占位)
-                !> pl.cs.byType(pl.string)
+                !> pl.cs.byType(pl.string).ToExpr().Str.ToUpper()
                 
                 // 3. Selector (排除逻辑)
                 // 也不需要 .ToExpr() 了，直接用 Selector

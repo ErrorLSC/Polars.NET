@@ -176,6 +176,55 @@ pub extern "C" fn pl_sort(
         Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_sort_multiple(
+    df_ptr: *mut DataFrameContext,
+    expr_ptrs: *const *mut ExprContext, // Expr 指针数组
+    expr_len: usize,
+    descending_ptr: *const bool,        // bool 数组 (对应每一列的排序方向)
+    descending_len: usize               // bool 数组长度
+) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*df_ptr };
+        
+        // 1. 还原 Exprs Vec
+        let mut exprs = Vec::with_capacity(expr_len);
+        let ptr_slice = unsafe { std::slice::from_raw_parts(expr_ptrs, expr_len) };
+        for &ptr in ptr_slice {
+            // 注意：这里我们 Clone inner Expr，因为 Rust端 sort_by_exprs 会消耗 ownership
+            // 或者我们约定 C# 端 TransferOwnership，这里直接 Box::from_raw
+            // 通常做法：Sort 不消耗 Expr Handle (因为 Expr 可能是复用的)，所以这里 clone inner
+            let expr_ctx = unsafe { Box::from_raw(ptr) };
+            exprs.push(expr_ctx.inner.clone());
+        }
+
+        // 2. 还原 Descending Vec
+        let desc_slice = unsafe { std::slice::from_raw_parts(descending_ptr, descending_len) };
+        let descending: Vec<bool> = desc_slice.to_vec();
+
+        // 3. 构建排序选项
+        // 如果 descending 只有一个值，Polars 会自动广播吗？
+        // 最好我们在 Rust 这边处理：如果 len=1，就广播给所有 Expr
+        let final_descending = if descending_len == 1 && expr_len > 1 {
+             vec![descending[0]; expr_len]
+        } else {
+             descending
+        };
+
+        let options = SortMultipleOptions::default()
+            .with_order_descending_multi(final_descending); // 注意复数形式
+
+        // 4. 执行 Sort
+        // Eager Sort 在 Polars 0.50+ 推荐走 Lazy 路径
+        let res_df = ctx.df.clone()
+            .lazy()
+            .sort_by_exprs(exprs, options)
+            .collect()?;
+
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
+    })
+}
 // ==========================================
 // DataFrame Ops
 // ==========================================

@@ -134,6 +134,33 @@ public static partial class PolarsWrapper
         expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static DataFrameHandle Sort(DataFrameHandle df, ExprHandle[] exprs, bool[] descending)
+    {
+        // 1. 转换 Expr 数组 (提取内部指针)
+        // HandlesToPtrs 是你之前写好的辅助方法
+        var exprPtrs = HandlesToPtrs(exprs);
+
+        unsafe
+        {
+            // 2. 锁定 bool 数组内存，获取指针
+            // C# 的 bool 是 1 字节 (System.Boolean)，Rust 的 bool 也是 1 字节
+            // 它们在内存布局上是兼容的，可以直接传指针
+            fixed (bool* descPtr = descending)
+            {
+                // 3. 调用 Native
+                var h = NativeBindings.pl_sort_multiple(
+                    df, 
+                    exprPtrs, 
+                    (UIntPtr)exprs.Length, 
+                    descPtr, 
+                    (UIntPtr)descending.Length
+                );
+
+                // 4. 检查错误
+                return ErrorHelper.Check(h);
+            }
+        }
+    }
     public static DataFrameHandle Explode(DataFrameHandle df, ExprHandle[] exprs)
     {
         var raw = HandlesToPtrs(exprs);
