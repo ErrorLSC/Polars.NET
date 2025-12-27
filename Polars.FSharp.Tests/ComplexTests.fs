@@ -97,7 +97,7 @@ type ``Complex Query Tests`` () =
                     (pl.col "height").Mean().Round(2).Name.Prefix("avg_")
                 ]
             |> pl.collect
-            |> pl.sort (pl.col "decade") false
+            |> pl.sort ((pl.col "decade"),false)
 
     // 验证列名 (birthdate 应该没了，新增了 decade 和 avg_ 前缀)
         let cols = res.ColumnNames
@@ -232,7 +232,7 @@ type ``Complex Query Tests`` () =
                 |> pl.alias "diff_from_avg"
             )
             |> pl.collect
-            |> pl.sort (pl.col "name") false
+            |> pl.sort(pl.col "name", false)
 
         // 验证
         // Alice (IT): 1000 - 1500 = -500
@@ -258,7 +258,7 @@ type ``Complex Query Tests`` () =
         let longDf = 
             df 
             |> pl.unpivot ["year"] ["Q1"; "Q2"] (Some "quarter") (Some "revenue")
-            |> pl.sort (pl.col "year") false
+            |> pl.sort(pl.col "year", false)
 
         Assert.Equal(4L, longDf.Rows)
         Assert.Equal("Q1", longDf.String("quarter", 0).Value)
@@ -269,7 +269,7 @@ type ``Complex Query Tests`` () =
         let wideDf = 
             longDf
             |> pl.pivot ["year"] ["quarter"] ["revenue"] PivotAgg.Sum
-            |> pl.sort (pl.col "year") false
+            |> pl.sort(pl.col "year", false)
 
         Assert.Equal(2L, wideDf.Rows)
         Assert.Equal(3L, wideDf.Width) // year, Q1, Q2
@@ -458,7 +458,7 @@ type ``Complex Query Tests`` () =
             lfUsers
             |> pl.joinLazy lfOrders [pl.col "id"] [pl.col "uid"] Left
             |> pl.collect
-            |> pl.sort (pl.col "id") false
+            |> pl.sort(pl.col "id", false)
 
         // 验证
         // Alice (id=1) 有两单

@@ -22,11 +22,11 @@ module pl =
 
     // --- Factories ---
     /// <summary> Reference a column by name. </summary>
-    let col (name: string) = new Expr(PolarsWrapper.Col name)
+    let col (name: string) = Expr.Col name
     /// <summary> Select multiple columns (returns a Wildcard Expression). </summary>
     let cols (names: string list) =
         let arr = List.toArray names
-        new Expr(PolarsWrapper.Cols arr)
+        Expr.Cols names
     /// <summary> Select all columns (returns a Selector). </summary>
     let all () = new Selector(PolarsWrapper.SelectorAll())
 
@@ -37,15 +37,15 @@ module pl =
     /// <summary> Cast an expression to a different data type. </summary>
     let cast (dtype: DataType) (e: Expr) = e.Cast dtype
 
-    let Boolean = DataType.Boolean
-    let Int32 = DataType.Int32
-    let Int64 = DataType.Int64
-    let Float64 = DataType.Float64
-    let String = DataType.String
-    let Date = DataType.Date
-    let Datetime = DataType.Datetime
-    let TimeSpan = DataType.Duration
-    let Time = DataType.Time
+    let boolean = DataType.Boolean
+    let int32 = DataType.Int32
+    let int64 = DataType.Int64
+    let float64 = DataType.Float64
+    let string = DataType.String
+    let date = DataType.Date
+    let datetime = DataType.Datetime
+    let timeSpan = DataType.Duration
+    let time = DataType.Time
 
     /// <summary> Count the number of elements in an expression. </summary>
     let count () = new Expr(PolarsWrapper.Len())
@@ -79,15 +79,15 @@ module pl =
     let select (exprs: Expr list) (df: DataFrame) : DataFrame =
         df.Select exprs
     /// <summary> Sort (Order By) the DataFrame. </summary>
-    let sort (expr: Expr) (desc: bool) (df: DataFrame) : DataFrame =
-        df.Sort expr desc 
-    let orderBy (expr: Expr) (desc: bool) (df: DataFrame) = sort expr desc df
+    let sort (expr: Expr,desc: bool) (df: DataFrame) : DataFrame =
+        df.Sort (expr,desc )
+    let orderBy (expr: Expr) (desc: bool) (df: DataFrame) = sort(expr,desc) df
     /// <summary> Group by keys and apply aggregations. </summary>
     let groupBy (keys: Expr list) (aggs: Expr list) (df: DataFrame) : DataFrame =
-        df.GroupBy keys aggs
+        df.GroupBy (keys,aggs)
     /// <summary> Perform a join between two DataFrames. </summary>
     let join (other: DataFrame) (leftOn: Expr list) (rightOn: Expr list) (how: JoinType) (left: DataFrame) : DataFrame =
-        left.Join other leftOn rightOn how
+        left.Join (other, leftOn, rightOn, how)
     /// <summary> Concatenate multiple DataFrames. </summary>
     let concat (dfs: DataFrame list) (how:ConcatType) : DataFrame =
         DataFrame.Concat dfs how
@@ -168,7 +168,7 @@ module pl =
         lf.WithColumns exprs
     /// <summary> Group by keys and apply aggregations. </summary>
     let groupByLazy (keys: Expr list) (aggs: Expr list) (lf: LazyFrame) : LazyFrame =
-        lf.GroupBy keys aggs
+        lf.GroupBy(keys, aggs)
     /// <summary> Unpivot (Melt) the LazyFrame from wide to long format. </summary>
     let unpivotLazy (index: string list) (on: string list) (variableName: string option) (valueName: string option) (lf: LazyFrame) : LazyFrame =
         lf.Unpivot index on variableName valueName
@@ -262,6 +262,20 @@ module pl =
         let not (s: Selector) = 
             // 注意：CloneHandle 是必须的，因为 Rust 会消耗 Ownership
             new Selector(PolarsWrapper.SelectorNot(s.CloneHandle()))
+
+        // [新增] 专门用于选 List 列的语法糖
+        /// <summary> Select all list columns. </summary>
+        let list () = 
+            // 构造一个占位的 List<Null>，反正只取 .Code (20)
+            let dummy = DataType.List DataType.Null
+            byType dummy
+            
+        // [新增] 专门用于选 Struct 列的语法糖
+        /// <summary> Select all struct columns. </summary>
+        let struct_ () = 
+            // 构造一个空的 Struct，只取 .Code (19)
+            let dummy = DataType.Struct []
+            byType dummy
 
     // ==========================================
     // Public API (保持简单，返回 DataFrame 以支持管道)

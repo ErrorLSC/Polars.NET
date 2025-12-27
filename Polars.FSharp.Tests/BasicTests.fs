@@ -379,8 +379,8 @@ type ``Basic Functionality Tests`` () =
         use sDur = Series.create("dur", [dur])
 
         // 2. 验证类型 (使用强类型 DU，告别字符串魔法值)
-        Assert.Equal(pl.Date, sDate.DataType)
-        Assert.Equal(pl.Time, sTime.DataType)
+        Assert.Equal(pl.date, sDate.DataType)
+        Assert.Equal(pl.time, sTime.DataType)
         // Polars 默认 Duration 是 Microseconds
         Assert.Equal(DataType.Duration TimeUnit.Microseconds, sDur.DataType)
 
@@ -399,7 +399,7 @@ type ``Basic Functionality Tests`` () =
         
         // A. 列索引器: df.["ColName"] 返回 Series
         let sDoB = df.["DoB"]
-        Assert.Equal(pl.Date, sDoB.DataType)
+        Assert.Equal(pl.date, sDoB.DataType)
         
         // B. 二维索引器: df.[row, col] 返回 obj
         Assert.Equal(Some date, df.Cell<DateOnly option>(0, "DoB"))

@@ -425,7 +425,7 @@ type ``String Logic Tests`` () =
         let res = 
             df 
             |> pl.withColumn gradeExpr
-            |> pl.sort (pl.col "score") true // 降序
+            |> pl.sort (pl.col "score", true) // 降序
 
         // 验证
         // Alice (95) -> A

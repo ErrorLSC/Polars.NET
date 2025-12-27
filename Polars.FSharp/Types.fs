@@ -847,6 +847,13 @@ and DataFrame(handle: DataFrameHandle) =
         let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
         let h = PolarsWrapper.WithColumns(this.Handle,handles)
         new DataFrame(h)
+    member this.WithColumns (columns:seq<#IColumnExpr>) =
+        let exprs = 
+            columns 
+            |> Seq.collect (fun x -> x.ToExprs()) 
+            |> Seq.toList
+        
+        this.WithColumns exprs
     member this.WithColumn (expr: Expr) : DataFrame =
         let handle = expr.CloneHandle()
         let h = PolarsWrapper.WithColumns(this.Handle,[| handle |])
@@ -855,7 +862,6 @@ and DataFrame(handle: DataFrameHandle) =
         let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
         let h = PolarsWrapper.Select(this.Handle, handles)
         new DataFrame(h)
-
     member this.Select(columns: seq<#IColumnExpr>) =
             // 使用 Seq.collect 展平所有输入
             // 不管是 Expr, Selector 还是 ColumnExpr，都会乖乖交出 Expr list
@@ -865,23 +871,38 @@ and DataFrame(handle: DataFrameHandle) =
                 |> Seq.toList
             
             this.Select exprs
-    // member this.Select (expr:IIntoExpr): DataFrame = 
-    //     let handle = [expr] |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-    //     this.Select handle
     member this.Filter (expr: Expr) : DataFrame = 
         let h = PolarsWrapper.Filter(this.Handle,expr.CloneHandle())
         new DataFrame(h)
-    member this.Sort (expr: Expr) (desc :bool) : DataFrame =
+    member this.Sort (expr: Expr,desc :bool) : DataFrame =
         let h = PolarsWrapper.Sort(this.Handle,expr.CloneHandle(),desc)
         new DataFrame(h)
-    member this.Orderby (expr: Expr) (desc :bool) : DataFrame =
-        this.Sort expr desc
-    member this.GroupBy (keys: Expr list) (aggs: Expr list) : DataFrame =
+    /// <summary>
+    /// Overload: Sort ascending by default.
+    /// </summary>
+    member this.Sort(expr: Expr) =
+        this.Sort(expr, false)
+
+    /// <summary>
+    /// Overload: Sort by column name.
+    /// </summary>
+    member this.Sort(colName: string, descending: bool) =
+        // 内部转为 col(name)
+        this.Sort(Expr.Col colName, descending)
+
+    member this.Orderby (expr: Expr,desc :bool) : DataFrame =
+        this.Sort(expr,desc)
+    member this.GroupBy (keys: Expr list,aggs: Expr list) : DataFrame =
         let kHandles = keys |> List.map (fun e -> e.CloneHandle()) |> List.toArray
         let aHandles = aggs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
         let h = PolarsWrapper.GroupByAgg(this.Handle, kHandles, aHandles)
         new DataFrame(h)
-    member this.Join (other: DataFrame) (leftOn: Expr list) (rightOn: Expr list) (how: JoinType) : DataFrame =
+    /// <summary> Group by keys and apply aggregations. Supports Selectors in both keys and aggs. </summary>
+    member this.GroupBy(keys: seq<#IColumnExpr>, aggs: seq<#IColumnExpr>) =
+        let kExprs = keys |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toList
+        let aExprs = aggs |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toList
+        this.GroupBy (kExprs, aExprs)
+    member this.Join (other: DataFrame,leftOn: Expr list,rightOn: Expr list,how: JoinType) : DataFrame =
         let lHandles = leftOn |> List.map (fun e -> e.CloneHandle()) |> List.toArray
         let rHandles = rightOn |> List.map (fun e -> e.CloneHandle()) |> List.toArray
         let h = PolarsWrapper.Join(this.Handle, other.Handle, lHandles, rHandles, how.ToNative())
@@ -901,6 +922,11 @@ and DataFrame(handle: DataFrameHandle) =
         let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
         let h = PolarsWrapper.Explode(this.Handle, handles)
         new DataFrame(h)
+
+    /// <summary> Explode list columns to rows. Supports Selectors (e.g. all list columns). </summary>
+    member this.Explode(columns: seq<#IColumnExpr>) =
+        let exprs = columns |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toList
+        this.Explode exprs
     member this.UnnestColumn(column: string) : DataFrame =
         let cols = [| column |]
         let newHandle = PolarsWrapper.Unnest(this.Handle, cols)
@@ -1418,6 +1444,15 @@ and LazyFrame(handle: LazyFrameHandle) =
         
         let h = PolarsWrapper.LazySelect(lfClone, handles)
         new LazyFrame(h)
+    member this.Select(columns: seq<#IColumnExpr>) =
+            // 使用 Seq.collect 展平所有输入
+            // 不管是 Expr, Selector 还是 ColumnExpr，都会乖乖交出 Expr list
+            let exprs = 
+                columns 
+                |> Seq.collect (fun x -> x.ToExprs()) 
+                |> Seq.toList
+            
+            this.Select exprs
     member this.Sort (expr: Expr) (desc: bool) : LazyFrame =
         let lfClone = this.CloneHandle()
         let exprClone = expr.CloneHandle()
@@ -1439,12 +1474,23 @@ and LazyFrame(handle: LazyFrameHandle) =
         let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
         let h = PolarsWrapper.LazyWithColumns(lfClone, handles)
         new LazyFrame(h)
-    member this.GroupBy (keys: Expr list) (aggs: Expr list) : LazyFrame =
+    member this.WithColumns (columns:seq<#IColumnExpr>) =
+        let exprs = 
+            columns 
+            |> Seq.collect (fun x -> x.ToExprs()) 
+            |> Seq.toList
+        
+        this.WithColumns exprs
+    member this.GroupBy (keys: Expr list,aggs: Expr list) : LazyFrame =
         let lfClone = this.CloneHandle()
         let kHandles = keys |> List.map (fun e -> e.CloneHandle()) |> List.toArray
         let aHandles = aggs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
         let h = PolarsWrapper.LazyGroupByAgg(lfClone, kHandles, aHandles)
         new LazyFrame(h)
+    member this.GroupBy(keys: seq<#IColumnExpr>, aggs: seq<#IColumnExpr>) =
+            let kExprs = keys |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toList
+            let aExprs = aggs |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toList
+            this.GroupBy(kExprs, aExprs)
     member this.Unpivot (index: string list) (on: string list) (variableName: string option) (valueName: string option) : LazyFrame =
         let lfClone = this.CloneHandle() // 必须 Clone
         let iArr = List.toArray index
@@ -1453,7 +1499,7 @@ and LazyFrame(handle: LazyFrameHandle) =
         let valN = Option.toObj valueName 
         new LazyFrame(PolarsWrapper.LazyUnpivot(lfClone, iArr, oArr, varN, valN))
     member this.Melt = this.Unpivot
-/// <summary>
+    /// <summary>
     /// JoinAsOf with string tolerance (e.g., "2d", "1h").
     /// </summary>
     member this.JoinAsOf(other: LazyFrame, 

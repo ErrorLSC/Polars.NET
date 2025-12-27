@@ -32,7 +32,7 @@ type SelectorTests() =
         Assert.DoesNotContain("Name", dfNum.Columns)
 
         // --- 场景 B: 选布尔列 (IsActive) ---
-        let boolSel = pl.cs.byType pl.Boolean
+        let boolSel = pl.cs.byType pl.boolean
         let dfBool = df.Select [boolSel]
         
         Assert.Equal(1L, dfBool.Width)
@@ -58,7 +58,7 @@ type SelectorTests() =
 
         // --- 场景 B: Union (|||) ---
         // 需求：数值列 OR 布尔列 (Age, Salary, IsActive)
-        let selOr = pl.cs.numeric() ||| pl.cs.byType pl.Boolean
+        let selOr = pl.cs.numeric() ||| pl.cs.byType pl.boolean
         let dfOr = df.Select [selOr]
         
         Assert.Equal(3L, dfOr.Width)
@@ -92,7 +92,7 @@ type SelectorTests() =
 
         // --- 场景 B: 减法操作符 (-) ---
         // Numeric - Float64 (只剩 Int: Age)
-        let selDiff = pl.cs.numeric() - pl.cs.byType pl.Float64
+        let selDiff = pl.cs.numeric() - pl.cs.byType pl.float64
         let dfDiff = df.Select [selDiff]
         
         Assert.Single dfDiff.Columns |> ignore
@@ -131,11 +131,11 @@ type SelectorTests() =
                 
                 // 2. Selector (直接筛选)
                 // 字符串转大写 (假设你有 Str.ToUpper, 这里先用 Selector 占位)
-                !> pl.cs.byType(pl.String)
+                !> pl.cs.byType(pl.string)
                 
                 // 3. Selector (排除逻辑)
                 // 也不需要 .ToExpr() 了，直接用 Selector
-                !> ~~~(pl.cs.numeric() ||| pl.cs.byType pl.String)
+                !> ~~~(pl.cs.numeric() ||| pl.cs.byType pl.string)
             ])
             
         // 验证数值列变了
@@ -148,3 +148,37 @@ type SelectorTests() =
         
         // 验证保留列还在
         Assert.Contains("IsActive", dfTransformed.Columns)
+        
+    [<Fact>]
+    member _.``Integration: GroupBy, Explode with Selectors`` () =
+        // 1. 准备数据
+        let data = [
+            {| Region = "US";  Tag1 = ["A"; "B"]; Tag2 = ["X";"Q"]; Sales = 100; Profit = 20 |}
+            {| Region = "EU";  Tag1 = ["C"];      Tag2 = ["Y"]; Sales = 200; Profit = 40 |}
+            {| Region = "US";  Tag1 = ["A"];      Tag2 = ["Z"]; Sales = 150; Profit = 30 |}
+        ]
+        let df = DataFrame.ofRecords data
+
+        // ==========================================
+        // Case A: Explode
+        // 需求：炸开所有 List 类型的列 (Tag1, Tag2)
+        // ==========================================
+        
+        let dfTag = df.Explode [ !> pl.cs.startsWith("Tag") ]
+        Assert.Equal(4L, dfTag.Rows) // 2 + 1 + 1
+
+        // ==========================================
+        // Case B: GroupBy & Agg
+        // 需求：按 Region 分组，对所有数值列 (Sales, Profit) 求和
+        // ==========================================
+        let dfAgg = 
+            df.GroupBy(
+                keys = [ !> pl.col("Region") ], 
+                aggs = [ !> pl.cs.numeric().ToExpr().Sum() ] // 👈 自动对 Sales 和 Profit 求和
+            ).Sort (pl.col "Region", false)
+
+        Assert.Equal(2L, dfAgg.Rows)
+        // US Sum: 100 + 150 = 250
+        Assert.Equal(250, dfAgg.Cell<int>(1, "Sales")) 
+        // US Profit: 20 + 30 = 50
+        Assert.Equal(50, dfAgg.Cell<int>(1, "Profit"))

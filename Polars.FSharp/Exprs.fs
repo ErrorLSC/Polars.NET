@@ -29,6 +29,13 @@ and Expr(handle: ExprHandle) =
     /// <summary> Access string manipulation operations. </summary>
     member this.Str = new StringOps(this.CloneHandle())
 
+    // --- Column ---
+    static member Col (name: string) = new Expr(PolarsWrapper.Col name)
+    /// <summary> Select multiple columns (returns a Wildcard Expression). </summary>
+    static member Cols (names: string list) =
+        let arr = List.toArray names
+        new Expr(PolarsWrapper.Cols arr)
+
     // --- Helpers ---
     member this.Round(decimals: int) = new Expr(PolarsWrapper.Round(this.CloneHandle(), uint decimals))
 
