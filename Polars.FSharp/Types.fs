@@ -7722,6 +7722,13 @@ type SqlContext() =
     member _.Register(name: string, lf: LazyFrame) =
         PolarsWrapper.SqlRegister(handle, name, lf.CloneHandle())
 
+    member _.UnRegister(name: string) = 
+        PolarsWrapper.SqlUnRegister(handle,name)
+
+    /// <summary> Get the names of all registered tables, in sorted order. </summary>
+    member _.GetTables() =
+        PolarsWrapper.SqlGetTables(handle)
+
     /// <summary> Execute a SQL query and return a LazyFrame. </summary>
     member _.Execute(query: string) =
         new LazyFrame(PolarsWrapper.SqlExecute(handle, query))

@@ -18,7 +18,7 @@ flate2 = { version = "1.1.8", features = ["rust_backend"] }
 serde_json = "*"
 calamine = { version = "0.33", features = ["dates","chrono"] }
 chrono = "0.4.41"
-rust_xlsxwriter = { version = "0.93", features = ["chrono"] }
+rust_xlsxwriter = { version = "0.94", features = ["chrono"] }
 mimalloc = { version = "*", default-features = false }
 deltalake = { version = "0.31.0", default-features = false, features = ["s3", "azure", "gcs", "rustls"] }
 tokio = { version = "1.49.0"}
@@ -44,7 +44,7 @@ codegen-units = 16
 # Release:
 [profile.release]
 strip = true        #  Strip symbols
-opt-level = 3       # Max :3
-lto = "fat"          # Link time optimize
-codegen-units = 1   # set 1 for better binary layout
+opt-level = 0       # Max :3
+lto = false          # Link time optimize
+codegen-units = 16   # set 1 for better binary layout
 panic = "unwind"     

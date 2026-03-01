@@ -71,4 +71,48 @@ public class SqlTests
         Assert.Equal("IT", deptCol.GetValue<string>(1));
         Assert.Equal(3000, salaryCol.GetValue<long>(1));
     }
+    [Fact]
+    public void Test_Sql_GetTables_Register_And_Unregister()
+    {
+        // 1. 准备数据 (随意造点数据用于生成 LazyFrame)
+        var data = new[]
+        {
+            new { Id = 1, Name = "Alice" },
+            new { Id = 2, Name = "Bob" }
+        };
+        
+        using var df = DataFrame.From(data);
+        using var lf = df.Lazy();
+
+        // 2. 创建 SQL Context
+        using var ctx = new SqlContext();
+        
+        // 3. 初始状态验证：应该没有注册任何表
+        var initialTables = ctx.GetTables();
+        Assert.Empty(initialTables);
+
+        // 4. 注册多张表
+        // 我们故意先注册 "people" 再注册 "departments"
+        ctx.Register("people", lf);
+        ctx.Register("departments", lf);
+        ctx.Register("company", lf);
+
+        // 5. 验证 GetTables
+        // 注意：由于 Polars 底层在 Rust 中调用了 tables.sort_unstable()，
+        // 所以返回的数组必须是按字母字典序排列的。
+        var tables = ctx.GetTables();
+        Assert.Equal(3, tables.Length);
+        Assert.Equal("company", tables[0]);
+        Assert.Equal("departments", tables[1]);
+        Assert.Equal("people", tables[2]);
+
+        // 6. 反注册一张表
+        ctx.UnRegister("departments");
+
+        // 7. 再次验证 GetTables
+        var remainingTables = ctx.GetTables();
+        Assert.Equal(2, remainingTables.Length);
+        Assert.Equal("company", remainingTables[0]);
+        Assert.Equal("people", remainingTables[1]);
+    }
 }

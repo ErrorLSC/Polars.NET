@@ -55,6 +55,14 @@ public class SqlContext : IDisposable
     }
 
     /// <summary>
+    /// UnRegister a LazyFrame as a table.
+    /// </summary>
+    public void UnRegister(string tableName)
+    {
+        PolarsWrapper.SqlUnRegister(Handle,tableName);
+    }
+
+    /// <summary>
     /// Execute a SQL query.
     /// </summary>
     /// <param name="query">The SQL query string.</param>
@@ -63,6 +71,14 @@ public class SqlContext : IDisposable
     {
         var lfHandle = PolarsWrapper.SqlExecute(Handle, query);
         return new LazyFrame(lfHandle);
+    }
+    /// <summary>
+    /// Get the names of all registered tables, in sorted order.
+    /// </summary>
+    /// <returns>An array of registered table names.</returns>
+    public string[] GetTables()
+    {
+        return PolarsWrapper.SqlGetTables(Handle);
     }
     /// <summary>
     /// Dispose the SQL Context and release resources.
