@@ -8,12 +8,10 @@ using Polars.NET.Core.Data;
 
 namespace Polars.NET.Linq;
 
-public class PolarsDbConnection : DbConnection
+public class PolarsDbConnection(IPolarsSqlContext sqlContext) : DbConnection
 {
-    private readonly IPolarsSqlContext _sqlContext;
+    private readonly IPolarsSqlContext _sqlContext = sqlContext;
     private ConnectionState _state = ConnectionState.Closed;
-
-    public PolarsDbConnection(IPolarsSqlContext sqlContext) { _sqlContext = sqlContext; }
 
     public override string ConnectionString { get; set; } = "";
     public override string Database => "Polars";
@@ -28,10 +26,9 @@ public class PolarsDbConnection : DbConnection
     protected override DbCommand CreateDbCommand() => new PolarsDbCommand(_sqlContext) { Connection = this };
 }
 
-internal partial class PolarsDbCommand : DbCommand
+internal partial class PolarsDbCommand(IPolarsSqlContext sqlContext) : DbCommand
 {
-    private readonly IPolarsSqlContext _sqlContext;
-    public PolarsDbCommand(IPolarsSqlContext sqlContext) { _sqlContext = sqlContext; }
+    private readonly IPolarsSqlContext _sqlContext = sqlContext;
 
     public override string CommandText { get; set; } = "";
     public override int CommandTimeout { get; set; }
@@ -48,9 +45,8 @@ internal partial class PolarsDbCommand : DbCommand
     public override int ExecuteNonQuery()
     {
         // Console.WriteLine($"[Polars.NET.Linq] Native DML Execution: {CommandText}");
-        // 强行把 UPDATE 语句塞给 Polars
         using var lazyFrame = _sqlContext.Execute(CommandText);
-        using var df = lazyFrame.Collect(useStreaming:true);
+        using var df = lazyFrame.Collect(useStreaming:false);
         return (int)df.Height; 
     }
     public override object? ExecuteScalar()
@@ -67,26 +63,23 @@ internal partial class PolarsDbCommand : DbCommand
         
         return null;
     }
-    public override void Prepare() { }
+    public override void Prepare() {}
 
     protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)
     {
-        Console.WriteLine($"[Polars.NET.Linq] Native Execution: {CommandText}");
+        // Console.WriteLine($"[Polars.NET.Linq] Native Execution: {CommandText}");
         var stream = ExecuteAndYieldBatches(CommandText);
         return new ArrowToDbStream(stream);
     }
-
+ 
     private IEnumerable<RecordBatch> ExecuteAndYieldBatches(string rawSql)
     {
-        var sanitizedSql = MyRegex().Replace(rawSql, "");
+        var sanitizedSql = SqlSanitizer.Clean(rawSql);
         using var lazyFrame = _sqlContext.Execute(sanitizedSql);
-        using var df = lazyFrame.Collect(true);
+        using var df = lazyFrame.Collect(false);
         using var batch = df.ToArrow();
         yield return batch;
     }
-
-    [System.Text.RegularExpressions.GeneratedRegex(@"\s+ESCAPE\s+'.'")]
-    private static partial System.Text.RegularExpressions.Regex MyRegex();
 }
 
 internal class PolarsDbParameter : DbParameter
@@ -104,7 +97,7 @@ internal class PolarsDbParameter : DbParameter
 
 internal class PolarsDbParameterCollection : DbParameterCollection
 {
-    private readonly List<DbParameter> _parameters = new();
+    private readonly List<DbParameter> _parameters = [];
     public override int Count => _parameters.Count;
     public override object SyncRoot => this;
     public override int Add(object value) { _parameters.Add((DbParameter)value); return Count - 1; }

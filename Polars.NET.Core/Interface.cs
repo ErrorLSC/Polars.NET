@@ -28,8 +28,9 @@ namespace Polars.NET.Core
     }
     public interface IPolarsLazyFrame : IDisposable
     {
-        IPolarsDataFrame Collect(bool useStreaming);
+        IPolarsDataFrame Collect(bool useStreaming=false);
         IPolarsSchema Schema{get;}
+        string Explain(bool optimized=true);
     }
 
     public interface IPolarsSqlContext : IDisposable

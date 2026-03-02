@@ -30,24 +30,12 @@ namespace Polars.NET.Linq
                 .WithOptions<SqlOptions>(o => o with { GenerateFinalAliases = true });
         }
 
-        // DTO 注册
-        // public ITable<T> RegisterTable<T>(string tableName, IPolarsDataFrame df) where T : class
-        // {
-        //     _polarsContext.Register(tableName, df);
-        //     return this.GetTable<T>().TableName(tableName);
-        // }
-
         // 匿名对象推断注册 (幽灵参数)
         public ITable<T> RegisterTable<T>(string tableName, IPolarsDataFrame df, IEnumerable<T> dummyDataForInference) where T : class
         {
             return RegisterTable<T>(tableName, df);
         }
 
-        // public ITable<T> RegisterTable<T>(string tableName, IPolarsLazyFrame lf) where T : class
-        // {
-        //     _polarsContext.Register(tableName, lf);
-        //     return this.GetTable<T>().TableName(tableName);
-        // }
 
         public ITable<T> RegisterTable<T>(string tableName, IPolarsLazyFrame lf, IEnumerable<T> dummy) where T : class 
             => RegisterTable<T>(tableName, lf);
@@ -167,7 +155,7 @@ namespace Polars.NET.Linq
         // ====================================================================
         // 核心守卫逻辑
         // ====================================================================
-        private void ValidateSeriesArrowType<T>(IPolarsSeries s)
+        private static void ValidateSeriesArrowType<T>(IPolarsSeries s)
         {
             // 注意：这里假设你的 IPolarsSeries 暴露了获取底层 IArrowType 的方法或属性
             // 如果是在 DataType 里，可能是 s.DataType.GetArrowType() 之类的，请替换为你实际的 API
@@ -184,13 +172,20 @@ namespace Polars.NET.Linq
             if (userType != expectedNetType && expectedNetType != typeof(object))
             {
                 throw new InvalidOperationException(
-                    $"[Polars.NET.Linq] 类型不匹配致命错误！\n" +
-                    $"Series '{s.Name}' 的底层 Arrow 类型是 {arrowType.GetType().Name}，" +
-                    $"它只能被查询为 {expectedNetType.Name} (或可空类型)。\n" +
-                    $"但你试图使用 RegisterSeries<{userType.Name}>()，这将导致内存读取越界或 SQL 解析崩溃！");
+                    $"[Polars.NET.Linq] Series Dtype mismatch: \n" +
+                    $"Series '{s.Name}' Arrow Type is {arrowType.GetType().Name}" +
+                    $"It can only be queried as {expectedNetType.Name} or its nullable type。\n" +
+                    $"But you tried to RegisterSeries<{userType.Name}>(), which will lead to fatal errors");
             }
         }
-
+        public IPolarsLazyFrame ExecuteToLazyFrame(string rawSql)
+        {
+            // 复用你那个用于清理 linq2db 注释/参数的正则
+            var sanitizedSql = SqlSanitizer.Clean(rawSql);
+            // Console.WriteLine(sanitizedSql);
+            // 直接调用底层 Polars 的 SQL 引擎
+            return _polarsContext.Execute(sanitizedSql);
+        }
         // ====================================================================
         // 终极护盾：隐藏父类的 Dispose 并拦截释放信号
         // ====================================================================
