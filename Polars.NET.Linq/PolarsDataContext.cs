@@ -1,6 +1,7 @@
 using System;
 using LinqToDB;
 using LinqToDB.Data;
+using LinqToDB.Mapping;
 using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
 
@@ -30,11 +31,11 @@ namespace Polars.NET.Linq
         }
 
         // DTO 注册
-        public ITable<T> RegisterTable<T>(string tableName, IPolarsDataFrame df) where T : class
-        {
-            _polarsContext.Register(tableName, df);
-            return this.GetTable<T>().TableName(tableName);
-        }
+        // public ITable<T> RegisterTable<T>(string tableName, IPolarsDataFrame df) where T : class
+        // {
+        //     _polarsContext.Register(tableName, df);
+        //     return this.GetTable<T>().TableName(tableName);
+        // }
 
         // 匿名对象推断注册 (幽灵参数)
         public ITable<T> RegisterTable<T>(string tableName, IPolarsDataFrame df, IEnumerable<T> dummyDataForInference) where T : class
@@ -42,15 +43,82 @@ namespace Polars.NET.Linq
             return RegisterTable<T>(tableName, df);
         }
 
-        public ITable<T> RegisterTable<T>(string tableName, IPolarsLazyFrame lf) where T : class
-        {
-            _polarsContext.Register(tableName, lf);
-            return this.GetTable<T>().TableName(tableName);
-        }
+        // public ITable<T> RegisterTable<T>(string tableName, IPolarsLazyFrame lf) where T : class
+        // {
+        //     _polarsContext.Register(tableName, lf);
+        //     return this.GetTable<T>().TableName(tableName);
+        // }
 
         public ITable<T> RegisterTable<T>(string tableName, IPolarsLazyFrame lf, IEnumerable<T> dummy) where T : class 
             => RegisterTable<T>(tableName, lf);
 
+        private void BuildSchemaMapping<T>(string tableName, IPolarsSchema schema) where T : class
+        {
+            var schemaDict = schema.ToDictionary();
+            
+            try
+            {
+                var mappingBuilder = new FluentMappingBuilder(this.MappingSchema);
+                var entityBuilder = mappingBuilder.Entity<T>();
+                var properties = typeof(T).GetProperties();
+
+                foreach (var prop in properties)
+                {
+                    var matchedColumn = schemaDict.Keys.FirstOrDefault(k => 
+                        string.Equals(k, prop.Name, StringComparison.OrdinalIgnoreCase));
+
+                    if (matchedColumn != null)
+                    {
+                        var polarsDataType = schemaDict[matchedColumn];
+                        var expectedNetType = ArrowTypeResolver.GetNetTypeFromArrowType(polarsDataType.GetArrowType());
+                        var actualNetType = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
+
+                        if (expectedNetType != actualNetType && expectedNetType != typeof(object))
+                        {
+                            throw new InvalidOperationException(
+                                $"[Polars.NET] Table: '{tableName}' Column mapping failed.\n" +
+                                $"Polars Column: '{matchedColumn}' 's type is {polarsDataType}, its Dotnet type is '{expectedNetType.Name}'.\n" +
+                                $"But your model {typeof(T).Name}.{prop.Name} defined as '{actualNetType.Name}'. Please modify your model.");
+                        }
+
+                        entityBuilder.HasAttribute(prop, new ColumnAttribute { Name = matchedColumn });
+                    }
+                }
+                mappingBuilder.Build();
+            }
+            finally
+            {
+                foreach(var dt in schemaDict.Values) { dt.Dispose(); }
+            }
+        }
+
+        // ====================================================================
+        // 1. LazyFrame 注册器
+        // ====================================================================
+        public ITable<T> RegisterTable<T>(string tableName, IPolarsLazyFrame lf, IPolarsSchema? providedSchema = null) 
+            where T : class
+        {
+            var schema = providedSchema ?? lf.Schema; 
+            
+            BuildSchemaMapping<T>(tableName, schema); // 调用装配车间
+            _polarsContext.Register(tableName, lf);   // 注册到底层引擎
+            
+            return this.GetTable<T>().TableName(tableName);
+        }
+
+        // ====================================================================
+        // 2. DataFrame 注册器 (秒搞定！)
+        // ====================================================================
+        public ITable<T> RegisterTable<T>(string tableName, IPolarsDataFrame df, IPolarsSchema? providedSchema = null) 
+            where T : class
+        {
+            var schema = providedSchema ?? df.Schema; 
+            
+            BuildSchemaMapping<T>(tableName, schema); // 调用装配车间
+            _polarsContext.Register(tableName, df);   // 注册到底层引擎
+            
+            return this.GetTable<T>().TableName(tableName);
+        }
         // ====================================================================
         // Series 专属注册区：自带 Arrow 级类型校验，直接返回 IQueryable<T>
         // ====================================================================

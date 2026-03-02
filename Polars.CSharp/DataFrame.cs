@@ -42,7 +42,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
             return new PolarsSchema(handle);
         }
     }
-
+    IPolarsSchema IPolarsDataFrame.Schema => this.Schema;
     /// <summary>
     /// Prints the schema to the console.
     /// </summary>
@@ -1175,7 +1175,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     public long Width => PolarsWrapper.DataFrameWidth(Handle);  
     /// <summary>
     /// Return DataFrame Shape(Len,Width)
-    /// </summary>
+    /// </summary>  
     public (long Len, long Width) Shape => (Len,Width);
     /// <summary>
     /// Return DataFrame Columns' Name

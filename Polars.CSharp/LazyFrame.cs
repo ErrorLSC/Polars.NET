@@ -1208,7 +1208,7 @@ public class LazyFrame : IDisposable,IPolarsLazyFrame
             return new PolarsSchema(handle);
         }
     }
-
+    IPolarsSchema IPolarsLazyFrame.Schema => this.Schema;
     /// <summary>
     /// Prints the schema to the console.
     /// </summary>

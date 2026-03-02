@@ -3,7 +3,8 @@ using Xunit;
 using Polars.CSharp;
 using static Polars.CSharp.Polars;
 using Polars.NET.Linq;
-using LinqToDB; // 引入我们刚才写的扩展
+using LinqToDB;
+using DataType = Polars.CSharp.DataType; // 引入我们刚才写的扩展
 
 namespace Polars.NET.Linq.Tests;
 
@@ -169,7 +170,7 @@ public class LinqProviderTests
         var query = from e in empQuery
                     join d in deptQuery on e.DeptId equals d.DeptId
                     where e.Name != "Bob"
-                    orderby d.DeptName
+                    orderby d.DeptName,e.Name
                     select new EmpDeptDto
                     {
                         EmpName = e.Name,
@@ -243,8 +244,7 @@ public class LinqProviderTests
     [Fact]
     [Trait("Linq", "ScalarAndFirst")]
     public void Test_Polars_Linq_Scalar_And_First()
-    {
-        
+    {     
         var data = new[]
         {
             new { Id = 1, Name = "Alice", Score = 80 },
@@ -254,7 +254,6 @@ public class LinqProviderTests
 
         using var df = DataFrame.From(data);
         using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-        // 这里的 AsPolarsQueryable 假定你已经在 PolarsLinqExtensions 里封装好了 ctx 的注册逻辑
         // 或者沿用你上面写的 ctx.RegisterTable<T> 方式
         var query = db.RegisterTable("students", df,data);
 
@@ -301,8 +300,8 @@ public class LinqProviderTests
 
         using var df = DataFrame.From(data);
         using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-        // 完美利用你刚刚写的哑参数重载，自动推断出 T 是 Product
-        var query = db.RegisterTable("products", df, data);
+
+        var query = db.RegisterTable<Product>("products", df);
 
         // ==========================================
         // 测试 1：集合包含 (映射为 IN 子句)
@@ -353,7 +352,7 @@ public class LinqProviderTests
 
         using var df = DataFrame.From(data);
         using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-        var query = db.RegisterTable("products", df, data);
+        var query = db.RegisterTable<Product>("products", df);
 
         // ==========================================
         // 测试 1：投影去重 (Distinct)
@@ -462,8 +461,8 @@ public class LinqProviderTests
         using var dfEmps = DataFrame.From(emps);
 
         using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-        var deptQuery = db.RegisterTable("departments", dfDepts,depts);
-        var empQuery = db.RegisterTable("employees", dfEmps,emps);
+        var deptQuery = db.RegisterTable<DeptDto>("departments", dfDepts);
+        var empQuery = db.RegisterTable<EmpDto>("employees", dfEmps);
 
         // Act: 经典的 LINQ Left Join 语法
         var query = from d in deptQuery
@@ -518,8 +517,8 @@ public class LinqProviderTests
         using var dfEmps = DataFrame.From(emps);
 
         using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-        var deptQuery = db.RegisterTable("departments", dfDepts, depts);
-        var empQuery = db.RegisterTable("employees", dfEmps, emps);
+        var deptQuery = db.RegisterTable<DeptDto>("departments", dfDepts);
+        var empQuery = db.RegisterTable<EmpDto>("employees", dfEmps);
 
         // ==========================================
         // 测试 1：交叉连接 (Cross Join / Cartesian Product)
@@ -578,7 +577,7 @@ public class LinqProviderTests
 
         using var dfEmps = DataFrame.From(emps);
         using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-        var empQuery = db.RegisterTable("employees", dfEmps, emps);
+        var empQuery = db.RegisterTable<EmpSalaryDto>("employees", dfEmps);
 
         // ==========================================
         // 测试 1：交集 (Intersect)
@@ -641,7 +640,7 @@ public class LinqProviderTests
 
         using var dfEmps = DataFrame.From(emps);
         using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-        var empQuery = db.RegisterTable("employees", dfEmps, emps);
+        var empQuery = db.RegisterTable<EmpSalaryDto>("employees", dfEmps);
 
         // ==========================================
         // 测试：窗口函数 (Window Functions)
@@ -768,7 +767,7 @@ public class LinqProviderTests
 
         using var dfOrders = DataFrame.From(orders);
         using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-        var orderQuery = db.RegisterTable("orders", dfOrders, orders);
+        var orderQuery = db.RegisterTable<OrderDto>("orders", dfOrders);
 
         // ==========================================
         // 测试 1：多维分组 (Multi-key GroupBy)
@@ -816,7 +815,6 @@ public class LinqProviderTests
     [Trait("Linq", "SubqueryInAndFunctions")]
     public void Test_Polars_Linq_SubqueryIn_And_Functions()
     {
-        LinqToDB.Common.Configuration.Sql.GenerateFinalAliases = true;
         var depts = new[]
         {
             new DeptDto { DeptId = 1, DeptName = "Engineering" },
@@ -891,7 +889,6 @@ public class LinqProviderTests
     [Trait("Linq", "MathStringAndConditionalAgg")]
     public void Test_Polars_Linq_Math_String_And_ConditionalAgg()
     {
-        LinqToDB.Common.Configuration.Sql.GenerateFinalAliases = true;
         var sales = new[]
         {
             new SalesData("Tech", "Laptop", 1000.5, 50.0),
@@ -943,7 +940,7 @@ public class LinqProviderTests
     }
     public record StockPrice(string Ticker, DateTime Date, double Price);
 
-    [Fact(Skip = "Waiting for Polars SQL engine to support string_agg / group_concat in future versions (Tested on v0.53)")]
+    [Fact]
     [Trait("Linq", "LeadLagAndNestedList")]
     public void Test_Polars_Linq_LeadLag_And_NestedList()
     {
@@ -998,34 +995,34 @@ public class LinqProviderTests
         Assert.Equal(155.0, aaplDay2.Price);
         Assert.Equal(150.0, aaplDay2.PrevPrice); // 成功拿到第一天的价格！
 
-        // ==========================================
-        // 测试 2：层级投影平铺化 (STRING_AGG)
-        // 业务需求：返回每个部门，并且对象内部包含一个员工名字的拼接字符串
-        // linq2db 预期：LEFT JOIN + GROUP BY + STRING_AGG
-        // ==========================================
-        var nestedQuery = from d in deptQuery
-                          join e in empQuery on d.DeptId equals e.DeptId into empGroup
-                          from e in empGroup.DefaultIfEmpty() // 关键：展开为 LEFT JOIN，让 e 重新回到作用域
-                          group e by d.DeptName into g      // 按部门名称分组
-                          select new
-                          {
-                              DeptName = g.Key,
-                              // linq2db 会极其聪明地把 string.Join 翻译为 PostgreSQL 的 STRING_AGG
-                              Employees = string.Join(", ", g.Select(x => x.Name))
-                          };
+        // // ==========================================
+        // // 测试 2：层级投影平铺化 (STRING_AGG)
+        // // 业务需求：返回每个部门，并且对象内部包含一个员工名字的拼接字符串
+        // // linq2db 预期：LEFT JOIN + GROUP BY + STRING_AGG
+        // // ==========================================
+        // var nestedQuery = from d in deptQuery
+        //                   join e in empQuery on d.DeptId equals e.DeptId into empGroup
+        //                   from e in empGroup.DefaultIfEmpty() // 关键：展开为 LEFT JOIN，让 e 重新回到作用域
+        //                   group e by d.DeptName into g      // 按部门名称分组
+        //                   select new
+        //                   {
+        //                       DeptName = g.Key,
+        //                       // linq2db 会极其聪明地把 string.Join 翻译为 PostgreSQL 的 STRING_AGG
+        //                       Employees = string.Join(", ", g.Select(x => x.Name))
+        //                   };
 
-        var nestedResult = nestedQuery.ToList();
+        // var nestedResult = nestedQuery.ToList();
 
-        Assert.Equal(2, nestedResult.Count);
+        // Assert.Equal(2, nestedResult.Count);
         
-        var techDept = nestedResult.First(d => d.DeptName == "Tech");
-        // Tech 部门应该拼接了 Alice 和 Bob
-        Assert.Contains("Alice", techDept.Employees);
-        Assert.Contains("Bob", techDept.Employees);
+        // var techDept = nestedResult.First(d => d.DeptName == "Tech");
+        // // Tech 部门应该拼接了 Alice 和 Bob
+        // Assert.Contains("Alice", techDept.Employees);
+        // Assert.Contains("Bob", techDept.Employees);
 
-        var salesDept = nestedResult.First(d => d.DeptName == "Sales");
-        // Sales 部门只有 Charlie
-        Assert.Equal("Charlie", salesDept.Employees);
+        // var salesDept = nestedResult.First(d => d.DeptName == "Sales");
+        // // Sales 部门只有 Charlie
+        // Assert.Equal("Charlie", salesDept.Employees);
     }
     [Fact]
     [Trait("Linq", "UnifiedCRUD")]
@@ -1043,7 +1040,7 @@ public class LinqProviderTests
         using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
         
         // 2. 极其优雅的上下文初始化
-        var table = db.RegisterTable("employees", dfEmps,emps);
+        var table = db.RegisterTable<EmployeeSalary>("employees", dfEmps);
 
         // ==========================================
         // 【R: 查询】 (完美支持复杂 LINQ)
@@ -1074,6 +1071,7 @@ public class LinqProviderTests
         int deleted = table.Where(e => e.DeptId == 3).Delete();
         Assert.True(deleted >= 0);
     }
+    public record StaffRecord(string name, int age, int salary);
     [Fact]
     [Trait("Linq", "LazyIO")]
     public void Test_Polars_Linq_Lazy_Csv_Scan_And_Pushdown()
@@ -1091,16 +1089,16 @@ David,40,80000";
         {
             // 2. 【核心改变】：不要用 ReadCsv！用 ScanCsv 创建 LazyFrame！
             // 此时磁盘根本没有真正开始读数据，仅仅是创建了一个文件指针和逻辑计划
-            using var lf = LazyFrame.ScanCsv(fileName);
+            using var schema = new PolarsSchema();
+            schema.Add("age",DataType.Int32).Add("salary",DataType.Int32);
+
+            using var lf = LazyFrame.ScanCsv(fileName,schema:schema);
             
             using var ctx = new SqlContext();
             using var db = new PolarsDataContext(ctx);
 
-            // 3. 构造用于类型推断的幽灵数据（注意属性名和 CSV 表头大小写一致）
-            var dummyData = new[] { new { name = "", age = 0, salary = 0.0 } };
-
             // 4. 将 LazyFrame 注册到 SQL 上下文中
-            var query = db.RegisterTable("employees", lf, dummyData)
+            var query = db.RegisterTable<StaffRecord>("employees", lf)
                           .Where(e => e.age > 30)
                           .Select(e => new 
                           { 
@@ -1155,6 +1153,8 @@ David,40,80000";
         Assert.Equal(10, results.Count);
         Assert.Equal(100, results[0]);
     }
+    
+    public record StaffRecordWithBonus(string name, int age, int salary,double bonus);
     [Fact]
     [Trait("Linq", "HybridLazy")]
     public void Test_Polars_Linq_Hybrid_Native_And_Linq_Pushdown()
@@ -1170,8 +1170,11 @@ David,40,80000";
 
         try
         {
+            using var schema = new PolarsSchema();
+            schema.Add("age",DataType.Int32).Add("salary",DataType.Int32);
+
             // 2. ScanCsv 创建文件指针和基础逻辑计划
-            using var lf = LazyFrame.ScanCsv(fileName);
+            using var lf = LazyFrame.ScanCsv(fileName,schema:schema);
             
             // ====================================================================
             // 【核心混写阶段 1：Polars 原生 API】
@@ -1182,14 +1185,11 @@ David,40,80000";
             using var ctx = new SqlContext();
             using var db = new PolarsDataContext(ctx);
 
-            // 3. 构造幽灵数据（注意加上原生 API 刚刚生成的 bonus 列！）
-            var dummyData = new[] { new { name = "", age = 0, salary = 0.0, bonus = 0.0 } };
-
             // ====================================================================
             // 【核心混写阶段 2：C# LINQ】
             // 将带有原生计划的 LazyFrame 注册进来，用 LINQ 继续编写业务逻辑！
             // ====================================================================
-            var query = db.RegisterTable("employees", lfWithBonus, dummyData)
+            var query = db.RegisterTable<StaffRecordWithBonus>("employees", lfWithBonus)
                           // LINQ 过滤：使用原有列和原生生成的列
                           .Where(e => e.age > 30 && e.bonus >= 7000.0) 
                           // LINQ 投影：在 LINQ 层再做一次计算

@@ -7,6 +7,8 @@ namespace Polars.NET.Core
     {
         long Height{ get; }
         RecordBatch ToArrow();
+
+        IPolarsSchema Schema{get;}
     }
 
     public interface IPolarsSeries : IDisposable
@@ -27,6 +29,7 @@ namespace Polars.NET.Core
     public interface IPolarsLazyFrame : IDisposable
     {
         IPolarsDataFrame Collect(bool useStreaming);
+        IPolarsSchema Schema{get;}
     }
 
     public interface IPolarsSqlContext : IDisposable
@@ -35,5 +38,14 @@ namespace Polars.NET.Core
         void Register(string tableName, IPolarsLazyFrame lf);
         
         IPolarsLazyFrame Execute(string sql);
+    }
+
+    public interface IPolarsSchema : IDisposable
+    {
+        int Length { get; }
+        List<string> ColumnNames { get; }
+        
+        IPolarsDataType this[string name] { get; } 
+        Dictionary<string,IPolarsDataType> ToDictionary();
     }
 }

@@ -7,7 +7,7 @@ namespace Polars.CSharp;
 /// <summary>
 /// Represents a Polars Schema (Name -> DataType mapping).
 /// </summary>
-public class PolarsSchema : IDisposable
+public class PolarsSchema : IDisposable,IPolarsSchema
 {
     internal SchemaHandle Handle { get; private set; }
     private bool _disposed;
@@ -60,7 +60,7 @@ public class PolarsSchema : IDisposable
     /// </summary>
     public Dictionary<string, DataType> ToDictionary()
     {
-        if (Handle.IsInvalid) return new Dictionary<string, DataType>();
+        if (Handle.IsInvalid) return [];
 
         ulong len = PolarsWrapper.GetSchemaLen(Handle);
         var result = new Dictionary<string, DataType>((int)len);
@@ -73,6 +73,12 @@ public class PolarsSchema : IDisposable
 
         return result;
     }
+
+    Dictionary<string, IPolarsDataType> IPolarsSchema.ToDictionary()
+        {
+            return this.ToDictionary()
+                       .ToDictionary(kvp => kvp.Key, kvp => (IPolarsDataType)kvp.Value);
+        }
 
     public DataType this[string name]
         {
@@ -111,6 +117,8 @@ public class PolarsSchema : IDisposable
             }
         }
 
+        IPolarsDataType IPolarsSchema.this[string name] 
+            => this[name];
         // ==========================================
         // ToString
         // ==========================================

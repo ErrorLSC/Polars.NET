@@ -10,7 +10,7 @@ public static partial class PolarsWrapper
     /// </summary>
     public static SchemaHandle SchemaCreate()
     {
-        return NewSchema(Array.Empty<string>(), Array.Empty<DataTypeHandle>());
+        return NewSchema([], []);
     }
 
     /// <summary>
