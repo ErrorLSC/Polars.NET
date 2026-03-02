@@ -1223,4 +1223,37 @@ David,40,80000";
             if (File.Exists(fileName)) File.Delete(fileName);
         }
     }
+    [Fact]
+    [Trait("Linq","Sandwich")]
+    public void Test_Polars_Double_Hybrid_Sandwich()
+    {
+        using var ctx = new SqlContext();
+        using var db = new PolarsDataContext(ctx);
+
+        using var schema = new PolarsSchema();
+        schema.Add("age",DataType.Int32).Add("salary",DataType.Int32);
+        string path = "/home/qinglei/Projects/Polars.NET/Polars.Integration.Tests/TestData/staffrecord.csv";
+        // --- 1. 底层 Native (IO 阶段) ---
+        using var rawLf = LazyFrame.ScanCsv(path,schema:schema);
+        
+        var query = db.RegisterTable<StaffRecord>("emps", rawLf)
+                      // --- 2. LINQ 阶段 (业务表达阶段) ---
+                      .Where(e => e.salary > 5000)
+                      .Select(e => new { e.name, e.salary });
+        string plan1 = query.Explain(true);
+        Console.WriteLine(plan1);
+        // --- 3. 截胡！回到 Native (后处理阶段) ---
+        // 注意：这行代码执行完，磁盘根本没有动！所有的计划全被缝合在一起了！
+        using LazyFrame lfWithLinq = (LazyFrame)query.ToLazyFrame();
+
+        // 继续使用 Polars 原生 API 做一些 LINQ 很难表达的操作
+        // 比如求每一列的 null 数量，或者做 Rolling 窗口计算
+        using var finalLf = lfWithLinq.WithColumns(Col("salary").Std().Alias("salary_std"));
+        string plan2 = finalLf.Explain(true);
+        Console.WriteLine(plan2);
+        // 4. 终极点火
+        using var df = finalLf.Collect();
+        // df.Show();       
+        Assert.True(df.Height > 0);
+    }
 }
