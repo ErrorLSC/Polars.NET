@@ -56,6 +56,33 @@ namespace Polars.NET.Core.Arrow
 
                 columnAccessors[i] = CreateAccessor(col, prop.PropertyType);
             }
+        //     for (int i = 0; i < properties.Length; i++)
+        //         {
+        //             var prop = properties[i];
+                    
+        //             // 1. 安全查找列索引（忽略大小写，适应 SQL 的多变性）
+        //             int colIndex = -1;
+        //             for (int c = 0; c < batch.ColumnCount; c++)
+        //             {
+        //                 var field = batch.Schema.GetFieldByIndex(c);
+        //                 if (string.Equals(field.Name, prop.Name, StringComparison.OrdinalIgnoreCase))
+        //                 {
+        //                     colIndex = c;
+        //                     break;
+        //                 }
+        //             }
+
+        //             // 2. 如果没找到对应的列，优雅回退到返回 null
+        //             if (colIndex == -1) 
+        //             {
+        //                 columnAccessors[i] = _ => null; 
+        //                 continue; 
+        //             }
+
+        //             // 3. 安全读取列数据
+        //             var col = batch.Column(colIndex);
+        //             columnAccessors[i] = CreateAccessor(col, prop.PropertyType);
+        //         }
 
             for (int i = 0; i < rowCount; i++)
             {

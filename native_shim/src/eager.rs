@@ -326,6 +326,37 @@ pub extern "C" fn pl_dataframe_rename(df_ptr: *mut DataFrameContext, old: *const
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_rename_many(
+    df_ptr: *mut DataFrameContext,
+    old_names_ptr: *const *const c_char,
+    new_names_ptr: *const *const c_char,
+    count: usize,
+) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*df_ptr };
+
+        let old_ptrs = unsafe { std::slice::from_raw_parts(old_names_ptr, count) };
+        let new_ptrs = unsafe { std::slice::from_raw_parts(new_names_ptr, count) };
+
+        let mut renames = Vec::with_capacity(count);
+        for i in 0..count {
+            let old_str = unsafe { CStr::from_ptr(old_ptrs[i]).to_string_lossy().into_owned() };
+            let new_str = unsafe { CStr::from_ptr(new_ptrs[i]).to_string_lossy().into_owned() };
+            
+            renames.push((old_str, PlSmallStr::from_str(&new_str)));
+        }
+
+        let mut new_df = ctx.df.clone();
+
+        new_df.rename_many(
+            renames.iter().map(|(old, new)| (old.as_str(), new.clone()))
+        )?;
+
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_drop_nulls(df_ptr: *mut DataFrameContext, subset: *const *const c_char, len: usize) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*df_ptr };

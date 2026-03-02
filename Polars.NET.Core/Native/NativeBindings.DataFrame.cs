@@ -78,6 +78,8 @@ unsafe internal partial class NativeBindings
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial DataFrameHandle pl_dataframe_rename(DataFrameHandle df, string oldName, string newName);
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial DataFrameHandle pl_dataframe_rename_many(DataFrameHandle df, string[] oldNames, string[] newNames, nuint count);
 
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_dataframe_drop_nulls(DataFrameHandle df, IntPtr[] subset, UIntPtr len);

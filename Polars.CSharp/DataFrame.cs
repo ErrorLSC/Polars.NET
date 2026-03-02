@@ -1729,7 +1729,40 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     /// Rename a column.
     /// </summary>
     public DataFrame Rename(string oldName, string newName) => new(PolarsWrapper.Rename(Handle, oldName, newName));
+    /// <summary>
+    /// Rename a list of columns.
+    /// </summary>
+    public DataFrame Rename(string[] oldNames, string[] newNames) => new(PolarsWrapper.Rename(Handle, oldNames, newNames));
+    /// <summary>
+    /// Rename columns using a dictionary mapping old names to new names.
+    /// </summary>
+    public DataFrame Rename(IReadOnlyDictionary<string, string> mapping)
+    {
+        var oldNames = mapping.Keys.ToArray();
+        var newNames = mapping.Values.ToArray();
+        return Rename(oldNames, newNames);
+    }
+    /// <summary>
+    /// Rename columns using a list of (OldName, NewName) tuples.
+    /// </summary>
+    /// <example>
+    /// df.Rename(("old1", "new1"), ("old2", "new2"));
+    /// </example>
+    public DataFrame Rename(params (string OldName, string NewName)[] renames)
+    {
+        if (renames == null || renames.Length == 0) return this;
 
+        var oldNames = new string[renames.Length];
+        var newNames = new string[renames.Length];
+
+        for (int i = 0; i < renames.Length; i++)
+        {
+            oldNames[i] = renames[i].OldName;
+            newNames[i] = renames[i].NewName;
+        }
+
+        return Rename(oldNames, newNames);
+    }
     /// <summary>
     /// Drop rows containing null values.
     /// </summary>

@@ -15,6 +15,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Polars.CSharp.Tests", "Pola
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Polars.Integration.Tests", "Polars.Integration.Tests\Polars.Integration.Tests.csproj", "{2E094CA4-3D36-477B-90B8-67DA8BBB923E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Polars.NET.Linq", "Polars.NET.Linq\Polars.NET.Linq.csproj", "{2E094CA4-3D36-477B-90B8-67DA8BBB923E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU

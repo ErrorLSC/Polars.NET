@@ -101,7 +101,15 @@ public static partial class PolarsWrapper
 
     public static DataFrameHandle Rename(DataFrameHandle df, string oldName, string newName)
         => ErrorHelper.Check(NativeBindings.pl_dataframe_rename(df, oldName, newName));
+    public static DataFrameHandle Rename(DataFrameHandle df, string[] oldNames, string[] newNames)
+    {
+    if (oldNames.Length != newNames.Length)
+    {
+        throw new ArgumentException("The lengths of oldNames and newNames must be identical.");
+    }
 
+    return ErrorHelper.Check(NativeBindings.pl_dataframe_rename_many(df, oldNames, newNames, (nuint)oldNames.Length));
+    }
     public static DataFrameHandle DropNulls(DataFrameHandle df, string[]? subset)
     {
         return UseUtf8StringArray(subset ?? [], ptrs => 
