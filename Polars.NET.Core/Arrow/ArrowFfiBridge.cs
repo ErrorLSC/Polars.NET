@@ -8,6 +8,28 @@ namespace Polars.NET.Core.Arrow
 {
     public static class ArrowFfiBridge
     {
+        // ==========================================
+        // DataType Import (ArrowSchema)
+        // ==========================================
+        /// <summary>
+        /// Import an Apache Arrow IArrowType from a Polars DataType handle.
+        /// </summary>
+        public static unsafe IArrowType ImportDataType(DataTypeHandle dataTypeHandle)
+        {
+            var cSchema = CArrowSchema.Create();
+
+            try
+            {
+                NativeBindings.pl_datatype_export_arrow_schema(dataTypeHandle, cSchema);
+
+                var field = CArrowSchemaImporter.ImportField(cSchema);
+                return field.DataType;
+            }
+            finally
+            {
+                CArrowSchema.Free(cSchema);
+            }
+        }
         /// <summary>
         /// Create a Polars Series from an Apache.Arrow array.
         /// This allows zero-copy import of complex types (List, Struct, etc.) constructed in C#.

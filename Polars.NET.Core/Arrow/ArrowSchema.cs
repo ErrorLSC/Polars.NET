@@ -258,7 +258,7 @@ namespace Polars.NET.Core.Arrow
                 TimestampType ts => string.IsNullOrEmpty(ts.Timezone) ? typeof(DateTime) : typeof(DateTimeOffset),
                 Date32Type => typeof(DateOnly),
                 Date64Type => typeof(DateTime),
-                Time64Type => typeof(TimeSpan), // Updated
+                Time64Type => typeof(TimeOnly), // Updated
                 DurationType => typeof(TimeSpan),
                 BinaryType => typeof(byte[]),
                 LargeBinaryType => typeof(byte[]),

@@ -13,7 +13,7 @@ namespace Polars.CSharp;
 /// Operations on Series are generally performed immediately.
 /// </para>
 /// </summary>
-public partial class Series : IDisposable
+public partial class Series : IDisposable,IPolarsSeries
 {
     internal SeriesHandle Handle { get; }
 
@@ -129,9 +129,9 @@ public partial class Series : IDisposable
             return new DataType(handle);
         }
     }
-    
+    IPolarsDataType IPolarsSeries.DataType => DataType;
     // ==========================================
-    // Scalar Accessors (Native Speed ⚡)
+    // Scalar Accessors (Native Speed)
     // ==========================================
 
     /// <summary>
@@ -1071,6 +1071,7 @@ public partial class Series : IDisposable
     /// Count the number of unique values in this Series.
     /// </summary>
     public ulong NUnique => PolarsWrapper.SeriesNUnique(Handle);
+
     /// <summary>
     /// Get the unique elements of this Series.
     /// </summary>
@@ -1596,6 +1597,10 @@ public partial class Series : IDisposable
     /// </summary>
     public DataFrame ToFrame()
         => new(PolarsWrapper.SeriesToFrame(Handle));
+    IPolarsDataFrame IPolarsSeries.ToFrame()
+    {
+        return ToFrame();
+    }
     /// <summary>
     /// Dispose the underlying SeriesHandle.
     /// </summary>

@@ -1,5 +1,7 @@
 #pragma warning disable CS1591
+using Apache.Arrow.Types;
 using Polars.NET.Core;
+using Polars.NET.Core.Arrow;
 
 namespace Polars.CSharp;
 
@@ -7,7 +9,7 @@ namespace Polars.CSharp;
 /// Represents a Polars data type. 
 /// Wraps the underlying Rust DataType Handle and provides high-level metadata.
 /// </summary>
-public class DataType : IDisposable, IEquatable<DataType>
+public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
 {
     internal DataTypeHandle Handle { get; }
     
@@ -71,6 +73,11 @@ public class DataType : IDisposable, IEquatable<DataType>
     {
         Handle.Dispose();
     }
+    /// <summary>
+    /// Get Apache Arrow Type
+    /// </summary>
+    public IArrowType GetArrowType()
+        => ArrowFfiBridge.ImportDataType(Handle);
     /// <summary>
     /// Output DataType string (e.g., "datetime[ms, Asia/Shanghai]")
     /// </summary>

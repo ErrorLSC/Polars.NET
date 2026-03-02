@@ -3,17 +3,17 @@ using System.Collections;
 using System.Data;
 using System.Data.Common;
 using Apache.Arrow;
-using Polars.CSharp;
+using Polars.NET.Core;
 using Polars.NET.Core.Data;
 
 namespace Polars.NET.Linq;
 
 public class PolarsDbConnection : DbConnection
 {
-    private readonly SqlContext _sqlContext;
+    private readonly IPolarsSqlContext _sqlContext;
     private ConnectionState _state = ConnectionState.Closed;
 
-    public PolarsDbConnection(SqlContext sqlContext) { _sqlContext = sqlContext; }
+    public PolarsDbConnection(IPolarsSqlContext sqlContext) { _sqlContext = sqlContext; }
 
     public override string ConnectionString { get; set; } = "";
     public override string Database => "Polars";
@@ -28,10 +28,10 @@ public class PolarsDbConnection : DbConnection
     protected override DbCommand CreateDbCommand() => new PolarsDbCommand(_sqlContext) { Connection = this };
 }
 
-internal class PolarsDbCommand : DbCommand
+internal partial class PolarsDbCommand : DbCommand
 {
-    private readonly SqlContext _sqlContext;
-    public PolarsDbCommand(SqlContext sqlContext) { _sqlContext = sqlContext; }
+    private readonly IPolarsSqlContext _sqlContext;
+    public PolarsDbCommand(IPolarsSqlContext sqlContext) { _sqlContext = sqlContext; }
 
     public override string CommandText { get; set; } = "";
     public override int CommandTimeout { get; set; }
@@ -47,10 +47,10 @@ internal class PolarsDbCommand : DbCommand
     public override void Cancel() { }
     public override int ExecuteNonQuery()
     {
-        Console.WriteLine($"[Polars.NET.Linq] Native DML Execution: {CommandText}");
+        // Console.WriteLine($"[Polars.NET.Linq] Native DML Execution: {CommandText}");
         // 强行把 UPDATE 语句塞给 Polars
         using var lazyFrame = _sqlContext.Execute(CommandText);
-        using var df = lazyFrame.Collect();
+        using var df = lazyFrame.Collect(useStreaming:true);
         return (int)df.Height; 
     }
     public override object? ExecuteScalar()
@@ -78,12 +78,15 @@ internal class PolarsDbCommand : DbCommand
 
     private IEnumerable<RecordBatch> ExecuteAndYieldBatches(string rawSql)
     {
-        var sanitizedSql = System.Text.RegularExpressions.Regex.Replace(rawSql, @"\s+ESCAPE\s+'.'", "");
+        var sanitizedSql = MyRegex().Replace(rawSql, "");
         using var lazyFrame = _sqlContext.Execute(sanitizedSql);
-        using var df = lazyFrame.Collect();
+        using var df = lazyFrame.Collect(true);
         using var batch = df.ToArrow();
         yield return batch;
     }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\s+ESCAPE\s+'.'")]
+    private static partial System.Text.RegularExpressions.Regex MyRegex();
 }
 
 internal class PolarsDbParameter : DbParameter

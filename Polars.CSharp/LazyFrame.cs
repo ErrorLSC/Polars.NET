@@ -15,7 +15,7 @@ namespace Polars.CSharp;
 /// Until the query is executed, operations are just recorded in a query plan.
 /// Once executed, the data is materialized in memory.
 /// </summary>
-public class LazyFrame : IDisposable
+public class LazyFrame : IDisposable,IPolarsLazyFrame
 {
     internal LazyFrameHandle Handle { get; }
 
@@ -2328,6 +2328,11 @@ public class LazyFrame : IDisposable
     /// </summary>
     public DataFrame Collect(bool useStreaming=false)
         => new(PolarsWrapper.LazyCollect(Handle,useStreaming));
+
+    IPolarsDataFrame IPolarsLazyFrame.Collect(bool useStreaming)
+    {
+        return this.Collect(useStreaming);
+    }
 
     /// <summary>
     /// Execute the query plan using the streaming engine.

@@ -409,3 +409,18 @@ pub unsafe extern "C" fn pl_datatype_get_struct_field(
         }
     }
 }
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_datatype_export_arrow_schema(
+    ptr: *mut DataType,
+    out_schema: *mut polars_arrow::ffi::ArrowSchema, 
+) {
+    let dtype = unsafe { &*ptr };
+    
+    let arrow_type = dtype.to_arrow(CompatLevel::newest());
+    let field = polars_arrow::datatypes::Field::new("value".into(), arrow_type, true);
+    
+    let schema = polars_arrow::ffi::export_field_to_c(&field);
+    
+    unsafe { std::ptr::write(out_schema, schema); }
+}

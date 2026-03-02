@@ -11,15 +11,13 @@ using System.Text;
 using Apache.Arrow.Types;
 using System.Reflection;
 using Polars.NET.Core.Helpers;
-using System.ComponentModel;
-using System.Runtime.CompilerServices;
 
 namespace Polars.CSharp;
 
 /// <summary>
 /// DataFrame represents a 2-dimensional labeled data structure similar to a table or spreadsheet.
 /// </summary>
-public class DataFrame : IDisposable,IEnumerable<Series>
+public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
 {
     internal DataFrameHandle Handle { get; }
 

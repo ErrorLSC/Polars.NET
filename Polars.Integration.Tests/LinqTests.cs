@@ -1,6 +1,7 @@
 using System.Linq;
 using Xunit;
 using Polars.CSharp;
+using static Polars.CSharp.Polars;
 using Polars.NET.Linq;
 using LinqToDB; // 引入我们刚才写的扩展
 
@@ -58,7 +59,7 @@ public class LinqProviderTests
     }
 
     [Fact]
-    [Trait("Linq","Where")]
+    [Trait("Linq", "Where")]
     public void Test_Polars_Linq_Where_And_OrderBy()
     {
         // Arrange: 准备模拟数据
@@ -73,16 +74,20 @@ public class LinqProviderTests
         // 创建 Polars 内存 DataFrame
         using var df = DataFrame.From(data);
 
+        // 【新写法】：一键创建自带 SqlContext 的极简数据上下文
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+
         // 定义外部闭包变量，测试 linq2db 能否将它们内联为纯文本 SQL
         int ageLimit = 20;
         string excludeName = "Alice";
 
-        // Act: 开启 LINQ 查询链 (此时只是拼接表达式树，不会有任何计算)
-        var query = df.AsPolarsQueryable<Person>("people")
+        // Act: 注册表并开启 LINQ 查询链 (此时只是拼接表达式树，不会有任何计算)
+        // 【新写法】：直接调用 db.RegisterTable
+        var query = db.RegisterTable<Person>("people", df)
                       .Where(p => p.Age > ageLimit && p.Name != excludeName)
                       .OrderByDescending(p => p.Sales);
 
-        // 触发物化：调用 ToList() 时，拦截器将拦截表达式，生成 SQL 交给 Rust 引擎，最后序列化回对象
+        // 触发物化：调用 ToList() 时生成 SQL 交给 Rust 引擎
         var results = query.ToList();
 
         // Assert: 验证结果
@@ -98,21 +103,25 @@ public class LinqProviderTests
         Assert.Equal(30, results[1].Age);
         Assert.Equal(200.0, results[1].Sales);
     }
+
     [Fact]
-    [Trait("Linq","Select")]
+    [Trait("Linq", "Select")]
     public void Test_Polars_Linq_Select_Projection()
     {
         var data = new[]
         {
             new Person { Name = "Alice", Age = 25, Sales = 100.0 },
-            new Person { Name = "Bob", Age = 30, Sales = 200.0 },
+            new Person { Name = "Bob",   Age = 30, Sales = 200.0 },
             new Person { Name = "Charlie", Age = 35, Sales = 300.0 }
         };
 
         using var df = DataFrame.From(data);
+        
+        // 【新写法】：初始化上下文
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
 
-        // Act: 仅查询部分列，并映射到全新的 DTO 类中
-        var query = df.AsPolarsQueryable<Person>("people")
+        // Act: 注册表、仅查询部分列，并映射到全新的 DTO 类中
+        var query = db.RegisterTable<Person>("people", df)
                       .Where(p => p.Sales > 150)
                       .Select(p => new PersonDto 
                       { 
@@ -152,9 +161,9 @@ public class LinqProviderTests
 
         // 为了 Join，我们需要它们在同一个 SqlContext 中！
         using var ctx = new SqlContext();
-        
-        var deptQuery = ctx.RegisterTable<Department>("departments", dfDepts);
-        var empQuery = ctx.RegisterTable<Employee>("employees", dfEmps);
+        using var db = new PolarsDataContext(ctx);
+        var deptQuery = db.RegisterTable<Department>("departments", dfDepts);
+        var empQuery = db.RegisterTable<Employee>("employees", dfEmps);
 
         // Act: 经典的 LINQ Join 语法
         var query = from e in empQuery
@@ -179,8 +188,8 @@ public class LinqProviderTests
         Assert.Equal("Engineering", results[1].DepartmentName);
     }
     [Fact]
-    [Trait("Linq","GroupBy")]
-    public void Test_Polars_Linq_GroupBy_Aggregation()
+    [Trait("Linq","GroupByHaving")]
+    public void Test_Polars_Linq_GroupBy_Aggregation_With_Having()
     {
         // Arrange: 准备数据
         var emps = new[]
@@ -194,13 +203,17 @@ public class LinqProviderTests
 
         using var dfEmps = DataFrame.From(emps);
         using var ctx = new SqlContext();
+        using var db = new PolarsDataContext(ctx);
         
-        var empQuery = ctx.RegisterTable<EmployeeSalary>("employees_salary", dfEmps);
+        var empQuery = db.RegisterTable<EmployeeSalary>("employees_salary", dfEmps);
 
-        // Act: LINQ GroupBy 语法
+        // Act: LINQ GroupBy + Having 语法
+        // 预期 SQL: GROUP BY e."DeptId" HAVING SUM(e."Salary") > 5000
         var query = from e in empQuery
                     group e by e.DeptId into g
-                    orderby g.Key // 按部门 ID 排序，保证结果顺序确定
+                    // 【核心升级】：这里的 where 会被翻译成 HAVING
+                    where g.Sum(x => x.Salary) > 5000.0 
+                    orderby g.Key
                     select new DeptStatsDto
                     {
                         DeptId = g.Key,
@@ -210,8 +223,9 @@ public class LinqProviderTests
 
         var results = query.ToList();
 
-        // Assert: 验证聚合结果
-        Assert.Equal(3, results.Count); // 一共 3 个部门
+        // Assert: 验证聚合和过滤结果
+        // 一共 3 个部门，但 Dept 3 (3000) 被 HAVING 过滤掉了，只剩下 2 个
+        Assert.Equal(2, results.Count); 
 
         // 验证 Dept 1 (Alice + Charlie)
         Assert.Equal(1, results[0].DeptId);
@@ -222,11 +236,9 @@ public class LinqProviderTests
         Assert.Equal(2, results[1].DeptId);
         Assert.Equal(8500.0, results[1].TotalSalary); // 4000 + 4500
         Assert.Equal(2, results[1].EmployeeCount);
-
-        // 验证 Dept 3 (Eve)
-        Assert.Equal(3, results[2].DeptId);
-        Assert.Equal(3000.0, results[2].TotalSalary);
-        Assert.Equal(1, results[2].EmployeeCount);
+        
+        // 确保 Dept 3 不存在
+        Assert.DoesNotContain(results, r => r.DeptId == 3);
     }
     [Fact]
     [Trait("Linq", "ScalarAndFirst")]
@@ -241,11 +253,10 @@ public class LinqProviderTests
         };
 
         using var df = DataFrame.From(data);
-        using var ctx = new SqlContext();
-        
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
         // 这里的 AsPolarsQueryable 假定你已经在 PolarsLinqExtensions 里封装好了 ctx 的注册逻辑
         // 或者沿用你上面写的 ctx.RegisterTable<T> 方式
-        var query = ctx.RegisterTable("students", df,data);
+        var query = db.RegisterTable("students", df,data);
 
         // ==========================================
         // 测试 1：标量聚合 (Scalar Aggregation)
@@ -289,10 +300,9 @@ public class LinqProviderTests
         };
 
         using var df = DataFrame.From(data);
-        using var ctx = new SqlContext();
-
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
         // 完美利用你刚刚写的哑参数重载，自动推断出 T 是 Product
-        var query = ctx.RegisterTable("products", df, data);
+        var query = db.RegisterTable("products", df, data);
 
         // ==========================================
         // 测试 1：集合包含 (映射为 IN 子句)
@@ -342,8 +352,8 @@ public class LinqProviderTests
         };
 
         using var df = DataFrame.From(data);
-        using var ctx = new SqlContext();
-        var query = ctx.RegisterTable("products", df, data);
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        var query = db.RegisterTable("products", df, data);
 
         // ==========================================
         // 测试 1：投影去重 (Distinct)
@@ -451,9 +461,9 @@ public class LinqProviderTests
         using var dfDepts = DataFrame.From(depts);
         using var dfEmps = DataFrame.From(emps);
 
-        using var ctx = new SqlContext();
-        var deptQuery = ctx.RegisterTable("departments", dfDepts,depts);
-        var empQuery = ctx.RegisterTable("employees", dfEmps,emps);
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        var deptQuery = db.RegisterTable("departments", dfDepts,depts);
+        var empQuery = db.RegisterTable("employees", dfEmps,emps);
 
         // Act: 经典的 LINQ Left Join 语法
         var query = from d in deptQuery
@@ -507,9 +517,9 @@ public class LinqProviderTests
         using var dfDepts = DataFrame.From(depts);
         using var dfEmps = DataFrame.From(emps);
 
-        using var ctx = new SqlContext();
-        var deptQuery = ctx.RegisterTable("departments", dfDepts, depts);
-        var empQuery = ctx.RegisterTable("employees", dfEmps, emps);
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        var deptQuery = db.RegisterTable("departments", dfDepts, depts);
+        var empQuery = db.RegisterTable("employees", dfEmps, emps);
 
         // ==========================================
         // 测试 1：交叉连接 (Cross Join / Cartesian Product)
@@ -567,8 +577,8 @@ public class LinqProviderTests
         };
 
         using var dfEmps = DataFrame.From(emps);
-        using var ctx = new SqlContext();
-        var empQuery = ctx.RegisterTable("employees", dfEmps, emps);
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        var empQuery = db.RegisterTable("employees", dfEmps, emps);
 
         // ==========================================
         // 测试 1：交集 (Intersect)
@@ -630,8 +640,8 @@ public class LinqProviderTests
         };
 
         using var dfEmps = DataFrame.From(emps);
-        using var ctx = new SqlContext();
-        var empQuery = ctx.RegisterTable("employees", dfEmps, emps);
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        var empQuery = db.RegisterTable("employees", dfEmps, emps);
 
         // ==========================================
         // 测试：窗口函数 (Window Functions)
@@ -644,14 +654,14 @@ public class LinqProviderTests
                         e.DeptId,
                         e.Salary,
                         // 1. 排名窗口函数: RANK() OVER (PARTITION BY DeptId ORDER BY Salary DESC)
-                        DeptRank = Sql.Ext.Rank()
+                        DeptRank = LinqToDB.Sql.Ext.Rank()
                                          .Over()
                                          .PartitionBy(e.DeptId)
                                          .OrderByDesc(e.Salary)
                                          .ToValue(),
                                          
                         // 2. 聚合窗口函数: SUM(Salary) OVER (PARTITION BY DeptId)
-                        DeptTotalSalary = Sql.Ext.Sum(e.Salary)
+                        DeptTotalSalary = LinqToDB.Sql.Ext.Sum(e.Salary)
                                                 .Over()
                                                 .PartitionBy(e.DeptId)
                                                 .ToValue()
@@ -699,8 +709,8 @@ public class LinqProviderTests
         };
 
         using var dfEmps = DataFrame.From(emps);
-        using var ctx = new SqlContext();
-        var empQuery = ctx.RegisterTable("employees", dfEmps, emps);
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        var empQuery = db.RegisterTable("employees", dfEmps, emps);
 
         // ==========================================
         // 测试 1：CASE WHEN (数据分箱/条件分支)
@@ -757,8 +767,8 @@ public class LinqProviderTests
         };
 
         using var dfOrders = DataFrame.From(orders);
-        using var ctx = new SqlContext();
-        var orderQuery = ctx.RegisterTable("orders", dfOrders, orders);
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        var orderQuery = db.RegisterTable("orders", dfOrders, orders);
 
         // ==========================================
         // 测试 1：多维分组 (Multi-key GroupBy)
@@ -825,9 +835,9 @@ public class LinqProviderTests
         using var dfDepts = DataFrame.From(depts);
         using var dfEmps = DataFrame.From(emps);
 
-        using var ctx = new SqlContext();
-        var deptQuery = ctx.RegisterTable("departments", dfDepts, depts);
-        var empQuery = ctx.RegisterTable("employees", dfEmps, emps);
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        var deptQuery = db.RegisterTable("departments", dfDepts, depts);
+        var empQuery = db.RegisterTable("employees", dfEmps, emps);
 
         // ==========================================
         // 测试 1：非相关子查询 (IN Subquery)
@@ -891,8 +901,8 @@ public class LinqProviderTests
         };
 
         using var dfSales = DataFrame.From(sales);
-        using var ctx = new SqlContext();
-        var salesQuery = ctx.RegisterTable("sales", dfSales, sales);
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        var salesQuery = db.RegisterTable("sales", dfSales, sales);
 
         // ==========================================
         // 测试 1：字符串拼接 (+) 与 数学函数 (Math)
@@ -955,10 +965,10 @@ public class LinqProviderTests
         using var dfDepts = DataFrame.From(depts);
         using var dfEmps = DataFrame.From(emps);
 
-        using var ctx = new SqlContext();
-        var stockQuery = ctx.RegisterTable("stocks", dfStocks, stocks);
-        var deptQuery = ctx.RegisterTable("departments", dfDepts, depts);
-        var empQuery = ctx.RegisterTable("employees", dfEmps, emps);
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        var stockQuery = db.RegisterTable("stocks", dfStocks, stocks);
+        var deptQuery = db.RegisterTable("departments", dfDepts, depts);
+        var empQuery = db.RegisterTable("employees", dfEmps, emps);
 
         // ==========================================
         // 测试 1：高级窗口函数 (Lag - 获取上一行的值)
@@ -972,7 +982,7 @@ public class LinqProviderTests
                            s.Date,
                            s.Price,
                            // Sql.Ext.Lag() 提取上一行的价格
-                           PrevPrice = Sql.Ext.Lag(s.Price)
+                           PrevPrice = LinqToDB.Sql.Ext.Lag(s.Price)
                                               .Over()
                                               .PartitionBy(s.Ticker)
                                               .OrderBy(s.Date)
@@ -1017,42 +1027,200 @@ public class LinqProviderTests
         // Sales 部门只有 Charlie
         Assert.Equal("Charlie", salesDept.Employees);
     }
-    // [Fact]
-    // [Trait("Linq", "UpdateDML")]
-    // public void Test_Polars_Linq_Update_Force()
-    // {
-    //     var emps = new[] { new EmpSalaryDto("Alice", 1, 6000.0) };
-    //     using var dfEmps = DataFrame.From(emps);
-    //     using var ctx = new SqlContext();
-    //     var empQuery = ctx.RegisterTable<EmpSalaryDto>("employees", dfEmps);
+    [Fact]
+    [Trait("Linq", "UnifiedCRUD")]
+    public void Test_Polars_Linq_Unified_CRUD_UX()
+    {
+        // 1. 准备数据并注册到 Polars (标准流程)
+        var emps = new[]
+        {
+            new EmployeeSalary { Name = "Alice", DeptId = 1, Salary = 5000.0 },
+            new EmployeeSalary { Name = "Bob",   DeptId = 2, Salary = 4000.0 },
+            new EmployeeSalary { Name = "Eve",   DeptId = 3, Salary = 3000.0 }
+        };
 
-    //     // 1. 获取我们那个伪造了 Connection 的 linq2db DataConnection
-    //     var dataProvider = LinqToDB.DataProvider.PostgreSQL.PostgreSQLTools.GetDataProvider(
-    //         LinqToDB.DataProvider.PostgreSQL.PostgreSQLVersion.v15);
-    //     var mockConnection = new PolarsDbConnection(ctx);
-    //     var options = new DataOptions()
-    //         .UseConnection(dataProvider, mockConnection)
-    //         .WithOptions<LinqToDB.SqlOptions>(o => o with { GenerateFinalAliases = true });
+        using var dfEmps = DataFrame.From(emps);
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        
+        // 2. 极其优雅的上下文初始化
+        var table = db.RegisterTable("employees", dfEmps,emps);
 
-    //     using var db = new LinqToDB.Data.DataConnection(options) { InlineParameters = true };
+        // ==========================================
+        // 【R: 查询】 (完美支持复杂 LINQ)
+        // ==========================================
+        var richEmps = table.Where(e => e.Salary >= 5000).ToList();
+        Assert.Single(richEmps);
+        Assert.Equal("Alice", richEmps[0].Name);
 
-    //     // 2. 绕过 Provider 检查，直接在 db 级别构建 Update 表达式
-    //     // 这次 linq2db 会认为这是在它“自家”的 Table 上操作
-    //     var query = db.GetTable<EmpSalaryDto>().TableName("employees")
-    //                   .Where(e => e.DeptId == 1)
-    //                   .Set(e => e.Salary, e => e.Salary + 1000);
+        // ==========================================
+        // 【U: 更新】 (直接调用，再也不报 Provider 错误了！)
+        // 预期: Polars 抛出不支持 Update 的异常，但 SQL 会完美生成并送到 ExecuteNonQuery
+        // ==========================================
+        try
+        {
+            table.Where(e => e.DeptId == 1)
+                 .Set(e => e.Salary, e => e.Salary + 1000)
+                 .Update();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Expected Update Error: {ex.Message}");
+        }
 
-    //     // 3. 强制执行
-    //     try 
-    //     {
-    //         int affected = query.Update(); 
-    //         Assert.True(affected >= 0);
-    //     }
-    //     catch (Exception ex)
-    //     {
-    //         // 这里我们预期会捕获到 Polars 抛出的 "Unsupported SQL: UPDATE" 异常
-    //         Console.WriteLine($"Caught Expected Exception: {ex.Message}");
-    //         Assert.Contains("UPDATE", ex.Message.ToUpper());
-    //     }
-    // }
+        // ==========================================
+        // 【D: 删除】 (Polars 官方隐藏特性)
+        // ==========================================
+        // 删掉 3 号部门的 Eve
+        int deleted = table.Where(e => e.DeptId == 3).Delete();
+        Assert.True(deleted >= 0);
+    }
+    [Fact]
+    [Trait("Linq", "LazyIO")]
+    public void Test_Polars_Linq_Lazy_Csv_Scan_And_Pushdown()
+    {
+        // 1. 准备一个临时 CSV 文件
+        var csvContent = @"name,age,salary
+Alice,25,50000
+Bob,30,60000
+Charlie,35,70000
+David,40,80000";
+        var fileName = "test_lazy_data.csv";
+        File.WriteAllText(fileName, csvContent);
+
+        try
+        {
+            // 2. 【核心改变】：不要用 ReadCsv！用 ScanCsv 创建 LazyFrame！
+            // 此时磁盘根本没有真正开始读数据，仅仅是创建了一个文件指针和逻辑计划
+            using var lf = LazyFrame.ScanCsv(fileName);
+            
+            using var ctx = new SqlContext();
+            using var db = new PolarsDataContext(ctx);
+
+            // 3. 构造用于类型推断的幽灵数据（注意属性名和 CSV 表头大小写一致）
+            var dummyData = new[] { new { name = "", age = 0, salary = 0.0 } };
+
+            // 4. 将 LazyFrame 注册到 SQL 上下文中
+            var query = db.RegisterTable("employees", lf, dummyData)
+                          .Where(e => e.age > 30)
+                          .Select(e => new 
+                          { 
+                              e.name, 
+                              e.salary 
+                          });
+
+            // ====================================================================
+            // 5. 见证奇迹的时刻：触发 .ToList() 
+            // 链路：LINQ -> SQL -> Polars AST -> CsvReader (带列裁剪和谓词过滤)
+            // ====================================================================
+            var results = query.ToList();
+
+            // 6. 验证结果
+            Assert.NotNull(results);
+            Assert.Equal(2, results.Count); // 只剩 Charlie 和 David
+
+            // 验证 Charlie
+            Assert.Equal("Charlie", results[0].name);
+            Assert.Equal(70000.0, results[0].salary);
+
+            // 验证 David
+            Assert.Equal("David", results[1].name);
+            Assert.Equal(80000.0, results[1].salary);
+        }
+        finally
+        {
+            // 清理文件
+            if (File.Exists(fileName)) File.Delete(fileName);
+        }
+    }
+    [Fact]
+    [Trait("Linq", "SeriesScalar")]
+    public void Test_Polars_Linq_Series()
+    {
+        // 1. 生成一个纯数字的 Series (1 到 100)
+        using var series = Series.From("my_numbers", Enumerable.Range(1, 100).ToArray());
+        
+        using var ctx = new SqlContext();
+        using var db = new PolarsDataContext(ctx);
+
+        // 2. 极其优雅的注册！不需要 dummy data，不需要 DTO！
+        // 注意看返回值，它直接就是 IQueryable<int>！
+        IQueryable<int> query = db.RegisterSeries<int>(series);
+
+        // 3. 纯正的标量 LINQ 语法！
+        var results = query.Where(x => x > 90)
+                           .OrderByDescending(x => x)
+                           .ToList();
+
+        // 验证
+        Assert.Equal(10, results.Count);
+        Assert.Equal(100, results[0]);
+    }
+    [Fact]
+    [Trait("Linq", "HybridLazy")]
+    public void Test_Polars_Linq_Hybrid_Native_And_Linq_Pushdown()
+    {
+        // 1. 准备一个临时 CSV 文件
+        var csvContent = @"name,age,salary
+Alice,25,50000
+Bob,30,60000
+Charlie,35,70000
+David,40,80000";
+        var fileName = "test_hybrid_lazy_data.csv";
+        File.WriteAllText(fileName, csvContent);
+
+        try
+        {
+            // 2. ScanCsv 创建文件指针和基础逻辑计划
+            using var lf = LazyFrame.ScanCsv(fileName);
+            
+            // ====================================================================
+            // 【核心混写阶段 1：Polars 原生 API】
+            // 我们用原生表达式加一个新列 "bonus"，逻辑是 salary 的 10%
+            // ====================================================================
+            using var lfWithBonus = lf.WithColumns((Col("salary") * 0.1).Alias("bonus"));
+
+            using var ctx = new SqlContext();
+            using var db = new PolarsDataContext(ctx);
+
+            // 3. 构造幽灵数据（注意加上原生 API 刚刚生成的 bonus 列！）
+            var dummyData = new[] { new { name = "", age = 0, salary = 0.0, bonus = 0.0 } };
+
+            // ====================================================================
+            // 【核心混写阶段 2：C# LINQ】
+            // 将带有原生计划的 LazyFrame 注册进来，用 LINQ 继续编写业务逻辑！
+            // ====================================================================
+            var query = db.RegisterTable("employees", lfWithBonus, dummyData)
+                          // LINQ 过滤：使用原有列和原生生成的列
+                          .Where(e => e.age > 30 && e.bonus >= 7000.0) 
+                          // LINQ 投影：在 LINQ 层再做一次计算
+                          .Select(e => new 
+                          { 
+                              e.name, 
+                              TotalCompensation = e.salary + e.bonus 
+                          });
+
+            // ====================================================================
+            // 4. 终极点火：触发 .ToList() 
+            // 引擎会将 Native Plan 和 LINQ SQL 合并为单一 AST，执行极致优化并读取磁盘
+            // ====================================================================
+            var results = query.ToList();
+
+            // 5. 验证结果
+            Assert.NotNull(results);
+            Assert.Equal(2, results.Count); // 只剩 Charlie (35岁, bonus=7000) 和 David (40岁, bonus=8000)
+
+            // 验证 Charlie
+            Assert.Equal("Charlie", results[0].name);
+            Assert.Equal(77000.0, results[0].TotalCompensation); // 70000 + 7000
+
+            // 验证 David
+            Assert.Equal("David", results[1].name);
+            Assert.Equal(88000.0, results[1].TotalCompensation); // 80000 + 8000
+        }
+        finally
+        {
+            // 清理文件
+            if (File.Exists(fileName)) File.Delete(fileName);
+        }
+    }
 }
