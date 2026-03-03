@@ -5,6 +5,16 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
+
+    <GenerateDocumentationFile>true</GenerateDocumentationFile> 
+
+    <PackageId>Polars.NET.Linq</PackageId> 
+    <Authors>ErrorLSC</Authors>
+    <Description>Linq Support Extension for Polars.NET and Polars.FSharp</Description>
+    <PackageTags>polars;dataframe;data-analysis;Linq</PackageTags>
+    <RepositoryUrl>https://github.com/ErrorLSC/Polars.NET</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,6 +24,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Polars.NET.Core\Polars.NET.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>

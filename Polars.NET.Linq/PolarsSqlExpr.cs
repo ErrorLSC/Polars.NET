@@ -1,3 +1,4 @@
+#pragma warning disable CS1591 
 using System.Linq.Expressions;
 using LinqToDB;
 using LinqToDB.Internal.Linq;
