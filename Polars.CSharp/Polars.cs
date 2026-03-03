@@ -221,12 +221,23 @@ public static class Polars
         return new Expr(PolarsWrapper.AsStruct(handles));
     }
     // ==========================================
-    // SQL Context
+    // SQL
     // ==========================================
     /// <summary>
     /// Create a new SQL Context.
     /// </summary>
     public static SqlContext Sql() => new();
+
+    public static Expr SqlExpr(string sql)
+    {
+        if (string.IsNullOrWhiteSpace(sql))
+            throw new ArgumentException("SQL expression can not be null", nameof(sql));
+
+        return new Expr(PolarsWrapper.SqlExpr(sql));
+    }
+
+    public static Expr[] SqlExprs(IEnumerable<string> sqls) 
+            => [.. sqls.Select(SqlExpr)];
 
     // ==========================================
     // Temporal

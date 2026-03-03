@@ -51,13 +51,10 @@ internal partial class PolarsDbCommand(IPolarsSqlContext sqlContext) : DbCommand
     }
     public override object? ExecuteScalar()
     {
-        // 1. 复用已经写好的 DataReader 逻辑
         using var reader = ExecuteDbDataReader(CommandBehavior.Default);
         
-        // 2. 如果成功读取到了 Polars 传回来的数据，并且至少有一列
         if (reader.Read() && reader.FieldCount > 0)
         {
-            // 3. 返回第一行第一列的标量值
             return reader.GetValue(0);
         }
         

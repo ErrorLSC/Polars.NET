@@ -962,4 +962,6 @@ public static partial class PolarsWrapper
         
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle SqlExpr(string sql)
+        =>ErrorHelper.Check(NativeBindings.pl_expr_sql(sql));
 }

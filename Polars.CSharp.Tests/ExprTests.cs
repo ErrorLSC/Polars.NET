@@ -2325,4 +2325,42 @@ TooShort,1990-05-20,1.60";
         var linearPos = res["linear_pos"][1];
         Assert.Equal(20.0, (double)linearPos!);
     }
+    [Fact]
+    [Trait("Expr","SqlExpr")]
+    public void Test_SqlExpr_MixedWithNativeExpr()
+    {
+        // 1. 准备基础数据
+        using var df = DataFrame.FromColumns(new
+        {
+            a = new int[] { 1, 2, 3 } 
+        });
+
+        // 2. Act: 在 Select 中将原生 Col() 和 SqlExpr() 无缝混搭
+        // 注意：在 Polars SQL 中，通常用 VARCHAR 或 TEXT 表示字符串
+        using var resultDf = df.Select(
+            Col("a").Alias("original_a"),                  // 原生 Expr 算子
+            SqlExpr("POWER(a, a) AS a_a"),                 // SQL 表达式：幂运算并起别名
+            SqlExpr("CAST(a AS VARCHAR) AS a_txt")         // SQL 表达式：类型转换并起别名
+        );
+
+        // 3. Assert 验证计算结果
+        
+        // 验证 POWER 计算结果 (1^1=1, 2^2=4, 3^3=27)
+        // 注意：Polars SQL 的 POWER 函数返回值类型默认推断为 Float64 (double)
+        var aaArr = resultDf["a_a"].ToArray<double>();
+        Assert.Equal(1.0, aaArr[0]);
+        Assert.Equal(4.0, aaArr[1]);
+        Assert.Equal(27.0, aaArr[2]);
+
+        // 验证 CAST 转换结果
+        var txtArr = resultDf["a_txt"].ToArray<string>();
+        Assert.Equal("1", txtArr[0]);
+        Assert.Equal("2", txtArr[1]);
+        Assert.Equal("3", txtArr[2]);
+
+        // 验证原生列保持原样
+        var origArr = resultDf["original_a"].ToArray<int>();
+        Assert.Equal(1, origArr[0]);
+        Assert.Equal(3, origArr[2]);
+    }
 }

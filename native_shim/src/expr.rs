@@ -1,4 +1,4 @@
-use polars::prelude::*;
+use polars::{prelude::*, sql::sql_expr};
 use std::{ffi::CStr, os::raw::c_char};
 use crate::{datatypes::parse_timeunit, types::{DataTypeContext, ExprContext, SeriesContext}};
 use std::ops::{Add, Sub, Mul, Div, Rem};
@@ -2381,5 +2381,18 @@ pub unsafe extern "C" fn pl_expr_implode(expr: *mut Expr) -> *mut Expr {
         let e = unsafe { Box::from_raw(expr) };
         let new_expr = e.implode();
         Ok(Box::into_raw(Box::new(new_expr)))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_sql(
+    sql_ptr: *const c_char
+) -> *mut ExprContext {
+    ffi_try!({
+        let sql_str = ptr_to_str(sql_ptr).unwrap();
+        
+        let expr = sql_expr(sql_str)?;
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: expr })))
     })
 }

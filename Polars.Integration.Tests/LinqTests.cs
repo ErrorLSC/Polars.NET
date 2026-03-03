@@ -516,7 +516,7 @@ public class LinqProviderTests
         using var dfDepts = DataFrame.From(depts);
         using var dfEmps = DataFrame.From(emps);
 
-        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        using var db = new PolarsDataContext(Sql(), ownsContext: true);
         var deptQuery = db.RegisterTable<DeptDto>("departments", dfDepts);
         var empQuery = db.RegisterTable<EmpDto>("employees", dfEmps);
 
@@ -1182,8 +1182,7 @@ David,40,80000";
             // ====================================================================
             using var lfWithBonus = lf.WithColumns((Col("salary") * 0.1).Alias("bonus"));
 
-            using var ctx = new SqlContext();
-            using var db = new PolarsDataContext(ctx);
+            using var db = new PolarsDataContext(Sql(),true);
 
             // ====================================================================
             // 【核心混写阶段 2：C# LINQ】
@@ -1227,8 +1226,7 @@ David,40,80000";
     [Trait("Linq","Sandwich")]
     public void Test_Polars_Double_Hybrid_Sandwich()
     {
-        using var ctx = new SqlContext();
-        using var db = new PolarsDataContext(ctx);
+        using var db = new PolarsDataContext(Sql(),true);
 
         using var schema = new PolarsSchema();
         schema.Add("age",DataType.Int32).Add("salary",DataType.Int32);
@@ -1255,5 +1253,105 @@ David,40,80000";
         using var df = finalLf.Collect();
         // df.Show();       
         Assert.True(df.Height > 0);
+    }
+    [Fact]
+    [Trait("Linq", "SqlTranslator")]
+    public void Test_PolarsSqlTranslator_Borrowing_Linq2db()
+    {
+        // ==========================================
+        // 场景 A：单表达式翻译 (ToSql)
+        // ==========================================
+        string snippet1 = PolarsExpr.ToSql<StaffRecord, int>(e => (int)Math.Pow(e.salary, 2));
+        
+        Assert.Contains("Power(salary::Float, 2)", snippet1, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("t1.salary", snippet1); 
+
+        // ==========================================
+        // 场景 B：单列匿名类型 (ToSql)
+        // ==========================================
+        string snippet2 = PolarsExpr.ToSql<StaffRecord, object>(e => new { salary_sq = Math.Pow(e.salary, 2) });
+        Assert.Contains("salary_sq", snippet2, StringComparison.OrdinalIgnoreCase);
+
+        // ==========================================
+        // 场景 C：多列联合计算！(ToSqls)
+        // ==========================================
+        string[] multiSnippets = PolarsExpr.ToSqls<StaffRecord, object>(e => new 
+        { 
+            salary_sq = Math.Pow(e.salary, 2),
+            salary_dbl = e.salary * 2
+        });
+
+        // 断言安全切分成功
+        Assert.Equal(2, multiSnippets.Length);
+        Assert.Contains("AS salary_sq", multiSnippets[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("AS salary_dbl", multiSnippets[1], StringComparison.OrdinalIgnoreCase);
+
+        // ==========================================
+        // 终极点火：多列白嫖文本转化为原生 Expr 并执行！
+        // ==========================================
+        using var df = DataFrame.FromColumns(new
+        {
+            salary = new[] { 10, 20, 30 }
+        });
+
+        using var resultDf = df.Select(multiSnippets.Select(SqlExpr).ToArray());
+        resultDf.Show();
+        
+        var sqArr = resultDf["salary_sq"].ToArray<double>();
+        var dblArr = resultDf["salary_dbl"].ToArray<int>(); // 注意：原列乘以2推断为int
+        
+        Assert.Equal(3, sqArr.Length);
+        
+        // 验证平方结果
+        Assert.Equal(100.0, sqArr[0]); 
+        Assert.Equal(900.0, sqArr[2]); 
+
+        // 验证乘法结果
+        Assert.Equal(20, dblArr[0]);
+        Assert.Equal(60, dblArr[2]);
+    }
+    public record SalaryRecord
+    {
+        public double salary { get; set; }
+    }
+
+    [Fact]
+    [Trait("Linq", "SyntaxSugar")]
+    public void Test_Ultimate_StrongTyped_Select_Sugar()
+    {
+        // 1. 准备极简的数据源
+        using var df = DataFrame.FromColumns(new
+        {
+            salary = new[] { 10.0, 20.0, 30.0 }
+        });
+
+        using var resultDf = df.Select(SqlExprs(
+            PolarsExpr.ToSqls<SalaryRecord, object>(e => new 
+            { 
+                salary_sq = Math.Pow(e.salary, 2),  // 复杂数学函数翻译
+                salary_dbl = e.salary * 2,          // 基础算术翻译
+                is_high = e.salary > 15             // 逻辑判断翻译 (生成布尔列)
+            })
+        ));
+
+        // 打印出来欣赏一下底层的完美类型推断 (f64, f64, bool)
+        resultDf.Show();
+
+        // 3. 终极断言验证
+        var sqArr = resultDf["salary_sq"].ToArray<double>();
+        var dblArr = resultDf["salary_dbl"].ToArray<double>(); // 浮点数乘法推断为 double
+        var isHighArr = resultDf["is_high"].ToArray<bool>();
+
+        Assert.Equal(3, sqArr.Length);
+
+        // 验证第一行 (salary = 10)
+        Assert.Equal(100.0, sqArr[0]);
+        Assert.Equal(20.0, dblArr[0]);
+        Assert.False(isHighArr[0]); // 10 不大于 15
+
+        // 验证第三行 (salary = 30)
+        Assert.Equal(900.0, sqArr[2]);
+        Assert.Equal(60.0, dblArr[2]);
+        Assert.True(isHighArr[2]);  // 30 大于 15
     }
 }

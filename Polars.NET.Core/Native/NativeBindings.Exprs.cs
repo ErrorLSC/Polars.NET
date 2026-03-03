@@ -20,6 +20,8 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial void pl_expr_free(IntPtr ptr);
     // String Free
     [LibraryImport(LibName)] public static partial void pl_free_string(IntPtr ptr);
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] 
+    public static partial ExprHandle pl_expr_sql(string query);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
     public static partial ExprHandle pl_expr_col(string name);
     [LibraryImport(LibName)] 
