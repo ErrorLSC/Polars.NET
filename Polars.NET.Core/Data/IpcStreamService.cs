@@ -15,6 +15,7 @@ public static class IpcStreamService
             {
                 try { File.Delete(FilePath); } catch { /* Ignore */ }
             }
+            GC.SuppressFinalize(this);
         }
     }
 

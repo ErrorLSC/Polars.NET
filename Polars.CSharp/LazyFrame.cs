@@ -3152,5 +3152,9 @@ public class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <summary>
     /// Dispose the LazyFrame and release native resources.
     /// </summary>
-    public void Dispose() => Handle?.Dispose();
+    public void Dispose()
+    {
+        Handle?.Dispose();
+        GC.SuppressFinalize(this); 
+    }
 }

@@ -140,7 +140,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema
                 if (i < len - 1) sb.Append(", ");
             }
             
-            sb.Append("}");
+            sb.Append('}');
             return sb.ToString();
         }
     public void Dispose()

@@ -4,7 +4,6 @@ using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
 
-
 [Serializable]
 public class PolarsException : Exception
 {

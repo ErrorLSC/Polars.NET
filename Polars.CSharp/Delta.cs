@@ -541,9 +541,8 @@ public class DeltaMergeBuilder
         var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = 
             CloudOptions.ParseCloudOptions(_cloudOptions);
 
-        // Assume PolarsWrapper.DeltaMergeOrdered is the wrapper method you defined earlier
         PolarsWrapper.DeltaMergeOrdered(
-            _sourceLf.CloneHandle(), // Clone LazyFrame handle to pass ownership
+            _sourceLf.CloneHandle(), 
             _path,
             _mergeKeys,
             actionTypes,

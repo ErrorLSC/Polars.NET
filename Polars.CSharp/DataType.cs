@@ -71,7 +71,8 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// </summary>
     public void Dispose()
     {
-        Handle.Dispose();
+        Handle?.Dispose();
+        GC.SuppressFinalize(this); 
     }
     /// <summary>
     /// Get Apache Arrow Type

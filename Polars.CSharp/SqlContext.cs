@@ -98,6 +98,7 @@ public class SqlContext : IDisposable,IPolarsSqlContext
     /// </summary>
     public void Dispose()
     {
-        Handle.Dispose();
+        Handle?.Dispose();
+        GC.SuppressFinalize(this); 
     }
 }

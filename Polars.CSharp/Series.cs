@@ -1604,7 +1604,11 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <summary>
     /// Dispose the underlying SeriesHandle.
     /// </summary>
-    public void Dispose() => Handle.Dispose();
+    public void Dispose()
+    {
+        Handle?.Dispose();
+        GC.SuppressFinalize(this); 
+    }
 }
 
 /// <summary>

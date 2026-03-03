@@ -1,5 +1,4 @@
 #pragma warning disable CS1591
-using System.Text;
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
 namespace Polars.CSharp;
@@ -272,7 +271,5 @@ public static class Polars
     /// </example>
     public static Expr CombineDateAndTime(Expr date, Expr time, TimeUnit tu = TimeUnit.Microseconds)
         => date.Dt.Combine(time, tu);
-
-
 }
 

@@ -168,18 +168,27 @@ public class PolarsDataContext : DataConnection, IDisposable
     // Dispose
     // ====================================================================
     
+    private bool _disposed; 
+
     public new void Dispose()
     {
-        if (_ownsContext)
-        {
-            _polarsContext?.Dispose();
-        }
-        base.Dispose();
+        ((IDisposable)this).Dispose();
     }
 
     void IDisposable.Dispose()
     {
-        Dispose();
+        if (_disposed) return;
+
+        if (_ownsContext)
+        {
+            _polarsContext?.Dispose();
+        }
+        
+        base.Dispose();
+        
+        _disposed = true;
+
+        GC.SuppressFinalize(this); 
     }
 }
 

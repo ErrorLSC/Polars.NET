@@ -83,7 +83,7 @@ public static class ArrowConverter
             var method = typeof(ArrowConverter)
                 .GetMethod(nameof(BuildListArray), BindingFlags.Public | BindingFlags.Static)!
                 .MakeGenericMethod(elemType);
-            return (IArrowArray)method.Invoke(null, new object[] { data })!;
+            return (IArrowArray)method.Invoke(null, [data])!;
         }
 
         // =====================================================================
@@ -95,7 +95,7 @@ public static class ArrowConverter
             var method = typeof(ArrowConverter)
                     .GetMethod(nameof(BuildListArray), BindingFlags.Public | BindingFlags.Static)!
                     .MakeGenericMethod(elemType);
-                return (IArrowArray)method.Invoke(null, new object[] { data })!;
+                return (IArrowArray)method.Invoke(null, [data])!;
         }
 
         // 3. Unwrap F# Option type
@@ -148,7 +148,7 @@ public static class ArrowConverter
                 .GetMethod(nameof(BuildListArray), BindingFlags.Public | BindingFlags.Static)!
                 .MakeGenericMethod(elementType);
 
-            return (IArrowArray)method.Invoke(null, new[]{data})!;
+            return (IArrowArray)method.Invoke(null, [data])!;
         }
         // 5. Struct / Class / Object
         if (type.IsClass || type.IsValueType)
@@ -551,7 +551,7 @@ public static class ArrowConverter
     }
     private static object? GetDefault(Type t) => t.IsValueType ? Activator.CreateInstance(t) : null;
 
-  /// <summary>
+    /// <summary>
     /// Slice IEnumerable<RecordBatch> to chuncks and convert it to ArrowBatchs
     /// </summary>
     public static IEnumerable<RecordBatch> ToArrowBatches<T>(IEnumerable<T> data, int batchSize)

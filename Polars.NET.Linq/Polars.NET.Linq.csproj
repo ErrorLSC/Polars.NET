@@ -10,8 +10,8 @@
 
     <PackageId>Polars.NET.Linq</PackageId> 
     <Authors>ErrorLSC</Authors>
-    <Description>Linq Support Extension for Polars.NET and Polars.FSharp</Description>
-    <PackageTags>polars;dataframe;data-analysis;Linq</PackageTags>
+    <Description>LINQ Translation Engine for Polars.NET and Polars.FSharp. Write strong-typed C#/F# queries and execute them at Rust speed</Description>
+    <PackageTags>polars;dataframe;data-analysis;linq;ast</PackageTags>
     <RepositoryUrl>https://github.com/ErrorLSC/Polars.NET</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>

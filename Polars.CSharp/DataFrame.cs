@@ -2277,9 +2277,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     /// </code>
     /// </example>
     public static DataFrame Concat(IEnumerable<DataFrame> dfs)
-    {
-        return ConcatInternal(dfs, PlConcatType.Vertical, true);
-    }
+        =>ConcatInternal(dfs, PlConcatType.Vertical, true);
     /// <summary>
     /// Horizontal concatenation of DataFrames.
     /// </summary>
@@ -3541,7 +3539,11 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     /// <summary>
     /// Dispose the DataFrame and release resources.
     /// </summary>
-    public void Dispose() => Handle?.Dispose();
+    public void Dispose()
+    {
+        Handle?.Dispose();
+        GC.SuppressFinalize(this); 
+    }
     // ==========================================
     // Object Mapping (From Records)
     // ==========================================
@@ -3768,7 +3770,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     {
         if (series == null || series.Length == 0)
         {
-            Handle = PolarsWrapper.DataFrameNew(System.Array.Empty<SeriesHandle>());
+            Handle = PolarsWrapper.DataFrameNew([]);
             return;
         }
 

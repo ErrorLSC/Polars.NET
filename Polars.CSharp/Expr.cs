@@ -2083,6 +2083,7 @@ public class Expr : IDisposable
     public void Dispose()
     {
         Handle?.Dispose();
+        GC.SuppressFinalize(this); 
     }
 
     /// <summary>
