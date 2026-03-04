@@ -7,7 +7,7 @@ public interface IPolarsDataFrame : IDisposable
 {
     long Height{ get; }
     RecordBatch ToArrow();
-
+    void Show();
     IPolarsSchema Schema{get;}
 }
 

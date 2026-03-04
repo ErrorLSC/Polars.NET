@@ -24,6 +24,10 @@ internal static partial class SqlSanitizer
     [GeneratedRegex(@"(GROUP\s+BY\s+)(.+?)(HAVING|ORDER\s+BY|LIMIT|$)", RegexOptions.IgnoreCase | RegexOptions.Singleline, "en-US")]
     private static partial Regex GroupByRegex();
 
+    // Regex to extract table name from DML statements (DELETE/UPDATE)
+    [GeneratedRegex(@"(?:DELETE\s+FROM|UPDATE)\s+""?([a-zA-Z0-9_]+)""?", RegexOptions.IgnoreCase | RegexOptions.Singleline, "en-US")]
+    private static partial Regex DmlTableRegex();
+
     /// <summary>
     /// Clean rawSql not supported by Polars
     /// </summary>
@@ -51,7 +55,7 @@ internal static partial class SqlSanitizer
 
             sql = sql.Replace(originalGroupBy, distinctKeys + " ");
         }
-        Console.WriteLine($"\n[Polars.NET.LINQ DEBUG] Clean SQL:\n{sql}\n");
+        // Console.WriteLine($"\n[Polars.NET.LINQ DEBUG] Clean SQL:\n{sql}\n");
         return sql;
     }
 
@@ -78,4 +82,10 @@ internal static partial class SqlSanitizer
     /// </summary>
     internal static string RemoveTrailingAlias(string snippet)
         =>TrailingAliasRegex().Replace(snippet, "").Trim();
+    
+    /// <summary>
+    /// Match DML statement and extract target table name
+    /// </summary>
+    internal static Match MatchDmlTable(string sql)
+        =>DmlTableRegex().Match(sql);
 }

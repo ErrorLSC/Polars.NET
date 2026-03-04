@@ -3,6 +3,7 @@
 using System.Collections;
 using System.Data;
 using System.Data.Common;
+using System.Text.RegularExpressions;
 using Apache.Arrow;
 using Polars.NET.Core;
 using Polars.NET.Core.Data;
@@ -58,10 +59,50 @@ internal partial class PolarsDbCommand(IPolarsSqlContext sqlContext) : DbCommand
     public override void Cancel() { }
     public override int ExecuteNonQuery()
     {
-        // Console.WriteLine($"[Polars.NET.Linq] Native DML Execution: {CommandText}");
+        // Console.WriteLine($"[Polars.NET.Linq] Native DML Execution:\n{CommandText}");
+
+        var match = SqlSanitizer.MatchDmlTable(CommandText);
+        string? tableName = match.Success ? match.Groups[1].Value : null;
+
+        long oldHeight = -1;
+
+        if (tableName != null)
+        {
+            try
+            {
+                using var oldLf = _sqlContext.Execute($"SELECT * FROM {tableName}");
+                using var oldDf = oldLf.Collect(useStreaming: false);
+                oldHeight = oldDf.Height;
+            }
+            catch
+            {
+                // ignored here
+            }
+        }
+
         using var lazyFrame = _sqlContext.Execute(CommandText);
-        using var df = lazyFrame.Collect(useStreaming:false);
-        return (int)df.Height; 
+        var newDf = lazyFrame.Collect(useStreaming: false);
+
+        int affectedRows = 0;
+
+        if (tableName != null)
+        {
+            _sqlContext.Register(tableName, newDf);
+            // Console.WriteLine($"[Polars.NET.Linq] Committed transaction. Table '{tableName}' updated in context.");
+
+            if (oldHeight >= 0)
+            {
+                affectedRows = (int)(oldHeight - newDf.Height);
+                
+                if (affectedRows < 0) affectedRows = 0; 
+            }
+        }
+        else
+        {
+            newDf.Dispose();
+        }
+
+        return affectedRows > 0 ? affectedRows : 0; 
     }
     public override object? ExecuteScalar()
     {

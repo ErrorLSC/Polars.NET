@@ -4891,7 +4891,8 @@ and DataFrame(handle: DataFrameHandle) =
             
         member this.Schema = 
             this.Schema :> IPolarsSchema
-            
+        member this.Show (): unit = 
+            this.Show()    
         member this.ToArrow() = 
             this.ToArrow()
 /// <summary>

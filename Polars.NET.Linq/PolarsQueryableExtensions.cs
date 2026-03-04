@@ -3,6 +3,7 @@ using Polars.NET.Core;
 using LinqToDB.Internal.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Collections.Concurrent;
 
 namespace Polars.NET.Linq;
 /// <summary>
@@ -109,7 +110,14 @@ internal class FSharpAstRewriter : ExpressionVisitor
 {
     public IQueryProvider? Provider { get; private set; }
     public PolarsDataContext? Context { get; private set; }
+    // 【核心新增】：零分配的结构体，用于安全缓存可能为 null 的 FieldInfo
+    private readonly struct CachedField(FieldInfo? info)
+    {
+        public readonly FieldInfo? Info = info;
+    }
 
+    // 【核心新增】：静态全局缓存！
+    private static readonly ConcurrentDictionary<Type, CachedField> _fieldCache = new();
     protected override Expression VisitConstant(ConstantExpression node)
     {
         if (node.Value != null && node.Value.GetType().IsGenericType && 
@@ -136,15 +144,22 @@ internal class FSharpAstRewriter : ExpressionVisitor
         if (obj is System.Collections.IEnumerable)
         {
             var type = obj.GetType();
-            var flags = BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public;
-            var sourceField = type.GetField("source", flags) ?? 
-                              type.GetField("_source", flags) ??
-                              type.GetField("enumerable", flags) ?? 
-                              type.GetField("_enumerable", flags);
-
-            if (sourceField != null)
+            // O(1) 极速读取缓存！同一类型的迭代器，终生只执行一次反射！
+            var cached = _fieldCache.GetOrAdd(type, t =>
             {
-                return DeepUnwrap(sourceField.GetValue(obj));
+                var flags = BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public;
+                var sourceField = t.GetField("source", flags) ?? 
+                                  t.GetField("_source", flags) ??
+                                  t.GetField("enumerable", flags) ?? 
+                                  t.GetField("_enumerable", flags);
+
+                return new CachedField(sourceField);
+            });
+
+            if (cached.Info != null)
+            {
+                // 用缓存的 FieldInfo 直接取值，速度起飞
+                return DeepUnwrap(cached.Info.GetValue(obj));
             }
         }
         return obj;

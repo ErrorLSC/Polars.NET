@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Linq.Expressions;
 using LinqToDB;
 using LinqToDB.Internal.Linq;
@@ -6,7 +7,7 @@ namespace Polars.NET.Linq;
 
 internal static class PolarsSqlTranslator
 {
-
+    private static readonly ConcurrentDictionary<Type, string[]> _aliasCache = new();
     public static string[] Translate<T, TResult>(PolarsDataContext db, Expression<Func<T, TResult>> expr) where T : class
     {
         var dummyQuery = db.GetTable<T>().Select(expr);
@@ -18,13 +19,47 @@ internal static class PolarsSqlTranslator
         
         var snippets = SplitSqlExpressions(cleanSnippet);
 
-        if (expr.Body is NewExpression newExpr && newExpr.Members != null)
+        Expression body = expr.Body;
+        while (body.NodeType == ExpressionType.Convert || body.NodeType == ExpressionType.ConvertChecked || body.NodeType == ExpressionType.TypeAs)
+        {
+            body = ((UnaryExpression)body).Operand;
+        }
+
+        string[] aliases = new string[snippets.Length];
+        bool gotAliases = false;
+
+        // C# Anonymous Object
+        if (body is NewExpression newExpr && newExpr.Members != null && newExpr.Members.Count == snippets.Length)
+        {
+            for (int i = 0; i < snippets.Length; i++) aliases[i] = newExpr.Members[i].Name;
+            gotAliases = true;
+        }
+        // F# Anonymous Invoke
+        else
+        {
+            var type = body.Type;
+            
+            if (type.Name.Contains("AnonymousType") || type.Name.Contains("AnonymousObject") || type.Name.Contains("AnonRecord"))
+            {
+                var cachedAliases = _aliasCache.GetOrAdd(type, t =>
+                {
+                    return [.. t.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance).Select(p => p.Name)];
+                });
+
+                if (cachedAliases.Length == snippets.Length)
+                {
+                    for (int i = 0; i < snippets.Length; i++) aliases[i] = cachedAliases[i];
+                    gotAliases = true;
+                }
+            }
+        }
+
+        if (gotAliases)
         {
             for (int i = 0; i < snippets.Length; i++)
             {
                 var stripped = SqlSanitizer.RemoveTrailingAlias(snippets[i]);
-                
-                snippets[i] = $"{stripped} AS {newExpr.Members[i].Name}";
+                snippets[i] = $"{stripped} AS {aliases[i]}";
             }
         }
         else

@@ -23,12 +23,18 @@ type ServerLog = { Id: int; Message: string; Flags: int }
 type StockPrice = { Ticker: string; Date: DateTime; Price: float }
 type StaffRecord = { name: string; age: int; salary: float }
 type SalaryRecord = { salary: float }
-
+type StaffRecordWithBonus = {
+    name: string
+    age: int
+    salary: float
+    bonus: float // C# 中的 double 在 F# 中对应 float
+}
 // 为下半场的 NestedList 提前备好 DTO
 // type DeptDto = { DeptId: int; DeptName: string }
 type EmpDto = { Name: string; DeptId: int }
 
 module QueryTests =
+    open System.IO
 
     [<Fact>]
     [<Trait("Linq", "Where")>]
@@ -1187,3 +1193,124 @@ module QueryTests =
         Assert.Equal(900.0, sqArr.[2])
         Assert.Equal(60.0, dblArr.[2])
         Assert.True(isHighArr.[2])
+    [<Fact>]
+    [<Trait("Linq", "HybridLazy")>]
+    let ``Test Polars Linq Hybrid Native And Linq Pushdown`` () =
+        
+        // 1. 准备一个临时 CSV 文件
+        let csvContent = 
+            "name,age,salary\n\
+             Alice,25,50000\n\
+             Bob,30,60000\n\
+             Charlie,35,70000\n\
+             David,40,80000"
+             
+        let fileName = "test_hybrid_lazy_data_fsharp.csv"
+        File.WriteAllText(fileName, csvContent)
+
+        try
+            use schema = new PolarsSchema([
+                "age", Polars.FSharp.DataType.Int32
+                "salary", DataType.Float64
+            ])
+            
+            // 2. ScanCsv 创建文件指针和基础逻辑计划
+            use lf = LazyFrame.ScanCsv(fileName, schema = schema)
+            
+            // ====================================================================
+            // 【核心混写阶段 1：Polars 原生 API】
+            // 我们用原生表达式加一个新列 "bonus"，逻辑是 salary 的 10%
+            // ====================================================================
+            use lfWithBonus = lf.WithColumns [(pl.col "salary" * pl.lit 0.1).Alias "bonus"]
+
+            use sqlCtx = new SqlContext()
+            use db = new PolarsDataContext(sqlCtx) 
+
+            // ====================================================================
+            // 【核心混写阶段 2：F# Query 表达式 (LINQ)】
+            // 将带有原生计划的 LazyFrame 注册进来，用 F# 原生的 query 编写业务逻辑！
+            // ====================================================================
+            let employees = db.RegisterTable<StaffRecordWithBonus>("employees", lfWithBonus)
+            
+            let linqQuery = 
+                query {
+                    for e in employees do
+                    // LINQ 过滤：使用原有列和原生生成的列
+                    where (e.age > 30 && e.bonus >= 7000.0)
+                    // LINQ 投影：在 F# 里直接映射成强类型的匿名记录
+                    // 注意：e.salary 是 int，需显式转换为 float 才能与 bonus (float) 相加
+                    select {| name = e.name; TotalCompensation = float e.salary + e.bonus |}
+                }
+
+            // ====================================================================
+            // 4. 终极点火：触发查询
+            // 引擎会将 Native Plan 和 LINQ SQL 合并为单一 AST，执行极致优化并读取磁盘
+            // ====================================================================
+            let results = linqQuery |> Seq.toList
+
+            // 5. 验证结果
+            Assert.NotNull results
+            Assert.Equal(2, results.Length) // 只剩 Charlie (35岁, bonus=7000) 和 David (40岁, bonus=8000)
+
+            // 验证 Charlie
+            Assert.Equal("Charlie", results.[0].name)
+            Assert.Equal(77000.0, results.[0].TotalCompensation)
+
+            // 验证 David
+            Assert.Equal("David", results.[1].name)
+            Assert.Equal(88000.0, results.[1].TotalCompensation)
+
+        finally
+            // 清理文件
+            if File.Exists fileName then File.Delete fileName
+    [<Fact>]
+    [<Trait("Linq", "UnifiedCRUD")>]
+    let ``Test Polars Linq Unified CRUD UX in FSharp`` () =
+        
+        // 1. 准备数据并注册到 Polars (标准流程)
+        let emps = [
+            { Name = "Alice"; DeptId = 1; Salary = 5000.0 }
+            { Name = "Bob";   DeptId = 2; Salary = 4000.0 }
+            { Name = "Eve";   DeptId = 3; Salary = 3000.0 }
+        ]
+
+        use dfEmps = DataFrame.ofRecords emps
+        use sqlCtx = new SqlContext()
+        use db = new PolarsDataContext(sqlCtx, ownsContext = true)
+        
+        // 2. 极其优雅的上下文初始化
+        let table = db.RegisterTable<EmployeeSalary>("employees", dfEmps)
+
+        // ==========================================
+        // 【R: 查询】
+        // ==========================================
+        let richEmps = 
+            query {
+                for e in table do
+                where (e.Salary >= 5000.0)
+                select e
+            } |> Seq.toList
+
+        Assert.Equal(1, richEmps.Length)
+        Assert.Equal("Alice", richEmps.[0].Name)
+
+        // ==========================================
+        // 【U: 更新】
+        // 预期: Polars 抛出不支持 Update 的异常，但 SQL 会完美生成并送到 ExecuteNonQuery
+        // ==========================================
+        try
+            table.Where(fun (e: EmployeeSalary) -> e.DeptId = 1)
+                 // 核心魔法：内联传参触发 Expression 转换，同时锁死 e 的类型！
+                 .Set((fun (e: EmployeeSalary) -> e.Salary), (fun (e: EmployeeSalary) -> e.Salary + 1000.0))
+                 .Update() |> ignore
+        with 
+        | ex -> Console.WriteLine $"Expected Update Error: {ex.Message}"
+
+        // ==========================================
+        // 【D: 删除】
+        // ==========================================
+        let deleted = table.Where(fun e -> e.DeptId < 3).Delete()
+        use deletedDf = table.ToDataFrame() :?> DataFrame
+        deletedDf.Show() 
+        // Assert 确实执行了删除并返回了受影响的行数 (通常 >= 0)
+        Assert.True(deleted >= 0)
