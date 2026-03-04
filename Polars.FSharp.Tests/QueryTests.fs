@@ -6,6 +6,7 @@ open Polars.NET.Linq
 open Polars.FSharp
 open LinqToDB
 open System
+open System.Linq.Expressions
 
 type Person = {Name: string;Age: int;Sales: float}
 type Department = { DeptId: int; DeptName: string }
@@ -15,6 +16,17 @@ type EmployeeSalary = { Name: string; DeptId: int; Salary: float }
 type DeptStatsDto = { DeptId: int; TotalSalary: float; EmployeeCount: int }
 type OrderDto = { OrderId: int; OrderDate: DateTime; Region: string; Revenue: float }
 type ProductDto = { Id: int; Name: string; Category: string; Price: float }
+type DeptDto = { DeptId: int; DeptName: string }
+type NullableEmpDto = { Name: string; DeptId: int; Salary: float }
+type SalesData = { Category: string; ProductName: string; Revenue: float; Discount: float }
+type ServerLog = { Id: int; Message: string; Flags: int }
+type StockPrice = { Ticker: string; Date: DateTime; Price: float }
+type StaffRecord = { name: string; age: int; salary: float }
+type SalaryRecord = { salary: float }
+
+// 为下半场的 NestedList 提前备好 DTO
+// type DeptDto = { DeptId: int; DeptName: string }
+type EmpDto = { Name: string; DeptId: int }
 
 module QueryTests =
 
@@ -630,3 +642,548 @@ module QueryTests =
         Assert.Equal(2, complexResult.Length) 
         Assert.True(complexResult |> Seq.exists (fun p -> p.Name = "Apple"))
         Assert.True(complexResult |> Seq.exists (fun p -> p.Name = "Beef"))
+    [<Fact>]
+    [<Trait("Linq", "PaginationAndDistinct")>]
+    let ``Test Polars Linq Skip Take And Distinct`` () =
+        // Arrange
+        let data = [|
+            { Id = 1; Name = "Apple";   Category = "Fruit"; Price = 1.2 }
+            { Id = 2; Name = "Banana";  Category = "Fruit"; Price = 0.8 }
+            { Id = 3; Name = "Cherry";  Category = "Fruit"; Price = 1.5 }
+            { Id = 4; Name = "Beef";    Category = "Meat";  Price = 5.0 }
+            { Id = 5; Name = "Pork";    Category = "Meat";  Price = 4.0 }
+            { Id = 6; Name = "Apple";   Category = "Fruit"; Price = 1.2 } // Duplicated
+        |]
+
+        use df = DataFrame.ofRecords data
+        use sqlCtx = new SqlContext()
+        use db = new PolarsDataContext(sqlCtx)
+        let queryable = db.RegisterTable<ProductDto>("products", df)
+
+        // ==========================================
+        // 测试 1：投影去重 (Distinct)
+        // 预期 SQL: SELECT DISTINCT p."Category" FROM products p
+        // ==========================================
+        let distinctCategories = 
+            query {
+                for p in queryable do
+                select p.Category
+                distinct 
+            } |> Seq.toList
+        
+        Assert.Equal(2, distinctCategories.Length)
+        Assert.Contains("Fruit", distinctCategories)
+        Assert.Contains("Meat", distinctCategories)
+
+        // 测试整行去重
+        let distinctProducts = 
+            query {
+                for p in queryable do
+                // 直接对整行进行 distinct
+                distinct
+            } |> Seq.toList
+            
+        // 因为 Id 不同 (1 和 6)，所以它们不算完全重复，总数还是 6
+        Assert.Equal(6, distinctProducts.Length) 
+
+        // ==========================================
+        // 测试 2：分页与切片 (Skip & Take)
+        // 预期 SQL: SELECT ... FROM products ORDER BY p."Id" LIMIT 2 OFFSET 2
+        // ==========================================
+        let pagedResult = 
+            query {
+                for p in queryable do
+                sortBy p.Id
+                skip 2
+                take 2
+            } |> Seq.toList
+            
+        Assert.Equal(2, pagedResult.Length)
+        
+        // 跳过 Apple(1) 和 Banana(2)，应该取到 Cherry(3) 和 Beef(4)
+        Assert.Equal(3, pagedResult.[0].Id) 
+        Assert.Equal(4, pagedResult.[1].Id)
+    [<Fact>]
+    [<Trait("Linq", "CaseWhenAndCte")>]
+    let ``Test Polars Linq CaseWhen And Cte`` () =
+        // Arrange
+        let emps = [|
+            { Name = "Alice";   DeptId = 1; Salary = 6000.0 }
+            { Name = "Bob";     DeptId = 2; Salary = 4000.0 }
+            { Name = "Charlie"; DeptId = 1; Salary = 4500.0 }
+            { Name = "David";   DeptId = 3; Salary = 8000.0 }
+            { Name = "Eve";     DeptId = 2; Salary = 5500.0 }
+        |]
+
+        use dfEmps = DataFrame.ofRecords emps
+        use sqlCtx = new SqlContext()
+        use db = new PolarsDataContext(sqlCtx)
+        let empQuery = db.RegisterTable<EmployeeSalary>("employees", dfEmps)
+
+        // ==========================================
+        // 测试 1：CASE WHEN (数据分箱/条件分支)
+        // 预期 SQL: CASE WHEN e."Salary" >= 6000 THEN 'High' ... END
+        // ==========================================
+        let caseWhenQuery = 
+            query {
+                for e in empQuery do
+                select {|
+                    Name = e.Name
+                    SalaryTier = 
+                        if e.Salary >= 6000.0 then "High"
+                        elif e.Salary >= 4500.0 then "Medium"
+                        else "Low"
+                |}
+            } |> Seq.toList
+
+        Assert.Equal(5, caseWhenQuery.Length)
+        
+        // 验证辅助函数
+        let assertTier expectedTier name = 
+            let emp = caseWhenQuery |> Seq.find (fun e -> e.Name = name)
+            Assert.Equal(expectedTier, emp.SalaryTier)
+
+        assertTier "High" "Alice"   // 6000
+        assertTier "High" "David"   // 8000
+        assertTier "Medium" "Eve"     // 5500
+        assertTier "Medium" "Charlie" // 4500
+        assertTier "Low" "Bob"       // 4000
+
+        // ==========================================
+        // 测试 2：CTE (Common Table Expression / WITH 语句)
+        // 业务需求：先圈出一批高薪人群作为 CTE，再进行复杂查询
+        // ==========================================
+        
+        // 1. 定义 CTE (此时不执行，只是声明)
+        // 注意：我们混合使用方法链和 LinqToDB 的扩展方法 AsCte
+        let cte = 
+            empQuery
+                .Where(fun e -> e.Salary > 5000.0)
+                .AsCte "HighEarners"
+
+        // 2. 基于 CTE 进行查询
+        let cteResult = 
+            query {
+                for c in cte do
+                where (c.DeptId = 1 || c.DeptId = 3)
+                select c
+            } |> Seq.toList
+
+        // 薪水 > 5000 的有 Alice(1,6000), David(3,8000), Eve(2,5500)
+        // 在这三人中，部门是 1 或 3 的只有 Alice, David
+        Assert.Equal(2, cteResult.Length)
+        Assert.True(cteResult |> Seq.exists (fun e -> e.Name = "Alice"))
+        Assert.True(cteResult |> Seq.exists (fun e -> e.Name = "David"))
+    [<Fact>]
+    [<Trait("Linq", "SubqueryInAndFunctions")>]
+    let ``Test Polars Linq SubqueryIn And Functions`` () =
+        let depts = [|
+            { DeptId = 1; DeptName = "Engineering" }
+            { DeptId = 2; DeptName = "Sales" }
+            { DeptId = 3; DeptName = "HR" }
+        |]
+
+        let emps = [|
+            { Name = "Alice";   DeptId = 1; Salary = 6000.0 }
+            { Name = null;      DeptId = 2; Salary = 4000.0 } // 故意塞一个 null 名字
+            { Name = "Charlie"; DeptId = 1; Salary = 4500.0 }
+            { Name = "David";   DeptId = 3; Salary = 8000.0 }
+        |]
+
+        use dfDepts = DataFrame.ofRecords depts
+        use dfEmps = DataFrame.ofRecords emps
+
+        use sqlCtx = new SqlContext()
+        use db = new PolarsDataContext(sqlCtx)
+
+        let deptQuery = db.RegisterTable<DeptDto>("departments", dfDepts)
+        let empQuery = db.RegisterTable<NullableEmpDto>("employees", dfEmps)
+
+        // ==========================================
+        // 测试 1：非相关子查询 (IN Subquery)
+        // 预期 SQL: d."DeptId" IN (SELECT e."DeptId" FROM employees e WHERE e."Salary" > 5000)
+        // ==========================================
+        
+        // 1. 构建一个只查 DeptId 的内部查询 (IQueryable<int>)
+        let highPaidDeptIds = 
+            query {
+                for e in empQuery do
+                where (e.Salary > 5000.0)
+                select e.DeptId
+            }
+
+        // 2. 在外部查询中使用 .Contains() 传入这个内部查询
+        let richDepts = 
+            query {
+                for d in deptQuery do
+                where (highPaidDeptIds.Contains d.DeptId)
+                select d
+            } |> Seq.toList
+
+        Assert.Equal(2, richDepts.Length) // Engineering (Alice) 和 HR (David)
+        Assert.True(richDepts |> Seq.exists (fun d -> d.DeptName = "Engineering"))
+        Assert.True(richDepts |> Seq.exists (fun d -> d.DeptName = "HR"))
+
+        // ==========================================
+        // 测试 2：空值处理 (模拟 C# 的 ?? 运算符)
+        // 预期 SQL: CASE WHEN e."Name" IS NULL THEN 'Unknown' ELSE e."Name" END
+        // (LinqToDB 会自动把它优化为类似 COALESCE 的行为)
+        // ==========================================
+        let coalesceQuery = 
+            query {
+                for e in empQuery do
+                select {|
+                    // 使用标准的 if 表达式，避免使用 F# 特有的 isNull
+                    SafeName = if e.Name = null then "Unknown" else e.Name
+                |}
+            } |> Seq.toList
+
+        Assert.Equal(4, coalesceQuery.Length)
+        Assert.True(coalesceQuery |> Seq.exists (fun e -> e.SafeName = "Unknown")) // 替补了原本是 null 的 Bob
+
+        // ==========================================
+        // 测试 3：字符串截取与拼接 (Substring)
+        // 预期 SQL: SUBSTRING(e."Name", 1, 3) (SQL 的下标通常从 1 开始，LinqToDB 会自动修正)
+        // ==========================================
+        let stringQuery = 
+            query {
+                for e in empQuery do
+                // 过滤掉 null，防止在 .NET 内存层面执行时抛空指针（虽然 SQL 层面可能有容错）
+                where (e.Name <> null)
+                select {|
+                    Name = e.Name
+                    ShortName = e.Name.Substring(0, 3)
+                |}
+            } |> Seq.toList
+
+        Assert.Equal(3, stringQuery.Length)
+        
+        let getShortName name = 
+            (stringQuery |> Seq.find (fun e -> e.Name = name)).ShortName
+
+        Assert.Equal("Ali", getShortName "Alice")
+        Assert.Equal("Cha", getShortName "Charlie")
+    [<Fact>]
+    [<Trait("Linq", "MathStringAndConditionalAgg")>]
+    let ``Test Polars Linq Math String And ConditionalAgg`` () =
+        let sales = [|
+            { Category = "Tech";   ProductName = "Laptop"; Revenue = 1000.5; Discount = 50.0 }
+            { Category = "Tech";   ProductName = "Mouse";  Revenue = -20.0;  Discount = 0.0 }
+            { Category = "Office"; ProductName = "Desk";   Revenue = 500.2;  Discount = 10.0 }
+            { Category = "Office"; ProductName = "Chair";  Revenue = 150.8;  Discount = 5.0 }
+        |]
+
+        use dfSales = DataFrame.ofRecords sales
+        use sqlCtx = new SqlContext()
+        use db = new PolarsDataContext(sqlCtx)
+        let salesQuery = db.RegisterTable<SalesData>("sales", dfSales)
+
+        // ==========================================
+        // 测试 1：字符串拼接 (+) 与 数学函数 (Math)
+        // 预期: CONCAT / Math.Round -> ROUND / Math.Abs -> ABS
+        // ==========================================
+        let scalarQuery = 
+            query {
+                for s in salesQuery do
+                select {|
+                    // F# 里的 + 拼接，LinqToDB 同样会翻译成 SQL 标准的 CONCAT 或 ||
+                    FullName = s.Category + " - " + s.ProductName
+                    // 标准的 .NET Math 方法会完美下推
+                    NetRevenue = Math.Round(Math.Abs s.Revenue - s.Discount, 2)
+                |}
+            } |> Seq.toList
+
+        Assert.Equal(4, scalarQuery.Length)
+        Assert.True(scalarQuery |> Seq.exists (fun s -> s.FullName = "Tech - Laptop" && s.NetRevenue = 950.5))
+        Assert.True(scalarQuery |> Seq.exists (fun s -> s.FullName = "Tech - Mouse" && s.NetRevenue = 20.0))
+
+        // ==========================================
+        // 测试 2：条件聚合 (Conditional Aggregation / Pivot)
+        // 业务需求：在一次查询中，同时算出总营收，以及 Tech 和 Office 分别的营收
+        // 预期 SQL: SUM(CASE WHEN s."Category" = 'Tech' THEN ABS(s."Revenue") ELSE 0 END)
+        // ==========================================
+        
+        // 【核心高亮】：用方法链执行多重聚合，内部使用 if-then-else 替代三元运算符
+        let aggQuery = 
+            salesQuery
+                .GroupBy(fun s -> 1) // 假分组，为了聚合全表
+                .Select(fun g -> {|
+                    Total = g.Sum(fun x -> Math.Abs x.Revenue)
+                    
+                    // 条件聚合：F# 的 if 表达式会精确翻译为 CASE WHEN
+                    // 注意返回值类型统一使用 0.0 匹配 float
+                    TechTotal = g.Sum(fun x -> if x.Category = "Tech" then Math.Abs x.Revenue else 0.0)
+                    OfficeTotal = g.Sum(fun x -> if x.Category = "Office" then Math.Abs x.Revenue else 0.0)
+                |})
+                .ToList()
+
+        Assert.Single aggQuery |> ignore
+        Assert.Equal(1671.5, aggQuery.[0].Total) // 1000.5 + 20 + 500.2 + 150.8
+        Assert.Equal(1020.5, aggQuery.[0].TechTotal)
+        Assert.Equal(651.0,  aggQuery.[0].OfficeTotal)
+    [<Fact>]
+    [<Trait("Linq", "BitwiseAndRegex")>]
+    let ``Test Polars Linq Bitwise and Regex`` () =
+        // Arrange: 准备硬核数据
+        let logs = [|
+            { Id = 1; Message = "User admin logged in";  Flags = 3 }  // 3 (0011)
+            { Id = 2; Message = "Failed password try";   Flags = 1 }  // 1 (0001)
+            { Id = 3; Message = "DB connection timeout"; Flags = 6 }  // 6 (0110)
+            { Id = 4; Message = "User guest logged in";  Flags = 2 }  // 2 (0010)
+            { Id = 5; Message = "System crash error 99"; Flags = 4 }  // 4 (0100)
+        |]
+
+        use df = DataFrame.ofRecords logs
+        use sqlCtx = new SqlContext()
+        use db = new PolarsDataContext(sqlCtx)
+        let logQuery = db.RegisterTable<ServerLog>("logs", df)
+
+        // ==========================================
+        // 极客测试 1：位运算 (Bitwise)
+        // 预期 SQL: SELECT ... FROM logs p WHERE (p."Flags" & 2) = 2
+        // ==========================================
+        let bitwiseResult = 
+            query {
+                for log in logQuery do
+                // F# 里的 &&& 是按位与。找 Flags 包含 2 (0010) 的日志 (Id: 1, 3, 4)
+                where (log.Flags &&& 2 = 2)
+                select log
+            } |> Seq.toList
+
+        Assert.Equal(3, bitwiseResult.Length)
+        Assert.True(bitwiseResult |> Seq.exists(fun l -> l.Id = 1))
+        Assert.True(bitwiseResult |> Seq.exists(fun l -> l.Id = 3))
+        Assert.True(bitwiseResult |> Seq.exists(fun l -> l.Id = 4))
+
+        // ==========================================
+        // 极客测试 2：正则表达式 (Regex) 引擎下推
+        // 预期 SQL: SELECT ... FROM logs p WHERE p."Message" REGEXP 'error|timeout|Failed'
+        // ==========================================
+        let regexResult = 
+            query {
+                for log in logQuery do
+                where (PolarsSql.RegexMatch(log.Message, "error|timeout|Failed"))
+                select log
+            } |> Seq.toList
+
+        // 匹配到 Id: 2, 3, 5
+        Assert.Equal(3, regexResult.Length)
+        Assert.True(regexResult |> Seq.exists(fun l -> l.Id = 2))
+        Assert.True(regexResult |> Seq.exists(fun l -> l.Id = 3))
+        Assert.True(regexResult |> Seq.exists(fun l -> l.Id = 5))
+    [<Fact>]
+    [<Trait("Linq", "LeadLag")>]
+    let ``Test Polars Linq LeadLag And NestedList`` () =
+        // Arrange
+        let stocks = [|
+            { Ticker = "AAPL"; Date = DateTime(2024, 1, 1); Price = 150.0 }
+            { Ticker = "AAPL"; Date = DateTime(2024, 1, 2); Price = 155.0 }
+            { Ticker = "AAPL"; Date = DateTime(2024, 1, 3); Price = 152.0 }
+            { Ticker = "MSFT"; Date = DateTime(2024, 1, 1); Price = 300.0 }
+            { Ticker = "MSFT"; Date = DateTime(2024, 1, 2); Price = 305.0 }
+        |]
+
+        let depts = [| { DeptId = 1; DeptName = "Tech" }; { DeptId = 2; DeptName = "Sales" } |]
+        let emps = [| { Name = "Alice"; DeptId = 1 }; { Name = "Bob"; DeptId = 1 }; { Name = "Charlie"; DeptId = 2 } |]
+
+        use dfStocks = DataFrame.ofRecords stocks
+        use dfDepts = DataFrame.ofRecords depts
+        use dfEmps = DataFrame.ofRecords emps
+
+        use sqlCtx = new SqlContext()
+        use db = new PolarsDataContext(sqlCtx)
+        
+        let stockQuery = db.RegisterTable<StockPrice>("stocks", dfStocks)
+
+        // ==========================================
+        // 测试 1：高级窗口函数 (Lag - 获取上一行的值)
+        // 预期 SQL: LAG(s."Price") OVER(PARTITION BY s."Ticker" ORDER BY s."Date")
+        // ==========================================
+        let lagQuery = 
+            query {
+                for s in stockQuery do
+                select {|
+                    Ticker = s.Ticker
+                    Date = s.Date
+                    Price = s.Price
+                    
+                    // Sql.Ext.Lag() 完美内联在 F# 匿名记录中
+                    PrevPrice = Sql.Ext.Lag(s.Price).Over().PartitionBy(s.Ticker).OrderBy(s.Date).ToValue()
+                |}
+            } |> Seq.toList
+
+        Assert.Equal(5, lagQuery.Length)
+        
+        // 验证 AAPL 第二天的数据
+        let aaplDay2 = lagQuery |> Seq.find (fun s -> s.Ticker = "AAPL" && s.Date.Day = 2)
+        Assert.Equal(155.0, aaplDay2.Price)
+        Assert.Equal(150.0, aaplDay2.PrevPrice)
+    [<Fact>]
+    [<Trait("Linq", "NestedList")>]
+    let ``Test Polars Linq Nested List Aggregation`` () =
+        // Arrange
+        let depts = [| { DeptId = 1; DeptName = "Tech" }; { DeptId = 2; DeptName = "Sales" } |]
+        let emps = [| 
+            { Name = "Alice"; DeptId = 1 }
+            { Name = "Bob"; DeptId = 1 }
+            { Name = "Charlie"; DeptId = 2 } 
+        |]
+
+        use dfDepts = DataFrame.ofRecords depts
+        use dfEmps = DataFrame.ofRecords emps
+
+        use sqlCtx = new SqlContext()
+        use db = new PolarsDataContext(sqlCtx)
+        
+        let deptQuery = db.RegisterTable<DeptDto>("departments", dfDepts)
+        let empQuery = db.RegisterTable<EmpDto>("employees", dfEmps)
+
+        // ==========================================
+        // 测试：Nested List (嵌套集合聚合)
+        // 业务需求：按部门分组，把部门里所有员工的名字聚合成一个列表
+        // 预期 SQL: SELECT e."DeptId", list(e."Name") FROM employees e GROUP BY e."DeptId"
+        // ==========================================
+        let nestedListQuery = 
+            empQuery
+                .GroupBy(fun e -> e.DeptId)
+                .Select(fun g -> {|
+                    DeptId = g.Key
+                    
+                    EmpNames = PolarsSql.ListAgg(g, fun e -> e.Name)
+                |})
+                .OrderBy(fun r -> r.DeptId)
+                .ToList()
+
+        let techDepts = nestedListQuery.[0]
+        Assert.Equal(1, techDepts.DeptId)
+        
+        // 见证奇迹的时刻：
+        Assert.Contains("Alice", techDepts.EmpNames)
+        Assert.Contains("Bob", techDepts.EmpNames)
+    [<Fact>]
+    [<Trait("Linq", "Sandwich")>]
+    let ``Test Polars Double Hybrid Sandwich`` () =
+        // 初始化 Context
+        use sqlCtx = new SqlContext()
+        use db = new PolarsDataContext(sqlCtx)
+
+        use schema = new PolarsSchema([
+            "age", Polars.FSharp.DataType.Int32
+            "salary", DataType.Float64
+        ])
+        
+        let path = "/home/qinglei/Projects/Polars.NET/Polars.Integration.Tests/TestData/staffrecord.csv"
+        
+        // ==========================================
+        // 1. 底层 Native (IO 阶段)
+        // 从磁盘建立扫描器，延迟执行
+        // ==========================================
+        use rawLf = LazyFrame.ScanCsv(path, schema = schema)
+        
+        let emps = db.RegisterTable<StaffRecord>("emps", rawLf)
+        
+        // ==========================================
+        // 2. LINQ 阶段 (业务表达阶段)
+        // 用极度符合直觉的 F# Query DSL 表达过滤与投影
+        // ==========================================
+        let linqQuery = 
+            query {
+                for e in emps do
+                where (e.salary > 5000.0)
+                select {| name = e.name; salary = e.salary |}
+            }
+            
+        // printfn "--- Plan 1 (After LINQ) ---\n%s" (linqQuery.Explain true)
+
+        // ==========================================
+        // 3. 截胡！回到 Native (后处理阶段)
+        // ==========================================
+        // 注意 F# 中的向下转型使用 :?> 语法
+        use lfWithLinq = linqQuery.ToLazyFrame() :?> LazyFrame
+
+        // 继续使用 Polars 原生 API 做一些 LINQ 很难表达或极其底层的操作
+        use finalLf = lfWithLinq.WithColumn(pl.col("salary").Std().Alias "salary_std")
+        
+        // ==========================================
+        // 4. 终极点火 (Materialization)
+        // ==========================================
+        // 只有在调用 Collect 的这一瞬间，Polars 才会真正去读取 CSV
+        // 并且是以经过 C# -> SQL -> Rust 极致优化后的物理执行计划去运行！
+        use df = finalLf.Collect()
+        
+        df.Show() |> ignore
+        // 注意 Polars 的 Height 通常是 int64/long 类型，所以在 F# 里用 0L 对比
+        Assert.True(df.Height > 0L)
+    [<Fact>]
+    [<Trait("Linq", "SeriesScalar")>]
+    let ``Test Polars Linq Series`` () =
+        // 1. 生成一个纯数字的 Series (1 到 100)
+        // 【纯正 F# 风味】：直接使用范围表达式 [| start .. end |]
+        let numbers = [| 1 .. 100 |]
+        use series = Series.create("my_numbers", numbers)
+        
+        use ctx = new SqlContext()
+        use db = new PolarsDataContext(ctx)
+
+        // 2. 极其优雅的注册！不需要 dummy data，不需要 DTO！
+        // 直接拿到 IQueryable<int>
+        let queryable = db.RegisterSeries<int> series
+
+        // 3. 纯正的标量 LINQ 语法！
+        // 【纯正 F# 风味】：使用 query 计算表达式，逻辑清晰无比
+        let results = 
+            query {
+                for x in queryable do
+                where (x > 90)
+                sortByDescending x
+                select x
+            } |> Seq.toList
+
+        // 验证
+        Assert.Equal(10, results.Length)
+        Assert.Equal(100, results.[0])
+    [<Fact>]
+    [<Trait("Linq", "SyntaxSugar")>]
+    let ``Test Ultimate StrongTyped Select Sugar in FSharp`` () =
+        
+        // 1. 使用 ofRecords 传入纯正的 F# Record 序列
+        let records = [
+            { salary = 10.0 }
+            { salary = 20.0 }
+            { salary = 30.0 }
+        ]
+        use df = DataFrame.ofRecords records
+
+        // 2. 构建表达式树并调用 Select
+        let exprsList = 
+            PolarsExpr.ToSqls(fun (e: SalaryRecord) -> 
+                {| 
+                    salary_sq = Math.Pow(e.salary, 2.0)
+                    salary_dbl = e.salary * 2.0
+                    is_high = e.salary > 15.0
+                |}
+            ) 
+            |> Expr.SqlExprs
+            |> Array.toList
+        
+        use resultDf = df.Select exprsList
+
+        // 打印出来欣赏一下底层的完美类型推断 (f64, f64, bool)
+        resultDf.Show() |> ignore
+
+        // 3. 终极断言验证
+        let sqArr = resultDf.["salary_sq"].ToArray<float>()
+        let dblArr = resultDf.["salary_dbl"].ToArray<float>()
+        let isHighArr = resultDf.["is_high"].ToArray<bool>()
+
+        Assert.Equal(3, sqArr.Length)
+
+        // 验证第一行 (salary = 10)
+        Assert.Equal(100.0, sqArr.[0])
+        Assert.Equal(20.0, dblArr.[0])
+        Assert.False(isHighArr.[0])
+
+        // 验证第三行 (salary = 30)
+        Assert.Equal(900.0, sqArr.[2])
+        Assert.Equal(60.0, dblArr.[2])
+        Assert.True(isHighArr.[2])

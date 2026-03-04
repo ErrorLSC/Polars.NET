@@ -993,34 +993,33 @@ public class LinqProviderTests
         Assert.Equal(155.0, aaplDay2.Price);
         Assert.Equal(150.0, aaplDay2.PrevPrice); // 成功拿到第一天的价格！
 
-        // // ==========================================
-        // // 测试 2：层级投影平铺化 (STRING_AGG)
-        // // 业务需求：返回每个部门，并且对象内部包含一个员工名字的拼接字符串
-        // // linq2db 预期：LEFT JOIN + GROUP BY + STRING_AGG
-        // // ==========================================
-        // var nestedQuery = from d in deptQuery
-        //                   join e in empQuery on d.DeptId equals e.DeptId into empGroup
-        //                   from e in empGroup.DefaultIfEmpty() // 关键：展开为 LEFT JOIN，让 e 重新回到作用域
-        //                   group e by d.DeptName into g      // 按部门名称分组
-        //                   select new
-        //                   {
-        //                       DeptName = g.Key,
-        //                       // linq2db 会极其聪明地把 string.Join 翻译为 PostgreSQL 的 STRING_AGG
-        //                       Employees = string.Join(", ", g.Select(x => x.Name))
-        //                   };
+        // ==========================================
+        // 测试 2：层级投影平铺化 (STRING_AGG)
+        // 业务需求：返回每个部门，并且对象内部包含一个员工名字的拼接字符串
+        // linq2db 预期：LEFT JOIN + GROUP BY + ARRAY_TO_STRING(ARRAY_AGG(...))
+        // ==========================================
+        var nestedQuery = from d in deptQuery
+                          join e in empQuery on d.DeptId equals e.DeptId into empGroup
+                          from e in empGroup.DefaultIfEmpty() // 关键：展开为 LEFT JOIN
+                          group e by d.DeptName into g      // 按部门名称分组
+                          select new
+                          {
+                              DeptName = g.Key,
+                              Employees = g.ListAgg(x => x.Name)
+                          };
 
-        // var nestedResult = nestedQuery.ToList();
+        var nestedResult = nestedQuery.ToList();
 
-        // Assert.Equal(2, nestedResult.Count);
+        Assert.Equal(2, nestedResult.Count);
         
-        // var techDept = nestedResult.First(d => d.DeptName == "Tech");
-        // // Tech 部门应该拼接了 Alice 和 Bob
-        // Assert.Contains("Alice", techDept.Employees);
-        // Assert.Contains("Bob", techDept.Employees);
+        var techDept = nestedResult.First(d => d.DeptName == "Tech");
+        // Tech 部门应该拼接了 Alice 和 Bob
+        Assert.Contains("Alice", techDept.Employees);
+        Assert.Contains("Bob", techDept.Employees);
 
-        // var salesDept = nestedResult.First(d => d.DeptName == "Sales");
-        // // Sales 部门只有 Charlie
-        // Assert.Equal("Charlie", salesDept.Employees);
+        var salesDept = nestedResult.First(d => d.DeptName == "Sales");
+        // Sales 部门只有 Charlie
+        Assert.Equal("Charlie", salesDept.Employees);
     }
     [Fact]
     [Trait("Linq", "UnifiedCRUD")]

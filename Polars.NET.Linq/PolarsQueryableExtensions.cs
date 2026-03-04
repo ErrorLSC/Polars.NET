@@ -1,6 +1,8 @@
 #pragma warning disable CS1591 
 using Polars.NET.Core;
 using LinqToDB.Internal.Linq;
+using System.Linq.Expressions;
+using System.Reflection;
 
 namespace Polars.NET.Linq;
 /// <summary>
@@ -20,6 +22,17 @@ namespace Polars.NET.Linq;
 /// </remarks>
 public static class PolarsQueryableExtensions
 {
+    private static IPolarsLazyFrame TranslateAndExecute(IExpressionQuery exprQuery, PolarsDataContext db)
+    {
+        var sqlQueries = exprQuery.GetSqlQueries(null);
+
+        if (sqlQueries == null || sqlQueries.Count == 0)
+            throw new InvalidOperationException("[Polars.NET] linq2db SQL generation failed");
+        var rawSql = sqlQueries[0].Sql;
+        var sanitizedSql = SqlSanitizer.Clean(rawSql); 
+
+        return db.ExecuteToLazyFrame(sanitizedSql);
+    }
     /// <summary>
     /// Translates the LINQ expression tree into a Polars execution plan without executing the query.
     /// This represents the "Logic-to-Logic" phase: LINQ -> SQL -> <see cref="IPolarsLazyFrame"/>.
@@ -32,22 +45,37 @@ public static class PolarsQueryableExtensions
     /// </exception>
     public static IPolarsLazyFrame ToLazyFrame<T>(this IQueryable<T> query)
     {
-        if (query is IExpressionQuery exprQuery && 
-            exprQuery.DataContext is PolarsDataContext polarsDb)
+        // ==========================================
+        // Fast Path: Method Chain
+        // ==========================================
+        if (query is IExpressionQuery fastQuery && fastQuery.DataContext is PolarsDataContext fastDb)
         {
-            var sqlQueries = exprQuery.GetSqlQueries(null);
-
-            if (sqlQueries == null || sqlQueries.Count == 0)
-                throw new InvalidOperationException("[Polars.NET] linq2db SQL generation failed");
-
-            var rawSql = sqlQueries[0].Sql;
-
-            var sanitizedSql = SqlSanitizer.Clean(rawSql); 
-
-            return polarsDb.ExecuteToLazyFrame(sanitizedSql);
+            return TranslateAndExecute(fastQuery, fastDb);
         }
 
-        throw new InvalidOperationException("Failed to extract PolarsDataContext");
+        // ==========================================
+        // Hacker Path：AST Rewrite ( F# query { })
+        // ==========================================
+        var rewriter = new FSharpAstRewriter();
+        
+        var cleanExpression = rewriter.Visit(query.Expression); 
+
+        if (rewriter.Context != null && rewriter.Provider != null)
+        {
+            var pureQuery = rewriter.Provider.CreateQuery(cleanExpression);
+            
+            if (pureQuery is IExpressionQuery pureExprQuery)
+            {
+                return TranslateAndExecute(pureExprQuery, rewriter.Context);
+            }
+        }
+
+        // ==========================================
+        // Fallback
+        // ==========================================
+        throw new InvalidOperationException(
+            $"[Polars.NET] Failed to unwrap query of type '{query.GetType().Name}'. " +
+            "Ensure the query originates from a PolarsDataContext (e.g., db.RegisterTable).");
     }
 
     /// <summary>
@@ -74,5 +102,51 @@ public static class PolarsQueryableExtensions
         var lf = query.ToLazyFrame();
 
         return lf.Explain(optimized);
+    }
+}
+
+internal class FSharpAstRewriter : ExpressionVisitor
+{
+    public IQueryProvider? Provider { get; private set; }
+    public PolarsDataContext? Context { get; private set; }
+
+    protected override Expression VisitConstant(ConstantExpression node)
+    {
+        if (node.Value != null && node.Value.GetType().IsGenericType && 
+            node.Value.GetType().GetGenericTypeDefinition() == typeof(EnumerableQuery<>))
+        {
+            var bedrockQuery = DeepUnwrap(node.Value);
+            
+            if (bedrockQuery is IQueryable q && q is IExpressionQuery eq && eq.DataContext is PolarsDataContext db)
+            {
+                Provider = q.Provider;
+                Context = db;
+                
+                return Expression.Constant(bedrockQuery, bedrockQuery.GetType());
+            }
+        }
+        return base.VisitConstant(node);
+    }
+
+    private static object? DeepUnwrap(object? obj)
+    {
+        if (obj == null) return null;
+        if (obj is IExpressionQuery) return obj; 
+
+        if (obj is System.Collections.IEnumerable)
+        {
+            var type = obj.GetType();
+            var flags = BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public;
+            var sourceField = type.GetField("source", flags) ?? 
+                              type.GetField("_source", flags) ??
+                              type.GetField("enumerable", flags) ?? 
+                              type.GetField("_enumerable", flags);
+
+            if (sourceField != null)
+            {
+                return DeepUnwrap(sourceField.GetValue(obj));
+            }
+        }
+        return obj;
     }
 }

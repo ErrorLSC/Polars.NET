@@ -132,7 +132,6 @@ and Expr(handle: ExprHandle) =
             invalidArg "sql" "SQL expression can not be null or whitespace."
             
         new Expr(PolarsWrapper.SqlExpr sql)
-
     /// <summary> Create an array of Polars Exprs from a collection of SQL strings. </summary>
     /// <param name="sqls">The collection of SQL expression strings.</param>
     /// <returns>An array of Polars Expr objects.</returns>

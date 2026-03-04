@@ -98,3 +98,43 @@ public static class PolarsExpr
     public static string[] ToSqls<T, TResult>(Expression<Func<T, TResult>> expr) where T : class
         =>PolarsSqlTranslator.Translate(DummyDb.Value, expr);
 }
+
+/// <summary>
+/// Provides strongly-typed mappings to Polars-specific SQL functions.
+/// These methods are strictly for use within LINQ queries and will throw if executed in memory.
+/// </summary>
+public static class PolarsSql
+{
+    // ==========================================
+    // 1. Array / Nested List 
+    // ==========================================
+    
+    /// <summary>
+    /// Aggregates a sequence of strings into a single comma-separated string using Polars ARRAY_AGG and ARRAY_TO_STRING.
+    /// </summary>
+    [Sql.Extension("ARRAY_TO_STRING(ARRAY_AGG({selector}), ', ')", IsAggregate = true, ServerSideOnly = true)]
+    public static string ListAgg<T>(this IEnumerable<T> source, [ExprParameter] Expression<Func<T, string>> selector)
+        => throw new InvalidOperationException("[Polars.NET] ListAgg can only be used within a LINQ to Polars query.");
+
+    // ==========================================
+    // 2. Regex
+    // ==========================================
+    
+    /// <summary>
+    /// Performs a regular expression match using the Polars REGEXP operator.
+    /// </summary>
+    [Sql.Expression("{0} REGEXP {1}", ServerSideOnly = true)]
+    public static bool RegexMatch(string input, string pattern)
+        => throw new InvalidOperationException("[Polars.NET] RegexMatch can only be used within a LINQ to Polars query.");
+
+    // ==========================================
+    // 3. Math&DateTime Expansions
+    // ==========================================
+    
+    /// <summary>
+    /// Extracts the year from a DateTime using Polars DATE_PART.
+    /// </summary>
+    [Sql.Expression("DATE_PART('year', {0})", ServerSideOnly = true)]
+    public static int Year(DateTime date)
+        => throw new InvalidOperationException("[Polars.NET] Year can only be used within a LINQ to Polars query.");
+}

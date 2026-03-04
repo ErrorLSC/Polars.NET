@@ -51,7 +51,7 @@ internal static partial class SqlSanitizer
 
             sql = sql.Replace(originalGroupBy, distinctKeys + " ");
         }
-        // Console.WriteLine($"\n[Polars.NET.LINQ DEBUG] Clean SQL:\n{sql}\n");
+        Console.WriteLine($"\n[Polars.NET.LINQ DEBUG] Clean SQL:\n{sql}\n");
         return sql;
     }
 

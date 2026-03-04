@@ -247,12 +247,9 @@ public class PolarsDataContext : DataConnection, IDisposable
                 $"But you tried to RegisterSeries<{userType.Name}>(), which will lead to fatal errors");
         }
     }
-    internal IPolarsLazyFrame ExecuteToLazyFrame(string rawSql)
-    {
-        var sanitizedSql = SqlSanitizer.Clean(rawSql);
+    internal IPolarsLazyFrame ExecuteToLazyFrame(string sql)
+        => _polarsContext.Execute(sql);
 
-        return _polarsContext.Execute(sanitizedSql);
-    }
     // ====================================================================
     // Dispose
     // ====================================================================
