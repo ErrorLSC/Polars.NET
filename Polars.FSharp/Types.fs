@@ -21,6 +21,19 @@ open System.IO
 type Series(handle: SeriesHandle) =
 
     interface IDisposable with member _.Dispose() = handle.Dispose()
+
+    interface IPolarsSeries with
+        member this.ToFrame() = 
+            this.ToFrame() :> IPolarsDataFrame
+            
+        member this.DataType = 
+            this.DataType :> IPolarsDataType
+            
+        member this.Name
+            with get () = 
+                this.Name 
+            and set (value: string) = 
+                this.Rename value |> ignore
     member _.Handle = handle
     member _.Name = PolarsWrapper.SeriesName handle
     member _.Length = PolarsWrapper.SeriesLen handle
@@ -4870,6 +4883,17 @@ and DataFrame(handle: DataFrameHandle) =
     interface IEnumerable with
         member this.GetEnumerator() : IEnumerator =
             (this :> IEnumerable<Series>).GetEnumerator() :> IEnumerator
+    
+    interface IPolarsDataFrame with
+        
+        member this.Height = 
+            int64 this.Height 
+            
+        member this.Schema = 
+            this.Schema :> IPolarsSchema
+            
+        member this.ToArrow() = 
+            this.ToArrow()
 /// <summary>
 /// A LazyFrame represents a logical plan of operations that will be optimized and executed only when collected.
 /// <para>
@@ -4885,6 +4909,17 @@ and LazyFrame(handle: LazyFrameHandle) =
 
     interface IDisposable with
         member x.Dispose() = x.Dispose()
+
+    interface IPolarsLazyFrame with
+        
+        member this.Collect(useStreaming: bool) = 
+            this.Collect useStreaming :> IPolarsDataFrame
+            
+        member this.Schema = 
+            this.Schema :> IPolarsSchema
+            
+        member this.Explain(optimized: bool) = 
+            this.Explain optimized
     member internal this.CloneHandle() = PolarsWrapper.LazyClone handle
     /// <summary> Execute the plan and return a DataFrame. </summary>
     member this.Collect(?streaming:bool) = 
@@ -7625,14 +7660,14 @@ and PolarsSchema (handle: SchemaHandle) =
 
     /// <summary> Create schema from field definitions </summary>
     new (fields: seq<string * DataType>) =
-        new PolarsSchema(PolarsSchema.CreateHandleFromFields(fields))
+        new PolarsSchema(PolarsSchema.CreateHandleFromFields fields)
 
     static member ofMap (m: Map<string, DataType>) = new PolarsSchema(m |> Map.toSeq)
     static member ofList (fields: (string * DataType) list) = new PolarsSchema(fields)
 
     // --- Inspection API (Alignment with C#) ---
 
-    member this.Len() = PolarsWrapper.GetSchemaLen(this.Handle)
+    member this.Len() = PolarsWrapper.GetSchemaLen this.Handle
 
     /// <summary> Get column name and type at specific index </summary>
     member private this.GetFieldAt(index: uint64) =
@@ -7709,18 +7744,49 @@ and PolarsSchema (handle: SchemaHandle) =
             if not (isNull (box this.Handle)) && not this.Handle.IsInvalid then
                 this.Handle.Dispose()
 
+    interface IPolarsSchema with
+        member this.Length = 
+            int (this.Len())
+            
+        member this.ColumnNames = 
+            List<string> this.Names
+            
+        member this.Item
+            with get (name: string) = 
+                this.[name] :> IPolarsDataType
+        member this.ToDictionary() =
+            let dict = Dictionary<string, IPolarsDataType>()
+            for kvp in this.ToDictionary() do
+                dict.[kvp.Key] <- kvp.Value :> IPolarsDataType
+            dict
+
 /// <summary>
 /// SQL Context for executing SQL queries on registered LazyFrames.
 /// </summary>
-type SqlContext() =
+type SqlContext() as this =
     let handle = PolarsWrapper.SqlContextNew()
     
     interface IDisposable with
         member _.Dispose() = handle.Dispose()
+    
+    interface IPolarsSqlContext with
+        member _.Register(tableName: string, df: IPolarsDataFrame) =
+            this.Register(tableName, df :?> DataFrame)
+
+        member _.Register(tableName: string, lf: IPolarsLazyFrame) =
+            this.Register(tableName, lf :?> LazyFrame)
+
+        member _.Execute(sql: string) =
+            this.Execute sql :> IPolarsLazyFrame
 
     /// <summary> Register a LazyFrame as a table for SQL querying. </summary>
     member _.Register(name: string, lf: LazyFrame) =
         PolarsWrapper.SqlRegister(handle, name, lf.CloneHandle())
+
+    /// <summary> Register a DataFrame as a table for SQL querying. </summary>
+    member _.Register(name: string, df: DataFrame) =
+        let lf = df.Lazy()
+        PolarsWrapper.SqlRegister(handle, name, lf.Handle)
 
     member _.UnRegister(name: string) = 
         PolarsWrapper.SqlUnRegister(handle,name)

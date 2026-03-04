@@ -76,7 +76,7 @@ public class LinqProviderTests
         using var df = DataFrame.From(data);
 
         // 【新写法】：一键创建自带 SqlContext 的极简数据上下文
-        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        using var db = new PolarsDataContext(Sql(), ownsContext: true);
 
         // 定义外部闭包变量，测试 linq2db 能否将它们内联为纯文本 SQL
         int ageLimit = 20;
@@ -118,7 +118,6 @@ public class LinqProviderTests
 
         using var df = DataFrame.From(data);
         
-        // 【新写法】：初始化上下文
         using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
 
         // Act: 注册表、仅查询部分列，并映射到全新的 DTO 类中
@@ -160,7 +159,6 @@ public class LinqProviderTests
         using var dfDepts = DataFrame.From(depts);
         using var dfEmps = DataFrame.From(emps);
 
-        // 为了 Join，我们需要它们在同一个 SqlContext 中！
         using var ctx = new SqlContext();
         using var db = new PolarsDataContext(ctx);
         var deptQuery = db.RegisterTable<Department>("departments", dfDepts);

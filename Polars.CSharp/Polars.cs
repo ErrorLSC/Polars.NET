@@ -226,7 +226,12 @@ public static class Polars
     /// Create a new SQL Context.
     /// </summary>
     public static SqlContext Sql() => new();
-
+    /// <summary>
+    /// Create a Polars Expr from a SQL string.
+    /// </summary>
+    /// <param name="sql">The SQL expression string.</param>
+    /// <returns>A Polars Expr representing the SQL logic.</returns>
+    /// <exception cref="ArgumentException">Thrown when the provided SQL string is null, empty, or consists only of white-space characters.</exception>
     public static Expr SqlExpr(string sql)
     {
         if (string.IsNullOrWhiteSpace(sql))
@@ -234,7 +239,11 @@ public static class Polars
 
         return new Expr(PolarsWrapper.SqlExpr(sql));
     }
-
+    /// <summary>
+    /// Create an array of Polars Exprs from a collection of SQL strings.
+    /// </summary>
+    /// <param name="sqls">The collection of SQL expression strings.</param>
+    /// <returns>An array of Polars Expr objects.</returns>
     public static Expr[] SqlExprs(IEnumerable<string> sqls) 
             => [.. sqls.Select(SqlExpr)];
 

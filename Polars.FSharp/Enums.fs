@@ -1,6 +1,8 @@
 namespace Polars.FSharp
 
 open Polars.NET.Core
+open Polars.NET.Core.Arrow
+open System
 
 type TimeUnit = 
     | Nanoseconds
@@ -237,6 +239,16 @@ and DataType =
             PolarsWrapper.NewArrayType (innerHandle,width)
 
         | Unknown -> PolarsWrapper.NewPrimitiveType 0
+        
+    interface IDisposable with
+        member this.Dispose() = 
+            ()
+
+    interface IPolarsDataType with
+        member this.GetArrowType (): Apache.Arrow.Types.IArrowType = 
+            use handle = this.CreateHandle()
+            
+            ArrowFfiBridge.ImportDataType handle
         
 /// <summary>
 /// Represents the type of join operation to perform.

@@ -502,6 +502,14 @@ public class Expr : IDisposable
 
     public static Expr operator ^(bool left, Expr right)
         => new(PolarsWrapper.Xor(MakeLit(left).Handle, right.CloneHandle()));
+
+    /// <inheritdoc cref="Polars.SqlExpr(string)"/>
+    public static Expr SqlExpr(string sql)
+        =>Polars.SqlExpr(sql);
+
+    /// <inheritdoc cref="Polars.SqlExprs"/>
+    public static Expr[] SqlExprs(IEnumerable<string> sqls) 
+            => [.. sqls.Select(SqlExpr)];
     // ---------------------------------------------------
     // Methods
     // ---------------------------------------------------

@@ -121,7 +121,25 @@ and Expr(handle: ExprHandle) =
     // --- Methods ---
     /// <summary> Rename the output column. </summary>
     member this.Alias(name: string) = new Expr(PolarsWrapper.Alias(this.CloneHandle(), name))
+    // --- SQL Expressions ---
 
+    /// <summary> Create a Polars Expr from a SQL string. </summary>
+    /// <param name="sql">The SQL expression string.</param>
+    /// <returns>A Polars Expr representing the SQL logic.</returns>
+    /// <exception cref="T:System.ArgumentException">Thrown when the provided SQL string is null or whitespace.</exception>
+    static member SqlExpr(sql: string) =
+        if String.IsNullOrWhiteSpace sql then
+            invalidArg "sql" "SQL expression can not be null or whitespace."
+            
+        new Expr(PolarsWrapper.SqlExpr sql)
+
+    /// <summary> Create an array of Polars Exprs from a collection of SQL strings. </summary>
+    /// <param name="sqls">The collection of SQL expression strings.</param>
+    /// <returns>An array of Polars Expr objects.</returns>
+    static member SqlExprs(sqls: seq<string>) =
+        sqls 
+        |> Seq.map Expr.SqlExpr 
+        |> Seq.toArray
     /// <summary>
     /// Cast the expression to a different data type.
     /// </summary>
