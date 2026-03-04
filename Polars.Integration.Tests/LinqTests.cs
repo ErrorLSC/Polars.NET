@@ -4,9 +4,10 @@ using Polars.CSharp;
 using static Polars.CSharp.Polars;
 using Polars.NET.Linq;
 using LinqToDB;
-using DataType = Polars.CSharp.DataType; // 引入我们刚才写的扩展
+using DataType = Polars.CSharp.DataType;
+using LinqToDB.Async; // 引入我们刚才写的扩展
 
-namespace Polars.NET.Linq.Tests;
+namespace Polars.Integration.Tests;
 
 public class LinqProviderTests
 {
@@ -58,7 +59,11 @@ public class LinqProviderTests
         public double TotalSalary { get; set; }
         public int EmployeeCount { get; set; }
     }
-
+    public class SimpleUser
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+    }
     [Fact]
     [Trait("Linq", "Where")]
     public void Test_Polars_Linq_Where_And_OrderBy()
@@ -1350,5 +1355,115 @@ David,40,80000";
         Assert.Equal(900.0, sqArr[2]);
         Assert.Equal(60.0, dblArr[2]);
         Assert.True(isHighArr[2]);  // 30 大于 15
+    }
+    [Fact]
+    [Trait("Linq", "Async")]
+    public async Task Test_Polars_Linq_ToListAsync_Support()
+    {
+        // 1. 准备内存数据
+        var users = new[]
+        {
+            new SimpleUser { Id = 1, Name = "Alice" },
+            new SimpleUser { Id = 2, Name = "Bob" },
+            new SimpleUser { Id = 3, Name = "Charlie" }
+        };
+
+        using var df = DataFrame.From(users);
+        using var ctx = new SqlContext();
+        using var db = new PolarsDataContext(ctx, ownsContext: true);
+
+        // 2. 注册表
+        var table = db.RegisterTable<SimpleUser>("users", df);
+
+        // 3. 见证奇迹的时刻：使用异步 LINQ 查询！
+        var query = table.Where(u => u.Id > 1).OrderByDescending(u => u.Id);
+        
+        // 调用底层的异步方法，这会触发 ExecuteDbDataReaderAsync
+        // 把 IQueryable 明确转成 IAsyncEnumerable，让微软的扩展方法接管
+        var results = await query.AsAsyncEnumerable().ToListAsync();
+
+        // 4. 验证结果
+        Assert.NotNull(results);
+        Assert.Equal(2, results.Count);
+        Assert.Equal("Charlie", results[0].Name);
+        Assert.Equal("Bob", results[1].Name);
+    }
+    public class TrafficRecord
+    {
+        public int Id { get; set; }
+        public string Region { get; set; } = "";
+        public double Latency { get; set; }
+    }
+
+    [Fact]
+    [Trait("Linq", "Async_Stress")]
+    public async Task Test_Polars_Linq_High_Concurrency_Async_Stress()
+    {
+        // ==============================================================
+        // 1. 制造“弹药”：10 万条测试数据
+        // ==============================================================
+        int recordCount = 100_000;
+        var mockData = Enumerable.Range(0, recordCount).Select(i => new TrafficRecord
+        {
+            Id = i,
+            Region = $"Region_{i % 50}", // 50 个不同区域
+            Latency = Random.Shared.NextDouble() * 100.0
+        }).ToArray();
+
+        // 构建核心只读 DataFrame，在并发中它是绝对线程安全的！
+        using var df = DataFrame.From(mockData);
+
+        // ==============================================================
+        // 2. 定义并发 Worker（模拟单个 ASP.NET Core 请求的作用域）
+        // ==============================================================
+        async Task<int> SimulateWebRequestAsync(int workerId)
+        {
+            // 每次请求创建独立的沙箱上下文，绝不串号！
+            using var ctx = new SqlContext();
+            using var db = new PolarsDataContext(ctx);
+            
+            var table = db.RegisterTable<TrafficRecord>("traffic", df);
+
+            // 每个人查询不同的区域
+            string targetRegion = $"Region_{workerId % 50}";
+
+            var query = table.Where(t => t.Region == targetRegion && t.Latency > 10.0)
+                             .OrderBy(t => t.Id);
+
+            // 【真正的异步触发点】
+            // 如果你的 ExecuteDbDataReaderAsync 完美把 FFI 扔给了 Task.Run，
+            // 这里的 await 会立刻释放 .NET 工作线程，绝不阻塞！
+            var results = await query.AsAsyncEnumerable().ToListAsync();
+            
+            return results.Count;
+        }
+
+        // ==============================================================
+        // 3. 点火！瞬间发射 100 个并发异步查询！
+        // ==============================================================
+        int concurrencyLevel = 100;
+        var tasks = new List<Task<int>>();
+
+        for (int i = 0; i < concurrencyLevel; i++)
+        {
+            tasks.Add(SimulateWebRequestAsync(i));
+        }
+
+        // 挂起等待所有 Rust 引擎的底层运算异步完成
+        var finalResults = await Task.WhenAll(tasks);
+
+        // ==============================================================
+        // 4. 终极断言：不死锁、不崩溃、数据完全一致！
+        // ==============================================================
+        Assert.Equal(concurrencyLevel, finalResults.Length);
+
+        foreach (var count in finalResults)
+        {
+            // 10万条数据分 50 个区，每个区 2000 条。
+            // 加上 Latency > 10.0 的随机过滤，数量应该大于 0 且小于 2000
+            Assert.True(count > 0 && count <= 2000);
+        }
+        
+        Console.WriteLine($"[Polars.NET] 成功扛住了 {concurrencyLevel} 个并发 LINQ 查询！");
     }
 }

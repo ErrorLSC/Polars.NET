@@ -132,6 +132,14 @@ internal partial class PolarsDbCommand(IPolarsSqlContext sqlContext) : DbCommand
         using var batch = df.ToArrow();
         yield return batch;
     }
+    protected override async Task<DbDataReader> ExecuteDbDataReaderAsync(CommandBehavior behavior, CancellationToken cancellationToken)
+    {
+        return await Task.Run(() => 
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ExecuteDbDataReader(behavior); 
+        }, cancellationToken);
+    }
 }
 
 internal class PolarsDbParameter : DbParameter
