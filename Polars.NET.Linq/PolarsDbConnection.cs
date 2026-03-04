@@ -9,6 +9,19 @@ using Polars.NET.Core.Data;
 
 namespace Polars.NET.Linq;
 
+/// <summary>
+/// Represents a virtual ADO.NET connection to the Polars SQL engine.
+/// </summary>
+/// <remarks>
+/// This class acts as a bridge between standard .NET data access abstractions and the 
+/// Rust-backed Polars <see cref="IPolarsSqlContext"/>. 
+/// <para>
+/// Unlike traditional connections, <see cref="PolarsDbConnection"/> does not establish 
+/// a network socket. Instead, it provides the necessary metadata and command-routing 
+/// logic to allow <c>linq2db</c> to treat an in-memory Polars context as a relational database.
+/// </para>
+/// </remarks>
+/// <param name="sqlContext">The underlying Polars SQL context where tables are registered and queries are executed.</param>
 public class PolarsDbConnection(IPolarsSqlContext sqlContext) : DbConnection
 {
     private readonly IPolarsSqlContext _sqlContext = sqlContext;

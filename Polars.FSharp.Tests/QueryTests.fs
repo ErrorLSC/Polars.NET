@@ -7,12 +7,7 @@ open Polars.FSharp
 open LinqToDB
 open System
 
-type Person = {
-    Name: string
-    Age: int
-    Sales: float
-}
-
+type Person = {Name: string;Age: int;Sales: float}
 type Department = { DeptId: int; DeptName: string }
 type Employee = { Name: string; DeptId: int }
 type EmpDeptDto = { EmpName: string; DepartmentName: string }
@@ -22,7 +17,6 @@ type OrderDto = { OrderId: int; OrderDate: DateTime; Region: string; Revenue: fl
 type ProductDto = { Id: int; Name: string; Category: string; Price: float }
 
 module QueryTests =
-    open System
 
     [<Fact>]
     [<Trait("Linq", "Where")>]

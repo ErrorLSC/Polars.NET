@@ -1,4 +1,3 @@
-#pragma warning disable CS1591 
 using System.Linq.Expressions;
 using LinqToDB;
 using LinqToDB.Internal.Linq;
@@ -58,14 +57,29 @@ internal static class PolarsSqlTranslator
 
 }
 
+/// <summary>
+/// Provides utility methods to translate standalone .NET Lambda expressions into Polars-compatible SQL snippets.
+/// </summary>
+/// <remarks>
+/// This class is useful for scenarios where you need to generate SQL fragments from strongly-typed expressions 
+/// without executing a full LINQ query. For example, generating a SQL string to pass into <c>Expr.SqlExpr()</c>.
+/// </remarks>
 public static class PolarsExpr
 {
     private static readonly Lazy<PolarsDataContext> DummyDb = new(() => 
         new PolarsDataContext(null!)); 
 
     /// <summary>
-    /// Translate Single Expression to SQL
+    /// Translates a single .NET Lambda expression into its corresponding SQL string.
     /// </summary>
+    /// <typeparam name="T">The input entity type used in the expression.</typeparam>
+    /// <typeparam name="TResult">The return type of the expression.</typeparam>
+    /// <param name="expr">The Lambda expression to translate (e.g., <c>p => p.Price * 1.2</c>).</param>
+    /// <returns>A SQL string snippet representing the logic within the expression.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown if the expression translates into multiple SQL fragments. 
+    /// In such cases, use <see cref="ToSqls{T, TResult}"/> instead.
+    /// </exception>
     public static string ToSql<T, TResult>(Expression<Func<T, TResult>> expr) where T : class
     {
         var sqls = PolarsSqlTranslator.Translate(DummyDb.Value, expr);
@@ -74,8 +88,13 @@ public static class PolarsExpr
     }
 
     /// <summary>
-    /// Translate Multiple Expressions to SQL
+    /// Translates a .NET Lambda expression into an array of SQL string fragments.
+    /// Useful for expressions that return complex types or multiple columns.
     /// </summary>
+    /// <typeparam name="T">The input entity type.</typeparam>
+    /// <typeparam name="TResult">The return type of the expression.</typeparam>
+    /// <param name="expr">The Lambda expression to translate.</param>
+    /// <returns>An array of SQL string snippets.</returns>
     public static string[] ToSqls<T, TResult>(Expression<Func<T, TResult>> expr) where T : class
         =>PolarsSqlTranslator.Translate(DummyDb.Value, expr);
 }

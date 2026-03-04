@@ -1,4 +1,3 @@
-#pragma warning disable CS1591 
 using LinqToDB;
 using LinqToDB.Data;
 using LinqToDB.Mapping;
@@ -6,10 +5,35 @@ using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
 
 namespace Polars.NET.Linq;
+
+/// <summary>
+/// Represents the primary data context for Polars.NET LINQ operations.
+/// It serves as the gateway between .NET LINQ expressions and the Polars SQL execution engine.
+/// </summary>
+/// <remarks>
+/// <para>
+/// By inheriting from <see cref="DataConnection"/>, this class enables <c>linq2db</c> to 
+/// treat Polars as a relational database. It manages table registrations, schema mappings, 
+/// and the routing of generated SQL queries to the underlying Rust core.
+/// </para>
+/// <para>
+/// This context should be used within a <c>using</c> block to ensure that resources 
+/// associated with the underlying <see cref="IPolarsSqlContext"/> and ADO.NET abstractions 
+/// are properly released.
+/// </para>
+/// </remarks>
 public class PolarsDataContext : DataConnection, IDisposable
 {
     private readonly IPolarsSqlContext _polarsContext;
     private readonly bool _ownsContext; 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="PolarsDataContext"/> class.
+    /// </summary>
+    /// <param name="polarsContext">The underlying Polars SQL context where dataframes are registered.</param>
+    /// <param name="ownsContext">
+    /// If <see langword="true"/>, the <see cref="PolarsDataContext"/> will dispose of the 
+    /// <paramref name="polarsContext"/> when it is disposed.
+    /// </param>
     public PolarsDataContext(IPolarsSqlContext polarsContext, bool ownsContext = false) 
         : base(CreateOptions(polarsContext))
     {
@@ -72,6 +96,19 @@ public class PolarsDataContext : DataConnection, IDisposable
     // ====================================================================
     // LazyFrame Register
     // ====================================================================
+    /// <summary>
+    /// Registers a <see cref="IPolarsLazyFrame"/> as a queryable table within the current context.
+    /// This method automatically orchestrates the mapping between the .NET type <typeparamref name="T"/> 
+    /// and the underlying Polars schema.
+    /// </summary>
+    /// <typeparam name="T">The class or record type that represents the table structure.</typeparam>
+    /// <param name="tableName">The identifier of the table to be used in LINQ and SQL expressions.</param>
+    /// <param name="lf">The <see cref="IPolarsLazyFrame"/> containing the data source and its computation plan.</param>
+    /// <param name="providedSchema">
+    /// Optional. A specific schema to override the default. If <see langword="null"/>, the schema is 
+    /// automatically inferred from the provided <paramref name="lf"/>.
+    /// </param>
+    /// <returns>An <see cref="ITable{T}"/> instance ready for fluent LINQ querying.</returns>
     public ITable<T> RegisterTable<T>(string tableName, IPolarsLazyFrame lf, IPolarsSchema? providedSchema = null) 
         where T : class
     {
@@ -82,11 +119,35 @@ public class PolarsDataContext : DataConnection, IDisposable
         
         return this.GetTable<T>().TableName(tableName);
     }
+    /// <summary>
+    /// Registers a <see cref="IPolarsLazyFrame"/> using a dummy collection to infer the generic type <typeparamref name="T"/>.
+    /// </summary>
+    /// <remarks>
+    /// This overload is particularly useful in F# when working with anonymous records, 
+    /// as it allows the compiler to resolve the complex generic type without manual specification.
+    /// </remarks>
+    /// <typeparam name="T">The class or record type (usually inferred from <paramref name="dummy"/>).</typeparam>
+    /// <param name="tableName">The name of the table in the SQL context.</param>
+    /// <param name="lf">The source <see cref="IPolarsLazyFrame"/>.</param>
+    /// <param name="dummy">A collection (usually the source data) used solely for type inference.</param>
+    /// <returns>An <see cref="ITable{T}"/> for LINQ querying.</returns>
     public ITable<T> RegisterTable<T>(string tableName, IPolarsLazyFrame lf, IEnumerable<T> dummy) where T : class 
         => RegisterTable<T>(tableName, lf);
     // ====================================================================
     // DataFrame Register
     // ====================================================================
+    /// <summary>
+    /// Registers an eager <see cref="IPolarsDataFrame"/> as a queryable table in the data context.
+    /// This immediately binds the in-memory data to a SQL table name for use in LINQ expressions.
+    /// </summary>
+    /// <typeparam name="T">The class or record type to map the DataFrame columns to.</typeparam>
+    /// <param name="tableName">The name of the table to be used in SQL/LINQ queries.</param>
+    /// <param name="df">The eager <see cref="IPolarsDataFrame"/> containing the physical data.</param>
+    /// <param name="providedSchema">
+    /// Optional. A specific schema to use for mapping. If <see langword="null"/>, the DataFrame's 
+    /// current schema will be used.
+    /// </param>
+    /// <returns>An <see cref="ITable{T}"/> that allows LINQ-to-SQL operations over the DataFrame.</returns>
     public ITable<T> RegisterTable<T>(string tableName, IPolarsDataFrame df, IPolarsSchema? providedSchema = null) 
         where T : class
     {
@@ -97,7 +158,18 @@ public class PolarsDataContext : DataConnection, IDisposable
         
         return this.GetTable<T>().TableName(tableName);
     }
-    
+    /// <summary>
+    /// Registers an eager <see cref="IPolarsDataFrame"/> using a dummy collection to simplify generic type inference.
+    /// </summary>
+    /// <remarks>
+    /// This is the preferred overload for F# anonymous records, enabling the compiler to automatically 
+    /// determine the structure of <typeparamref name="T"/> without explicit type annotations.
+    /// </remarks>
+    /// <typeparam name="T">The class or record type (inferred from <paramref name="dummyDataForInference"/>).</typeparam>
+    /// <param name="tableName">The name of the table in the SQL context.</param>
+    /// <param name="df">The source <see cref="IPolarsDataFrame"/>.</param>
+    /// <param name="dummyDataForInference">A sample collection used only to guide the compiler's type inference.</param>
+    /// <returns>An <see cref="ITable{T}"/> for LINQ querying.</returns>
     public ITable<T> RegisterTable<T>(string tableName, IPolarsDataFrame df, IEnumerable<T> dummyDataForInference) where T : class
     {
         return RegisterTable<T>(tableName, df);
@@ -105,6 +177,23 @@ public class PolarsDataContext : DataConnection, IDisposable
     // ====================================================================
     // Series Register
     // ====================================================================
+    /// <summary>
+    /// Registers a single <see cref="IPolarsSeries"/> as a queryable virtual table.
+    /// This allows performing LINQ operations on a standalone Series as if it were a single-column collection.
+    /// </summary>
+    /// <typeparam name="T">The underlying .NET type of the series elements (e.g., int, double, string).</typeparam>
+    /// <param name="s">The <see cref="IPolarsSeries"/> to register.</param>
+    /// <returns>
+    /// An <see cref="IQueryable{T}"/> representing the elements of the series.
+    /// </returns>
+    /// <remarks>
+    /// This method performs a "Zero Side-Effect" normalization:
+    /// <list type="bullet">
+    ///   <item>It temporarily renames the series to <c>"value"</c> to ensure consistent mapping with <see cref="SeriesWrapper{T}"/>.</item>
+    ///   <item>It restores the original name immediately after creating the internal DataFrame source.</item>
+    ///   <item>If the series lacks a name, a unique GUID-based table name is generated automatically.</item>
+    /// </list>
+    /// </remarks>
     public IQueryable<T> RegisterSeries<T>(IPolarsSeries s)
     {
         ValidateSeriesArrowType<T>(s);
@@ -158,7 +247,7 @@ public class PolarsDataContext : DataConnection, IDisposable
                 $"But you tried to RegisterSeries<{userType.Name}>(), which will lead to fatal errors");
         }
     }
-    public IPolarsLazyFrame ExecuteToLazyFrame(string rawSql)
+    internal IPolarsLazyFrame ExecuteToLazyFrame(string rawSql)
     {
         var sanitizedSql = SqlSanitizer.Clean(rawSql);
 
@@ -169,7 +258,9 @@ public class PolarsDataContext : DataConnection, IDisposable
     // ====================================================================
     
     private bool _disposed; 
-
+    /// <summary>
+    /// Dispose unmanaged resource
+    /// </summary>
     public new void Dispose()
     {
         ((IDisposable)this).Dispose();
