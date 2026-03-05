@@ -41,7 +41,6 @@ public class PolarsDataContext : DataConnection, IDisposable
         _polarsContext = polarsContext;
         _ownsContext = ownsContext;
     }
-
     private static DataOptions CreateOptions(IPolarsSqlContext polarsContext)
     {
         var dataProvider = LinqToDB.DataProvider.PostgreSQL.PostgreSQLTools.GetDataProvider(
@@ -50,6 +49,7 @@ public class PolarsDataContext : DataConnection, IDisposable
         
         return new DataOptions()
             .UseConnection(dataProvider, mockConn)
+            // .UseAdditionalMappingSchema(PolarsMappingSchema.Instance)
             .WithOptions<SqlOptions>(o => o with { GenerateFinalAliases = true });
     }
 

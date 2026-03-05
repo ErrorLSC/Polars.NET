@@ -331,7 +331,7 @@ public class LinqProviderTests
         // ==========================================
         var complexResult = query.Where(p => 
             targetCategories.Contains(p.Category) && 
-            p.Name.Contains("e") && 
+            p.Name.Contains('e') && 
             p.Price > 1.0
         ).ToList();
 
@@ -885,6 +885,45 @@ public class LinqProviderTests
         Assert.Equal(3, stringQuery.Count);
         Assert.Equal("Ali", stringQuery.First(e => e.Name == "Alice").ShortName);
         Assert.Equal("Cha", stringQuery.First(e => e.Name == "Charlie").ShortName);
+        // ==========================================
+        // 测试 4：字符串长度 (Length)
+        // 业务需求：找出名字长度大于 5 的员工
+        // linq2db 预期: LENGTH(e."Name") > 5 
+        // ==========================================
+        var lengthQuery = empQuery
+            .Where(e => e.Name != null && e.Name.Length > 5)
+            .Select(e => e.Name)
+            .ToList();
+
+        Assert.Single(lengthQuery);
+        Assert.Equal("Charlie", lengthQuery[0]); // Charlie 长度是 7
+
+        // ==========================================
+        // 测试 5：大小写转换 (ToLower / ToUpper)
+        // 业务需求：将名字转为全大写
+        // linq2db 预期: UPPER(e."Name")
+        // ==========================================
+        var caseQuery = empQuery
+            .Where(e => e.Name == "Alice")
+            .Select(e => e.Name!.ToUpper())
+            .ToList();
+
+        Assert.Equal("ALICE", caseQuery[0]);
+
+        // ==========================================
+        // 测试 6：前后缀与包含 (StartsWith / EndsWith / Contains)
+        // 业务需求：找以 D 开头，或者包含 'lic' 的名字
+        // linq2db 预期: e."Name" LIKE 'D%' OR e."Name" LIKE '%lic%'
+        // ==========================================
+        var likeQuery = empQuery
+            .Where(e => e.Name != null && (e.Name.StartsWith('D') || e.Name.Contains("lic")))
+            .OrderBy(e => e.Name)
+            .Select(e => e.Name)
+            .ToList();
+
+        Assert.Equal(2, likeQuery.Count);
+        Assert.Equal("Alice", likeQuery[0]);
+        Assert.Equal("David", likeQuery[1]);
     }
     public record SalesData(string Category, string ProductName, double Revenue, double Discount);
 
@@ -1531,5 +1570,602 @@ David,40,80000";
         }
         
         Console.WriteLine($"[Polars.NET] ToDataFrameAsync 成功扛住了 {concurrencyLevel} 个并发底层执行！");
+    }
+    public class SalesRecord
+    {
+        public int Id { get; set; }
+        public string Category { get; set; } = "";
+        public double Revenue { get; set; }
+        public DateTime SaleDate { get; set; }
+    }
+    [Fact]
+    [Trait("Linq", "MathDate")]
+    public void Test_Polars_Linq_Math_Date_And_Aggregations()
+    {
+        // ==========================================
+        // 1. 准备包含负数、小数和日期的测试数据
+        // ==========================================
+        var sales = new[]
+        {
+            new SalesRecord { Id = 1, Category = "Tech", Revenue = -150.5, SaleDate = new DateTime(2023, 1, 15) },
+            new SalesRecord { Id = 2, Category = "Tech", Revenue = 200.2, SaleDate = new DateTime(2023, 5, 20) },
+            new SalesRecord { Id = 3, Category = "Food", Revenue = 99.9,  SaleDate = new DateTime(2024, 2, 10) }
+        };
+
+        using var dfSales = DataFrame.From(sales);
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        var table = db.RegisterTable("sales", dfSales, sales);
+
+        // ==========================================
+        // 测试 1：数学函数 (Abs, Round, Ceiling)
+        // 预警：Math.Ceiling 极有可能生成 CEILING，但 Polars 官方只认 CEIL！
+        // ==========================================
+        var mathQuery = table
+            .OrderBy(x => x.Id)
+            .Select(x => new
+            {
+                Absolute = Math.Abs(x.Revenue),
+                Rounded = Math.Round(x.Revenue),
+                Ceiled = Math.Ceiling(x.Revenue) 
+            }).ToList();
+
+        Assert.Equal(3, mathQuery.Count);
+        Assert.Equal(150.5, mathQuery[0].Absolute);
+        Assert.Equal(-150.0, mathQuery[0].Rounded); // -150.5 round 到偶数通常是 -150，视底层实现而定
+        Assert.Equal(201.0, mathQuery[1].Ceiled);   // 200.2 向上取整是 201
+
+        // ==========================================
+        // 测试 2：日期函数 (原生属性 vs 自定义扩展)
+        // 预警：原生 x.SaleDate.Year 可能会生成奇怪的函数，我们需要对比 PolarsSql.Year
+        // ==========================================
+        var dateQuery = table
+            .Where(x => x.SaleDate.Year == 2023)
+            // 你也可以在这里试着加上 x.SaleDate.Year 看 linq2db 默认生成啥
+            .Select(x => x.Id)
+            .ToList();
+
+        Assert.Equal(2, dateQuery.Count); // 只有 Id 1 和 2 是 2023 年
+        Assert.Contains(1, dateQuery);
+    }
+    public class WindowStatsRecord
+    {
+        public int DeptId { get; set; }
+        public string EmpName { get; set; } = "";
+        public double Salary { get; set; }
+    }
+
+    [Fact]
+    [Trait("Linq", "WindowAndStats")]
+    public void Test_Polars_Linq_Window_And_Stats()
+    {
+        // 准备数据：制造一些用于排名的同薪水数据 (Eve 和 Dave)
+        var data = new[]
+        {
+            new WindowStatsRecord { DeptId = 1, EmpName = "Alice",   Salary = 5000 },
+            new WindowStatsRecord { DeptId = 1, EmpName = "Bob",     Salary = 6000 },
+            new WindowStatsRecord { DeptId = 1, EmpName = "Charlie", Salary = 7000 },
+            new WindowStatsRecord { DeptId = 2, EmpName = "Dave",    Salary = 4000 },
+            new WindowStatsRecord { DeptId = 2, EmpName = "Eve",     Salary = 4000 }, // 薪水与 Dave 相同
+            new WindowStatsRecord { DeptId = 2, EmpName = "Frank",   Salary = 8000 }
+        };
+
+        using var dfData = DataFrame.From(data);
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        var table = db.RegisterTable("staff", dfData, data);
+
+        // ==========================================
+        // 测试 1：高级统计聚合 (Median / StdDev)
+        // 验证我们手写的 [Sql.Function] 是否完美工作
+        // ==========================================
+        var statsQuery = table
+            .GroupBy(x => x.DeptId)
+            .Select(g => new
+            {
+                DeptId = g.Key,
+                MedianSalary = g.Median(x => x.Salary),
+                StdDevSalary = g.StdDev(x => x.Salary)
+            })
+            .OrderBy(x => x.DeptId)
+            .ToList();
+
+        Assert.Equal(2, statsQuery.Count);
+        
+        // Dept 1: 5000, 6000, 7000 -> 中位数 6000
+        Assert.Equal(1, statsQuery[0].DeptId);
+        Assert.Equal(6000.0, statsQuery[0].MedianSalary);
+        Assert.True(statsQuery[0].StdDevSalary > 0); // 标准差应为 1000
+
+        // ==========================================
+        // 测试 2：极度硬核的窗口函数 (Window Functions)
+        // 需求：在每个部门内部，按薪水降序排名。验证 ROW_NUMBER 和 RANK
+        // linq2db 预期生成: ROW_NUMBER() OVER(PARTITION BY DeptId ORDER BY Salary DESC)
+        // ==========================================
+        var windowQuery = table
+            .Select(x => new
+            {
+                x.DeptId,
+                x.EmpName,
+                x.Salary,
+                // 生成 ROW_NUMBER (绝对行号)
+                RowNum = LinqToDB.Sql.Ext.RowNumber().Over().PartitionBy(x.DeptId).OrderByDesc(x.Salary).ToValue(),
+                // 生成 RANK (并列排名)
+                Rank = LinqToDB.Sql.Ext.Rank().Over().PartitionBy(x.DeptId).OrderByDesc(x.Salary).ToValue()
+            })
+            .OrderBy(x => x.DeptId)
+            .ThenByDescending(x => x.Salary)
+            .ThenBy(x => x.EmpName)
+            .ToList();
+
+        Assert.Equal(6, windowQuery.Count);
+
+        // 验证 Dept 1 排名
+        var charlie = windowQuery.First(x => x.EmpName == "Charlie");
+        Assert.Equal(1, charlie.RowNum);
+        Assert.Equal(1, charlie.Rank);
+
+        // 验证 Dept 2 排名 (Dave 和 Eve 薪水一样，RANK 应该并列，ROW_NUMBER 会递增)
+        var frank = windowQuery.First(x => x.EmpName == "Frank");
+        Assert.Equal(1, frank.Rank); // Frank 8000 第一名
+
+        var dave = windowQuery.First(x => x.EmpName == "Dave");
+        var eve = windowQuery.First(x => x.EmpName == "Eve");
+        
+        // Dave 和 Eve 都是 4000，RANK 必须并列第 2
+        Assert.Equal(2, dave.Rank);
+        Assert.Equal(2, eve.Rank);
+        
+        // 但 RowNum 必须是不重复的连续序号
+        Assert.True(dave.RowNum != eve.RowNum);
+        Assert.True(dave.RowNum == 2 || dave.RowNum == 3);
+    }
+    public class StatRecord
+    {
+        public int GroupId { get; set; }
+        public double Value { get; set; }
+    }
+
+    [Fact]
+    [Trait("Linq", "DataScienceStats")]
+    public void Test_Polars_Linq_Quantiles_And_Variance()
+    {
+        // 准备一组偶数个的完美测试数据
+        var data = new[]
+        {
+            new StatRecord { GroupId = 1, Value = 10.0 },
+            new StatRecord { GroupId = 1, Value = 20.0 },
+            new StatRecord { GroupId = 1, Value = 30.0 },
+            new StatRecord { GroupId = 1, Value = 40.0 }
+        };
+
+        using var dfData = DataFrame.From(data);
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        var table = db.RegisterTable("stats", dfData, data);
+
+        // ==========================================
+        // 核心测试：验证方差和两种分位数算法
+        // linq2db 预期生成: 
+        // VARIANCE(x.Value), QUANTILE_CONT(x.Value, 0.5), QUANTILE_DISC(x.Value, 0.5)
+        // ==========================================
+        var statsQuery = table
+            .GroupBy(x => x.GroupId)
+            .Select(g => new
+            {
+                GroupId = g.Key,
+                // 1. 方差 (Variance)
+                Var = PolarsSql.Variance(g, x => x.Value),
+                // 2. 连续分位数 P50 (会插值)
+                Q50_Cont = PolarsSql.QuantileCont(g, x => x.Value, 0.5),
+                // 3. 离散分位数 P50 (不插值，必须是原始数据中的一个)
+                Q50_Disc = PolarsSql.QuantileDisc(g, x => x.Value, 0.5),
+                // 4. 高级 P99 测算
+                Q99_Cont = PolarsSql.QuantileCont(g, x => x.Value, 0.99)
+            })
+            .ToList();
+
+        Assert.Single(statsQuery);
+        var result = statsQuery[0];
+
+        // 验证方差
+        // {10, 20, 30, 40} 的均值是 25。
+        // 样本方差 (ddof=1) = ((15^2) + (5^2) + (5^2) + (15^2)) / 3 = (225+25+25+225)/3 = 500/3 ≈ 166.666...
+        Assert.Equal(166.6666, result.Var, precision: 3);
+
+        // 验证连续型分位数 (0.5 中位数) -> 线性插值，应该是 (20 + 30) / 2 = 25.0
+        Assert.Equal(25.0, result.Q50_Cont);
+
+        // 验证离散型分位数 (0.5 中位数) -> 必须是实际值，一般 Polars 会取 lower (20) 或 nearest (视实现)
+        Assert.True(result.Q50_Disc == 20.0 || result.Q50_Disc == 30.0, $"Actual Q50_Disc was {result.Q50_Disc}");
+        Assert.NotEqual(25.0, result.Q50_Disc); // 绝对不能是插值出来的 25！
+
+        // 验证 P99 -> 接近最大值 40.0
+        Assert.True(result.Q99_Cont > 39.0);
+    }
+    public class BitwiseRecord
+    {
+        public int Id { get; set; }
+        public int A { get; set; }
+        public int B { get; set; }
+    }
+
+    [Fact]
+    [Trait("Linq", "Bitwise")]
+    public void Test_Polars_Linq_Native_Bitwise_Operators()
+    {
+        // 准备测试数据
+        // 5  的二进制: 0101
+        // 3  的二进制: 0011
+        // 12 的二进制: 1100
+        // 10 的二进制: 1010
+        var data = new[]
+        {
+            new BitwiseRecord { Id = 1, A = 5,  B = 3 },
+            new BitwiseRecord { Id = 2, A = 12, B = 10 }
+        };
+
+        using var df = DataFrame.From(data);
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        var table = db.RegisterTable("bitwise_tb", df, data);
+
+        // ==========================================
+        // 测试：C# 原生位运算符
+        // 预警：看看 linq2db 会生成符号还是函数，以及 Polars 认不认
+        // ==========================================
+        var bitQuery = table
+            .OrderBy(x => x.Id)
+            .Select(x => new
+            {
+                x.Id,
+                // Bitwise AND
+                AndResult = x.A & x.B, 
+                // Bitwise OR
+                OrResult  = x.A | x.B, 
+                // Bitwise XOR
+                XorResult  = PolarsSql.BitXor(x.A, x.B),
+                // Bitwise NOT
+                NotResult = ~x.A,       
+                // CountResult = PolarsSql.BitCount(x.A)
+            })
+            .ToList();
+
+        Assert.Equal(2, bitQuery.Count);
+
+        // 验证 5 和 3 
+        // 5 & 3 = 1 (0001)
+        // 5 | 3 = 7 (0111)
+        // 5 ^ 3 = 6 (0110)
+        // ~5    = -6 (按位取反，带符号)
+        var row1 = bitQuery[0];
+        Assert.Equal(1, row1.AndResult);
+        Assert.Equal(7, row1.OrResult);
+        Assert.Equal(6, row1.XorResult);
+        Assert.Equal(~5, row1.NotResult); 
+
+        // 验证 12 和 10
+        // 12 & 10 = 8 (1000)
+        // 12 | 10 = 14 (1110)
+        // 12 ^ 10 = 6 (0110)
+        // ~12     = -13
+        var row2 = bitQuery[1];
+        Assert.Equal(8, row2.AndResult);
+        Assert.Equal(14, row2.OrResult);
+        Assert.Equal(6, row2.XorResult);
+        Assert.Equal(~12, row2.NotResult);
+    }
+    public class TemporalRecord
+    {
+        public int Id { get; set; }
+        public DateTime EventTime { get; set; }
+    }
+
+    [Fact]
+    [Trait("Linq", "Temporal")]
+    public void Test_Polars_Linq_Native_Temporal_Functions()
+    {
+        // 准备测试数据
+        var data = new[]
+        {
+            new TemporalRecord { Id = 1, EventTime = new DateTime(2024, 3, 15, 14, 30, 0) },
+            new TemporalRecord { Id = 2, EventTime = new DateTime(2025, 12, 1, 9, 15, 45) }
+        };
+
+        using var df = DataFrame.From(data);
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        var table = db.RegisterTable("temporal_tb", df, data);
+
+        // ==========================================
+        // 核心测试：C# 原生 DateTime 属性与方法
+        // ==========================================
+        var timeQuery = table
+            .OrderBy(x => x.Id)
+            .Select(x => new
+            {
+                x.Id,
+                // 测试 EXTRACT / DATE_PART
+                Year = x.EventTime.Year,
+                Month = x.EventTime.Month,
+                Day = x.EventTime.Day,
+                Hour = x.EventTime.Hour,
+                
+                // 测试 STRFTIME 格式化
+                // 预警：.NET 的 "yyyy-MM-dd" 和 C 语言风格的 "%Y-%m-%d" 完全不一样！
+                FormattedDate = x.EventTime.ToString("yyyy-MM-dd")
+            })
+            .ToList();
+
+        Assert.Equal(2, timeQuery.Count);
+        
+        // 验证第一行解析结果
+        Assert.Equal(2024, timeQuery[0].Year);
+        Assert.Equal(3, timeQuery[0].Month);
+        Assert.Equal(15, timeQuery[0].Day);
+        Assert.Equal(14, timeQuery[0].Hour);
+        // 如果 FormattedDate 居然跑通了，我们可以打印出来看看是啥神仙操作
+        Assert.StartsWith("2024", timeQuery[0].FormattedDate);
+    }
+    public class StringNativeRecord
+    {
+        public int Id { get; set; }
+        public string Text1 { get; set; } = "";
+        public string Text2 { get; set; } = "";
+    }
+
+    [Fact]
+    [Trait("Linq", "String")]
+    public void Test_Polars_Linq_Native_String_Functions()
+    {
+        // 准备测试数据，故意加一些空格用来测试 Trim
+        var data = new[]
+        {
+            new StringNativeRecord { Id = 1, Text1 = "  Hello  ", Text2 = "World" },
+            new StringNativeRecord { Id = 2, Text1 = "Polars",    Text2 = "Data" }
+        };
+
+        using var df = DataFrame.From(data);
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        var table = db.RegisterTable("string_tb", df, data);
+
+        // ==========================================
+        // 核心测试：C# 原生字符串方法大阅兵
+        // 看看 linq2db 会生成哪些 Polars 函数
+        // ==========================================
+        var strQuery = table
+            .OrderBy(x => x.Id)
+            .Select(x => new
+            {
+                x.Id,
+                // 测试 CONCAT (或 || 运算符)
+                ConcatStr = x.Text1 + " " + x.Text2,
+                
+                // 测试 LTRIM 和 RTRIM
+                LTrimStr = x.Text1.TrimStart(),
+                RTrimStr = x.Text1.TrimEnd(),
+                
+                // 测试 REPLACE
+                ReplaceStr = x.Text2.Replace("r", "x"),
+                
+                // 测试 STRPOS
+                // 究极预警：C# 的 IndexOf 是从 0 开始的！SQL 的 STRPOS 通常是从 1 开始的！
+                // linq2db 会极其聪明地在 SQL 里帮你自动减 1 吗？
+                PosStr = x.Text2.IndexOf('o') 
+            })
+            .ToList();
+
+        Assert.Equal(2, strQuery.Count);
+        
+        // 验证第一行: "  Hello  ", "World"
+        var row1 = strQuery[0];
+        Assert.Equal("  Hello   World", row1.ConcatStr);
+        Assert.Equal("Hello  ", row1.LTrimStr);
+        Assert.Equal("  Hello", row1.RTrimStr);
+        Assert.Equal("Woxld", row1.ReplaceStr); // World -> Woxld
+        Assert.Equal(1, row1.PosStr); // 'o' 在 "World" 的索引是 1 (W=0, o=1)
+
+        // 验证第二行: "Polars", "Data"
+        var row2 = strQuery[1];
+        Assert.Equal("Polars Data", row2.ConcatStr);
+        Assert.Equal("Polars", row2.LTrimStr);
+        Assert.Equal("Polars", row2.RTrimStr);
+        Assert.Equal("Data", row2.ReplaceStr); // 没有 'r'，保持不变
+        Assert.Equal(-1, row2.PosStr); // 找不到 'o'，C# 期望返回 -1！SQL 通常返回 0。看 linq2db 怎么填坑！
+    }
+    [Fact]
+    [Trait("Linq", "ControlFlow")]
+    public void Test_Polars_Linq_Native_Control_Flow_Functions()
+    {       
+        using var ctx = new SqlContext();
+        using var db = new PolarsDataContext(ctx);
+
+        // 构造一点假数据
+        var mockData = new[] 
+        { 
+            new { Id = 1, Val1 = (int?)10, Val2 = (int?)20 },
+            new { Id = 2, Val1 = (int?)null, Val2 = (int?)30 },
+            new { Id = 3, Val1 = (int?)40, Val2 = (int?)40 }
+        };
+        
+        var table = db.RegisterTable("math_tb", DataFrame.From(mockData), mockData);
+
+        var query = table
+            .OrderBy(x => x.Id)
+            .Select(x => new
+            {
+                x.Id,
+                
+                // 1. COALESCE 测试：C# 的 ?? 运算符
+                CoalesceVal = x.Val1 ?? x.Val2 ?? 0,
+                
+                // 2. GREATEST 测试：C# 的 Math.Max
+                // 注意：如果 Val1 和 Val2 是可空类型，Math.Max 可能需要显式 .Value 或者强转
+                MaxVal = Math.Max(x.Val1 ?? 0, x.Val2 ?? 0),
+                
+                // 3. LEAST 测试：C# 的 Math.Min
+                MinVal = Math.Min(x.Val1 ?? 0, x.Val2 ?? 0),
+                
+                // 4. IF 测试：C# 的三元运算符
+                IfStr = x.Val1 > 15 ? "Big" : "Small",
+                
+                // 5. NULLIF 测试：C# 的条件判断逻辑
+                // 如果两值相等返回 null，否则返回第一个值
+                NullIfVal = x.Val1 == x.Val2 ? null : x.Val1
+            })
+            .ToList(); // 触发底层的 ToSql 和 执行
+
+        // 如果能活着运行到这里，说明 Polars 完美消化了生成的 SQL！
+        Assert.Equal(3, query.Count);
+        
+        // 可以稍微验证一下逻辑
+        Assert.Equal(30, query[1].CoalesceVal); // null ?? 30 = 30
+        Assert.Equal(20, query[0].MaxVal);      // Max(10, 20) = 20
+        Assert.Null(query[2].NullIfVal);        // 40 == 40 -> null        
+    }
+    [Fact]
+    [Trait("Linq", "MathTrig")]
+    public void Test_Polars_Linq_Native_Math_Trig_Functions()
+    {
+        using var ctx = new SqlContext();
+        using var db = new PolarsDataContext(ctx);
+
+        // 构造安全范围内的测试数据，避免 Acos/Asin 溢出 (-1 <= V1 <= 1)
+        var mockData = new[] 
+        { 
+            new { Id = 1, V1 = 0.5, V2 = 1.0 },
+            new { Id = 2, V1 = 0.0, V2 = -0.5 },
+            new { Id = 3, V1 = -1.0, V2 = 0.5 }
+        };
+        
+        var table = db.RegisterTable("trig_tb", DataFrame.From(mockData), mockData);
+
+        var query = table
+            .OrderBy(x => x.Id)
+            .Select(x => new
+            {
+                x.Id,
+                // 标准三角函数 (期望被翻译为 SIN, COS, TAN)
+                SinVal = Math.Sin(x.V1),
+                CosVal = Math.Cos(x.V1),
+                TanVal = Math.Tan(x.V1),
+                
+                // 反三角函数 (期望被翻译为 ASIN, ACOS, ATAN)
+                AsinVal = Math.Asin(x.V1),
+                AcosVal = Math.Acos(x.V1),
+                AtanVal = Math.Atan(x.V1),
+                
+                // 双参数反正切 (期望被翻译为 ATAN2)
+                Atan2Val = Math.Atan2(x.V1, x.V2)
+            })
+            .ToList();
+
+        Assert.Equal(3, query.Count);
+        
+        // 简单验证第一行的 Sin(0.5)
+        Assert.True(Math.Abs(query[0].SinVal - Math.Sin(0.5)) < 1e-6);
+
+    }
+    [Fact]
+    [Trait("Linq", "MathTrigExtension")]
+    public void Test_Polars_Linq_Specific_Math_Functions()
+    {
+        using var ctx = new SqlContext();
+        using var db = new PolarsDataContext(ctx);
+
+        // 构造测试数据
+        // Ratio 用于反三角函数输入 (-1 到 1)
+        // Deg 用于基于角度的三角函数输入 (如 30度, 90度)
+        // Rad 用于弧度和余切输入
+        var mockData = new[] 
+        { 
+            new { Id = 1, Ratio = 0.5, Deg = 30.0, Rad = 0.523, Y = 1.0, X = 1.0 },
+            new { Id = 2, Ratio = 1.0, Deg = 90.0, Rad = 1.570, Y = -1.0, X = 0.0 }
+        };
+        
+        var table = db.RegisterTable("polars_math_tb", DataFrame.From(mockData), mockData);
+
+        var query = table
+            .OrderBy(x => x.Id)
+            .Select(x => new
+            {
+                x.Id,
+                
+                // 1. 度数与弧度转换
+                DegVal = PolarsSql.Degrees(x.Rad),
+                RadVal = PolarsSql.Radians(x.Deg),
+                
+                // 2. 基于角度的三角函数
+                SindVal = PolarsSql.Sind(x.Deg),
+                CosdVal = PolarsSql.Cosd(x.Deg),
+                TandVal = PolarsSql.Tand(x.Deg),
+                
+                // 3. 余切
+                CotVal = PolarsSql.Cot(x.Rad),
+                CotdVal = PolarsSql.Cotd(x.Deg),
+                
+                // 4. 基于角度的反三角函数 (输入必须在 [-1, 1])
+                AsindVal = PolarsSql.Asind(x.Ratio), 
+                AcosdVal = PolarsSql.Acosd(x.Ratio),
+                AtandVal = PolarsSql.Atand(x.Ratio),
+                
+                // 5. 双参数基于角度的反正切
+                Atan2dVal = PolarsSql.Atan2d(x.Y, x.X)
+            })
+            .ToList();
+
+        Assert.Equal(2, query.Count);
+        
+        // 简单验证第一行的 Sind(30度) 应该等于 0.5 (允许微小的浮点数误差)
+        Assert.True(Math.Abs(query[0].SindVal - 0.5) < 1e-6);
+
+    }
+    [Fact]
+    [Trait("Linq", "MathGeneral")]
+    public void Test_Polars_Linq_Native_Math_General_Functions()
+    {
+        using var ctx = new SqlContext();
+        using var db = new PolarsDataContext(ctx);
+
+        var mockData = new[] 
+        { 
+            new { Id = 1, V1 = 2.0, V2 = 3.0, IntVal = 10, Divisor = 3 }
+        };
+        
+        var table = db.RegisterTable("math_gen_tb", DataFrame.From(mockData), mockData);
+
+        var query = table
+            .OrderBy(x => x.Id)
+            .Select(x => new
+            {
+                x.Id,
+                
+                // 1. 基础运算
+                AbsVal = Math.Abs(x.V2 * -1),                    // ABS (原生支持完美，继续用)
+                ModVal = PolarsSql.Mod(x.IntVal, x.Divisor),     // 强制生成 MOD(a, b)，完美避开 LinqToDB 的迷之 decimal 强转
+                DivOpVal = x.IntVal / x.Divisor,                 // 原生整除 (/)
+                DivFuncVal = PolarsSql.Div(x.IntVal, x.Divisor), // 强制生成 DIV(a, b) 函数
+                
+                // 2. 取整与截断
+                CeilVal = PolarsSql.Ceil(x.V1 + 0.5),            // 强制生成 CEIL，避免 LinqToDB 翻成 CEILING
+                FloorVal = Math.Floor(x.V1 + 0.5),               // FLOOR (原生支持完美，继续用)
+                RoundVal = PolarsSql.Round(x.V1 + 0.54, 1),      // 拯救被 LinqToDB 彻底吃掉的 Math.Round
+                
+                // 3. 幂与根
+                PowVal = Math.Pow(x.V1, x.V2),              // 强制生成 POW，避免原生的 POWER
+                SqrtVal = Math.Sqrt(x.V1),                       // SQRT (原生支持完美)
+                CbrtVal = PolarsSql.Cbrt(x.V1),                  // 拯救被 LinqToDB 完全忽略的 Math.Cbrt
+                ExpVal = Math.Exp(x.V1),                         // EXP (原生支持完美)
+                
+                // 4. 对数家族
+                LnVal = Math.Log(x.V1),                          // LN (C# 的单参数 Log 会被完美翻译为 Ln，继续用)
+                Log10Val = PolarsSql.Log10(x.V1),                // 拯救被误翻为 Log(x) 的 Math.Log10
+                Log2Val = PolarsSql.Log2(x.V1),                  // 拯救被误翻为 Log(2, x) 的 Math.Log2
+                Log1pVal = PolarsSql.Log1p(x.V1),                // LOG1P (原生压根没有，走专属扩展)
+
+                // 5. 其他
+                SignVal = Math.Sign(x.V1 - 5.0),                 // SIGN (原生支持完美)
+                
+                PiFunc = PolarsSql.Pi()                          // 强制翻译成优雅的 PI() 函数
+            })
+            .ToDataFrame().AsDataFrame();
+        query.Show();
+        Assert.Equal(18L, query.Width);
+        // Assert.Single(query);
     }
 }

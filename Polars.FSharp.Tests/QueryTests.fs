@@ -486,7 +486,7 @@ module QueryTests =
                     DeptTotalSalary = LinqToDB.Sql.Ext.Sum(e.Salary).Over().PartitionBy(e.DeptId).ToValue()
                 |}
             }
-
+        // queryable.ToDataFrame().Show()
         let results = queryable.ToList()
 
         // Assert

@@ -1,3 +1,4 @@
+#pragma warning disable CS1591 
 using System.Collections.Concurrent;
 using System.Linq.Expressions;
 using LinqToDB;
@@ -71,7 +72,47 @@ internal static class PolarsSqlTranslator
         }
         return snippets;
     }
+    /// <summary>
+    /// Inject Correct Aliases for C# Anonymous Object
+    /// </summary>
+    public static string InjectAliases(string fullSql, Type elementType)
+    {
+        // only work for C# AnonymousType or F# AnonRecord
+        if (!elementType.Name.Contains("AnonymousType") && 
+            !elementType.Name.Contains("AnonymousObject") && 
+            !elementType.Name.Contains("AnonRecord"))
+        {
+            return fullSql; 
+        }
 
+        // Get column name
+        var cachedAliases = _aliasCache.GetOrAdd(elementType, static t =>
+            [.. t.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance).Select(p => p.Name)]);
+
+        // Extract SELECT Snippet
+        var rawSnippet = SqlSanitizer.ExtractSelectSnippet(fullSql);
+        var snippets = SplitSqlExpressions(rawSnippet);
+
+        // Check length 
+        if (snippets.Length == cachedAliases.Length)
+        {
+            for (int i = 0; i < snippets.Length; i++)
+            {
+                ReadOnlySpan<char> strippedSpan = SqlSanitizer.RemoveTrailingAliasSpan(snippets[i].AsSpan());
+
+                snippets[i] = string.Concat(strippedSpan, " AS \"", cachedAliases[i].AsSpan(), "\"");
+            }
+
+            // Rejoin SELECT snippet
+            var newSelectSnippet = string.Join(",\n        ", snippets);
+
+            // Replace
+            return fullSql.Replace(rawSnippet, newSelectSnippet);
+        }
+
+        // Fallback
+        return fullSql; 
+    }
     // ====================================================================
     // Split string by span
     // ====================================================================
@@ -181,13 +222,139 @@ public static class PolarsSql
         => throw new InvalidOperationException("[Polars.NET] RegexMatch can only be used within a LINQ to Polars query.");
 
     // ==========================================
-    // 3. Math&DateTime Expansions
+    // 3. STAT 
     // ==========================================
     
     /// <summary>
-    /// Extracts the year from a DateTime using Polars DATE_PART.
+    /// Calculates the sample variance using Polars VARIANCE.
     /// </summary>
-    [Sql.Expression("DATE_PART('year', {0})", ServerSideOnly = true)]
-    public static int Year(DateTime date)
-        => throw new InvalidOperationException("[Polars.NET] Year can only be used within a LINQ to Polars query.");
+    [Sql.Expression("VARIANCE({1})", ServerSideOnly = true, IsAggregate = true)]
+    public static double Variance<T>(this IEnumerable<T> source, [ExprParameter] Expression<Func<T, double>> selector)
+        => throw new InvalidOperationException("[Polars.NET] Variance can only be used within a LINQ to Polars query.");
+
+    /// <summary>
+    /// Calculates the continuous quantile (interpolated) using Polars QUANTILE_CONT.
+    /// </summary>
+    [Sql.Expression("QUANTILE_CONT({1}, {2})", ServerSideOnly = true, IsAggregate = true)]
+    public static double QuantileCont<T>(this IEnumerable<T> source, [ExprParameter] Expression<Func<T, double>> selector, double quantile)
+        => throw new InvalidOperationException("[Polars.NET] QuantileCont can only be used within a LINQ to Polars query.");
+
+    /// <summary>
+    /// Calculates the discrete quantile (exact value from data) using Polars QUANTILE_DISC.
+    /// </summary>
+    [Sql.Expression("QUANTILE_DISC({1}, {2})", ServerSideOnly = true, IsAggregate = true)]
+    public static double QuantileDisc<T>(this IEnumerable<T> source, [ExprParameter] Expression<Func<T, double>> selector, double quantile)
+        => throw new InvalidOperationException("[Polars.NET] QuantileDisc can only be used within a LINQ to Polars query.");
+    // ==========================================
+    // 3. BITWISE
+    // ==========================================
+    /// <summary>
+    /// Calculates the bitwise XOR using BIT_XOR.
+    /// </summary>
+    [Sql.Expression("BIT_XOR({0}, {1})", ServerSideOnly = true)]
+    public static int BitXor(int a, int b) 
+        => throw new InvalidOperationException("Only for LINQ to Polars.");
+    // /// <summary>
+    // /// Calculates the bitwise count(the number of 1) using BIT_COUNT.
+    // /// </summary>
+    // [Sql.Expression("BIT_COUNT({0})", ServerSideOnly = true)]
+    // public static int BitCount(int a) 
+    //     => throw new InvalidOperationException("Only for LINQ to Polars.");
+
+    // ==========================================
+    // 弧度/角度转换
+    // ==========================================
+    [Sql.Function("DEGREES", ServerSideOnly = true)]
+    public static double Degrees(double radians) => throw new InvalidOperationException("Only for LINQ to Polars.");
+
+    [Sql.Function("RADIANS", ServerSideOnly = true)]
+    public static double Radians(double degrees) => throw new InvalidOperationException("Only for LINQ to Polars.");
+
+    // ==========================================
+    // 余切函数
+    // ==========================================
+    [Sql.Function("COT", ServerSideOnly = true)]
+    public static double Cot(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
+
+    [Sql.Function("COTD", ServerSideOnly = true)]
+    public static double Cotd(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
+
+    // ==========================================
+    // 基于角度 (Degree) 的正余弦/正切
+    // ==========================================
+    [Sql.Function("SIND", ServerSideOnly = true)]
+    public static double Sind(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
+
+    [Sql.Function("COSD", ServerSideOnly = true)]
+    public static double Cosd(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
+
+    [Sql.Function("TAND", ServerSideOnly = true)]
+    public static double Tand(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
+
+    // ==========================================
+    // 基于角度 (Degree) 的反三角函数
+    // ==========================================
+    [Sql.Function("ACOSD", ServerSideOnly = true)]
+    public static double Acosd(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
+
+    [Sql.Function("ASIND", ServerSideOnly = true)]
+    public static double Asind(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
+
+    [Sql.Function("ATAND", ServerSideOnly = true)]
+    public static double Atand(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
+
+    [Sql.Function("ATAN2D", ServerSideOnly = true)]
+    public static double Atan2d(double y, double x) => throw new InvalidOperationException("Only for LINQ to Polars.");
+
+    // ==========================================
+    // 基础运算与取整 (绕过 LinqToDB 的迷之强转和丢失)
+    // ==========================================
+    
+    // 绝对控制：只取前两个参数 {0} 和 {1}，彻底无视泛型类型 T
+    [Sql.Expression("MOD({0}, {1})", ServerSideOnly = true)]
+    public static T Mod<T>(T a, T b) => throw new InvalidOperationException("仅限 LINQ 查询使用");
+
+    [Sql.Expression("CEIL({0})", ServerSideOnly = true)]
+    public static T Ceil<T>(T value) => throw new InvalidOperationException("仅限 LINQ 查询使用");
+
+    [Sql.Expression("ROUND({0}, {1})", ServerSideOnly = true)]
+    public static T Round<T>(T value, int decimals) => throw new InvalidOperationException("仅限 LINQ 查询使用");
+
+    [Sql.Function("DIV", ServerSideOnly = true)] // 如果你想强制生成 DIV(a, b) 函数而不是 a / b
+    public static long Div(long a, long b) => throw new InvalidOperationException("Only for LINQ to Polars.");
+
+    // ==========================================
+    // 2. 幂与根 (拯救丢失的 CBRT)
+    // ==========================================
+    
+    // 统一使用 POW 而不是 POWER
+    [Sql.Function("POW", ServerSideOnly = true)]
+    public static T Pow<T>(T baseValue, T exponent) => throw new InvalidOperationException("Only for LINQ to Polars.");
+
+    // 拯救完全被 LinqToDB 忽略的立方根
+    [Sql.Function("CBRT", ServerSideOnly = true)]
+    public static double Cbrt(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
+
+    // ==========================================
+    // 3. 对数家族 (纠正 Polars 严格的方法名)
+    // ==========================================
+    
+    [Sql.Function("LOG10", ServerSideOnly = true)]
+    public static double Log10(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
+
+    [Sql.Function("LOG2", ServerSideOnly = true)]
+    public static double Log2(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
+
+    [Sql.Function("LOG1P", ServerSideOnly = true)]
+    public static double Log1p(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
+    
+    // Polars 原生的 LOG 允许指定 base，例如 LOG(base, x) 
+    // 但安全起见，推荐使用专用的 Log10, Log2
+    
+    // ==========================================
+    // 4. 常量生成
+    // ==========================================
+    
+    [Sql.Function("PI", ServerSideOnly = true)]
+    public static double Pi() => throw new InvalidOperationException("Only for LINQ to Polars.");
 }

@@ -20,14 +20,27 @@ internal static partial class SqlSanitizer
     [GeneratedRegex(@"(?:DELETE\s+FROM|UPDATE)\s+""?([a-zA-Z0-9_]+)""?", RegexOptions.IgnoreCase | RegexOptions.Singleline, "en-US")]
     private static partial Regex DmlTableRegex();
 
+    // Regex to swap Position(A in B) to STRPOS(B, A)
+    [GeneratedRegex(@"Position\((.*?)\s+in\s+(.*?)\)", RegexOptions.IgnoreCase | RegexOptions.Singleline, "en-US")]
+    private static partial Regex PositionRegex();
+
     // ==========================================
     // Clean Method
     // ==========================================
 
     internal static string Clean(string rawSql)
     {
+        // Console.WriteLine(rawSql);
         // Remove ESCAPE
         var sql = EscapeRegex().Replace(rawSql, "");
+
+        // ==========================================
+        // Rule 0: Fix Position(A in B) Overflow 
+        // ==========================================
+        if (sql.Contains("Position(", StringComparison.OrdinalIgnoreCase))
+        {
+            sql = PositionRegex().Replace(sql, "CAST(STRPOS($2, $1) AS INT)");
+        }
 
         // Deduplicate GROUP BY
         var groupMatch = GroupByRegex().Match(sql);
@@ -52,67 +65,63 @@ internal static partial class SqlSanitizer
             {
                 int splitCount = 0;
                 int parenCount = 0;
-                int bracketCount = 0; // 新增：追踪 T-SQL 方括号 []
+                int bracketCount = 0; 
                 bool inSingleQuote = false;
-                bool inDoubleQuote = false; // 新增：追踪 ANSI 双引号 ""
+                bool inDoubleQuote = false;
                 int lastSplitIndex = 0;
 
                 for (int i = 0; i < groupSpan.Length; i++)
                 {
                     char c = groupSpan[i];
 
-                    // 1. 处理单引号 (字符串字面量)
-                    if (c == '\'' && !inDoubleQuote) // 确保不是在双引号标识符内部
+                    // Handle ''
+                    if (c == '\'' && !inDoubleQuote) 
                     {
                         if (i + 1 < groupSpan.Length && groupSpan[i + 1] == '\'')
-                            i++; // 采用你的完美建议：跳过转义引号
+                            i++; 
                         else
                             inSingleQuote = !inSingleQuote;
                         
-                        continue; // 直接进入下一个字符，省去后续判断
+                        continue; 
                     }
 
-                    // 2. 处理双引号 (ANSI 标识符)
-                    if (c == '"' && !inSingleQuote) // 确保不是在单引号字符串内部
+                    // Handle ""
+                    if (c == '"' && !inSingleQuote) 
                     {
                         if (i + 1 < groupSpan.Length && groupSpan[i + 1] == '"')
-                            i++; // 跳过转义双引号
+                            i++; 
                         else
                             inDoubleQuote = !inDoubleQuote;
                         
                         continue;
                     }
 
-                    // 3. 如果在引号内部，直接忽略所有括号和逗号
+                    // If in '' or "", continue
                     if (inSingleQuote || inDoubleQuote)
                         continue;
 
-                    // 4. 处理括号和真正的分割点
+                    // Handle () []
                     if (c == '[') bracketCount++;
                     else if (c == ']') bracketCount--;
                     else if (c == '(') parenCount++;
                     else if (c == ')') parenCount--;
-                    else if (c == ',' && parenCount == 0 && bracketCount == 0) // 必须同时不在圆括号和方括号内！
+                    else if (c == ',' && parenCount == 0 && bracketCount == 0)
                     {
-                        if (splitCount < ranges.Length)
-                        {
-                            ranges[splitCount++] = new Range(lastSplitIndex, i);
-                        }
+                        ranges[splitCount++] = new Range(lastSplitIndex, i);
                         lastSplitIndex = i + 1;
                     }
                 }
-                // 添加最后一段
+                
                 if (lastSplitIndex <= groupSpan.Length && splitCount < ranges.Length)
                 {
                     ranges[splitCount++] = new Range(lastSplitIndex, groupSpan.Length);
                 }
 
-                // 2. 去重逻辑
+                // Deduplicate
                 var distinctKeys = new HashSet<string>(splitCount, StringComparer.OrdinalIgnoreCase);
 
                 for (int i = 0; i < splitCount; i++)
                 {
-                    // 因为是我们自定义切的，需要手动 Trim 一下前后的空格
                     var slice = groupSpan[ranges[i]].Trim();
                     if (slice.Length == 0) continue;
 
@@ -131,7 +140,7 @@ internal static partial class SqlSanitizer
                 }
             }
         }
-
+        // Console.WriteLine(sql);
         return sql;
     }
 

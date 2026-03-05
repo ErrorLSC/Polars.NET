@@ -30,8 +30,9 @@ public static class PolarsQueryableExtensions
             throw new InvalidOperationException("[Polars.NET] linq2db SQL generation failed");
         var rawSql = sqlQueries[0].Sql;
         var sanitizedSql = SqlSanitizer.Clean(rawSql); 
+        var finalSql = PolarsSqlTranslator.InjectAliases(sanitizedSql, ((IQueryable)exprQuery).ElementType);
 
-        return db.ExecuteToLazyFrame(sanitizedSql);
+        return db.ExecuteToLazyFrame(finalSql);
     }
     /// <summary>
     /// Translates the LINQ expression tree into a Polars execution plan without executing the query.
