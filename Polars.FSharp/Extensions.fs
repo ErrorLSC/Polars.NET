@@ -98,3 +98,35 @@ type DataFrameDeltaExtensions =
         let keysArr = mergeKeys |> Seq.toArray
         let evolve = defaultArg canEvolve false
         new DeltaMergeBuilder(this.Lazy(), path, keysArr, evolve, cloudOptions)
+
+[<AutoOpen>]
+module InterfaceUnwrapperExtensions =
+    open Polars.NET.Core
+    open System
+    open System.Linq
+
+    type IPolarsDataFrame with
+        
+        /// <summary>
+        /// Unwrap IPolarsDataFrame as DataFrame 
+        /// </summary>
+        member this.AsDataFrame() : DataFrame =
+            match this with
+            | :? DataFrame as df -> df
+            | _ -> raise (InvalidCastException "Not Standard Polars DataFrame")
+
+    type IPolarsLazyFrame with
+
+        /// <summary>
+        /// Unwrap IPolarsLazyFrame as LazyFrame 
+        /// </summary>
+        member this.AsLazyFrame() : LazyFrame =
+            match this with
+            | :? LazyFrame as lf -> lf
+            | _ -> raise (InvalidCastException "Not Standard Polars LazyFrame")
+
+    let asDataFrame (idf: IPolarsDataFrame) : DataFrame = 
+        idf.AsDataFrame()
+
+    let asLazyFrame (ilf: IPolarsLazyFrame) : LazyFrame =
+        ilf.AsLazyFrame()

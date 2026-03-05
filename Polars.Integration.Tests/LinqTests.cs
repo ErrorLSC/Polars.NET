@@ -1244,7 +1244,7 @@ David,40,80000";
         Console.WriteLine(plan1);
         // --- 3. 截胡！回到 Native (后处理阶段) ---
         // 注意：这行代码执行完，磁盘根本没有动！所有的计划全被缝合在一起了！
-        using LazyFrame lfWithLinq = (LazyFrame)query.ToLazyFrame();
+        using LazyFrame lfWithLinq = query.ToLazyFrame().AsLazyFrame();
 
         // 继续使用 Polars 原生 API 做一些 LINQ 很难表达的操作
         // 比如求每一列的 null 数量，或者做 Rolling 窗口计算
@@ -1465,5 +1465,71 @@ David,40,80000";
         }
         
         Console.WriteLine($"[Polars.NET] 成功扛住了 {concurrencyLevel} 个并发 LINQ 查询！");
+    }
+    [Fact]
+    [Trait("Linq", "Async_Stress_ToDataFrame")]
+    public async Task Test_Polars_Linq_High_Concurrency_ToDataFrameAsync_Stress()
+    {
+        // ==============================================================
+        // 1. 制造弹药：10 万条测试数据
+        // ==============================================================
+        int recordCount = 100_000;
+        var mockData = Enumerable.Range(0, recordCount).Select(i => new
+        {
+            Id = i,
+            Region = $"Region_{i % 50}", 
+            Latency = Random.Shared.NextDouble() * 100.0
+        }).ToArray();
+
+        using var df = DataFrame.From(mockData);
+
+        // ==============================================================
+        // 2. 并发 Worker：直接返回原生的 DataFrame
+        // ==============================================================
+        async Task<long> SimulateDataFrameQueryAsync(int workerId)
+        {
+            using var ctx = new SqlContext();
+            using var db = new PolarsDataContext(ctx);
+            
+            // 使用匿名类型的动态注册（假设你的 RegisterTable 支持）
+            var table = db.RegisterTable("traffic", df, mockData);
+
+            string targetRegion = $"Region_{workerId % 50}";
+
+            var query = table.Where(t => t.Region == targetRegion && t.Latency > 10.0)
+                             .OrderBy(t => t.Id);
+
+            using DataFrame resultDf = (await query.ToDataFrameAsync()).AsDataFrame();
+            
+            // 拿到 df 后，可以直接无缝调用 Polars 原生 API
+            return resultDf.Height; 
+        }
+
+        // ==============================================================
+        // 3. 点火！瞬间发射 100 个并发计算任务！
+        // ==============================================================
+        int concurrencyLevel = 1000;
+        var tasks = new List<Task<long>>();
+
+        for (int i = 0; i < concurrencyLevel; i++)
+        {
+            tasks.Add(SimulateDataFrameQueryAsync(i));
+        }
+
+        // 挂起等待 100 个底层的 LazyCollect 并发完成
+        var finalHeights = await Task.WhenAll(tasks);
+
+        // ==============================================================
+        // 4. 断言验证
+        // ==============================================================
+        Assert.Equal(concurrencyLevel, finalHeights.Length);
+
+        foreach (var height in finalHeights)
+        {
+            // 数据绝对不会串号，且长度符合逻辑预估
+            Assert.True(height > 0 && height <= 2000);
+        }
+        
+        Console.WriteLine($"[Polars.NET] ToDataFrameAsync 成功扛住了 {concurrencyLevel} 个并发底层执行！");
     }
 }

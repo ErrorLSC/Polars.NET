@@ -934,10 +934,10 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
                 colsToSelect.Add(rowIndexName);
             }
 
-            lf = lf.Select(Selector.Cols(colsToSelect.ToArray()));
+            lf = lf.Select(Selector.Cols([.. colsToSelect]));
         }
 
-        return await lf.CollectAsync();
+        return await lf.CollectAsync(useStreaming: true);
     }
     /// <summary>
     /// Read a Parquet file asynchronously.
@@ -996,10 +996,10 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
                 colsToSelect.Add(includePathColumn);
             }
 
-            lf = lf.Select(Selector.Cols(colsToSelect.ToArray()));
+            lf = lf.Select(Selector.Cols([.. colsToSelect]));
         }
 
-        return await lf.CollectAsync();
+        return await lf.CollectAsync(useStreaming:true);
     }
     /// <summary>
     /// Read an Avro file into a DataFrame.

@@ -29,12 +29,14 @@ type StaffRecordWithBonus = {
     salary: float
     bonus: float // C# 中的 double 在 F# 中对应 float
 }
+type TrafficRecord = { Id: int; Region: string; Latency: float }
 // 为下半场的 NestedList 提前备好 DTO
 // type DeptDto = { DeptId: int; DeptName: string }
 type EmpDto = { Name: string; DeptId: int }
 
 module QueryTests =
     open System.IO
+    open System.Threading.Tasks
 
     [<Fact>]
     [<Trait("Linq", "Where")>]
@@ -1310,7 +1312,83 @@ module QueryTests =
         // 【D: 删除】
         // ==========================================
         let deleted = table.Where(fun e -> e.DeptId < 3).Delete()
-        use deletedDf = table.ToDataFrame() :?> DataFrame
+        use deletedDf = table.ToDataFrame() |> asDataFrame
         deletedDf.Show() 
         // Assert 确实执行了删除并返回了受影响的行数 (通常 >= 0)
         Assert.True(deleted >= 0)
+    [<Fact>]
+    [<Trait("Linq", "Async_Stress_ToDataFrame")>]
+    // 注意：测试方法本身就是一个 task { }
+    let ``Test Polars Linq High Concurrency ToDataFrameAsync Stress`` () = task {
+        
+        // ==============================================================
+        // 1. 制造弹药：10 万条测试数据
+        // ==============================================================
+        let recordCount = 100_000
+        
+        // F# 原生的 Array.init 瞬间生成测试数据，告别 Enumerable.Range
+        let mockData = 
+            Array.init recordCount (fun i -> 
+                { Id = i
+                  Region = sprintf "Region_%d" (i % 50)
+                  Latency = Random.Shared.NextDouble() * 100.0 }
+            )
+
+        // 假设 DataFrame 有 ofRecords 或者 From 扩展
+        use df = DataFrame.ofRecords mockData 
+
+        // ==============================================================
+        // 2. 并发 Worker：直接返回原生的 DataFrame
+        // ==============================================================
+        let simulateDataFrameQueryAsync (workerId: int) = task {
+            use ctx = new SqlContext()
+            use db = new PolarsDataContext(ctx)
+            
+            let table = db.RegisterTable<TrafficRecord>("traffic", df)
+            let targetRegion = sprintf "Region_%d" (workerId % 50)
+
+            // 【黑科技回收】：还记得我们写的 AST 解包猎犬吗？
+            // 现在你可以毫无顾忌地使用极其优雅的 query { } 表达式了！但是很慢，慢5倍
+            // let q = 
+            //     query {
+            //         for t in table do
+            //         where (t.Region = targetRegion && t.Latency > 10.0)
+            //         sortBy t.Id
+            //         select t
+            //     }
+            let q = 
+                table
+                    .Where(fun t -> t.Region = targetRegion && t.Latency > 10.0)
+                    .OrderBy(fun t -> t.Id)
+
+            // 【见证奇迹】：let! 等价于 await，配合 AsDataFrame() 扩展，如丝般顺滑
+            let! idf = q.ToDataFrameAsync()
+            use resultDf = idf |> asDataFrame
+            
+            // DataFrame 的 Height 属性底层通常是 int64，直接返回
+            return resultDf.Height
+        }
+
+        // ==============================================================
+        // 3. 点火！瞬间发射 100 个并发计算任务！
+        // ==============================================================
+        let concurrencyLevel = 1000
+        
+        // 抛弃丑陋的 for 循环和 List.Add，一句话生成 100 个并发 Task！
+        let tasks = Array.init concurrencyLevel simulateDataFrameQueryAsync
+
+        // 挂起等待 100 个底层的 LazyCollect 并发完成
+        // let! 瞬间解包 Task 数组
+        let! finalHeights = Task.WhenAll tasks
+
+        // ==============================================================
+        // 4. 断言验证
+        // ==============================================================
+        Assert.Equal(concurrencyLevel, finalHeights.Length)
+
+        for height in finalHeights do
+            // 注意 F# 里 int64 需要加后缀 'L'
+            Assert.True(height > 0L && height <= 2000L)
+        
+        Console.WriteLine(sprintf "[Polars.NET] F# ToDataFrameAsync 成功扛住了 %d 个并发底层执行！" concurrencyLevel)
+    }

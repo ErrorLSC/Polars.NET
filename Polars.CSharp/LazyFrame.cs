@@ -2342,11 +2342,18 @@ public class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <summary>
     /// Execute the query plan asynchronously and return a DataFrame.
     /// </summary>
-    public async Task<DataFrame> CollectAsync(bool useStreaming=false)
+    public async Task<DataFrame> CollectAsync(bool useStreaming = false, CancellationToken cancellationToken = default)
     {
-        var dfHandle = await PolarsWrapper.LazyCollectAsync(Handle,useStreaming);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var dfHandle = await PolarsWrapper.LazyCollectAsync(Handle, useStreaming, cancellationToken)
+                                          .ConfigureAwait(false);
+
         return new DataFrame(dfHandle);
     }
+
+    async Task<IPolarsDataFrame> IPolarsLazyFrame.CollectAsync(bool useStreaming, CancellationToken cancellationToken)
+        => await CollectAsync(useStreaming, cancellationToken).ConfigureAwait(false);
     // ==========================================
     // Output Sink (IO)
     // ==========================================

@@ -8,6 +8,7 @@ namespace Polars.NET.Linq;
 internal static class PolarsSqlTranslator
 {
     private static readonly ConcurrentDictionary<Type, string[]> _aliasCache = new();
+
     public static string[] Translate<T, TResult>(PolarsDataContext db, Expression<Func<T, TResult>> expr) where T : class
     {
         var dummyQuery = db.GetTable<T>().Select(expr);
@@ -38,17 +39,14 @@ internal static class PolarsSqlTranslator
         else
         {
             var type = body.Type;
-            
             if (type.Name.Contains("AnonymousType") || type.Name.Contains("AnonymousObject") || type.Name.Contains("AnonRecord"))
             {
-                var cachedAliases = _aliasCache.GetOrAdd(type, t =>
-                {
-                    return [.. t.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance).Select(p => p.Name)];
-                });
+                var cachedAliases = _aliasCache.GetOrAdd(type, static t =>
+                    [.. t.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance).Select(p => p.Name)]); // 明确转为数组，避免 LINQ 延迟执行的隐藏开销
 
                 if (cachedAliases.Length == snippets.Length)
                 {
-                    for (int i = 0; i < snippets.Length; i++) aliases[i] = cachedAliases[i];
+                    Array.Copy(cachedAliases, aliases, snippets.Length); 
                     gotAliases = true;
                 }
             }
@@ -58,40 +56,60 @@ internal static class PolarsSqlTranslator
         {
             for (int i = 0; i < snippets.Length; i++)
             {
-                var stripped = SqlSanitizer.RemoveTrailingAlias(snippets[i]);
-                snippets[i] = $"{stripped} AS {aliases[i]}";
+                // No alloc
+                ReadOnlySpan<char> strippedSpan = SqlSanitizer.RemoveTrailingAliasSpan(snippets[i].AsSpan());
+
+                snippets[i] = string.Concat(strippedSpan, " AS ", aliases[i].AsSpan());
             }
         }
         else
         {
             for (int i = 0; i < snippets.Length; i++)
             {
-                snippets[i] = SqlSanitizer.RemoveTrailingAlias(snippets[i]);
+                snippets[i] = SqlSanitizer.RemoveTrailingAliasSpan(snippets[i].AsSpan()).ToString();
             }
         }
         return snippets;
     }
 
+    // ====================================================================
+    // Split string by span
+    // ====================================================================
     private static string[] SplitSqlExpressions(string sql)
     {
-        var result = new List<string>();
-        int parens = 0, lastSplit = 0;
-        for (int i = 0; i < sql.Length; i++)
+        ReadOnlySpan<char> span = sql.AsSpan();
+        
+        int segmentCount = 1;
+        int parens = 0;
+        foreach (char c in span)
         {
-            if (sql[i] == '(') parens++;
-            else if (sql[i] == ')') parens--;
-            else if (sql[i] == ',' && parens == 0)
+            if (c == '(') parens++;
+            else if (c == ')') parens--;
+            else if (c == ',' && parens == 0) segmentCount++;
+        }
+
+        string[] result = new string[segmentCount];
+        
+        parens = 0;
+        int lastSplit = 0;
+        int currentIndex = 0;
+
+        for (int i = 0; i < span.Length; i++)
+        {
+            if (span[i] == '(') parens++;
+            else if (span[i] == ')') parens--;
+            else if (span[i] == ',' && parens == 0)
             {
-                result.Add(sql[lastSplit..i].Trim());
+                result[currentIndex++] = span[lastSplit..i].Trim().ToString();
                 lastSplit = i + 1;
             }
         }
-        result.Add(sql[lastSplit..].Trim());
-        return [.. result];
+        
+        result[currentIndex] = span[lastSplit..].Trim().ToString();
+        
+        return result;
     }
-
 }
-
 /// <summary>
 /// Provides utility methods to translate standalone .NET Lambda expressions into Polars-compatible SQL snippets.
 /// </summary>

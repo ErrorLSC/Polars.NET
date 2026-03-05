@@ -282,3 +282,29 @@ public static class Polars
         => date.Dt.Combine(time, tu);
 }
 
+public static class InterfaceUnwrapperExtensions
+{
+    /// <summary>
+    /// Unwrap IPolarsDataFrame as DataFrame 
+    /// </summary>
+    public static DataFrame AsDataFrame(this IPolarsDataFrame idf)
+    {
+        if (idf is DataFrame df)
+            return df;
+        
+        throw new InvalidCastException("Not Standard Polars DataFrame");
+    }
+    /// <summary>
+    /// Unwrap IPolarsLazyFrame as LazyFrame 
+    /// </summary>
+    /// <param name="ilf">A IPolarsLazyFrame</param>
+    /// <returns></returns>
+    /// <exception cref="InvalidCastException"></exception>
+    public static LazyFrame AsLazyFrame(this IPolarsLazyFrame ilf)
+    {
+        if (ilf is LazyFrame lf)
+            return lf;
+        
+        throw new InvalidCastException("Not Standard Polars DataFrame");
+    }
+}

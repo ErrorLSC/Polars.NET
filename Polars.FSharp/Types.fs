@@ -14,6 +14,7 @@ open System.Collections
 open System.Reflection
 open System.Text
 open System.IO
+open System.Threading
 /// --- Series ---
 /// <summary>
 /// An eager Series holding a single column of data.
@@ -4921,12 +4922,33 @@ and LazyFrame(handle: LazyFrameHandle) =
             
         member this.Explain(optimized: bool) = 
             this.Explain optimized
+        member this.CollectAsync(useStreaming: bool, cancellationToken: CancellationToken) =
+            task {
+                let! df = this.CollectAsync(useStreaming, cancellationToken)
+                
+                return df :> IPolarsDataFrame
+            }
     member internal this.CloneHandle() = PolarsWrapper.LazyClone handle
     /// <summary> Execute the plan and return a DataFrame. </summary>
     member this.Collect(?streaming:bool) = 
         let stream = defaultArg streaming false
         let dfHandle = PolarsWrapper.LazyCollect(handle,stream)
         new DataFrame(dfHandle)
+    member this.CollectAsync
+        (
+            ?useStreaming: bool, 
+            ?cancellationToken: CancellationToken
+        ) : Task<DataFrame> =
+        let us = defaultArg useStreaming false
+        let cct = defaultArg cancellationToken CancellationToken.None
+        
+        task {
+            cct.ThrowIfCancellationRequested()
+
+            let! dfHandle = PolarsWrapper.LazyCollectAsync(handle, us,cct)
+            
+            return new DataFrame(dfHandle)
+        }
     /// <summary> Execute the plan using the streaming engine. </summary>
     member _.CollectStreaming() =
         let dfHandle = PolarsWrapper.CollectStreaming handle
