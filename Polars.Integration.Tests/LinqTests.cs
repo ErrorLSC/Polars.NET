@@ -1324,8 +1324,8 @@ David,40,80000";
 
         // 断言安全切分成功
         Assert.Equal(2, multiSnippets.Length);
-        Assert.Contains("AS salary_sq", multiSnippets[0], StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("AS salary_dbl", multiSnippets[1], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("AS \"salary_sq\"", multiSnippets[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("AS \"salary_dbl\"", multiSnippets[1], StringComparison.OrdinalIgnoreCase);
 
         // ==========================================
         // 终极点火：多列白嫖文本转化为原生 Expr 并执行！

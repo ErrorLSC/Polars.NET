@@ -22,7 +22,7 @@ namespace Polars.NET.Linq;
 /// </remarks>
 public static class PolarsQueryableExtensions
 {
-    private static IPolarsLazyFrame TranslateAndExecute(IExpressionQuery exprQuery, PolarsDataContext db)
+    private static IPolarsLazyFrame TranslateAndExecute(IExpressionQuery exprQuery, PolarsDataContext db,Type originalType)
     {
         var sqlQueries = exprQuery.GetSqlQueries(null);
 
@@ -30,8 +30,8 @@ public static class PolarsQueryableExtensions
             throw new InvalidOperationException("[Polars.NET] linq2db SQL generation failed");
         var rawSql = sqlQueries[0].Sql;
         var sanitizedSql = SqlSanitizer.Clean(rawSql); 
-        var finalSql = PolarsSqlTranslator.InjectAliases(sanitizedSql, ((IQueryable)exprQuery).ElementType);
-
+        var finalSql = PolarsSqlTranslator.InjectAliases(sanitizedSql, originalType);
+        // Console.WriteLine(rawSql);
         return db.ExecuteToLazyFrame(finalSql);
     }
     /// <summary>
@@ -46,12 +46,13 @@ public static class PolarsQueryableExtensions
     /// </exception>
     public static IPolarsLazyFrame ToLazyFrame<T>(this IQueryable<T> query)
     {
+        Type originalType = typeof(T);
         // ==========================================
         // Fast Path: Method Chain
         // ==========================================
         if (query is IExpressionQuery fastQuery && fastQuery.DataContext is PolarsDataContext fastDb)
         {
-            return TranslateAndExecute(fastQuery, fastDb);
+            return TranslateAndExecute(fastQuery, fastDb,originalType);
         }
 
         // ==========================================
@@ -67,7 +68,7 @@ public static class PolarsQueryableExtensions
             
             if (pureQuery is IExpressionQuery pureExprQuery)
             {
-                return TranslateAndExecute(pureExprQuery, rewriter.Context);
+                return TranslateAndExecute(pureExprQuery, rewriter.Context,originalType);
             }
         }
 

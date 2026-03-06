@@ -18,49 +18,44 @@ internal static class PolarsSqlTranslator
 
         var rawSnippet = SqlSanitizer.ExtractSelectSnippet(fullSql);
         var cleanSnippet = SqlSanitizer.RemoveTableAliases(rawSnippet);
-        
         var snippets = SplitSqlExpressions(cleanSnippet);
 
         Expression body = expr.Body;
-        while (body.NodeType == ExpressionType.Convert || body.NodeType == ExpressionType.ConvertChecked || body.NodeType == ExpressionType.TypeAs)
+
+        while (body.NodeType is ExpressionType.Convert or ExpressionType.ConvertChecked or ExpressionType.TypeAs)
         {
             body = ((UnaryExpression)body).Operand;
         }
 
-        string[] aliases = new string[snippets.Length];
-        bool gotAliases = false;
+        string[]? aliases = null; 
 
-        // C# Anonymous Object
         if (body is NewExpression newExpr && newExpr.Members != null && newExpr.Members.Count == snippets.Length)
         {
+            // C# Anonymous Object
+            aliases = new string[snippets.Length];
             for (int i = 0; i < snippets.Length; i++) aliases[i] = newExpr.Members[i].Name;
-            gotAliases = true;
         }
-        // F# Anonymous Invoke
         else
         {
+            // F# AnonRecord 
             var type = body.Type;
             if (type.Name.Contains("AnonymousType") || type.Name.Contains("AnonymousObject") || type.Name.Contains("AnonRecord"))
             {
-                var cachedAliases = _aliasCache.GetOrAdd(type, static t =>
-                    [.. t.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance).Select(p => p.Name)]); // 明确转为数组，避免 LINQ 延迟执行的隐藏开销
-
+                var cachedAliases = _aliasCache.GetOrAdd(type, ExtractRealColumnNames); 
+                
                 if (cachedAliases.Length == snippets.Length)
                 {
-                    Array.Copy(cachedAliases, aliases, snippets.Length); 
-                    gotAliases = true;
+                    aliases = cachedAliases; 
                 }
             }
         }
 
-        if (gotAliases)
+        if (aliases != null)
         {
             for (int i = 0; i < snippets.Length; i++)
             {
-                // No alloc
                 ReadOnlySpan<char> strippedSpan = SqlSanitizer.RemoveTrailingAliasSpan(snippets[i].AsSpan());
-
-                snippets[i] = string.Concat(strippedSpan, " AS ", aliases[i].AsSpan());
+                snippets[i] = string.Concat(strippedSpan, " AS \"", aliases[i].AsSpan(), "\"");
             }
         }
         else
@@ -70,48 +65,84 @@ internal static class PolarsSqlTranslator
                 snippets[i] = SqlSanitizer.RemoveTrailingAliasSpan(snippets[i].AsSpan()).ToString();
             }
         }
+        
         return snippets;
     }
-    /// <summary>
-    /// Inject Correct Aliases for C# Anonymous Object
-    /// </summary>
+    [ThreadStatic]
+    private static System.Text.StringBuilder? _cachedSb;
     public static string InjectAliases(string fullSql, Type elementType)
     {
-        // only work for C# AnonymousType or F# AnonRecord
-        if (!elementType.Name.Contains("AnonymousType") && 
-            !elementType.Name.Contains("AnonymousObject") && 
-            !elementType.Name.Contains("AnonRecord"))
-        {
-            return fullSql; 
-        }
+        var aliases = _aliasCache.GetOrAdd(elementType, ExtractRealColumnNames);
+        
+        if (aliases.Length == 0) return fullSql;
 
-        // Get column name
-        var cachedAliases = _aliasCache.GetOrAdd(elementType, static t =>
-            [.. t.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance).Select(p => p.Name)]);
-
-        // Extract SELECT Snippet
         var rawSnippet = SqlSanitizer.ExtractSelectSnippet(fullSql);
         var snippets = SplitSqlExpressions(rawSnippet);
 
-        // Check length 
-        if (snippets.Length == cachedAliases.Length)
+        if (snippets.Length == aliases.Length)
         {
+            // Find start point
+            int snippetStartIndex = fullSql.IndexOf(rawSnippet, StringComparison.Ordinal);
+            if (snippetStartIndex < 0) return fullSql; 
+
+            // Init StringBuilder and alloc length
+            var sb = _cachedSb ??= new System.Text.StringBuilder();
+            sb.Clear(); 
+            
+            sb.EnsureCapacity(fullSql.Length + aliases.Length * 20);
+
+            // Step A: Insert full sql
+            sb.Append(fullSql.AsSpan(0, snippetStartIndex));
+
+            // Step B: Rearrange SELECT Projection columns
             for (int i = 0; i < snippets.Length; i++)
             {
                 ReadOnlySpan<char> strippedSpan = SqlSanitizer.RemoveTrailingAliasSpan(snippets[i].AsSpan());
+                
+                sb.Append(strippedSpan);      // Expression
+                sb.Append(" AS \"");          // AS
+                sb.Append(aliases[i]);        // Real Aliases
+                sb.Append('"');
 
-                snippets[i] = string.Concat(strippedSpan, " AS \"", cachedAliases[i].AsSpan(), "\"");
+                if (i < snippets.Length - 1)
+                {
+                    sb.Append(",\n        ");
+                }
             }
 
-            // Rejoin SELECT snippet
-            var newSelectSnippet = string.Join(",\n        ", snippets);
+            int snippetEndIndex = snippetStartIndex + rawSnippet.Length;
+            sb.Append(fullSql.AsSpan(snippetEndIndex));
 
-            // Replace
-            return fullSql.Replace(rawSnippet, newSelectSnippet);
+            return sb.ToString();
+        }
+        
+        return fullSql; 
+    }
+
+    private static string[] ExtractRealColumnNames(Type t)
+    {
+        if (t.Name.Contains("AnonymousType") || t.Name.Contains("AnonymousObject"))
+        {
+            var ctor = t.GetConstructors().FirstOrDefault();
+            if (ctor != null) return ctor.GetParameters().Select(p => p.Name!).ToArray();
+        }
+        
+        if (t.Name.Contains("AnonRecord"))
+        {
+            var namePart = t.Name;
+            int backtickIdx = namePart.IndexOf('`');
+            if (backtickIdx > 0) namePart = namePart.Substring(0, backtickIdx); 
+            
+            var prefix = "<>f__AnonymousRecord_";
+            if (namePart.StartsWith(prefix))
+            {
+                var fieldsPart = namePart.Substring(prefix.Length); 
+                var parts = fieldsPart.Split('_', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length > 0) return parts; 
+            }
         }
 
-        // Fallback
-        return fullSql; 
+        return []; 
     }
     // ====================================================================
     // Split string by span
@@ -120,29 +151,52 @@ internal static class PolarsSqlTranslator
     {
         ReadOnlySpan<char> span = sql.AsSpan();
         
+        // ==========================================
+        // Pass 1: Pre-Scan
+        // ==========================================
         int segmentCount = 1;
         int parens = 0;
+        bool inSingleQuote = false;
+        bool inDoubleQuote = false;
+
         foreach (char c in span)
         {
-            if (c == '(') parens++;
-            else if (c == ')') parens--;
-            else if (c == ',' && parens == 0) segmentCount++;
+            if (c == '\'') inSingleQuote = !inSingleQuote;
+            else if (c == '"') inDoubleQuote = !inDoubleQuote;
+            else if (!inSingleQuote && !inDoubleQuote) 
+            {
+                if (c == '(') parens++;
+                else if (c == ')') parens--;
+                else if (c == ',' && parens == 0) segmentCount++;
+            }
         }
 
         string[] result = new string[segmentCount];
         
+        // ==========================================
+        // Pass 2: Slice without alloc
+        // ==========================================
         parens = 0;
+        inSingleQuote = false;
+        inDoubleQuote = false;
         int lastSplit = 0;
         int currentIndex = 0;
 
         for (int i = 0; i < span.Length; i++)
         {
-            if (span[i] == '(') parens++;
-            else if (span[i] == ')') parens--;
-            else if (span[i] == ',' && parens == 0)
+            char c = span[i];
+            
+            if (c == '\'') inSingleQuote = !inSingleQuote;
+            else if (c == '"') inDoubleQuote = !inDoubleQuote;
+            else if (!inSingleQuote && !inDoubleQuote)
             {
-                result[currentIndex++] = span[lastSplit..i].Trim().ToString();
-                lastSplit = i + 1;
+                if (c == '(') parens++;
+                else if (c == ')') parens--;
+                else if (c == ',' && parens == 0)
+                {
+                    result[currentIndex++] = span[lastSplit..i].Trim().ToString();
+                    lastSplit = i + 1;
+                }
             }
         }
         

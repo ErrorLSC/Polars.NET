@@ -1085,8 +1085,9 @@ module QueryTests =
         // 从磁盘建立扫描器，延迟执行
         // ==========================================
         use rawLf = LazyFrame.ScanCsv(path, schema = schema)
-        
-        let emps = db.RegisterTable<StaffRecord>("emps", rawLf)
+        // let plan = rawLf.Explain()
+        // Console.WriteLine plan
+        let emps = db.RegisterTable<StaffRecord>("emps", rawLf,schema)
         
         // ==========================================
         // 2. LINQ 阶段 (业务表达阶段)
@@ -1099,13 +1100,13 @@ module QueryTests =
                 select {| name = e.name; salary = e.salary |}
             }
             
-        // printfn "--- Plan 1 (After LINQ) ---\n%s" (linqQuery.Explain true)
+        printfn "--- Plan 1 (After LINQ) ---\n%s" (linqQuery.Explain true)
 
         // ==========================================
         // 3. 截胡！回到 Native (后处理阶段)
         // ==========================================
         // 注意 F# 中的向下转型使用 :?> 语法
-        use lfWithLinq = linqQuery.ToLazyFrame() |> asLazyFrame
+        use lfWithLinq = linqQuery.ToLazyFrame() :?> LazyFrame
 
         // 继续使用 Polars 原生 API 做一些 LINQ 很难表达或极其底层的操作
         use finalLf = lfWithLinq.WithColumn(pl.col("salary").Std().Alias "salary_std")
