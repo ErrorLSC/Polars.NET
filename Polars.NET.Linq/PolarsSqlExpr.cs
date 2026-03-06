@@ -68,12 +68,9 @@ internal static class PolarsSqlTranslator
         
         return snippets;
     }
-    [ThreadStatic]
-    private static System.Text.StringBuilder? _cachedSb;
     public static string InjectAliases(string fullSql, Type elementType)
     {
         var aliases = _aliasCache.GetOrAdd(elementType, ExtractRealColumnNames);
-        
         if (aliases.Length == 0) return fullSql;
 
         var rawSnippet = SqlSanitizer.ExtractSelectSnippet(fullSql);
@@ -81,39 +78,34 @@ internal static class PolarsSqlTranslator
 
         if (snippets.Length == aliases.Length)
         {
-            // Find start point
             int snippetStartIndex = fullSql.IndexOf(rawSnippet, StringComparison.Ordinal);
-            if (snippetStartIndex < 0) return fullSql; 
+            if (snippetStartIndex < 0) return fullSql;
 
-            // Init StringBuilder and alloc length
-            var sb = _cachedSb ??= new System.Text.StringBuilder();
-            sb.Clear(); 
-            
-            sb.EnsureCapacity(fullSql.Length + aliases.Length * 20);
+            // stackalloc here
+            Span<char> initialBuffer = stackalloc char[Math.Min(fullSql.Length + 64, 512)]; 
+            var vsb = new ValueStringBuilder(initialBuffer);
 
-            // Step A: Insert full sql
-            sb.Append(fullSql.AsSpan(0, snippetStartIndex));
+            vsb.Append(fullSql.AsSpan(0, snippetStartIndex));
 
-            // Step B: Rearrange SELECT Projection columns
             for (int i = 0; i < snippets.Length; i++)
             {
                 ReadOnlySpan<char> strippedSpan = SqlSanitizer.RemoveTrailingAliasSpan(snippets[i].AsSpan());
-                
-                sb.Append(strippedSpan);      // Expression
-                sb.Append(" AS \"");          // AS
-                sb.Append(aliases[i]);        // Real Aliases
-                sb.Append('"');
+                vsb.Append(strippedSpan);      
+                vsb.Append(" AS \"");          
+                vsb.Append(aliases[i]);        
+                vsb.Append('"');
 
                 if (i < snippets.Length - 1)
                 {
-                    sb.Append(",\n        ");
+                    vsb.Append(",\n        "); 
                 }
             }
 
             int snippetEndIndex = snippetStartIndex + rawSnippet.Length;
-            sb.Append(fullSql.AsSpan(snippetEndIndex));
+            vsb.Append(fullSql.AsSpan(snippetEndIndex));
 
-            return sb.ToString();
+            // 生成最终字符串，并内部调用 Dispose 还给 ArrayPool
+            return vsb.ToString(); 
         }
         
         return fullSql; 
