@@ -932,69 +932,7 @@ public class LazyFrame : IDisposable,IPolarsLazyFrame
 
         return new LazyFrame(h);
     }
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <returns></returns>
-    public static LazyFrame ScanDelta(
-        string workspaceUrl,
-        string bearerToken,
-        string catalogName,
-        string schemaName,
-        string tableName,
-        ulong? nRows = null,
-        ParallelStrategy parallel = ParallelStrategy.Auto,
-        bool lowMemory = false,
-        bool useStatistics = true,
-        bool glob = true,
-        bool rechunk = false, 
-        bool cache = true,    
-        string? rowIndexName = null,
-        uint rowIndexOffset = 0,
-        string? includePathColumn = null,
-        PolarsSchema? schema = null,
-        bool hivePartitioning = true,
-        PolarsSchema? hivePartitionSchema = null,
-        bool tryParseHiveDates = true,
-        CloudOptions? cloudOptions = null)
-    {
-        var schemaHandle = schema?.Handle;
-        var hiveSchemaHandle = hivePartitionSchema?.Handle;
-        
-        var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
-
-        var h = PolarsWrapper.ScanDeltaCatalog(
-            workspaceUrl,
-            bearerToken,
-            catalogName,
-            schemaName,
-            tableName,
-            nRows,
-            parallel.ToNative(),
-            lowMemory,
-            useStatistics,
-            glob,
-            rechunk, 
-            cache,   
-            rowIndexName,
-            rowIndexOffset,
-            includePathColumn,
-            schemaHandle,     
-            hivePartitioning,
-            hiveSchemaHandle, 
-            tryParseHiveDates,
-            provider.ToNative(),
-            retries,
-            retryTimeoutMs,
-            retryInitBackoffMs,
-            retryMaxBackoffMs,
-            cacheTtl,
-            keys,
-            values
-        );
-
-        return new LazyFrame(h);
-    }
+   
     /// <summary>
     /// Sink the LazyFrame to a Delta Lake table with partition discovery.
     /// <para>

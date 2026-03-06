@@ -122,3 +122,15 @@ public class SchemaHandle : PolarsHandle
         return true;
     }
 }
+
+public class CatalogHandle : PolarsHandle
+{
+    protected override bool ReleaseHandle()
+    {
+        if (!IsInvalid)
+        {
+            NativeBindings.pl_catalog_unity_free(handle);
+        }
+        return true;
+    }
+}

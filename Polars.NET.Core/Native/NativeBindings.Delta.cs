@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace Polars.NET.Core.Native;
 
-unsafe internal partial class NativeBindings
+internal partial class NativeBindings
 {
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_io_delta_vacuum(
@@ -119,43 +119,6 @@ unsafe internal partial class NativeBindings
         string[]? cloud_keys,
         string[]? cloud_values,
         UIntPtr cloud_len
-    );
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial LazyFrameHandle pl_scan_delta_catalog(
-        string workspaceUrl,
-        // --- Time Travel ---
-        string bearerToken,
-        string catalogName,
-        string schemaName,
-        string tableName,
-        // --- Scan Args ---
-        IntPtr n_rows, // null for None
-        PlParallelStrategy parallel_code,
-        [MarshalAs(UnmanagedType.I1)] bool low_memory,
-        [MarshalAs(UnmanagedType.I1)] bool use_statistics,
-        [MarshalAs(UnmanagedType.I1)] bool glob,
-        [MarshalAs(UnmanagedType.I1)] bool rechunk, 
-        [MarshalAs(UnmanagedType.I1)] bool cache,   
-        // --- Option Names ---
-        string? row_index_name,
-        uint row_index_offset,
-        string? include_path_col,
-        // --- Schema ---
-        IntPtr schema,
-        [MarshalAs(UnmanagedType.I1)] bool hive_partitioning,
-        IntPtr hive_schema,
-        [MarshalAs(UnmanagedType.I1)] bool try_parse_hive_dates,
-        // --- Cloud Params ---
-        PlCloudProvider cloud_provider,
-        nuint cloud_retries,
-        ulong cloud_retry_timeout_ms,
-        ulong cloud_retry_init_backoff_ms,
-        ulong cloud_retry_max_backoff_ms,
-        ulong cloud_cache_ttl,
-        string[]? cloud_keys,
-        string[]? cloud_values,
-        nuint cloud_len
     );
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]

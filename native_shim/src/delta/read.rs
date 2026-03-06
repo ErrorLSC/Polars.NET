@@ -6,7 +6,7 @@ use polars_io::HiveOptions;
 use url::Url;
 use std::{collections::HashMap, ffi::c_char, sync::Arc};
 
-use crate::delta::{catalog::get_catalog_table_info, utils::{build_delta_storage_options_map, get_polars_schema_from_delta, get_runtime}};
+use crate::{delta::utils::{build_delta_storage_options_map, get_polars_schema_from_delta, get_runtime}};
 use crate::pl_io::parquet::parquet_utils::build_scan_args;
 use crate::types::{LazyFrameContext, SchemaContext};
 use crate::utils::ptr_to_str;
@@ -87,97 +87,6 @@ pub extern "C" fn pl_scan_delta(
             delta_opts, 
             version_val, 
             datetime_str, 
-            args, 
-            hive_schema_is_null,
-            try_parse_hive_dates
-        )?;
-        
-        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: final_lf })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_scan_delta_catalog(
-    // --- Catalog 专有凭证 ---
-    workspace_url_ptr: *const c_char,
-    bearer_token_ptr: *const c_char,
-    catalog_name_ptr: *const c_char,
-    schema_name_ptr: *const c_char,
-    table_name_ptr: *const c_char,
-    
-    // --- 下面全是标准 Scan Args (与 pl_scan_delta 完全一致) ---
-    n_rows: *const usize,
-    parallel_code: u8,
-    low_memory: bool,
-    use_statistics: bool,
-    glob: bool,
-    rechunk: bool, 
-    cache: bool,   
-    row_index_name_ptr: *const c_char,
-    row_index_offset: u32,
-    include_path_col_ptr: *const c_char,
-    schema_ptr: *mut SchemaContext, 
-    hive_partitioning: bool,
-    hive_schema_ptr: *mut SchemaContext,
-    try_parse_hive_dates: bool,
-    
-    // --- Cloud Options ---
-    cloud_provider: u8,
-    cloud_retries: usize,
-    cloud_retry_timeout_ms: u64,      
-    cloud_retry_init_backoff_ms: u64, 
-    cloud_retry_max_backoff_ms: u64, 
-    cloud_cache_ttl: u64,
-    cloud_keys: *const *const c_char,
-    cloud_values: *const *const c_char,
-    cloud_len: usize
-) -> *mut LazyFrameContext {
-    ffi_try!({
-        // 1. FFI 数据清洗：清洗 Catalog 参数
-        let workspace_url = ptr_to_str(workspace_url_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
-        let bearer_token = ptr_to_str(bearer_token_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
-        let catalog_name = ptr_to_str(catalog_name_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
-        let schema_name = ptr_to_str(schema_name_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
-        let table_name = ptr_to_str(table_name_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
-
-        let allow_missing_columns = true;
-        let mut final_delta_opts = build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
-
-        // 2. 构建 ScanArgs (复用现有的基础 build_scan_args)
-        let args = build_scan_args(
-            n_rows, parallel_code, low_memory, use_statistics, 
-            glob, allow_missing_columns, 
-            row_index_name_ptr, row_index_offset, include_path_col_ptr,
-            schema_ptr, hive_partitioning,
-            hive_schema_ptr, try_parse_hive_dates,
-            rechunk, cache,
-            cloud_provider, cloud_retries, cloud_retry_timeout_ms,      
-            cloud_retry_init_backoff_ms, cloud_retry_max_backoff_ms, cloud_cache_ttl, 
-            cloud_keys, cloud_values, cloud_len
-        );
-
-        let hive_schema_is_null = hive_schema_ptr.is_null();
-        let rt = get_runtime();
-
-        // 3. 异步获取 Catalog 信息 (核心桥接)
-        let (table_url, delta_opts) = rt.block_on(get_catalog_table_info(
-            workspace_url, 
-            bearer_token, 
-            catalog_name, 
-            schema_name, 
-            table_name,
-            false // write
-        ))?;
-        for (k, v) in &delta_opts {
-            final_delta_opts.insert(k.to_string(), v.to_string());
-        }
-        // 4. 万剑归宗：调用重构好的内部执行引擎！
-        // 因为 Catalog 目前不支持 time travel 参数，所以传入 None
-        let final_lf = scan_delta_internal(
-            table_url, 
-            final_delta_opts, 
-            None, // version_val
-            None, // datetime_str
             args, 
             hive_schema_is_null,
             try_parse_hive_dates

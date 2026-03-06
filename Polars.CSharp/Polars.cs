@@ -6,7 +6,7 @@ namespace Polars.CSharp;
 /// <summary>
 /// Polars Static Helpers
 /// </summary>
-public static class Polars
+public static partial class Polars
 {
     /// <summary>
     /// Column Expr (name: string)

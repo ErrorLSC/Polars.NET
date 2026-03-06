@@ -89,6 +89,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
                         catalog_name = catalog,
                         schema_name = schema,
                         table_type = "EXTERNAL",
+                        data_source_format = "DELTA",
                         storage_location = s3StorageLocation,
                         table_id = dummyTableId,
                         
@@ -142,14 +143,17 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         readOptions.Credentials!["aws_allow_http"] = "true";
         readOptions.Credentials!["aws_s3_force_path_style"] = "true";
 
-        // 发起请求：向本地的 WireMock 请求表信息，底层自动拿凭证去连 MinIO
-        using var lf = LazyFrame.ScanDelta(
-            workspaceUrl: _catalogMockServer.Urls[0],
-            bearerToken: expectedToken,
+        // 发起请求：
+        // A. 实例化咱们新设计的 UnityCatalog 对象
+        using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
+        
+        // B. 使用 Catalog 对象的上下文去扫描表！
+        using var lf = uc.ScanCatalogTable(
             catalogName: catalog,
             schemaName: schema,
             tableName: table,
             cloudOptions: readOptions
+            // 注意：咱们刚加的 version 和 datetime 参数如果不传就是 null，默认读最新版！
         );
 
         using var resultDf = lf.Collect();
