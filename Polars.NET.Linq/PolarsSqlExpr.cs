@@ -262,7 +262,7 @@ public static class PolarsSql
     //     => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     // ==========================================
-    // 弧度/角度转换
+    // Degree <=> Radians
     // ==========================================
     [Sql.Function("DEGREES", ServerSideOnly = true)]
     public static double Degrees(double radians) => throw new InvalidOperationException("Only for LINQ to Polars.");
@@ -271,7 +271,7 @@ public static class PolarsSql
     public static double Radians(double degrees) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     // ==========================================
-    // 余切函数
+    // Cot
     // ==========================================
     [Sql.Function("COT", ServerSideOnly = true)]
     public static double Cot(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
@@ -280,7 +280,7 @@ public static class PolarsSql
     public static double Cotd(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     // ==========================================
-    // 基于角度 (Degree) 的正余弦/正切
+    // Degree Trag
     // ==========================================
     [Sql.Function("SIND", ServerSideOnly = true)]
     public static double Sind(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
@@ -292,7 +292,7 @@ public static class PolarsSql
     public static double Tand(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     // ==========================================
-    // 基于角度 (Degree) 的反三角函数
+    // Degree Arc Trag
     // ==========================================
     [Sql.Function("ACOSD", ServerSideOnly = true)]
     public static double Acosd(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
@@ -307,36 +307,30 @@ public static class PolarsSql
     public static double Atan2d(double y, double x) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     // ==========================================
-    // 基础运算与取整 (绕过 LinqToDB 的迷之强转和丢失)
+    // Base Math
     // ==========================================
     
-    // 绝对控制：只取前两个参数 {0} 和 {1}，彻底无视泛型类型 T
     [Sql.Expression("MOD({0}, {1})", ServerSideOnly = true)]
-    public static T Mod<T>(T a, T b) => throw new InvalidOperationException("仅限 LINQ 查询使用");
+    public static T Mod<T>(T a, T b) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     [Sql.Expression("CEIL({0})", ServerSideOnly = true)]
-    public static T Ceil<T>(T value) => throw new InvalidOperationException("仅限 LINQ 查询使用");
+    public static T Ceil<T>(T value) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     [Sql.Expression("ROUND({0}, {1})", ServerSideOnly = true)]
-    public static T Round<T>(T value, int decimals) => throw new InvalidOperationException("仅限 LINQ 查询使用");
+    public static T Round<T>(T value, int decimals) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
-    [Sql.Function("DIV", ServerSideOnly = true)] // 如果你想强制生成 DIV(a, b) 函数而不是 a / b
+    [Sql.Function("DIV", ServerSideOnly = true)]
     public static long Div(long a, long b) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     // ==========================================
-    // 2. 幂与根 (拯救丢失的 CBRT)
+    // Cbrt
     // ==========================================
-    
-    // 统一使用 POW 而不是 POWER
-    [Sql.Function("POW", ServerSideOnly = true)]
-    public static T Pow<T>(T baseValue, T exponent) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
-    // 拯救完全被 LinqToDB 忽略的立方根
     [Sql.Function("CBRT", ServerSideOnly = true)]
     public static double Cbrt(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     // ==========================================
-    // 3. 对数家族 (纠正 Polars 严格的方法名)
+    // Log
     // ==========================================
     
     [Sql.Function("LOG10", ServerSideOnly = true)]
@@ -348,11 +342,8 @@ public static class PolarsSql
     [Sql.Function("LOG1P", ServerSideOnly = true)]
     public static double Log1p(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
     
-    // Polars 原生的 LOG 允许指定 base，例如 LOG(base, x) 
-    // 但安全起见，推荐使用专用的 Log10, Log2
-    
     // ==========================================
-    // 4. 常量生成
+    // Constant Generator
     // ==========================================
     
     [Sql.Function("PI", ServerSideOnly = true)]

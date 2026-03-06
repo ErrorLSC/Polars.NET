@@ -85,9 +85,7 @@ unsafe internal partial class NativeBindings
         string[]? values,
         nuint cloud_len
     );
-    // ==========================================
-    // Delta Lake
-    // ==========================================
+
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_scan_delta(
         string path,
@@ -121,6 +119,43 @@ unsafe internal partial class NativeBindings
         string[]? cloud_keys,
         string[]? cloud_values,
         UIntPtr cloud_len
+    );
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LazyFrameHandle pl_scan_delta_catalog(
+        string workspaceUrl,
+        // --- Time Travel ---
+        string bearerToken,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        // --- Scan Args ---
+        IntPtr n_rows, // null for None
+        PlParallelStrategy parallel_code,
+        [MarshalAs(UnmanagedType.I1)] bool low_memory,
+        [MarshalAs(UnmanagedType.I1)] bool use_statistics,
+        [MarshalAs(UnmanagedType.I1)] bool glob,
+        [MarshalAs(UnmanagedType.I1)] bool rechunk, 
+        [MarshalAs(UnmanagedType.I1)] bool cache,   
+        // --- Option Names ---
+        string? row_index_name,
+        uint row_index_offset,
+        string? include_path_col,
+        // --- Schema ---
+        IntPtr schema,
+        [MarshalAs(UnmanagedType.I1)] bool hive_partitioning,
+        IntPtr hive_schema,
+        [MarshalAs(UnmanagedType.I1)] bool try_parse_hive_dates,
+        // --- Cloud Params ---
+        PlCloudProvider cloud_provider,
+        nuint cloud_retries,
+        ulong cloud_retry_timeout_ms,
+        ulong cloud_retry_init_backoff_ms,
+        ulong cloud_retry_max_backoff_ms,
+        ulong cloud_cache_ttl,
+        string[]? cloud_keys,
+        string[]? cloud_values,
+        nuint cloud_len
     );
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
@@ -205,14 +240,13 @@ unsafe internal partial class NativeBindings
         string[] merge_key,
         nuint merge_key_len,
 
-        // --- [NEW] 动态动作序列的平行数组 ---
-        PlMergeActionType[] action_types,       // 对应 Rust: *const u8 (传枚举值 0,1,2,3)
-        IntPtr[] action_exprs,     // 对应 Rust: *const *mut ExprContext (传 ExprHandle.DangerousGetHandle())
-        nuint actions_count,       // 对应 Rust: usize
+        PlMergeActionType[] action_types,    
+        IntPtr[] action_exprs,    
+        nuint actions_count,      
 
         [MarshalAs(UnmanagedType.U1)] bool can_evolve,
         
-        // --- Cloud Options (保持不变) ---
+        // --- Cloud Options ---
         PlCloudProvider cloud_provider,
         UIntPtr cloud_retries,
         ulong cloud_retry_timeout_ms,

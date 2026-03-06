@@ -2165,6 +2165,7 @@ David,40,80000";
             })
             .ToDataFrame().AsDataFrame();
         query.Show();
+
         Assert.Equal(18L, query.Width);
         // Assert.Single(query);
     }

@@ -27,11 +27,9 @@ type StaffRecordWithBonus = {
     name: string
     age: int
     salary: float
-    bonus: float // C# 中的 double 在 F# 中对应 float
+    bonus: float 
 }
 type TrafficRecord = { Id: int; Region: string; Latency: float }
-// 为下半场的 NestedList 提前备好 DTO
-// type DeptDto = { DeptId: int; DeptName: string }
 type EmpDto = { Name: string; DeptId: int }
 
 module QueryTests =
@@ -1107,7 +1105,7 @@ module QueryTests =
         // 3. 截胡！回到 Native (后处理阶段)
         // ==========================================
         // 注意 F# 中的向下转型使用 :?> 语法
-        use lfWithLinq = linqQuery.ToLazyFrame() :?> LazyFrame
+        use lfWithLinq = linqQuery.ToLazyFrame() |> asLazyFrame
 
         // 继续使用 Polars 原生 API 做一些 LINQ 很难表达或极其底层的操作
         use finalLf = lfWithLinq.WithColumn(pl.col("salary").Std().Alias "salary_std")
@@ -1318,7 +1316,6 @@ module QueryTests =
         Assert.True(deleted >= 0)
     [<Fact>]
     [<Trait("Linq", "Async_Stress_ToDataFrame")>]
-    // 注意：测试方法本身就是一个 task { }
     let ``Test Polars Linq High Concurrency ToDataFrameAsync Stress`` () = task {
         
         // ==============================================================
@@ -1370,11 +1367,11 @@ module QueryTests =
         }
 
         // ==============================================================
-        // 3. 点火！瞬间发射 100 个并发计算任务！
+        // 3. 点火！瞬间发射 1000 个并发计算任务！
         // ==============================================================
         let concurrencyLevel = 1000
         
-        // 抛弃丑陋的 for 循环和 List.Add，一句话生成 100 个并发 Task！
+        // 抛弃丑陋的 for 循环和 List.Add，一句话生成 1000 个并发 Task！
         let tasks = Array.init concurrencyLevel simulateDataFrameQueryAsync
 
         // 挂起等待 100 个底层的 LazyCollect 并发完成
@@ -1389,6 +1386,4 @@ module QueryTests =
         for height in finalHeights do
             // 注意 F# 里 int64 需要加后缀 'L'
             Assert.True(height > 0L && height <= 2000L)
-        
-        Console.WriteLine(sprintf "[Polars.NET] F# ToDataFrameAsync 成功扛住了 %d 个并发底层执行！" concurrencyLevel)
     }

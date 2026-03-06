@@ -9,15 +9,8 @@ using Polars.NET.Core;
 
 namespace Polars.Integration.Tests;
 
-public class DeltaLakeTests : IClassFixture<MinioFixture>
+public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 {
-    private readonly MinioFixture _minio;
-
-    public DeltaLakeTests(MinioFixture minio)
-    {
-        _minio = minio;
-    }
-
     [Fact]
     public async Task Test_Scan_Delta_AWS_Minio()
     {
@@ -25,7 +18,7 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
         // 1. 准备环境 & 配置
         // ==========================================
         var tableName = $"delta_table_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         var parquetFileName = "part-0000.parquet";
         var parquetUrl = $"{rootUrl}/{parquetFileName}";
 
@@ -33,7 +26,7 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
         // 关键修复：处理 Endpoint 格式
         // ==========================================
         // 1. MinIO 的 Endpoint 通常是 "127.0.0.1:32899" 这种格式
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
 
         // 2. Polars (Rust) 必须要有协议头，否则 Url::parse 失败 -> 回退到真实 AWS
         var polarsEndpoint = $"http://{rawEndpoint}";
@@ -43,9 +36,9 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
 
         // 构造 CloudOptions 给 Polars
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint // <--- 传入带 http:// 的地址
         );
         options.Credentials!["aws_allow_http"] = "true"; // 允许 HTTP
@@ -125,13 +118,13 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
         // 注意：这里需要依赖 Minio NuGet 包
         var minioClient = new MinioClient()
             .WithEndpoint(minioSdkEndpoint)
-            .WithCredentials(_minio.AccessKey, _minio.SecretKey)
-            .WithRegion(_minio.Region)
+            .WithCredentials(minio.AccessKey, minio.SecretKey)
+            .WithRegion(minio.Region)
             .Build();
 
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(logContent));
         await minioClient.PutObjectAsync(new PutObjectArgs()
-            .WithBucket(_minio.BucketName)
+            .WithBucket(minio.BucketName)
             .WithObject(logPath)
             .WithStreamData(stream)
             .WithObjectSize(stream.Length)
@@ -168,17 +161,17 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
         // 1. 环境准备
         // ==========================================
         var tableName = $"delta_time_travel_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         
         // 构造 Endpoint
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}"; // Polars 需要 http://
         
         // Polars Cloud Options
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
         options.Credentials!["aws_allow_http"] = "true";
@@ -187,8 +180,8 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
         // MinIO Client (用于上传 Log)
         var minioClient = new MinioClient()
             .WithEndpoint(rawEndpoint)
-            .WithCredentials(_minio.AccessKey, _minio.SecretKey)
-            .WithRegion(_minio.Region)
+            .WithCredentials(minio.AccessKey, minio.SecretKey)
+            .WithRegion(minio.Region)
             .Build();
 
         // 定义时间点 (用于 Datetime Travel 测试)
@@ -219,7 +212,7 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
         ));
         sb0.AppendLine(DeltaLakeTestHelper.ActionAdd(fileV0, modTime: timeV0.ToUnixTimeMilliseconds()));
         
-        await DeltaLakeTestHelper.UploadLogAsync(minioClient, _minio.BucketName, tableName, 0, sb0.ToString());
+        await DeltaLakeTestHelper.UploadLogAsync(minioClient, minio.BucketName, tableName, 0, sb0.ToString());
 
         // ==========================================
         // 3. 构造 Version 1 (Append Commit)
@@ -240,7 +233,7 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
         var sb1 = new StringBuilder();
         sb1.AppendLine(DeltaLakeTestHelper.ActionAdd(fileV1, modTime: timeV1.ToUnixTimeMilliseconds()));
 
-        await DeltaLakeTestHelper.UploadLogAsync(minioClient, _minio.BucketName, tableName, 1, sb1.ToString());
+        await DeltaLakeTestHelper.UploadLogAsync(minioClient, minio.BucketName, tableName, 1, sb1.ToString());
 
         // ==========================================
         // 4. 测试 A: 读取最新版 (Snapshot / Version 1)
@@ -283,15 +276,15 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
         // 1. 环境与鉴权准备
         // ==========================================
         var tableName = $"delta_modes_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
 
@@ -405,15 +398,15 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
         // ==========================================
         var tableName = $"delta_partitioned_{Guid.NewGuid()}";
         // 假设 _minio 是你测试基类中配置好的 MinioFixture
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
 
@@ -556,13 +549,13 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
     {
         // 1. 准备环境
         var tableName = $"delta_evolve_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
-            endpoint: $"http://{_minio.Endpoint.Replace("http://", "")}"
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
+            endpoint: $"http://{minio.Endpoint.Replace("http://", "")}"
         );
         options.Credentials!["AWS_ALLOW_HTTP"] = "true";
         options.Credentials!["aws_s3_force_path_style"] = "true";
@@ -657,15 +650,15 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
         // 1. 环境与鉴权准备
         // ==========================================
         var tableName = $"delta_delete_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
 
@@ -782,14 +775,14 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
         // 1. 环境准备
         // ==========================================
         var tableName = $"delta_dv_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
         options.Credentials!["AWS_ALLOW_HTTP"] = "true";
@@ -869,15 +862,15 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
         // 1. 环境与鉴权准备 (S3/MinIO)
         // ==========================================
         var tableName = $"delta_merge_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
 
@@ -1010,13 +1003,13 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
         // 0. 环境准备
         // ==========================================
         var tableName = $"delta_merge_evolve_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
-            endpoint: $"http://{_minio.Endpoint.Replace("http://", "")}"
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
+            endpoint: $"http://{minio.Endpoint.Replace("http://", "")}"
         );
         options.Credentials!["AWS_ALLOW_HTTP"] = "true";
         options.Credentials!["aws_s3_force_path_style"] = "true";
@@ -1159,15 +1152,15 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
         // 1. 环境准备
         // ==========================================
         var tableName = $"delta_merge_full_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
         options.Credentials!["AWS_ALLOW_HTTP"] = "true";
@@ -1313,15 +1306,15 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
         // 1. 环境准备
         // ==========================================
         var tableName = $"delta_merge_dv_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
         options.Credentials!["AWS_ALLOW_HTTP"] = "true";
@@ -1455,13 +1448,13 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
         // 1. 环境准备
         // ==========================================
         var tableName = $"delta_merge_composite_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
-            endpoint: $"http://{_minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/')}"
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
+            endpoint: $"http://{minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/')}"
         );
         options.Credentials!["AWS_ALLOW_HTTP"] = "true";
         options.Credentials!["aws_s3_force_path_style"] = "true";
@@ -1599,14 +1592,14 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
     public void Test_Merge_Delta_Partial_Update_Allowed()
     {
         var tableName = $"delta_merge_partial_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
         options.Credentials!["AWS_ALLOW_HTTP"] = "true";
@@ -1646,14 +1639,14 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
     public void Test_Merge_Delta_With_Duplicate_Source_Keys()
     {
         var tableName = $"delta_merge_dup_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
         options.Credentials!["AWS_ALLOW_HTTP"] = "true";
@@ -1691,14 +1684,14 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
     public void Test_Merge_Delta_Explicit_Null_Overwrites_Value()
     {
         var tableName = $"delta_merge_null_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
         options.Credentials!["AWS_ALLOW_HTTP"] = "true";
@@ -1747,14 +1740,14 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
     public void Test_Merge_Delta_Schema_Evolution_Add_New_Column()
     {
         var tableName = $"delta_merge_evolution_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
         options.Credentials!["AWS_ALLOW_HTTP"] = "true";
@@ -1821,14 +1814,14 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
     {
         // 1. Setup: 初始化一张表，有一行基础数据
         var tableName = $"delta_concurrent_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
         options.Credentials!["AWS_ALLOW_HTTP"] = "true";
@@ -1910,15 +1903,15 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
         // 1. 环境与鉴权准备
         // ==========================================
         var tableName = $"delta_vacuum_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
 
@@ -2040,14 +2033,14 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
     public void Test_Restore_To_Version()
     {
         var tableName = $"delta_restore_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
 
@@ -2095,14 +2088,14 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
     public void Test_Optimize_ZOrder_Scale_100()
     {
         var tableName = $"delta_opt_100_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
 
@@ -2184,14 +2177,14 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
     public void Test_Optimize_ZOrder_With_Deletion_Vectors_Scale_100()
     {
         var tableName = $"delta_opt_dv_100_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
 
@@ -2318,14 +2311,14 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
     public void Test_Add_DeletionVector_Feature()
     {
         var tableName = $"delta_feat_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
 
@@ -2364,14 +2357,14 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
     public void Test_Set_Table_Retention()
     {
         var tableName = $"delta_props_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
-        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
             endpoint: polarsEndpoint
         );
         
@@ -2418,13 +2411,13 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
         // 1. 环境准备
         // ==========================================
         var tableName = $"delta_merge_composite_ordered_{Guid.NewGuid()}";
-        var rootUrl = $"s3://{_minio.BucketName}/{tableName}";
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
-            endpoint: $"http://{_minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/')}"
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
+            endpoint: $"http://{minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/')}"
         );
         options.Credentials!["AWS_ALLOW_HTTP"] = "true";
         options.Credentials!["aws_s3_force_path_style"] = "true";
@@ -2567,16 +2560,16 @@ public class DeltaLakeTests : IClassFixture<MinioFixture>
         // 1. 环境准备：建两个完全相同的表
         // ==========================================
         var tableDeleteWins = $"delta_merge_order_del_{Guid.NewGuid()}";
-        var urlDeleteWins = $"s3://{_minio.BucketName}/{tableDeleteWins}";
+        var urlDeleteWins = $"s3://{minio.BucketName}/{tableDeleteWins}";
 
         var tableUpdateWins = $"delta_merge_order_upd_{Guid.NewGuid()}";
-        var urlUpdateWins = $"s3://{_minio.BucketName}/{tableUpdateWins}";
+        var urlUpdateWins = $"s3://{minio.BucketName}/{tableUpdateWins}";
 
         var options = CloudOptions.Aws(
-            region: _minio.Region,
-            accessKey: _minio.AccessKey,
-            secretKey: _minio.SecretKey,
-            endpoint: $"http://{_minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/')}"
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
+            endpoint: $"http://{minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/')}"
         );
         options.Credentials!["AWS_ALLOW_HTTP"] = "true";
         options.Credentials!["aws_s3_force_path_style"] = "true";

@@ -116,9 +116,6 @@ public static partial class PolarsWrapper
         nuint zOrderLen = (nuint)(zOrderCols?.Length ?? 0);
         nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
 
-        nuint optimizedFilesCount;
-
-        // 3. 调用 Native Binding
         NativeBindings.pl_io_delta_optimize(
             path,
             targetSizeMb,
@@ -134,7 +131,7 @@ public static partial class PolarsWrapper
             cloudKeys,
             cloudValues,
             cloudLen,
-            out optimizedFilesCount
+            out nuint optimizedFilesCount
         );
 
         ErrorHelper.CheckVoid();
@@ -189,7 +186,7 @@ public static partial class PolarsWrapper
 
         ErrorHelper.CheckVoid();
     }
-        // ---------------------------------------------------------
+    // ---------------------------------------------------------
     // DeltaLake
     // ---------------------------------------------------------
     public unsafe static LazyFrameHandle ScanDelta(
@@ -240,6 +237,81 @@ public static partial class PolarsWrapper
             path,
             versionPtr,
             datetime,
+            nRowsPtr,
+            parallel,
+            lowMemory,
+            useStatistics,
+            glob,
+            rechunk, 
+            cache,  
+            rowIndexName,
+            rowIndexOffset,
+            includePathColumn,
+            schemaPtr,
+            hivePartitioning,
+            hiveSchemaPtr,
+            tryParseHiveDates,
+            cloudProvider,
+            cloudRetries,
+            cloudRetryTimeoutMs,
+            cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs,
+            cloudCacheTtl,
+            cloudKeys,
+            cloudValues,
+            cloudLen
+        );
+
+        return ErrorHelper.Check(h);
+    }
+    public unsafe static LazyFrameHandle ScanDeltaCatalog(
+        string workspaceUrl,
+        string bearerToken,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        ulong? nRows,
+        PlParallelStrategy parallel,
+        bool lowMemory,
+        bool useStatistics,
+        bool glob,
+        // bool allowMissingColumns,
+        bool rechunk,
+        bool cache,
+        string? rowIndexName,
+        uint rowIndexOffset,
+        string? includePathColumn,
+        SchemaHandle? schema,
+        bool hivePartitioning,
+        SchemaHandle? hivePartitionSchema,
+        bool tryParseHiveDates,
+        PlCloudProvider cloudProvider,
+        nuint cloudRetries,
+        ulong cloudRetryTimeoutMs,
+        ulong cloudRetryInitBackoffMs,
+        ulong cloudRetryMaxBackoffMs,
+        ulong cloudCacheTtl,
+        string[]? cloudKeys,
+        string[]? cloudValues)
+    {
+        using var schemaLock = new SafeHandleLock<SchemaHandle>(
+            schema != null ? [schema] : null
+        );
+        IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
+        ulong nRowsVal = nRows.GetValueOrDefault();
+        IntPtr nRowsPtr = nRows.HasValue ? (IntPtr)(&nRowsVal) : IntPtr.Zero;
+
+        using var hiveLock = new SafeHandleLock<SchemaHandle>(
+            hivePartitionSchema != null ? [hivePartitionSchema] : null
+        );
+        IntPtr hiveSchemaPtr = hivePartitionSchema != null ? hiveLock.Pointers[0] : IntPtr.Zero;
+        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+        var h = NativeBindings.pl_scan_delta_catalog(
+            workspaceUrl,
+            bearerToken,
+            catalogName,
+            schemaName,
+            tableName,
             nRowsPtr,
             parallel,
             lowMemory,

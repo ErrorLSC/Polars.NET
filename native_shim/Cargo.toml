@@ -11,7 +11,7 @@ polars = { version = "0.53.0", features = ["lazy", "csv","parquet","strings","re
 "aws","azure","gcp","http","dynamic_group_by","business"] }
 polars-core = { version = "0.53.0" }
 polars-arrow = { version = "0.53.0" }
-polars-io = { version = "0.53.0",features =["file_cache"] }
+polars-io = { version = "0.53.0",features =["file_cache","catalog"] }
 polars-utils = { version = "0.53.0" }
 polars-buffer = {version="0.53.0"}
 flate2 = { version = "1.1.8", features = ["rust_backend"] }

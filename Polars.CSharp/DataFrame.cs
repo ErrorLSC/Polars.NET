@@ -32,7 +32,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
 
     /// <summary>
     /// Gets the Schema of the DataFrame.
-    /// Returns a disposable PolarsSchema object (Zero-Copy wrapper).
+    /// Returns a disposable PolarsSchema object.
     /// </summary>
     public PolarsSchema Schema
     {
@@ -42,7 +42,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
             return new PolarsSchema(handle);
         }
     }
-    IPolarsSchema IPolarsDataFrame.Schema => this.Schema;
+    IPolarsSchema IPolarsDataFrame.Schema => Schema;
     /// <summary>
     /// Prints the schema to the console.
     /// </summary>
@@ -1057,7 +1057,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     /// <summary>
     /// Read a delta table into a new DataFrame
     /// </summary>
-    /// <inheritdoc cref="LazyFrame.ScanDelta"/>
+    /// <inheritdoc cref="LazyFrame.ScanDelta(string, long?, string?, ulong?, ParallelStrategy, bool, bool, bool, bool, bool, string?, uint, string?, PolarsSchema?, bool, PolarsSchema?, bool, CloudOptions?)"/>
     public static DataFrame ReadDelta(
         string path,
         long? version = null,
@@ -3804,7 +3804,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     /// </summary>
     /// <param name="series">The series to combine.</param>
     public static DataFrame FromSeries(IEnumerable<Series> series)
-        => new(series.ToArray());
+        => new([.. series]);
     /// <summary>
     /// [High Performance] Stream data into Polars using Arrow C Stream Interface.
     /// This method supports datasets larger than available RAM by streaming chunks directly to Polars.

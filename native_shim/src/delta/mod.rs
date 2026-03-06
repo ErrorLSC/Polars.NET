@@ -5,6 +5,7 @@ pub mod delete;
 pub mod merge;
 pub mod optimize;
 pub mod zorder;
+pub mod catalog;
 pub mod merge_ordered;
 pub(crate) mod utils;
 pub(crate) mod deletion_vector;
