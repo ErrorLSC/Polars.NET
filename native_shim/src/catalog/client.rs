@@ -2,8 +2,9 @@ use std::collections::HashMap;
 
 use polars::prelude::*;
 use polars_io::catalog::unity::client::CatalogClientBuilder;
-use polars_io::catalog::unity::models::TableCredentialsVariants;
 use url::Url;
+
+use crate::catalog::utils::convert_catalog_creds;
 
 pub(crate) async fn get_catalog_table_info(
     workspace_url: String,
@@ -34,8 +35,6 @@ pub(crate) async fn get_catalog_table_info(
     })?;
 
     // 3. 获取临时云凭证 (注意 write 标志传 false 表示只读)
-    // let full_table_name = format!("{}.{}.{}", catalog, schema, table);
-    // 【关键修复】：使用 table_info.table_id 而不是 full_table_name
     let creds_wrapper = client.get_table_credentials(&table_info.table_id, write).await
         .map_err(|e| PolarsError::ComputeError(format!("Failed to get credentials: {}", e).into()))?;
         
@@ -43,23 +42,5 @@ pub(crate) async fn get_catalog_table_info(
         PolarsError::ComputeError("Unsupported or missing credentials".into())
     })?;
 
-    // 4. 转换为 Delta-rs 需要的 HashMap
-    let mut options = HashMap::new();
-    match creds {
-        TableCredentialsVariants::Aws(aws) => {
-            options.insert("aws_access_key_id".to_string(), aws.access_key_id);
-            options.insert("aws_secret_access_key".to_string(), aws.secret_access_key);
-            if let Some(token) = aws.session_token {
-                options.insert("aws_session_token".to_string(), token);
-            }
-        },
-        TableCredentialsVariants::Azure(azure) => {
-            options.insert("azure_storage_sas_token".to_string(), azure.sas_token);
-        },
-        TableCredentialsVariants::Gcp(gcp) => {
-            options.insert("google_oauth_token".to_string(), gcp.oauth_token);
-        }
-    }
-
-    Ok((table_url, options))
+    Ok((table_url, convert_catalog_creds(creds)))
 }
