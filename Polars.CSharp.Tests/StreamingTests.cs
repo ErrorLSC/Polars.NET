@@ -81,7 +81,6 @@ public class StreamingTests
         }
     }
     [Fact]
-    [Trait("Category","Debug")]
     public void Test_Lazy_ScanArrowStream_EndToEnd()
     {
         int totalRows = 50000;
@@ -562,87 +561,121 @@ public class StreamingTests
         Assert.Equal(2, df2.Height);
         Assert.Equal(2, df2[1, "Id"]);
     }
-    // [Fact]
-    // [Trait("Category", "Debug")]
-    // public void Test_ETL_Stream_NewTypes_Coverage()
-    // {
-    //     // ==================================================================================
-    //     // 目标：验证基础类型 (TimeSpan, Int8, UInt64) 在 ETL 管道中的保真度
-    //     // Source DB (Mock) -> Polars (Native Arrow) -> Target DB
-    //     // 改动：TimeOnly -> TimeSpan (为了避开 ADO.NET 对 TimeOnly 的兼容性深坑)
-    //     //       去掉 Decimal (暂时避开精度问题)
-    //     // ==================================================================================
+    [Fact]
+    public void Test_1_Extract_CSharpToPolars_NewTypes()
+    {
+        // ==========================================
+        // 目标：验证 C# DataTable/DataReader 到 Polars 的 "读" 链路
+        // 核心检查：Schema 生成是否正确，C# 装箱到 Arrow 是否崩溃
+        // ==========================================
 
-    //     int totalRows = 10; 
+        int totalRows = 10; 
+        var sourceTable = new System.Data.DataTable();
+        sourceTable.Columns.Add("Id", typeof(int));
+        sourceTable.Columns.Add("TimeVal", typeof(TimeOnly));  
+        sourceTable.Columns.Add("TinyInt", typeof(sbyte));     
+        sourceTable.Columns.Add("UnsignedBig", typeof(ulong)); 
 
-    //     // 1. [Extract] 准备包含新类型的源数据
-    //     var sourceTable = new System.Data.DataTable();
-    //     sourceTable.Columns.Add("Id", typeof(int));
-    //     sourceTable.Columns.Add("TimeVal", typeof(TimeSpan));  // Change: TimeOnly -> TimeSpan
-    //     sourceTable.Columns.Add("TinyInt", typeof(sbyte));     // Int8
-    //     sourceTable.Columns.Add("UnsignedBig", typeof(ulong)); // UInt64
+        var startInfo = new TimeOnly(8, 0, 0); 
 
-    //     var startInfo = new TimeSpan(8, 0, 0); // 08:00:00
-
-    //     for (int i = 0; i < totalRows; i++)
-    //     {
-    //         if (i == 5) // 插入一行 Null，测试空值处理
-    //         {
-    //             sourceTable.Rows.Add(i, DBNull.Value, DBNull.Value, DBNull.Value);
-    //             continue;
-    //         }
-
-    //         // TimeSpan 同样支持高精度，测试纳秒/Tick 级转换
-    //         // i=1 -> 08:01:00.001
-    //         var time = startInfo.Add(TimeSpan.FromMinutes(i)).Add(TimeSpan.FromMilliseconds(i)); 
+        for (int i = 0; i < totalRows; i++)
+        {
+            if (i == 5) 
+            {
+                sourceTable.Rows.Add(i, DBNull.Value, DBNull.Value, DBNull.Value);
+                continue;
+            }
+            var time = startInfo.Add(TimeSpan.FromMinutes(i)).Add(TimeSpan.FromMilliseconds(i)); 
+            sbyte tiny = (sbyte)(i * 10 - 50); 
+            ulong ubig = (ulong)long.MaxValue + (ulong)i; 
             
-    //         // Int8: -50, -40, ... (测试负数)
-    //         sbyte tiny = (sbyte)(i * 10 - 50); 
-            
-    //         // UInt64: 故意造一个超过 long.MaxValue 的数，测试是否会溢出变成负数
-    //         ulong ubig = (ulong)long.MaxValue + (ulong)i; 
-            
-    //         sourceTable.Rows.Add(i, time, tiny, ubig);
-    //     }
+            sourceTable.Rows.Add(i, time, tiny, ubig);
+        }
 
-    //     using var sourceReader = sourceTable.CreateDataReader();
+        using var sourceReader = sourceTable.CreateDataReader();
         
-    //     // 2. [Transform] Polars 管道
-    //     // 强制 batchSize=2，确保触发多次 Arrow Batch 构建和读取
-    //     var lf = LazyFrame.ScanDatabase(sourceReader, batchSize: 2);
+        // 执行操作：直接扫描并立刻 Collect() 触发数据拉取！
+        using var lf = LazyFrame.ScanDatabase(sourceReader, batchSize: 2);
+        using var df = lf.Collect(); // 👑 如果 FFI 或者 Schema 出错，这里会直接炸！
 
-    //     // 简单过滤：去掉 ID=9，保留 Null 行(5)
-    //     var pipeline = lf.Filter(Col("Id") < Lit(9));
+        // 验证点：Polars 是否成功接收了 10 行数据
+        Assert.Equal(10, df.Height);
+        
+        Console.WriteLine("Test 1 (Read): C# -> Polars Arrow 构建与传输成功！");
+    }
+[Fact]
+    [Trait("Category", "Debug")]
+    public void Test_2_Load_PolarsToCSharp_NewTypes()
+    {
+        // ==========================================
+        // 目标：验证 Polars 到 C# 的 "写" 链路 (SinkTo)
+        // 核心检查：多类型混合场景下的内存偏移、零装箱转换是否精准
+        // ==========================================
 
-    //     // 3. [Load] 写入目标
-    //     var targetTable = new System.Data.DataTable();
+        var sourceTable = new System.Data.DataTable();
+        sourceTable.Columns.Add("Id", typeof(int));
+        sourceTable.Columns.Add("TimeVal", typeof(TimeOnly));
+        sourceTable.Columns.Add("UnsignedBig", typeof(ulong));
+        // 👑 新增三员大将
+        sourceTable.Columns.Add("TimeSpanVal", typeof(TimeSpan));
+        sourceTable.Columns.Add("DecimalVal", typeof(decimal));
+        sourceTable.Columns.Add("DateOnlyVal", typeof(DateOnly));
+        
+        // 准备测试数据
+        var sampleTimeOnly = new TimeOnly(8, 0, 0);
+        var sampleTimeSpan = new TimeSpan(1, 30, 45); // 1小时30分45秒
+        var sampleDecimal = 123456.789m;
+        var sampleDateOnly = new DateOnly(2024, 5, 20); // 2024-05-20
 
-    //     // 显式告知 ArrowToDbStream 期望的 .NET 类型
-    //     var typeOverrides = new Dictionary<string, Type>
-    //     {
-    //         { "TimeVal", typeof(TimeSpan) }, // Change: 明确映射回 TimeSpan
-    //         { "TinyInt", typeof(sbyte) },
-    //         { "UnsignedBig", typeof(ulong) }
-    //     };
+        sourceTable.Rows.Add(
+            1, 
+            sampleTimeOnly, 
+            (ulong)long.MaxValue, 
+            sampleTimeSpan, 
+            sampleDecimal, 
+            sampleDateOnly
+        );
+        
+        // 测试第二行的全 Null 兼容性
+        sourceTable.Rows.Add(2, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value);
 
-    //     pipeline.SinkTo(reader => 
-    //     {
-    //         // 验证点：Target Table 能否正确 Load
-    //         targetTable.Load(reader);
+        using var sourceReader = sourceTable.CreateDataReader();
+        using var lf = LazyFrame.ScanDatabase(sourceReader, batchSize: 2);
 
-    //     }, typeOverrides: null);
+        // 2. 准备 Sink
+        var targetTable = new System.Data.DataTable();
 
-    //     // 4. [Verify] 简单验证数据
-    //     // 应该有 9 行
-    //     if (targetTable.Rows.Count != 9) throw new Exception($"Expected 9 rows, got {targetTable.Rows.Count}");
+        // 👑 精确提供 Override，确保 Arrow 数据映射回 C# 时不走样
+        var typeOverrides = new Dictionary<string, Type>
+        {
+            { "TimeVal", typeof(TimeOnly) }, 
+            { "UnsignedBig", typeof(ulong) },
+            { "TimeSpanVal", typeof(TimeSpan) },
+            { "DecimalVal", typeof(decimal) },
+            { "DateOnlyVal", typeof(DateOnly) }
+        };
 
-    //     // 验证第一行数据
-    //     var row0 = targetTable.Rows[0];
-    //     // 验证 TimeSpan 是否一致
-    //     if ((TimeSpan)row0["TimeVal"] != startInfo) throw new Exception("TimeSpan mismatch at row 0");
-    //     // 验证 UInt64 是否保持大整数
-    //     if (Convert.ToUInt64(row0["UnsignedBig"]) != (ulong)long.MaxValue) throw new Exception("UInt64 mismatch/overflow at row 0");
+        // 执行操作
+        lf.SinkTo(targetTable.Load, typeOverrides: typeOverrides); 
 
-    //     Console.WriteLine("Test_ETL_Stream_NewTypes_Coverage Passed with TimeSpan!");
-    // }
+        // 3. 硬核验证
+        Assert.Equal(2, targetTable.Rows.Count);
+
+        var row0 = targetTable.Rows[0];
+        
+        // 验证原有类型
+        Assert.Equal(sampleTimeOnly, Assert.IsType<TimeOnly>(row0["TimeVal"]));
+        Assert.Equal((ulong)long.MaxValue, Assert.IsType<ulong>(row0["UnsignedBig"]));
+
+        // 👑 验证新增的三大类型是否被零拷贝/无损还原
+        Assert.Equal(sampleTimeSpan, Assert.IsType<TimeSpan>(row0["TimeSpanVal"]));
+        Assert.Equal(sampleDecimal, Assert.IsType<decimal>(row0["DecimalVal"]));
+        Assert.Equal(sampleDateOnly, Assert.IsType<DateOnly>(row0["DateOnlyVal"]));
+
+        // 简单验证 Null 行
+        var row1 = targetTable.Rows[1];
+        Assert.Equal(DBNull.Value, row1["DateOnlyVal"]);
+
+        Console.WriteLine("Test 2 (Write): Polars Arrow -> C# 强类型解析完全成功 (包含 TimeSpan/Decimal/DateOnly)！");
+    }
 }

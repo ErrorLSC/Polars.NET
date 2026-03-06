@@ -95,19 +95,7 @@ internal static class ColumnBuilderFactory
         if (typeId == ArrowTypeId.Int8) return new Int8ColumnBuilder(capacity);
         if (typeId == ArrowTypeId.Int16) return new Int16ColumnBuilder(capacity);
         if (typeId == ArrowTypeId.Int32) return new Int32ColumnBuilder(capacity);
-        if (typeId == ArrowTypeId.Int64)
-        {
-            // if (netType == typeof(TimeOnly))
-            // {
-            //     return new TimeOnlyAsInt64ColumnBuilder(capacity);
-            // }
-            // if (netType == typeof(TimeSpan))
-            // {
-            //     return new TimeOnlyAsInt64ColumnBuilder(capacity);
-            // }
-            
-            return new Int64ColumnBuilder(capacity);
-        }
+        if (typeId == ArrowTypeId.Int64) return new Int64ColumnBuilder(capacity);
         if (typeId == ArrowTypeId.Double) return new DoubleColumnBuilder(capacity);
         if (typeId == ArrowTypeId.Boolean) return new BooleanColumnBuilder(capacity);
         if (typeId == ArrowTypeId.Float) return new FloatColumnBuilder(capacity);
@@ -125,6 +113,7 @@ internal static class ColumnBuilderFactory
         if (typeId == ArrowTypeId.Timestamp) return new TimestampColumnBuilder((TimestampType)field.DataType, capacity);
         if (typeId == ArrowTypeId.Date32) return new Date32ColumnBuilder(capacity);
         if (typeId == ArrowTypeId.Time64) return new Time64ColumnBuilder(capacity);
+        if (typeId == ArrowTypeId.Duration) return new DurationColumnBuilder(capacity);
 
         // Decimal (Must pass Type for Precision/Scale)
         if (typeId == ArrowTypeId.Decimal128) return new DecimalColumnBuilder((Decimal128Type)field.DataType, capacity);
@@ -585,70 +574,7 @@ internal sealed class TimestampColumnBuilder : ColumnBuilder
 
     public override IArrowArray Build() { var arr = _builder.Build(); _builder.Clear(); return arr; }
 }
-// internal sealed class Time64ColumnBuilder : ColumnBuilder
-// {
-//     private readonly Time64Array.Builder _builder;
 
-//     public Time64ColumnBuilder(int capacity)
-//     {
-//         _builder = new Time64Array.Builder(TimeUnit.Nanosecond);
-//         _builder.Reserve(capacity);
-//     }
-
-//     public override void Add(IDataReader reader, int ordinal)
-//     {
-//         if (reader.IsDBNull(ordinal))
-//         {
-//             _builder.AppendNull();
-//             return;
-//         }
-
-//         if (reader is DbDataReader dbReader)
-//         {
-//             try
-//             {
-//                 var time = dbReader.GetFieldValue<TimeOnly>(ordinal);
-//                 _builder.Append(time.Ticks * 100); 
-//                 return;
-//             }
-//             catch { }
-//         }
-
-//         AddObject(reader.GetValue(ordinal));
-//     }
-
-//     public override void AddObject(object? v)
-//     {
-//         if (v == null)
-//         {
-//             _builder.AppendNull();
-//         }
-//         else if (v is TimeOnly t)
-//         {
-//             _builder.Append(t.Ticks * 100); // Ticks * 100
-//         }
-//         else if (v is TimeSpan ts)
-//         {
-//             _builder.Append(ts.Ticks * 100);
-//         }
-//         else if (v is DateTime dt)
-//         {
-//             _builder.Append(dt.TimeOfDay.Ticks * 100);
-//         }
-//         else
-//         {
-//             var dto = Convert.ToDateTime(v);
-//             _builder.Append(dto.TimeOfDay.Ticks * 100);
-//         }
-//     }
-
-//     public override IArrowArray Build() 
-//     { 
-//         var arr = _builder.Build(); 
-//         _builder.Clear(); 
-//         return arr; 
-//     }
-// }
 internal sealed class Time64ColumnBuilder : ColumnBuilder
 {
     private readonly Time64Array.Builder _builder;
@@ -661,43 +587,81 @@ internal sealed class Time64ColumnBuilder : ColumnBuilder
     }
     public override void AddObject(object? v)
     {
-        if (v == null) _builder.AppendNull();
-        else if (v is TimeSpan ts) _builder.Append(ts.Ticks * 100); // 1 Tick = 100ns
-        else _builder.Append(Convert.ToInt64(v)); // Fallback
+        if (v == null || v == DBNull.Value)
+        {
+            _builder.AppendNull();
+            return;
+        }
+
+
+        long arrowTimeValue;
+
+        if (v is TimeOnly timeOnly)
+        {
+            arrowTimeValue = timeOnly.Ticks * 100;
+        }
+        else
+        {
+            // 最后的兜底，给那些纯数字留条活路
+            arrowTimeValue = Convert.ToInt64(v);
+        }
+
+        _builder.Append(arrowTimeValue);
     }
     public override IArrowArray Build() { var arr = _builder.Build(); _builder.Clear(); return arr; }
 }
-internal sealed class TimeOnlyAsInt64ColumnBuilder : ColumnBuilder
+
+internal sealed class DurationColumnBuilder : ColumnBuilder
 {
-    private readonly Int64Array.Builder _builder = new Int64Array.Builder();
-    public TimeOnlyAsInt64ColumnBuilder(int capacity) { _builder.Reserve(capacity); }
+    private readonly Apache.Arrow.DurationArray.Builder _builder;
+
+    public DurationColumnBuilder(int capacity) 
+    { 
+        // 👑 必须和 ArrowTypeResolver 里指定的 TimeUnit.Nanosecond 保持绝对一致！
+        _builder = new Apache.Arrow.DurationArray.Builder(DurationType.Microsecond); 
+        _builder.Reserve(capacity); 
+    }
 
     public override void Add(IDataReader reader, int ordinal)
     {
         if (reader.IsDBNull(ordinal)) { _builder.AppendNull(); return; }
-
-        if (reader is DbDataReader dbReader)
-        {
-            try {
-                var t = dbReader.GetFieldValue<TimeOnly>(ordinal);
-                _builder.Append(t.Ticks * 100); // 100ns -> 1ns
-                return;
-            } catch { }
-        }
-        AddObject(reader.GetValue(ordinal));
+        var val = reader.GetValue(ordinal);
+        AddObject(val);
     }
 
     public override void AddObject(object? v)
     {
-        if (v == null) _builder.AppendNull();
-        else if (v is TimeOnly t) _builder.Append(t.Ticks * 100);
-        else if (v is TimeSpan ts) _builder.Append(ts.Ticks * 100);
-        else if (v is DateTime dt) _builder.Append(dt.TimeOfDay.Ticks * 100);
-        else _builder.Append(Convert.ToDateTime(v).TimeOfDay.Ticks * 100);
+        if (v == null || v == DBNull.Value)
+        {
+            _builder.AppendNull();
+            return;
+        }
+
+        long arrowDurationValue;
+
+        // 👑 性能极客的精准拦截
+        if (v is TimeSpan timeSpan)
+        {
+            // C# 的 TimeSpan.Ticks 是 100 纳秒级别。
+            arrowDurationValue = timeSpan.Ticks / 10;
+        }
+        else
+        {
+            // 最后的兜底，给那些可能传了 long/int 的纯数字（纳秒值）留条活路
+            arrowDurationValue = Convert.ToInt64(v);
+        }
+
+        _builder.Append(arrowDurationValue);
     }
 
-    public override IArrowArray Build() { var a = _builder.Build(); _builder.Clear(); return a; }
+    public override IArrowArray Build() 
+    { 
+        var arr = _builder.Build(); 
+        _builder.Clear(); 
+        return arr; 
+    }
 }
+
 internal sealed class ComplexTypeColumnBuilder(int capacity) : ColumnBuilder
 {
     public override void AddObject(object? v) {

@@ -597,7 +597,7 @@ pub extern "C" fn pl_lazy_concat(
             1 => {
                 let options = HConcatOptions {
                     parallel,
-                    strict, // 这里的 strict 指代高度一致性检查
+                    strict, 
                     broadcast_unit_length,
                 };
                 polars::prelude::concat_lf_horizontal(lfs, options)?
@@ -605,14 +605,13 @@ pub extern "C" fn pl_lazy_concat(
 
             // Diagonal (Union with diagonal=true)
             2 => {
-                // Polars 0.53 中，Diagonal 也是通过 concat + UnionArgs 实现的
                 let args = UnionArgs {
                     parallel,
                     rechunk,
                     to_supertypes,
                     maintain_order,
                     strict,
-                    diagonal: true, // 关键点
+                    diagonal: true, 
                     from_partitioned_ds: false,
                 };
                 polars::prelude::concat(lfs, args)?

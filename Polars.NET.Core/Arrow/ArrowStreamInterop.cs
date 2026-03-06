@@ -252,19 +252,18 @@ public static unsafe class ArrowStreamInterop
         IntPtr userDataPtr = GCHandle.ToIntPtr(handle);
 
         // Define Cleanup Callback
-        CleanupCallback cleanup = (ptr) =>
+        static void cleanup(void* ptr)
         {
             var h = GCHandle.FromIntPtr((IntPtr)ptr);
             if (h.IsAllocated) h.Free();
-        };
+        }
 
         return (ctx.KeepAliveCallback, cleanup, userDataPtr);
     }
 
-    private class SafeEnumerator<T> : IEnumerator<T>
+    private class SafeEnumerator<T>(IEnumerator<T> inner) : IEnumerator<T>
     {
-        private readonly IEnumerator<T> _inner;
-        public SafeEnumerator(IEnumerator<T> inner) { _inner = inner; }
+        private readonly IEnumerator<T> _inner = inner;
 
         public T Current => _inner.Current;
         object System.Collections.IEnumerator.Current => _inner.Current!;

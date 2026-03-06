@@ -1,6 +1,8 @@
 using System.Collections;
 using System.Data;
 using System.Data.Common;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Apache.Arrow;
 using Apache.Arrow.Types;
@@ -156,19 +158,73 @@ public sealed class ArrowToDbStream : DbDataReader
     // ==================================================================================
 
     public override bool IsDBNull(int ordinal) => _accessors[ordinal].IsNull(_currentRowIndex);
-
-    public override bool GetBoolean(int ordinal) => _accessors[ordinal].GetBoolean(_currentRowIndex);
-    public override byte GetByte(int ordinal) => _accessors[ordinal].GetByte(_currentRowIndex);
-    public override short GetInt16(int ordinal) => _accessors[ordinal].GetInt16(_currentRowIndex);
-    public override int GetInt32(int ordinal) => _accessors[ordinal].GetInt32(_currentRowIndex);
-    public override long GetInt64(int ordinal) => _accessors[ordinal].GetInt64(_currentRowIndex);
-    public override float GetFloat(int ordinal) => _accessors[ordinal].GetFloat(_currentRowIndex);
-    public override double GetDouble(int ordinal) => _accessors[ordinal].GetDouble(_currentRowIndex);
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override bool GetBoolean(int ordinal)
+    {
+        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
+        return accessor.GetBoolean(_currentRowIndex);
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override byte GetByte(int ordinal)
+    {
+        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
+        return accessor.GetByte(_currentRowIndex);
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]    
+    public override short GetInt16(int ordinal)
+    {
+        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
+        return accessor.GetInt16(_currentRowIndex);
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override int GetInt32(int ordinal) 
+    {
+        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
+        return accessor.GetInt32(_currentRowIndex);
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override long GetInt64(int ordinal)
+    {
+        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
+        return accessor.GetInt64(_currentRowIndex);
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override float GetFloat(int ordinal)
+    {
+        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
+        return accessor.GetFloat(_currentRowIndex);
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override double GetDouble(int ordinal)
+    {    
+        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
+        return accessor.GetDouble(_currentRowIndex);
+    }
     public override decimal GetDecimal(int ordinal) => _accessors[ordinal].GetDecimal(_currentRowIndex);
-    public override string GetString(int ordinal) => _accessors[ordinal].GetString(_currentRowIndex);
-    public override DateTime GetDateTime(int ordinal) => _accessors[ordinal].GetDateTime(_currentRowIndex);
-    public override char GetChar(int ordinal) => _accessors[ordinal].GetChar(_currentRowIndex);
-    public override Guid GetGuid(int ordinal) => _accessors[ordinal].GetGuid(_currentRowIndex);
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override string GetString(int ordinal) 
+    {
+        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
+        return accessor.GetString(_currentRowIndex);
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override DateTime GetDateTime(int ordinal)
+    {
+        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
+        return accessor.GetDateTime(_currentRowIndex);
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override char GetChar(int ordinal)
+    {
+        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
+        return accessor.GetChar(_currentRowIndex);
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override Guid GetGuid(int ordinal)
+    {
+        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
+        return accessor.GetGuid(_currentRowIndex);
+    }
 
     public override long GetBytes(int ordinal, long dataOffset, byte[]? buffer, int bufferOffset, int length)
         => _accessors[ordinal].GetBytes(_currentRowIndex, dataOffset, buffer, bufferOffset, length);
@@ -191,6 +247,35 @@ public sealed class ArrowToDbStream : DbDataReader
         int count = Math.Min(values.Length, FieldCount);
         for (int i = 0; i < count; i++) values[i] = GetValue(i);
         return count;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override T GetFieldValue<T>(int ordinal)
+    {
+        if (IsDBNull(ordinal))
+        {
+            // 处理 Nullable<T> 的情况，或者直接抛出 SqlNullValueException
+            return default!; 
+        }
+
+        var targetType = typeof(T);
+        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
+
+        // 👑 给没有原生强类型接口的新结构体开绿色通道，绝对零装箱！
+        if (targetType == typeof(DateOnly) && accessor is Date32ToDateOnlyAccessor date32Accessor)
+        {
+            var date = date32Accessor.GetDateOnlyFast(_currentRowIndex); // 需要把你的 GetDateOnlyFast 改成 internal/public
+            return Unsafe.As<DateOnly, T>(ref date);
+        }
+        
+        if (accessor is DurationAccessor dur)
+        {
+            var val = dur.GetTimeSpanFast(_currentRowIndex);
+            return Unsafe.As<TimeSpan, T>(ref val);
+        }
+
+        // 如果是标准的 int/string 等，退化为 GetValue 并强转 (或者你可以写得更全面)
+        return (T)GetValue(ordinal);
     }
 
     // --- Schema / Metadata ---
@@ -304,7 +389,7 @@ public sealed class ArrowToDbStream : DbDataReader
 
     internal static class ColumnAccessorFactory
     {
-        public static ColumnAccessor Create(Apache.Arrow.Field field, Type targetType)
+        public static ColumnAccessor Create(Field field, Type targetType)
         {
             var typeId = field.DataType.TypeId;
 
@@ -322,7 +407,7 @@ public sealed class ArrowToDbStream : DbDataReader
             {
                 if (targetType == typeof(DateTime)) return new Int64ToDateTimeAccessor();
                 if (targetType == typeof(TimeSpan)) return new Int64ToTimeSpanAccessor();
-                if (targetType == typeof(TimeOnly)) return new Int64ToTimeOnlyAccessor();
+                // if (targetType == typeof(TimeOnly)) return new Int64ToTimeOnlyAccessor();
                 return new Int64Accessor();
             }
 
@@ -339,6 +424,7 @@ public sealed class ArrowToDbStream : DbDataReader
             // 4. Time
             if (typeId == ArrowTypeId.Timestamp) return new TimestampAccessor();
             if (typeId == ArrowTypeId.Time64) return new Time64Accessor();
+            if (typeId == ArrowTypeId.Duration) return new DurationAccessor();
             
             // Date32 -> DateOnly
             if (typeId == ArrowTypeId.Date32) return new Date32ToDateOnlyAccessor();
@@ -506,6 +592,7 @@ public sealed class ArrowToDbStream : DbDataReader
         public override bool IsNull(int index) => _array!.IsNull(index);
         public override string GetString(int index) {
             if (_isView) return ((StringViewArray)_array!).GetString(index);
+            if (_array is LargeStringArray lsa) return lsa.GetString(index);
             if (_array is StringArray sa) return sa.GetString(index);
             throw new InvalidCastException($"Expected String or StringView, got {_array?.GetType()}");
         }
@@ -554,17 +641,28 @@ public sealed class ArrowToDbStream : DbDataReader
         public override Type TargetType => typeof(TimeSpan);
         public override void SetBatch(IArrowArray array) => _array = (Int64Array)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
-        public override object GetValue(int index) => new TimeSpan(_array!.Values[index] * 10);
-    }
-    internal sealed class Int64ToTimeOnlyAccessor : ColumnAccessor {
-        private Int64Array? _array;
-        public override Type TargetType => typeof(TimeOnly);
-        public override void SetBatch(IArrowArray array) => _array = (Int64Array)array;
-        public override bool IsNull(int index) => _array!.IsNull(index);
-        public override object GetValue(int index) {
-            return new TimeOnly(_array!.Values[index] / 100); 
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal TimeSpan GetTimeSpanFast(int index) 
+        {
+            return new TimeSpan(_array!.Values[index] * 10);
+        }
+
+        public override object GetValue(int index) 
+        {
+            if (IsNull(index)) return DBNull.Value;
+            return GetTimeSpanFast(index);
         }
     }
+    // internal sealed class Int64ToTimeOnlyAccessor : ColumnAccessor {
+    //     private Int64Array? _array;
+    //     public override Type TargetType => typeof(TimeOnly);
+    //     public override void SetBatch(IArrowArray array) => _array = (Int64Array)array;
+    //     public override bool IsNull(int index) => _array!.IsNull(index);
+    //     public override object GetValue(int index) {
+    //         return new TimeOnly(_array!.Values[index] / 100); 
+    //     }
+    // }
 
     // --- Standard Date/Time ---
     internal sealed class TimestampAccessor : ColumnAccessor {
@@ -582,19 +680,34 @@ public sealed class ArrowToDbStream : DbDataReader
     }
 
     // Date32 -> DateOnly
-    internal sealed class Date32ToDateOnlyAccessor : ColumnAccessor {
+    internal sealed class Date32ToDateOnlyAccessor : ColumnAccessor 
+    {
         private Date32Array? _array;
+        
+        private const int UnixEpochDayNumber = 719162; 
+
         public override Type TargetType => typeof(DateOnly);
+        
         public override void SetBatch(IArrowArray array) => _array = (Date32Array)array;
+        
         public override bool IsNull(int index) => _array!.IsNull(index);
-        public override object GetValue(int index) {
-            if (IsNull(index)) return DBNull.Value;
-            // Values[index] returns int (days), not int?
-            int daysSinceUnixEpoch = _array!.Values[index];
-            return DateOnly.FromDateTime(DateTime.UnixEpoch.AddDays(daysSinceUnixEpoch));
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        internal DateOnly GetDateOnlyFast(int index)
+        {
+            return DateOnly.FromDayNumber(_array!.Values[index] + UnixEpochDayNumber);
         }
-        public override DateTime GetDateTime(int index) {
-            return DateOnly.FromDayNumber(_array!.Values[index]).ToDateTime(TimeOnly.MinValue);
+
+        public override object GetValue(int index) 
+        {
+            if (IsNull(index)) return DBNull.Value;
+            
+            return GetDateOnlyFast(index);
+        }
+
+        public override DateTime GetDateTime(int index) 
+        {
+            return GetDateOnlyFast(index).ToDateTime(TimeOnly.MinValue);
         }
     }
 
@@ -605,6 +718,48 @@ public sealed class ArrowToDbStream : DbDataReader
         public override bool IsNull(int index) => _array!.IsNull(index);
         public override DateTime GetDateTime(int index) => _array!.GetDateTime(index)!.Value;
         public override object GetValue(int index) => GetDateTime(index);
+    }
+    // ==========================================
+    // 专门处理 Arrow Duration -> C# TimeSpan 的极速解析器
+    // ==========================================
+    internal sealed class DurationAccessor : ColumnAccessor 
+    {
+        private Apache.Arrow.DurationArray? _array;
+        private Apache.Arrow.Types.TimeUnit _unit;
+
+        public override Type TargetType => typeof(TimeSpan);
+        
+        public override void SetBatch(IArrowArray array) 
+        {
+            _array = (Apache.Arrow.DurationArray)array;
+            _unit = ((Apache.Arrow.Types.DurationType)_array.Data.DataType).Unit;
+        }
+
+        public override bool IsNull(int index) => _array!.IsNull(index);
+
+        // 👑 零装箱核心魔法，强内联
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        internal TimeSpan GetTimeSpanFast(int index) 
+        {
+            long val = _array!.Values[index];
+            
+            // TimeSpan.Ticks 精度是 100 纳秒 (1 Tick = 100ns)
+            long ticks = _unit switch {
+                Apache.Arrow.Types.TimeUnit.Nanosecond => val / 100,
+                Apache.Arrow.Types.TimeUnit.Microsecond => val * 10,
+                Apache.Arrow.Types.TimeUnit.Millisecond => val * 10_000,
+                Apache.Arrow.Types.TimeUnit.Second => val * 10_000_000,
+                _ => val
+            };
+            
+            return new TimeSpan(ticks);
+        }
+
+        public override object GetValue(int index) 
+        {
+            if (IsNull(index)) return DBNull.Value;
+            return GetTimeSpanFast(index);
+        }
     }
     internal sealed class Time64Accessor : ColumnAccessor {
         private Time64Array? _array;
@@ -621,12 +776,24 @@ public sealed class ArrowToDbStream : DbDataReader
 
         public override bool IsNull(int index) => _array!.IsNull(index);
 
-        public override object GetValue(int index) {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal TimeOnly GetTimeOnlyFast(int index) 
+        {
             long val = _array!.Values[index];
             
-            if (_divisor == 100) return new TimeSpan(val / 100);
+            // 1 Tick = 100 纳秒。
+            // 如果是 Nanosecond，除以 100 变 Ticks。
+            // 如果是 Microsecond，乘以 10 变 Ticks。
+            long ticks = _divisor == 100 ? (val / 100) : (val * 10);
             
-            return new TimeSpan(val * 10);
+            return new TimeOnly(ticks);
+        }
+
+        public override object GetValue(int index) {
+            if (IsNull(index)) return DBNull.Value;
+            
+            // 修复：必须返回 TimeOnly，和 TargetType 保持绝对一致！
+            return GetTimeOnlyFast(index); 
         }
     }
     

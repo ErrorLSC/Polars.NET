@@ -11,6 +11,7 @@ using System.Text;
 using Apache.Arrow.Types;
 using System.Reflection;
 using Polars.NET.Core.Helpers;
+using System.Data.Common;
 
 namespace Polars.CSharp;
 

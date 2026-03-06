@@ -3,7 +3,8 @@ use polars_arrow::ffi::{self, ArrowArray, ArrowSchema, export_array_to_c, export
 use polars_arrow::array::{StructArray};
 use polars_arrow::datatypes::{ArrowDataType, Field};
 use polars_core::prelude::CompatLevel;
-use std::ffi::{CStr, c_void};
+use polars_core::utils::Container;
+use std::ffi::c_void;
 use crate::types::{DataFrameContext, LazyFrameContext};
 
 #[unsafe(no_mangle)]
@@ -131,21 +132,47 @@ impl Drop for CSharpSinkUdf {
 }
 
 impl CSharpSinkUdf {
-    fn call(&self, df: DataFrame) -> PolarsResult<DataFrame> {
-        // DataFrame -> StructArray (RecordBatch)
-        let struct_s = df.into_struct("batch".into()).into_series();
-        
-        // Get Chunks (Box<dyn Array>)
-        let chunks = struct_s.chunks();
+    fn call(&self, mut df: DataFrame) -> PolarsResult<DataFrame> {
+        // 👑 现代 API 核心：确保 DataFrame 的所有列都切分成了完全相同长度的 Chunk 块
+        df.align_chunks();
 
         // Error Message Buffer (1KB)
         let mut error_msg_buf = [0u8; 1024]; 
         let error_ptr = error_msg_buf.as_mut_ptr() as *mut std::os::raw::c_char;
 
-        for array_ref in chunks {
-            let field = ArrowField::new("".into(), array_ref.dtype().clone(), true);
-            let c_array = ffi::export_array_to_c(array_ref.clone());
-            let c_schema = ffi::export_field_to_c(&field);
+        // 遍历对齐后的每一个 Chunk (批次)
+        for chunk_idx in 0..df.n_chunks() {
+            let mut fields = Vec::with_capacity(df.width());
+            let mut arrays = Vec::with_capacity(df.width());
+
+            // 手动拉链：把每一列当前的 Chunk 抽出来
+            for s in df.columns() {
+                // 拿到最底层的物理 Arrow Array (Box<dyn Array>)
+                let chunk_array = s.as_materialized_series().chunks()[chunk_idx].clone();
+
+                // 👑 终极杀招：不信任 Polars 的逻辑 dtype，只信任底层物理数组的真实类型！
+                let arrow_type = chunk_array.dtype().clone();
+                
+                let field = ArrowField::new(s.name().clone(), arrow_type, true);
+
+                fields.push(field);
+                arrays.push(chunk_array);
+            }
+            
+            // 提取 Chunk 长度
+            let chunk_len = arrays.first().map(|a| a.len()).unwrap_or(0);
+            
+            // 自己动手组装 StructArray (这就是标准的 Arrow RecordBatch)
+            let struct_dtype = ArrowDataType::Struct(fields);
+            let struct_array = StructArray::new(struct_dtype.clone(), chunk_len, arrays, None);
+
+            // 转成 trait object，准备发射
+            let array_ref: Box<dyn polars_arrow::array::Array> = Box::new(struct_array);
+            let batch_field = ArrowField::new("batch".into(), struct_dtype, true);
+
+            // 完美的 FFI 导出
+            let c_array = ffi::export_array_to_c(array_ref);
+            let c_schema = ffi::export_field_to_c(&batch_field);
 
             // Alloc array to heap
             let ptr_array = Box::into_raw(Box::new(c_array));
@@ -154,8 +181,9 @@ impl CSharpSinkUdf {
             // Call C# Callback
             let status = (self.callback)(ptr_array, ptr_schema, error_ptr);
 
+            // 👑 拦截 C# 抛出的异常并转为 Rust Panic/Error
             if status != 0 {
-                let msg = unsafe { CStr::from_ptr(error_ptr).to_string_lossy().into_owned() };
+                let msg = unsafe { std::ffi::CStr::from_ptr(error_ptr).to_string_lossy().into_owned() };
                 return Err(PolarsError::ComputeError(format!("C# Sink Failed: {}", msg).into()));
             }
         }
@@ -164,6 +192,8 @@ impl CSharpSinkUdf {
         Ok(DataFrame::empty())
     }
 }
+
+
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_lazy_map_batches(
@@ -209,7 +239,8 @@ pub extern "C" fn pl_dataframe_export_batches(
 ) {
     ffi_try_void!({
         let df_ctx = unsafe { &*df_ptr }; 
-        let df = &df_ctx.df;
+        // 👑 必须 clone 一份所有权，因为我们需要在原地对齐内存块
+        let mut df = df_ctx.df.clone(); 
 
         let udf = CSharpSinkUdf { 
             callback, 
@@ -217,20 +248,49 @@ pub extern "C" fn pl_dataframe_export_batches(
             user_data 
         };
 
-        let struct_s = df.clone().into_struct("batch".into()).into_series();
-        let chunks = struct_s.chunks();
+        // 👑 现代 API 核心：确保 DataFrame 的所有列都切分成了完全相同长度的 Chunk 块
+        // 这是安全组装 StructArray 的大前提！
+        df.align_chunks();
 
         let mut error_msg_buf = [0u8; 1024]; 
         let error_ptr = error_msg_buf.as_mut_ptr() as *mut std::os::raw::c_char;
 
-        for array_ref in chunks {
-            let field = ArrowField::new("".into(), array_ref.dtype().clone(), true);
-            let c_array = ffi::export_array_to_c(array_ref.clone());
-            let c_schema = ffi::export_field_to_c(&field);
+        // 遍历对齐后的每一个 Chunk (批次)
+        for chunk_idx in 0..df.n_chunks() {
+            let mut fields = Vec::with_capacity(df.width());
+            let mut arrays = Vec::with_capacity(df.width());
+
+            // 手动拉链：把每一列当前的 Chunk 抽出来
+            for s in df.columns() {
+                // 拿到最底层的物理 Arrow Array (Box<dyn Array>)
+                let chunk_array = s.as_materialized_series().chunks()[chunk_idx].clone();
+
+                // 👑 终极杀招：不信任 Polars 的逻辑 dtype，只信任底层物理数组的真实类型！
+                // (注: 在 arrow2 中获取数组类型的标准方法是 .data_type()，如果你之前的 .dtype() 是宏或别名，请自行适配)
+                let arrow_type = chunk_array.dtype().clone();
+                
+                let field = ArrowField::new(s.name().clone(), arrow_type, true);
+
+                fields.push(field);
+                arrays.push(chunk_array);
+            }
+            let chunk_len = arrays.first().map(|a| a.len()).unwrap_or(0);
+            // 自己动手组装 StructArray (这就是标准的 Arrow RecordBatch)
+            let struct_dtype = ArrowDataType::Struct(fields);
+            let struct_array = StructArray::new(struct_dtype.clone(),chunk_len, arrays, None);
+
+            // 转成 trait object，准备发射
+            let array_ref: Box<dyn polars_arrow::array::Array> = Box::new(struct_array);
+            let batch_field = ArrowField::new("batch".into(), struct_dtype, true);
+
+            // 完美的 FFI 导出
+            let c_array = ffi::export_array_to_c(array_ref);
+            let c_schema = ffi::export_field_to_c(&batch_field);
 
             let ptr_array = Box::into_raw(Box::new(c_array));
             let ptr_schema = Box::into_raw(Box::new(c_schema));
 
+            // Call C# Callback
             let status = (udf.callback)(ptr_array, ptr_schema, error_ptr);
 
             if status != 0 {
