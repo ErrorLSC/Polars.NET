@@ -6,10 +6,10 @@ using Polars.NET.Core.Data;
 using Xunit.Abstractions;
 
 namespace Polars.CSharp.Tests;
-public class StreamingTests
+public class StreamingTests(ITestOutputHelper output)
 {
-    private readonly ITestOutputHelper _output;
-    public StreamingTests(ITestOutputHelper output) => _output = output;
+    private readonly ITestOutputHelper _output = output;
+
     private class BigDataPoco
     {
         public int Id { get; set; }
@@ -18,7 +18,7 @@ public class StreamingTests
     }
 
     // 生成器：惰性生成数据，模拟从数据库或文件读取
-    private IEnumerable<BigDataPoco> GenerateData_1(int count)
+    private static IEnumerable<BigDataPoco> GenerateData_1(int count)
     {
         for (int i = 0; i < count; i++)
         {
@@ -67,7 +67,7 @@ public class StreamingTests
     }
 
     // 模拟无限数据流 / 数据库读取 / CSV 行读取
-    private IEnumerable<StreamPoco> GenerateData_2(int count)
+    private static IEnumerable<StreamPoco> GenerateData_2(int count)
     {
         for (int i = 0; i < count; i++)
         {
@@ -426,6 +426,7 @@ public class StreamingTests
         Assert.Equal(totalRows - 1, targetTable.Rows[totalRows - 1]["Id"]);
     }
     [Fact]
+    [Trait("Stream","E2E")]
     public void Test_ETL_Stream_EndToEnd()
     {
         int totalRows = 100_000;
@@ -601,10 +602,8 @@ public class StreamingTests
         // 验证点：Polars 是否成功接收了 10 行数据
         Assert.Equal(10, df.Height);
         
-        Console.WriteLine("Test 1 (Read): C# -> Polars Arrow 构建与传输成功！");
     }
-[Fact]
-    [Trait("Category", "Debug")]
+    [Fact]
     public void Test_2_Load_PolarsToCSharp_NewTypes()
     {
         // ==========================================
@@ -676,6 +675,64 @@ public class StreamingTests
         var row1 = targetTable.Rows[1];
         Assert.Equal(DBNull.Value, row1["DateOnlyVal"]);
 
-        Console.WriteLine("Test 2 (Write): Polars Arrow -> C# 强类型解析完全成功 (包含 TimeSpan/Decimal/DateOnly)！");
+        // Console.WriteLine("Test 2 (Write): Polars Arrow -> C# 强类型解析完全成功 (包含 TimeSpan/Decimal/DateOnly)！");
+    }
+    [Fact]
+    [Trait("Category", "Debug")]
+    public void Test_3_BinaryType_Roundtrip()
+    {
+        // ==========================================
+        // 目标：验证 byte[] (BLOB) 类型在 Polars 管道中的保真度
+        // 核心检查：Polars 底层无论是 Binary, LargeBinary 还是 BinaryView，
+        // 我们的 BinaryColumnBuilder 和 BinaryAccessor 能否完美抗住！
+        // ==========================================
+
+        var sourceTable = new System.Data.DataTable();
+        sourceTable.Columns.Add("Id", typeof(int));
+        sourceTable.Columns.Add("BlobVal", typeof(byte[]));
+        
+        // 准备测试数据
+        // 1. 常规二进制流 (带 0x00 截断符和高位字节)
+        byte[] sampleBytes = [0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01, 0xFF];
+        // 2. 极端情况：长度为 0 的空数组
+        byte[] emptyBytes = [];
+
+        sourceTable.Rows.Add(1, sampleBytes);
+        sourceTable.Rows.Add(2, emptyBytes);
+        // 3. 极端情况：数据库 Null
+        sourceTable.Rows.Add(3, DBNull.Value);
+
+        using var sourceReader = sourceTable.CreateDataReader();
+        using var lf = LazyFrame.ScanDatabase(sourceReader, batchSize: 2);
+
+        // 2. 准备 Sink
+        var targetTable = new System.Data.DataTable();
+
+        // 👑 显式告知期望反序列化成 byte[]
+        // var typeOverrides = new Dictionary<string, Type>
+        // {
+        //     { "BlobVal", typeof(byte[]) }
+        // };
+
+        // 执行操作
+        lf.SinkTo(targetTable.Load, typeOverrides: null); 
+
+        // 3. 硬核验证
+        Assert.Equal(3, targetTable.Rows.Count);
+
+        // 验证第一行：常规数据
+        var row0 = targetTable.Rows[0];
+        var actualBytes = Assert.IsType<byte[]>(row0["BlobVal"]);
+        Assert.Equal(sampleBytes, actualBytes); // xUnit 会自动按字节逐个比较数组内容
+
+        // 验证第二行：空数组
+        var row1 = targetTable.Rows[1];
+        var actualEmpty = Assert.IsType<byte[]>(row1["BlobVal"]);
+        Assert.Empty(actualEmpty);
+
+        // 验证第三行：Null 值
+        var row2 = targetTable.Rows[2];
+        Assert.Equal(DBNull.Value, row2["BlobVal"]);
+
     }
 }

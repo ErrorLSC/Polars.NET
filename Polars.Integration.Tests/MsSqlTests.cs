@@ -3,7 +3,7 @@ using Polars.CSharp;
 using Polars.Integration.Tests.Fixtures;
 
 namespace Polars.Integration.Tests;
-    // 注入我们之前写好的 Testcontainers 版 MsSqlFixture
+
 public class MsSqlTests : IClassFixture<MsSqlFixture>
 {
     private readonly MsSqlFixture _fixture;

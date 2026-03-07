@@ -130,6 +130,12 @@ internal static class ColumnBuilderFactory
         {
             return new ComplexTypeColumnBuilder(capacity);
         }
+        if (typeId == ArrowTypeId.Binary || 
+            typeId == ArrowTypeId.LargeBinary || 
+            typeId == ArrowTypeId.BinaryView) 
+        {
+            return new BinaryColumnBuilder(capacity);
+        }
         // Fallback
         return new FallbackColumnBuilder(capacity);
     }
@@ -139,9 +145,64 @@ internal static class ColumnBuilderFactory
 // Concrete Implementations
 // ==================================================================================
 
+internal sealed class BinaryColumnBuilder : ColumnBuilder
+{
+    private readonly BinaryArray.Builder _builder = new();
+    
+    public BinaryColumnBuilder(int capacity) 
+    { 
+        _builder.Reserve(capacity); 
+    }
+
+    public override void Add(IDataReader reader, int ordinal)
+    {
+        if (reader.IsDBNull(ordinal))
+        {
+            _builder.AppendNull();
+            return;
+        }
+
+        if (reader is DbDataReader dbReader)
+        {
+            try
+            {
+
+                _builder.Append(dbReader.GetFieldValue<byte[]>(ordinal));
+                return;
+            }
+            catch { } 
+        }
+
+        AddObject(reader.GetValue(ordinal));
+    }
+
+    public override void AddObject(object? v) 
+    { 
+        if (v == null || v == DBNull.Value) 
+        {
+            _builder.AppendNull(); 
+        }
+        else if (v is byte[] bytes)
+        {
+            _builder.Append(bytes);
+        }
+        else
+        {
+            _builder.Append((byte[])v);
+        }
+    }
+
+    public override IArrowArray Build() 
+    { 
+        var arr = _builder.Build(); 
+        _builder.Clear(); 
+        return arr; 
+    }
+}
+
 internal sealed class Int8ColumnBuilder : ColumnBuilder
 {
-    private readonly Int8Array.Builder _builder = new Int8Array.Builder();
+    private readonly Int8Array.Builder _builder = new();
     public Int8ColumnBuilder(int capacity) { _builder.Reserve(capacity); }
 
     public override void Add(IDataReader reader, int ordinal)
@@ -174,7 +235,7 @@ internal sealed class Int8ColumnBuilder : ColumnBuilder
 
 internal sealed class Int16ColumnBuilder : ColumnBuilder
 {
-    private readonly Int16Array.Builder _builder = new Int16Array.Builder();
+    private readonly Int16Array.Builder _builder = new();
     public Int16ColumnBuilder(int capacity) { _builder.Reserve(capacity); }
 
     public override void Add(IDataReader reader, int ordinal)
@@ -205,7 +266,7 @@ internal sealed class Int16ColumnBuilder : ColumnBuilder
 
 internal sealed class UInt8ColumnBuilder : ColumnBuilder
 {
-    private readonly UInt8Array.Builder _builder = new UInt8Array.Builder();
+    private readonly UInt8Array.Builder _builder = new();
     public UInt8ColumnBuilder(int capacity) { _builder.Reserve(capacity); }
 
     public override void Add(IDataReader reader, int ordinal)
@@ -221,7 +282,7 @@ internal sealed class UInt8ColumnBuilder : ColumnBuilder
 
 internal sealed class UInt16ColumnBuilder : ColumnBuilder
 {
-    private readonly UInt16Array.Builder _builder = new UInt16Array.Builder();
+    private readonly UInt16Array.Builder _builder = new();
     public UInt16ColumnBuilder(int capacity) { _builder.Reserve(capacity); }
 
     public override void Add(IDataReader reader, int ordinal)
@@ -251,7 +312,7 @@ internal sealed class UInt16ColumnBuilder : ColumnBuilder
 
 internal sealed class UInt32ColumnBuilder : ColumnBuilder
 {
-    private readonly UInt32Array.Builder _builder = new UInt32Array.Builder();
+    private readonly UInt32Array.Builder _builder = new();
     public UInt32ColumnBuilder(int capacity) { _builder.Reserve(capacity); }
 
     public override void Add(IDataReader reader, int ordinal)
@@ -281,7 +342,7 @@ internal sealed class UInt32ColumnBuilder : ColumnBuilder
 
 internal sealed class UInt64ColumnBuilder : ColumnBuilder
 {
-    private readonly UInt64Array.Builder _builder = new UInt64Array.Builder();
+    private readonly UInt64Array.Builder _builder = new();
     public UInt64ColumnBuilder(int capacity) { _builder.Reserve(capacity); }
     public override void Add(IDataReader reader, int ordinal)
     {
@@ -311,7 +372,7 @@ internal sealed class Int32ColumnBuilder : ColumnBuilder
 {
     public Int32ColumnBuilder(int capacity) { _builder.Reserve(capacity); }
     public override void AddObject(object? v) { if (v == null) _builder.AppendNull(); else _builder.Append((int)v); }
-    private readonly Int32Array.Builder _builder = new Int32Array.Builder();
+    private readonly Int32Array.Builder _builder = new();
     public override void Add(IDataReader reader, int ordinal) {
         if (reader.IsDBNull(ordinal)) _builder.AppendNull();
         else _builder.Append(reader.GetInt32(ordinal));
@@ -323,7 +384,7 @@ internal sealed class Int64ColumnBuilder : ColumnBuilder
 {
     public Int64ColumnBuilder(int capacity) { _builder.Reserve(capacity); }
     public override void AddObject(object? v) { if (v == null) _builder.AppendNull(); else _builder.Append((long)v); }
-    private readonly Int64Array.Builder _builder = new Int64Array.Builder();
+    private readonly Int64Array.Builder _builder = new();
     public override void Add(IDataReader reader, int ordinal) {
         if (reader.IsDBNull(ordinal)) _builder.AppendNull();
         else _builder.Append(reader.GetInt64(ordinal));
@@ -335,7 +396,7 @@ internal sealed class DoubleColumnBuilder : ColumnBuilder
 {
     public DoubleColumnBuilder(int capacity) { _builder.Reserve(capacity); }
     public override void AddObject(object? v) { if (v == null) _builder.AppendNull(); else _builder.Append((double)v); }
-    private readonly DoubleArray.Builder _builder = new DoubleArray.Builder();
+    private readonly DoubleArray.Builder _builder = new();
     public override void Add(IDataReader reader, int ordinal) {
         if (reader.IsDBNull(ordinal)) _builder.AppendNull();
         else _builder.Append(reader.GetDouble(ordinal));
@@ -345,7 +406,7 @@ internal sealed class DoubleColumnBuilder : ColumnBuilder
 internal sealed class HalfFloatColumnBuilder : ColumnBuilder
 {
     // Apache.Arrow 的 Builder
-    private readonly HalfFloatArray.Builder _builder = new HalfFloatArray.Builder();
+    private readonly HalfFloatArray.Builder _builder = new();
 
     public HalfFloatColumnBuilder(int capacity) 
     { 
@@ -409,7 +470,7 @@ internal sealed class FloatColumnBuilder : ColumnBuilder
 {
     public FloatColumnBuilder(int capacity) { _builder.Reserve(capacity); }
     public override void AddObject(object? v) { if (v == null) _builder.AppendNull(); else _builder.Append((float)v); }
-    private readonly FloatArray.Builder _builder = new FloatArray.Builder();
+    private readonly FloatArray.Builder _builder = new();
     public override void Add(IDataReader reader, int ordinal) {
         if (reader.IsDBNull(ordinal)) _builder.AppendNull();
         else _builder.Append(reader.GetFloat(ordinal));
@@ -421,7 +482,7 @@ internal sealed class BooleanColumnBuilder : ColumnBuilder
 {
     public BooleanColumnBuilder(int capacity) { _builder.Reserve(capacity); }
     public override void AddObject(object? v) { if (v == null) _builder.AppendNull(); else _builder.Append((bool)v); }
-    private readonly BooleanArray.Builder _builder = new BooleanArray.Builder();
+    private readonly BooleanArray.Builder _builder = new();
     public override void Add(IDataReader reader, int ordinal) {
         if (reader.IsDBNull(ordinal)) _builder.AppendNull();
         else _builder.Append(reader.GetBoolean(ordinal));
@@ -460,7 +521,7 @@ internal sealed class StringViewColumnBuilder : ColumnBuilder
 {
     public StringViewColumnBuilder(int capacity) { _builder.Reserve(capacity); }
     public override void AddObject(object? v) { if (v == null) _builder.AppendNull(); else _builder.Append((string)v); }
-    private readonly StringViewArray.Builder _builder = new StringViewArray.Builder();
+    private readonly StringViewArray.Builder _builder = new();
 
     public override void Add(IDataReader reader, int ordinal)
     {
@@ -486,7 +547,7 @@ internal sealed class Date32ColumnBuilder : ColumnBuilder
         else if (v is DateTime dt) _builder.Append(dt);
         else _builder.Append(Convert.ToDateTime(v));
     }
-    private readonly Date32Array.Builder _builder = new Date32Array.Builder();
+    private readonly Date32Array.Builder _builder = new();
 
     public override void Add(IDataReader reader, int ordinal)
     {
@@ -552,7 +613,7 @@ internal sealed class TimestampColumnBuilder : ColumnBuilder
             _builder.Append(wallClockDto);
         }
     }
-    private readonly TimestampArray.Builder _builder = new TimestampArray.Builder();
+    private readonly TimestampArray.Builder _builder = new();
     public TimestampColumnBuilder(TimestampType type)
     {
         _builder = new TimestampArray.Builder(type);
@@ -602,7 +663,6 @@ internal sealed class Time64ColumnBuilder : ColumnBuilder
         }
         else
         {
-            // 最后的兜底，给那些纯数字留条活路
             arrowTimeValue = Convert.ToInt64(v);
         }
 
@@ -613,12 +673,11 @@ internal sealed class Time64ColumnBuilder : ColumnBuilder
 
 internal sealed class DurationColumnBuilder : ColumnBuilder
 {
-    private readonly Apache.Arrow.DurationArray.Builder _builder;
+    private readonly DurationArray.Builder _builder;
 
     public DurationColumnBuilder(int capacity) 
     { 
-        // 👑 必须和 ArrowTypeResolver 里指定的 TimeUnit.Nanosecond 保持绝对一致！
-        _builder = new Apache.Arrow.DurationArray.Builder(DurationType.Microsecond); 
+        _builder = new DurationArray.Builder(DurationType.Microsecond); 
         _builder.Reserve(capacity); 
     }
 
@@ -639,15 +698,12 @@ internal sealed class DurationColumnBuilder : ColumnBuilder
 
         long arrowDurationValue;
 
-        // 👑 性能极客的精准拦截
         if (v is TimeSpan timeSpan)
         {
-            // C# 的 TimeSpan.Ticks 是 100 纳秒级别。
             arrowDurationValue = timeSpan.Ticks / 10;
         }
         else
         {
-            // 最后的兜底，给那些可能传了 long/int 的纯数字（纳秒值）留条活路
             arrowDurationValue = Convert.ToInt64(v);
         }
 
@@ -668,7 +724,7 @@ internal sealed class ComplexTypeColumnBuilder(int capacity) : ColumnBuilder
         if (v == null) _buffer.Add(null);
         else _buffer.Add(v);
     }
-    private readonly List<object?> _buffer = new List<object?>(capacity);
+    private readonly List<object?> _buffer = new(capacity);
 
     public override void Add(IDataReader reader, int ordinal)
     {
@@ -695,11 +751,11 @@ internal sealed class ComplexTypeColumnBuilder(int capacity) : ColumnBuilder
 
         Type runtimeType = firstItem.GetType();
 
-        var castMethod = typeof(System.Linq.Enumerable)
-            .GetMethod(nameof(System.Linq.Enumerable.Cast), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)!
+        var castMethod = typeof(Enumerable)
+            .GetMethod(nameof(Enumerable.Cast), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)!
             .MakeGenericMethod(runtimeType);
         
-        var typedEnumerable = castMethod.Invoke(null, new object[] { _buffer });
+        var typedEnumerable = castMethod.Invoke(null, [_buffer]);
 
         var buildMethod = typeof(ArrowConverter)
             .GetMethod(nameof(ArrowConverter.Build), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)!
@@ -707,7 +763,7 @@ internal sealed class ComplexTypeColumnBuilder(int capacity) : ColumnBuilder
         
         try 
         {
-            var array = (IArrowArray)buildMethod.Invoke(null, new object[] { typedEnumerable! })!;
+            var array = (IArrowArray)buildMethod.Invoke(null, [typedEnumerable!])!;
             _buffer.Clear();
             return array;
         }
@@ -724,7 +780,7 @@ internal sealed class ComplexTypeColumnBuilder(int capacity) : ColumnBuilder
 
 internal sealed class FallbackColumnBuilder : ColumnBuilder
 {
-    private readonly StringViewArray.Builder _builder = new StringViewArray.Builder();
+    private readonly StringViewArray.Builder _builder = new();
 
     public FallbackColumnBuilder(int capacity) 
     { 
