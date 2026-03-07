@@ -2760,7 +2760,7 @@ and DataFrame(handle: DataFrameHandle) =
 
         let size = defaultArg batchSize 50_000
         
-        let batchStream = reader.ToArrowBatches size
+        let batchStream = reader.ToArrowBatches(size).Prefetch(2)
         
         let handle = ArrowStreamInterop.ImportEager(batchStream,schema)
         
@@ -5873,7 +5873,7 @@ and LazyFrame(handle: LazyFrameHandle) =
                     seq {
                         let mutable hasYielded = false
                         
-                        let batches = ArrowConverter.ToArrowBatches(data, size)
+                        let batches = ArrowConverter.ToArrowBatches(data, size).Prefetch(2)
 
                         for batch in batches do
                             hasYielded <- true
@@ -5928,7 +5928,7 @@ and LazyFrame(handle: LazyFrameHandle) =
             let factory = Func<IEnumerable<RecordBatch>>(fun () ->
                 seq {
                     use reader = readerFactory()
-                    let batches = DbToArrowStream.ToArrowBatches(reader, size)
+                    let batches = DbToArrowStream.ToArrowBatches(reader, size).Prefetch(2)
                     
                     for batch in batches do
                         yield batch
@@ -5940,21 +5940,19 @@ and LazyFrame(handle: LazyFrameHandle) =
             new LazyFrame(handle)
 
     /// <summary>
-    /// [Lazy][Buffered] Scan a database DataReader directly.
-    /// <para>Writes to disk IMMEDIATELY because IDataReader is forward-only.</para>
+    /// [Lazy][Streaming] Scan a database DataReader directly.
+    /// <para>Upgraded to pure memory Streaming Mode using Arrow C-Data FFI!</para>
     /// </summary>
     static member scanDb(reader: IDataReader, ?batchSize: int) : LazyFrame =
         let size = defaultArg batchSize 50_000
+        let schema = reader.GetArrowSchema()
         
-        let scope = new IpcStreamService.TempIpcScopeReader(reader, size)
-        let handle = LazyFrame.ScanIpc(scope.FilePath).Handle
+        let stream = reader.ToArrowBatches(size).Prefetch 2
         
-        // Inline ScopedLazyFrame
-        { new LazyFrame(handle) with
-            member this.Dispose() =
-                base.Dispose()
-                scope.Dispose()
-        }
+        let factory = Func<IEnumerable<RecordBatch>>(fun () -> stream)
+        let handle = ArrowStreamInterop.ScanStream(factory, schema)
+        
+        new LazyFrame(handle)
     /// <summary>
     /// Execute the LazyFrame and sink the result to a CSV file.
     /// <para>

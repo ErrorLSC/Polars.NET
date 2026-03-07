@@ -1,13 +1,10 @@
 use polars::prelude::*;
 use polars_core::utils::concat_df;
-use polars_arrow::ffi::{ArrowArrayStreamReader,ArrowArrayStream};
-use polars_arrow::array::Array;
 use std::ffi::CStr;
 use std::{ffi::CString, os::raw::c_char};
 use crate::types::*;
 use polars::lazy::dsl::UnpivotArgsDSL;
 use polars::functions::{concat_df_horizontal,concat_df_diagonal};
-use polars::prelude::{Field as PolarsField};
 use crate::utils::{consume_exprs_array, map_coalesce, map_join_side, map_jointype, map_maintain_order, map_validation, parse_keep_strategy, ptr_to_str};
 
 // ==========================================
@@ -949,93 +946,6 @@ pub extern "C" fn pl_dataframe_new(
 
         let df = DataFrame::new(height, series_vec)?;
 
-        Ok(Box::into_raw(Box::new(DataFrameContext { df })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pl_dataframe_new_from_stream(
-    stream_ptr: *mut ArrowArrayStream,
-) -> *mut DataFrameContext {
-    ffi_try!({
-        // 1. Check null pointer
-        if stream_ptr.is_null() {
-            return Err(PolarsError::ComputeError("Stream pointer is null".into()));
-        }
-        // 2. Raw Pointer -> Mutable Reference
-        let stream = unsafe { &mut *stream_ptr};
-
-        // 3. Create Reader
-        let mut reader = unsafe {ArrowArrayStreamReader::try_new(stream)
-            .map_err(|e| PolarsError::ComputeError(format!("Failed to create Arrow Stream Reader: {}", e).into()))?};
-
-        // First Chunk
-        let first_chunk_result = unsafe {reader.next()};
-
-        // If stream is blank, return blank DataFrame
-        if first_chunk_result.is_none() {
-            let df = DataFrame::default();
-            return Ok(Box::into_raw(Box::new(DataFrameContext { df })));
-        }
-
-        let first_chunk = first_chunk_result.unwrap()
-            .map_err(|e| PolarsError::ComputeError(format!("Error reading first batch: {}", e).into()))?;
-
-        // 3. Get Schema from first chunk
-        let struct_array = first_chunk
-            .as_any()
-            .downcast_ref::<StructArray>()
-            .ok_or_else(|| PolarsError::ComputeError("First batch is not a StructArray".into()))?;
-
-        let fields = match struct_array.dtype() {
-            ArrowDataType::Struct(f) => f,
-            _ => return Err(PolarsError::ComputeError("Stream data type is not Struct".into())),
-        };
-
-        let num_cols = fields.len();
-        let mut columns_chunks: Vec<Vec<Box<dyn Array>>> = vec![Vec::new(); num_cols];
-
-        // 4. Deal with first Chunk
-        for (col_idx, column) in struct_array.values().iter().enumerate() {
-            if col_idx < num_cols {
-                columns_chunks[col_idx].push(column.clone());
-            }
-        }
-
-        // 5. Deal with following chunks
-        while let Some(chunk_result) = unsafe {reader.next()} {
-            let chunk = chunk_result
-                .map_err(|e| PolarsError::ComputeError(format!("Error reading batch: {}", e).into()))?;
-
-            let struct_array = chunk
-                .as_any()
-                .downcast_ref::<StructArray>()
-                .ok_or_else(|| PolarsError::ComputeError("Subsequent batch is not a StructArray".into()))?;
-
-            for (col_idx, column) in struct_array.values().iter().enumerate() {
-                if col_idx < num_cols {
-                    columns_chunks[col_idx].push(column.clone());
-                }
-            }
-        }
-
-        // 6. Build Series
-        let mut series_vec = Vec::with_capacity(num_cols);
-
-        for (i, chunks) in columns_chunks.into_iter().enumerate() {
-            let arrow_field = &fields[i]; // &ArrowField
-            
-            let p_field = PolarsField::from(arrow_field); 
-            let p_dtype = p_field.dtype;
-            let name = p_field.name.as_str();
-
-            let s = unsafe {Series::from_chunks_and_dtype_unchecked(name.into(), chunks, &p_dtype)};
-            
-            series_vec.push(s.into());
-        }
-        let height = series_vec.first().map(|s:&Column| s.len()).unwrap_or(0);
-        // 7. Return DataFrame
-        let df = DataFrame::new(height,series_vec)?;
         Ok(Box::into_raw(Box::new(DataFrameContext { df })))
     })
 }

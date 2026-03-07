@@ -1146,17 +1146,18 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     public static DataFrame ReadDatabase(IDataReader reader, int batchSize = 50_000)
     {
         // Get Schema 
-         var schema = reader.GetArrowSchema();
+        var schema = reader.GetArrowSchema();
 
-        // Get ArrowStream
-        var batchEnumerable = reader.ToArrowBatches(batchSize);
+        var batchEnumerable = reader.ToArrowBatches(batchSize).Prefetch(2);
 
         var handle = ArrowStreamInterop.ImportEager(batchEnumerable, schema);
+        
         if (handle.IsInvalid)
         {
-            var emptyBatch = new RecordBatch(schema, System.Array.Empty<IArrowArray>(), 0);
+            var emptyBatch = new RecordBatch(schema, [], 0);
             return new DataFrame(ArrowFfiBridge.ImportDataFrame(emptyBatch));
         }
+        
         return new DataFrame(handle);
     }
     // ==========================================

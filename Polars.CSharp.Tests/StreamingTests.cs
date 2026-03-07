@@ -209,8 +209,8 @@ public class StreamingTests(ITestOutputHelper output)
             };
         }
     }
-    [Fact(Skip ="Stress Test")]
-    [Trait("Category", "StressTest")] // 标记为压力测试，CI 中可选跳过
+    [Fact(Skip ="Too long")]
+    [Trait("Stream", "StressTest")] 
     public async Task Test_100_Million_Rows_StreamingAsync()
     {
         // ====================================================
@@ -281,7 +281,7 @@ public class StreamingTests(ITestOutputHelper output)
 
             // 3. 执行：CollectStreaming
             // 关键点：use 语句会触发 Dispose，释放 Rust 端资源
-            using var df = q.CollectStreaming();
+            using var df = q.Collect(useStreaming:true);
             
             // 停止计时
             sw.Stop();

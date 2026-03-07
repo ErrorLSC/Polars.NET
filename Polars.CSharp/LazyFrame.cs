@@ -696,7 +696,7 @@ public class LazyFrame : IDisposable,IPolarsLazyFrame
         {
             bool hasYielded = false;
 
-            foreach (var batch in data.ToArrowBatches(batchSize))
+            foreach (var batch in data.ToArrowBatches(batchSize).Prefetch(2))
             {
                 hasYielded = true;
                 yield return batch;
@@ -720,16 +720,16 @@ public class LazyFrame : IDisposable,IPolarsLazyFrame
     /// Scan RecordBatch Stream
     /// If schema is provied, first batch won't be consumed for getting schema.
     /// </summary>
-    public static LazyFrame ScanRecordBatches(IEnumerable<RecordBatch> stream, Apache.Arrow.Schema schema)
-        {
-            if (schema == null) throw new ArgumentNullException(nameof(schema));
+    public static LazyFrame ScanRecordBatches(IEnumerable<RecordBatch> stream, Schema schema)
+    {
+        if (schema == null) throw new ArgumentNullException(nameof(schema));
 
-            var handle = ArrowStreamInterop.ScanStream(
-                () => EnsureStreamSafety(stream),
-                schema
-            );
-            return new LazyFrame(handle);
-        }
+        var handle = ArrowStreamInterop.ScanStream(
+            () => EnsureStreamSafety(stream),
+            schema
+        );
+        return new LazyFrame(handle);
+    }
     /// <summary>
     /// Scan Database to LazyFrame
     /// </summary>
@@ -740,7 +740,7 @@ public class LazyFrame : IDisposable,IPolarsLazyFrame
     {
         var schema = reader.GetArrowSchema();
         
-        var stream = reader.ToArrowBatches(batchSize);
+        var stream = reader.ToArrowBatches(batchSize).Prefetch(2);
 
         return ScanRecordBatches(stream, schema);
     }
@@ -802,28 +802,35 @@ public class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </code>
     /// </example>
     public static LazyFrame ScanDatabase(Func<IDataReader> readerFactory, int batchSize = 50_000)
+    {
+        Schema schema;
+        // Probe schema
+        using (var probe = readerFactory())
         {
-            Apache.Arrow.Schema schema;
-            // Probe schema
-            using (var probe = readerFactory())
-            {
-                schema = probe.GetArrowSchema();
-            }
-
-            // Replayable stream
-            IEnumerable<RecordBatch> StreamFactory()
-            {
-                using var reader = readerFactory();
-                foreach (var batch in reader.ToArrowBatches(batchSize))
-                    yield return batch;
-            }
-
-            var handle = ArrowStreamInterop.ScanStream(
-                () => EnsureStreamSafety(StreamFactory()),
-                schema
-            );
-            return new LazyFrame(handle);
+            schema = probe.GetArrowSchema();
         }
+
+        // Replayable stream
+        IEnumerable<RecordBatch> StreamFactory()
+        {
+            using var reader = readerFactory();
+            // Get stream
+            var stream = reader.ToArrowBatches(batchSize);
+            
+            // 现在，ToArrowBatches 里的 CPU 转换和 IDataReader 的网络 IO 全都在后台线程跑了！
+            stream = stream.Prefetch(2);
+            // foreach (var batch in reader.ToArrowBatches(batchSize))
+            //     yield return batch;
+            foreach (var batch in stream) 
+                yield return batch;
+        }
+
+        var handle = ArrowStreamInterop.ScanStream(
+            () => EnsureStreamSafety(StreamFactory()),
+            schema
+        );
+        return new LazyFrame(handle);
+    }
     /// <summary>
     /// A LazyFrame with resource scope which needs to be disposed.
     /// </summary>
