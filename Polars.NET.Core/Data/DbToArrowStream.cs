@@ -1,6 +1,7 @@
 using System.Data;
 using System.Data.Common;
 using Apache.Arrow;
+using Apache.Arrow.Arrays;
 using Apache.Arrow.Types;
 using Polars.NET.Core.Arrow;
 
@@ -136,6 +137,10 @@ internal static class ColumnBuilderFactory
         {
             return new BinaryColumnBuilder(capacity);
         }
+        if (typeId == ArrowTypeId.FixedSizedBinary) 
+        {
+            return new FixedSizeBinaryColumnBuilder((FixedSizeBinaryType)field.DataType, capacity);
+        }
         // Fallback
         return new FallbackColumnBuilder(capacity);
     }
@@ -144,6 +149,98 @@ internal static class ColumnBuilderFactory
 // ==================================================================================
 // Concrete Implementations
 // ==================================================================================
+
+internal sealed class ConcreteFixedSizeBinaryBuilder(FixedSizeBinaryType type) : 
+    FixedSizeBinaryArray.BuilderBase<FixedSizeBinaryArray, ConcreteFixedSizeBinaryBuilder>(type, type.ByteWidth)
+{
+
+    protected override FixedSizeBinaryArray Build(ArrayData data)
+    {
+        return new FixedSizeBinaryArray(data);
+    }
+}
+
+internal sealed class FixedSizeBinaryColumnBuilder : ColumnBuilder
+{
+    private readonly ConcreteFixedSizeBinaryBuilder _builder;
+    private readonly int _byteWidth;
+
+    public FixedSizeBinaryColumnBuilder(Apache.Arrow.Types.FixedSizeBinaryType type, int capacity)
+    {
+        _builder = new ConcreteFixedSizeBinaryBuilder(type);
+        _builder.Reserve(capacity);
+        _byteWidth = type.ByteWidth;
+    }
+
+    public override void Add(IDataReader reader, int ordinal)
+    {
+        if (reader.IsDBNull(ordinal))
+        {
+            _builder.AppendNull();
+            return;
+        }
+
+        if (reader is System.Data.Common.DbDataReader dbReader)
+        {
+            try
+            {
+                // 👑 性能魔法：专为 Guid 开辟的栈内存零分配通道！
+                // 如果数据库字段是 UniqueIdentifier 且 Arrow 端要求 16 字节
+                if (_byteWidth == 16 && dbReader.GetFieldType(ordinal) == typeof(Guid))
+                {
+                    Guid guid = dbReader.GetGuid(ordinal);
+                    
+                    // stackalloc：直接在线程栈上分配 16 字节，完全不惊动 GC（垃圾回收器）
+                    Span<byte> guidBytes = stackalloc byte[16];
+                    guid.TryWriteBytes(guidBytes);
+                    
+                    _builder.Append(guidBytes);
+                    return;
+                }
+
+                // 常规定长 byte[] 通道
+                _builder.Append(dbReader.GetFieldValue<byte[]>(ordinal));
+                return;
+            }
+            catch { }
+        }
+
+        AddObject(reader.GetValue(ordinal));
+    }
+
+    public override void AddObject(object? v)
+    {
+        if (v == null || v == DBNull.Value)
+        {
+            _builder.AppendNull();
+        }
+        else if (v is Guid guid)
+        {
+            Span<byte> guidBytes = stackalloc byte[16];
+            guid.TryWriteBytes(guidBytes);
+            _builder.Append(guidBytes);
+        }
+        else if (v is byte[] bytes)
+        {
+            if (bytes.Length != _byteWidth)
+            {
+                throw new ArgumentException($"FixedSizeBinary expected {_byteWidth} bytes, but got {bytes.Length} bytes.");
+            }
+            _builder.Append(bytes);
+        }
+        else
+        {
+            _builder.Append((byte[])v);
+        }
+    }
+
+    public override IArrowArray Build()
+    {
+        var arr = _builder.Build();
+        _builder.Clear();
+        return arr;
+    }
+}
 
 internal sealed class BinaryColumnBuilder : ColumnBuilder
 {
@@ -166,11 +263,20 @@ internal sealed class BinaryColumnBuilder : ColumnBuilder
         {
             try
             {
+                if (dbReader.GetFieldType(ordinal) == typeof(Guid))
+                {
+                    Guid guid = dbReader.GetGuid(ordinal);
+                    Span<byte> guidBytes = stackalloc byte[16];
+                    guid.TryWriteBytes(guidBytes);
+                    
+                    _builder.Append(guidBytes);
+                    return;
+                }
 
                 _builder.Append(dbReader.GetFieldValue<byte[]>(ordinal));
                 return;
             }
-            catch { } 
+            catch { }
         }
 
         AddObject(reader.GetValue(ordinal));
@@ -181,6 +287,12 @@ internal sealed class BinaryColumnBuilder : ColumnBuilder
         if (v == null || v == DBNull.Value) 
         {
             _builder.AppendNull(); 
+        }
+        else if (v is Guid guid)
+        {
+            Span<byte> guidBytes = stackalloc byte[16];
+            guid.TryWriteBytes(guidBytes);
+            _builder.Append(guidBytes);
         }
         else if (v is byte[] bytes)
         {

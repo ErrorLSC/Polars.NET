@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Apache.Arrow;
+using Apache.Arrow.Arrays;
 using Apache.Arrow.Types;
 using Polars.NET.Core.Arrow;
 
@@ -295,6 +296,19 @@ public sealed class ArrowToDbStream : DbDataReader
                 return Unsafe.As<TimeSpan, T>(ref val);
             }
         }
+        else if (typeof(T) == typeof(Guid))
+        {
+            if (accessor is FixedSizeBinaryToGuidAccessor fixedAccessor)
+            {
+                var val = fixedAccessor.GetGuidFast(_currentRowIndex);
+                return Unsafe.As<Guid, T>(ref val);
+            }
+            if (accessor is BinaryToGuidAccessor binaryGuidAccessor)
+            {
+                var val = binaryGuidAccessor.GetGuidFast(_currentRowIndex);
+                return Unsafe.As<Guid, T>(ref val);
+            }
+        }
 
         return (T)accessor.GetValue(_currentRowIndex);
     }
@@ -439,7 +453,12 @@ public sealed class ArrowToDbStream : DbDataReader
 
             // 3. String & Binary
             StringViewType or StringType or LargeStringType => new StringViewAccessor(),
-            BinaryType or LargeBinaryType or BinaryViewType => new BinaryAccessor(),
+            BinaryViewType or BinaryType or LargeBinaryType => targetType switch
+            {
+                { } t when t == typeof(Guid) => new BinaryToGuidAccessor(),
+                _ => new BinaryAccessor()
+            },
+            
 
             // 4. Time
             TimestampType => new TimestampAccessor(),
@@ -452,6 +471,11 @@ public sealed class ArrowToDbStream : DbDataReader
             // 5. Decimal 
             Decimal128Type => new DecimalAccessor(), 
             Decimal256Type => new DecimalAccessor(),
+            FixedSizeBinaryType => targetType switch
+            {
+                { } t when t == typeof(Guid) => new FixedSizeBinaryToGuidAccessor(),
+                _ => new FixedSizeBinaryAccessor()
+            },
 
             // 6. Fallback
             _ => new JsonFallbackAccessor(targetType)
@@ -462,7 +486,102 @@ public sealed class ArrowToDbStream : DbDataReader
     // ==================================================================================
     // Concrete Accessors
     // ==================================================================================
+    internal sealed class FixedSizeBinaryToGuidAccessor : ColumnAccessor {
+        private FixedSizeBinaryArray? _array;
+        
+        public override Type TargetType => typeof(Guid);
+        
+        public override void SetBatch(IArrowArray array) {
+            _array = (FixedSizeBinaryArray)array;
+        }
+        
+        public override bool IsNull(int index) => _array!.IsNull(index);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal Guid GetGuidFast(int index) {
+
+            return new Guid(_array!.GetBytes(index));
+        }
+
+        public override object GetValue(int index) {
+            if (IsNull(index)) return DBNull.Value;
+
+            return GetGuidFast(index); 
+        }
+    }
+    internal sealed class FixedSizeBinaryAccessor : ColumnAccessor {
+        private FixedSizeBinaryArray? _array;
+        
+        public override Type TargetType => typeof(byte[]);
+        
+        public override void SetBatch(IArrowArray array) {
+            _array = (FixedSizeBinaryArray)array;
+        }
+        
+        public override bool IsNull(int index) => _array!.IsNull(index);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal ReadOnlySpan<byte> GetBytesFast(int index) {
+            return _array!.GetBytes(index);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal Guid GetGuidFast(int index) {
+            return new Guid(_array!.GetBytes(index));
+        }
+
+        public override object GetValue(int index) {
+            if (IsNull(index)) return DBNull.Value;
+
+            return GetBytesFast(index).ToArray(); 
+        }
+
+        public override long GetBytes(int index, long dataOffset, byte[]? buffer, int bufferOffset, int length) {
+            ReadOnlySpan<byte> bytes = GetBytesFast(index);
+            if (buffer == null) return bytes.Length;
+            
+            int count = Math.Min(bytes.Length - (int)dataOffset, length);
+            if (count > 0) {
+                bytes.Slice((int)dataOffset, count).CopyTo(buffer.AsSpan(bufferOffset));
+            }
+            return count;
+        }
+    }
+    internal sealed class BinaryToGuidAccessor : ColumnAccessor {
+        private IArrowArray? _array;
+        
+        public override Type TargetType => typeof(Guid);
+        
+        public override void SetBatch(IArrowArray array) {
+            _array = array;
+        }
+        
+        public override bool IsNull(int index) => _array!.IsNull(index);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal ReadOnlySpan<byte> GetBytesFast(int index) {
+            if (_array is BinaryViewArray bv) return bv.GetBytes(index);
+            if (_array is LargeBinaryArray lba) return lba.GetBytes(index);
+            if (_array is BinaryArray ba) return ba.GetBytes(index);
+            
+            throw new InvalidCastException($"Expected Binary-like array, got {_array?.GetType()}");
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal Guid GetGuidFast(int index) {
+            ReadOnlySpan<byte> bytes = GetBytesFast(index);
+            if (bytes.Length != 16) {
+                throw new InvalidDataException($"Cannot convert binary of length {bytes.Length} to Guid.");
+            }
+            return new Guid(bytes);
+        }
+
+        public override object GetValue(int index) {
+            if (IsNull(index)) return DBNull.Value;
+
+            return GetGuidFast(index); 
+        }
+    }
     internal sealed class BooleanAccessor : ColumnAccessor {
         private BooleanArray? _array;
         public override Type TargetType => typeof(bool);

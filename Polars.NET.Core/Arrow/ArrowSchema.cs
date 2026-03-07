@@ -70,7 +70,8 @@ public static class ArrowTypeResolver
         // 2. String & Binary
         if (coreType == typeof(string)) return StringViewType.Default;
         if (coreType == typeof(char))   return StringViewType.Default;
-        if (coreType == typeof(Guid))   return StringViewType.Default; // Guid as String
+        if (coreType == typeof(Guid)) return BinaryViewType.Default;
+
         if (coreType == typeof(byte[])) return BinaryViewType.Default;
 
         // 3. Date & Time
@@ -187,11 +188,12 @@ public static class ArrowTypeResolver
             TimestampType ts => string.IsNullOrEmpty(ts.Timezone) ? typeof(DateTime) : typeof(DateTimeOffset),
             Date32Type => typeof(DateOnly),
             Date64Type => typeof(DateTime),
-            Time64Type => typeof(TimeOnly), // Updated
+            Time64Type => typeof(TimeOnly), 
             DurationType => typeof(TimeSpan),
             BinaryType => typeof(byte[]),
             LargeBinaryType => typeof(byte[]),
             BinaryViewType => typeof(byte[]),
+            FixedSizeBinaryType => typeof(Guid),
             _ => typeof(object)
         };
     }

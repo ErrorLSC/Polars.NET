@@ -678,7 +678,7 @@ public class StreamingTests(ITestOutputHelper output)
         // Console.WriteLine("Test 2 (Write): Polars Arrow -> C# 强类型解析完全成功 (包含 TimeSpan/Decimal/DateOnly)！");
     }
     [Fact]
-    [Trait("Category", "Debug")]
+    [Trait("Stream", "Binary")]
     public void Test_3_BinaryType_Roundtrip()
     {
         // ==========================================
@@ -733,6 +733,64 @@ public class StreamingTests(ITestOutputHelper output)
         // 验证第三行：Null 值
         var row2 = targetTable.Rows[2];
         Assert.Equal(DBNull.Value, row2["BlobVal"]);
+
+    }
+    [Fact]
+    [Trait("Category", "Debug")]
+    public void Test_4_Guid_FixedSizeBinary_Roundtrip()
+    {
+        // ==========================================
+        // 目标：验证 Guid (FixedSizeBinary(16)) 类型的端到端零拷贝传输
+        // 核心检查：stackalloc 写入和 Span 原位读取是否无损且精准
+        // ==========================================
+
+        var sourceTable = new System.Data.DataTable();
+        sourceTable.Columns.Add("Id", typeof(int));
+        sourceTable.Columns.Add("GuidVal", typeof(Guid));
+        
+        // 准备测试数据
+        var sampleGuid = Guid.NewGuid(); // 随机生成一个标准的 Guid
+        var emptyGuid = Guid.Empty;      // 全 0 的 Guid (00000000-0000-0000-0000-000000000000)
+
+        sourceTable.Rows.Add(1, sampleGuid);
+        sourceTable.Rows.Add(2, emptyGuid);
+        // 极端情况：Null
+        sourceTable.Rows.Add(3, DBNull.Value);
+
+        using var sourceReader = sourceTable.CreateDataReader();
+        
+        // 发射到 Polars
+        using var lf = LazyFrame.ScanDatabase(sourceReader, batchSize: 2);
+        // var df = DataFrame.ReadDatabase(sourceReader);
+        // df.Show();
+        // 准备 Sink
+        var targetTable = new System.Data.DataTable();
+
+        // 👑 显式告知 C# 期望反序列化成 Guid，触发 FixedSizeBinaryAccessor 里的 GetGuidFast 通道
+        var typeOverrides = new Dictionary<string, Type>
+        {
+            { "GuidVal", typeof(Guid) }
+        };
+
+        // 执行操作
+        lf.SinkTo(targetTable.Load, typeOverrides: typeOverrides); 
+
+        // 👑 硬核验证
+        Assert.Equal(3, targetTable.Rows.Count);
+
+        // 验证第一行：常规 Guid
+        var row0 = targetTable.Rows[0];
+        var actualGuid = Assert.IsType<Guid>(row0["GuidVal"]);
+        Assert.Equal(sampleGuid, actualGuid);
+
+        // 验证第二行：Empty Guid
+        var row1 = targetTable.Rows[1];
+        var actualEmpty = Assert.IsType<Guid>(row1["GuidVal"]);
+        Assert.Equal(emptyGuid, actualEmpty);
+
+        // 验证第三行：Null 值
+        var row2 = targetTable.Rows[2];
+        Assert.Equal(DBNull.Value, row2["GuidVal"]);
 
     }
 }
