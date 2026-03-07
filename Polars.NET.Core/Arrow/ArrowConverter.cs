@@ -140,6 +140,8 @@ public static class ArrowConverter
         if (checkType == typeof(DateTime)) return BuildTimestamp(data.Cast<DateTime?>());
         if (checkType == typeof(DateTimeOffset)) return BuildDateTimeOffset(data.Cast<DateTimeOffset?>());
         if (checkType == typeof(TimeSpan)) return BuildDuration(data.Cast<TimeSpan?>());
+        if (checkType == typeof(Guid)) return BuildGuid(data.Cast<Guid?>());
+        if (checkType == typeof(byte[])) return BuildBinary(data.Cast<byte[]?>());
         // if (checkType == typeof(Half)) return BuildFloat16(data.Cast<Half?>());
         var elementType = ArrowTypeResolver.GetEnumerableElementType(type);
         if (elementType != null)
@@ -483,6 +485,35 @@ public static class ArrowConverter
             {
                 b.AppendNull();
             }
+        }
+        return b.Build();
+    }
+    private static BinaryViewArray BuildGuid(IEnumerable<Guid?> data)
+    {
+        var b = new BinaryViewArray.Builder();
+        Span<byte> guidBytes = stackalloc byte[16];
+        foreach (var v in data)
+        {
+            if (v.HasValue)
+            {
+                v.Value.TryWriteBytes(guidBytes);
+                b.Append(guidBytes);
+            }
+            else
+            {
+                b.AppendNull();
+            }
+        }
+        return b.Build();
+    }
+
+    private static BinaryViewArray BuildBinary(IEnumerable<byte[]?> data)
+    {
+        var b = new BinaryViewArray.Builder();
+        foreach (var v in data)
+        {
+            if (v != null) b.Append(v);
+            else b.AppendNull();
         }
         return b.Build();
     }

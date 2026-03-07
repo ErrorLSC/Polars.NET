@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
@@ -32,16 +33,18 @@ public static class ArrowReader
             }
             yield break;
         }
-        // Object Mapping Mode
-        // For POCO (class/struct)
-        
+
+        // =========================================================
+        // Object Mapping Mode (No boxing)
+        // =========================================================
         int rowCount = batch.Length;
         
-        // Get Can-write properties
+        // Get writable prop
         var properties = targetType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                                     .Where(p => p.CanWrite).ToArray();
         
-        var columnAccessors = new Func<int, object?>[properties.Length];
+        // Get strongtyped Setter closure
+        var setters = new Action<T, int>[properties.Length];
 
         for (int i = 0; i < properties.Length; i++)
         {
@@ -50,24 +53,42 @@ public static class ArrowReader
 
             if (col == null) 
             {
-                columnAccessors[i] = _ => null; 
+                setters[i] = (entity, rowIdx) => { }; 
                 continue; 
             }
 
-            columnAccessors[i] = CreateAccessor(col, prop.PropertyType);
+            // Call FastAccessorBuilder
+            setters[i] = FastAccessorBuilder.BuildRowAssigner<T>(col, prop);
         }
 
+        // Setter loop
+        // Preset an array with rowCount as length
+        T[] batchItems = new T[rowCount];
+        
+        // Materialize objects
+        if (!targetType.IsValueType)
+        {
+            for (int i = 0; i < rowCount; i++)
+            {
+                batchItems[i] = Activator.CreateInstance<T>()!;
+            }
+        }
+
+        // Columnar Loop
+        for (int p = 0; p < setters.Length; p++)
+        {
+            var setter = setters[p];
+
+            for (int i = 0; i < rowCount; i++)
+            {
+                setter(batchItems[i], i);
+            }
+        }
+
+        // return results
         for (int i = 0; i < rowCount; i++)
         {
-            var item = Activator.CreateInstance<T>()!; 
-            
-            for (int p = 0; p < properties.Length; p++)
-            {
-                var accessor = columnAccessors[p];
-                var val = accessor(i);
-                if (val != null) properties[p].SetValue(item, val);
-            }
-            yield return item;
+            yield return batchItems[i];
         }
     }
 
@@ -542,6 +563,191 @@ public static class ArrowReader
                 // for string, Object, Nullable<int> 
                 Read = _ => null;
             }
+        }
+    }
+}
+
+internal static class FastAccessorBuilder
+{
+    /// <summary>
+    /// Convert Runtime PropertyInfo to Strong typed generic invoke in Compile Time
+    /// </summary>
+    public static Action<TEntity, int> BuildRowAssigner<TEntity>(IArrowArray array, PropertyInfo prop)
+    {
+        // Get real type
+        Type propType = prop.PropertyType;
+
+        // Dynamiclly call BuildRowAssignerInternal<TEntity, TProp>
+        var method = typeof(FastAccessorBuilder)
+            .GetMethod(nameof(BuildRowAssignerInternal), BindingFlags.NonPublic | BindingFlags.Static)!
+            .MakeGenericMethod(typeof(TEntity), propType);
+
+        return (Action<TEntity, int>)method.Invoke(null, [array, prop])!;
+    }
+
+    /// <summary>
+    /// AST merger
+    /// </summary>
+    private static Action<TEntity, int> BuildRowAssignerInternal<TEntity, TProp>(IArrowArray array, PropertyInfo prop)
+    {
+        var entityParam = Expression.Parameter(typeof(TEntity), "entity");
+        var rowIdxParam = Expression.Parameter(typeof(int), "rowIdx");
+        
+        // Get Strong Type Getter
+        Func<int, TProp> getter = CreateStrongGetter<TProp>(array);
+        
+        // Set this delegate to AST as constant
+        var getterConst = Expression.Constant(getter, typeof(Func<int, TProp>));
+        
+        // getter.Invoke(rowIdx)
+        var valueExp = Expression.Invoke(getterConst, rowIdxParam);
+
+        // entity.Property
+        var propExp = Expression.Property(entityParam, prop);
+        
+        // entity.Property = getter.Invoke(rowIdx)
+        var assignExp = Expression.Assign(propExp, valueExp);
+
+        // Compile
+        return Expression.Lambda<Action<TEntity, int>>(assignExp, entityParam, rowIdxParam).Compile();
+    }
+
+    /// <summary>
+    /// Strong Type Getter Factory
+    /// </summary>
+    private static Func<int, TProp> CreateStrongGetter<TProp>(IArrowArray array)
+    {
+        Type type = typeof(TProp);
+        Type underlyingType = Nullable.GetUnderlyingType(type) ?? type;
+
+        bool isNullable = Nullable.GetUnderlyingType(type) != null || !type.IsValueType;
+
+        // =========================================================
+        // String
+        // =========================================================
+        if (type == typeof(string)) 
+        {
+            return (Func<int, TProp>)(object)array.GetStringValue;
+        }
+
+        // =========================================================
+        // Binary Array and Guid
+        // =========================================================
+        if (type == typeof(byte[]))
+        {
+            byte[]? byteGetter(int idx)
+            {
+                if (array.IsNull(idx)) return null;
+                if (array is BinaryViewArray bv) return bv.GetBytes(idx).ToArray();
+                if (array is BinaryArray ba) return ba.GetBytes(idx).ToArray();
+                if (array is LargeBinaryArray lba) return lba.GetBytes(idx).ToArray();
+                if (array is FixedSizeBinaryArray fba) return fba.GetBytes(idx).ToArray();
+                return null;
+            }
+            return (Func<int, TProp>)(object)(Func<int, byte[]?>)byteGetter;
+        }
+
+        if (underlyingType == typeof(Guid))
+        {
+            Guid? guidGetter(int idx)
+            {
+                if (array.IsNull(idx)) return null;
+                if (array is BinaryViewArray bv) return new Guid(bv.GetBytes(idx));
+                if (array is FixedSizeBinaryArray fb) return new Guid(fb.GetBytes(idx));
+                if (array is BinaryArray ba) return new Guid(ba.GetBytes(idx));
+                if (array is LargeBinaryArray lba) return new Guid(lba.GetBytes(idx));
+                return null;
+            }
+            return CastGetter<Guid, TProp>(guidGetter, isNullable);
+        }
+
+        // =========================================================
+        // Primitive
+        // =========================================================
+        if (underlyingType == typeof(int)) return CastGetter<int, TProp>(idx => (int?)array.GetInt64Value(idx), isNullable);
+        if (underlyingType == typeof(long)) return CastGetter<long, TProp>(array.GetInt64Value, isNullable);
+        if (underlyingType == typeof(short)) return CastGetter<short, TProp>(idx => (short?)array.GetInt64Value(idx), isNullable);
+        if (underlyingType == typeof(byte)) return CastGetter<byte, TProp>(idx => (byte?)array.GetInt64Value(idx), isNullable);
+        if (underlyingType == typeof(sbyte)) return CastGetter<sbyte, TProp>(idx => (sbyte?)array.GetInt64Value(idx), isNullable);
+        if (underlyingType == typeof(uint)) return CastGetter<uint, TProp>(idx => (uint?)array.GetInt64Value(idx), isNullable);
+        if (underlyingType == typeof(ulong)) return CastGetter<ulong, TProp>(idx => (ulong?)array.GetInt64Value(idx), isNullable);
+        if (underlyingType == typeof(ushort)) return CastGetter<ushort, TProp>(idx => (ushort?)array.GetInt64Value(idx), isNullable);
+        
+        if (underlyingType == typeof(bool)) return CastGetter<bool, TProp>(idx => ((BooleanArray)array).GetValue(idx), isNullable);
+        if (underlyingType == typeof(double)) return CastGetter<double, TProp>(array.GetDoubleValue, isNullable);
+        if (underlyingType == typeof(float)) return CastGetter<float, TProp>(idx => (float?)array.GetDoubleValue(idx), isNullable);
+        if (underlyingType == typeof(Half)) return CastGetter<Half, TProp>(idx => (Half?)array.GetDoubleValue(idx), isNullable);
+
+        // =========================================================
+        // Decimal and DateTime
+        // =========================================================
+        if (underlyingType == typeof(decimal)) 
+        {
+            decimal? decGetter(int idx)
+            {
+                if (array.IsNull(idx)) return null;
+                if (array is Decimal128Array decArr) return decArr.GetValue(idx);
+                if (array is DoubleArray dArr) return (decimal?)dArr.GetValue(idx);
+                return null;
+            }
+        return CastGetter<decimal, TProp>(decGetter, isNullable);
+        }
+
+        if (underlyingType == typeof(DateTime))
+        {
+        DateTime? dtGetter(int idx)
+        {
+            if (array.IsNull(idx)) return null;
+            if (array is TimestampArray tsArr) return tsArr.GetTimestamp(idx)?.DateTime;
+            if (array is Date64Array d64Arr) return d64Arr.GetDateTime(idx);
+            if (array is Date32Array d32Arr) return d32Arr.GetDateTime(idx);
+            if (array is Int64Array i64Arr) 
+            {
+                long? val = i64Arr.GetValue(idx);
+                return val.HasValue ? DateTime.UnixEpoch.AddTicks(val.Value * 10) : null;
+            }
+            return null;
+        }
+        return CastGetter<DateTime, TProp>(dtGetter, isNullable);
+        }
+        if (underlyingType == typeof(DateOnly)) return CastGetter<DateOnly, TProp>(array.GetDateOnly, isNullable);
+        if (underlyingType == typeof(TimeOnly)) return CastGetter<TimeOnly, TProp>(array.GetTimeOnly, isNullable);
+        if (underlyingType == typeof(TimeSpan)) return CastGetter<TimeSpan, TProp>(array.GetTimeSpan, isNullable);
+        if (underlyingType == typeof(DateTimeOffset)) 
+        {
+            TimeZoneInfo? tzi = null;
+            if (array is TimestampArray tsArr && tsArr.Data.DataType is TimestampType tsType && !string.IsNullOrEmpty(tsType.Timezone))
+            {
+                try { tzi = TimeZoneInfo.FindSystemTimeZoneById(tsType.Timezone); } catch { }
+            }
+            return CastGetter<DateTimeOffset, TProp>(idx => array.GetDateTimeOffsetOptimized(idx, tzi), isNullable);
+        }
+
+        // =========================================================
+        // Struct/Dict/F# Options
+        // =========================================================
+        // Use old reader
+        var oldAccessor = ArrowReader.CreateAccessor(array, type);
+        return idx => 
+        {
+            var val = oldAccessor(idx);
+            return val == null ? default! : (TProp)val;
+        };
+    }
+
+    /// <summary>
+    /// Solve Nullable<T> <=> T generic type conversion
+    /// </summary>
+    private static Func<int, TProp> CastGetter<TValue, TProp>(Func<int, TValue?> getter, bool isNullable) where TValue : struct
+    {
+        if (isNullable)
+        {
+            return (Func<int, TProp>)(object)getter;
+        }
+        else
+        {
+            TValue nonNullGetter(int idx) => getter(idx) ?? default;
+            return (Func<int, TProp>)(object)(Func<int, TValue>)nonNullGetter;
         }
     }
 }

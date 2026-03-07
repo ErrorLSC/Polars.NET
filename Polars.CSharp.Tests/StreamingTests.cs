@@ -209,7 +209,7 @@ public class StreamingTests(ITestOutputHelper output)
             };
         }
     }
-    [Fact(Skip ="StressTest")]
+    [Fact(Skip ="Stress Test")]
     [Trait("Category", "StressTest")] // 标记为压力测试，CI 中可选跳过
     public async Task Test_100_Million_Rows_StreamingAsync()
     {

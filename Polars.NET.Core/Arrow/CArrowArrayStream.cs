@@ -4,48 +4,25 @@ using Apache.Arrow;
 using Apache.Arrow.C;
 
 namespace Polars.NET.Core.Arrow;
-// C Struct: ArrowArrayStream
+
+// C Struct: ArrowArrayStream 
 [StructLayout(LayoutKind.Sequential)]
 public unsafe struct CArrowArrayStream
 {
-    // Define delegate
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    public delegate int get_schema_delegate(CArrowArrayStream* stream, CArrowSchema* outSchema);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    public delegate int get_next_delegate(CArrowArrayStream* stream, CArrowArray* outArray);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    public delegate byte* get_last_error_delegate(CArrowArrayStream* stream);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    public delegate void release_delegate(CArrowArrayStream* stream);
-    // Callback for getting schema
     public delegate* unmanaged[Cdecl]<CArrowArrayStream*, CArrowSchema*, int> get_schema;
-    
-    // Callback for next batch
     public delegate* unmanaged[Cdecl]<CArrowArrayStream*, CArrowArray*, int> get_next;
-    
-    // Callback for last error message
     public delegate* unmanaged[Cdecl]<CArrowArrayStream*, byte*> get_last_error;
-    
-    // Callback for releasing stream
     public delegate* unmanaged[Cdecl]<CArrowArrayStream*, void> release;
-    
-    // Private data pointer
     public void* private_data;
 }
-public unsafe class ArrowStreamExporter : IDisposable
-{
-    private readonly IEnumerator<RecordBatch> _enumerator;
-    private readonly Schema _schema;
-    private bool _isDisposed;
 
-    public ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Schema schema)
-    {
-        _enumerator = enumerator;
-        _schema = schema;
-    }
+public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Schema schema) : IDisposable
+{
+    private readonly IEnumerator<RecordBatch> _enumerator = enumerator;
+    private readonly Schema _schema = schema;
+    private bool _isDisposed;
+    
+    internal IntPtr _lastErrorPointer = IntPtr.Zero;
 
     // Export as C pointer
     public void Export(CArrowArrayStream* outStream)
@@ -54,13 +31,22 @@ public unsafe class ArrowStreamExporter : IDisposable
         outStream->get_next = &GetNextStatic;
         outStream->get_last_error = &GetLastErrorStatic;
         outStream->release = &ReleaseStatic;
+        
         // GCHandle let GC not move or recycle data
         outStream->private_data = (void*)GCHandle.ToIntPtr(GCHandle.Alloc(this));
     }
 
+    internal void SetLastError(string message)
+    {
+        if (_lastErrorPointer != IntPtr.Zero)
+        {
+            Marshal.FreeCoTaskMem(_lastErrorPointer);
+        }
+        _lastErrorPointer = Marshal.StringToCoTaskMemUTF8(message);
+    }
+
     // --- Static Callbacks ---
 
-    // Set callconvs as Cdecl for Arrow C Stream Interface requirement
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
     private static int GetSchemaStatic(CArrowArrayStream* stream, CArrowSchema* outSchema)
     {
@@ -70,10 +56,10 @@ public unsafe class ArrowStreamExporter : IDisposable
             CArrowSchemaExporter.ExportSchema(exporter._schema, outSchema);
             return 0; // Success
         }
-        catch (Exception e)
+        catch (Exception ex)
         {
-            Console.WriteLine($"[ArrowStream] GetSchema Error: {e}");
-            return 5; // EIO (Input/output error)
+            SafelySetLastError(stream, $"GetSchema Error: {ex.Message}");
+            return 5; 
         }
     }
 
@@ -91,42 +77,62 @@ public unsafe class ArrowStreamExporter : IDisposable
             }
             else
             {
+                // Indicate End of Stream
                 *outArray = default; 
             }
             return 0;
         }
-        catch (Exception e)
+        catch (Exception ex)
         {
-            Console.WriteLine($"[ArrowStream] GetNext Error: {e}");
-            return 5; // EIO
+            SafelySetLastError(stream, $"GetNext Error: {ex.Message}");
+            return 5; 
         }
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
     private static byte* GetLastErrorStatic(CArrowArrayStream* stream)
     {
-        // No error message, need more work
+        if (stream == null || stream->private_data == null) return null;
+
+        try
+        {
+            var handle = GCHandle.FromIntPtr((IntPtr)stream->private_data);
+            
+            if (handle.Target is ArrowStreamExporter exporter)
+            {
+                return (byte*)exporter._lastErrorPointer;
+            }
+        }
+        catch 
+        { 
+            
+        }
+        
         return null; 
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
     private static void ReleaseStatic(CArrowArrayStream* stream)
     {
+        if (stream == null) return;
+
         var ptr = (IntPtr)stream->private_data;
         if (ptr != IntPtr.Zero)
         {
-            // Restore GCHandle and release
             var handle = GCHandle.FromIntPtr(ptr);
             if (handle.IsAllocated)
             {
                 var exporter = (ArrowStreamExporter)handle.Target!;
                 exporter.Dispose();
-                handle.Free(); // Release GCHandle，allow Exporter GC 
+                handle.Free(); 
             }
-            // stream->private_data = null;
+            stream->private_data = null;
         }
-        Marshal.FreeHGlobal((IntPtr)stream);
+        
+        stream->release = null; 
     }
+
+    // --- Helper Methods ---
 
     private static ArrowStreamExporter GetExporter(CArrowArrayStream* stream)
     {
@@ -134,13 +140,33 @@ public unsafe class ArrowStreamExporter : IDisposable
         return (ArrowStreamExporter)handle.Target!;
     }
 
+    private static void SafelySetLastError(CArrowArrayStream* stream, string message)
+    {
+        if (stream == null || stream->private_data == null) return;
+        try
+        {
+            var handle = GCHandle.FromIntPtr((IntPtr)stream->private_data);
+            if (handle.Target is ArrowStreamExporter exp)
+            {
+                exp.SetLastError(message);
+            }
+        }
+        catch { }
+    }
+
     public void Dispose()
     {
-        if (!_isDisposed)
+        if (_isDisposed) return;
+
+        if (_lastErrorPointer != IntPtr.Zero)
         {
-            _enumerator.Dispose();
-            _isDisposed = true;
+            Marshal.FreeCoTaskMem(_lastErrorPointer);
+            _lastErrorPointer = IntPtr.Zero;
         }
+        
+        _enumerator.Dispose();
+        _isDisposed = true;
+        
         GC.SuppressFinalize(this);
     }
 }
