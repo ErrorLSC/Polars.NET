@@ -147,7 +147,7 @@ internal static class ColumnBuilderFactory
 
 internal sealed class BinaryColumnBuilder : ColumnBuilder
 {
-    private readonly BinaryArray.Builder _builder = new();
+    private readonly BinaryViewArray.Builder _builder = new();
     
     public BinaryColumnBuilder(int capacity) 
     { 

@@ -11,62 +11,24 @@ public static class ArrowTypeResolver
     // =================================================================================
     // 1. DataReader -> Arrow Schema (Entry Point)
     // =================================================================================
-    // public static Schema GetSchemaFromDataReader(IDataReader reader)
-    // {
-    //     var fields = new List<Field>();
-        
-    //     // Console.WriteLine($"[Resolver] Generating Schema for {reader.FieldCount} fields...");
-
-    //     for (int i = 0; i < reader.FieldCount; i++)
-    //     {
-    //         var name = reader.GetName(i);
-    //         var netType = reader.GetFieldType(i);
-            
-    //         // 1. Resolve Arrow Type 
-    //         var arrowType = GetArrowTypeFromNetType(netType);
-            
-    //         // 2. Create Field
-    //         var field = new Field(name, arrowType, nullable: true);
-            
-    //         // 3. Add 
-    //         fields.Add(field);
-    //     }
-
-    //     if (fields.Count != reader.FieldCount)
-    //     {
-    //         throw new InvalidOperationException($"[Resolver Bug] Reader has {reader.FieldCount} fields but generated {fields.Count} schema fields.");
-    //     }
-
-    //     return new Schema(fields, null);
-    // }
     public static Schema GetSchemaFromDataReader(IDataReader reader)
     {
         var fields = new List<Field>();
         
-        DataTable? schemaTable = null;
-        try 
-        { 
-            schemaTable = reader.GetSchemaTable(); 
-        } 
-        catch { /* Ignore if not supported */ }
+        // Console.WriteLine($"[Resolver] Generating Schema for {reader.FieldCount} fields...");
 
         for (int i = 0; i < reader.FieldCount; i++)
         {
             var name = reader.GetName(i);
             var netType = reader.GetFieldType(i);
             
-            IArrowType arrowType;
-
-            if (netType == typeof(decimal) && schemaTable != null)
-            {
-                arrowType = ResolveDecimalType(schemaTable, i);
-            }
-            else
-            {
-                arrowType = GetArrowTypeFromNetType(netType);
-            }
+            // 1. Resolve Arrow Type 
+            var arrowType = GetArrowTypeFromNetType(netType);
             
+            // 2. Create Field
             var field = new Field(name, arrowType, nullable: true);
+            
+            // 3. Add 
             fields.Add(field);
         }
 
@@ -76,37 +38,6 @@ public static class ArrowTypeResolver
         }
 
         return new Schema(fields, null);
-    }
-    private static Decimal128Type ResolveDecimalType(DataTable schemaTable, int ordinal)
-    {
-        try
-        {
-            var rows = schemaTable.Rows.Cast<DataRow>();
-            var row = rows.FirstOrDefault(r => 
-                r.Table.Columns.Contains("ColumnOrdinal") && (int)r["ColumnOrdinal"] == ordinal);
-
-            if (row != null)
-            {
-                int precision = 38;
-                int scale = 18;
-
-                if (row.Table.Columns.Contains("NumericPrecision")) 
-                    precision = Convert.ToInt32(row["NumericPrecision"]);
-                
-                if (row.Table.Columns.Contains("NumericScale")) 
-                    scale = Convert.ToInt32(row["NumericScale"]);
-
-                if (precision <= 0) precision = 38;
-                if (precision > 38) precision = 38; 
-                
-                return new Decimal128Type(precision, scale);
-            }
-        }
-        catch 
-        {
-            // Fallback if metadata read fails
-        }
-        return new Decimal128Type(38, 18);
     }
 
     // =================================================================================
@@ -140,7 +71,7 @@ public static class ArrowTypeResolver
         if (coreType == typeof(string)) return StringViewType.Default;
         if (coreType == typeof(char))   return StringViewType.Default;
         if (coreType == typeof(Guid))   return StringViewType.Default; // Guid as String
-        if (coreType == typeof(byte[])) return BinaryType.Default;
+        if (coreType == typeof(byte[])) return BinaryViewType.Default;
 
         // 3. Date & Time
         // TimeOnly -> Time64 (Nanosecond) [Polars Native]
@@ -260,6 +191,7 @@ public static class ArrowTypeResolver
             DurationType => typeof(TimeSpan),
             BinaryType => typeof(byte[]),
             LargeBinaryType => typeof(byte[]),
+            BinaryViewType => typeof(byte[]),
             _ => typeof(object)
         };
     }
