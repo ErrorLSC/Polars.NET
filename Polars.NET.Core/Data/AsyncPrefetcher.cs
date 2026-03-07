@@ -8,11 +8,12 @@ namespace Polars.NET.Core.Data;
 /// </summary>
 public static class PrefetchExtensions
 {
-    public static IEnumerable<RecordBatch> Prefetch(this IEnumerable<RecordBatch> source, int bufferSize = 2)
+    public static IEnumerable<RecordBatch> Prefetch(this IEnumerable<RecordBatch> source, int? bufferSize = null)
     {
-        return new PrefetchingEnumerable(source, bufferSize);
+        int actualSize = bufferSize ?? PolarsNetConfig.DefaultPrefetchBufferSize;
+        
+        return new PrefetchingEnumerable(source, actualSize);
     }
-
     private sealed class PrefetchingEnumerable(IEnumerable<RecordBatch> source, int bufferSize) : IEnumerable<RecordBatch>
     {
         public IEnumerator<RecordBatch> GetEnumerator() => new PrefetchingEnumerator(source.GetEnumerator(), bufferSize);

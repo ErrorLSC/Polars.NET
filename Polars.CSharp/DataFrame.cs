@@ -1148,7 +1148,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
         // Get Schema 
         var schema = reader.GetArrowSchema();
 
-        var batchEnumerable = reader.ToArrowBatches(batchSize).Prefetch(2);
+        var batchEnumerable = reader.ToArrowBatches(batchSize).Prefetch();
 
         var handle = ArrowStreamInterop.ImportEager(batchEnumerable, schema);
         

@@ -696,7 +696,7 @@ public class LazyFrame : IDisposable,IPolarsLazyFrame
         {
             bool hasYielded = false;
 
-            foreach (var batch in data.ToArrowBatches(batchSize).Prefetch(2))
+            foreach (var batch in data.ToArrowBatches(batchSize).Prefetch())
             {
                 hasYielded = true;
                 yield return batch;
@@ -740,7 +740,7 @@ public class LazyFrame : IDisposable,IPolarsLazyFrame
     {
         var schema = reader.GetArrowSchema();
         
-        var stream = reader.ToArrowBatches(batchSize).Prefetch(2);
+        var stream = reader.ToArrowBatches(batchSize).Prefetch();
 
         return ScanRecordBatches(stream, schema);
     }
@@ -817,10 +817,8 @@ public class LazyFrame : IDisposable,IPolarsLazyFrame
             // Get stream
             var stream = reader.ToArrowBatches(batchSize);
             
-            // 现在，ToArrowBatches 里的 CPU 转换和 IDataReader 的网络 IO 全都在后台线程跑了！
-            stream = stream.Prefetch(2);
-            // foreach (var batch in reader.ToArrowBatches(batchSize))
-            //     yield return batch;
+            stream = stream.Prefetch();
+
             foreach (var batch in stream) 
                 yield return batch;
         }

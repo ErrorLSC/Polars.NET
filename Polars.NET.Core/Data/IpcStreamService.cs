@@ -57,7 +57,7 @@ public static class IpcStreamService
 
             long rowsWritten = 0;
 
-            foreach (var batch in reader.ToArrowBatches(batchSize).Prefetch(2))
+            foreach (var batch in reader.ToArrowBatches(batchSize).Prefetch())
             {
                 using var downgradedBatch = DowngradeBatchForIpc(batch, ipcSchema);
                 writer.WriteRecordBatch(downgradedBatch);
@@ -88,7 +88,7 @@ public static class IpcStreamService
         using var writer = new ArrowFileWriter(stream, ipcSchema);
 
         long rowsWritten = 0;
-        foreach (var batch in Arrow.ArrowConverter.ToArrowBatches(data, batchSize).Prefetch(2))
+        foreach (var batch in Arrow.ArrowConverter.ToArrowBatches(data, batchSize).Prefetch())
         {
             using var downgradedBatch = DowngradeBatchForIpc(batch, ipcSchema);
             writer.WriteRecordBatch(downgradedBatch);

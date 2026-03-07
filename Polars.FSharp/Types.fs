@@ -2760,7 +2760,7 @@ and DataFrame(handle: DataFrameHandle) =
 
         let size = defaultArg batchSize 50_000
         
-        let batchStream = reader.ToArrowBatches(size).Prefetch(2)
+        let batchStream = reader.ToArrowBatches(size).Prefetch()
         
         let handle = ArrowStreamInterop.ImportEager(batchStream,schema)
         
@@ -5873,7 +5873,7 @@ and LazyFrame(handle: LazyFrameHandle) =
                     seq {
                         let mutable hasYielded = false
                         
-                        let batches = ArrowConverter.ToArrowBatches(data, size).Prefetch(2)
+                        let batches = ArrowConverter.ToArrowBatches(data, size).Prefetch()
 
                         for batch in batches do
                             hasYielded <- true
@@ -5928,7 +5928,7 @@ and LazyFrame(handle: LazyFrameHandle) =
             let factory = Func<IEnumerable<RecordBatch>>(fun () ->
                 seq {
                     use reader = readerFactory()
-                    let batches = DbToArrowStream.ToArrowBatches(reader, size).Prefetch(2)
+                    let batches = DbToArrowStream.ToArrowBatches(reader, size).Prefetch()
                     
                     for batch in batches do
                         yield batch
@@ -5947,7 +5947,7 @@ and LazyFrame(handle: LazyFrameHandle) =
         let size = defaultArg batchSize 50_000
         let schema = reader.GetArrowSchema()
         
-        let stream = reader.ToArrowBatches(size).Prefetch 2
+        let stream = reader.ToArrowBatches(size).Prefetch() 
         
         let factory = Func<IEnumerable<RecordBatch>>(fun () -> stream)
         let handle = ArrowStreamInterop.ScanStream(factory, schema)
