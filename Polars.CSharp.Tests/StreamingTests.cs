@@ -604,6 +604,7 @@ public class StreamingTests(ITestOutputHelper output)
         
     }
     [Fact]
+    [Trait("Stream","NewType")]
     public void Test_2_Load_PolarsToCSharp_NewTypes()
     {
         // ==========================================
@@ -629,16 +630,20 @@ public class StreamingTests(ITestOutputHelper output)
         sourceTable.Rows.Add(
             1, 
             sampleTimeOnly, 
-            (ulong)long.MaxValue, 
-            sampleTimeSpan, 
-            sampleDecimal, 
+            (ulong)long.MaxValue,
+            sampleTimeSpan,
+            sampleDecimal,
             sampleDateOnly
         );
         
         // 测试第二行的全 Null 兼容性
         sourceTable.Rows.Add(2, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value);
+        // sourceTable.Rows.Add(2, DBNull.Value,DBNull.Value,DBNull.Value);
 
         using var sourceReader = sourceTable.CreateDataReader();
+        using var sourceReader2 = sourceTable.CreateDataReader();
+        var df = DataFrame.ReadDatabase(sourceReader2);
+        df.Show();
         using var lf = LazyFrame.ScanDatabase(sourceReader, batchSize: 2);
 
         // 2. 准备 Sink
@@ -656,6 +661,7 @@ public class StreamingTests(ITestOutputHelper output)
 
         // 执行操作
         lf.SinkTo(targetTable.Load, typeOverrides: typeOverrides); 
+        // df.WriteTo(targetTable.Load,typeOverrides:typeOverrides);
 
         // 3. 硬核验证
         Assert.Equal(2, targetTable.Rows.Count);

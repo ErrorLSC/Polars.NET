@@ -865,6 +865,7 @@ public class LazyFrame : IDisposable,IPolarsLazyFrame
         
         return new ScopedLazyFrame(handle, scope);
     }
+
     /// -----------------------------------
     /// Delta Lake
     /// -----------------------------------

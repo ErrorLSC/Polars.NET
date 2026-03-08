@@ -8,9 +8,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Apache.Arrow.Adbc" Version="0.22.0" />
     <PackageReference Include="AWSSDK.S3" Version="4.0.18.3" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.27.0" />
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="DuckDB.NET.Data.Full" Version="1.4.4" />
     <PackageReference Include="Google.Cloud.Storage.V1" Version="4.14.0" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.4" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

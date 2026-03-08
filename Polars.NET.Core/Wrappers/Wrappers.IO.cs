@@ -1465,7 +1465,7 @@ public static partial class PolarsWrapper
         ErrorHelper.CheckVoid();
     }
 
-    public static LazyFrameHandle SinkBatches(LazyFrameHandle lf, Action<Apache.Arrow.RecordBatch> onBatchReceived)
+    public static LazyFrameHandle SinkBatches(LazyFrameHandle lf, Action<RecordBatch> onBatchReceived)
     {
         // Prepare Interop Resource (Delegate, GCHandle, Cleanup)
         var (callback, cleanup, userData) = ArrowStreamInterop.PrepareSink(onBatchReceived);

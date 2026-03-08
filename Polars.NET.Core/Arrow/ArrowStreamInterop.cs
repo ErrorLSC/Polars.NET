@@ -2,6 +2,11 @@ using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using Apache.Arrow.C;
 using Apache.Arrow;
+using Apache.Arrow.Ipc;
+using System.Reflection;
+using Polars.NET.Core.Native;
+using System.Collections.Concurrent;
+using System.Reflection.Emit;
 
 namespace Polars.NET.Core.Arrow;
 /// <summary>
@@ -20,7 +25,7 @@ public static unsafe class ArrowStreamInterop
     /// <summary>
     /// Perpare lazy scan context，then return GCHandle pointed to context.
     /// </summary>
-    public static void* CreateScanContext<T>(IEnumerable<T> data, int batchSize, Apache.Arrow.Schema schema)
+    public static void* CreateScanContext<T>(IEnumerable<T> data, int batchSize, Schema schema)
     {
         var context = new ScanContext
         {
@@ -178,6 +183,116 @@ public static unsafe class ArrowStreamInterop
         finally
         {
             CArrowSchema.Free(cSchema);
+        }
+    }
+    private delegate ref Apache.Arrow.C.CArrowArrayStream GetCArrayStreamDelegate(object instance);
+
+    private static readonly ConcurrentDictionary<Type, GetCArrayStreamDelegate> _streamAccessorCache = new();
+    private static readonly ConcurrentDictionary<Type, FieldInfo> _aotFieldCache = new();
+    /// <summary>
+    /// Get C ptr from ADBC Stream and send to Rust
+    /// </summary>
+    public static DataFrameHandle ImportAdbcStream(IArrowArrayStream stream)
+    {
+        var type = stream.GetType();
+        
+        // 分配目标外壳
+        var allocatedStream = Apache.Arrow.C.CArrowArrayStream.Create();
+        var customCStream = (Polars.NET.Core.Arrow.CArrowArrayStream*)allocatedStream;
+
+        try
+        {
+            if (RuntimeFeature.IsDynamicCodeSupported)
+            {
+                // ==========================================
+                // JIT  (IL Emit + Unsafe)
+                // ==========================================
+                var accessor = _streamAccessorCache.GetOrAdd(type, t =>
+                {
+                    var field = t.GetField("_cArrayStream", BindingFlags.NonPublic | BindingFlags.Instance)
+                        ?? throw new NotSupportedException($"Type {t.Name} does not have _cArrayStream.");
+
+                    var method = new DynamicMethod("GetCArrayStream_Fast",
+                        typeof(Apache.Arrow.C.CArrowArrayStream).MakeByRefType(),
+                        [typeof(object)], typeof(ArrowStreamInterop).Module, skipVisibility: true);
+
+                    var il = method.GetILGenerator();
+                    il.Emit(OpCodes.Ldarg_0);
+                    il.Emit(OpCodes.Castclass, t);
+                    il.Emit(OpCodes.Ldflda, field);
+                    il.Emit(OpCodes.Ret);
+                    return (GetCArrayStreamDelegate)method.CreateDelegate(typeof(GetCArrayStreamDelegate));
+                });
+
+                ref var apacheStructRef = ref accessor(stream);
+                ref var myStructRef = ref Unsafe.As<Apache.Arrow.C.CArrowArrayStream, Polars.NET.Core.Arrow.CArrowArrayStream>(ref apacheStructRef);
+
+                ValidateStream(ref myStructRef); // Safe checker
+
+                *customCStream = myStructRef;
+                myStructRef = default; // Prevent double free
+            }
+            else
+            {
+                // ==========================================
+                // Native AOT
+                // ==========================================
+
+                var fieldInfo = _aotFieldCache.GetOrAdd(type, t =>
+                    t.GetField("_cArrayStream", BindingFlags.NonPublic | BindingFlags.Instance)
+                    ?? throw new NotSupportedException($"Type {t.Name} does not have _cArrayStream.")
+                );
+
+                // Unbox
+                object boxedValue = fieldInfo.GetValue(stream)!;
+                var apacheStruct = (Apache.Arrow.C.CArrowArrayStream)boxedValue;
+                
+                // Reinterpret
+                ref var myStructRef = ref Unsafe.As<Apache.Arrow.C.CArrowArrayStream, Polars.NET.Core.Arrow.CArrowArrayStream>(ref apacheStruct);
+                
+                // Check
+                ValidateStream(ref myStructRef);
+
+                // Copy
+                *customCStream = myStructRef;
+                
+                // Reset
+                fieldInfo.SetValue(stream, default(Apache.Arrow.C.CArrowArrayStream));
+            }
+
+            // Call Rust
+            var handle = NativeBindings.pl_dataframe_new_from_stream_strict_type(customCStream);
+
+            return ErrorHelper.Check(handle);
+        }
+        finally
+        {
+            if (allocatedStream != null)
+            {
+                Apache.Arrow.C.CArrowArrayStream.Free(allocatedStream);
+            }
+            GC.KeepAlive(stream);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IsInvalidPtr(void* ptr) => (nint)ptr < 0x10000;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void ValidateStream(ref CArrowArrayStream streamRef)
+    {
+        if (IsInvalidPtr(streamRef.release))
+            throw new InvalidOperationException("Invalid ArrowArrayStream release function pointer (Null or Zero-Page).");
+            
+        if (IsInvalidPtr(streamRef.get_next) || IsInvalidPtr(streamRef.get_schema))
+            throw new InvalidOperationException("Invalid ArrowArrayStream data/schema callbacks.");
+            
+        if (IsInvalidPtr(streamRef.private_data))
+            throw new InvalidOperationException("Invalid ArrowArrayStream private_data. External DB driver fault.");
+
+        if (IsInvalidPtr(streamRef.get_last_error))
+        {
+            streamRef.get_last_error = null;
         }
     }
     // ------------------------------------------------------------

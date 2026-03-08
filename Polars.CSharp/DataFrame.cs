@@ -12,6 +12,7 @@ using Apache.Arrow.Types;
 using System.Reflection;
 using Polars.NET.Core.Helpers;
 using System.Data.Common;
+using Apache.Arrow.Adbc;
 
 namespace Polars.CSharp;
 
@@ -3541,9 +3542,24 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     /// <summary>
     /// Dispose the DataFrame and release resources.
     /// </summary>
+    private readonly List<IDisposable> _backingResources = [];
+
+    internal void HoldResource(IDisposable resource)
+    {
+        if (resource != null) _backingResources.Add(resource);
+    }
+    /// <summary>
+    /// Dispose the DataFrame and release resources.
+    /// </summary>
     public void Dispose()
     {
-        Handle?.Dispose();
+        if (!Handle.IsInvalid) Handle.Dispose();
+
+        foreach (var res in _backingResources)
+        {
+            res.Dispose();
+        }
+        _backingResources.Clear();
         GC.SuppressFinalize(this); 
     }
     // ==========================================
@@ -3808,13 +3824,13 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     public static DataFrame FromSeries(IEnumerable<Series> series)
         => new([.. series]);
     /// <summary>
-    /// [High Performance] Stream data into Polars using Arrow C Stream Interface.
+    /// Stream data into Polars using Arrow C Stream Interface.
     /// This method supports datasets larger than available RAM by streaming chunks directly to Polars.
     /// </summary>
     /// <param name="data">Source data collection</param>
     /// <param name="batchSize">Rows per chunk (default 100,000)</param>
     /// <param name="providedSchema">Stream schema provided by user</param>
-    public static DataFrame FromArrowStream<T>(IEnumerable<T> data, int batchSize = 100_000,Apache.Arrow.Schema? providedSchema = null)
+    public static DataFrame FromArrowStream<T>(IEnumerable<T> data, int batchSize = 100_000,Schema? providedSchema = null)
     {
         var schema = providedSchema ?? ArrowConverter.GetSchemaFromType<T>();
         var stream = data.ToArrowBatches(batchSize);
@@ -3827,6 +3843,25 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
         }
 
         return new DataFrame(handle);
+    }
+
+    /// <summary>   
+    /// Read from ADBC
+    /// </summary>
+    public static DataFrame ReadAdbc(string query, AdbcConnection connection)
+    {
+        var statement = connection.CreateStatement();
+        statement.SqlQuery = query;
+        var result = statement.ExecuteQuery();
+        var stream = result.Stream; 
+
+        var handle = ArrowStreamInterop.ImportAdbcStream(stream!);
+        var df = new DataFrame(handle);
+
+        df.HoldResource(stream!);
+        df.HoldResource(statement);
+
+        return df;
     }
     
     // ==========================================

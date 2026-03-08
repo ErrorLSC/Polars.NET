@@ -144,6 +144,65 @@ pub unsafe extern "C" fn pl_dataframe_new_from_stream(
     })
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_dataframe_new_from_stream_strict_type(
+    stream_ptr: *mut ArrowArrayStream,
+) -> *mut DataFrameContext {
+    ffi_try!({
+        if stream_ptr.is_null() {
+            return Err(PolarsError::ComputeError("Stream pointer is null".into()));
+        }
+
+        let stream = unsafe { &mut *stream_ptr };
+        let mut reader = unsafe { ArrowArrayStreamReader::try_new(stream)
+            .map_err(|e| PolarsError::ComputeError(format!("Failed to create Reader: {}", e).into()))? };
+
+        let mut dfs = Vec::new();
+        let root_field = reader.field().clone();
+
+        // Iter all RecordBatch (Chunks) from ADBC
+        while let Some(chunk_result) = unsafe { reader.next() } {
+            let chunk = chunk_result.map_err(|e| PolarsError::ComputeError(format!("Read error: {}", e).into()))?;
+            
+            let struct_array = chunk.as_any().downcast_ref::<StructArray>()
+                .ok_or_else(|| PolarsError::ComputeError("Chunk is not a StructArray".into()))?;
+
+            let mut columns = Vec::with_capacity(struct_array.fields().len());
+            
+            // Parse columns
+            for (arr, field) in struct_array.values().iter().zip(struct_array.fields()) {
+                let name = PlSmallStr::from_str(&field.name);
+                
+                let series = Series::from_arrow(name, arr.clone())?;
+                columns.push(Column::from(series));
+            }
+
+            // Convert to DataFrame
+            let height = struct_array.len();
+            dfs.push(DataFrame::new(height, columns)?);
+        }
+
+        let final_df = if dfs.is_empty() {
+            let ArrowDataType::Struct(fields) = root_field.dtype() else {
+                return Err(PolarsError::ComputeError("Stream schema is not Struct".into()));
+            };
+            let columns = fields.iter().map(|f| {
+                let p_field = PolarsField::from(f);
+                Column::from(Series::new_empty(PlSmallStr::from_str(&f.name), &p_field.dtype))
+            }).collect::<Vec<_>>();
+            DataFrame::new(0,columns)?
+        } else {
+            let mut it = dfs.into_iter();
+            let mut acc = it.next().unwrap();
+            for df in it {
+                acc.vstack_mut(&df)?;
+            }
+            acc
+        };
+
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: final_df })))
+    })
+}
 
 // ==========================================
 // Memory and Convert Ops

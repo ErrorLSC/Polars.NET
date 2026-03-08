@@ -71,6 +71,8 @@ public static class ArrowFfiBridge
         }
         catch
         {
+            // if (cArray != null) cArray->release = null;
+            // if (cSchema != null) cSchema->release = null;
             CArrowArray.Free(cArray);
             CArrowSchema.Free(cSchema);
             throw;
@@ -108,7 +110,7 @@ public static class ArrowFfiBridge
         }
     }
     /// <summary>
-    /// [New] Helper: Convert IEnumerable<T> directly to RecordBatch
+    /// Helper: Convert IEnumerable<T> directly to RecordBatch
     /// This bridges the gap between ArrowConverter (returns Array) and ImportDataFrame (needs Batch).
     /// </summary>
     public static RecordBatch BuildRecordBatch<T>(IEnumerable<T> data)

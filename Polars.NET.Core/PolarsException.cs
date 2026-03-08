@@ -13,7 +13,7 @@ public class PolarsException : Exception
 internal static class ErrorHelper
 {
     // =========================================================================
-    // 1Handle Check
+    // 1. Handle Check
     // =========================================================================
     public static T Check<T>(T handle) where T : PolarsHandle
     {
