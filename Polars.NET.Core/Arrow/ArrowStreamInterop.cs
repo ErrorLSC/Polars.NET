@@ -192,11 +192,10 @@ public static unsafe class ArrowStreamInterop
     /// <summary>
     /// Get C ptr from ADBC Stream and send to Rust
     /// </summary>
-    public static DataFrameHandle ImportAdbcStream(IArrowArrayStream stream)
+    public static DataFrameHandle ImportForeignStream(IArrowArrayStream stream)
     {
         var type = stream.GetType();
         
-        // 分配目标外壳
         var allocatedStream = Apache.Arrow.C.CArrowArrayStream.Create();
         var customCStream = (Polars.NET.Core.Arrow.CArrowArrayStream*)allocatedStream;
 

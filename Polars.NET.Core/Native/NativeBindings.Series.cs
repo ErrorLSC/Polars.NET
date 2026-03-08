@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Apache.Arrow.C;
+using Polars.NET.Core.Helpers;
 
 namespace Polars.NET.Core.Native;
 
@@ -101,14 +102,23 @@ unsafe internal partial class NativeBindings
         [In] string?[] strs, 
         UIntPtr len
         );
+    // [LibraryImport(LibName)]
+    // public static partial SeriesHandle pl_series_new_str_simd(
+    //     [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
+    //     ref byte values_ptr,  // Values
+    //     UIntPtr values_len,
+    //     ref long offsets_ptr, // Offsets
+    //     IntPtr validity_ptr,  // Validity (IntPtr.Zero allowed)
+    //     UIntPtr len // Row count
+    // );
     [LibraryImport(LibName)]
-    public static partial SeriesHandle pl_series_new_str_simd(
+    public static unsafe partial SeriesHandle pl_series_new_str_simd(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
-        ref byte values_ptr,  // Values
-        UIntPtr values_len,
-        ref long offsets_ptr, // Offsets
-        IntPtr validity_ptr,  // Validity (IntPtr.Zero allowed)
-        UIntPtr len // Row count
+        byte* values_ptr,           // 【变动】：改为 byte*，完美接收 dataBuffer 的 null
+        nuint values_len,           // 【变动】：UIntPtr 替换为更现代的 nuint
+        ArrowStringView* views_ptr, // 【神之一手】：别管什么 long 了，直接用我们新写的结构体指针！
+        byte* validity_ptr,         // 【变动】：改为 byte*，接收 validity 的 null
+        nuint len                   // Row count
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial SeriesHandle pl_series_new_datetime(

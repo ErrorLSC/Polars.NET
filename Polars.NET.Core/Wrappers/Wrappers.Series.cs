@@ -46,43 +46,43 @@ public static partial class PolarsWrapper
         );
     }
     /// <summary>
-    /// [SIMD High Performance] Create String Series using Arrow Layout (Values + Offsets).
+    /// [SIMD High Performance] Create String Series using Arrow StringView (German Strings Layout).
     /// </summary>
     public unsafe static SeriesHandle SeriesNewStringSimd(string name, string?[] data)
     {
         // 0. Blank data edge case
+        // 换成纯指针后，空数组的边缘情况变得极其优雅，直接全传 null (0) 即可
         if (data.Length == 0)
         {
-            byte dummyByte = 0;
-            long dummyOff = 0;
             return ErrorHelper.Check(
                 NativeBindings.pl_series_new_str_simd(
                     name, 
-                    ref dummyByte, UIntPtr.Zero, 
-                    ref dummyOff, IntPtr.Zero, UIntPtr.Zero
+                    null, // values_ptr (dataBuffer)
+                    0,    // values_len
+                    null, // views_ptr
+                    null, // validity_ptr
+                    0     // len
                 )
             );
         }
 
-        // SIMD Packer
-        var (values, offsets, validity) = StringPacker.Pack(data);
+        // 1. SIMD Packer (StringView Edition)
+        var (views, dataBuffer, validity) = StringPacker.PackStringView(data);
 
-        // Prepare ptrs for Rust
-        // validity may be null，so we need to fix to get pointer (null [] -> null ptr)
+        // 2. Prepare ptrs for Rust
+        // C# 的黑魔法：如果数组是 null，fixed 块内的指针会自动变成安全的 null 指针
+        fixed (ArrowStringView* pViews = views)
+        fixed (byte* pData = dataBuffer)
         fixed (byte* pValid = validity)
         {
-            
-            ref byte pValsRef = ref MemoryMarshal.GetArrayDataReference(values);
-            ref long pOffsRef = ref MemoryMarshal.GetArrayDataReference(offsets);
-
             return ErrorHelper.Check(
                 NativeBindings.pl_series_new_str_simd(
                     name,
-                    ref pValsRef,
-                    (UIntPtr)values.Length,
-                    ref pOffsRef,
-                    (IntPtr)pValid,
-                    (UIntPtr)data.Length
+                    pData,
+                    (nuint)(dataBuffer?.Length ?? 0),
+                    pViews,
+                    pValid,
+                    (nuint)data.Length
                 )
             );
         }

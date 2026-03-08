@@ -39,7 +39,7 @@ public class StreamingTests(ITestOutputHelper output)
 
         // 1. 启动流式导入
         // 这一步应该非常快，且内存占用平稳
-        using var df = DataFrame.FromArrowStream(GenerateData_1(totalRows), batchSize);
+        using var df = DataFrame.FromEnumerable(GenerateData_1(totalRows), batchSize);
 
         // 2. 验证行数
         Assert.Equal(totalRows, df.Height);

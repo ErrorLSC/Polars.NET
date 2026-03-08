@@ -42,8 +42,8 @@ public class AdbcLocalTests : IDisposable
         // ==========================================
         // Arrange: 往 DuckDB 写入测试数据
         // ==========================================
-        using var statement = _connection.CreateStatement();
-        statement.SqlQuery = @"
+        using var statementInsert = _connection.CreateStatement();
+        statementInsert.SqlQuery = @"
             CREATE TABLE developers (
                 id INTEGER, 
                 name VARCHAR, 
@@ -52,30 +52,39 @@ public class AdbcLocalTests : IDisposable
             INSERT INTO developers VALUES 
             (1, 'Alice', 'C#'),
             (2, 'Bob', 'Rust'),
-            (3, 'Charlie', 'F#');";
-        statement.ExecuteUpdate();
+            (3, 'Charlie', 'F#'),
+            (4, null, null);";
+        statementInsert.ExecuteUpdate();
 
         // ==========================================
-        // Act: 零拷贝读取！
+        // Act: 用户端显式组装流，传递给 Polars.NET
         // ==========================================
         string query = "SELECT * FROM developers ORDER BY id;";
         
-        // 调用我们之前写好的 API
-        var df = DataFrame.ReadAdbc(query, _connection);
-        // var df2 = df.Head(1);
+        // 1. 用户利用自己的 ADBC 包执行查询
+        using var statementSelect = _connection.CreateStatement();
+        statementSelect.SqlQuery = query;
+        var result = statementSelect.ExecuteQuery();
+
+        // 2. 将纯净的 Stream 喂给 Polars.NET！
+        var df = DataFrame.ReadArrowStream(result.Stream!);
+        
+        // 3. 打印看结果
         df.Show();
 
         // ==========================================
         // Assert
         // ==========================================
         Assert.NotNull(df);
-        Assert.Equal(3, df.Height);
+        Assert.Equal(4, df.Height);
         Assert.Equal(3, df.Width);
 
         var columns = df.ColumnNames;
         Assert.Contains("id", columns);
         Assert.Contains("name", columns);
         Assert.Contains("language", columns);
+
+        Assert.Equal("Alice",df["name"][0]);
     }
 
     public void Dispose()
@@ -83,5 +92,6 @@ public class AdbcLocalTests : IDisposable
         _connection?.Dispose();
         _database?.Dispose();
         _driver?.Dispose();
+
     }
 }

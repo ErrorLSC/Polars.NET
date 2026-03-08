@@ -1,83 +1,125 @@
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Unicode; 
 
 namespace Polars.NET.Core.Helpers;
 
+[StructLayout(LayoutKind.Explicit, Size = 16)]
+public unsafe struct ArrowStringView
+{
+    [FieldOffset(0)] public int Length;
+    [FieldOffset(4)] public fixed byte InlineData[12];
+    [FieldOffset(4)] public fixed byte Prefix[4];
+    [FieldOffset(8)] public int BufferIndex;
+    [FieldOffset(12)] public int Offset;
+}
+
 public static unsafe class StringPacker
 {
-    /// <summary>
-    /// Convert C# string[] To Arrow LargeUtf8 (Values + Offsets + Validity)。
-    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static (byte[] values, long[] offsets, byte[]? validity) Pack(string?[] data)
+    public static (ArrowStringView[] views, byte[]? dataBuffer, byte[]? validity) PackStringView(string?[] data)
     {
         int len = data.Length;
         
-        // Offsets Array
-        // Arrow Protocol：Offsets[i] is the start for the i index string, [len] is total length
-        var offsets = new long[len + 1];
-
-        // Pre calculate total size and fill offsetes
-        long currentOffset = 0;
+        // 【神之一手】：提前分配 Views 数组，它不仅是返回值，更是我们的“零成本缓存器”！
+        var views = GC.AllocateUninitializedArray<ArrowStringView>(len);
+        
+        long totalDataSize = 0;
         bool hasNull = false;
 
-        // Pass 1: Calculate Length & Offsets
-        fixed (long* pOffsets = offsets)
+        // Pass 1: 计算并“完美白嫖” views[i].Length 缓存
+        fixed (ArrowStringView* pViews = views)
         {
+            // 批量清零，保证 Arrow 内存规范无脏数据
+            Unsafe.InitBlock(pViews, 0, (uint)(len * sizeof(ArrowStringView)));
+
             for (int i = 0; i < len; i++)
             {
-                pOffsets[i] = currentOffset;
                 string? s = data[i];
                 if (s != null)
                 {
-                    currentOffset += Encoding.UTF8.GetByteCount(s);
+                    // 依然使用底层最快的 GetByteCount 计算所需容量
+                    int byteCount = Encoding.UTF8.GetByteCount(s);
+                    
+                    // 【缓存生效】：直接写进结果视图里，第二遍不用算了！
+                    pViews[i].Length = byteCount; 
+                    
+                    if (byteCount > 12)
+                    {
+                        totalDataSize += byteCount;
+                    }
                 }
                 else
                 {
                     hasNull = true;
                 }
             }
-            pOffsets[len] = currentOffset; 
         }
 
-        // Allocate Values
-        var values = GC.AllocateUninitializedArray<byte>((int)currentOffset);
+        byte[]? dataBuffer = totalDataSize > 0 
+            ? GC.AllocateUninitializedArray<byte>((int)totalDataSize) 
+            : null;
 
-        // 4. Validity Bitmap 
         byte[]? validity = null;
         if (hasNull)
         {
             int validLen = (len + 7) >> 3;
             validity = new byte[validLen];
-            Array.Fill(validity, (byte)0xFF);
-            
+            Array.Fill(validity, (byte)0xFF); 
         }
 
-        // Pass 2: Convert Values & set Validity
-        fixed (long* pOffsets = offsets) 
-        fixed (byte* pValues = values)
-        fixed (byte* pValid = validity) 
+        // Pass 2: 极速填充 (使用 .NET 8 Utf8.FromUtf16)
+        int currentDataOffset = 0;
+        fixed (ArrowStringView* pViews = views)
+        fixed (byte* pDataBuffer = dataBuffer) 
+        fixed (byte* pValid = validity)
         {
-            byte* pCurrentVal = pValues;
-            
             for (int i = 0; i < len; i++)
             {
                 string? s = data[i];
                 if (s != null)
                 {
-                    // Write memory directly
-                    fixed (char* pChar = s)
+                    // 【读取缓存】：直接拿到第一遍算好的长度，0 CPU开销！
+                    int byteCount = pViews[i].Length;
+
+                    if (byteCount <= 12)
                     {
-                        // GetBytes(char*, charCount, byte*, byteCount)
-                        int written = Encoding.UTF8.GetBytes(pChar, s.Length, pCurrentVal, (int)(pOffsets[i+1] - pOffsets[i]));
-                        pCurrentVal += written;
+                        if (byteCount > 0)
+                        {
+                            // 【.NET 8 SIMD 极速路径】：Utf8.FromUtf16 
+                            // 绕过 Encoding 虚方法调用，纯 Span 操作，底层全向量化！
+                            Utf8.FromUtf16(
+                                s, 
+                                new Span<byte>(pViews[i].InlineData, 12), 
+                                out _, 
+                                out _, 
+                                replaceInvalidSequences: false // 关闭无效序列检查，极致压榨速度
+                            );
+                        }
+                    }
+                    else
+                    {
+                        byte* targetDataPtr = pDataBuffer + currentDataOffset;
+                        
+                        Utf8.FromUtf16(
+                            s, 
+                            new Span<byte>(targetDataPtr, byteCount), 
+                            out _, 
+                            out _, 
+                            replaceInvalidSequences: false
+                        );
+                        
+                        Unsafe.CopyBlock(pViews[i].Prefix, targetDataPtr, 4);
+                        
+                        pViews[i].BufferIndex = 0; 
+                        pViews[i].Offset = currentDataOffset;
+                        
+                        currentDataOffset += byteCount;
                     }
                 }
                 else
                 {
-                    // Set Validity as 0 (Null)
-                    // Bitwise Ops: byteIndex = i / 8, bitIndex = i % 8
-                    // target &= ~(1 << bit)
                     if (pValid != null)
                     {
                         pValid[i >> 3] &= (byte)~(1 << (i & 7));
@@ -86,6 +128,6 @@ public static unsafe class StringPacker
             }
         }
 
-        return (values, offsets, validity);
+        return (views, dataBuffer, validity);
     }
 }

@@ -98,8 +98,6 @@ impl CSharpSinkUdf {
     }
 }
 
-
-
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_lazy_map_batches(
     lf_ptr: *mut LazyFrameContext,

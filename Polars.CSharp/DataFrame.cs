@@ -11,8 +11,7 @@ using System.Text;
 using Apache.Arrow.Types;
 using System.Reflection;
 using Polars.NET.Core.Helpers;
-using System.Data.Common;
-using Apache.Arrow.Adbc;
+using Apache.Arrow.Ipc;
 
 namespace Polars.CSharp;
 
@@ -3824,12 +3823,26 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     public static DataFrame FromSeries(IEnumerable<Series> series)
         => new([.. series]);
     /// <summary>
+    /// Stream C# objects into Polars.
+    /// </summary>
+    public static DataFrame FromEnumerable<T>(IEnumerable<T> data, int batchSize = 100_000, Schema? providedSchema = null)
+    {
+        var schema = providedSchema ?? ArrowConverter.GetSchemaFromType<T>();
+        var stream = data.ToArrowBatches(batchSize);
+
+        var handle = ArrowStreamInterop.ImportEager(stream, schema); 
+
+        if (handle.IsInvalid) return From(Enumerable.Empty<T>());
+        return new DataFrame(handle);
+    }
+    /// <summary>
     /// Stream data into Polars using Arrow C Stream Interface.
     /// This method supports datasets larger than available RAM by streaming chunks directly to Polars.
     /// </summary>
     /// <param name="data">Source data collection</param>
     /// <param name="batchSize">Rows per chunk (default 100,000)</param>
     /// <param name="providedSchema">Stream schema provided by user</param>
+    [Obsolete("Renamed to FromEnumerable")]
     public static DataFrame FromArrowStream<T>(IEnumerable<T> data, int batchSize = 100_000,Schema? providedSchema = null)
     {
         var schema = providedSchema ?? ArrowConverter.GetSchemaFromType<T>();
@@ -3846,21 +3859,17 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     }
 
     /// <summary>   
-    /// Read from ADBC
+    /// Safely consume any foreign Arrow C Stream (Strict mode).
+    /// Adapts physical memory layouts (e.g., Utf8View) automatically.
     /// </summary>
-    public static DataFrame ReadAdbc(string query, AdbcConnection connection)
+    public static DataFrame ReadArrowStream(IArrowArrayStream stream)
     {
-        var statement = connection.CreateStatement();
-        statement.SqlQuery = query;
-        var result = statement.ExecuteQuery();
-        var stream = result.Stream; 
+        ArgumentNullException.ThrowIfNull(stream);
 
-        var handle = ArrowStreamInterop.ImportAdbcStream(stream!);
+        var handle = ArrowStreamInterop.ImportForeignStream(stream);
+        
         var df = new DataFrame(handle);
-
-        df.HoldResource(stream!);
-        df.HoldResource(statement);
-
+        df.HoldResource(stream); 
         return df;
     }
     

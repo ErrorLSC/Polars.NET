@@ -25,7 +25,6 @@
 
   <ItemGroup>
     <PackageReference Include="Apache.Arrow" Version="22.1.0" />
-    <PackageReference Include="Apache.Arrow.Adbc" Version="0.22.0" />
   </ItemGroup>
 
 </Project>

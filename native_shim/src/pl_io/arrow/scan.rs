@@ -1,7 +1,7 @@
 use std::any::Any;
 use polars::prelude::*;
 use polars_arrow::ffi::{self, ArrowArray, ArrowArrayStream, ArrowArrayStreamReader, ArrowSchema, export_array_to_c, export_field_to_c};
-use polars_arrow::array::{Array, StructArray};
+use polars_arrow::array::StructArray;
 use polars_arrow::datatypes::{ArrowDataType, Field};
 use polars_core::prelude::CompatLevel;
 use polars_core::utils::Container;
@@ -56,90 +56,115 @@ pub extern "C" fn pl_dataframe_from_arrow_record_batch(
         Ok(Box::into_raw(Box::new(DataFrameContext { df })))
     })
 }
+// ==========================================
+// 内部统一的流解析引擎
+// ==========================================
+#[inline(always)]
+unsafe fn consume_stream_impl(
+    stream_ptr: *mut polars_arrow::ffi::ArrowArrayStream,
+    strict: bool,
+) -> PolarsResult<DataFrame> {
+    if stream_ptr.is_null() {
+        return Err(PolarsError::ComputeError("Stream pointer is null".into()));
+    }
+
+    let stream = unsafe { &mut *stream_ptr };
+    let mut reader = unsafe { ArrowArrayStreamReader::try_new(stream)
+        .map_err(|e| PolarsError::ComputeError(format!("Failed to create Reader: {}", e).into())) }?;
+
+    let root_field = reader.field().clone();
+    let ArrowDataType::Struct(fields) = root_field.dtype() else {
+        return Err(PolarsError::ComputeError("Stream data type is not Struct".into()));
+    };
+
+    let num_cols = fields.len();
+    let mut columns_chunks: Vec<Vec<Box<dyn polars_arrow::array::Array>>> = vec![Vec::new(); num_cols];
+    let mut has_data = false;
+
+    // ==========================================
+    // 1. 横向读取，纵向归类 (完全公共的极速通道)
+    // ==========================================
+    while let Some(chunk_result) = unsafe {reader.next()} {
+        has_data = true;
+        let chunk = chunk_result.map_err(|e| PolarsError::ComputeError(format!("Read error: {}", e).into()))?;
+        let struct_array = chunk.as_any().downcast_ref::<polars_arrow::array::StructArray>()
+            .ok_or_else(|| PolarsError::ComputeError("Batch is not a StructArray".into()))?;
+
+        for (col_idx, column) in struct_array.values().iter().enumerate() {
+            if col_idx < num_cols {
+                columns_chunks[col_idx].push(column.clone());
+            }
+        }
+    }
+
+    // 兜底：空流直接根据 Schema 构造空表
+    if !has_data {
+        let columns = fields.iter().map(|f| {
+            let p_field = PolarsField::from(f);
+            Column::from(Series::new_empty(PlSmallStr::from_str(&f.name), &p_field.dtype))
+        }).collect::<Vec<_>>();
+        return DataFrame::new(0, columns);
+    }
+
+    // ==========================================
+    // 2. 按列处理与组装 (分化策略)
+    // ==========================================
+    let mut series_vec = Vec::with_capacity(num_cols);
+
+    for (i, chunks) in columns_chunks.into_iter().enumerate() {
+        let arrow_field = &fields[i];
+        let name = PlSmallStr::from_str(&arrow_field.name);
+
+        let final_series = if strict {
+            // ----------------------------------------
+            // 路线 A: 严格模式 (按列安全转换 + 零拷贝组装)
+            // ----------------------------------------
+            let mut safe_chunks = Vec::with_capacity(chunks.len());
+            let mut safe_dtype = None;
+
+            for arr in chunks {
+                // 1. 让 Polars 做物理类型的安全适配 (拦截 Utf8View 错位)
+                let temp_s = Series::from_arrow(name.clone(), arr)?;
+                
+                // 2. 锁定转换后的标准 Polars 数据类型
+                if safe_dtype.is_none() {
+                    safe_dtype = Some(temp_s.dtype().clone());
+                }
+                
+                // 3. ✨ 核心魔法：窃取安全的物理内存块！
+                // chunks() 返回 &[Box<dyn Array>]，我们 clone 它只是轻量级增加引用计数，真正的零拷贝！
+                safe_chunks.extend(temp_s.chunks().iter().cloned());
+            }
+
+            // 4. 将安全的数据块一把梭哈组装为最终列，彻底摆脱 DataFrame::vstack
+            unsafe { Series::from_chunks_and_dtype_unchecked(name, safe_chunks, safe_dtype.as_ref().unwrap()) }
+        } else {
+            // ----------------------------------------
+            // 路线 B: 非严格模式 (直接透传)
+            // ----------------------------------------
+            let p_field = PolarsField::from(arrow_field); 
+            unsafe { Series::from_chunks_and_dtype_unchecked(name, chunks, &p_field.dtype) }
+        };
+
+        series_vec.push(Column::from(final_series));
+    }
+
+    // 提取高度，组装最终 DataFrame
+    let height = series_vec.first().map(|s: &Column| s.len()).unwrap_or(0);
+    DataFrame::new(height, series_vec)
+}
+
+// ==========================================
+// 暴露给 C# 的精简 FFI 入口
+// ==========================================
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pl_dataframe_new_from_stream(
     stream_ptr: *mut ArrowArrayStream,
 ) -> *mut DataFrameContext {
     ffi_try!({
-        // 1. Check null pointer
-        if stream_ptr.is_null() {
-            return Err(PolarsError::ComputeError("Stream pointer is null".into()));
-        }
-        // 2. Raw Pointer -> Mutable Reference
-        let stream = unsafe { &mut *stream_ptr};
-
-        // 3. Create Reader
-        let mut reader = unsafe {ArrowArrayStreamReader::try_new(stream)
-            .map_err(|e| PolarsError::ComputeError(format!("Failed to create Arrow Stream Reader: {}", e).into()))?};
-
-        // First Chunk
-        let first_chunk_result = unsafe {reader.next()};
-
-        // If stream is blank, return blank DataFrame
-        if first_chunk_result.is_none() {
-            let df = DataFrame::default();
-            return Ok(Box::into_raw(Box::new(DataFrameContext { df })));
-        }
-
-        let first_chunk = first_chunk_result.unwrap()
-            .map_err(|e| PolarsError::ComputeError(format!("Error reading first batch: {}", e).into()))?;
-
-        // 3. Get Schema from first chunk
-        let struct_array = first_chunk
-            .as_any()
-            .downcast_ref::<StructArray>()
-            .ok_or_else(|| PolarsError::ComputeError("First batch is not a StructArray".into()))?;
-
-        let fields = match struct_array.dtype() {
-            ArrowDataType::Struct(f) => f,
-            _ => return Err(PolarsError::ComputeError("Stream data type is not Struct".into())),
-        };
-
-        let num_cols = fields.len();
-        let mut columns_chunks: Vec<Vec<Box<dyn Array>>> = vec![Vec::new(); num_cols];
-
-        // 4. Deal with first Chunk
-        for (col_idx, column) in struct_array.values().iter().enumerate() {
-            if col_idx < num_cols {
-                columns_chunks[col_idx].push(column.clone());
-            }
-        }
-
-        // 5. Deal with following chunks
-        while let Some(chunk_result) = unsafe {reader.next()} {
-            let chunk = chunk_result
-                .map_err(|e| PolarsError::ComputeError(format!("Error reading batch: {}", e).into()))?;
-
-            let struct_array = chunk
-                .as_any()
-                .downcast_ref::<StructArray>()
-                .ok_or_else(|| PolarsError::ComputeError("Subsequent batch is not a StructArray".into()))?;
-
-            for (col_idx, column) in struct_array.values().iter().enumerate() {
-                if col_idx < num_cols {
-                    columns_chunks[col_idx].push(column.clone());
-                }
-            }
-        }
-
-        // 6. Build Series
-        let mut series_vec = Vec::with_capacity(num_cols);
-
-        for (i, chunks) in columns_chunks.into_iter().enumerate() {
-            let arrow_field = &fields[i]; // &ArrowField
-            
-            let p_field = PolarsField::from(arrow_field); 
-            let p_dtype = p_field.dtype;
-            let name = p_field.name.as_str();
-
-            let s = unsafe {Series::from_chunks_and_dtype_unchecked(name.into(), chunks, &p_dtype)};
-            
-            series_vec.push(s.into());
-        }
-        let height = series_vec.first().map(|s:&Column| s.len()).unwrap_or(0);
-        // 7. Return DataFrame
-        let df = DataFrame::new(height,series_vec)?;
+        // 传 false 走极速零拷贝路线
+        let df = unsafe {consume_stream_impl(stream_ptr, false)?};
         Ok(Box::into_raw(Box::new(DataFrameContext { df })))
     })
 }
@@ -149,65 +174,15 @@ pub unsafe extern "C" fn pl_dataframe_new_from_stream_strict_type(
     stream_ptr: *mut ArrowArrayStream,
 ) -> *mut DataFrameContext {
     ffi_try!({
-        if stream_ptr.is_null() {
-            return Err(PolarsError::ComputeError("Stream pointer is null".into()));
-        }
-
-        let stream = unsafe { &mut *stream_ptr };
-        let mut reader = unsafe { ArrowArrayStreamReader::try_new(stream)
-            .map_err(|e| PolarsError::ComputeError(format!("Failed to create Reader: {}", e).into()))? };
-
-        let mut dfs = Vec::new();
-        let root_field = reader.field().clone();
-
-        // Iter all RecordBatch (Chunks) from ADBC
-        while let Some(chunk_result) = unsafe { reader.next() } {
-            let chunk = chunk_result.map_err(|e| PolarsError::ComputeError(format!("Read error: {}", e).into()))?;
-            
-            let struct_array = chunk.as_any().downcast_ref::<StructArray>()
-                .ok_or_else(|| PolarsError::ComputeError("Chunk is not a StructArray".into()))?;
-
-            let mut columns = Vec::with_capacity(struct_array.fields().len());
-            
-            // Parse columns
-            for (arr, field) in struct_array.values().iter().zip(struct_array.fields()) {
-                let name = PlSmallStr::from_str(&field.name);
-                
-                let series = Series::from_arrow(name, arr.clone())?;
-                columns.push(Column::from(series));
-            }
-
-            // Convert to DataFrame
-            let height = struct_array.len();
-            dfs.push(DataFrame::new(height, columns)?);
-        }
-
-        let final_df = if dfs.is_empty() {
-            let ArrowDataType::Struct(fields) = root_field.dtype() else {
-                return Err(PolarsError::ComputeError("Stream schema is not Struct".into()));
-            };
-            let columns = fields.iter().map(|f| {
-                let p_field = PolarsField::from(f);
-                Column::from(Series::new_empty(PlSmallStr::from_str(&f.name), &p_field.dtype))
-            }).collect::<Vec<_>>();
-            DataFrame::new(0,columns)?
-        } else {
-            let mut it = dfs.into_iter();
-            let mut acc = it.next().unwrap();
-            for df in it {
-                acc.vstack_mut(&df)?;
-            }
-            acc
-        };
-
-        Ok(Box::into_raw(Box::new(DataFrameContext { df: final_df })))
+        // 传 true 走安全适配路线
+        let df = unsafe {consume_stream_impl(stream_ptr, true)?};
+        Ok(Box::into_raw(Box::new(DataFrameContext { df })))
     })
 }
 
 // ==========================================
 // Memory and Convert Ops
 // ==========================================
-
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_to_arrow(
