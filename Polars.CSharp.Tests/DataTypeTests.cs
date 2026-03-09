@@ -55,6 +55,7 @@ public class DataTypeTests
     }
 
     [Fact]
+    [Trait("DataType","DateTime")]
     public void Test_DataFrame_DateTime_RoundTrip()
     {
         var now = DateTime.Now;
@@ -64,13 +65,13 @@ public class DataTypeTests
 
         var logs = new[]
         {
-            new LogEntry { Id = 1, Message = "Start", Timestamp = now, ProcessedAt = null },
+            new LogEntry { Id = 1, Message = "原神启动", Timestamp = now, ProcessedAt = null },
             new LogEntry { Id = 2, Message = "End", Timestamp = now.AddMinutes(1), ProcessedAt = now.AddMinutes(2) }
         };
 
         // 1. From (C# -> Polars)
         using var df = DataFrame.From(logs);
-        
+
         Assert.Equal(2, df.Height);
 
         // 2. To (Polars -> C#)

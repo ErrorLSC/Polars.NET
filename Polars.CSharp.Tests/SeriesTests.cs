@@ -287,8 +287,8 @@ public class SeriesTests
         // 构造 List<List<string>>: String 也是支持的！
         var data = new List<List<string>?>
         {
-            new List<string> { "a", "b" },
-            new List<string> { "c" }
+            new() { "a", "b" },
+            new() { "c" }
         };
         
         using var s = Series.From("strs", data);
@@ -300,18 +300,17 @@ public class SeriesTests
         Assert.Equal("a", exp.GetValue<string>(0, "strs"));
     }
     [Fact]
+    [Trait("Series","String")]
     public void Test_Series_String_And_Nulls()
     {
         // 1. 创建 String Series (带 Null)
-        using var s = Series.From("strings", ["a", null, "c"]);
-        
-        Assert.Equal(3, s.Length);
-        
-        // Polars 0.50 默认可能是 StringViewArray 或 LargeStringArray
-        // 我们用之前的扩展方法来验证
-        Assert.Equal("a", s.GetValue<string>(0));
-        Assert.Null(s.GetValue<string>(1));
-        Assert.Equal("c", s.GetValue<string>(2));
+        using var s = Series.From("strings", ["a", null, "原神启动","錕斤拷燙燙燙1231659846156516あいうえおへへへへっへへへへへっへへｈ"]);
+
+        Assert.Equal(4, s.Length);
+
+        Assert.Equal("a", s[0]);
+        Assert.Null(s[1]);
+        Assert.Equal("原神启动", s[2]);
     }
 
     [Fact]

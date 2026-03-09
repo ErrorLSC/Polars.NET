@@ -78,52 +78,51 @@ public static unsafe class StringPacker
             for (int i = 0; i < len; i++)
             {
                 string? s = data[i];
-                if (s != null)
-                {
-                    // 【读取缓存】：直接拿到第一遍算好的长度，0 CPU开销！
-                    int byteCount = pViews[i].Length;
 
-                    if (byteCount <= 12)
-                    {
-                        if (byteCount > 0)
-                        {
-                            // 【.NET 8 SIMD 极速路径】：Utf8.FromUtf16 
-                            // 绕过 Encoding 虚方法调用，纯 Span 操作，底层全向量化！
-                            Utf8.FromUtf16(
-                                s, 
-                                new Span<byte>(pViews[i].InlineData, 12), 
-                                out _, 
-                                out _, 
-                                replaceInvalidSequences: false // 关闭无效序列检查，极致压榨速度
-                            );
-                        }
-                    }
-                    else
-                    {
-                        byte* targetDataPtr = pDataBuffer + currentDataOffset;
-                        
-                        Utf8.FromUtf16(
-                            s, 
-                            new Span<byte>(targetDataPtr, byteCount), 
-                            out _, 
-                            out _, 
-                            replaceInvalidSequences: false
-                        );
-                        
-                        Unsafe.CopyBlock(pViews[i].Prefix, targetDataPtr, 4);
-                        
-                        pViews[i].BufferIndex = 0; 
-                        pViews[i].Offset = currentDataOffset;
-                        
-                        currentDataOffset += byteCount;
-                    }
-                }
-                else
+                // 优化 1：Guard Clause 拦截 null，代码瞬间拉平！
+                if (s is null)
                 {
                     if (pValid != null)
                     {
                         pValid[i >> 3] &= (byte)~(1 << (i & 7));
                     }
+                    continue; // 直接下一条，干脆利落
+                }
+
+                // 优化 2：直接读取 Pass 1 的缓存，0 额外开销
+                int byteCount = pViews[i].Length;
+
+                if (byteCount <= 12)
+                {
+                    // 极速内联路径 (.NET 8 SIMD)
+                    if (byteCount > 0)
+                    {
+                        Utf8.FromUtf16(
+                            s, 
+                            new Span<byte>(pViews[i].InlineData, 12), 
+                            out _, out _, 
+                            replaceInvalidSequences: false
+                        );
+                    }
+                }
+                else
+                {
+                    // 长字符串分配路径
+                    byte* targetDataPtr = pDataBuffer + currentDataOffset;
+                    
+                    Utf8.FromUtf16(
+                        s, 
+                        new Span<byte>(targetDataPtr, byteCount), 
+                        out _, out _, 
+                        replaceInvalidSequences: false
+                    );
+                    
+                    Unsafe.CopyBlock(pViews[i].Prefix, targetDataPtr, 4);
+                    
+                    pViews[i].BufferIndex = 0; 
+                    pViews[i].Offset = currentDataOffset;
+                    
+                    currentDataOffset += byteCount;
                 }
             }
         }
