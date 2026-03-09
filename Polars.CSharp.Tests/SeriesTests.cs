@@ -304,13 +304,16 @@ public class SeriesTests
     public void Test_Series_String_And_Nulls()
     {
         // 1. 创建 String Series (带 Null)
-        using var s = Series.From("strings", ["a", null, "原神启动","錕斤拷燙燙燙1231659846156516あいうえおへへへへっへへへへへっへへｈ"]);
+        using var s = Series.From("strings", ["a", null, "原神启动","錕斤拷燙燙燙1231659846156516あいうえおへへへへっへへへへへっへへｈ","🍉",""]);
 
-        Assert.Equal(4, s.Length);
+        Assert.Equal(6, s.Length);
 
         Assert.Equal("a", s[0]);
         Assert.Null(s[1]);
         Assert.Equal("原神启动", s[2]);
+        Assert.Contains("錕斤拷燙燙燙", s.GetValue<string>(3));
+        Assert.Equal("🍉",s[4]);
+        Assert.Equal("",s[5]);
     }
 
     [Fact]

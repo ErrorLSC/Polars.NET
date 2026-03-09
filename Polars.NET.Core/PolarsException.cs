@@ -65,6 +65,18 @@ internal static class ErrorHelper
             NativeBindings.pl_free_string(ptr); 
         }
     }
+    // =========================================================================
+    // 4. Status Code Check (for C ABI int returns)
+    // =========================================================================
+    public static void CheckStatus(int statusCode)
+    {
+        if (statusCode == 0)
+        {
+            return;
+        }
+
+        ThrowRustError();
+    }
 
     // =========================================================================
     // Helpers

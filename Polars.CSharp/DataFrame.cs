@@ -12,6 +12,7 @@ using Apache.Arrow.Types;
 using System.Reflection;
 using Polars.NET.Core.Helpers;
 using Apache.Arrow.Ipc;
+using Apache.Arrow.Adbc;
 
 namespace Polars.CSharp;
 
@@ -3862,7 +3863,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     /// Safely consume any foreign Arrow C Stream (Strict mode).
     /// Adapts physical memory layouts (e.g., Utf8View) automatically.
     /// </summary>
-    public static DataFrame ReadArrowStream(IArrowArrayStream stream)
+    public static DataFrame FromArrowStream(IArrowArrayStream stream)
     {
         ArgumentNullException.ThrowIfNull(stream);
 
@@ -3872,7 +3873,105 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
         df.HoldResource(stream); 
         return df;
     }
-    
+    /// <summary>
+    /// Export DataFrame to Arrow C Stream
+    /// </summary>
+    /// <returns>Standard IArrowArrayStream</returns>
+    public IArrowArrayStream ToArrowStream()
+        => ArrowStreamInterop.ExportToStream(Handle);
+    /// <summary>
+    /// Generate DataFrame from ADBC query results
+    /// </summary>
+    /// <param name="statement"></param>
+    /// <returns></returns>
+    /// <exception cref="InvalidOperationException"></exception>
+    public static DataFrame ReadAdbc(AdbcStatement statement)
+    {
+        ArgumentNullException.ThrowIfNull(statement);
+
+        // 1. 让 DuckDB/SQLite 引擎执行 SQL，返回包含了 Arrow 流的查询结果
+        var result = statement.ExecuteQuery();
+
+        if (result.Stream == null)
+        {
+            throw new InvalidOperationException("ADBC query executed, but returned a null Arrow stream.");
+        }
+
+        // 2. 直接复用你那套天下无敌的 FromArrowStream！
+        // 它会通过底层提取指针传给 Rust，并将流的生命周期绑定到 DataFrame 上
+        return FromArrowStream(result.Stream);
+    }
+    /// <summary>
+    /// Executes a SQL query directly against an ADBC connection and reads the result into a zero-copy Polars DataFrame.
+    /// Pure syntactic sugar: automatically manages the creation and disposal of the underlying AdbcStatement.
+    /// </summary>
+    /// <param name="connection">The active ADBC connection (e.g., DuckDB, SQLite).</param>
+    /// <param name="sqlQuery">The SQL query string to execute.</param>
+    /// <returns>A fully materialized Polars DataFrame containing the query results.</returns>
+    public static DataFrame ReadAdbc(AdbcConnection connection, string sqlQuery)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        if (string.IsNullOrWhiteSpace(sqlQuery))
+            throw new ArgumentException("SQL query cannot be null or whitespace.", nameof(sqlQuery));
+
+        // Since Polars synchronously materializes the entire stream during FromArrowStream,
+        // it is perfectly safe to dispose the statement immediately after the read completes.
+        using AdbcStatement statement = connection.CreateStatement();
+        statement.SqlQuery = sqlQuery;
+
+        // Route to the core execution method
+        return ReadAdbc(statement);
+    }
+    /// <summary>
+    /// Zero-copy bulk ingest of the current DataFrame into an ADBC database (e.g., DuckDB, SQLite).
+    /// </summary>
+    /// <param name="statement">An AdbcStatement configured with ingest options (e.g., target table).</param>
+    /// <returns>The UpdateResult containing the number of rows affected.</returns>
+    public UpdateResult WriteToAdbc(AdbcStatement statement)
+    {
+        ArgumentNullException.ThrowIfNull(statement);
+
+        try
+        {
+            // Delegate all unsafe pointer handling, FFI bindings, and execution to the Core layer.
+            // This ensures no raw pointers leak into the managed high-level API.
+            return AdbcInterop.ExecuteIngest(statement, Handle);
+        }
+        finally
+        {
+            // Crucial: Pin the DataFrame to prevent the Garbage Collector from 
+            // reclaiming the underlying Rust memory while the ADBC C++ engine is actively pulling data.
+            GC.KeepAlive(this);
+        }
+    }
+    /// <summary>
+    /// Zero-copy bulk ingest of the current DataFrame into an ADBC database table.
+    /// Pure syntactic sugar: automatically manages the creation, configuration, and disposal of the underlying AdbcStatement.
+    /// </summary>
+    /// <param name="connection">The active ADBC connection (e.g., DuckDB, SQLite).</param>
+    /// <param name="tableName">The name of the target table to ingest data into.</param>
+    /// <param name="ingestMode">The ingestion mode (e.g., "adbc.ingest.mode.create" or "adbc.ingest.mode.append"). Defaults to create.</param>
+    /// <returns>The UpdateResult containing the number of rows affected.</returns>
+    public UpdateResult WriteToAdbc(AdbcConnection connection, string tableName, string ingestMode = "adbc.ingest.mode.create")
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        if (string.IsNullOrWhiteSpace(tableName))
+            throw new ArgumentException("Target table name cannot be null or whitespace.", nameof(tableName));
+
+        // Let the framework handle the Statement lifecycle
+        using AdbcStatement statement = connection.CreateStatement();
+        
+        // Configure ADBC bulk ingest options automatically
+        statement.SetOption("adbc.ingest.target_table", tableName);
+        
+        if (!string.IsNullOrEmpty(ingestMode))
+        {
+            statement.SetOption("adbc.ingest.mode", ingestMode);
+        }
+
+        // Route to the core execution method (our zero-copy wormhole)
+        return WriteToAdbc(statement);
+    }
     // ==========================================
     // Object Mapping (To Records)
     // ==========================================

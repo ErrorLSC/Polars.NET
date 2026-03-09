@@ -962,9 +962,16 @@ pub extern "C" fn pl_dataframe_lazy(df_ptr: *mut DataFrameContext) -> *mut LazyF
 pub extern "C" fn pl_dataframe_to_string(df_ptr: *mut DataFrameContext) -> *mut c_char {
     ffi_try!({
         let ctx = unsafe { &mut *df_ptr };
-        let s = ctx.df.to_string();
+        let mut s = ctx.df.to_string();
         
-        let c_str = CString::new(s).unwrap();
+        // 💥 终极防线：C 语言字符串绝对不能包含 \0。
+        // 如果 DataFrame 的数据里藏了 \0，我们就把它替换成可见的文本 "\\0" 或者 ""
+        if s.contains('\0') {
+            s = s.replace('\0', "␀"); // 让它在控制台里显示为 \0 字符串
+        }
+        
+        // 经过上面的清洗，这里绝对不会再触发 NulError 了，放心 unwrap
+        let c_str = CString::new(s).expect("String sanitization failed");
         Ok(c_str.into_raw())
     })
 }

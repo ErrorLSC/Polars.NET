@@ -1,6 +1,7 @@
 // Polars.NET.Core / Arrow / ArrowFfiBridge.cs
 using Apache.Arrow;
 using Apache.Arrow.C;
+using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 using Polars.NET.Core.Native;
 
@@ -193,4 +194,9 @@ public static class ArrowStreamingExtensions
 
     private static RecordBatch BuildBatchFromBuffer<T>(List<T> buffer)
         => ArrowFfiBridge.BuildRecordBatch(buffer);
+
+    // public static IArrowArrayStream ToArrowArrayStream(this IEnumerable<RecordBatch> batches)
+    // {
+    //     return new EnumerableArrowStream(batches);
+    // }
 }

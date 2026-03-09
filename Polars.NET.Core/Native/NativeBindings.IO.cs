@@ -572,7 +572,7 @@ unsafe internal partial class NativeBindings
     // Scan IPC (Memory)
     // ---------------------------------------------------------
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static unsafe partial LazyFrameHandle pl_scan_ipc_memory(
+    public static partial LazyFrameHandle pl_scan_ipc_memory(
         byte* buffer, 
         UIntPtr bufferLen,
         
@@ -726,5 +726,10 @@ unsafe internal partial class NativeBindings
         out FfiBuffer out_buffer,
         PlAvroCompression compressionType,
         string name
+    );
+    [LibraryImport(LibName)]
+    public static partial int pl_dataframe_export_to_stream(
+        DataFrameHandle df_ptr, 
+        Apache.Arrow.C.CArrowArrayStream* out_stream
     );
 }

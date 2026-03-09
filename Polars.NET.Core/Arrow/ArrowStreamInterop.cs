@@ -294,6 +294,39 @@ public static unsafe class ArrowStreamInterop
             streamRef.get_last_error = null;
         }
     }
+    /// <summary>
+    /// Export Polars DataFrame to C#  IArrowArrayStream
+    /// </summary>
+    public static IArrowArrayStream ExportToStream(DataFrameHandle dfHandle) 
+    {
+        var cStream = Apache.Arrow.C.CArrowArrayStream.Create();
+
+        int result = NativeBindings.pl_dataframe_export_to_stream(dfHandle, cStream);
+        ErrorHelper.CheckStatus(result);
+
+        var managedStream = Apache.Arrow.C.CArrowArrayStreamImporter.ImportArrayStream(cStream);
+
+        // ✨ 强制转换为 IntPtr 传给我们的干净代理类！
+        return new SafePolarsExportStream(managedStream, (IntPtr)cStream);
+    }
+    /// <summary>
+    /// 极其硬核的 Native 导出：直接吐出 C 结构体裸指针，不经过任何 C# 托管封装！
+    /// </summary>
+    public static IntPtr ExportToNativeCStream(DataFrameHandle dfHandle)
+    {
+        var cStream = Apache.Arrow.C.CArrowArrayStream.Create();
+        
+        int result = NativeBindings.pl_dataframe_export_to_stream(dfHandle,cStream);
+        ErrorHelper.CheckStatus(result);
+        if (result != 0)
+        {
+            Apache.Arrow.C.CArrowArrayStream.Free(cStream);
+            throw new Exception("Rust FFI failed to export the stream.");
+        }
+        
+        return (IntPtr)cStream;
+    }
+
     // ------------------------------------------------------------
     // Sink to DataBase
     // ------------------------------------------------------------
@@ -403,5 +436,38 @@ public static unsafe class ArrowStreamInterop
         }
 
         public void Reset() => _inner.Reset();
+    }
+}
+
+internal sealed class SafePolarsExportStream : IArrowArrayStream
+{
+    private readonly IArrowArrayStream _nativeStream;
+    private readonly IntPtr _cStream;
+    private int _isDisposed = 0;
+
+    public SafePolarsExportStream(IArrowArrayStream nativeStream, IntPtr cStream)
+    {
+        _nativeStream = nativeStream;
+        _cStream = cStream;
+    }
+
+    public Schema Schema => _nativeStream.Schema;
+
+    public ValueTask<RecordBatch?> ReadNextRecordBatchAsync(CancellationToken cancellationToken = default)
+    {
+        // ✨ 没有任何洗白，没有任何 Hack，原汁原味的零拷贝透传！
+        return _nativeStream.ReadNextRecordBatchAsync(cancellationToken);
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _isDisposed, 1) == 0)
+        {
+            _nativeStream.Dispose();
+            if (_cStream != IntPtr.Zero)
+            {
+                unsafe { Apache.Arrow.C.CArrowArrayStream.Free((Apache.Arrow.C.CArrowArrayStream*)_cStream); }
+            }
+        }
     }
 }

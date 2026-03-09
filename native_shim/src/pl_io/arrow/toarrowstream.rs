@@ -1,9 +1,44 @@
 use polars::prelude::*;
-use polars_arrow::array::Array;
+// use polars_arrow::array::Array;
 use polars_arrow::ffi::{ArrowArrayStream, export_iterator};
 use polars_arrow::datatypes::Field;
+use polars_core::utils::Container;
 
 use crate::types::DataFrameContext;
+
+// #[unsafe(no_mangle)]
+// pub unsafe extern "C" fn pl_dataframe_export_to_stream(
+//     df_ptr: *mut DataFrameContext,
+//     out_stream: *mut ArrowArrayStream,
+// ) -> i32 {
+//     ffi_try_c_int!({
+//         if df_ptr.is_null() || out_stream.is_null() {
+//             return Err(PolarsError::ComputeError("Null pointer passed".into()));
+//         }
+
+//         let ctx = unsafe {&*df_ptr};
+//         let df = &ctx.df;
+
+//         let struct_series = df.clone().into_struct("".into()).into_series();
+        
+//         let dtype = struct_series.dtype().to_arrow(CompatLevel::newest());
+//         let root_field = Field::new("".into(), dtype, false);
+
+//         let owned_chunks: Vec<Box<dyn polars_arrow::array::Array>> = struct_series
+//             .chunks()
+//             .iter()
+//             .cloned()
+//             .collect();
+
+//         let chunks_iter = owned_chunks.into_iter().map(Ok);
+
+//         let exported_stream_struct = export_iterator(Box::new(chunks_iter), root_field);
+
+//         unsafe { std::ptr::write(out_stream, exported_stream_struct) };
+
+//         Ok(0)
+//     })
+// }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pl_dataframe_export_to_stream(
@@ -15,37 +50,47 @@ pub unsafe extern "C" fn pl_dataframe_export_to_stream(
             return Err(PolarsError::ComputeError("Null pointer passed".into()));
         }
 
-        let ctx = unsafe {&*df_ptr};
-        let df = &ctx.df;
-
-        // 1. 将 DataFrame 融合为一个大 Struct
-        let struct_series = df.clone().into_struct("".into()).into_series();
+        let ctx = unsafe { &*df_ptr };
+        let mut df = ctx.df.clone();
         
-        // 2. 提取物理层的 Data Type
-        let dtype = struct_series.dtype().to_arrow(CompatLevel::newest());
-        let root_field = Field::new("".into(), dtype, false);
+        // 1. 内存整理：强行将所有列对齐并压缩成一个连续的 Chunk
+        // 这不仅提升 FFI 传输速度，还能顺手抹平一些导入时的内存碎片
+        df.align_chunks_par(); 
 
-        // 3. ✨ 关键修复：斩断生命周期！
-        // 把切片借用（&[Box<dyn Array>]）转换为拥有完全所有权的 Owned Vec。
-        // 这里的 cloned() 只是极速增加底层 Buffer 的引用计数，真·零拷贝。
-        let owned_chunks: Vec<Box<dyn Array>> = struct_series
-            .chunks()
-            .iter()
-            .cloned()
+        let compat = CompatLevel::newest();
+        
+        // 2. 构建纯正的“逻辑” Arrow Schema
+        let fields: Vec<Field> = df.schema()
+            .iter_fields()
+            .map(|f| f.to_arrow(compat))
             .collect();
+            
+        let root_dtype = polars_arrow::datatypes::ArrowDataType::Struct(fields);
+        let root_field = polars_arrow::datatypes::Field::new("".into(), root_dtype.clone(), false);
 
-        // 4. 调用 into_iter()，迭代器将完全拿走 owned_chunks 的所有权。
-        // 此时的 chunks_iter 不再借用任何局部变量，完美符合 'static 约束！
+        let n_chunks = df.n_chunks();
+        let mut owned_chunks: Vec<Box<dyn polars_arrow::array::Array>> = Vec::with_capacity(n_chunks);
+
+        // 3. 手搓 StructArray：完美避开 into_struct 的物理类型陷阱！
+        for i in 0..n_chunks {
+            let mut chunk_arrays = Vec::with_capacity(df.width());
+            
+            for series in df.columns() {
+                // 🔥 核心魔法：to_arrow 会自动处理 FFI 边界的类型转换 (Int64 -> Timestamp)
+                let logical_arrow_array = series.as_materialized_series().to_arrow(i, compat);
+                chunk_arrays.push(logical_arrow_array);
+            }
+            let chunk_len = chunk_arrays.first().map_or(0, |arr| arr.len());
+            // 此时 Schema (root_dtype) 和 Data (chunk_arrays) 的类型绝对完美匹配
+            let struct_arr = polars_arrow::array::StructArray::new(root_dtype.clone(),chunk_len,chunk_arrays, None);
+            owned_chunks.push(Box::new(struct_arr));
+        }
+
         let chunks_iter = owned_chunks.into_iter().map(Ok);
-
-        // 5. 调用官方方法，生成 C 结构体
         let exported_stream_struct = export_iterator(Box::new(chunks_iter), root_field);
 
-        // 5. 将生成的 C 结构体写入调用方 (C#) 提供的内存地址
-       unsafe{ std::ptr::write(out_stream, exported_stream_struct)};
+        unsafe { std::ptr::write(out_stream, exported_stream_struct) };
 
         Ok(0)
-    });
-    
-    1
+    })
 }

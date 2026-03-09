@@ -33,9 +33,7 @@
   <Target Name="BuildRustShim" BeforeTargets="BeforeBuild" Condition="'$(BuildRustNative)' == 'true' And '$(SkipRust)' != 'true'">
     <Message Text="[Dev] Building Rust Native Shim (Profile: $(Configuration))..." Importance="high" />
     
-    <Exec Command="cargo build $(RustBuildProfile)" 
-          WorkingDirectory="$(RustProjectDir)"
-          EnvironmentVariables="RUSTFLAGS=-C target-cpu=x86-64-v3" />
+    <Exec Command="cargo build $(RustBuildProfile)" WorkingDirectory="$(RustProjectDir)" EnvironmentVariables="RUSTFLAGS=-C target-cpu=x86-64-v3" />
   </Target>
 
   <ItemGroup Condition="'$(BuildRustNative)' == 'true'">
@@ -62,6 +60,7 @@
 
   <ItemGroup>
     <PackageReference Include="Apache.Arrow" Version="22.1.0" />
+    <PackageReference Include="Apache.Arrow.Adbc" Version="0.22.0" />
     <PackageReference Include="FSharp.Core" Version="10.0.102" />
   </ItemGroup>
 

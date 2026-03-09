@@ -196,33 +196,31 @@ pub extern "C" fn pl_series_new_str(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pl_series_new_str_simd(
     name: *const c_char,
-    values_ptr: *const u8,   // C# 传来的 dataBuffer
-    values_len: usize,       // dataBuffer 长度
-    offsets_ptr: *const i64, // C# 传来的 ArrowStringView 数组
+    values_ptr: *const u8,   // dataBuffer from Host language
+    values_len: usize,       // dataBuffer len
+    offsets_ptr: *const i64, // ArrowStringView array
     validity_ptr: *const u8, // Validity Bitmap
-    len: usize               // 逻辑长度
+    len: usize               // logic length
 ) -> *mut SeriesContext {
     ffi_try!({
         let name_str = unsafe { CStr::from_ptr(name).to_string_lossy() };
 
-        // 1. Views Buffer (瞒天过海：把 i64* 强转为 View*)
-        // Polars 的 View 结构体是 #[repr(C)] 或完全对齐的 16 字节，完美吻合 C# 的 ArrowStringView
+        // Views Buffer: i64* => View*
         let views_ptr = offsets_ptr as *const View;
         let views_slice = unsafe { std::slice::from_raw_parts(views_ptr, len) };
         let views_vec = views_slice.to_vec();
-        let views_buffer = Buffer::from(views_vec); // 满足 Buffer<View>
+        let views_buffer = Buffer::from(views_vec); 
 
-        // 2. Data Buffers 
-        // 按照你贴出的源码，这里要求 Buffer<Buffer<u8>> 
+        // Data Buffers 
         let mut data_buffers_vec = Vec::new();
         if !values_ptr.is_null() && values_len > 0 {
             let data_slice = unsafe { std::slice::from_raw_parts(values_ptr, values_len) };
             let data_vec = data_slice.to_vec();
             data_buffers_vec.push(Buffer::from(data_vec));
         }
-        let buffers = Buffer::from(data_buffers_vec); // 满足 Buffer<Buffer<u8>>
+        let buffers = Buffer::from(data_buffers_vec); 
 
-        // 3. Validity (Bitmap)
+        // Validity (Bitmap)
         let validity = if validity_ptr.is_null() {
             None
         } else {
@@ -232,8 +230,7 @@ pub unsafe extern "C" fn pl_series_new_str_simd(
             Some(Bitmap::try_new(v_vec, len).expect("Invalid validity bitmap"))
         };
 
-        // 4. Build Arrow Utf8ViewArray
-        // 调用你贴出的 try_new 签名：try_new(dtype, views, buffers, validity)
+        // Build Arrow Utf8ViewArray
         let array = Utf8ViewArray::try_new(
             ArrowDataType::Utf8View,
             views_buffer,
@@ -241,7 +238,7 @@ pub unsafe extern "C" fn pl_series_new_str_simd(
             validity
         ).expect("Failed to build Utf8ViewArray from C# buffers");
 
-        // 5. Convert to Series
+        // Convert to Series
         let series = Series::from_arrow(
             PlSmallStr::from_str(name_str.as_ref()), 
             Box::new(array)

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text.Unicode;
 using Apache.Arrow.C;
 
 namespace Polars.NET.Core.Native;
@@ -17,6 +18,10 @@ public unsafe delegate int UdfCallback(
 
 unsafe internal partial class NativeBindings
 {
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_set_env_var(
+    string key, 
+    string value);
     [LibraryImport(LibName)] public static partial void pl_expr_free(IntPtr ptr);
     // String Free
     [LibraryImport(LibName)] public static partial void pl_free_string(IntPtr ptr);
