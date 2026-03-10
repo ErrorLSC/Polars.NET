@@ -610,3 +610,23 @@ type MergeActionType =
         | NotMatchedInsert -> PlMergeActionType.NotMatchedInsert
         | NotMatchedBySourceDelete -> PlMergeActionType.NotMatchedBySourceDelete
 
+/// <summary>
+/// Specifies the behavior when bulk ingesting a DataFrame into an ADBC database table.
+/// </summary>
+type AdbcIngestMode =
+    /// <summary>
+    /// Creates a new table and inserts the data. 
+    /// Fails if the target table already exists. (Default behavior)
+    /// </summary>
+    | Create
+    /// <summary>
+    /// Appends the data to an existing table. 
+    /// Fails if the target table does not exist, or if the DataFrame schema doesn't match.
+    /// </summary>
+    | Append
+    /// <summary>
+    /// Drops the target table if it already exists, creates a new one, and inserts the data.
+    /// Extremely useful for overriding temporary/staging tables.
+    /// </summary>
+    | Replace
+

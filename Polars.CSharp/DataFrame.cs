@@ -3889,7 +3889,6 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     {
         ArgumentNullException.ThrowIfNull(statement);
 
-        // 1. 让 DuckDB/SQLite 引擎执行 SQL，返回包含了 Arrow 流的查询结果
         var result = statement.ExecuteQuery();
 
         if (result.Stream == null)
@@ -3897,8 +3896,6 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
             throw new InvalidOperationException("ADBC query executed, but returned a null Arrow stream.");
         }
 
-        // 2. 直接复用你那套天下无敌的 FromArrowStream！
-        // 它会通过底层提取指针传给 Rust，并将流的生命周期绑定到 DataFrame 上
         return FromArrowStream(result.Stream);
     }
     /// <summary>
@@ -3952,7 +3949,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     /// <param name="tableName">The name of the target table to ingest data into.</param>
     /// <param name="ingestMode">The ingestion mode (e.g., "adbc.ingest.mode.create" or "adbc.ingest.mode.append"). Defaults to create.</param>
     /// <returns>The UpdateResult containing the number of rows affected.</returns>
-    public UpdateResult WriteToAdbc(AdbcConnection connection, string tableName, string ingestMode = "adbc.ingest.mode.create")
+    public UpdateResult WriteToAdbc(AdbcConnection connection, string tableName,AdbcIngestMode ingestMode = AdbcIngestMode.Create)
     {
         ArgumentNullException.ThrowIfNull(connection);
         if (string.IsNullOrWhiteSpace(tableName))
@@ -3964,12 +3961,16 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
         // Configure ADBC bulk ingest options automatically
         statement.SetOption("adbc.ingest.target_table", tableName);
         
-        if (!string.IsNullOrEmpty(ingestMode))
+        string modeString = ingestMode switch
         {
-            statement.SetOption("adbc.ingest.mode", ingestMode);
-        }
+            AdbcIngestMode.Create  => "adbc.ingest.mode.create",
+            AdbcIngestMode.Append  => "adbc.ingest.mode.append",
+            AdbcIngestMode.Replace => "adbc.ingest.mode.replace",
+            _ => throw new ArgumentOutOfRangeException(nameof(ingestMode), $"Unsupported ingest mode: {ingestMode}")
+        };
 
-        // Route to the core execution method (our zero-copy wormhole)
+        statement.SetOption("adbc.ingest.mode", modeString);
+
         return WriteToAdbc(statement);
     }
     // ==========================================

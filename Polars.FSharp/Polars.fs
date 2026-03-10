@@ -464,6 +464,13 @@ module pl =
                 
             return new DataFrame(dfHandle)
         }
+    /// --- Config ---
+    let setEnvVar (key:string) (value:string) = 
+        PolarsWrapper.SetEnvVar(key,value)
+    let setEnvVarPrefixKey suffix value =
+        setEnvVar ("POLARS_" + suffix) value
+    let setEnvVarAll vars =
+        vars |> Seq.iter (fun (k, v) -> PolarsWrapper.SetEnvVar(k, v))
     // ==========================================
     // Column Selectors (pl.cs)
     // ==========================================

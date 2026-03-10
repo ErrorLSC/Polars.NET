@@ -15,6 +15,8 @@ open System.Reflection
 open System.Text
 open System.IO
 open System.Threading
+open Apache.Arrow.Adbc
+open Apache.Arrow.Ipc
 /// --- Series ---
 /// <summary>
 /// An eager Series holding a single column of data.
@@ -2482,11 +2484,28 @@ and SeriesStructNameSpace(parent: Series) =
 /// </para>
 /// </summary>
 and DataFrame(handle: DataFrameHandle) =
-    interface IDisposable with
-        member _.Dispose() = handle.Dispose()
+    let backingResources = ResizeArray<IDisposable>()
     member this.Clone() = new DataFrame(PolarsWrapper.CloneDataFrame handle)
     member internal this.CloneHandle() = PolarsWrapper.CloneDataFrame handle
     member _.Handle = handle
+    
+    member internal this.HoldResource(resource: IDisposable) =
+        if not (isNull resource) then
+            backingResources.Add resource
+
+    member this.Dispose() =
+        if not this.Handle.IsInvalid then 
+            this.Handle.Dispose()
+
+        for res in backingResources do
+            res.Dispose()
+            
+        backingResources.Clear()
+        GC.SuppressFinalize this
+
+    interface IDisposable with
+        member this.Dispose() = 
+            this.Dispose()
     /// <summary> Create a DataFrame from a list of Series. </summary>
     static member create(series: Series list) : DataFrame =
         let handles = 
@@ -2772,7 +2791,29 @@ and DataFrame(handle: DataFrameHandle) =
             new DataFrame(safeHandle)
         else
             new DataFrame(handle)
+    /// <summary>
+    /// Stream F# sequences (or C# enumerables) into Polars.
+    /// </summary>
+    /// <param name="data">The input sequence of objects.</param>
+    /// <param name="batchSize">Optional batch size for Arrow chunks. Defaults to 100,000.</param>
+    /// <param name="providedSchema">Optional Arrow Schema. Inferred via reflection if not provided.</param>
+    static member ReadSeq<'T>(data: seq<'T>, ?batchSize: int, ?providedSchema: Schema) : DataFrame =
 
+        if isNull data then 
+            invalidArg "data" "Data sequence cannot be null."
+
+        let actualBatchSize = defaultArg batchSize 100_000
+
+        let schema = 
+            match providedSchema with
+            | Some s -> s
+            | None -> ArrowConverter.GetSchemaFromType<'T>()
+
+        let stream = data.ToArrowBatches actualBatchSize
+
+        let handle = ArrowStreamInterop.ImportEager(stream, schema)
+
+        new DataFrame(handle)
     // ---------------------------------------------------------
     // Read Parquet (File / Cloud / Glob)
     // ---------------------------------------------------------
@@ -3930,6 +3971,99 @@ and DataFrame(handle: DataFrameHandle) =
         let pComp = defaultArg compression AvroCompression.Uncompressed
         let pName = defaultArg name ""
         PolarsWrapper.WriteAvroToMemory(this.Handle, pComp.ToNative(), pName)
+    // ---- ADBC ----
+    static member FromArrowStream(stream:IArrowArrayStream) =
+    
+        ArgumentNullException.ThrowIfNull stream
+
+        let handle = ArrowStreamInterop.ImportForeignStream stream;
+        
+        let df = new DataFrame(handle)
+        df.HoldResource(stream); 
+        df
+    
+    /// <summary>
+    /// Generate DataFrame from ADBC query results
+    /// </summary>
+    /// <param name="statement"></param>
+    /// <exception cref="InvalidOperationException"></exception>
+    static member ReadAdbc(statement: AdbcStatement) : DataFrame =
+        ArgumentNullException.ThrowIfNull statement
+
+        let result = statement.ExecuteQuery()
+
+        if isNull result.Stream then
+            raise (InvalidOperationException "ADBC query executed, but returned a null Arrow stream.")
+            
+        DataFrame.FromArrowStream result.Stream
+
+
+    /// <summary>
+    /// Executes a SQL query directly against an ADBC connection and reads the result into a zero-copy Polars DataFrame.
+    /// Pure syntactic sugar: automatically manages the creation and disposal of the underlying AdbcStatement.
+    /// </summary>
+    /// <param name="connection">The active ADBC connection (e.g., DuckDB, SQLite).</param>
+    /// <param name="sqlQuery">The SQL query string to execute.</param>
+    static member ReadAdbc(connection: AdbcConnection, sqlQuery: string) : DataFrame =
+        ArgumentNullException.ThrowIfNull connection
+        
+        if String.IsNullOrWhiteSpace sqlQuery then
+            invalidArg "sqlQuery" "SQL query cannot be null or whitespace."
+
+        use statement = connection.CreateStatement()
+        
+        statement.SqlQuery <- sqlQuery
+
+        DataFrame.ReadAdbc statement
+    /// <summary>
+    /// Zero-copy bulk ingest of the current DataFrame into an ADBC database (e.g., DuckDB, SQLite).
+    /// </summary>
+    /// <param name="statement">An AdbcStatement configured with ingest options (e.g., target table).</param>
+    /// <returns>The UpdateResult containing the number of rows affected.</returns>
+    member this.WriteToAdbc(statement: AdbcStatement) : UpdateResult =
+        ArgumentNullException.ThrowIfNull statement
+
+        try
+            // Delegate all unsafe pointer handling, FFI bindings, and execution to the Core layer.
+            // This ensures no raw pointers leak into the managed high-level API.
+            AdbcInterop.ExecuteIngest(statement, this.Handle)
+        finally
+            // Crucial: Pin the DataFrame to prevent the Garbage Collector from 
+            // reclaiming the underlying Rust memory while the ADBC C++ engine is actively pulling data.
+            GC.KeepAlive this
+
+    /// <summary>
+    /// Zero-copy bulk ingest of the current DataFrame into an ADBC database table.
+    /// Pure syntactic sugar: automatically manages the creation, configuration, and disposal of the underlying AdbcStatement.
+    /// </summary>
+    /// <param name="connection">The active ADBC connection (e.g., DuckDB, SQLite).</param>
+    /// <param name="tableName">The name of the target table to ingest data into.</param>
+    /// <param name="ingestMode">The ingestion mode. Defaults to Create.</param>
+    /// <returns>The UpdateResult containing the number of rows affected.</returns>
+    member this.WriteToAdbc(connection: AdbcConnection, tableName: string, ?ingestMode: AdbcIngestMode) : UpdateResult =
+        ArgumentNullException.ThrowIfNull(connection)
+        
+        if String.IsNullOrWhiteSpace tableName then
+            invalidArg "tableName" "Target table name cannot be null or whitespace."
+
+        let mode = defaultArg ingestMode AdbcIngestMode.Create
+
+        // Let the framework handle the Statement lifecycle
+        use statement = connection.CreateStatement()
+        
+        // Configure ADBC bulk ingest options automatically
+        statement.SetOption("adbc.ingest.target_table", tableName)
+        
+        let modeString = 
+            match mode with
+            | AdbcIngestMode.Create  -> "adbc.ingest.mode.create"
+            | AdbcIngestMode.Append  -> "adbc.ingest.mode.append"
+            | AdbcIngestMode.Replace -> "adbc.ingest.mode.replace"
+
+        statement.SetOption("adbc.ingest.mode", modeString)
+
+        // Route to the core execution method
+        this.WriteToAdbc statement
     /// <summary>
     /// Write the DataFrame to a Delta Lake table with partition discovery.
     /// <para>

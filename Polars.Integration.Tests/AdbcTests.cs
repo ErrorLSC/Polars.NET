@@ -305,7 +305,7 @@ public class AdbcLocalTests : IDisposable
     [Trait("ADBC", "DotNetSpecific")]
     public void Test_DotNet_Specific_Poison()
     {
-        PolarsNetConfig.EnableIntervalAsStruct();
+        PolarsConfig.SetEnvVar("POLARS_IMPORT_INTERVAL_AS_STRUCT", "1");
         // ==========================================
         // Arrange: 纯血 .NET 独门毒药
         // ==========================================
@@ -317,7 +317,7 @@ public class AdbcLocalTests : IDisposable
                 uuid = Guid.Parse("12345678-1234-1234-1234-1234567890ab"), // 毒药 2: Guid
                 birthday = new DateOnly(1990, 1, 1),     // 毒药 3: DateOnly
                 alarm = new TimeOnly(8, 30, 0),          // 毒药 4: TimeOnly
-                duration = TimeSpan.FromDays(114514)    // 毒药 5: TimeSpan
+                duration = TimeSpan.FromDays(11456)    // 毒药 5: TimeSpan
             },
             new { 
                 id = 2, 
@@ -329,14 +329,13 @@ public class AdbcLocalTests : IDisposable
             }
         };
 
-        // 💥 我预言：代码会直接死在这一行！因为 C# 的 Arrow 官方库反射机制极其拉胯。
         var df = DataFrame.FromEnumerable(records);
 
         Console.WriteLine("====== 1. 成功构建 DataFrame！ ======");
         Console.WriteLine($"[Shape] Height: {df.Height}, Width: {df.Width}");
         df.Show();
         // 如果奇迹发生，它活下来了，我们就把它灌进 DuckDB！
-        df.WriteToAdbc(_connection, "polars_dotnet_poison");
+        df.WriteToAdbc(_connection, "polars_dotnet_poison",ingestMode:AdbcIngestMode.Create);
         var verifyDf = DataFrame.ReadAdbc(_connection, "SELECT * FROM polars_dotnet_poison ORDER BY id;");
 
         Console.WriteLine("====== 2. 从 DuckDB 读取回来！ ======");

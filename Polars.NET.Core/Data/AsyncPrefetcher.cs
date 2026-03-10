@@ -10,7 +10,7 @@ public static class PrefetchExtensions
 {
     public static IEnumerable<RecordBatch> Prefetch(this IEnumerable<RecordBatch> source, int? bufferSize = null)
     {
-        int actualSize = bufferSize ?? PolarsNetConfig.DefaultPrefetchBufferSize;
+        int actualSize = bufferSize ?? CoreConfig.DefaultPrefetchBufferSize;
         
         return new PrefetchingEnumerable(source, actualSize);
     }
