@@ -5030,6 +5030,8 @@ and DataFrame(handle: DataFrameHandle) =
             this.Show()    
         member this.ToArrow() = 
             this.ToArrow()
+        member this.WriteToAdbc(statement:AdbcStatement) = 
+            this.WriteToAdbc statement
 /// <summary>
 /// A LazyFrame represents a logical plan of operations that will be optimized and executed only when collected.
 /// <para>

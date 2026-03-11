@@ -1,4 +1,5 @@
 using Apache.Arrow;
+using Apache.Arrow.Adbc;
 using Apache.Arrow.Types;
 
 namespace Polars.NET.Core;
@@ -9,6 +10,8 @@ public interface IPolarsDataFrame : IDisposable
     RecordBatch ToArrow();
     void Show();
     IPolarsSchema Schema{get;}
+    UpdateResult WriteToAdbc(AdbcStatement statement);
+
 }
 
 public interface IPolarsSeries : IDisposable

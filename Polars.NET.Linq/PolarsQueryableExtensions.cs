@@ -14,15 +14,13 @@ namespace Polars.NET.Linq;
 /// It leverages <c>linq2db</c> to intercept expression trees, translates them into 
 /// optimized SQL, and then injects that logic directly into the Polars Rust core 
 /// via <see cref="IPolarsLazyFrame"/>. 
-/// <para>
-/// By using these extensions, developers can enjoy the strong typing and IDE support 
-/// of LINQ while benefiting from Polars' data processing speeds and 
-/// memory efficiency.
-/// </para>
 /// </remarks>
 public static class PolarsQueryableExtensions
 {
-    private static IPolarsLazyFrame TranslateAndExecute(IExpressionQuery exprQuery, PolarsDataContext db,Type originalType)
+    private static IPolarsLazyFrame Execute(PolarsDataContext db,string finalSql)
+       => db.ExecuteToLazyFrame(finalSql);
+
+    private static string Translate(IExpressionQuery exprQuery,Type originalType)
     {
         var sqlQueries = exprQuery.GetSqlQueries(null);
 
@@ -30,36 +28,47 @@ public static class PolarsQueryableExtensions
             throw new InvalidOperationException("[Polars.NET] linq2db SQL generation failed");
         var rawSql = sqlQueries[0].Sql;
         var sanitizedSql = SqlSanitizer.Clean(rawSql); 
+        // Type elementType = ((IQueryable)exprQuery).ElementType;
         var finalSql = PolarsSqlTranslator.InjectAliases(sanitizedSql, originalType);
         // Console.WriteLine(rawSql);
-        return db.ExecuteToLazyFrame(finalSql);
+        return finalSql;
     }
     /// <summary>
     /// Translates the LINQ expression tree into a Polars execution plan without executing the query.
     /// This represents the "Logic-to-Logic" phase: LINQ -> SQL -> <see cref="IPolarsLazyFrame"/>.
     /// </summary>
-    /// <typeparam name="T">The record or class type being queried.</typeparam>
-    /// <param name="query">The <see cref="IQueryable{T}"/> source, typically created from a <see cref="PolarsDataContext"/>.</param>
-    /// <returns>An <see cref="IPolarsLazyFrame"/> representing the optimized Polars execution plan.</returns>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown if the LINQ expression cannot be converted to SQL by linq2db, or if the query provider is not a valid <see cref="PolarsDataContext"/>.
-    /// </exception>
-    public static IPolarsLazyFrame ToLazyFrame<T>(this IQueryable<T> query)
+    internal static IPolarsLazyFrame ToILazyFrame<T>(this IQueryable<T> query)
+    {
+        var (db, sql) = GetTranslatedQuery(query);
+        return Execute(db, sql);
+    }
+
+    /// <summary>
+    /// Translates the LINQ expression tree into SQL string
+    /// This represents the "Logic-to-Logic" phase: LINQ -> SQL.
+    /// </summary>
+    public static string ToSqlString<T>(this IQueryable<T> query)
+        => GetTranslatedQuery(query).Sql;
+
+    // ==========================================
+    // Core Engine
+    // ==========================================
+    private static (PolarsDataContext Db, string Sql) GetTranslatedQuery<T>(IQueryable<T> query)
     {
         Type originalType = typeof(T);
+
         // ==========================================
         // Fast Path: Method Chain
         // ==========================================
         if (query is IExpressionQuery fastQuery && fastQuery.DataContext is PolarsDataContext fastDb)
         {
-            return TranslateAndExecute(fastQuery, fastDb,originalType);
+            return (fastDb, Translate(fastQuery,originalType));
         }
 
         // ==========================================
-        // Hacker Path：AST Rewrite ( F# query { })
+        // Hacker Path：AST Rewrite ( F# query { } )
         // ==========================================
         var rewriter = new FSharpAstRewriter();
-        
         var cleanExpression = rewriter.Visit(query.Expression); 
 
         if (rewriter.Context != null && rewriter.Provider != null)
@@ -68,7 +77,7 @@ public static class PolarsQueryableExtensions
             
             if (pureQuery is IExpressionQuery pureExprQuery)
             {
-                return TranslateAndExecute(pureExprQuery, rewriter.Context,originalType);
+                return (rewriter.Context, Translate(pureExprQuery,originalType));
             }
         }
 
@@ -79,7 +88,6 @@ public static class PolarsQueryableExtensions
             $"[Polars.NET] Failed to unwrap query of type '{query.GetType().Name}'. " +
             "Ensure the query originates from a PolarsDataContext (e.g., db.RegisterTable).");
     }
-
     /// <summary>
     /// Materializes the LINQ query results into an in-memory <see cref="IPolarsDataFrame"/>.
     /// This triggers the actual data processing: LINQ -> SQL -> LazyFrame -> <see cref="IPolarsDataFrame"/>.
@@ -90,21 +98,21 @@ public static class PolarsQueryableExtensions
     /// If set to <see langword="true"/>, enables Polars' streaming execution engine for memory-intensive computations.
     /// </param>
     /// <returns>A materialized <see cref="IPolarsDataFrame"/> containing the query results.</returns>
-    public static IPolarsDataFrame ToDataFrame<T>(this IQueryable<T> query, bool useStreaming = false)
+    public static IPolarsDataFrame ToIDataFrame<T>(this IQueryable<T> query, bool useStreaming = false)
     {
-        var lf = query.ToLazyFrame();
+        var lf = query.ToILazyFrame();
         return lf.Collect(useStreaming);
     }
     /// <summary>
     /// Asynchronously executes the Polars query and materializes the result into a DataFrame.
     /// This will offload the heavy Rust execution to the ThreadPool.
     /// </summary>
-    public static async Task<IPolarsDataFrame> ToDataFrameAsync<T>(
+    public static async Task<IPolarsDataFrame> ToIDataFrameAsync<T>(
         this IQueryable<T> query, 
         bool useStreaming = false,
         CancellationToken cancellationToken = default)
     {
-        var lazyFrame = query.ToLazyFrame();
+        var lazyFrame = query.ToILazyFrame();
 
         try
         {
@@ -120,7 +128,7 @@ public static class PolarsQueryableExtensions
     /// Asynchronously generates the logical plan (LazyFrame) from the query.
     /// Note: This operation is very fast as it only builds the plan without executing it.
     /// </summary>
-    public static Task<IPolarsLazyFrame> ToLazyFrameAsync<T>(
+    public static Task<IPolarsLazyFrame> ToILazyFrameAsync<T>(
         this IQueryable<T> query, 
         CancellationToken cancellationToken = default)
     {
@@ -128,7 +136,7 @@ public static class PolarsQueryableExtensions
         
         try
         {
-            var lf = query.ToLazyFrame();
+            var lf = query.ToILazyFrame();
             return Task.FromResult(lf);
         }
         catch (Exception ex)
@@ -141,7 +149,7 @@ public static class PolarsQueryableExtensions
     /// </summary>
     public static string Explain<T>(this IQueryable<T> query, bool optimized = true)
     {
-        var lf = query.ToLazyFrame();
+        var lf = query.ToILazyFrame();
 
         return lf.Explain(optimized);
     }

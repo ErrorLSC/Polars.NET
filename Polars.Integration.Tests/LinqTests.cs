@@ -1,11 +1,10 @@
-using System.Linq;
-using Xunit;
 using Polars.CSharp;
 using static Polars.CSharp.Polars;
-using Polars.NET.Linq;
+using Polars.NET.Linq.CSharpExtensions;
 using LinqToDB;
 using DataType = Polars.CSharp.DataType;
-using LinqToDB.Async; // 引入我们刚才写的扩展
+using LinqToDB.Async;
+using Polars.NET.Linq; // 引入我们刚才写的扩展
 
 namespace Polars.Integration.Tests;
 
@@ -1283,7 +1282,7 @@ David,40,80000";
         Console.WriteLine(plan1);
         // --- 3. 截胡！回到 Native (后处理阶段) ---
         // 注意：这行代码执行完，磁盘根本没有动！所有的计划全被缝合在一起了！
-        using LazyFrame lfWithLinq = query.ToLazyFrame().AsLazyFrame();
+        using LazyFrame lfWithLinq = query.ToLazyFrame();
 
         // 继续使用 Polars 原生 API 做一些 LINQ 很难表达的操作
         // 比如求每一列的 null 数量，或者做 Rolling 窗口计算
@@ -1538,7 +1537,7 @@ David,40,80000";
             var query = table.Where(t => t.Region == targetRegion && t.Latency > 10.0)
                              .OrderBy(t => t.Id);
 
-            using DataFrame resultDf = (await query.ToDataFrameAsync()).AsDataFrame();
+            using DataFrame resultDf = await query.ToDataFrameAsync();
             
             // 拿到 df 后，可以直接无缝调用 Polars 原生 API
             return resultDf.Height; 
@@ -2162,11 +2161,13 @@ David,40,80000";
                 SignVal = Math.Sign(x.V1 - 5.0),                 // SIGN (原生支持完美)
                 
                 PiFunc = PolarsSql.Pi()                          // 强制翻译成优雅的 PI() 函数
-            })
-            .ToDataFrame().AsDataFrame();
-        query.Show();
+            });
 
-        Assert.Equal(18L, query.Width);
+        var df = query.ToDataFrame();
+        Console.WriteLine(query.ToSqlString());
+        df.Show();
+        
+        Assert.Equal(18L, df.Width);
         // Assert.Single(query);
     }
 }

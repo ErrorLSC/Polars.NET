@@ -3,6 +3,7 @@ namespace Polars.FSharp.Tests
 open System.Linq
 open Xunit
 open Polars.NET.Linq
+open Polars.NET.Linq.FSharpExtensions
 open Polars.FSharp
 open LinqToDB
 open System
@@ -1105,8 +1106,7 @@ module QueryTests =
         // ==========================================
         // 3. 截胡！回到 Native (后处理阶段)
         // ==========================================
-        // 注意 F# 中的向下转型使用 :?> 语法
-        use lfWithLinq = linqQuery.ToLazyFrame() :?> LazyFrame
+        use lfWithLinq = linqQuery.ToLazyFrame()
 
         // 继续使用 Polars 原生 API 做一些 LINQ 很难表达或极其底层的操作
         use finalLf = lfWithLinq.WithColumn(pl.col("salary").Std().Alias "salary_std")
@@ -1311,7 +1311,7 @@ module QueryTests =
         // 【D: 删除】
         // ==========================================
         let deleted = table.Where(fun e -> e.DeptId < 3).Delete()
-        use deletedDf = table.ToDataFrame() |> asDataFrame
+        use deletedDf = table.ToDataFrame()
         deletedDf.Show() 
         // Assert 确实执行了删除并返回了受影响的行数 (通常 >= 0)
         Assert.True(deleted >= 0)
@@ -1361,7 +1361,7 @@ module QueryTests =
 
             // 【见证奇迹】：let! 等价于 await，配合 AsDataFrame() 扩展，如丝般顺滑
             let! idf = q.ToDataFrameAsync()
-            use resultDf = idf |> asDataFrame
+            use resultDf = idf
             
             // DataFrame 的 Height 属性底层通常是 int64，直接返回
             return resultDf.Height
