@@ -5032,6 +5032,8 @@ and DataFrame(handle: DataFrameHandle) =
             this.ToArrow()
         member this.WriteToAdbc(statement:AdbcStatement) = 
             this.WriteToAdbc statement
+        member this.Column(index:int) = 
+            this.Column index
 /// <summary>
 /// A LazyFrame represents a logical plan of operations that will be optimized and executed only when collected.
 /// <para>

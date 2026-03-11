@@ -354,13 +354,13 @@ public class AdbcLocalTests : IDisposable
         [Column("name")] public string? Name { get; set; }
         [Column("language")] public string? Language { get; set; }
     }
+    [Table("stage2_pushdown_table")]
     public class PushdownRecord
     {
-        public int Id { get; set; }
-        public string? Name { get; set; }
-        public string? UpperLang { get; set; }
+        [Column("id")] public int Id { get; set; }
+        [Column("name")] public string? Name { get; set; }
+        [Column("upper_lang")] public string? UpperLang { get; set; }
     }
-
     [Fact]
     [Trait("ADBC", "DuckDBE2ELINQ")]
     public void Test_Polars_And_DuckDb_Ultimate_PingPong()
@@ -407,7 +407,7 @@ public class AdbcLocalTests : IDisposable
         using var polarsDb = new PolarsDataContext(sqlCtx);
 
         // 把 ADBC 拉过来的 DataFrame 注册进 Polars 的 SQL 上下文
-        using var finalPolarsDf = polarsDb.RegisterTable<PushdownRecord>("stage2_table", pushdownDf)
+        using var finalPolarsDf = polarsDb.RegisterTable<PushdownRecord>(pushdownDf)
             .Select(x => new 
             {
                 FinalId = x.Id + 1000,                            // 简单的数学运算

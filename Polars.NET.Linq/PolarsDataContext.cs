@@ -1,3 +1,4 @@
+using System.Reflection;
 using LinqToDB;
 using LinqToDB.Data;
 using LinqToDB.Mapping;
@@ -109,15 +110,22 @@ public class PolarsDataContext : DataConnection, IDisposable
     /// automatically inferred from the provided <paramref name="lf"/>.
     /// </param>
     /// <returns>An <see cref="ITable{T}"/> instance ready for fluent LINQ querying.</returns>
-    public ITable<T> RegisterTable<T>(string tableName, IPolarsLazyFrame lf, IPolarsSchema? providedSchema = null) 
+    /// <summary>
+    /// Core registration method. If tableName is null or empty, a unique random name is generated.
+    /// </summary>
+    public ITable<T> RegisterTable<T>(IPolarsLazyFrame lf,string? tableName=null,  IPolarsSchema? providedSchema = null) 
         where T : class
     {
+        var actualTableName = string.IsNullOrWhiteSpace(tableName) 
+            ? $"tmp_{Guid.NewGuid():N}" 
+            : tableName;
+
         var schema = providedSchema ?? lf.Schema; 
         
-        BuildSchemaMapping<T>(tableName, schema); 
-        _polarsContext.Register(tableName, lf);   
+        BuildSchemaMapping<T>(actualTableName, schema); 
+        _polarsContext.Register(actualTableName, lf);   
         
-        return this.GetTable<T>().TableName(tableName);
+        return this.GetTable<T>().TableName(actualTableName);
     }
     /// <summary>
     /// Registers a <see cref="IPolarsLazyFrame"/> using a dummy collection to infer the generic type <typeparamref name="T"/>.
@@ -131,32 +139,50 @@ public class PolarsDataContext : DataConnection, IDisposable
     /// <param name="lf">The source <see cref="IPolarsLazyFrame"/>.</param>
     /// <param name="dummy">A collection (usually the source data) used solely for type inference.</param>
     /// <returns>An <see cref="ITable{T}"/> for LINQ querying.</returns>
-    public ITable<T> RegisterTable<T>(string tableName, IPolarsLazyFrame lf, IEnumerable<T> dummy) where T : class 
-        => RegisterTable<T>(tableName, lf);
+    public ITable<T> RegisterTable<T>( IPolarsLazyFrame lf, IEnumerable<T> dummy,string? tableName=null)
+        where T : class 
+        => RegisterTable<T>(lf,tableName);
+    /// <summary>
+    /// Registers a Polars LazyFrame as a queryable table in the current DataContext.
+    /// The table name is automatically inferred from the <c>[Table]</c> attribute on type <typeparamref name="T"/>.
+    /// If the attribute is missing, it falls back to using the class name.
+    /// </summary>
+    /// <typeparam name="T">The entity type representing the schema. Must be a class.</typeparam>
+    /// <param name="lazyFrame">The logical plan (LazyFrame) to register.</param>
+    /// <returns>A LINQ-enabled <see cref="IQueryable{T}"/> ready for further querying.</returns>
+    public IQueryable<T> RegisterTable<T>(IPolarsLazyFrame lazyFrame)
+        where T : class
+    {
+        // 1. Attempt to extract the Linq2DB TableAttribute
+        var tableAttr = typeof(T).GetCustomAttribute<TableAttribute>();
+        
+        // 2. Fallback strategy: Attribute Name -> Class Name
+        string tableName = !string.IsNullOrWhiteSpace(tableAttr?.Name) 
+            ? tableAttr.Name 
+            : typeof(T).Name;
+
+        // 3. Delegate to the underlying explicit registration method
+        return RegisterTable<T>(lazyFrame,tableName);
+    }
     // ====================================================================
     // DataFrame Register
     // ====================================================================
     /// <summary>
-    /// Registers an eager <see cref="IPolarsDataFrame"/> as a queryable table in the data context.
-    /// This immediately binds the in-memory data to a SQL table name for use in LINQ expressions.
+    /// Core registration method. If tableName is null or empty, a unique random name is generated.
     /// </summary>
-    /// <typeparam name="T">The class or record type to map the DataFrame columns to.</typeparam>
-    /// <param name="tableName">The name of the table to be used in SQL/LINQ queries.</param>
-    /// <param name="df">The eager <see cref="IPolarsDataFrame"/> containing the physical data.</param>
-    /// <param name="providedSchema">
-    /// Optional. A specific schema to use for mapping. If <see langword="null"/>, the DataFrame's 
-    /// current schema will be used.
-    /// </param>
-    /// <returns>An <see cref="ITable{T}"/> that allows LINQ-to-SQL operations over the DataFrame.</returns>
-    public ITable<T> RegisterTable<T>(string tableName, IPolarsDataFrame df, IPolarsSchema? providedSchema = null) 
+    public ITable<T> RegisterTable<T>(IPolarsDataFrame df,string? tableName=null,  IPolarsSchema? providedSchema = null) 
         where T : class
     {
+        var actualTableName = string.IsNullOrWhiteSpace(tableName) 
+            ? $"tmp_{Guid.NewGuid():N}" 
+            : tableName;
+
         var schema = providedSchema ?? df.Schema; 
         
-        BuildSchemaMapping<T>(tableName, schema); 
-        _polarsContext.Register(tableName, df);   
+        BuildSchemaMapping<T>(actualTableName, schema); 
+        _polarsContext.Register(actualTableName, df);   
         
-        return this.GetTable<T>().TableName(tableName);
+        return this.GetTable<T>().TableName(actualTableName);
     }
     /// <summary>
     /// Registers an eager <see cref="IPolarsDataFrame"/> using a dummy collection to simplify generic type inference.
@@ -170,9 +196,28 @@ public class PolarsDataContext : DataConnection, IDisposable
     /// <param name="df">The source <see cref="IPolarsDataFrame"/>.</param>
     /// <param name="dummyDataForInference">A sample collection used only to guide the compiler's type inference.</param>
     /// <returns>An <see cref="ITable{T}"/> for LINQ querying.</returns>
-    public ITable<T> RegisterTable<T>(string tableName, IPolarsDataFrame df, IEnumerable<T> dummyDataForInference) where T : class
+    public ITable<T> RegisterTable<T>(IPolarsDataFrame df,  IEnumerable<T> dummyDataForInference,string? tableName=null) where T : class
     {
-        return RegisterTable<T>(tableName, df);
+        return RegisterTable<T>(df,tableName);
+    }
+
+    /// <summary>
+    /// Registers an eagerly materialized Polars DataFrame as a queryable table in the current DataContext.
+    /// The table name is automatically inferred from the <c>[Table]</c> attribute on type <typeparamref name="T"/>.
+    /// </summary>
+    /// <typeparam name="T">The entity type representing the schema. Must be a class.</typeparam>
+    /// <param name="dataFrame">The materialized DataFrame to register.</param>
+    /// <returns>A LINQ-enabled <see cref="IQueryable{T}"/> ready for further querying.</returns>
+    public IQueryable<T> RegisterTable<T>(IPolarsDataFrame dataFrame)
+     where T : class
+    {
+        var tableAttr = typeof(T).GetCustomAttribute<TableAttribute>();
+        
+        string tableName = !string.IsNullOrWhiteSpace(tableAttr?.Name) 
+            ? tableAttr.Name 
+            : typeof(T).Name;
+
+        return RegisterTable<T>(dataFrame,tableName);
     }
     // ====================================================================
     // Series Register
@@ -226,6 +271,7 @@ public class PolarsDataContext : DataConnection, IDisposable
                     .TableName(tableName)
                     .Select(row => row.Value); 
     }
+
 
     // ====================================================================
     // Type Defender

@@ -11,6 +11,7 @@ public interface IPolarsDataFrame : IDisposable
     void Show();
     IPolarsSchema Schema{get;}
     UpdateResult WriteToAdbc(AdbcStatement statement);
+    IPolarsSeries Column(int index);
 
 }
 

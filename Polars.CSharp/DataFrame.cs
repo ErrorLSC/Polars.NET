@@ -3746,14 +3746,9 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     /// Strong Type Column Buffer 
     /// </summary>
     /// <typeparam name="TCol">Column Type(Example: int, string, DateTime?)</typeparam>
-    private sealed class ColumnBuffer<TCol> : IColumnBuffer
+    private sealed class ColumnBuffer<TCol>(int capacity) : IColumnBuffer
     {
-        private readonly List<TCol?> _data; 
-
-        public ColumnBuffer(int capacity)
-        {
-            _data = new List<TCol?>(capacity);
-        }
+        private readonly List<TCol?> _data = new(capacity);
 
         public void Add(object? val)
         {
@@ -4039,6 +4034,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
         var h = PolarsWrapper.DataFrameGetColumnAt(Handle, index);
         return new Series(h);
     }
+    IPolarsSeries IPolarsDataFrame.Column(int index) => Column(index);
     /// <summary>
     /// Get all columns as a list of Series.
     /// Order is guaranteed to match the physical column order.

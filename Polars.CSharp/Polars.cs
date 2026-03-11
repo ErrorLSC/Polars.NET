@@ -305,6 +305,19 @@ public static class InterfaceUnwrapperExtensions
         if (ilf is LazyFrame lf)
             return lf;
         
-        throw new InvalidCastException("Not Standard Polars DataFrame");
+        throw new InvalidCastException("Not Standard Polars LazyFrame");
+    }
+    /// <summary>
+    /// Unwrap IPolarsLazyFrame as LazyFrame 
+    /// </summary>
+    /// <param name="iS">A IPolarsSeries</param>
+    /// <returns></returns>
+    /// <exception cref="InvalidCastException"></exception>
+    public static Series AsSeries(this IPolarsSeries iS)
+    {
+        if (iS is Series s)
+            return s;
+        
+        throw new InvalidCastException("Not Standard Polars Series");
     }
 }
