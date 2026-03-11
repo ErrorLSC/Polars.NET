@@ -168,6 +168,8 @@ public static class ArrowTypeResolver
     {
         return arrowType switch
         {
+            ListType list => GetNetTypeFromArrowType(list.ValueDataType).MakeArrayType(),
+            LargeListType largeList => GetNetTypeFromArrowType(largeList.ValueDataType).MakeArrayType(),
             Int8Type => typeof(sbyte),
             Int16Type => typeof(short),
             Int32Type => typeof(int),

@@ -148,4 +148,108 @@ public class MsSqlTests : IClassFixture<MsSqlFixture>
             Assert.Equal(baseTime, valResult["OrderDate"]);
         }
     }
+    [Fact]
+    [Trait("MSSQL","DataReader")]
+    public async Task Test_RealSqlServer_ETL_EndToEnd_With_AsDataReader()
+    {
+        // ---------------------------------------------------------
+        // 1. 准备数据库环境 (DDL)
+        // ---------------------------------------------------------
+        var tableName = "Orders_" + Guid.NewGuid().ToString("N");
+        
+        var setupSql = $@"
+            CREATE TABLE {tableName} (
+                OrderId INT PRIMARY KEY,
+                Region NVARCHAR(50) NULL,
+                Amount FLOAT NULL,
+                OrderDate DATETIME2 NULL
+            );";
+
+        using (var conn = new SqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            using var cmd = new SqlCommand(setupSql, conn);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        // ---------------------------------------------------------
+        // 2. 准备 Polars 数据 (Source)
+        // ---------------------------------------------------------
+        int totalRows = 10000;
+        var baseTime = DateTime.UtcNow.Date;
+
+        using var df = DataFrame.FromColumns(new
+        {
+            OrderId = Enumerable.Range(0, totalRows).ToArray(),
+            Region = Enumerable.Range(0, totalRows).Select(i => i % 100 == 0 ? null : "US").ToArray(),
+            Amount = Enumerable.Range(0, totalRows).Select(i => i % 50 == 0 ? (double?)null : 100.5).ToArray(),
+            OrderDate = Enumerable.Range(0, totalRows).Select(i => i % 10 == 0 ? (DateTime?)null : baseTime).ToArray()
+        });
+
+        // ---------------------------------------------------------
+        // 3. 执行 ETL (🌟 AsDataReader 拉取模式 -> SqlBulkCopy 🌟)
+        // ---------------------------------------------------------
+        var overrides = new Dictionary<string, Type>
+        {
+            { "OrderDate", typeof(DateTime) } 
+        };
+
+        // 🔥 核心替换：一行代码直接拿到流式 Reader！
+        // 后台生产者线程已经自动启动，开始源源不断地把 Arrow Chunk 塞进通道
+        using var reader = df.AsDataReader(bufferSize: 100, typeOverrides: overrides);
+
+        // 纯平的代码结构，告别 Lambda 嵌套地狱！
+        using var bulk = new SqlBulkCopy(_fixture.ConnectionString);
+        bulk.DestinationTableName = tableName;
+        bulk.EnableStreaming = true; 
+        bulk.BatchSize = 2000;
+
+        bulk.ColumnMappings.Add("OrderId", "OrderId");
+        bulk.ColumnMappings.Add("Region", "Region");
+        bulk.ColumnMappings.Add("Amount", "Amount");
+        bulk.ColumnMappings.Add("OrderDate", "OrderDate");
+
+        try
+        {
+            // 🔥 直接 await 原生的 WriteToServerAsync！
+            // 主线程只负责网络 I/O 等待，而后台 Polars 线程在疯狂计算和推数据
+            await bulk.WriteToServerAsync(reader);
+        }
+        catch (Exception ex)
+        {
+            throw new Exception($"Bulk Copy Failed: {ex.Message}", ex);
+        }
+
+        // ---------------------------------------------------------
+        // 4. 验证 (Verify) - 与原版完全一致
+        // ---------------------------------------------------------
+        using (var conn = new SqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+
+            // 4.1 验证总行数
+            using var cmdCount = new SqlCommand($"SELECT COUNT(*) FROM {tableName}", conn);
+            var count = Convert.ToInt32(await cmdCount.ExecuteScalarAsync());
+            Assert.Equal(totalRows, count);
+
+            // 4.2 验证 Null 写入情况
+            using var cmdNullCheck = new SqlCommand($"SELECT Region, Amount, OrderDate FROM {tableName} WHERE OrderId = 0", conn);
+            using var resultReader = await cmdNullCheck.ExecuteReaderAsync();
+            Assert.True(await resultReader.ReadAsync(), "Should find row with OrderId = 0");
+
+            Assert.True(await resultReader.IsDBNullAsync(0), "Region should be NULL for ID 0"); 
+            Assert.True(await resultReader.IsDBNullAsync(1), "Amount should be NULL for ID 0");
+            Assert.True(await resultReader.IsDBNullAsync(2), "OrderDate should be NULL for ID 0");
+            resultReader.Close();
+
+            // 4.3 验证非 Null 写入情况
+            using var cmdValueCheck = new SqlCommand($"SELECT Region, Amount, OrderDate FROM {tableName} WHERE OrderId = 1", conn);
+            using var valResult = await cmdValueCheck.ExecuteReaderAsync();
+            Assert.True(await valResult.ReadAsync(), "Should find row with OrderId = 1");
+
+            Assert.Equal("US", valResult["Region"]);
+            Assert.Equal(100.5, Convert.ToDouble(valResult["Amount"])); 
+            Assert.Equal(baseTime, valResult["OrderDate"]);
+        }
+    }
 }

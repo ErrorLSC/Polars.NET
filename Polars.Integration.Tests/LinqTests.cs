@@ -2185,4 +2185,307 @@ David,40,80000";
         Assert.Equal(18L, df.Width);
         // Assert.Single(query);
     }
+    [Fact]
+    [Trait("Linq", "ArrayFunctionsBatch1")]
+    public void Test_Polars_Linq_Array_Batch1()
+    {
+        using var ctx = new SqlContext();
+        using var db = new PolarsDataContext(ctx, ownsContext: true);
+
+        // ==========================================
+        // 1. 构造测试数据 (包含标量列和数组列)
+        // ==========================================
+        using var df = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
+            DeptId = new[] { 10, 10, 20 },
+            Name = new[] { "Alice", "Bob", "Charlie" },
+            // 直接传递 string[][] 和 int[][]
+            Tags = new[] 
+            { 
+                new[] { "admin", "user" }, 
+                ["user"], 
+                ["guest", "user"] 
+            },
+            Scores = new[] 
+            { 
+                new[] { 90, 85, 95 }, 
+                [70], 
+                [60, 65] 
+            }
+        });
+        var prototype = new[] 
+        { 
+            new { Id = 0, DeptId = 0, Name = "", Tags = new string[0], Scores = new int[0] } 
+        };
+        var table = db.RegisterTable(df,prototype);
+
+        // ==========================================
+        // 2. 测试标量数组函数 (LENGTH, CONTAINS, GET)
+        // ==========================================
+        var scalarQuery = table
+            .OrderBy(x => x.Id)
+            .Select(x => new
+            {
+                x.Id,
+                // ARRAY_LENGTH: 获取数组长度
+                TagsCount = PolarsSql.ArrayLength(x.Tags),
+                
+                // ARRAY_CONTAINS: 判断是否包含某个标签
+                IsAdmin = PolarsSql.ArrayContains(x.Tags, "admin"),
+                
+                // ARRAY_GET: 按索引取值 (注意：SQL 方言中的数组索引通常是 1-based)
+                FirstScore = PolarsSql.ArrayGet(x.Scores, 1) 
+            })
+            .ToList();
+
+        // 验证标量数组函数
+        Assert.Equal(3, scalarQuery.Count);
+        
+        // Alice
+        Assert.Equal(2, scalarQuery[0].TagsCount);
+        Assert.True(scalarQuery[0].IsAdmin);
+        Assert.Equal(90, scalarQuery[0].FirstScore);
+
+        // Bob
+        Assert.Equal(1, scalarQuery[1].TagsCount);
+        Assert.False(scalarQuery[1].IsAdmin);
+        Assert.Equal(70, scalarQuery[1].FirstScore);
+
+        // ==========================================
+        // 3. 测试聚合数组函数 (ARRAY_AGG)
+        // ==========================================
+        var aggQuery = table
+            .GroupBy(x => x.DeptId)
+            .Select(g => new
+            {
+                DeptId = g.Key,
+                // ARRAY_AGG: 把每个部门所有人的 Name 聚合成一个数组
+                // 注意这里利用了 C# 扩展方法的语法糖 g.ArrayAgg(...)
+                EmployeeNames = g.ArrayAgg(x => x.Name) 
+            })
+            .OrderBy(x => x.DeptId)
+            .ToList();
+
+        // 验证聚合函数
+        Assert.Equal(2, aggQuery.Count);
+        
+        // Dept 10 (Alice, Bob)
+        Assert.Equal(10, aggQuery[0].DeptId);
+        var dept10Names = aggQuery[0].EmployeeNames.ToArray();
+        Assert.Equal(2, dept10Names.Length);
+        Assert.Contains("Alice", dept10Names);
+        Assert.Contains("Bob", dept10Names);
+
+        // Dept 20 (Charlie)
+        Assert.Equal(20, aggQuery[1].DeptId);
+        var dept20Names = aggQuery[1].EmployeeNames.ToArray();
+        Assert.Single(dept20Names);
+        Assert.Equal("Charlie", dept20Names[0]);
+    }
+    [Fact]
+    [Trait("Linq", "ArrayFunctionsBatch2")]
+    public void Test_Polars_Linq_Array_Batch2()
+    {
+        using var ctx = new SqlContext();
+        using var db = new PolarsDataContext(ctx, ownsContext: true);
+
+        // ==========================================
+        // 1. 构造测试数据 (包含字符串数组和数值数组)
+        // ==========================================
+        using var df = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2 },
+            Words = new[] 
+            { 
+                new[] { "Hello", "World" }, 
+                new[] { "POLARS", "net" } 
+            },
+            Values = new[] 
+            { 
+                new[] { 10, 20, 30 }, 
+                new[] { 5, 15 } 
+            }
+        });
+
+        // 原型：用于强类型推断
+        var prototype = new[] 
+        { 
+            new { Id = 0, Words = new string[0], Values = new int[0] } 
+        };
+        
+        var table = db.RegisterTable(df, prototype);
+
+        // ==========================================
+        // 2. 执行 Array 转换与聚合查询
+        // ==========================================
+        var query = table
+            .OrderBy(x => x.Id)
+            .Select(x => new
+            {
+                x.Id,
+                // 字符串数组操作
+                MinWord = PolarsSql.ArrayMin(x.Words),
+                MaxWord = PolarsSql.ArrayMax(x.Words),
+                
+                // 数值数组聚合
+                MeanVal = PolarsSql.ArrayMean(x.Values),
+                SumVal = PolarsSql.ArraySum(x.Values)
+            })
+            .ToList();
+
+        // ==========================================
+        // 3. 验证结果
+        // ==========================================
+        Assert.Equal(2, query.Count);
+
+        // --- Row 1 验证 ---
+        Assert.Equal("Hello", query[0].MinWord); 
+        Assert.Equal("World", query[0].MaxWord);
+        Assert.Equal(20.0, query[0].MeanVal); 
+        Assert.Equal(60, query[0].SumVal);    
+
+        // --- Row 2 验证 ---
+        Assert.Equal("POLARS", query[1].MinWord); 
+        Assert.Equal("net", query[1].MaxWord);
+        Assert.Equal(10.0, query[1].MeanVal); 
+        Assert.Equal(20, query[1].SumVal);
+    }
+    [Fact]
+    [Trait("Linq", "ArrayFunctionsBatch3")]
+    public void Test_Polars_Linq_Array_Batch3()
+    {
+        using var ctx = new SqlContext();
+        using var db = new PolarsDataContext(ctx, ownsContext: true);
+
+        // ==========================================
+        // 1. 构造测试数据 
+        // ==========================================
+        var mockData = new[] 
+        { 
+            // 故意构造有重复元素、无序的数组
+            new { Id = 1, Tags = new[] { "apple", "banana", "apple" } },
+            new { Id = 2, Tags = new[] { "dog", "cat" } }
+        };
+
+        // 🌟 按照你的要求，用回最干净的 From，不再搞恶心的 prototype！
+        using var df = DataFrame.From(mockData);
+        var table = db.RegisterTable(df, mockData);
+
+        // ==========================================
+        // 2. 测试: Reverse, Unique, ToString
+        // ==========================================
+        var query = table
+            .OrderBy(x => x.Id)
+            .Select(x => new
+            {
+                x.Id,
+                Reversed = PolarsSql.ArrayReverse(x.Tags),
+                Unique = PolarsSql.ArrayUnique(x.Tags),
+                Joined = PolarsSql.ArrayToString(x.Tags, "-")
+            })
+            .ToList();
+
+        Assert.Equal(2, query.Count);
+
+        // Row 1
+        Assert.Equal(new[] { "apple", "banana", "apple" }, query[0].Reversed); // [apple, banana, apple] 翻转还是自己，换个脑子测试
+        Assert.Equal("apple-banana-apple", query[0].Joined);
+        
+        var uniqueTags = query[0].Unique;
+        Assert.Equal(2, uniqueTags.Length); // 必须去重成功
+        Assert.Contains("apple", uniqueTags);
+        Assert.Contains("banana", uniqueTags);
+
+        // Row 2
+        Assert.Equal(new[] { "cat", "dog" }, query[1].Reversed); // dog, cat -> cat, dog
+        Assert.Equal("dog-cat", query[1].Joined);
+
+        // ==========================================
+        // 3. 压轴大戏测试: UNNEST 炸裂数组
+        // ==========================================
+        // Polars 最逆天的特性：UNNEST 会自动将当前行的其他列 (Id) 复制广播 (Broadcast)！
+        var unnestQuery = table
+            .Select(x => new
+            {
+                x.Id,
+                SingleTag = PolarsSql.Unnest(x.Tags) // 炸裂！
+            })
+            .OrderBy(x => x.Id).ThenBy(x => x.SingleTag)
+            .ToList();
+
+        // 验证：2 行数据经过炸裂，变成了 3 + 2 = 5 行！
+        Assert.Equal(5, unnestQuery.Count);
+
+        // Id = 1 的炸裂结果
+        Assert.Equal(1, unnestQuery[0].Id); Assert.Equal("apple", unnestQuery[0].SingleTag);
+        Assert.Equal(1, unnestQuery[1].Id); Assert.Equal("apple", unnestQuery[1].SingleTag);
+        Assert.Equal(1, unnestQuery[2].Id); Assert.Equal("banana", unnestQuery[2].SingleTag);
+
+        // Id = 2 的炸裂结果
+        Assert.Equal(2, unnestQuery[3].Id); Assert.Equal("cat", unnestQuery[3].SingleTag);
+        Assert.Equal(2, unnestQuery[4].Id); Assert.Equal("dog", unnestQuery[4].SingleTag);
+    }// 定义一个嵌套 POCO
+    public class OrderDetail {
+        public string Sku { get; set; } = "";
+        public int Qty { get; set; }
+    }
+
+    [Fact]
+    [Trait("Linq", "ArrayUnnestStruct")]
+    public void Test_Polars_Linq_Unnest_StructArray()
+    {
+        using var ctx = new SqlContext();
+        using var db = new PolarsDataContext(ctx, ownsContext: true);
+
+        // 1. 构造极其复杂的嵌套数据：每个订单包含一个明细数组
+        var orders = new[]
+        {
+            new { 
+                OrderId = 101, 
+                Details = new[] { 
+                    new OrderDetail { Sku = "Apple", Qty = 5 }, 
+                    new OrderDetail { Sku = "Banana", Qty = 2 } 
+                } 
+            },
+            new { 
+                OrderId = 102, 
+                Details = new[] { 
+                    new OrderDetail { Sku = "Cherry", Qty = 10 } 
+                } 
+            }
+        };
+
+        using var df = DataFrame.From(orders);
+        var table = db.RegisterTable(df, orders);
+
+        // 2. 炸裂查询：把 Details 数组炸开，使 OrderId 广播到每一行
+        var query = table
+            .Select(x => new
+            {
+                x.OrderId,
+                // 🌟 这里会触发 UNNEST(Details)，产生名为 Item 的 Struct 列
+                Item = PolarsSql.Unnest(x.Details)
+            })
+            .OrderBy(x => x.OrderId).ThenBy(x => x.Item.Sku)
+            .ToList();
+
+        // 3. 验证炸裂后的行数 (2+1 = 3行)
+        Assert.Equal(3, query.Count);
+
+        // 验证第一行 (OrderId 101 的第一个 SKU)
+        Assert.Equal(101, query[0].OrderId);
+        Assert.Equal("Apple", query[0].Item.Sku);
+        Assert.Equal(5, query[0].Item.Qty);
+
+        // 验证第二行 (OrderId 101 的第二个 SKU)
+        Assert.Equal(101, query[1].OrderId);
+        Assert.Equal("Banana", query[1].Item.Sku);
+        Assert.Equal(2, query[1].Item.Qty);
+
+        // 验证第三行 (OrderId 102)
+        Assert.Equal(102, query[2].OrderId);
+        Assert.Equal("Cherry", query[2].Item.Sku);
+        Assert.Equal(10, query[2].Item.Qty);
+    }
 }

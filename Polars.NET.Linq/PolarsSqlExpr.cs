@@ -394,4 +394,99 @@ public static class PolarsSql
     
     [Sql.Function("PI", ServerSideOnly = true)]
     public static double Pi() => throw new InvalidOperationException("Only for LINQ to Polars.");
+    // ==========================================
+    // Array Functions
+    // ==========================================
+    
+    /// <summary>
+    /// Aggregate Columnar data into Array as ARRAY_AGG(column)
+    /// </summary>
+    [Sql.Extension("ARRAY_AGG({selector})", IsAggregate = true, ServerSideOnly = true)]
+    public static TResult[] ArrayAgg<TSource, TResult>(
+        this IEnumerable<TSource> source, 
+        [ExprParameter] Expression<Func<TSource, TResult>> selector)
+        => throw new InvalidOperationException("[Polars.NET] ArrayAgg is only for LINQ to Polars.");
+
+    // ==========================================
+    // Array Query
+    // ==========================================
+
+    /// <summary>
+    /// Check whether array contains element: ARRAY_CONTAINS(array, item)
+    /// </summary>
+    [Sql.Expression("ARRAY_CONTAINS({0}, {1})", ServerSideOnly = true)]
+    public static bool ArrayContains<T>(this IEnumerable<T> array, T item)
+        => throw new InvalidOperationException();
+
+    /// <summary>
+    /// Get array element by index: ARRAY_GET(array, index)
+    /// </summary>
+    [Sql.Expression("ARRAY_GET({0}, {1})", ServerSideOnly = true)]
+    public static T ArrayGet<T>(this IEnumerable<T> array, int index)
+        => throw new InvalidOperationException();
+
+    /// <summary>
+    /// Get the length of array: ARRAY_LENGTH(array)
+    /// </summary>
+    [Sql.Expression("ARRAY_LENGTH({0})", ServerSideOnly = true)]
+    public static int ArrayLength<T>(this IEnumerable<T> array)
+        => throw new InvalidOperationException();
+
+    /// <summary>
+    /// Returns the lower bound (min value) in an array: ARRAY_LOWER(array)
+    /// </summary>
+    [Sql.Expression("ARRAY_LOWER({0})", ServerSideOnly = true)]
+    public static T ArrayMin<T>(this IEnumerable<T> array)
+        => throw new InvalidOperationException();
+
+    /// <summary>
+    /// Returns the upper bound (max value) in an array: ARRAY_UPPER(array)
+    /// </summary>
+    [Sql.Expression("ARRAY_UPPER({0})", ServerSideOnly = true)]
+    public static T ArrayMax<T>(this IEnumerable<T> array)
+        => throw new InvalidOperationException();
+    /// <summary>
+    /// Array mean value: ARRAY_MEAN(array)
+    /// </summary>
+    [Sql.Expression("ARRAY_MEAN({0})", ServerSideOnly = true)]
+    public static double ArrayMean<T>(this IEnumerable<T> array)
+        => throw new InvalidOperationException();
+
+    /// <summary>
+    /// Array sum: ARRAY_SUM(array)
+    /// </summary>
+    [Sql.Expression("ARRAY_SUM({0})", ServerSideOnly = true)]
+    public static T ArraySum<T>(this IEnumerable<T> array)
+        => throw new InvalidOperationException();
+    /// <summary>
+    /// Reverse the array: ARRAY_REVERSE(array)
+    /// </summary>
+    [Sql.Expression("ARRAY_REVERSE({0})", ServerSideOnly = true)]
+    public static T[] ArrayReverse<T>(this IEnumerable<T> array)
+        => throw new InvalidOperationException();
+
+    /// <summary>
+    /// Array to string: ARRAY_TO_STRING(array, separator)
+    /// </summary>
+    [Sql.Expression("ARRAY_TO_STRING({0}, {1})", ServerSideOnly = true)]
+    public static string ArrayToString<T>(this IEnumerable<T> array, string separator)
+        => throw new InvalidOperationException();
+
+    /// <summary>
+    /// Deduplicate the array: ARRAY_UNIQUE(array)
+    /// </summary>
+    [Sql.Expression("ARRAY_UNIQUE({0})", ServerSideOnly = true)]
+    public static T[] ArrayUnique<T>(this IEnumerable<T> array)
+        => throw new InvalidOperationException();
+
+    // ==========================================
+    // UNNEST
+    // ==========================================
+
+    /// <summary>
+    /// Explode the array (1 row becomes N rows): UNNEST(array)
+    /// </summary>
+    [Sql.Expression("UNNEST({0})", ServerSideOnly = true)]
+    public static T Unnest<T>(this IEnumerable<T> array)
+        => throw new InvalidOperationException();
 }

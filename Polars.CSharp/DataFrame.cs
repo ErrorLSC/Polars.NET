@@ -3420,6 +3420,40 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     public void ExportBatches(Action<RecordBatch> onBatchReceived)
         => PolarsWrapper.ExportBatches(Handle, onBatchReceived);
     /// <summary>
+    /// Export DataFrame As IDataReader
+    /// </summary>    
+    public IDataReader AsDataReader(int bufferSize = 5, Dictionary<string, Type>? typeOverrides = null)
+    {
+        var buffer = new BlockingCollection<RecordBatch>(bufferSize);
+        var cts = new CancellationTokenSource();
+
+        // 1. 将生产者推入后台线程池
+        var producerTask = Task.Run(() => 
+        {
+            try
+            {
+                ExportBatches(batch => buffer.Add(batch, cts.Token));
+            }
+            catch (OperationCanceledException)
+            {
+                // 外部主动取消（例如只读了 Top 10 就 Dispose 了），属于正常行为，静默吞掉异常
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Polars.NET] Producer Error: {ex.Message}");
+            }
+            finally
+            {
+                buffer.CompleteAdding(); 
+            }
+        });
+
+        var stream = buffer.GetConsumingEnumerable(cts.Token);
+        var innerReader = new ArrowToDbStream(stream, typeOverrides);
+
+        return new DataReaderLifecycleWrapper(innerReader, buffer, cts, producerTask);
+    }
+    /// <summary>
     /// Common Write Interface:Transform DataFrame to IDataReader
     /// </summary>
     public void WriteTo( Action<IDataReader> writerAction, int bufferSize = 5,Dictionary<string, Type>? typeOverrides = null)
@@ -3731,7 +3765,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
             }
         }
 
-        return new DataFrame(seriesList.ToArray());
+        return new DataFrame([.. seriesList]);
     }
     // =========================================================
     // Internal Column Buffers

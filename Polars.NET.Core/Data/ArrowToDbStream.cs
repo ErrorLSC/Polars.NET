@@ -1,6 +1,8 @@
 using System.Collections;
 using System.Data;
 using System.Data.Common;
+using System.Linq.Expressions;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -428,6 +430,8 @@ public sealed class ArrowToDbStream : DbDataReader
     {
             return field.DataType switch
         {
+            ListType or LargeListType => new ListAccessor(targetType, field.DataType),
+            StructType => new StructAccessor(targetType, field.DataType),
             // 1. Primitives
             BooleanType => new BooleanAccessor(),
             Int8Type => new Int8Accessor(),
@@ -990,7 +994,259 @@ public sealed class ArrowToDbStream : DbDataReader
             return GetTimeOnlyFast(index); 
         }
     }
-    
+    internal sealed class ListAccessor : ColumnAccessor 
+    {
+        private IArrowArray? _array;
+        private readonly Type _targetType;
+        private readonly Type _elementType;
+        private readonly bool _isElementNullable; 
+        
+        // 🌟 终极杀招：直接内嵌一个子 Accessor！复用一切！
+        private readonly ColumnAccessor _childAccessor; 
+
+        public ListAccessor(Type targetType, IArrowType arrowType) 
+        {
+            _targetType = targetType;
+
+            IArrowType innerArrowType = arrowType switch
+            {
+                ListType lt => lt.ValueDataType,
+                LargeListType llt => llt.ValueDataType,
+                _ => throw new InvalidOperationException("Not a list type")
+            };
+
+            _elementType = ArrowTypeResolver.GetNetTypeFromArrowType(innerArrowType);
+            _isElementNullable = !_elementType.IsValueType || Nullable.GetUnderlyingType(_elementType) != null;
+
+            // 🌟 直接调用已有的工厂，为内部元素创建一个专属提取器！
+            // 无论是 DateOnly、TimeOnly 还是 Decimal，原有的黑魔法全部直接继承！
+            var dummyField = new Field("item", innerArrowType, true);
+            _childAccessor = ColumnAccessorFactory.Create(dummyField, _elementType);
+        }
+
+        public override Type TargetType => _targetType;
+
+        public override void SetBatch(IArrowArray array) 
+        {
+            _array = array;
+            
+            if (_array is ListArray list) _childAccessor.SetBatch(list.Values);
+            else if (_array is LargeListArray largeList) _childAccessor.SetBatch(largeList.Values);
+        }
+
+        public override bool IsNull(int index) => _array!.IsNull(index);
+
+        public override object GetValue(int index) 
+        {
+            if (IsNull(index)) return DBNull.Value;
+
+            IArrowArray valuesArray;
+            int offset, length;
+
+            if (_array is ListArray list) 
+            {
+                valuesArray = list.Values;
+                offset = list.ValueOffsets[index];
+                length = list.ValueOffsets[index + 1] - offset;
+            } 
+            else if (_array is LargeListArray largeList) 
+            {
+                valuesArray = largeList.Values;
+                offset = (int)largeList.ValueOffsets[index];
+                length = (int)(largeList.ValueOffsets[index + 1] - largeList.ValueOffsets[index]);
+            } 
+            else return DBNull.Value;
+
+            if (length == 0) return System.Array.CreateInstance(_elementType, 0);
+
+            // =====================================================================
+            // 🚀 极致 Fast-Path：恢复你所有的 Unsigned 和 HalfFloat！
+            // 只要确保 C# 期望的不是 Nullable (避免把 Null 拷成 0)
+            // =====================================================================
+            if (!_isElementNullable)
+            {
+                if (valuesArray is Int32Array i32) return i32.Values.Slice(offset, length).ToArray();
+                if (valuesArray is Int64Array i64) return i64.Values.Slice(offset, length).ToArray();
+                if (valuesArray is DoubleArray dbl) return dbl.Values.Slice(offset, length).ToArray();
+                if (valuesArray is FloatArray flt) return flt.Values.Slice(offset, length).ToArray();
+                if (valuesArray is HalfFloatArray hflt) return hflt.Values.Slice(offset, length).ToArray();
+                
+                if (valuesArray is Int8Array i8) return i8.Values.Slice(offset, length).ToArray();
+                if (valuesArray is Int16Array i16) return i16.Values.Slice(offset, length).ToArray();
+                
+                // 恢复所有 Unsigned!
+                if (valuesArray is UInt8Array u8) return u8.Values.Slice(offset, length).ToArray();
+                if (valuesArray is UInt16Array u16) return u16.Values.Slice(offset, length).ToArray();
+                if (valuesArray is UInt32Array u32) return u32.Values.Slice(offset, length).ToArray();
+                if (valuesArray is UInt64Array u64) return u64.Values.Slice(offset, length).ToArray();
+            }
+
+            // =====================================================================
+            // 🚀 字符串优化：避免通过 _childAccessor.GetValue() 产生装箱(Boxing)开销
+            // =====================================================================
+            if (_elementType == typeof(string))
+            {
+                var res = new string[length];
+                if (valuesArray is StringViewArray sv) {
+                    for (int i = 0; i < length; i++) res[i] = sv.IsNull(offset + i) ? null! : sv.GetString(offset + i);
+                    return res;
+                }
+                if (valuesArray is LargeStringArray lsa) {
+                    for (int i = 0; i < length; i++) res[i] = lsa.IsNull(offset + i) ? null! : lsa.GetString(offset + i);
+                    return res;
+                }
+                if (valuesArray is StringArray sa) {
+                    for (int i = 0; i < length; i++) res[i] = sa.IsNull(offset + i) ? null! : sa.GetString(offset + i);
+                    return res;
+                }
+            }
+
+            // =====================================================================
+            // 🛡️ 兜底慢路径：完美复用已有的 ColumnAccessor！(代码瞬间极简)
+            // =====================================================================
+            var result = System.Array.CreateInstance(_elementType, length);
+
+            for (int i = 0; i < length; i++) 
+            {
+                // 用子提取器去判断 Null
+                if (_childAccessor.IsNull(offset + i))
+                {
+                    result.SetValue(null, i);
+                }
+                else
+                {
+                    // 🌟 一招搞定所有复杂转换！
+                    // Date32 自动变 DateOnly，Int64 自动变 TimeSpan！再也不用写 switch 了！
+                    result.SetValue(_childAccessor.GetValue(offset + i), i);
+                }
+            }
+
+            return result;
+        }
+    }
+    internal sealed class StructAccessor : ColumnAccessor 
+    {   
+        private StructArray? _array;
+        private readonly Type _targetType;
+        private readonly StructMemberMapping[] _mappings;
+        
+        // 🌟 神技 1：缓存编译后的对象工厂委托！
+        private readonly Func<object> _objectFactory; 
+
+        private class StructMemberMapping
+        {
+            public int ArrowFieldIndex { get; set; }
+            public ColumnAccessor Accessor { get; set; } = null!;
+            // 🌟 神技 2：缓存编译后的属性/字段赋值委托！
+            public Action<object, object?> Setter { get; set; } = null!; 
+        }
+
+        public StructAccessor(Type targetType, IArrowType arrowType) 
+        {
+            _targetType = targetType;
+
+            if (arrowType is not StructType structType)
+                throw new InvalidOperationException($"Expected StructType, got {arrowType.Name}");
+
+            // ==========================================================
+            // 🔨 动态编译：对象实例化 (替代 Activator.CreateInstance)
+            // 相当于：() => (object)new TTarget();
+            // ==========================================================
+            var newExpr = Expression.New(targetType); 
+            var boxExpr = Expression.Convert(newExpr, typeof(object));
+            _objectFactory = Expression.Lambda<Func<object>>(boxExpr).Compile();
+
+            var mappings = new List<StructMemberMapping>();
+            var members = ArrowTypeResolver.GetReadableMembers(targetType);
+
+            for (int i = 0; i < structType.Fields.Count; i++)
+            {
+                var arrowField = structType.Fields[i];
+                var member = members.FirstOrDefault(m => string.Equals(m.Name, arrowField.Name, StringComparison.OrdinalIgnoreCase));
+
+                if (member != null)
+                {
+                    Type memberType = ArrowTypeResolver.GetMemberType(member);
+                    var accessor = ColumnAccessorFactory.Create(arrowField, memberType);
+
+                    // ==========================================================
+                    // 🔨 动态编译：成员赋值 (替代 PropertyInfo.SetValue)
+                    // 相当于：(obj, val) => ((TTarget)obj).Property = (TMember)val;
+                    // ==========================================================
+                    var objParam = Expression.Parameter(typeof(object), "obj");
+                    var valParam = Expression.Parameter(typeof(object), "val");
+
+                    // 🚨 极其致命的陷阱：Struct (值类型) 装箱后，如果用 Expression.Convert，
+                    // 会得到一个全新的拷贝，对其赋值根本影响不到原本的装箱对象！
+                    // 必须使用 Expression.Unbox 获取堆上装箱对象的引用 (Ref)！
+                    Expression castObj = targetType.IsValueType
+                        ? Expression.Unbox(objParam, targetType) 
+                        : Expression.Convert(objParam, targetType);
+
+                    Expression castVal = Expression.Convert(valParam, memberType);
+
+                    Expression memberAccess = member switch
+                    {
+                        PropertyInfo pi => Expression.Property(castObj, pi),
+                        FieldInfo fi => Expression.Field(castObj, fi),
+                        _ => throw new InvalidOperationException()
+                    };
+
+                    var assignExpr = Expression.Assign(memberAccess, castVal);
+                    var setter = Expression.Lambda<Action<object, object?>>(assignExpr, objParam, valParam).Compile();
+
+                    mappings.Add(new StructMemberMapping
+                    {
+                        ArrowFieldIndex = i,
+                        Accessor = accessor,
+                        Setter = setter
+                    });
+                }
+            }
+
+            _mappings = [.. mappings];
+        }
+
+        public override Type TargetType => _targetType;
+
+        public override void SetBatch(IArrowArray array) 
+        {
+            _array = (StructArray)array;
+            
+            // 极速循环分发
+            for (int i = 0; i < _mappings.Length; i++)
+            {
+                _mappings[i].Accessor.SetBatch(_array.Fields[_mappings[i].ArrowFieldIndex]);
+            }
+        }
+
+        public override bool IsNull(int index) => _array!.IsNull(index);
+
+        // ==========================================================
+        // 🚀 热路径 (Hot Path)：0 反射，全盘委托调用！
+        // ==========================================================
+        public override object GetValue(int index) 
+        {
+            if (IsNull(index)) return DBNull.Value;
+
+            // 🌟 O(1) 委托调用：极速创建对象！
+            object instance = _objectFactory();
+
+            // 不要用 foreach，用 for 循环榨干最后一丝性能
+            for (int i = 0; i < _mappings.Length; i++)
+            {
+                var val = _mappings[i].Accessor.GetValue(index);
+                
+                // 🌟 O(1) 委托调用：极速属性注入！
+                if (val != DBNull.Value)
+                {
+                    _mappings[i].Setter(instance, val);
+                }
+            }
+
+            return instance;
+        }
+    }
     // --- Fallback ---
     internal sealed class JsonFallbackAccessor : ColumnAccessor {
         private IArrowArray? _array;

@@ -142,7 +142,7 @@ public static class ArrowConverter
         if (checkType == typeof(TimeSpan)) return BuildDuration(data.Cast<TimeSpan?>());
         if (checkType == typeof(Guid)) return BuildGuid(data.Cast<Guid?>());
         if (checkType == typeof(byte[])) return BuildBinary(data.Cast<byte[]?>());
-        // if (checkType == typeof(Half)) return BuildFloat16(data.Cast<Half?>());
+        if (checkType == typeof(Half)) return BuildFloat16(data.Cast<Half?>());
         var elementType = ArrowTypeResolver.GetEnumerableElementType(type);
         if (elementType != null)
         {
