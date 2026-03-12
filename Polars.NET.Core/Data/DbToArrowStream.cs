@@ -1,5 +1,8 @@
 using System.Data;
 using System.Data.Common;
+using System.Linq.Expressions;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using Apache.Arrow;
 using Apache.Arrow.Arrays;
 using Apache.Arrow.Types;
@@ -17,12 +20,24 @@ public static class DbToArrowStream
         // 1. Resolve Schema
         var schema = ArrowTypeResolver.GetSchemaFromDataReader(reader);
         int fieldCount = reader.FieldCount;
-
+        
         if (schema.FieldsList.Count != fieldCount)
         {
             throw new InvalidOperationException(
                 $"Schema mismatch! Reader has {fieldCount} fields, but Schema has {schema.FieldsList.Count} fields.");
         }
+
+        // 2. Initialize Builders
+        // var builders = new ColumnBuilder[fieldCount];
+        // for (int i = 0; i < fieldCount; i++)
+        // {
+        //     var field = schema.FieldsList[i];
+        //     var netType = reader.GetFieldType(i);
+            
+        //     builders[i] = ColumnBuilderFactory.Create(field, netType, batchSize);
+
+        // }
+        bool isDbReader = reader is DbDataReader;
 
         // 2. Initialize Builders
         var builders = new ColumnBuilder[fieldCount];
@@ -31,8 +46,8 @@ public static class DbToArrowStream
             var field = schema.FieldsList[i];
             var netType = reader.GetFieldType(i);
             
-            builders[i] = ColumnBuilderFactory.Create(field, netType, batchSize);
-
+            // 🌟 把底细全告诉 Factory
+            builders[i] = ColumnBuilderFactory.Create(field, netType, isDbReader, batchSize);
         }
 
         // 3. Pump Loop
@@ -59,7 +74,6 @@ public static class DbToArrowStream
         }
     }
     
-
     private static RecordBatch BuildBatch(Schema schema, ColumnBuilder[] builders, int length)
     {
         var arrays = new IArrowArray[builders.Length];
@@ -88,13 +102,22 @@ internal abstract class ColumnBuilder
 
 internal static class ColumnBuilderFactory
 {
-    public static ColumnBuilder Create(Field field, Type netType,int capacity = 50000)
+   public static ColumnBuilder Create(Field field, Type netType, bool isDbReader, int capacity = 50000)
     {
         var typeId = field.DataType.TypeId;
 
+        // =====================================
         // Primitives
-        if (typeId == ArrowTypeId.Int8) return new Int8ColumnBuilder(capacity);
-        if (typeId == ArrowTypeId.Int16) return new Int16ColumnBuilder(capacity);
+        // =====================================
+        
+        // 🚨 需要改造的“无原生接口支持”类型 (传入 netType 和 isDbReader 决定是否开启高速通道)
+        if (typeId == ArrowTypeId.Int8) return new Int8ColumnBuilder(capacity, netType, isDbReader);
+        if (typeId == ArrowTypeId.Int16) return new Int16ColumnBuilder(capacity, netType, isDbReader);
+        if (typeId == ArrowTypeId.UInt16) return new UInt16ColumnBuilder(capacity, netType, isDbReader);
+        if (typeId == ArrowTypeId.UInt32) return new UInt32ColumnBuilder(capacity, netType, isDbReader);
+        if (typeId == ArrowTypeId.UInt64) return new UInt64ColumnBuilder(capacity, netType, isDbReader);
+
+        // ✅ IDataReader 原生自带的类型，无需修改，继续走老路
         if (typeId == ArrowTypeId.Int32) return new Int32ColumnBuilder(capacity);
         if (typeId == ArrowTypeId.Int64) return new Int64ColumnBuilder(capacity);
         if (typeId == ArrowTypeId.Double) return new DoubleColumnBuilder(capacity);
@@ -102,21 +125,23 @@ internal static class ColumnBuilderFactory
         if (typeId == ArrowTypeId.Float) return new FloatColumnBuilder(capacity);
         if (typeId == ArrowTypeId.HalfFloat) return new HalfFloatColumnBuilder(capacity);
         if (typeId == ArrowTypeId.UInt8)  return new UInt8ColumnBuilder(capacity);
-        if (typeId == ArrowTypeId.UInt16) return new UInt16ColumnBuilder(capacity);
-        if (typeId == ArrowTypeId.UInt32) return new UInt32ColumnBuilder(capacity);
-        if (typeId == ArrowTypeId.UInt64) return new UInt64ColumnBuilder(capacity);
 
         // String -> StringView
         if (typeId == ArrowTypeId.String || typeId == ArrowTypeId.LargeString || typeId == ArrowTypeId.StringView) 
             return new StringViewColumnBuilder(capacity);
 
+        // =====================================
         // Date & Time
+        // =====================================
         if (typeId == ArrowTypeId.Timestamp) return new TimestampColumnBuilder((TimestampType)field.DataType, capacity);
-        if (typeId == ArrowTypeId.Date32) return new Date32ColumnBuilder(capacity);
+        
+        // 🚨 Date32 需要改造 (用于识别底层的 DateOnly 走极速通道)
+        if (typeId == ArrowTypeId.Date32) return new Date32ColumnBuilder(capacity, netType, isDbReader);
+        
         if (typeId == ArrowTypeId.Time64) return new Time64ColumnBuilder(capacity);
         if (typeId == ArrowTypeId.Duration) return new DurationColumnBuilder(capacity);
 
-        // Decimal (Must pass Type for Precision/Scale)
+        // Decimal 
         if (typeId == ArrowTypeId.Decimal128) return new DecimalColumnBuilder((Decimal128Type)field.DataType, capacity);
 
         if (typeId == ArrowTypeId.List || typeId == ArrowTypeId.LargeList ||
@@ -131,16 +156,22 @@ internal static class ColumnBuilderFactory
         {
             return new ComplexTypeColumnBuilder(capacity);
         }
+
+        // =====================================
+        // Binary
+        // =====================================
+        // 🚨 Binary 和 FixedSizeBinary 经常用来存 Guid，需要改造以开启 stackalloc 后门
         if (typeId == ArrowTypeId.Binary || 
             typeId == ArrowTypeId.LargeBinary || 
             typeId == ArrowTypeId.BinaryView) 
         {
-            return new BinaryColumnBuilder(capacity);
+            return new BinaryColumnBuilder(capacity, netType, isDbReader);
         }
         if (typeId == ArrowTypeId.FixedSizedBinary) 
         {
-            return new FixedSizeBinaryColumnBuilder((FixedSizeBinaryType)field.DataType, capacity);
+            return new FixedSizeBinaryColumnBuilder((FixedSizeBinaryType)field.DataType, capacity, netType, isDbReader);
         }
+
         // Fallback
         return new FallbackColumnBuilder(capacity);
     }
@@ -164,14 +195,23 @@ internal sealed class FixedSizeBinaryColumnBuilder : ColumnBuilder
 {
     private readonly ConcreteFixedSizeBinaryBuilder _builder;
     private readonly int _byteWidth;
+    
+    // 🌟 战术标记
+    private readonly bool _isGuidFastPath;
+    private readonly bool _isByteArrayFastPath;
 
-    public FixedSizeBinaryColumnBuilder(Apache.Arrow.Types.FixedSizeBinaryType type, int capacity)
+    public FixedSizeBinaryColumnBuilder(Apache.Arrow.Types.FixedSizeBinaryType type, int capacity, Type netType, bool isDbReader)
     {
         _builder = new ConcreteFixedSizeBinaryBuilder(type);
         _builder.Reserve(capacity);
         _byteWidth = type.ByteWidth;
+
+        _isGuidFastPath = isDbReader && _byteWidth == 16 && netType == typeof(Guid);
+        
+        _isByteArrayFastPath = isDbReader && netType == typeof(byte[]);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override void Add(IDataReader reader, int ordinal)
     {
         if (reader.IsDBNull(ordinal))
@@ -180,31 +220,28 @@ internal sealed class FixedSizeBinaryColumnBuilder : ColumnBuilder
             return;
         }
 
-        if (reader is System.Data.Common.DbDataReader dbReader)
+        // 🚀 热路径：CPU 流水线畅通无阻，0次类型探测，0个异常捕获！
+        if (_isGuidFastPath)
         {
-            try
-            {
-                // 👑 性能魔法：专为 Guid 开辟的栈内存零分配通道！
-                // 如果数据库字段是 UniqueIdentifier 且 Arrow 端要求 16 字节
-                if (_byteWidth == 16 && dbReader.GetFieldType(ordinal) == typeof(Guid))
-                {
-                    Guid guid = dbReader.GetGuid(ordinal);
-                    
-                    // stackalloc：直接在线程栈上分配 16 字节，完全不惊动 GC（垃圾回收器）
-                    Span<byte> guidBytes = stackalloc byte[16];
-                    guid.TryWriteBytes(guidBytes);
-                    
-                    _builder.Append(guidBytes);
-                    return;
-                }
-
-                // 常规定长 byte[] 通道
-                _builder.Append(dbReader.GetFieldValue<byte[]>(ordinal));
-                return;
-            }
-            catch { }
+            // 👑 性能魔法：直接硬转 DbDataReader，极速提取 Guid
+            Guid guid = ((DbDataReader)reader).GetGuid(ordinal);
+            
+            // stackalloc：在线程栈上分配 16 字节，完全不惊动 GC
+            Span<byte> guidBytes = stackalloc byte[16];
+            guid.TryWriteBytes(guidBytes);
+            
+            _builder.Append(guidBytes);
+            return;
         }
 
+        // 🚀 次热路径：直通定长 byte[]
+        if (_isByteArrayFastPath)
+        {
+            _builder.Append(((DbDataReader)reader).GetFieldValue<byte[]>(ordinal));
+            return;
+        }
+
+        // 🛡️ 兜底路径：如果是其他千奇百怪的类型，交出去慢慢处理
         AddObject(reader.GetValue(ordinal));
     }
 
@@ -241,16 +278,22 @@ internal sealed class FixedSizeBinaryColumnBuilder : ColumnBuilder
         return arr;
     }
 }
-
 internal sealed class BinaryColumnBuilder : ColumnBuilder
 {
     private readonly BinaryViewArray.Builder _builder = new();
     
-    public BinaryColumnBuilder(int capacity) 
+    private readonly bool _isGuidFastPath;
+    private readonly bool _isByteArrayFastPath;
+
+    public BinaryColumnBuilder(int capacity, Type netType, bool isDbReader) 
     { 
         _builder.Reserve(capacity); 
+        
+        _isGuidFastPath = isDbReader && netType == typeof(Guid);
+        _isByteArrayFastPath = isDbReader && netType == typeof(byte[]);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override void Add(IDataReader reader, int ordinal)
     {
         if (reader.IsDBNull(ordinal))
@@ -259,24 +302,22 @@ internal sealed class BinaryColumnBuilder : ColumnBuilder
             return;
         }
 
-        if (reader is DbDataReader dbReader)
+        // Guid Zero Allocation
+        if (_isGuidFastPath)
         {
-            try
-            {
-                if (dbReader.GetFieldType(ordinal) == typeof(Guid))
-                {
-                    Guid guid = dbReader.GetGuid(ordinal);
-                    Span<byte> guidBytes = stackalloc byte[16];
-                    guid.TryWriteBytes(guidBytes);
-                    
-                    _builder.Append(guidBytes);
-                    return;
-                }
+            Guid guid = ((DbDataReader)reader).GetGuid(ordinal);
+            Span<byte> guidBytes = stackalloc byte[16];
+            guid.TryWriteBytes(guidBytes);
+            
+            _builder.Append(guidBytes);
+            return;
+        }
 
-                _builder.Append(dbReader.GetFieldValue<byte[]>(ordinal));
-                return;
-            }
-            catch { }
+        // byte[]
+        if (_isByteArrayFastPath)
+        {
+            _builder.Append(((DbDataReader)reader).GetFieldValue<byte[]>(ordinal));
+            return;
         }
 
         AddObject(reader.GetValue(ordinal));
@@ -315,8 +356,17 @@ internal sealed class BinaryColumnBuilder : ColumnBuilder
 internal sealed class Int8ColumnBuilder : ColumnBuilder
 {
     private readonly Int8Array.Builder _builder = new();
-    public Int8ColumnBuilder(int capacity) { _builder.Reserve(capacity); }
+    
+    private readonly bool _useFastPath;
 
+    public Int8ColumnBuilder(int capacity, Type netType, bool isDbReader) 
+    { 
+        _builder.Reserve(capacity); 
+        
+        _useFastPath = isDbReader && netType == typeof(sbyte);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override void Add(IDataReader reader, int ordinal)
     {
         if (reader.IsDBNull(ordinal))
@@ -325,31 +375,42 @@ internal sealed class Int8ColumnBuilder : ColumnBuilder
             return;
         }
 
-        if (reader is DbDataReader dbReader)
+        if (_useFastPath)
         {
-            try
-            {
-                _builder.Append(dbReader.GetFieldValue<sbyte>(ordinal));
-                return;
-            }
-            catch (InvalidCastException) 
-            { 
-            }
+            _builder.Append(((DbDataReader)reader).GetFieldValue<sbyte>(ordinal));
         }
-
-        // GetValue -> object -> Unbox/Convert
-        _builder.Append(Convert.ToSByte(reader.GetValue(ordinal)));
+        else
+        {
+            _builder.Append(Convert.ToSByte(reader.GetValue(ordinal)));
+        }
+    }
+    public override void AddObject(object? v) 
+    { 
+        if (v == null) _builder.AppendNull(); 
+        else _builder.Append(Convert.ToSByte(v)); 
     }
     
-    public override void AddObject(object? v) { if (v == null) _builder.AppendNull(); else _builder.Append(Convert.ToSByte(v)); }
-    public override IArrowArray Build() { var arr = _builder.Build(); _builder.Clear(); return arr; }
+    public override IArrowArray Build() 
+    { 
+        var arr = _builder.Build(); 
+        _builder.Clear(); 
+        return arr; 
+    }
 }
 
 internal sealed class Int16ColumnBuilder : ColumnBuilder
 {
     private readonly Int16Array.Builder _builder = new();
-    public Int16ColumnBuilder(int capacity) { _builder.Reserve(capacity); }
+    private readonly bool _useFastPath;
 
+    public Int16ColumnBuilder(int capacity, Type netType, bool isDbReader) 
+    { 
+        _builder.Reserve(capacity); 
+        
+        _useFastPath = isDbReader && netType == typeof(short);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override void Add(IDataReader reader, int ordinal)
     {
         if (reader.IsDBNull(ordinal))
@@ -358,19 +419,15 @@ internal sealed class Int16ColumnBuilder : ColumnBuilder
             return;
         }
 
-        if (reader is DbDataReader dbReader)
+        if (_useFastPath)
         {
-            try
-            {
-                _builder.Append(dbReader.GetFieldValue<short>(ordinal));
-                return;
-            }
-            catch { }
+            _builder.Append(((DbDataReader)reader).GetFieldValue<short>(ordinal));
         }
-
-        _builder.Append(Convert.ToInt16(reader.GetValue(ordinal)));
+        else
+        {
+            _builder.Append(Convert.ToInt16(reader.GetValue(ordinal)));
+        }
     }
-
     public override void AddObject(object? v) { if (v == null) _builder.AppendNull(); else _builder.Append(Convert.ToInt16(v)); }
     public override IArrowArray Build() { var arr = _builder.Build(); _builder.Clear(); return arr; }
 }
@@ -395,8 +452,16 @@ internal sealed class UInt8ColumnBuilder : ColumnBuilder
 internal sealed class UInt16ColumnBuilder : ColumnBuilder
 {
     private readonly UInt16Array.Builder _builder = new();
-    public UInt16ColumnBuilder(int capacity) { _builder.Reserve(capacity); }
+    private readonly bool _useFastPath;
 
+    public UInt16ColumnBuilder(int capacity, Type netType, bool isDbReader) 
+    { 
+        _builder.Reserve(capacity); 
+        
+        _useFastPath = isDbReader && netType == typeof(ushort);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override void Add(IDataReader reader, int ordinal)
     {
         if (reader.IsDBNull(ordinal))
@@ -405,17 +470,14 @@ internal sealed class UInt16ColumnBuilder : ColumnBuilder
             return;
         }
 
-        if (reader is DbDataReader dbReader)
+        if (_useFastPath)
         {
-            try
-            {
-                _builder.Append(dbReader.GetFieldValue<ushort>(ordinal));
-                return;
-            }
-            catch { }
+            _builder.Append(((DbDataReader)reader).GetFieldValue<UInt16>(ordinal));
         }
-
-        _builder.Append(Convert.ToUInt16(reader.GetValue(ordinal)));
+        else
+        {
+            _builder.Append(Convert.ToUInt16(reader.GetValue(ordinal)));
+        }
     }
 
     public override void AddObject(object? v) { if (v == null) _builder.AppendNull(); else _builder.Append(Convert.ToUInt16(v)); }
@@ -425,8 +487,16 @@ internal sealed class UInt16ColumnBuilder : ColumnBuilder
 internal sealed class UInt32ColumnBuilder : ColumnBuilder
 {
     private readonly UInt32Array.Builder _builder = new();
-    public UInt32ColumnBuilder(int capacity) { _builder.Reserve(capacity); }
+    private readonly bool _useFastPath;
 
+    public UInt32ColumnBuilder(int capacity, Type netType, bool isDbReader) 
+    { 
+        _builder.Reserve(capacity); 
+        
+        _useFastPath = isDbReader && netType == typeof(uint);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override void Add(IDataReader reader, int ordinal)
     {
         if (reader.IsDBNull(ordinal))
@@ -435,17 +505,14 @@ internal sealed class UInt32ColumnBuilder : ColumnBuilder
             return;
         }
 
-        if (reader is DbDataReader dbReader)
+        if (_useFastPath)
         {
-            try
-            {
-                _builder.Append(dbReader.GetFieldValue<uint>(ordinal));
-                return;
-            }
-            catch { }
+            _builder.Append(((DbDataReader)reader).GetFieldValue<uint>(ordinal));
         }
-
-        _builder.Append(Convert.ToUInt32(reader.GetValue(ordinal)));
+        else
+        {
+            _builder.Append(Convert.ToUInt32(reader.GetValue(ordinal)));
+        }
     }
 
     public override void AddObject(object? v) { if (v == null) _builder.AppendNull(); else _builder.Append(Convert.ToUInt32(v)); }
@@ -455,7 +522,16 @@ internal sealed class UInt32ColumnBuilder : ColumnBuilder
 internal sealed class UInt64ColumnBuilder : ColumnBuilder
 {
     private readonly UInt64Array.Builder _builder = new();
-    public UInt64ColumnBuilder(int capacity) { _builder.Reserve(capacity); }
+   private readonly bool _useFastPath;
+
+    public UInt64ColumnBuilder(int capacity, Type netType, bool isDbReader) 
+    { 
+        _builder.Reserve(capacity); 
+        
+        _useFastPath = isDbReader && netType == typeof(ulong);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override void Add(IDataReader reader, int ordinal)
     {
         if (reader.IsDBNull(ordinal))
@@ -464,17 +540,14 @@ internal sealed class UInt64ColumnBuilder : ColumnBuilder
             return;
         }
 
-        if (reader is DbDataReader dbReader)
+        if (_useFastPath)
         {
-            try
-            {
-                _builder.Append(dbReader.GetFieldValue<ulong>(ordinal));
-                return;
-            }
-            catch { }
+            _builder.Append(((DbDataReader)reader).GetFieldValue<ulong>(ordinal));
         }
-
-        _builder.Append(Convert.ToUInt64(reader.GetValue(ordinal)));
+        else
+        {
+            _builder.Append(Convert.ToUInt64(reader.GetValue(ordinal)));
+        }
     }
 
     public override void AddObject(object? v) { if (v == null) _builder.AppendNull(); else _builder.Append(Convert.ToUInt64(v)); }
@@ -517,7 +590,6 @@ internal sealed class DoubleColumnBuilder : ColumnBuilder
 }
 internal sealed class HalfFloatColumnBuilder : ColumnBuilder
 {
-    // Apache.Arrow 的 Builder
     private readonly HalfFloatArray.Builder _builder = new();
 
     public HalfFloatColumnBuilder(int capacity) 
@@ -652,15 +724,22 @@ internal sealed class StringViewColumnBuilder : ColumnBuilder
 
 internal sealed class Date32ColumnBuilder : ColumnBuilder
 {
-    public Date32ColumnBuilder(int capacity) { _builder.Reserve(capacity); }
-    public override void AddObject(object? v) {
-        if (v == null) { _builder.AppendNull(); return; }
-        if (v is DateOnly d) _builder.Append(d.ToDateTime(TimeOnly.MinValue));
-        else if (v is DateTime dt) _builder.Append(dt);
-        else _builder.Append(Convert.ToDateTime(v));
-    }
     private readonly Date32Array.Builder _builder = new();
+    
+    // 🌟 战术标记：双轨并行
+    private readonly bool _isDateOnlyFastPath;
+    private readonly bool _isDateTimeFastPath;
 
+    public Date32ColumnBuilder(int capacity, Type netType, bool isDbReader) 
+    { 
+        _builder.Reserve(capacity); 
+        
+        _isDateOnlyFastPath = isDbReader && netType == typeof(DateOnly);
+        
+        _isDateTimeFastPath = netType == typeof(DateTime);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override void Add(IDataReader reader, int ordinal)
     {
         if (reader.IsDBNull(ordinal))
@@ -669,15 +748,17 @@ internal sealed class Date32ColumnBuilder : ColumnBuilder
             return;
         }
 
-        if (reader is DbDataReader dbReader)
+        if (_isDateOnlyFastPath)
         {
-            try
-            {
-                var date = dbReader.GetFieldValue<DateOnly>(ordinal);
-                _builder.Append(date.ToDateTime(TimeOnly.MinValue));
-                return;
-            }
-            catch { /* Fallback */ }
+            var date = ((DbDataReader)reader).GetFieldValue<DateOnly>(ordinal);
+            _builder.Append(date.ToDateTime(TimeOnly.MinValue));
+            return;
+        }
+
+        if (_isDateTimeFastPath)
+        {
+            _builder.Append(reader.GetDateTime(ordinal));
+            return;
         }
 
         var val = reader.GetValue(ordinal);
@@ -696,9 +777,26 @@ internal sealed class Date32ColumnBuilder : ColumnBuilder
         }
     }
 
-    public override IArrowArray Build() { var arr = _builder.Build(); _builder.Clear(); return arr; }
-}
+    public override void AddObject(object? v) 
+    {
+        if (v == null || v == DBNull.Value) 
+        { 
+            _builder.AppendNull(); 
+            return; 
+        }
+        
+        if (v is DateOnly d) _builder.Append(d.ToDateTime(TimeOnly.MinValue));
+        else if (v is DateTime dt) _builder.Append(dt);
+        else _builder.Append(Convert.ToDateTime(v));
+    }
 
+    public override IArrowArray Build() 
+    { 
+        var arr = _builder.Build(); 
+        _builder.Clear(); 
+        return arr; 
+    }
+}
 internal sealed class TimestampColumnBuilder : ColumnBuilder
 {
     public TimestampColumnBuilder(TimestampType type, int capacity) { 
@@ -830,13 +928,22 @@ internal sealed class DurationColumnBuilder : ColumnBuilder
     }
 }
 
-internal sealed class ComplexTypeColumnBuilder(int capacity) : ColumnBuilder
+internal sealed class ComplexTypeColumnBuilder : ColumnBuilder
 {
-    public override void AddObject(object? v) {
-        if (v == null) _buffer.Add(null);
-        else _buffer.Add(v);
+    private readonly List<object?> _buffer;
+    
+    private Type? _cachedRuntimeType;
+    private Func<List<object?>, IArrowArray>? _fastBuildDelegate;
+
+    public ComplexTypeColumnBuilder(int capacity)
+    {
+        _buffer = new List<object?>(capacity);
     }
-    private readonly List<object?> _buffer = new(capacity);
+
+    public override void AddObject(object? v) 
+    {
+        _buffer.Add(v); 
+    }
 
     public override void Add(IDataReader reader, int ordinal)
     {
@@ -858,24 +965,22 @@ internal sealed class ComplexTypeColumnBuilder(int capacity) : ColumnBuilder
         var firstItem = _buffer.FirstOrDefault(x => x != null);
         if (firstItem == null) 
         {
-            return new NullArray(_buffer.Count);
+            var nullArray = new NullArray(_buffer.Count);
+            _buffer.Clear(); 
+            return nullArray;
         }
 
         Type runtimeType = firstItem.GetType();
 
-        var castMethod = typeof(Enumerable)
-            .GetMethod(nameof(Enumerable.Cast), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)!
-            .MakeGenericMethod(runtimeType);
-        
-        var typedEnumerable = castMethod.Invoke(null, [_buffer]);
-
-        var buildMethod = typeof(ArrowConverter)
-            .GetMethod(nameof(ArrowConverter.Build), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)!
-            .MakeGenericMethod(runtimeType);
+        if (_fastBuildDelegate == null || _cachedRuntimeType != runtimeType)
+        {
+            _cachedRuntimeType = runtimeType;
+            _fastBuildDelegate = CreateFastBuildDelegate(runtimeType);
+        }
         
         try 
         {
-            var array = (IArrowArray)buildMethod.Invoke(null, [typedEnumerable!])!;
+            var array = _fastBuildDelegate(_buffer);
             _buffer.Clear();
             return array;
         }
@@ -884,6 +989,28 @@ internal sealed class ComplexTypeColumnBuilder(int capacity) : ColumnBuilder
             var innerMsg = ex.InnerException?.Message ?? ex.Message;
             throw new InvalidOperationException($"[DbToArrowStream] Failed to build complex array for type '{runtimeType.Name}'. Error: {innerMsg}", ex);
         }
+    }
+
+    private static Func<List<object?>, IArrowArray> CreateFastBuildDelegate(Type elementType)
+    {
+        var castMethod = typeof(Enumerable)
+            .GetMethod(nameof(Enumerable.Cast), BindingFlags.Public | BindingFlags.Static)!
+            .MakeGenericMethod(elementType);
+            
+        var buildMethod = typeof(ArrowConverter)
+            .GetMethod(nameof(ArrowConverter.Build), BindingFlags.Public | BindingFlags.Static)!
+            .MakeGenericMethod(elementType);
+
+        // (List<object?> buffer) => ArrowConverter.Build(Enumerable.Cast<T>(buffer))
+        var bufferParam = Expression.Parameter(typeof(List<object?>), "buffer");
+        
+        var ienumerableCast = Expression.Convert(bufferParam, typeof(System.Collections.IEnumerable));
+        
+        var castCall = Expression.Call(null, castMethod, ienumerableCast);
+        var buildCall = Expression.Call(null, buildMethod, castCall);
+        
+        var lambda = Expression.Lambda<Func<List<object?>, IArrowArray>>(buildCall, bufferParam);
+        return lambda.Compile();
     }
 }
 // ------------------------------------------------------------------------

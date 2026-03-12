@@ -194,7 +194,7 @@ public class MsSqlTests : IClassFixture<MsSqlFixture>
         {
             { "OrderDate", typeof(DateTime) } 
         };
-        using (var testReader = df.AsDataReader(bufferSize: 10, typeOverrides: overrides) as DataReaderLifecycleWrapper)
+        using (var testReader = df.AsDataReader(bufferSize: 10, typeOverrides: overrides) as PolarsDataReader)
         {
             Assert.NotNull(testReader);
             

@@ -5,7 +5,7 @@ using System.Data.Common;
 using Apache.Arrow;
 
 namespace Polars.NET.Core.Data;
-public sealed class DataReaderLifecycleWrapper(
+public sealed class PolarsDataReader(
     ArrowToDbStream innerReader,
     CancellationTokenSource cts,
     Task producerTask) : DbDataReader

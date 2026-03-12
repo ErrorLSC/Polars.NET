@@ -5039,7 +5039,7 @@ and DataFrame(handle: DataFrameHandle) =
         
         let innerReader = new ArrowToDbStream(stream, overrides)
 
-        new DataReaderLifecycleWrapper(innerReader, cts, producerTask) :> DbDataReader
+        new PolarsDataReader(innerReader, cts, producerTask) :> DbDataReader
 
     // ==========================================
     // IEnumerable<Series> Support

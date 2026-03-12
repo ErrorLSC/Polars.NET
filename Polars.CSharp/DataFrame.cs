@@ -3461,7 +3461,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
         
         var innerReader = new ArrowToDbStream(stream, typeOverrides);
 
-        return new DataReaderLifecycleWrapper(innerReader, cts, producerTask); 
+        return new PolarsDataReader(innerReader, cts, producerTask); 
     }
     /// <summary>
     /// Common Write Interface:Transform DataFrame to IDataReader

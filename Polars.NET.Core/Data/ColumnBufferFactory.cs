@@ -20,7 +20,7 @@ public static class ColumnBufferFactory
     {
         var field = ArrowTypeResolver.ResolveField("udf_result", type);
         
-        var builder = ColumnBuilderFactory.Create(field, type, length);
+        var builder = ColumnBuilderFactory.Create(field, type,false, length);
         
         return new BuilderAdapter(builder);
     }
