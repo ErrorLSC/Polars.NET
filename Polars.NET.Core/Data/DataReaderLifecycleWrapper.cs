@@ -1,94 +1,79 @@
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Data;
+using System.Data.Common;
 using Apache.Arrow;
 
 namespace Polars.NET.Core.Data;
-public sealed class DataReaderLifecycleWrapper : IDataReader
+public sealed class DataReaderLifecycleWrapper(
+    ArrowToDbStream innerReader,
+    CancellationTokenSource cts,
+    Task producerTask) : DbDataReader
 {
-    private readonly ArrowToDbStream _innerReader;
-    private readonly BlockingCollection<RecordBatch> _buffer;
-    private readonly CancellationTokenSource _cts;
-    private readonly Task _producerTask;
     private bool _disposed;
-
-    public DataReaderLifecycleWrapper(
-        ArrowToDbStream innerReader, 
-        BlockingCollection<RecordBatch> buffer, 
-        CancellationTokenSource cts, 
-        Task producerTask)
-    {
-        _innerReader = innerReader;
-        _buffer = buffer;
-        _cts = cts;
-        _producerTask = producerTask;
-    }
-
-    // ==========================================================
-    // 💀 核心绞杀逻辑：极其优雅的 Dispose
-    // ==========================================================
-    public void Dispose()
+    public override T GetFieldValue<T>(int ordinal) => innerReader.GetFieldValue<T>(ordinal);
+    public ReadOnlySpan<byte> GetBytesSpan(int ordinal) => innerReader.GetBytesSpan(ordinal);
+    protected override void Dispose(bool disposing)
     {
         if (_disposed) return;
-
-        // 1. 触发令牌：瞬间解锁后台线程的 buffer.Add() 阻塞
-        _cts.Cancel();
-
-        // 2. 释放内部的 ArrowToDbStream 
-        // 这一步会调用你的 Close()，进而 Dispose 掉 _currentBatch 和 IEnumerator
-        _innerReader.Dispose();
-
-        // 3. 优雅等待后台线程退出 (给 500ms 宽限期，防止僵尸线程)
-        try
+        
+        if (disposing)
         {
-            _producerTask.Wait(TimeSpan.FromMilliseconds(500));
-        }
-        catch { /* Task 可能会抛出 AggregateException，直接忽略 */ }
+            cts.Cancel();
+            innerReader.Dispose();
 
-        // 4. 清理通信管道
-        _buffer.Dispose();
-        _cts.Dispose();
+            try
+            {
+                // 等待生产者安全退出
+                producerTask.Wait(TimeSpan.FromMilliseconds(500));
+            }
+            catch { /* 吞掉任务取消或超时的异常 */ }
+
+            cts.Dispose();
+        }
 
         _disposed = true;
+        base.Dispose(disposing);
     }
 
     // ==========================================================
-    // 🚀 极速转发层 (Hot Path Relay)
-    // 直接调用 _innerReader 的方法，享受你的 Zero-Allocation 优化
+    // Hot Path
     // ==========================================================
-    
-    // IDataReader 专属
-    public void Close() => _innerReader.Close();
-    public DataTable GetSchemaTable() => _innerReader.GetSchemaTable(); // 完美复用你写的 GetSchemaTable
-    public bool NextResult() => _innerReader.NextResult();
-    public bool Read() => _innerReader.Read();
-    public int Depth => _innerReader.Depth;
-    public bool IsClosed => _innerReader.IsClosed;
-    public int RecordsAffected => _innerReader.RecordsAffected;
+    public override bool HasRows => innerReader.HasRows;
+    public override bool IsClosed => innerReader.IsClosed;
+    public override int RecordsAffected => innerReader.RecordsAffected;
+    public override int Depth => innerReader.Depth;
 
-    // IDataRecord 专属
-    public int FieldCount => _innerReader.FieldCount;
-    public bool GetBoolean(int i) => _innerReader.GetBoolean(i);
-    public byte GetByte(int i) => _innerReader.GetByte(i);
-    public long GetBytes(int i, long fieldOffset, byte[]? buffer, int bufferoffset, int length) => _innerReader.GetBytes(i, fieldOffset, buffer, bufferoffset, length);
-    public char GetChar(int i) => _innerReader.GetChar(i);
-    public long GetChars(int i, long fieldoffset, char[]? buffer, int bufferoffset, int length) => _innerReader.GetChars(i, fieldoffset, buffer, bufferoffset, length);
-    public IDataReader GetData(int i) => throw new NotSupportedException();
-    public string GetDataTypeName(int i) => _innerReader.GetDataTypeName(i);
-    public DateTime GetDateTime(int i) => _innerReader.GetDateTime(i);
-    public decimal GetDecimal(int i) => _innerReader.GetDecimal(i);
-    public double GetDouble(int i) => _innerReader.GetDouble(i);
-    public Type GetFieldType(int i) => _innerReader.GetFieldType(i);
-    public float GetFloat(int i) => _innerReader.GetFloat(i);
-    public Guid GetGuid(int i) => _innerReader.GetGuid(i);
-    public short GetInt16(int i) => _innerReader.GetInt16(i);
-    public int GetInt32(int i) => _innerReader.GetInt32(i);
-    public long GetInt64(int i) => _innerReader.GetInt64(i);
-    public string GetName(int i) => _innerReader.GetName(i);
-    public int GetOrdinal(string name) => _innerReader.GetOrdinal(name);
-    public string GetString(int i) => _innerReader.GetString(i);
-    public object GetValue(int i) => _innerReader.GetValue(i);
-    public int GetValues(object[] values) => _innerReader.GetValues(values);
-    public bool IsDBNull(int i) => _innerReader.IsDBNull(i);
-    public object this[int i] => _innerReader[i];
-    public object this[string name] => _innerReader[name];
+    public override int FieldCount => innerReader.FieldCount;
+
+    public override void Close() => innerReader.Close();
+    public override DataTable GetSchemaTable() => innerReader.GetSchemaTable(); 
+    public override bool NextResult() => innerReader.NextResult();
+    public override bool Read() => innerReader.Read();
+
+    public override bool GetBoolean(int i) => innerReader.GetBoolean(i);
+    public override byte GetByte(int i) => innerReader.GetByte(i);
+    public override long GetBytes(int i, long fieldOffset, byte[]? buffer, int bufferoffset, int length) => innerReader.GetBytes(i, fieldOffset, buffer, bufferoffset, length);
+    public override char GetChar(int i) => innerReader.GetChar(i);
+    public override long GetChars(int i, long fieldoffset, char[]? buffer, int bufferoffset, int length) => innerReader.GetChars(i, fieldoffset, buffer, bufferoffset, length);
+    // public override IDataReader GetData(int i) => throw new NotSupportedException();
+    public override string GetDataTypeName(int i) => innerReader.GetDataTypeName(i);
+    public override DateTime GetDateTime(int i) => innerReader.GetDateTime(i);
+    public override decimal GetDecimal(int i) => innerReader.GetDecimal(i);
+    public override double GetDouble(int i) => innerReader.GetDouble(i);
+    public override Type GetFieldType(int i) => innerReader.GetFieldType(i);
+    public override float GetFloat(int i) => innerReader.GetFloat(i);
+    public override Guid GetGuid(int i) => innerReader.GetGuid(i);
+    public override short GetInt16(int i) => innerReader.GetInt16(i);
+    public override int GetInt32(int i) => innerReader.GetInt32(i);
+    public override long GetInt64(int i) => innerReader.GetInt64(i);
+    public override string GetName(int i) => innerReader.GetName(i);
+    public override int GetOrdinal(string name) => innerReader.GetOrdinal(name);
+    public override string GetString(int i) => innerReader.GetString(i);
+    public override object GetValue(int i) => innerReader.GetValue(i);
+    public override int GetValues(object[] values) => innerReader.GetValues(values);
+    public override bool IsDBNull(int i) => innerReader.IsDBNull(i);
+    public override IEnumerator GetEnumerator() => innerReader.GetEnumerator();
+    public override object this[int i] => innerReader[i];
+    public override object this[string name] => innerReader[name];
 }

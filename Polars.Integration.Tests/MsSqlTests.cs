@@ -1,6 +1,7 @@
 using Microsoft.Data.SqlClient; 
 using Polars.CSharp;           
 using Polars.Integration.Tests.Fixtures;
+using Polars.NET.Core.Data;
 
 namespace Polars.Integration.Tests;
 
@@ -193,10 +194,35 @@ public class MsSqlTests : IClassFixture<MsSqlFixture>
         {
             { "OrderDate", typeof(DateTime) } 
         };
+        using (var testReader = df.AsDataReader(bufferSize: 10, typeOverrides: overrides) as DataReaderLifecycleWrapper)
+        {
+            Assert.NotNull(testReader);
+            
+            // 👉 读第一行 (OrderId = 0, 后三列全是 Null)
+            Assert.True(testReader.Read());
+            Assert.Equal(0, testReader.GetFieldValue<int>(0)); // 测试值类型
+            Assert.True(testReader.IsDBNull(1)); 
+            Assert.Null(testReader.GetFieldValue<string?>(1)); // 测试可空兜底
+            
+            // 👉 读第二行 (OrderId = 1, 有数据)
+            Assert.True(testReader.Read());
+            Assert.Equal(1, testReader.GetFieldValue<int>(0));
+            
+            // 🌟 测试零装箱强类型通道
+            Assert.Equal("US", testReader.GetFieldValue<string>(1));
+            Assert.Equal(100.5, testReader.GetFieldValue<double>(2));
+            Assert.Equal(baseTime, testReader.GetFieldValue<DateTime>(3));
+
+            // 🌟🌟 测试极客专属的“零拷贝” Span 后门！(测试 Region 列的 "US")
+            var utf8Span = testReader.GetBytesSpan(1); 
+            Assert.Equal(2, utf8Span.Length);
+            Assert.Equal((byte)'U', utf8Span[0]);
+            Assert.Equal((byte)'S', utf8Span[1]);
+        }
 
         // 🔥 核心替换：一行代码直接拿到流式 Reader！
         // 后台生产者线程已经自动启动，开始源源不断地把 Arrow Chunk 塞进通道
-        using var reader = df.AsDataReader(bufferSize: 100, typeOverrides: overrides);
+        using var bulkReader = df.AsDataReader(bufferSize: 100, typeOverrides: overrides);
 
         // 纯平的代码结构，告别 Lambda 嵌套地狱！
         using var bulk = new SqlBulkCopy(_fixture.ConnectionString);
@@ -213,7 +239,7 @@ public class MsSqlTests : IClassFixture<MsSqlFixture>
         {
             // 🔥 直接 await 原生的 WriteToServerAsync！
             // 主线程只负责网络 I/O 等待，而后台 Polars 线程在疯狂计算和推数据
-            await bulk.WriteToServerAsync(reader);
+            await bulk.WriteToServerAsync(bulkReader);
         }
         catch (Exception ex)
         {

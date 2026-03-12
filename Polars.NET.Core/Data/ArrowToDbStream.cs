@@ -222,7 +222,7 @@ public sealed class ArrowToDbStream : DbDataReader
     {
         if (IsDBNull(ordinal)) return default;
 
-        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
+        ref readonly var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
 
         if (accessor is IBinarySpanAccessor spanAccessor)
         {
@@ -261,7 +261,7 @@ public sealed class ArrowToDbStream : DbDataReader
     {
         if (IsDBNull(ordinal)) return default!; 
 
-        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
+        ref readonly var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
 
         if (accessor is ITypedAccessor<T> typed)
         {
@@ -875,7 +875,7 @@ public sealed class ArrowToDbStream : DbDataReader
             
             throw new InvalidCastException($"Expected String or StringView, got {_array?.GetType()}");
         }
-        
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ReadOnlySpan<byte> GetBytesSpan(int index)
         {

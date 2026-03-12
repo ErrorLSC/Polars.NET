@@ -13,6 +13,8 @@ using System.Reflection;
 using Polars.NET.Core.Helpers;
 using Apache.Arrow.Ipc;
 using Apache.Arrow.Adbc;
+using System.Data.Common;
+using System.Threading.Channels;
 
 namespace Polars.CSharp;
 
@@ -3420,38 +3422,46 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     public void ExportBatches(Action<RecordBatch> onBatchReceived)
         => PolarsWrapper.ExportBatches(Handle, onBatchReceived);
     /// <summary>
-    /// Export DataFrame As IDataReader
+    /// Export DataFrame As DbDataReader (Zero-Copy Enabled)
     /// </summary>    
-    public IDataReader AsDataReader(int bufferSize = 5, Dictionary<string, Type>? typeOverrides = null)
+    public DbDataReader AsDataReader(int bufferSize = 5, Dictionary<string, Type>? typeOverrides = null)
     {
-        var buffer = new BlockingCollection<RecordBatch>(bufferSize);
+        var channel = Channel.CreateBounded<RecordBatch>(new BoundedChannelOptions(bufferSize)
+        {
+            FullMode = BoundedChannelFullMode.Wait,
+            SingleWriter = true, 
+            SingleReader = true  
+        });
+
         var cts = new CancellationTokenSource();
 
-        // 1. 将生产者推入后台线程池
-        var producerTask = Task.Run(() => 
+        var producerTask = Task.Run(async () => 
         {
             try
             {
-                ExportBatches(batch => buffer.Add(batch, cts.Token));
+                ExportBatches(batch => 
+                {
+                    channel.Writer.WriteAsync(batch, cts.Token).AsTask().Wait(cts.Token);
+                });
+                
+                channel.Writer.Complete();
             }
             catch (OperationCanceledException)
             {
-                // 外部主动取消（例如只读了 Top 10 就 Dispose 了），属于正常行为，静默吞掉异常
+
+                channel.Writer.Complete();
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Polars.NET] Producer Error: {ex.Message}");
-            }
-            finally
-            {
-                buffer.CompleteAdding(); 
+                channel.Writer.Complete(ex);
             }
         });
 
-        var stream = buffer.GetConsumingEnumerable(cts.Token);
+        var stream = channel.Reader.ReadAllAsync(cts.Token).ToBlockingEnumerable(cts.Token);
+        
         var innerReader = new ArrowToDbStream(stream, typeOverrides);
 
-        return new DataReaderLifecycleWrapper(innerReader, buffer, cts, producerTask);
+        return new DataReaderLifecycleWrapper(innerReader, cts, producerTask); 
     }
     /// <summary>
     /// Common Write Interface:Transform DataFrame to IDataReader
