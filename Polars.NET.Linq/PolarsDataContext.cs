@@ -2,6 +2,7 @@ using System.Reflection;
 using LinqToDB;
 using LinqToDB.Data;
 using LinqToDB.Mapping;
+using Microsoft.FSharp.Core;
 using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
 
@@ -33,7 +34,7 @@ public class PolarsDataContext : DataConnection, IDisposable
     /// <param name="polarsContext">The underlying Polars SQL context where dataframes are registered.</param>
     /// <param name="ownsContext">
     /// If <see langword="true"/>, the <see cref="PolarsDataContext"/> will dispose of the 
-    /// <paramref name="polarsContext"/> when it is disposed.
+    /// Polars SQL context when it is disposed.
     /// </param>
     public PolarsDataContext(IPolarsSqlContext polarsContext, bool ownsContext = false) 
         : base(CreateOptions(polarsContext))
@@ -50,7 +51,6 @@ public class PolarsDataContext : DataConnection, IDisposable
         
         return new DataOptions()
             .UseConnection(dataProvider, mockConn)
-            // .UseAdditionalMappingSchema(PolarsMappingSchema.Instance)
             .WithOptions<SqlOptions>(o => o with { GenerateFinalAliases = true });
     }
 
@@ -73,14 +73,32 @@ public class PolarsDataContext : DataConnection, IDisposable
                 {
                     var polarsDataType = schemaDict[matchedColumn];
                     var expectedNetType = ArrowTypeResolver.GetNetTypeFromArrowType(polarsDataType.GetArrowType());
-                    var actualNetType = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
+                    
+                    var actualNetType = prop.PropertyType;
+                    
+                    // Unwrap C# Nullable<T>
+                    var nullableUnderlying = Nullable.GetUnderlyingType(actualNetType);
+                    if (nullableUnderlying != null)
+                    {
+                        actualNetType = nullableUnderlying;
+                    }
+                    // Unwrap F#Option<T> & ValueOption<T>
+                    else if (actualNetType.IsGenericType)
+                    {
+                        var genericDef = actualNetType.GetGenericTypeDefinition();
 
+                        if (genericDef == typeof(FSharpOption<>) || genericDef == typeof(FSharpValueOption<>))
+                        {
+                            actualNetType = actualNetType.GetGenericArguments()[0];
+                        }
+                    }
+                    // Schema Check
                     if (expectedNetType != actualNetType && expectedNetType != typeof(object))
                     {
                         throw new InvalidOperationException(
                             $"[Polars.NET] Table: '{tableName}' Column mapping failed.\n" +
                             $"Polars Column: '{matchedColumn}' 's type is {polarsDataType}, its Dotnet type is '{expectedNetType.Name}'.\n" +
-                            $"But your model {typeof(T).Name}.{prop.Name} defined as '{actualNetType.Name}'. Please modify your record or cast correct schema.");
+                            $"But your model {typeof(T).Name}.{prop.Name} defined as '{actualNetType.Name}' (unwrapped). Please modify your record or cast to correct schema.");
                     }
 
                     entityBuilder.HasAttribute(prop, new ColumnAttribute { Name = matchedColumn });
@@ -93,7 +111,6 @@ public class PolarsDataContext : DataConnection, IDisposable
             foreach(var dt in schemaDict.Values) { dt.Dispose(); }
         }
     }
-
     // ====================================================================
     // LazyFrame Register
     // ====================================================================
@@ -139,7 +156,7 @@ public class PolarsDataContext : DataConnection, IDisposable
     /// <param name="lf">The source <see cref="IPolarsLazyFrame"/>.</param>
     /// <param name="dummy">A collection (usually the source data) used solely for type inference.</param>
     /// <returns>An <see cref="ITable{T}"/> for LINQ querying.</returns>
-    public ITable<T> RegisterTable<T>( IPolarsLazyFrame lf, IEnumerable<T> dummy,string? tableName=null)
+    public ITable<T> RegisterTable<T>(IPolarsLazyFrame lf, IEnumerable<T> dummy,string? tableName=null)
         where T : class 
         => RegisterTable<T>(lf,tableName);
     /// <summary>
@@ -197,9 +214,7 @@ public class PolarsDataContext : DataConnection, IDisposable
     /// <param name="dummyDataForInference">A sample collection used only to guide the compiler's type inference.</param>
     /// <returns>An <see cref="ITable{T}"/> for LINQ querying.</returns>
     public ITable<T> RegisterTable<T>(IPolarsDataFrame df,  IEnumerable<T> dummyDataForInference,string? tableName=null) where T : class
-    {
-        return RegisterTable<T>(df,tableName);
-    }
+        => RegisterTable<T>(df,tableName);
 
     /// <summary>
     /// Registers an eagerly materialized Polars DataFrame as a queryable table in the current DataContext.

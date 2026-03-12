@@ -103,7 +103,6 @@ type DataFrameDeltaExtensions =
 module InterfaceUnwrapperExtensions =
     open Polars.NET.Core
     open System
-    open System.Linq
 
     type IPolarsDataFrame with
         
@@ -125,8 +124,16 @@ module InterfaceUnwrapperExtensions =
             | :? LazyFrame as lf -> lf
             | _ -> raise (InvalidCastException "Not Standard Polars LazyFrame")
 
+    type IPolarsSeries with
+        member this.AsSeries() : Series = 
+            match this with
+            | :? Series as ips -> ips
+            | _ -> raise (InvalidCastException "Not Standard Polars Series")
     let asDataFrame (idf: IPolarsDataFrame) : DataFrame = 
         idf.AsDataFrame()
 
     let asLazyFrame (ilf: IPolarsLazyFrame) : LazyFrame =
         ilf.AsLazyFrame()
+    
+    let asSeries (ips: IPolarsSeries) : Series =
+        ips.AsSeries()

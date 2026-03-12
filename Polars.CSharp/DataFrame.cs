@@ -3641,7 +3641,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     /// */
     /// </code>
     /// </example>
-   public static DataFrame From<T>(IEnumerable<T> data)
+    public static DataFrame From<T>(IEnumerable<T> data)
     {
         if (data == null) return new DataFrame();
         Type type = typeof(T);
@@ -3660,6 +3660,9 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
         // =========================================================
         return FromPocoManual(data, type);
     }
+    /// <inheritdoc cref="From"/>
+    public static DataFrame FromRows<T>(IEnumerable<T> data)
+        => From(data);
     
     private static DataFrame FromPocoManual<T>(IEnumerable<T> data, Type type)
     {

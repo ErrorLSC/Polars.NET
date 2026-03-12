@@ -34,8 +34,8 @@ public static class CSharpLinqExtensions
     /// <summary>
     /// Translates and eagerly executes the LINQ query, materializing the results into a fully computed Polars DataFrame.
     /// </summary>
-    public static Polars.CSharp.DataFrame ToDataFrame<T>(this IQueryable<T> query)
-        => query.ToLazyFrame().Collect();
+    public static Polars.CSharp.DataFrame ToDataFrame<T>(this IQueryable<T> query,bool useStreaming=false)
+        => query.ToLazyFrame().Collect(useStreaming);
 
     /// <summary>
     /// Asynchronously translates the LINQ query into a Polars LazyFrame. 
@@ -68,12 +68,14 @@ public static class CSharpLinqExtensions
         return coreInterface.AsDataFrame();
     }
     /// <summary>
-    /// 
+    /// Executes a LINQ query against an ADBC data source and materializes the result into a <see cref="Polars.CSharp.DataFrame"/>.
+    /// This method translates the LINQ expression to SQL, injects necessary column aliases to ensure correct property-to-column 
+    /// mapping, and executes the query via the provided ADBC connection.
     /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <param name="query"></param>
-    /// <param name="connection"></param>
-    /// <returns></returns>
+    /// <typeparam name="T">The type of the records being queried.</typeparam>
+    /// <param name="query">The LINQ query expression to be translated and executed.</param>
+    /// <param name="connection">The active <see cref="AdbcConnection"/> used to run the query.</param>
+    /// <returns>A <see cref="Polars.CSharp.DataFrame"/> containing the materialized result set.</returns>
     public static Polars.CSharp.DataFrame ToDataFrameAdbc<T>(this IQueryable<T> query, AdbcConnection connection)
     {
         // Get raw SQL

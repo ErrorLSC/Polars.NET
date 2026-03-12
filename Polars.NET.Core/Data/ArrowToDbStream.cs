@@ -2,21 +2,27 @@ using System.Collections;
 using System.Data;
 using System.Data.Common;
 using System.Linq.Expressions;
-using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Apache.Arrow;
 using Apache.Arrow.Arrays;
 using Apache.Arrow.Types;
+using Microsoft.FSharp.Core;
 using Polars.NET.Core.Arrow;
 
 namespace Polars.NET.Core.Data;
+internal interface ITypedAccessor<T>
+{
+    T GetTypedValue(int index);
+}
+
 /// <summary>
 /// Convert Arrow RecordBatch Stream to IDataReader。
 /// For Polars/Arrow Sink to Database streamingly (With SqlBulkCopy, etc.)
 /// Zero-Allocation on Hot Paths.
 /// </summary>
+
 public sealed class ArrowToDbStream : DbDataReader
 {
     private readonly IEnumerator<RecordBatch> _batchEnumerator;
@@ -157,92 +163,66 @@ public sealed class ArrowToDbStream : DbDataReader
     }
 
     // ==================================================================================
-    // IDataReader Interface Implementation (Hot Path)
+    // IDataReader Interface Implementation
     // ==================================================================================
 
     public override bool IsDBNull(int ordinal) => _accessors[ordinal].IsNull(_currentRowIndex);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override bool GetBoolean(int ordinal)
-    {
-        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
-        return accessor.GetBoolean(_currentRowIndex);
-    }
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override byte GetByte(int ordinal)
-    {
-        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
-        return accessor.GetByte(_currentRowIndex);
-    }
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]    
-    public override short GetInt16(int ordinal)
-    {
-        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
-        return accessor.GetInt16(_currentRowIndex);
-    }
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override int GetInt32(int ordinal) 
-    {
-        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
-        return accessor.GetInt32(_currentRowIndex);
-    }
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override long GetInt64(int ordinal)
-    {
-        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
-        return accessor.GetInt64(_currentRowIndex);
-    }
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override float GetFloat(int ordinal)
-    {
-        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
-        return accessor.GetFloat(_currentRowIndex);
-    }
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override double GetDouble(int ordinal)
-    {    
-        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
-        return accessor.GetDouble(_currentRowIndex);
-    }
-    public override decimal GetDecimal(int ordinal) => _accessors[ordinal].GetDecimal(_currentRowIndex);
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override string GetString(int ordinal) 
-    {
-        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
-        return accessor.GetString(_currentRowIndex);
-    }
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override DateTime GetDateTime(int ordinal)
-    {
-        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
-        return accessor.GetDateTime(_currentRowIndex);
-    }
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override char GetChar(int ordinal)
-    {
-        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
-        return accessor.GetChar(_currentRowIndex);
-    }
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override Guid GetGuid(int ordinal)
-    {
-        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
-        return accessor.GetGuid(_currentRowIndex);
-    }
 
-    public override long GetBytes(int ordinal, long dataOffset, byte[]? buffer, int bufferOffset, int length)
-        => _accessors[ordinal].GetBytes(_currentRowIndex, dataOffset, buffer, bufferOffset, length);
+    // =========================================================
+    // Hot Path
+    // =========================================================
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override bool GetBoolean(int ordinal) => GetFieldValue<bool>(ordinal);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override byte GetByte(int ordinal) => GetFieldValue<byte>(ordinal);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override short GetInt16(int ordinal) => GetFieldValue<short>(ordinal);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override int GetInt32(int ordinal) => GetFieldValue<int>(ordinal);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override long GetInt64(int ordinal) => GetFieldValue<long>(ordinal);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override float GetFloat(int ordinal) => GetFieldValue<float>(ordinal);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override double GetDouble(int ordinal) => GetFieldValue<double>(ordinal);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override decimal GetDecimal(int ordinal) => GetFieldValue<decimal>(ordinal);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override DateTime GetDateTime(int ordinal) => GetFieldValue<DateTime>(ordinal);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override Guid GetGuid(int ordinal) => GetFieldValue<Guid>(ordinal);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override string GetString(int ordinal) => GetFieldValue<string>(ordinal);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public override char GetChar(int ordinal) => GetFieldValue<char>(ordinal);
+
+    // =========================================================
+    // NotSupported
+    // =========================================================
+    public override long GetBytes(int ordinal, long dataOffset, byte[]? buffer, int bufferOffset, int length) 
+        => throw new NotSupportedException("Polars.NET uses zero-copy memory. Byte streaming is not supported. Use GetFieldValue<byte[]>() instead.");
 
     public override long GetChars(int ordinal, long dataOffset, char[]? buffer, int bufferOffset, int length)
-        => _accessors[ordinal].GetChars(_currentRowIndex, dataOffset, buffer, bufferOffset, length);
+        => throw new NotSupportedException();
 
+    // =========================================================
+    // Fallback
+    // =========================================================
     public override object GetValue(int ordinal)
     {
-        if (IsDBNull(ordinal)) 
-        {
-            return DBNull.Value;
-        }
-
-        return _accessors[ordinal].GetValue(_currentRowIndex);
+        if (IsDBNull(ordinal)) return DBNull.Value;
+        return _accessors[ordinal].GetValue(_currentRowIndex)!; 
     }
 
     public override int GetValues(object[] values)
@@ -251,68 +231,20 @@ public sealed class ArrowToDbStream : DbDataReader
         for (int i = 0; i < count; i++) values[i] = GetValue(i);
         return count;
     }
-
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override T GetFieldValue<T>(int ordinal)
     {
-        if (IsDBNull(ordinal))
-        {
-            return default!; 
-        }
+        if (IsDBNull(ordinal)) return default!; 
 
         ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
 
-        if (typeof(T) == typeof(DateOnly))
+        if (accessor is ITypedAccessor<T> typed)
         {
-            if (accessor is Date32ToDateOnlyAccessor date32Accessor)
-            {
-                var val = date32Accessor.GetDateOnlyFast(_currentRowIndex);
-                return Unsafe.As<DateOnly, T>(ref val);
-            }
-        }
-        else if (typeof(T) == typeof(TimeOnly))
-        {
-            if (accessor is Time64Accessor t64Accessor)
-            {
-                var val = t64Accessor.GetTimeOnlyFast(_currentRowIndex);
-                return Unsafe.As<TimeOnly, T>(ref val);
-            }
-            
-            if (accessor is Int64ToTimeOnlyAccessor i64ToTimeOnly)
-            {
-                var val = i64ToTimeOnly.GetTimeOnlyFast(_currentRowIndex);
-                return Unsafe.As<TimeOnly, T>(ref val);
-            }
-        }
-        else if (typeof(T) == typeof(TimeSpan))
-        {
-            if (accessor is DurationAccessor durAccessor)
-            {
-                var val = durAccessor.GetTimeSpanFast(_currentRowIndex);
-                return Unsafe.As<TimeSpan, T>(ref val);
-            }
-            
-            if (accessor is Int64ToTimeSpanAccessor i64ToTimeSpan)
-            {
-                var val = i64ToTimeSpan.GetTimeSpanFast(_currentRowIndex);
-                return Unsafe.As<TimeSpan, T>(ref val);
-            }
-        }
-        else if (typeof(T) == typeof(Guid))
-        {
-            if (accessor is FixedSizeBinaryToGuidAccessor fixedAccessor)
-            {
-                var val = fixedAccessor.GetGuidFast(_currentRowIndex);
-                return Unsafe.As<Guid, T>(ref val);
-            }
-            if (accessor is BinaryToGuidAccessor binaryGuidAccessor)
-            {
-                var val = binaryGuidAccessor.GetGuidFast(_currentRowIndex);
-                return Unsafe.As<Guid, T>(ref val);
-            }
+            return typed.GetTypedValue(_currentRowIndex);
         }
 
-        return (T)accessor.GetValue(_currentRowIndex);
+        // 终极兜底
+        return (T)accessor.GetValue(_currentRowIndex)!;
     }
 
     // --- Schema / Metadata ---
@@ -406,91 +338,126 @@ public sealed class ArrowToDbStream : DbDataReader
         public abstract Type TargetType { get; }
         public abstract void SetBatch(IArrowArray array);
         public abstract bool IsNull(int index);
-        public abstract object GetValue(int index);
+        public abstract object? GetValue(int index);
 
-        public virtual bool GetBoolean(int index) => throw new InvalidCastException();
-        public virtual byte GetByte(int index) => throw new InvalidCastException();
-        public virtual char GetChar(int index) => throw new InvalidCastException();
-        public virtual short GetInt16(int index) => throw new InvalidCastException();
-        public virtual int GetInt32(int index) => throw new InvalidCastException();
-        public virtual long GetInt64(int index) => throw new InvalidCastException();
-        public virtual float GetFloat(int index) => throw new InvalidCastException();
-        public virtual double GetDouble(int index) => throw new InvalidCastException();
-        public virtual decimal GetDecimal(int index) => throw new InvalidCastException();
-        public virtual DateTime GetDateTime(int index) => throw new InvalidCastException();
-        public virtual Guid GetGuid(int index) => throw new InvalidCastException();
-        public virtual string GetString(int index) => throw new InvalidCastException();
-        public virtual long GetBytes(int index, long dataOffset, byte[]? buffer, int bufferOffset, int length) => 0;
-        public virtual long GetChars(int index, long dataOffset, char[]? buffer, int bufferOffset, int length) => 0;
+    }
+
+    internal abstract class TypedColumnAccessor<T> : ColumnAccessor, ITypedAccessor<T>
+    {
+        public abstract T GetTypedValue(int index);
+
+        public override object GetValue(int index)
+        {
+            if (IsNull(index)) return DBNull.Value;
+            return GetTypedValue(index)!;
+        }
     }
 
     internal static class ColumnAccessorFactory
     {
         public static ColumnAccessor Create(Field field, Type targetType)
-    {
-            return field.DataType switch
         {
-            ListType or LargeListType => new ListAccessor(targetType, field.DataType),
-            StructType => new StructAccessor(targetType, field.DataType),
-            // 1. Primitives
-            BooleanType => new BooleanAccessor(),
-            Int8Type => new Int8Accessor(),
-            Int16Type => new Int16Accessor(),
-            Int32Type => new Int32Accessor(),
-            UInt8Type => new UInt8Accessor(),
-            UInt16Type => new UInt16Accessor(),
-            UInt32Type => new UInt32Accessor(),
-            UInt64Type => new UInt64Accessor(),
-            
-            // 2. Int64 & Magic Types
-            Int64Type => targetType switch
+            if (targetType.IsGenericType)
             {
-                { } t when t == typeof(DateTime) => new Int64ToDateTimeAccessor(),
-                { } t when t == typeof(TimeSpan) => new Int64ToTimeSpanAccessor(),
-                { } t when t == typeof(TimeOnly) => new Int64ToTimeOnlyAccessor(),
-                _ => new Int64Accessor()
-            },
+                var genericDef = targetType.GetGenericTypeDefinition();
+                bool isOption = genericDef == typeof(FSharpOption<>);
+                bool isValueOption = genericDef == typeof(FSharpValueOption<>);
 
-            HalfFloatType => new HalfFloatAccessor(),
-            FloatType => new FloatAccessor(),
-            DoubleType => new DoubleAccessor(),
-
-            // 3. String & Binary
-            StringViewType or StringType or LargeStringType => new StringViewAccessor(),
-            BinaryViewType or BinaryType or LargeBinaryType => targetType switch
+                if (isOption || isValueOption)
+                {
+                    Type innerType = targetType.GetGenericArguments()[0];
+                    var innerAccessor = Create(field, innerType);
+                    
+                    Type accessorClass = isOption ? typeof(FSharpOptionAccessor<>) : typeof(FSharpValueOptionAccessor<>);
+                    Type concreteAccessorType = accessorClass.MakeGenericType(innerType);
+                    
+                    return (ColumnAccessor)Activator.CreateInstance(concreteAccessorType, innerAccessor, targetType)!;
+                }
+            }
+            return field.DataType switch
             {
-                { } t when t == typeof(Guid) => new BinaryToGuidAccessor(),
-                _ => new BinaryAccessor()
-            },
-            
+                
+                ListType or LargeListType => CreateListAccessor(field.DataType, targetType),
+                StructType => (ColumnAccessor)Activator.CreateInstance(typeof(StructAccessor<>).MakeGenericType(targetType), targetType, field.DataType)!,
+                // 1. Primitives
+                BooleanType => new BooleanAccessor(),
+                Int8Type => new Int8Accessor(),
+                Int16Type => new Int16Accessor(),
+                Int32Type => new Int32Accessor(),
+                UInt8Type => new UInt8Accessor(),
+                UInt16Type => new UInt16Accessor(),
+                UInt32Type => new UInt32Accessor(),
+                UInt64Type => new UInt64Accessor(),
+                
+                // 2. Int64 & Magic Types
+                Int64Type => targetType switch
+                {
+                    { } t when t == typeof(DateTime) => new Int64ToDateTimeAccessor(),
+                    { } t when t == typeof(TimeSpan) => new Int64ToTimeSpanAccessor(),
+                    { } t when t == typeof(TimeOnly) => new Int64ToTimeOnlyAccessor(),
+                    _ => new Int64Accessor()
+                },
 
-            // 4. Time
-            TimestampType => new TimestampAccessor(),
-            Time64Type => new Time64Accessor(),
-            DurationType => new DurationAccessor(),
-            
-            Date32Type => new Date32ToDateOnlyAccessor(),
-            Date64Type => new Date64Accessor(),
+                HalfFloatType => new HalfFloatAccessor(),
+                FloatType => new FloatAccessor(),
+                DoubleType => new DoubleAccessor(),
 
-            // 5. Decimal 
-            Decimal128Type => new DecimalAccessor(), 
-            Decimal256Type => new DecimalAccessor(),
-            FixedSizeBinaryType => targetType switch
-            {
-                { } t when t == typeof(Guid) => new FixedSizeBinaryToGuidAccessor(),
-                _ => new FixedSizeBinaryAccessor()
-            },
+                // 3. String & Binary
+                StringViewType or StringType or LargeStringType => new StringViewAccessor(),
+                BinaryViewType or BinaryType or LargeBinaryType => targetType switch
+                {
+                    { } t when t == typeof(Guid) => new BinaryToGuidAccessor(),
+                    _ => new BinaryAccessor()
+                },
+                
 
-            // 6. Fallback
-            _ => new JsonFallbackAccessor(targetType)
-        };
+                // 4. Time
+                TimestampType => new TimestampAccessor(),
+                Time64Type => new Time64Accessor(),
+                DurationType => new DurationAccessor(),
+                
+                Date32Type => new Date32ToDateOnlyAccessor(),
+                Date64Type => new Date64Accessor(),
+
+                // 5. Decimal 
+                Decimal128Type => new DecimalAccessor(), 
+                Decimal256Type => new DecimalAccessor(),
+                FixedSizeBinaryType => targetType switch
+                {
+                    { } t when t == typeof(Guid) => new FixedSizeBinaryToGuidAccessor(),
+                    _ => new FixedSizeBinaryAccessor()
+                },
+
+                // 6. Fallback
+                _ => (ColumnAccessor)Activator.CreateInstance(
+            typeof(JsonFallbackAccessor<>).MakeGenericType(targetType))!
+            };
+        }
     }
-    }
+    private static ColumnAccessor CreateListAccessor(IArrowType arrowType, Type targetType)
+    {
+        Type elementType;
+        if (targetType.IsArray) 
+        {
+            elementType = targetType.GetElementType()!;
+        }
+        else if (targetType.IsGenericType && targetType.GetGenericArguments().Length == 1)
+        {
+            elementType = targetType.GetGenericArguments()[0];
+        }
+        else 
+        {
+            IArrowType inner = arrowType is ListType lt ? lt.ValueDataType : ((LargeListType)arrowType).ValueDataType;
+            elementType = ArrowTypeResolver.GetNetTypeFromArrowType(inner);
+        }
 
+        Type accessorClass = typeof(ListAccessor<>).MakeGenericType(elementType);
+        return (ColumnAccessor)Activator.CreateInstance(accessorClass, targetType, arrowType)!;
+    }
     // ==================================================================================
     // Concrete Accessors
     // ==================================================================================
-    internal sealed class FixedSizeBinaryToGuidAccessor : ColumnAccessor {
+    internal sealed class FixedSizeBinaryToGuidAccessor : TypedColumnAccessor<Guid> {
         private FixedSizeBinaryArray? _array;
         
         public override Type TargetType => typeof(Guid);
@@ -502,77 +469,53 @@ public sealed class ArrowToDbStream : DbDataReader
         public override bool IsNull(int index) => _array!.IsNull(index);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal Guid GetGuidFast(int index) {
+        public override Guid GetTypedValue(int index) {
 
             return new Guid(_array!.GetBytes(index));
         }
-
-        public override object GetValue(int index) {
-            if (IsNull(index)) return DBNull.Value;
-
-            return GetGuidFast(index); 
-        }
     }
-    internal sealed class FixedSizeBinaryAccessor : ColumnAccessor {
+  // ============================================================
+    // 1. FixedSizeBinaryAccessor (byte[])
+    // ============================================================
+    internal sealed class FixedSizeBinaryAccessor : TypedColumnAccessor<byte[]>,
+        ITypedAccessor<byte[]>, 
+        ITypedAccessor<Guid>, ITypedAccessor<Guid?>
+    {
         private FixedSizeBinaryArray? _array;
         
         public override Type TargetType => typeof(byte[]);
-        
-        public override void SetBatch(IArrowArray array) {
-            _array = (FixedSizeBinaryArray)array;
-        }
-        
+        public override void SetBatch(IArrowArray array) => _array = (FixedSizeBinaryArray)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
+        public override byte[] GetTypedValue(int index) => _array!.GetBytes(index).ToArray();
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal ReadOnlySpan<byte> GetBytesFast(int index) {
-            return _array!.GetBytes(index);
-        }
+        Guid ITypedAccessor<Guid>.GetTypedValue(int index) => new Guid(_array!.GetBytes(index));
+        Guid? ITypedAccessor<Guid?>.GetTypedValue(int index) => new Guid(_array!.GetBytes(index));
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal Guid GetGuidFast(int index) {
-            return new Guid(_array!.GetBytes(index));
-        }
-
-        public override object GetValue(int index) {
-            if (IsNull(index)) return DBNull.Value;
-
-            return GetBytesFast(index).ToArray(); 
-        }
-
-        public override long GetBytes(int index, long dataOffset, byte[]? buffer, int bufferOffset, int length) {
-            ReadOnlySpan<byte> bytes = GetBytesFast(index);
-            if (buffer == null) return bytes.Length;
-            
-            int count = Math.Min(bytes.Length - (int)dataOffset, length);
-            if (count > 0) {
-                bytes.Slice((int)dataOffset, count).CopyTo(buffer.AsSpan(bufferOffset));
-            }
-            return count;
-        }
+        byte[] ITypedAccessor<byte[]>.GetTypedValue(int index) => GetTypedValue(index);
     }
-    internal sealed class BinaryToGuidAccessor : ColumnAccessor {
+
+    // ============================================================
+    // BinaryToGuidAccessor (Binary -> Guid)
+    // ============================================================
+    internal sealed class BinaryToGuidAccessor : TypedColumnAccessor<Guid>,
+        ITypedAccessor<Guid>, ITypedAccessor<Guid?>
+    {
         private IArrowArray? _array;
         
         public override Type TargetType => typeof(Guid);
-        
-        public override void SetBatch(IArrowArray array) {
-            _array = array;
-        }
-        
+        public override void SetBatch(IArrowArray array) => _array = array;
         public override bool IsNull(int index) => _array!.IsNull(index);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal ReadOnlySpan<byte> GetBytesFast(int index) {
+        private ReadOnlySpan<byte> GetBytesFast(int index) {
             if (_array is BinaryViewArray bv) return bv.GetBytes(index);
             if (_array is LargeBinaryArray lba) return lba.GetBytes(index);
             if (_array is BinaryArray ba) return ba.GetBytes(index);
-            
             throw new InvalidCastException($"Expected Binary-like array, got {_array?.GetType()}");
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal Guid GetGuidFast(int index) {
+        public override Guid GetTypedValue(int index) {
             ReadOnlySpan<byte> bytes = GetBytesFast(index);
             if (bytes.Length != 16) {
                 throw new InvalidDataException($"Cannot convert binary of length {bytes.Length} to Guid.");
@@ -580,218 +523,353 @@ public sealed class ArrowToDbStream : DbDataReader
             return new Guid(bytes);
         }
 
-        public override object GetValue(int index) {
-            if (IsNull(index)) return DBNull.Value;
-
-            return GetGuidFast(index); 
-        }
+        Guid ITypedAccessor<Guid>.GetTypedValue(int index) => GetTypedValue(index);
+        Guid? ITypedAccessor<Guid?>.GetTypedValue(int index) => GetTypedValue(index);
     }
-    internal sealed class BooleanAccessor : ColumnAccessor {
+
+    // ============================================================
+    // BooleanAccessor (bool)
+    // ============================================================
+    internal sealed class BooleanAccessor : TypedColumnAccessor<bool>,
+        ITypedAccessor<bool>, ITypedAccessor<bool?>
+    {
         private BooleanArray? _array;
         public override Type TargetType => typeof(bool);
         public override void SetBatch(IArrowArray array) => _array = (BooleanArray)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
-        public override bool GetBoolean(int index) => _array!.GetValue(index)!.Value;
-        public override object GetValue(int index) => GetBoolean(index);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override bool GetTypedValue(int index) => _array!.GetValue(index)!.Value;
+        bool ITypedAccessor<bool>.GetTypedValue(int index) => GetTypedValue(index);
+        bool? ITypedAccessor<bool?>.GetTypedValue(int index) => GetTypedValue(index);
     }
-
-    internal sealed class Int8Accessor : ColumnAccessor {
+    // ============================================================
+    // Int8Accessor (sbyte)
+    // ============================================================
+    internal sealed class Int8Accessor : TypedColumnAccessor<sbyte>, 
+        ITypedAccessor<byte>, 
+        ITypedAccessor<short>, 
+        ITypedAccessor<int>, 
+        ITypedAccessor<long>,
+        ITypedAccessor<sbyte?>,
+        ITypedAccessor<byte?>,
+        ITypedAccessor<short?>,
+        ITypedAccessor<int?>,
+        ITypedAccessor<long?>
+    {
         private Int8Array? _array;
         public override Type TargetType => typeof(sbyte);
         public override void SetBatch(IArrowArray array) => _array = (Int8Array)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
-        public override byte GetByte(int index) => (byte)_array!.Values[index];
-        public override short GetInt16(int index) => _array!.Values[index];
-        public override int GetInt32(int index) => _array!.Values[index];
-        public override object GetValue(int index) => _array!.Values[index];
+        public override sbyte GetTypedValue(int index) => _array!.Values[index];
+        byte ITypedAccessor<byte>.GetTypedValue(int index) => (byte)_array!.Values[index];
+        short ITypedAccessor<short>.GetTypedValue(int index) => _array!.Values[index];
+        int ITypedAccessor<int>.GetTypedValue(int index) => _array!.Values[index];
+        long ITypedAccessor<long>.GetTypedValue(int index) => _array!.Values[index];
+        sbyte? ITypedAccessor<sbyte?>.GetTypedValue(int index) => _array!.Values[index];
+        byte? ITypedAccessor<byte?>.GetTypedValue(int index) => (byte)_array!.Values[index];
+        short? ITypedAccessor<short?>.GetTypedValue(int index) => _array!.Values[index];
+        int? ITypedAccessor<int?>.GetTypedValue(int index) => _array!.Values[index];
+        long? ITypedAccessor<long?>.GetTypedValue(int index) => _array!.Values[index];
     }
-
-    internal sealed class Int16Accessor : ColumnAccessor {
+    // ============================================================
+    // Int16Accessor (short)
+    // ============================================================
+    internal sealed class Int16Accessor : TypedColumnAccessor<short>,
+        ITypedAccessor<int>, ITypedAccessor<long>, ITypedAccessor<float>, ITypedAccessor<double>, ITypedAccessor<decimal>,
+        ITypedAccessor<short?>, ITypedAccessor<int?>, ITypedAccessor<long?>, ITypedAccessor<float?>, ITypedAccessor<double?>, ITypedAccessor<decimal?>
+    {
         private Int16Array? _array;
         public override Type TargetType => typeof(short);
         public override void SetBatch(IArrowArray array) => _array = (Int16Array)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
-        public override short GetInt16(int index) => _array!.Values[index];
-        public override int GetInt32(int index) => _array!.Values[index];
-        public override object GetValue(int index) => GetInt16(index);
-    }
 
-    internal sealed class Int32Accessor : ColumnAccessor {
+        public override short GetTypedValue(int index) => _array!.Values[index];
+
+        int ITypedAccessor<int>.GetTypedValue(int index) => _array!.Values[index];
+        long ITypedAccessor<long>.GetTypedValue(int index) => _array!.Values[index];
+        float ITypedAccessor<float>.GetTypedValue(int index) => _array!.Values[index];
+        double ITypedAccessor<double>.GetTypedValue(int index) => _array!.Values[index];
+        decimal ITypedAccessor<decimal>.GetTypedValue(int index) => _array!.Values[index];
+
+        short? ITypedAccessor<short?>.GetTypedValue(int index) => _array!.Values[index];
+        int? ITypedAccessor<int?>.GetTypedValue(int index) => _array!.Values[index];
+        long? ITypedAccessor<long?>.GetTypedValue(int index) => _array!.Values[index];
+        float? ITypedAccessor<float?>.GetTypedValue(int index) => _array!.Values[index];
+        double? ITypedAccessor<double?>.GetTypedValue(int index) => _array!.Values[index];
+        decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => _array!.Values[index];
+    }
+    // ============================================================
+    // Int32Accessor (int)
+    // ============================================================
+
+    internal sealed class Int32Accessor :
+        TypedColumnAccessor<int>,
+        ITypedAccessor<long>,
+        ITypedAccessor<double>,
+        ITypedAccessor<float>,
+        ITypedAccessor<decimal>,
+        ITypedAccessor<int?>,
+        ITypedAccessor<long?>,
+        ITypedAccessor<double?>,
+        ITypedAccessor<float?>,
+        ITypedAccessor<decimal?>{
         private Int32Array? _array;
         public override Type TargetType => typeof(int);
         public override void SetBatch(IArrowArray array) => _array = (Int32Array)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
-        public override int GetInt32(int index) => _array!.Values[index];
-        public override long GetInt64(int index) => _array!.Values[index];
-        public override double GetDouble(int index) => _array!.Values[index];
-        public override decimal GetDecimal(int index) => _array!.Values[index];
-        public override object GetValue(int index) => GetInt32(index);
+        public override int GetTypedValue(int index) => _array!.Values[index];
+        int? ITypedAccessor<int?>.GetTypedValue(int index) => _array!.Values[index];
+        long ITypedAccessor<long>.GetTypedValue(int index) => _array!.Values[index];
+        long? ITypedAccessor<long?>.GetTypedValue(int index) => _array!.Values[index];
+        decimal ITypedAccessor<decimal>.GetTypedValue(int index) => _array!.Values[index];
+        float ITypedAccessor<float>.GetTypedValue(int index) => _array!.Values[index];
+        double ITypedAccessor<double>.GetTypedValue(int index) => _array!.Values[index];
+        decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => _array!.Values[index];
+        float? ITypedAccessor<float?>.GetTypedValue(int index) => _array!.Values[index];
+        double? ITypedAccessor<double?>.GetTypedValue(int index) => _array!.Values[index];
     }
+    // ============================================================
+    // Int64Accessor (long)
+    // ============================================================
 
-    internal sealed class Int64Accessor : ColumnAccessor {
+    internal sealed class Int64Accessor : TypedColumnAccessor<long>,
+        ITypedAccessor<long>, ITypedAccessor<decimal>, ITypedAccessor<double>,
+        ITypedAccessor<long?>, ITypedAccessor<decimal?>, ITypedAccessor<double?>
+    {
         private Int64Array? _array;
         public override Type TargetType => typeof(long);
         public override void SetBatch(IArrowArray array) => _array = (Int64Array)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
-        public override long GetInt64(int index) => _array!.Values[index];
-        public override decimal GetDecimal(int index) => _array!.Values[index];
-        public override object GetValue(int index) => GetInt64(index);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override long GetTypedValue(int index) => _array!.Values[index];
+
+        long ITypedAccessor<long>.GetTypedValue(int index) => GetTypedValue(index);
+        decimal ITypedAccessor<decimal>.GetTypedValue(int index) => GetTypedValue(index);
+        double ITypedAccessor<double>.GetTypedValue(int index) => GetTypedValue(index);
+
+        long? ITypedAccessor<long?>.GetTypedValue(int index) => GetTypedValue(index);
+        decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => GetTypedValue(index);
+        double? ITypedAccessor<double?>.GetTypedValue(int index) => GetTypedValue(index);
     }
-    internal sealed class UInt8Accessor : ColumnAccessor {
+    // ============================================================
+    // UInt8Accessor (byte)
+    // ============================================================
+    internal sealed class UInt8Accessor : 
+        TypedColumnAccessor<byte>,
+        ITypedAccessor<short>,
+        ITypedAccessor<int>,
+        ITypedAccessor<short?>,
+        ITypedAccessor<int?>,
+        ITypedAccessor<byte?>
+     {
         private UInt8Array? _array;
         public override Type TargetType => typeof(byte);
         public override void SetBatch(IArrowArray array) => _array = (UInt8Array)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
-        public override byte GetByte(int index) => _array!.Values[index];
-        public override short GetInt16(int index) => _array!.Values[index];
-        public override int GetInt32(int index) => _array!.Values[index];
-        public override object GetValue(int index) => GetByte(index);
+        public override byte GetTypedValue(int index) => _array!.Values[index];
+        short ITypedAccessor<short>.GetTypedValue(int index) => _array!.Values[index];
+        int ITypedAccessor<int>.GetTypedValue(int index) => _array!.Values[index];
+        int? ITypedAccessor<int?>.GetTypedValue(int index) => _array!.Values[index];
+        short? ITypedAccessor<short?>.GetTypedValue(int index) => _array!.Values[index];
+        byte? ITypedAccessor<byte?>.GetTypedValue(int index) => _array!.Values[index];
     }
 
-    internal sealed class UInt16Accessor : ColumnAccessor {
+    // ============================================================
+    // UInt16Accessor (ushort)
+    // ============================================================
+    internal sealed class UInt16Accessor : TypedColumnAccessor<ushort>,
+        ITypedAccessor<int>, ITypedAccessor<uint>, ITypedAccessor<long>, ITypedAccessor<ulong>,
+        ITypedAccessor<ushort?>, ITypedAccessor<int?>, ITypedAccessor<uint?>, ITypedAccessor<long?>, ITypedAccessor<ulong?>
+    {
         private UInt16Array? _array;
         public override Type TargetType => typeof(ushort);
         public override void SetBatch(IArrowArray array) => _array = (UInt16Array)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
-        public override int GetInt32(int index) => _array!.Values[index];
-        public override long GetInt64(int index) => _array!.Values[index];
-        public override object GetValue(int index) => _array!.Values[index]; // returns ushort
+
+        public override ushort GetTypedValue(int index) => _array!.Values[index];
+
+        int ITypedAccessor<int>.GetTypedValue(int index) => _array!.Values[index];
+        uint ITypedAccessor<uint>.GetTypedValue(int index) => _array!.Values[index];
+        long ITypedAccessor<long>.GetTypedValue(int index) => _array!.Values[index];
+        ulong ITypedAccessor<ulong>.GetTypedValue(int index) => _array!.Values[index];
+
+        ushort? ITypedAccessor<ushort?>.GetTypedValue(int index) => _array!.Values[index];
+        int? ITypedAccessor<int?>.GetTypedValue(int index) => _array!.Values[index];
+        uint? ITypedAccessor<uint?>.GetTypedValue(int index) => _array!.Values[index];
+        long? ITypedAccessor<long?>.GetTypedValue(int index) => _array!.Values[index];
+        ulong? ITypedAccessor<ulong?>.GetTypedValue(int index) => _array!.Values[index];
     }
 
-    internal sealed class UInt32Accessor : ColumnAccessor {
+    // ============================================================
+    // UInt32Accessor (uint)
+    // ============================================================
+    internal sealed class UInt32Accessor : TypedColumnAccessor<uint>,
+        ITypedAccessor<long>, ITypedAccessor<ulong>,
+        ITypedAccessor<uint?>, ITypedAccessor<long?>, ITypedAccessor<ulong?>
+    {
         private UInt32Array? _array;
         public override Type TargetType => typeof(uint);
         public override void SetBatch(IArrowArray array) => _array = (UInt32Array)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
-        public override long GetInt64(int index) => _array!.Values[index];
-        public override object GetValue(int index) => _array!.Values[index]; // returns uint
+
+        public override uint GetTypedValue(int index) => _array!.Values[index];
+
+        long ITypedAccessor<long>.GetTypedValue(int index) => _array!.Values[index];
+        ulong ITypedAccessor<ulong>.GetTypedValue(int index) => _array!.Values[index];
+
+        uint? ITypedAccessor<uint?>.GetTypedValue(int index) => _array!.Values[index];
+        long? ITypedAccessor<long?>.GetTypedValue(int index) => _array!.Values[index];
+        ulong? ITypedAccessor<ulong?>.GetTypedValue(int index) => _array!.Values[index];
     }
 
-    internal sealed class UInt64Accessor : ColumnAccessor {
+    // ============================================================
+    // UInt64Accessor (ulong)
+    // ============================================================
+    internal sealed class UInt64Accessor : TypedColumnAccessor<ulong>,
+        ITypedAccessor<decimal>,
+        ITypedAccessor<ulong?>, ITypedAccessor<decimal?>
+    {
         private UInt64Array? _array;
         public override Type TargetType => typeof(ulong);
         public override void SetBatch(IArrowArray array) => _array = (UInt64Array)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
-        public override decimal GetDecimal(int index) => _array!.Values[index];
-        public override object GetValue(int index) => _array!.Values[index]; // returns ulong
+        public override ulong GetTypedValue(int index) => _array!.Values[index];
+        decimal ITypedAccessor<decimal>.GetTypedValue(int index) => _array!.Values[index];
+
+        ulong? ITypedAccessor<ulong?>.GetTypedValue(int index) => _array!.Values[index];
+        decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => _array!.Values[index];
     }
-    internal sealed class HalfFloatAccessor : ColumnAccessor
+    // ============================================================
+    // HalfFloatAccessor (Float16)
+    // ============================================================
+    internal sealed class HalfFloatAccessor : TypedColumnAccessor<Half>,
+        ITypedAccessor<float>, ITypedAccessor<double>, ITypedAccessor<decimal>, ITypedAccessor<string>,
+        ITypedAccessor<Half?>, ITypedAccessor<float?>, ITypedAccessor<double?>, ITypedAccessor<decimal?>
     {
         private HalfFloatArray? _array;
-
         public override Type TargetType => typeof(Half);
-
         public override void SetBatch(IArrowArray array) => _array = (HalfFloatArray)array;
-
         public override bool IsNull(int index) => _array!.IsNull(index);
 
-        public override float GetFloat(int index) => (float)_array!.Values[index];
+        public override Half GetTypedValue(int index) => _array!.Values[index];
 
-        public override double GetDouble(int index) => (double)_array!.Values[index];
+        float ITypedAccessor<float>.GetTypedValue(int index) => (float)_array!.Values[index];
+        double ITypedAccessor<double>.GetTypedValue(int index) => (double)_array!.Values[index];
+        decimal ITypedAccessor<decimal>.GetTypedValue(int index) => (decimal)(float)_array!.Values[index];
+        string ITypedAccessor<string>.GetTypedValue(int index) => _array!.Values[index].ToString();
 
-        public override decimal GetDecimal(int index) => (decimal)(float)_array!.Values[index];
-
-        public override object GetValue(int index) => _array!.Values[index];
-
-        public override string GetString(int index) => _array!.Values[index].ToString();
+        Half? ITypedAccessor<Half?>.GetTypedValue(int index) => _array!.Values[index];
+        float? ITypedAccessor<float?>.GetTypedValue(int index) => (float)_array!.Values[index];
+        double? ITypedAccessor<double?>.GetTypedValue(int index) => (double)_array!.Values[index];
+        decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => (decimal)(float)_array!.Values[index];
     }
-    internal sealed class FloatAccessor : ColumnAccessor {
+    // ============================================================
+    // FloatAccessor (float / Single)
+    // ============================================================
+    internal sealed class FloatAccessor : TypedColumnAccessor<float>,
+        ITypedAccessor<double>, ITypedAccessor<decimal>,
+        ITypedAccessor<float?>, ITypedAccessor<double?>, ITypedAccessor<decimal?>
+    {
         private FloatArray? _array;
         public override Type TargetType => typeof(float);
         public override void SetBatch(IArrowArray array) => _array = (FloatArray)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
-        public override float GetFloat(int index) => _array!.Values[index];
-        public override double GetDouble(int index) => _array!.Values[index];
-        public override object GetValue(int index) => GetFloat(index);
+
+        public override float GetTypedValue(int index) => _array!.Values[index];
+
+        double ITypedAccessor<double>.GetTypedValue(int index) => _array!.Values[index];
+        decimal ITypedAccessor<decimal>.GetTypedValue(int index) => (decimal)_array!.Values[index];
+
+        float? ITypedAccessor<float?>.GetTypedValue(int index) => _array!.Values[index];
+        double? ITypedAccessor<double?>.GetTypedValue(int index) => _array!.Values[index];
+        decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => (decimal)_array!.Values[index];
     }
 
-    internal sealed class DoubleAccessor : ColumnAccessor {
+    // ============================================================
+    // DoubleAccessor (double)
+    // ============================================================
+    internal sealed class DoubleAccessor : TypedColumnAccessor<double>,
+        ITypedAccessor<decimal>,
+        ITypedAccessor<double?>, ITypedAccessor<decimal?>
+    {
         private DoubleArray? _array;
         public override Type TargetType => typeof(double);
         public override void SetBatch(IArrowArray array) => _array = (DoubleArray)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
-        public override double GetDouble(int index) => _array!.Values[index];
-        public override object GetValue(int index) => GetDouble(index);
+        public override double GetTypedValue(int index) => _array!.Values[index];
+
+        decimal ITypedAccessor<decimal>.GetTypedValue(int index) => (decimal)_array!.Values[index];
+
+        double? ITypedAccessor<double?>.GetTypedValue(int index) => _array!.Values[index];
+        decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => (decimal)_array!.Values[index];
     }
 
-    internal sealed class DecimalAccessor : ColumnAccessor {
+    // ============================================================
+    // DecimalAccessor (decimal)
+    // ============================================================
+    internal sealed class DecimalAccessor : TypedColumnAccessor<decimal>,
+        ITypedAccessor<double>,
+        ITypedAccessor<decimal?>, ITypedAccessor<double?>
+    {
         private Decimal128Array? _array;
         public override Type TargetType => typeof(decimal);
         public override void SetBatch(IArrowArray array) => _array = (Decimal128Array)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
-        public override decimal GetDecimal(int index) => _array!.GetValue(index) ?? 0m; // Fix: GetValue returns decimal?
-        public override double GetDouble(int index) => (double)GetDecimal(index);
-        public override object GetValue(int index) => GetDecimal(index);
+        public override decimal GetTypedValue(int index) => _array!.GetValue(index)!.Value;
+        double ITypedAccessor<double>.GetTypedValue(int index) => (double)_array!.GetValue(index)!.Value;
+        decimal? ITypedAccessor<decimal?>.GetTypedValue(int index) => _array!.GetValue(index);
+        double? ITypedAccessor<double?>.GetTypedValue(int index) => (double?)_array!.GetValue(index);
     }
 
     // Support StringView and fallback to String
-    internal sealed class StringViewAccessor : ColumnAccessor {
+    // ============================================================
+    // 1. StringViewAccessor (string)
+    // ============================================================
+    internal sealed class StringViewAccessor : TypedColumnAccessor<string>,
+        ITypedAccessor<string>
+    {
         private IArrowArray? _array;
         private bool _isView;
+
         public override Type TargetType => typeof(string);
-        
-        public override void SetBatch(IArrowArray array) {
+
+        public override void SetBatch(IArrowArray array)
+        {
             _array = array;
             _isView = array is StringViewArray;
         }
-        
+
         public override bool IsNull(int index) => _array!.IsNull(index);
 
-        public override string GetString(int index) {
+        public override string GetTypedValue(int index)
+        {
             if (_isView) return ((StringViewArray)_array!).GetString(index);
             if (_array is LargeStringArray lsa) return lsa.GetString(index);
             if (_array is StringArray sa) return sa.GetString(index);
+            
             throw new InvalidCastException($"Expected String or StringView, got {_array?.GetType()}");
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private ReadOnlySpan<byte> GetBytesFast(int index) {
-            if (_isView) return ((StringViewArray)_array!).GetBytes(index);
-            if (_array is LargeStringArray lsa) return lsa.GetBytes(index);
-            if (_array is StringArray sa) return sa.GetBytes(index);
-            return default;
-        }
-
-        public override object GetValue(int index) => GetString(index);
-
-        public override long GetChars(int index, long dataOffset, char[]? buffer, int bufferOffset, int length) {
-            // Get original UTF8 bytes
-            ReadOnlySpan<byte> utf8Bytes = GetBytesFast(index);
-
-            // If only query length
-            if (buffer == null) {
-                return System.Text.Encoding.UTF8.GetCharCount(utf8Bytes);
-            }
-
-            int totalChars = System.Text.Encoding.UTF8.GetCharCount(utf8Bytes);
-            int count = Math.Min(totalChars - (int)dataOffset, length);
-            if (count <= 0) return 0;
-
-            if (dataOffset == 0) {
-                System.Text.Encoding.UTF8.GetChars(utf8Bytes, buffer.AsSpan(bufferOffset, count));
-                return count;
-            }
-
-            string val = GetString(index);
-            val.CopyTo((int)dataOffset, buffer, bufferOffset, count);
-            return count;
-        }
     }
 
-    internal sealed class BinaryAccessor : ColumnAccessor {
-        private IArrowArray? _array; 
-        
+    // ============================================================
+    // 2. BinaryAccessor (byte[])
+    // ============================================================
+    internal sealed class BinaryAccessor : TypedColumnAccessor<byte[]>,
+        ITypedAccessor<byte[]>
+    {
+        private IArrowArray? _array;
+
         public override Type TargetType => typeof(byte[]);
-        
-        public override void SetBatch(IArrowArray array) {
-            _array = array;
-        }
-        
+
+        public override void SetBatch(IArrowArray array) => _array = array;
+
         public override bool IsNull(int index) => _array!.IsNull(index);
 
-
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal ReadOnlySpan<byte> GetBytesFast(int index) {
+        internal ReadOnlySpan<byte> GetBytesFast(int index)
+        {
             if (_array is BinaryArray ba) return ba.GetBytes(index);
             if (_array is LargeBinaryArray lba) return lba.GetBytes(index);
             if (_array is BinaryViewArray bv) return bv.GetBytes(index);
@@ -799,115 +877,137 @@ public sealed class ArrowToDbStream : DbDataReader
             throw new InvalidCastException($"Expected BinaryArray or LargeBinaryArray, got {_array?.GetType()}");
         }
 
-        public override object GetValue(int index) {
-            if (IsNull(index)) return DBNull.Value;
-            return GetBytesFast(index).ToArray(); 
+        public override byte[] GetTypedValue(int index)
+        {
+            // 注意：byte[] 是引用类型，这里会产生一次数组拷贝分配。
+            // 真正高性能场景建议用户使用 GetFieldValue<ReadOnlySpan<byte>> (如果你的框架支持)
+            return GetBytesFast(index).ToArray();
         }
 
-        public override long GetBytes(int index, long dataOffset, byte[]? buffer, int bufferOffset, int length) {
-            ReadOnlySpan<byte> bytes = GetBytesFast(index);
-            
-            if (buffer == null) return bytes.Length;
-            
-            int count = Math.Min(bytes.Length - (int)dataOffset, length);
-            
-            if (count > 0) {
-                bytes.Slice((int)dataOffset, count).CopyTo(buffer.AsSpan(bufferOffset));
-            }
-            
-            return count;
-        }
     }
 
     // --- Magic Time Types ---
-    internal sealed class Int64ToDateTimeAccessor : ColumnAccessor {
+    // ============================================================
+    // Int64ToDateTimeAccessor (Int64 to DateTime)
+    // ============================================================
+    internal sealed class Int64ToDateTimeAccessor : TypedColumnAccessor<DateTime>,
+        ITypedAccessor<DateTime>, ITypedAccessor<DateTime?>, ITypedAccessor<DateTimeOffset>, ITypedAccessor<DateTimeOffset?>
+    {
         private Int64Array? _array;
         public override Type TargetType => typeof(DateTime);
         public override void SetBatch(IArrowArray array) => _array = (Int64Array)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
-        public override DateTime GetDateTime(int index)
-        {
-            long val = _array!.Values[index];
 
-            return DateTime.UnixEpoch.AddMicroseconds(val);
-        }
-        public override object GetValue(int index) => GetDateTime(index);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override DateTime GetTypedValue(int index) 
+            => DateTime.UnixEpoch.AddMicroseconds(_array!.Values[index]);
+
+        DateTime ITypedAccessor<DateTime>.GetTypedValue(int index) => GetTypedValue(index);
+        DateTimeOffset ITypedAccessor<DateTimeOffset>.GetTypedValue(int index) => new DateTimeOffset(GetTypedValue(index));
+
+        DateTime? ITypedAccessor<DateTime?>.GetTypedValue(int index) => GetTypedValue(index);
+        DateTimeOffset? ITypedAccessor<DateTimeOffset?>.GetTypedValue(int index) => new DateTimeOffset(GetTypedValue(index));
     }
-    internal sealed class Int64ToTimeSpanAccessor : ColumnAccessor {
+
+    // ============================================================
+    // Int64ToTimeSpanAccessor (Int64 to TimeSpan)
+    // ============================================================
+    internal sealed class Int64ToTimeSpanAccessor : TypedColumnAccessor<TimeSpan>,
+        ITypedAccessor<TimeSpan>, ITypedAccessor<TimeSpan?>, ITypedAccessor<long>, ITypedAccessor<long?>
+    {
         private Int64Array? _array;
         public override Type TargetType => typeof(TimeSpan);
         public override void SetBatch(IArrowArray array) => _array = (Int64Array)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal TimeSpan GetTimeSpanFast(int index) 
-        {
-            return new TimeSpan(_array!.Values[index] * 10);
-        }
+        public override TimeSpan GetTypedValue(int index) 
+            => new(_array!.Values[index] * 10);
 
-        public override object GetValue(int index) 
-        {
-            if (IsNull(index)) return DBNull.Value;
-            return GetTimeSpanFast(index);
-        }
+        TimeSpan ITypedAccessor<TimeSpan>.GetTypedValue(int index) => GetTypedValue(index);
+        long ITypedAccessor<long>.GetTypedValue(int index) => _array!.Values[index] * 10;
+        TimeSpan? ITypedAccessor<TimeSpan?>.GetTypedValue(int index) => GetTypedValue(index);
+        long? ITypedAccessor<long?>.GetTypedValue(int index) => _array!.Values[index] * 10;
     }
 
-    // --- Standard Date/Time ---
-    internal sealed class TimestampAccessor : ColumnAccessor {
+    // ============================================================
+    // TimestampAccessor
+    // ============================================================
+    internal sealed class TimestampAccessor : TypedColumnAccessor<DateTime>,
+        ITypedAccessor<DateTime>, ITypedAccessor<DateTime?>, 
+        ITypedAccessor<DateTimeOffset>, ITypedAccessor<DateTimeOffset?>
+    {
         private TimestampArray? _array;
         public override Type TargetType => typeof(DateTime);
         public override void SetBatch(IArrowArray array) => _array = (TimestampArray)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
-        public override DateTime GetDateTime(int index)
-        {
-            var dto = _array!.GetTimestamp(index);
 
-            return dto.HasValue ? dto.Value.DateTime : default; 
-        }
-        public override object GetValue(int index) => GetDateTime(index);
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override DateTime GetTypedValue(int index) 
+            => _array!.GetTimestamp(index)!.Value.DateTime;
+
+        DateTime ITypedAccessor<DateTime>.GetTypedValue(int index) => GetTypedValue(index);
+        
+        DateTimeOffset ITypedAccessor<DateTimeOffset>.GetTypedValue(int index) 
+            => _array!.GetTimestamp(index)!.Value;
+
+        DateTime? ITypedAccessor<DateTime?>.GetTypedValue(int index) => GetTypedValue(index);
+        DateTimeOffset? ITypedAccessor<DateTimeOffset?>.GetTypedValue(int index) => _array!.GetTimestamp(index);
     }
-
-    // Date32 -> DateOnly
-    internal sealed class Date32ToDateOnlyAccessor : ColumnAccessor 
+    // ============================================================
+    // Date32ToDateOnlyAccessor (int -> DateOnly)
+    // ============================================================
+    internal sealed class Date32ToDateOnlyAccessor : TypedColumnAccessor<DateOnly>,
+        ITypedAccessor<DateOnly>, ITypedAccessor<DateTime>,
+        ITypedAccessor<DateOnly?>, ITypedAccessor<DateTime?>
     {
         private Date32Array? _array;
-        
         private const int UnixEpochDayNumber = 719162; 
 
         public override Type TargetType => typeof(DateOnly);
-        
         public override void SetBatch(IArrowArray array) => _array = (Date32Array)array;
-        
         public override bool IsNull(int index) => _array!.IsNull(index);
 
+        // 🌟 本命转换
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal DateOnly GetDateOnlyFast(int index)
-        {
-            return DateOnly.FromDayNumber(_array!.Values[index] + UnixEpochDayNumber);
-        }
+        public override DateOnly GetTypedValue(int index)
+            => DateOnly.FromDayNumber(_array!.Values[index] + UnixEpochDayNumber);
 
-        public override object GetValue(int index) 
-        {
-            if (IsNull(index)) return DBNull.Value;
-            
-            return GetDateOnlyFast(index);
-        }
-
-        public override DateTime GetDateTime(int index) 
-        {
-            return GetDateOnlyFast(index).ToDateTime(TimeOnly.MinValue);
-        }
+        DateOnly ITypedAccessor<DateOnly>.GetTypedValue(int index) => GetTypedValue(index);
+        DateTime ITypedAccessor<DateTime>.GetTypedValue(int index) 
+            => GetTypedValue(index).ToDateTime(TimeOnly.MinValue);
+        DateOnly? ITypedAccessor<DateOnly?>.GetTypedValue(int index) => GetTypedValue(index);
+        DateTime? ITypedAccessor<DateTime?>.GetTypedValue(int index) 
+            => GetTypedValue(index).ToDateTime(TimeOnly.MinValue);
     }
 
-    internal sealed class Date64Accessor : ColumnAccessor {
+    // ============================================================
+    // Date64Accessor (long -> DateTime)
+    // ============================================================
+    internal sealed class Date64Accessor : TypedColumnAccessor<DateTime>,
+        ITypedAccessor<DateTime>, ITypedAccessor<DateTimeOffset>,
+        ITypedAccessor<DateTime?>, ITypedAccessor<DateTimeOffset?>
+    {
         private Date64Array? _array;
         public override Type TargetType => typeof(DateTime);
         public override void SetBatch(IArrowArray array) => _array = (Date64Array)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
-        public override DateTime GetDateTime(int index) => _array!.GetDateTime(index)!.Value;
-        public override object GetValue(int index) => GetDateTime(index);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override DateTime GetTypedValue(int index) 
+            => _array!.GetDateTime(index)!.Value;
+        DateTime ITypedAccessor<DateTime>.GetTypedValue(int index) => GetTypedValue(index);
+        DateTimeOffset ITypedAccessor<DateTimeOffset>.GetTypedValue(int index) => new DateTimeOffset(GetTypedValue(index));
+
+        DateTime? ITypedAccessor<DateTime?>.GetTypedValue(int index) => GetTypedValue(index);
+        DateTimeOffset? ITypedAccessor<DateTimeOffset?>.GetTypedValue(int index) => new DateTimeOffset(GetTypedValue(index));
     }
-    internal sealed class DurationAccessor : ColumnAccessor 
+
+    // ============================================================
+    // DurationAccessor
+    // ============================================================
+    internal sealed class DurationAccessor : TypedColumnAccessor<TimeSpan>,
+        ITypedAccessor<TimeSpan>, ITypedAccessor<TimeSpan?>, ITypedAccessor<long>, ITypedAccessor<long?>
     {
         private DurationArray? _array;
         private TimeUnit _unit;
@@ -923,10 +1023,9 @@ public sealed class ArrowToDbStream : DbDataReader
         public override bool IsNull(int index) => _array!.IsNull(index);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal TimeSpan GetTimeSpanFast(int index) 
+        public override TimeSpan GetTypedValue(int index) 
         {
             long val = _array!.Values[index];
-            
             long ticks = _unit switch {
                 TimeUnit.Nanosecond => val / 100,
                 TimeUnit.Microsecond => val * 10,
@@ -934,75 +1033,85 @@ public sealed class ArrowToDbStream : DbDataReader
                 TimeUnit.Second => val * 10_000_000,
                 _ => val
             };
-            
             return new TimeSpan(ticks);
         }
 
-        public override object GetValue(int index) 
-        {
-            if (IsNull(index)) return DBNull.Value;
-            return GetTimeSpanFast(index);
-        }
+        TimeSpan ITypedAccessor<TimeSpan>.GetTypedValue(int index) => GetTypedValue(index);
+        long ITypedAccessor<long>.GetTypedValue(int index) => GetTypedValue(index).Ticks;
+
+        TimeSpan? ITypedAccessor<TimeSpan?>.GetTypedValue(int index) => GetTypedValue(index);
+        long? ITypedAccessor<long?>.GetTypedValue(int index) => GetTypedValue(index).Ticks;
     }
-    internal sealed class Int64ToTimeOnlyAccessor : ColumnAccessor {
+    // ============================================================
+    // Int64ToTimeOnlyAccessor
+    // ============================================================
+    internal sealed class Int64ToTimeOnlyAccessor : TypedColumnAccessor<TimeOnly>,
+        ITypedAccessor<TimeOnly>, ITypedAccessor<TimeOnly?>, 
+        ITypedAccessor<TimeSpan>, ITypedAccessor<TimeSpan?>
+    {
         private Int64Array? _array;
         public override Type TargetType => typeof(TimeOnly);
         public override void SetBatch(IArrowArray array) => _array = (Int64Array)array;
         public override bool IsNull(int index) => _array!.IsNull(index);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal TimeOnly GetTimeOnlyFast(int index) 
+        public override TimeOnly GetTypedValue(int index) 
         {
             long ticks = _array!.Values[index] * 10;
             return new TimeOnly(ticks);
         }
 
-        public override object GetValue(int index) 
-        {
-            if (IsNull(index)) return DBNull.Value;
-            return GetTimeOnlyFast(index);
-        }
+        TimeOnly ITypedAccessor<TimeOnly>.GetTypedValue(int index) => GetTypedValue(index);
+        TimeSpan ITypedAccessor<TimeSpan>.GetTypedValue(int index) => GetTypedValue(index).ToTimeSpan();
+        TimeOnly? ITypedAccessor<TimeOnly?>.GetTypedValue(int index) => GetTypedValue(index);
+        TimeSpan? ITypedAccessor<TimeSpan?>.GetTypedValue(int index) => GetTypedValue(index).ToTimeSpan();
     }
-    internal sealed class Time64Accessor : ColumnAccessor {
+
+    // ============================================================
+    // Time64Accessor
+    // ============================================================
+    internal sealed class Time64Accessor : TypedColumnAccessor<TimeOnly>,
+        ITypedAccessor<TimeOnly>, ITypedAccessor<TimeOnly?>,
+        ITypedAccessor<TimeSpan>, ITypedAccessor<TimeSpan?>
+    {
         private Time64Array? _array;
-        private long _divisor; 
+        private bool _isNanosecond; 
 
         public override Type TargetType => typeof(TimeOnly);
         
         public override void SetBatch(IArrowArray array) {
             _array = (Time64Array)array;
             var unit = ((Time64Type)_array.Data.DataType).Unit;
-            
-            _divisor = unit == TimeUnit.Nanosecond ? 100 : 0; 
+            _isNanosecond = unit == TimeUnit.Nanosecond;
         }
 
         public override bool IsNull(int index) => _array!.IsNull(index);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal TimeOnly GetTimeOnlyFast(int index) 
+        public override TimeOnly GetTypedValue(int index) 
         {
             long val = _array!.Values[index];
-            
-            long ticks = _divisor == 100 ? (val / 100) : (val * 10);
-            
+            long ticks = _isNanosecond ? (val / 100) : (val * 10);
             return new TimeOnly(ticks);
         }
 
-        public override object GetValue(int index) {
-            if (IsNull(index)) return DBNull.Value;
-            
-            return GetTimeOnlyFast(index); 
-        }
+        TimeOnly ITypedAccessor<TimeOnly>.GetTypedValue(int index) => GetTypedValue(index);
+        TimeSpan ITypedAccessor<TimeSpan>.GetTypedValue(int index) => GetTypedValue(index).ToTimeSpan();
+
+        TimeOnly? ITypedAccessor<TimeOnly?>.GetTypedValue(int index) => GetTypedValue(index);
+        TimeSpan? ITypedAccessor<TimeSpan?>.GetTypedValue(int index) => GetTypedValue(index).ToTimeSpan();
     }
-    internal sealed class ListAccessor : ColumnAccessor 
+    // ============================================================
+    // ListAccessor<TElement>
+    // ============================================================
+    internal sealed class ListAccessor<TElement> : TypedColumnAccessor<TElement[]>, 
+        ITypedAccessor<TElement[]>, 
+        ITypedAccessor<List<TElement>>
     {
         private IArrowArray? _array;
         private readonly Type _targetType;
-        private readonly Type _elementType;
-        private readonly bool _isElementNullable; 
-        
-        // 🌟 终极杀招：直接内嵌一个子 Accessor！复用一切！
         private readonly ColumnAccessor _childAccessor; 
+        private readonly ITypedAccessor<TElement>? _typedChildAccessor; 
 
         public ListAccessor(Type targetType, IArrowType arrowType) 
         {
@@ -1015,13 +1124,10 @@ public sealed class ArrowToDbStream : DbDataReader
                 _ => throw new InvalidOperationException("Not a list type")
             };
 
-            _elementType = ArrowTypeResolver.GetNetTypeFromArrowType(innerArrowType);
-            _isElementNullable = !_elementType.IsValueType || Nullable.GetUnderlyingType(_elementType) != null;
-
-            // 🌟 直接调用已有的工厂，为内部元素创建一个专属提取器！
-            // 无论是 DateOnly、TimeOnly 还是 Decimal，原有的黑魔法全部直接继承！
             var dummyField = new Field("item", innerArrowType, true);
-            _childAccessor = ColumnAccessorFactory.Create(dummyField, _elementType);
+            _childAccessor = ColumnAccessorFactory.Create(dummyField, typeof(TElement));
+            
+            _typedChildAccessor = _childAccessor as ITypedAccessor<TElement>;
         }
 
         public override Type TargetType => _targetType;
@@ -1029,17 +1135,14 @@ public sealed class ArrowToDbStream : DbDataReader
         public override void SetBatch(IArrowArray array) 
         {
             _array = array;
-            
             if (_array is ListArray list) _childAccessor.SetBatch(list.Values);
             else if (_array is LargeListArray largeList) _childAccessor.SetBatch(largeList.Values);
         }
 
         public override bool IsNull(int index) => _array!.IsNull(index);
 
-        public override object GetValue(int index) 
+        public override TElement[] GetTypedValue(int index) 
         {
-            if (IsNull(index)) return DBNull.Value;
-
             IArrowArray valuesArray;
             int offset, length;
 
@@ -1055,109 +1158,97 @@ public sealed class ArrowToDbStream : DbDataReader
                 offset = (int)largeList.ValueOffsets[index];
                 length = (int)(largeList.ValueOffsets[index + 1] - largeList.ValueOffsets[index]);
             } 
-            else return DBNull.Value;
+            else throw new InvalidDataException("Invalid List Array.");
 
-            if (length == 0) return System.Array.CreateInstance(_elementType, 0);
-
-            // =====================================================================
-            // 🚀 极致 Fast-Path：恢复你所有的 Unsigned 和 HalfFloat！
-            // 只要确保 C# 期望的不是 Nullable (避免把 Null 拷成 0)
-            // =====================================================================
-            if (!_isElementNullable)
-            {
-                if (valuesArray is Int32Array i32) return i32.Values.Slice(offset, length).ToArray();
-                if (valuesArray is Int64Array i64) return i64.Values.Slice(offset, length).ToArray();
-                if (valuesArray is DoubleArray dbl) return dbl.Values.Slice(offset, length).ToArray();
-                if (valuesArray is FloatArray flt) return flt.Values.Slice(offset, length).ToArray();
-                if (valuesArray is HalfFloatArray hflt) return hflt.Values.Slice(offset, length).ToArray();
-                
-                if (valuesArray is Int8Array i8) return i8.Values.Slice(offset, length).ToArray();
-                if (valuesArray is Int16Array i16) return i16.Values.Slice(offset, length).ToArray();
-                
-                // 恢复所有 Unsigned!
-                if (valuesArray is UInt8Array u8) return u8.Values.Slice(offset, length).ToArray();
-                if (valuesArray is UInt16Array u16) return u16.Values.Slice(offset, length).ToArray();
-                if (valuesArray is UInt32Array u32) return u32.Values.Slice(offset, length).ToArray();
-                if (valuesArray is UInt64Array u64) return u64.Values.Slice(offset, length).ToArray();
-            }
+            if (length == 0) return [];
 
             // =====================================================================
-            // 🚀 字符串优化：避免通过 _childAccessor.GetValue() 产生装箱(Boxing)开销
+            // Fast-Path
             // =====================================================================
-            if (_elementType == typeof(string))
+            if (typeof(TElement) == typeof(int) && valuesArray is Int32Array i32) 
+                return (TElement[])(object)i32.Values.Slice(offset, length).ToArray();
+            
+            if (typeof(TElement) == typeof(long) && valuesArray is Int64Array i64) 
+                return (TElement[])(object)i64.Values.Slice(offset, length).ToArray();
+            
+            if (typeof(TElement) == typeof(double) && valuesArray is DoubleArray dbl) 
+                return (TElement[])(object)dbl.Values.Slice(offset, length).ToArray();
+            
+            if (typeof(TElement) == typeof(float) && valuesArray is FloatArray flt) 
+                return (TElement[])(object)flt.Values.Slice(offset, length).ToArray();
+
+            // =====================================================================
+            // String Fast-Path
+            // =====================================================================
+            if (typeof(TElement) == typeof(string))
             {
                 var res = new string[length];
                 if (valuesArray is StringViewArray sv) {
                     for (int i = 0; i < length; i++) res[i] = sv.IsNull(offset + i) ? null! : sv.GetString(offset + i);
-                    return res;
-                }
-                if (valuesArray is LargeStringArray lsa) {
-                    for (int i = 0; i < length; i++) res[i] = lsa.IsNull(offset + i) ? null! : lsa.GetString(offset + i);
-                    return res;
+                    return (TElement[])(object)res;
                 }
                 if (valuesArray is StringArray sa) {
                     for (int i = 0; i < length; i++) res[i] = sa.IsNull(offset + i) ? null! : sa.GetString(offset + i);
-                    return res;
+                    return (TElement[])(object)res;
                 }
             }
 
             // =====================================================================
-            // 🛡️ 兜底慢路径：完美复用已有的 ColumnAccessor！(代码瞬间极简)
+            // 🌟 终极强类型 Fallback：彻底消灭装箱！
             // =====================================================================
-            var result = System.Array.CreateInstance(_elementType, length);
-
-            for (int i = 0; i < length; i++) 
+            var result = new TElement[length];
+            
+            if (_typedChildAccessor != null)
             {
-                // 用子提取器去判断 Null
-                if (_childAccessor.IsNull(offset + i))
+                for (int i = 0; i < length; i++) 
                 {
-                    result.SetValue(null, i);
+                    result[i] = _childAccessor.IsNull(offset + i) 
+                        ? default! 
+                        : _typedChildAccessor.GetTypedValue(offset + i);
                 }
-                else
+            }
+            else
+            {
+                for (int i = 0; i < length; i++) 
                 {
-                    // 🌟 一招搞定所有复杂转换！
-                    // Date32 自动变 DateOnly，Int64 自动变 TimeSpan！再也不用写 switch 了！
-                    result.SetValue(_childAccessor.GetValue(offset + i), i);
+                    result[i] = _childAccessor.IsNull(offset + i) 
+                        ? default! 
+                        : (TElement)_childAccessor.GetValue(offset + i)!;
                 }
             }
 
             return result;
         }
+
+        List<TElement> ITypedAccessor<List<TElement>>.GetTypedValue(int index) => GetTypedValue(index).ToList();
     }
-    internal sealed class StructAccessor : ColumnAccessor 
-    {   
+
+    // ============================================================
+    // StructAccessor<T>：Object mapper
+    // ============================================================
+    internal sealed class StructAccessor<T> : TypedColumnAccessor<T>, ITypedAccessor<T>
+    {
         private StructArray? _array;
         private readonly Type _targetType;
-        private readonly StructMemberMapping[] _mappings;
-        
-        // 🌟 神技 1：缓存编译后的对象工厂委托！
-        private readonly Func<object> _objectFactory; 
+        private readonly ColumnAccessor[] _childAccessors;
+        private readonly int[] _arrowFieldIndexes;
 
-        private class StructMemberMapping
-        {
-            public int ArrowFieldIndex { get; set; }
-            public ColumnAccessor Accessor { get; set; } = null!;
-            // 🌟 神技 2：缓存编译后的属性/字段赋值委托！
-            public Action<object, object?> Setter { get; set; } = null!; 
-        }
+        private readonly Func<int, T> _rowInstantiator;
 
-        public StructAccessor(Type targetType, IArrowType arrowType) 
+        public StructAccessor(Type targetType, IArrowType arrowType)
         {
             _targetType = targetType;
 
             if (arrowType is not StructType structType)
                 throw new InvalidOperationException($"Expected StructType, got {arrowType.Name}");
 
-            // ==========================================================
-            // 🔨 动态编译：对象实例化 (替代 Activator.CreateInstance)
-            // 相当于：() => (object)new TTarget();
-            // ==========================================================
-            var newExpr = Expression.New(targetType); 
-            var boxExpr = Expression.Convert(newExpr, typeof(object));
-            _objectFactory = Expression.Lambda<Func<object>>(boxExpr).Compile();
+            var childAccessorsList = new List<ColumnAccessor>();
+            var arrowFieldIndexesList = new List<int>();
 
-            var mappings = new List<StructMemberMapping>();
             var members = ArrowTypeResolver.GetReadableMembers(targetType);
+            var bindings = new List<MemberAssignment>();
+
+            var indexParam = Expression.Parameter(typeof(int), "index");
 
             for (int i = 0; i < structType.Fields.Count; i++)
             {
@@ -1167,117 +1258,189 @@ public sealed class ArrowToDbStream : DbDataReader
                 if (member != null)
                 {
                     Type memberType = ArrowTypeResolver.GetMemberType(member);
-                    var accessor = ColumnAccessorFactory.Create(arrowField, memberType);
+                    var childAccessor = ColumnAccessorFactory.Create(arrowField, memberType);
+
+                    int accessorIndex = childAccessorsList.Count;
+                    childAccessorsList.Add(childAccessor);
+                    arrowFieldIndexesList.Add(i);
 
                     // ==========================================================
-                    // 🔨 动态编译：成员赋值 (替代 PropertyInfo.SetValue)
-                    // 相当于：(obj, val) => ((TTarget)obj).Property = (TMember)val;
+                    // Generate as _childAccessors[0] as ITypedAccessor<TMember>
                     // ==========================================================
-                    var objParam = Expression.Parameter(typeof(object), "obj");
-                    var valParam = Expression.Parameter(typeof(object), "val");
+                    var accessorInstanceExpr = Expression.Constant(childAccessor);
 
-                    // 🚨 极其致命的陷阱：Struct (值类型) 装箱后，如果用 Expression.Convert，
-                    // 会得到一个全新的拷贝，对其赋值根本影响不到原本的装箱对象！
-                    // 必须使用 Expression.Unbox 获取堆上装箱对象的引用 (Ref)！
-                    Expression castObj = targetType.IsValueType
-                        ? Expression.Unbox(objParam, targetType) 
-                        : Expression.Convert(objParam, targetType);
+                    Expression getValueExpr;
 
-                    Expression castVal = Expression.Convert(valParam, memberType);
-
-                    Expression memberAccess = member switch
+                    Type typedInterface = typeof(ITypedAccessor<>).MakeGenericType(memberType);
+                    if (typedInterface.IsAssignableFrom(childAccessor.GetType()))
                     {
-                        PropertyInfo pi => Expression.Property(castObj, pi),
-                        FieldInfo fi => Expression.Field(castObj, fi),
-                        _ => throw new InvalidOperationException()
-                    };
-
-                    var assignExpr = Expression.Assign(memberAccess, castVal);
-                    var setter = Expression.Lambda<Action<object, object?>>(assignExpr, objParam, valParam).Compile();
-
-                    mappings.Add(new StructMemberMapping
+                        // ((ITypedAccessor<TMember>)accessor).GetTypedValue(index)
+                        var typedAccessor = Expression.Convert(accessorInstanceExpr, typedInterface);
+                        var getMethod = typedInterface.GetMethod("GetTypedValue")!;
+                        getValueExpr = Expression.Call(typedAccessor, getMethod, indexParam);
+                    }
+                    else
                     {
-                        ArrowFieldIndex = i,
-                        Accessor = accessor,
-                        Setter = setter
-                    });
+                        // (TMember)accessor.GetValue(index)
+                        var getMethod = typeof(ColumnAccessor).GetMethod("GetValue")!;
+                        var callGet = Expression.Call(accessorInstanceExpr, getMethod, indexParam);
+                        getValueExpr = Expression.Convert(callGet, memberType);
+                    }
+
+                    bindings.Add(Expression.Bind(member, getValueExpr));
                 }
             }
 
-            _mappings = [.. mappings];
+            _childAccessors = [.. childAccessorsList];
+            _arrowFieldIndexes = [.. arrowFieldIndexesList];
+
+            // ==========================================================
+            // Generate：new TTarget { Prop1 = ..., Prop2 = ... }
+            // ==========================================================
+            var newExpr = Expression.New(targetType);
+            var initExpr = Expression.MemberInit(newExpr, bindings);
+
+            _rowInstantiator = Expression.Lambda<Func<int, T>>(initExpr, indexParam).Compile();
         }
 
         public override Type TargetType => _targetType;
 
-        public override void SetBatch(IArrowArray array) 
+        public override void SetBatch(IArrowArray array)
         {
             _array = (StructArray)array;
-            
-            // 极速循环分发
-            for (int i = 0; i < _mappings.Length; i++)
+            for (int i = 0; i < _childAccessors.Length; i++)
             {
-                _mappings[i].Accessor.SetBatch(_array.Fields[_mappings[i].ArrowFieldIndex]);
+                _childAccessors[i].SetBatch(_array.Fields[_arrowFieldIndexes[i]]);
             }
         }
 
         public override bool IsNull(int index) => _array!.IsNull(index);
 
         // ==========================================================
-        // 🚀 热路径 (Hot Path)：0 反射，全盘委托调用！
+        // Hot Path
         // ==========================================================
-        public override object GetValue(int index) 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override T GetTypedValue(int index)
+            => _rowInstantiator(index);
+
+        T ITypedAccessor<T>.GetTypedValue(int index) => GetTypedValue(index);
+    }
+    // ========================================================
+    // 1. FSharpOption<T> (Ref Type Class)
+    // ========================================================
+    internal sealed class FSharpOptionAccessor<T>(ColumnAccessor innerAccessor, Type targetType) : TypedColumnAccessor<FSharpOption<T>>, ITypedAccessor<FSharpOption<T>>
+    {
+
+        private readonly ITypedAccessor<T>? _typedInnerAccessor = innerAccessor as ITypedAccessor<T>;
+
+        public override Type TargetType => targetType;
+        public override void SetBatch(IArrowArray array) => innerAccessor.SetBatch(array);
+        public override bool IsNull(int index) => innerAccessor.IsNull(index);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override FSharpOption<T> GetTypedValue(int index)
         {
-            if (IsNull(index)) return DBNull.Value;
+            // F# Option None is null
+            if (innerAccessor.IsNull(index)) return null!; 
 
-            // 🌟 O(1) 委托调用：极速创建对象！
-            object instance = _objectFactory();
-
-            // 不要用 foreach，用 for 循环榨干最后一丝性能
-            for (int i = 0; i < _mappings.Length; i++)
+            if (_typedInnerAccessor != null)
             {
-                var val = _mappings[i].Accessor.GetValue(index);
-                
-                // 🌟 O(1) 委托调用：极速属性注入！
-                if (val != DBNull.Value)
-                {
-                    _mappings[i].Setter(instance, val);
-                }
+                T rawValue = _typedInnerAccessor.GetTypedValue(index);
+                return FSharpOption<T>.Some(rawValue);
             }
 
-            return instance;
+            var boxedValue = innerAccessor.GetValue(index);
+            return FSharpOption<T>.Some((T)boxedValue!);
         }
+        
+        FSharpOption<T> ITypedAccessor<FSharpOption<T>>.GetTypedValue(int index) => GetTypedValue(index);
+    }
+
+    // ========================================================
+    // FSharpValueOption<T> (Struct)
+    // ========================================================
+    internal sealed class FSharpValueOptionAccessor<T>(ColumnAccessor innerAccessor, Type targetType) : TypedColumnAccessor<FSharpValueOption<T>>, ITypedAccessor<FSharpValueOption<T>>
+    {
+        private readonly ITypedAccessor<T>? _typedInnerAccessor = innerAccessor as ITypedAccessor<T>;
+
+        public override Type TargetType => targetType;
+        public override void SetBatch(IArrowArray array) => innerAccessor.SetBatch(array);
+        public override bool IsNull(int index) => innerAccessor.IsNull(index);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public override FSharpValueOption<T> GetTypedValue(int index)
+        {
+            if (innerAccessor.IsNull(index)) return FSharpValueOption<T>.ValueNone;
+
+            if (_typedInnerAccessor != null)
+            {
+                T rawValue = _typedInnerAccessor.GetTypedValue(index);
+                return FSharpValueOption<T>.NewValueSome(rawValue);
+            }
+
+            var boxedValue = innerAccessor.GetValue(index);
+            if (boxedValue == DBNull.Value || boxedValue == null) return FSharpValueOption<T>.ValueNone;
+
+            return FSharpValueOption<T>.NewValueSome((T)boxedValue);
+        }
+
+        FSharpValueOption<T> ITypedAccessor<FSharpValueOption<T>>.GetTypedValue(int index) => GetTypedValue(index);
     }
     // --- Fallback ---
-    internal sealed class JsonFallbackAccessor : ColumnAccessor {
+
+    // ============================================================
+    // JsonFallbackAccessor<T>
+    // ============================================================
+    internal sealed class JsonFallbackAccessor<T> : TypedColumnAccessor<T>, ITypedAccessor<T>
+    {
         private IArrowArray? _array;
-        private readonly Type _targetType;
-        public JsonFallbackAccessor(Type targetType) { _targetType = targetType; }
-        public override Type TargetType => _targetType;
+
+        public override Type TargetType => typeof(T);
         public override void SetBatch(IArrowArray array) => _array = array;
         public override bool IsNull(int index) => _array!.IsNull(index);
-        public override string GetString(int index) {
-            var value = ExtractValue(_array!, index);
-            return JsonSerializer.Serialize(value);
+
+        public override T GetTypedValue(int index)
+        {
+            var rawValue = ExtractValue(_array!, index);
+
+            if (typeof(T) == typeof(string))
+            {
+                var json = rawValue is string s ? s : JsonSerializer.Serialize(rawValue);
+                return (T)(object)json;
+            }
+
+            if (rawValue is T typedValue)
+            {
+                return typedValue;
+            }
+
+            if (rawValue != null)
+            {
+                var json = JsonSerializer.Serialize(rawValue);
+                return (T)(object)json;
+            }
+
+            return default!;
         }
-        public override object GetValue(int index) {
-            var val = ExtractValue(_array!, index);
-            if (val is not string && val != null) return JsonSerializer.Serialize(val);
-            return val ?? DBNull.Value;
-        }
-        private static object? ExtractValue(IArrowArray array, int index) {
-            return array switch {
+
+        T ITypedAccessor<T>.GetTypedValue(int index) => GetTypedValue(index);
+
+        private static object? ExtractValue(IArrowArray array, int index)
+        {
+            return array switch
+            {
                 Int32Array i32 => i32.Values[index],
                 Int64Array i64 => i64.Values[index],
                 DoubleArray dbl => dbl.Values[index],
                 FloatArray flt => flt.Values[index],
                 BooleanArray b => b.Values[index],
                 StringArray s => s.GetString(index),
-                StringViewArray sv => sv.GetString(index), 
+                StringViewArray sv => sv.GetString(index),
                 Date32Array d32 => d32.GetDateTime(index),
                 Date64Array d64 => d64.GetDateTime(index),
                 Time64Array t64 => t64.GetDateTime(index),
                 TimestampArray ts => ts.GetTimestamp(index)?.DateTime,
-                _ => null 
+                _ => null
             };
         }
     }

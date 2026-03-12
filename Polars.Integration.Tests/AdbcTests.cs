@@ -1,9 +1,12 @@
 using Apache.Arrow.Adbc;
-using Apache.Arrow.Adbc.C;
+using Apache.Arrow.Adbc.C; // 你找到的那个命名空间
 using LinqToDB;
 using LinqToDB.Data;
 using LinqToDB.Mapping;
 using Polars.CSharp;
+using Polars.NET.Core;
+using Polars.NET.Core.Arrow;
+using Polars.NET.Linq;
 using Polars.NET.Linq.CSharpExtensions;
 
 namespace Polars.Integration.Tests;
@@ -374,15 +377,15 @@ public class AdbcLocalTests : IDisposable
             new { id = 103, name = "Engine", language = "Rust" }
         };
         using var df = DataFrame.FromEnumerable(records);
-        df.Show();
         df.WriteToAdbc(_connection, "stage1_table");
-        Console.WriteLine("Stage 1: Polars written to DuckDB");
+        Console.WriteLine("✅ Stage 1: Polars written to DuckDB");
 
         // ==========================================
-        // Act 2: DuckDB Calculation -> Polars
+        // Act 2: DuckDB 引擎计算 -> Polars (LINQ 下推)
         // ==========================================
         using var duckDbTranslator = new DataConnection(options); 
 
+        // 注意：这里 ToDataFrameAdbc 返回的是完全独立的、从 DuckDB 拉过来的新 DataFrame
         using var pushdownDf = duckDbTranslator.GetTable<AdbcE2ERecord>()
             .TableName("stage1_table")
             .Where(x => x.Id > 101) 
@@ -394,36 +397,36 @@ public class AdbcLocalTests : IDisposable
             })
             .ToDataFrameAdbc(_connection);
             
-        Console.WriteLine("Stage 2: Pushdown computed by DuckDB, pulled to Polars");
+        Console.WriteLine("✅ Stage 2: Pushdown computed by DuckDB, pulled to Polars");
         pushdownDf.Show();
 
         // ==========================================
-        // Act 3: Polars Calculation -> New DataFrame
+        // Act 3: Polars 引擎计算 -> 内存新数据 (LINQ 内存)
         // ==========================================
 
         using var finalPolarsDf = pushdownDf.AsQueryable<PushdownRecord>()
             .Select(x => new 
             {
-                FinalId = x.Id + 1000,                            
-                SuperName = x.Name + " Pro Max",                  
-                LangStatus = x.UpperLang == "RUST" ? "Genshin" : "God" 
+                FinalId = x.Id + 1000,                            // 简单的数学运算
+                SuperName = x.Name + " Pro Max",                  // 字符串拼接
+                LangStatus = x.UpperLang == "RUST" ? "God" : "Mortal" // 条件分支（会被翻译成 CASE WHEN）
             })
-            .ToDataFrame(); 
+            .ToDataFrame(); // 终极点火！Polars 内存引擎开始狂奔！
 
-        Console.WriteLine("Stage 3: In-Memory computed by Polars Engine");
+        Console.WriteLine("✅ Stage 3: In-Memory computed by Polars Engine");
         finalPolarsDf.Show();
 
         // ==========================================
-        // Act 4: Polars -> DuckDB
+        // Act 4: Polars -> DuckDB (最终结果归档)
         // ==========================================
         finalPolarsDf.WriteToAdbc(_connection, "final_destination_table");
-        Console.WriteLine("Stage 4: Final results written back to DuckDB");
+        Console.WriteLine("✅ Stage 4: Final results written back to DuckDB");
 
         // ==========================================
-        // Act 5: Verification
+        // Act 5: 验证终极闭环
         // ==========================================
         using var verifyFinalDf = DataFrame.ReadAdbc(_connection, "SELECT * FROM final_destination_table ORDER BY FinalId");
-        Console.WriteLine("====== Verification from DuckDB ======");
+        Console.WriteLine("====== 🎯 Ultimate Verification from DuckDB ======");
         verifyFinalDf.Show();
 
         Assert.Equal(2, verifyFinalDf.Height);
@@ -435,6 +438,6 @@ public class AdbcLocalTests : IDisposable
         _connection?.Dispose();
         _database?.Dispose();
         _driver?.Dispose();
-        GC.SuppressFinalize(this);
+
     }
 }

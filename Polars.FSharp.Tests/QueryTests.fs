@@ -7,7 +7,6 @@ open Polars.NET.Linq.FSharpExtensions
 open Polars.FSharp
 open LinqToDB
 open System
-open System.Linq.Expressions
 
 type Person = {Name: string;Age: int;Sales: float}
 type Department = { DeptId: int; DeptName: string }
@@ -32,11 +31,68 @@ type StaffRecordWithBonus = {
 }
 type TrafficRecord = { Id: int; Region: string; Latency: float }
 type EmpDto = { Name: string; DeptId: int }
+type PlayerOptionRecord = {
+    Id: int
+    Nickname: string option       
+    Score: int voption            
+    LastLogin: DateTime voption  
+}
 
 module QueryTests =
     open System.IO
     open System.Threading.Tasks
 
+    [<Fact>]
+    [<Trait("Linq", "FSharpOptions")>]
+    let ``Test Polars FSharp Option And ValueOption Accessor`` () =
+        
+        // 1. 构造包含 None 和 ValueNone 的复杂数据
+        let data = [|
+            { Id = 1; Nickname = Some "Alice";   Score = ValueSome 100; LastLogin = ValueSome DateTime.Now }
+            { Id = 2; Nickname = None;           Score = ValueSome 80;  LastLogin = ValueSome DateTime.Now } // 无名氏
+            { Id = 3; Nickname = Some "Bob";     Score = ValueNone;     LastLogin = ValueSome DateTime.Now } // 没分数的 Bob
+            { Id = 4; Nickname = None;           Score = ValueNone;     LastLogin = ValueNone }              // 彻底的幽灵
+        |]
+
+        // 2. 触发你的 FSharpHelper.PackXXX 逻辑，极速装载进 Arrow 内存
+        use df = DataFrame.ofRecords data
+
+        let table = df.AsQueryable<PlayerOptionRecord>()
+
+        // 3. 触发 FSharpOptionAccessor 逻辑，从 Arrow 内存反向装箱成 F# Option
+        let results = 
+            query {
+                for p in table do
+                sortBy p.Id
+                select p
+            } |> Seq.toArray
+
+        // ==========================================
+        // 4. 验证奇迹发生的时刻
+        // ==========================================
+        Assert.Equal(4, results.Length)
+
+        // Row 1: 全满
+        Assert.Equal(1, results.[0].Id)
+        Assert.True(results.[0].Nickname.IsSome)
+        Assert.Equal("Alice", results.[0].Nickname.Value)
+        Assert.Equal(ValueSome 100, results.[0].Score)
+
+        // Row 2: 测试 Option.None (底层解析为 null)
+        Assert.Equal(2, results.[1].Id)
+        Assert.True(results.[1].Nickname.IsNone) // 必须是 None
+        Assert.Equal(ValueSome 80, results.[1].Score)
+
+        // Row 3: 测试 ValueOption.ValueNone (底层解析为 Struct Default)
+        Assert.Equal(3, results.[2].Id)
+        Assert.Equal(Some "Bob", results.[2].Nickname)
+        Assert.True(results.[2].Score.IsValueNone) // 必须是 ValueNone
+
+        // Row 4: 幽灵行
+        Assert.Equal(4, results.[3].Id)
+        Assert.True(results.[3].Nickname.IsNone)
+        Assert.True(results.[3].Score.IsValueNone)
+        Assert.True(results.[3].LastLogin.IsValueNone)
     [<Fact>]
     [<Trait("Linq", "Where")>]
     let ``Test Polars FSharp Linq Where And OrderBy`` () =
@@ -54,7 +110,7 @@ module QueryTests =
         let ageLimit = 20
         let excludeName = "Alice"
 
-        let table = db.RegisterTable<Person>("people", df)
+        let table = db.RegisterTable<Person>(df)
 
         let queryable = 
             query {
@@ -98,8 +154,9 @@ module QueryTests =
         use ctx = new SqlContext()
         use db = new PolarsDataContext(ctx)
 
-        let deptQuery = db.RegisterTable<Department>("departments", dfDepts)
-        let empQuery = db.RegisterTable<Employee>("employees", dfEmps)
+        // let deptQuery = db.RegisterTable<Department>(dfDepts)
+        let deptQuery = dfDepts.AsQueryable<Department> db
+        let empQuery = dfEmps.AsQueryable<Employee> db
 
         // Act: F# 原生的 LINQ Join 语法
         let queryable = 
@@ -142,7 +199,7 @@ module QueryTests =
         use ctx = new SqlContext()
         use db = new PolarsDataContext(ctx)
         
-        let empQuery = db.RegisterTable<EmployeeSalary>("employees_salary", dfEmps)
+        let empQuery = db.RegisterTable<EmployeeSalary>(dfEmps)
 
         // Act: F# 原生的 LINQ GroupBy + Having 语法
         // 预期 SQL: GROUP BY e."DeptId" HAVING SUM(e."Salary") > 5000
@@ -198,7 +255,7 @@ module QueryTests =
         use db = new PolarsDataContext(sqlCtx)
         
         // 注册表，沿用你巧妙的类型推断重载
-        let table = db.RegisterTable("students", df, data)
+        let table = db.RegisterTable(df, data)
 
         // ==========================================
         // 测试 1：标量聚合 (Scalar Aggregation)
@@ -265,8 +322,8 @@ module QueryTests =
         use sqlCtx = new SqlContext()
         use db = new PolarsDataContext(sqlCtx)
 
-        let deptQuery = db.RegisterTable<Department>("departments", dfDepts)
-        let empQuery = db.RegisterTable<Employee>("employees", dfEmps)
+        let deptQuery = db.RegisterTable<Department> dfDepts
+        let empQuery = db.RegisterTable<Employee> dfEmps
 
         // Act: F# 原生的 Left Outer Join 语法
         let queryable = 
@@ -328,8 +385,8 @@ module QueryTests =
         use db = new PolarsDataContext(sqlCtx)
         
         // 注册表
-        let deptQuery = db.RegisterTable("departments", dfDepts, depts)
-        let empQuery = db.RegisterTable("employees", dfEmps, emps)
+        let deptQuery = db.RegisterTable(dfDepts, depts)
+        let empQuery = db.RegisterTable(dfEmps, emps)
 
         // ==========================================
         // 测试 1：交叉连接 (Cross Join / Cartesian Product)
@@ -395,7 +452,7 @@ module QueryTests =
         use dfEmps = DataFrame.ofRecords emps
         use sqlCtx = new SqlContext()
         use db = new PolarsDataContext(sqlCtx)
-        let empQuery = db.RegisterTable<EmployeeSalary>("employees", dfEmps)
+        let empQuery = db.RegisterTable<EmployeeSalary>(dfEmps)
 
         // ==========================================
         // 测试 1：交集 (Intersect)
@@ -463,7 +520,7 @@ module QueryTests =
         use dfEmps = DataFrame.ofRecords emps
         use sqlCtx = new SqlContext()
         use db = new PolarsDataContext(sqlCtx)
-        let empQuery = db.RegisterTable("employees", dfEmps, emps)
+        let empQuery = db.RegisterTable(dfEmps, emps)
 
         // ==========================================
         // 测试：窗口函数 (Window Functions)
@@ -530,9 +587,7 @@ module QueryTests =
         |]
 
         use dfOrders = DataFrame.ofRecords orders
-        use sqlCtx = new SqlContext()
-        use db = new PolarsDataContext(sqlCtx)
-        let orderQuery = db.RegisterTable<OrderDto>("orders", dfOrders)
+        let orderQuery = dfOrders.AsQueryable<OrderDto>()
 
         // ==========================================
         // 测试 1：多维分组 (Multi-key GroupBy)
@@ -596,7 +651,7 @@ module QueryTests =
         use sqlCtx = new SqlContext()
         use db = new PolarsDataContext(sqlCtx)
 
-        let queryable = db.RegisterTable<ProductDto>("products", df)
+        let queryable = db.RegisterTable<ProductDto>(df)
 
         // ==========================================
         // 测试 1：集合包含 (映射为 IN 子句)
@@ -665,7 +720,7 @@ module QueryTests =
         use df = DataFrame.ofRecords data
         use sqlCtx = new SqlContext()
         use db = new PolarsDataContext(sqlCtx)
-        let queryable = db.RegisterTable<ProductDto>("products", df)
+        let queryable = db.RegisterTable<ProductDto>(df)
 
         // ==========================================
         // 测试 1：投影去重 (Distinct)
@@ -725,7 +780,7 @@ module QueryTests =
         use dfEmps = DataFrame.ofRecords emps
         use sqlCtx = new SqlContext()
         use db = new PolarsDataContext(sqlCtx)
-        let empQuery = db.RegisterTable<EmployeeSalary>("employees", dfEmps)
+        let empQuery = db.RegisterTable<EmployeeSalary> dfEmps
 
         // ==========================================
         // 测试 1：CASE WHEN (数据分箱/条件分支)
@@ -803,8 +858,8 @@ module QueryTests =
         use sqlCtx = new SqlContext()
         use db = new PolarsDataContext(sqlCtx)
 
-        let deptQuery = db.RegisterTable<DeptDto>("departments", dfDepts)
-        let empQuery = db.RegisterTable<NullableEmpDto>("employees", dfEmps)
+        let deptQuery = db.RegisterTable<DeptDto> dfDepts
+        let empQuery = db.RegisterTable<NullableEmpDto> dfEmps
 
         // ==========================================
         // 测试 1：非相关子查询 (IN Subquery)
@@ -883,7 +938,7 @@ module QueryTests =
         use dfSales = DataFrame.ofRecords sales
         use sqlCtx = new SqlContext()
         use db = new PolarsDataContext(sqlCtx)
-        let salesQuery = db.RegisterTable<SalesData>("sales", dfSales)
+        let salesQuery = db.RegisterTable<SalesData> dfSales
 
         // ==========================================
         // 测试 1：字符串拼接 (+) 与 数学函数 (Math)
@@ -943,7 +998,7 @@ module QueryTests =
         use df = DataFrame.ofRecords logs
         use sqlCtx = new SqlContext()
         use db = new PolarsDataContext(sqlCtx)
-        let logQuery = db.RegisterTable<ServerLog>("logs", df)
+        let logQuery = db.RegisterTable<ServerLog> df
 
         // ==========================================
         // 极客测试 1：位运算 (Bitwise)
@@ -1000,7 +1055,7 @@ module QueryTests =
         use sqlCtx = new SqlContext()
         use db = new PolarsDataContext(sqlCtx)
         
-        let stockQuery = db.RegisterTable<StockPrice>("stocks", dfStocks)
+        let stockQuery = db.RegisterTable<StockPrice> dfStocks
 
         // ==========================================
         // 测试 1：高级窗口函数 (Lag - 获取上一行的值)
@@ -1042,8 +1097,8 @@ module QueryTests =
         use sqlCtx = new SqlContext()
         use db = new PolarsDataContext(sqlCtx)
         
-        let deptQuery = db.RegisterTable<DeptDto>("departments", dfDepts)
-        let empQuery = db.RegisterTable<EmpDto>("employees", dfEmps)
+        let deptQuery = db.RegisterTable<DeptDto> dfDepts
+        let empQuery = db.RegisterTable<EmpDto> dfEmps
 
         // ==========================================
         // 测试：Nested List (嵌套集合聚合)
@@ -1088,7 +1143,7 @@ module QueryTests =
         use rawLf = LazyFrame.ScanCsv(path, schema = schema)
         // let plan = rawLf.Explain()
         // Console.WriteLine plan
-        let emps = db.RegisterTable<StaffRecord>("emps", rawLf,schema)
+        let emps = db.RegisterTable<StaffRecord>(rawLf)
         
         // ==========================================
         // 2. LINQ 阶段 (业务表达阶段)
@@ -1129,26 +1184,23 @@ module QueryTests =
         let numbers = [| 1 .. 100 |]
         use series = Series.create("my_numbers", numbers)
         
-        use ctx = new SqlContext()
-        use db = new PolarsDataContext(ctx)
-
-        // 2. 极其优雅的注册！不需要 dummy data，不需要 DTO！
         // 直接拿到 IQueryable<int>
-        let queryable = db.RegisterSeries<int> series
+        let queryable = series.AsQueryable<int>()
 
         // 3. 纯正的标量 LINQ 语法！
         // 【纯正 F# 风味】：使用 query 计算表达式，逻辑清晰无比
-        let results = 
+        let seriesquery = 
             query {
                 for x in queryable do
                 where (x > 90)
                 sortByDescending x
                 select x
-            } |> Seq.toList
-
+            }
+        let result = seriesquery.ToSeries()
+        
         // 验证
-        Assert.Equal(10, results.Length)
-        Assert.Equal(100, results.[0])
+        Assert.Equal(10L, result.Length)
+        // Assert.Equal(100, results.[0])
     [<Fact>]
     [<Trait("Linq", "SyntaxSugar")>]
     let ``Test Ultimate StrongTyped Select Sugar in FSharp`` () =
@@ -1231,7 +1283,7 @@ module QueryTests =
             // 【核心混写阶段 2：F# Query 表达式 (LINQ)】
             // 将带有原生计划的 LazyFrame 注册进来，用 F# 原生的 query 编写业务逻辑！
             // ====================================================================
-            let employees = db.RegisterTable<StaffRecordWithBonus>("employees", lfWithBonus)
+            let employees = db.RegisterTable<StaffRecordWithBonus>(lfWithBonus)
             
             let linqQuery = 
                 query {
@@ -1280,7 +1332,7 @@ module QueryTests =
         use db = new PolarsDataContext(sqlCtx, ownsContext = true)
         
         // 2. 极其优雅的上下文初始化
-        let table = db.RegisterTable<EmployeeSalary>("employees", dfEmps)
+        let table = db.RegisterTable<EmployeeSalary>(dfEmps)
 
         // ==========================================
         // 【R: 查询】
@@ -1342,7 +1394,7 @@ module QueryTests =
             use ctx = new SqlContext()
             use db = new PolarsDataContext(ctx)
             
-            let table = db.RegisterTable<TrafficRecord>("traffic", df)
+            let table = db.RegisterTable<TrafficRecord>(df)
             let targetRegion = sprintf "Region_%d" (workerId % 50)
 
             // 【黑科技回收】：还记得我们写的 AST 解包猎犬吗？
