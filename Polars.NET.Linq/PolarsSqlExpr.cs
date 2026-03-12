@@ -305,7 +305,11 @@ public static class PolarsSql
     // [Sql.Expression("BIT_COUNT({0})", ServerSideOnly = true)]
     // public static int BitCount(int a) 
     //     => throw new InvalidOperationException("Only for LINQ to Polars.");
-
+    /// <summary>
+    /// Returns the bitwise NOT of the specified value.
+    /// </summary>
+    [Sql.Expression("BIT_NOT({0})", ServerSideOnly = true)]
+    public static T BitNot<T>(T value) => throw new InvalidOperationException("Only for LINQ to Polars.");
     // ==========================================
     // Degree <=> Radians
     // ==========================================

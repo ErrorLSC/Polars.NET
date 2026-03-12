@@ -1,10 +1,11 @@
 using System.Collections;
-using System.Collections.Concurrent;
 using System.Data;
 using System.Data.Common;
-using Apache.Arrow;
 
 namespace Polars.NET.Core.Data;
+/// <summary>
+/// Convert Polars DataFrame to DataReader with CancellationToken Control
+/// </summary>
 public sealed class PolarsDataReader(
     ArrowToDbStream innerReader,
     CancellationTokenSource cts,
@@ -24,10 +25,9 @@ public sealed class PolarsDataReader(
 
             try
             {
-                // 等待生产者安全退出
                 producerTask.Wait(TimeSpan.FromMilliseconds(500));
             }
-            catch { /* 吞掉任务取消或超时的异常 */ }
+            catch { /* */ }
 
             cts.Dispose();
         }
@@ -56,7 +56,6 @@ public sealed class PolarsDataReader(
     public override long GetBytes(int i, long fieldOffset, byte[]? buffer, int bufferoffset, int length) => innerReader.GetBytes(i, fieldOffset, buffer, bufferoffset, length);
     public override char GetChar(int i) => innerReader.GetChar(i);
     public override long GetChars(int i, long fieldoffset, char[]? buffer, int bufferoffset, int length) => innerReader.GetChars(i, fieldoffset, buffer, bufferoffset, length);
-    // public override IDataReader GetData(int i) => throw new NotSupportedException();
     public override string GetDataTypeName(int i) => innerReader.GetDataTypeName(i);
     public override DateTime GetDateTime(int i) => innerReader.GetDateTime(i);
     public override decimal GetDecimal(int i) => innerReader.GetDecimal(i);

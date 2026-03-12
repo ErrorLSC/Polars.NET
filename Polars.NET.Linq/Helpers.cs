@@ -17,12 +17,12 @@ internal static partial class SqlSanitizer
     [GeneratedRegex(@"(GROUP\s+BY\s+)(.+?)(HAVING|ORDER\s+BY|LIMIT|$)", RegexOptions.IgnoreCase | RegexOptions.Singleline, "en-US")]
     private static partial Regex GroupByRegex();
 
-    [GeneratedRegex(@"(?:DELETE\s+FROM|UPDATE)\s+""?([a-zA-Z0-9_]+)""?", RegexOptions.IgnoreCase | RegexOptions.Singleline, "en-US")]
-    private static partial Regex DmlTableRegex();
-
     // Regex to swap Position(A in B) to STRPOS(B, A)
     [GeneratedRegex(@"Position\((.*?)\s+in\s+(.*?)\)", RegexOptions.IgnoreCase | RegexOptions.Singleline, "en-US")]
     private static partial Regex PositionRegex();
+
+    [GeneratedRegex(@"~\s*([a-zA-Z0-9_.""]+|\([^)]+\))", RegexOptions.IgnoreCase, "en-US")]
+    private static partial Regex BitNotRegex();
 
     // ==========================================
     // Clean Method
@@ -40,7 +40,10 @@ internal static partial class SqlSanitizer
         {
             sql = PositionRegex().Replace(sql, "CAST(STRPOS($2, $1) AS INT)");
         }
-
+        if (sql.Contains('~'))
+        {
+            sql = BitNotRegex().Replace(sql, "BIT_NOT($1)");
+        }
         // Deduplicate GROUP BY
         var groupMatch = GroupByRegex().Match(sql);
         if (groupMatch.Success)
@@ -129,7 +132,14 @@ internal static partial class SqlSanitizer
                 }
 
                 string distinctGroupBy = string.Join(", ", distinctKeys) + " ";
-                sql = sql.Replace(originalGroupBy, distinctGroupBy);
+                int replaceStart = groupMatch.Groups[2].Index;
+                int replaceLength = groupMatch.Groups[2].Length;
+
+                sql = string.Concat(
+                    sql.AsSpan(0, replaceStart), 
+                    distinctGroupBy, 
+                    sql.AsSpan(replaceStart + replaceLength)
+                );
             }
             finally
             {
@@ -139,7 +149,6 @@ internal static partial class SqlSanitizer
                 }
             }
         }
-        // Console.WriteLine(sql);
         return sql;
     }
 
@@ -218,12 +227,10 @@ internal static partial class SqlSanitizer
         return snippet.Trim();
     }
 
-    internal static Match MatchDmlTable(string sql)
-        => DmlTableRegex().Match(sql);
 }
 
 /// <summary>
-/// Zero-Allocation Builder
+/// Zero-Allocation String Builder
 /// </summary>
 internal ref struct ValueStringBuilder
 {

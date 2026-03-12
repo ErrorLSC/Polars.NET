@@ -1,13 +1,11 @@
 #pragma warning disable CS8765 
-#pragma warning disable CS1591 
 using System.Collections;
 using System.Data;
 using System.Data.Common;
+using System.Text.RegularExpressions;
 using Apache.Arrow;
-using Polars.NET.Core;
-using Polars.NET.Core.Data;
 
-namespace Polars.NET.Linq;
+namespace Polars.NET.Core.Data;
 
 /// <summary>
 /// Represents a virtual ADO.NET connection to the Polars SQL engine.
@@ -18,7 +16,7 @@ namespace Polars.NET.Linq;
 /// <para>
 /// Unlike traditional connections, <see cref="PolarsDbConnection"/> does not establish 
 /// a network socket. Instead, it provides the necessary metadata and command-routing 
-/// logic to allow <c>linq2db</c> to treat an in-memory Polars context as a relational database.
+/// logic to allow ORM to treat an in-memory Polars context as a relational database.
 /// </para>
 /// </remarks>
 /// <param name="sqlContext">The underlying Polars SQL context where tables are registered and queries are executed.</param>
@@ -55,10 +53,13 @@ internal partial class PolarsDbCommand(IPolarsSqlContext sqlContext) : DbCommand
     protected override DbParameterCollection DbParameterCollection => new PolarsDbParameterCollection();
     protected override DbParameter CreateDbParameter() => new PolarsDbParameter();
 
+    [GeneratedRegex(@"(?:DELETE\s+FROM|UPDATE)\s+""?([a-zA-Z0-9_]+)""?", RegexOptions.IgnoreCase | RegexOptions.Singleline, "en-US")]
+    private static partial Regex DmlTableRegex();
+    
     public override void Cancel() { }
     public override int ExecuteNonQuery()
     {
-        var match = SqlSanitizer.MatchDmlTable(CommandText);
+        var match = DmlTableRegex().Match(CommandText.Trim());
         string? tableName = match.Success ? match.Groups[1].Value : null;
 
         long oldHeight = -1;
@@ -115,14 +116,13 @@ internal partial class PolarsDbCommand(IPolarsSqlContext sqlContext) : DbCommand
 
     protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)
     {
-        var stream = ExecuteAndYieldBatches(CommandText);
+        var stream = ExecuteAndYieldBatches();
         return new ArrowToDbStream(stream);
     }
  
-    private IEnumerable<RecordBatch> ExecuteAndYieldBatches(string rawSql)
+    private IEnumerable<RecordBatch> ExecuteAndYieldBatches()
     {
-        var sanitizedSql = SqlSanitizer.Clean(rawSql);
-        using var lazyFrame = _sqlContext.Execute(sanitizedSql);
+        using var lazyFrame = _sqlContext.Execute(CommandText);
         using var df = lazyFrame.Collect(false);
         using var batch = df.ToArrow();
         yield return batch;

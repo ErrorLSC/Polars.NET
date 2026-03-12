@@ -372,44 +372,62 @@ public class LinqProviderTests
         Assert.Equal(3, pagedResult[0].Id); 
         Assert.Equal(4, pagedResult[1].Id);
     }
-    // [Fact]
-    // [Trait("Linq", "Subquery")]
-    // public void Test_Polars_Linq_Subquery_Any()
-    // {
-    //     // Arrange: 准备部门和员工数据
-    //     var depts = new[]
-    //     {
-    //         new { DeptId = 1, DeptName = "Engineering" },
-    //         new { DeptId = 2, DeptName = "Sales" },
-    //         new { DeptId = 3, DeptName = "HR" }
-    //     };
+    [Fact]
+    [Trait("Linq", "Subquery")]
+    public void Test_Polars_Linq_Subquery_Any()
+    {
+        // Arrange: 准备部门和员工数据
+        var depts = new[]
+        {
+            new { DeptId = 1, DeptName = "Engineering" },
+            new { DeptId = 2, DeptName = "Sales" },
+            new { DeptId = 3, DeptName = "HR" }
+        };
 
-    //     var emps = new[]
-    //     {
-    //         new { Name = "Alice", DeptId = 1, Salary = 6000.0 }, // Engineering 达标 (> 5000)
-    //         new { Name = "Bob",   DeptId = 2, Salary = 4000.0 }, // Sales 不达标
-    //         new { Name = "Charlie", DeptId = 1, Salary = 4500.0 }
-    //     };
+        var emps = new[]
+        {
+            new { Name = "Alice", DeptId = 1, Salary = 6000.0 }, // Engineering 达标 (> 5000)
+            new { Name = "Bob",   DeptId = 2, Salary = 4000.0 }, // Sales 不达标
+            new { Name = "Charlie", DeptId = 1, Salary = 4500.0 }
+        };
 
-    //     using var dfDepts = DataFrame.From(depts);
-    //     using var dfEmps = DataFrame.From(emps);
+        using var dfDepts = DataFrame.From(depts);
+        using var dfEmps = DataFrame.From(emps);
 
-    //     using var ctx = new SqlContext();
-    //     var deptQuery = ctx.RegisterTable("departments", dfDepts, depts);
-    //     var empQuery = ctx.RegisterTable("employees", dfEmps, emps);
+        using var ctx = new SqlContext();
+        using var db = new PolarsDataContext(ctx);
+        var deptQuery = db.RegisterTable(dfDepts, depts);
+        var empQuery = db.RegisterTable(dfEmps, emps);
 
-    //     // ==========================================
-    //     // 测试：相关子查询 Any
-    //     // 业务需求：找出“至少拥有一个薪水大于 5000 的员工”的部门
-    //     // ==========================================
-    //     var result = deptQuery.Where(d => 
-    //         empQuery.Any(e => e.DeptId == d.DeptId && e.Salary > 5000)
-    //     ).ToList();
+        // ==========================================
+        // 测试：相关子查询 Any
+        // 业务需求：找出“至少拥有一个薪水大于 5000 的员工”的部门
+        // ==========================================
+        // var query = deptQuery.Where(d => 
+        //     empQuery.Any(e => e.DeptId == d.DeptId && e.Salary > 5000)
+        // );
+        // 1. 先查出所有符合条件的高薪部门 ID 集合（这是一个独立查询，没有外部依赖）
+        // var highSalaryDeptIds = empQuery
+        //     .Where(e => e.Salary > 5000)
+        //     .Select(e => e.DeptId);
 
-    //     // Assert: 只有 Engineering 部门满足条件
-    //     Assert.Single(result);
-    //     Assert.Equal("Engineering", result[0].DeptName);
-    // }
+        // // 2. 外层用 Contains 触发 IN 语法
+        // var query = deptQuery
+        //     .Where(d => highSalaryDeptIds.Contains(d.DeptId));
+        var query = deptQuery
+            .Join(
+                empQuery.Where(e => e.Salary > 5000), 
+                d => d.DeptId, 
+                e => e.DeptId, 
+                (d, e) => d // 只要左边的 Dept
+            )
+            .Distinct();
+        var result = query.ToList();
+        
+        // Assert: 只有 Engineering 部门满足条件
+        Assert.Single(result);
+        Assert.Equal("Engineering", result[0].DeptName);
+    }
     public class DeptDto
     {
         public int DeptId { get; set; }
@@ -1824,7 +1842,7 @@ David,40,80000";
         // 测试：C# 原生位运算符
         // 预警：看看 linq2db 会生成符号还是函数，以及 Polars 认不认
         // ==========================================
-        var bitQuery = table
+        var firstQuery = table
             .OrderBy(x => x.Id)
             .Select(x => new
             {
@@ -1836,29 +1854,31 @@ David,40,80000";
                 // Bitwise XOR
                 XorResult  = PolarsSql.BitXor(x.A, x.B),
                 // Bitwise NOT
+                // NotResult = PolarsSql.BitNot(x.A)
                 NotResult = ~x.A,       
                 // CountResult = PolarsSql.BitCount(x.A)
-            })
-            .ToList();
+            });
 
+        var bitQuery = firstQuery.ToList();
+        // Console.WriteLine(firstQuery.ToSqlString());
         Assert.Equal(2, bitQuery.Count);
 
-        // 验证 5 和 3 
-        // 5 & 3 = 1 (0001)
-        // 5 | 3 = 7 (0111)
-        // 5 ^ 3 = 6 (0110)
-        // ~5    = -6 (按位取反，带符号)
+        // // 验证 5 和 3 
+        // // 5 & 3 = 1 (0001)
+        // // 5 | 3 = 7 (0111)
+        // // 5 ^ 3 = 6 (0110)
+        // // ~5    = -6 (按位取反，带符号)
         var row1 = bitQuery[0];
         Assert.Equal(1, row1.AndResult);
         Assert.Equal(7, row1.OrResult);
         Assert.Equal(6, row1.XorResult);
         Assert.Equal(~5, row1.NotResult); 
 
-        // 验证 12 和 10
-        // 12 & 10 = 8 (1000)
-        // 12 | 10 = 14 (1110)
-        // 12 ^ 10 = 6 (0110)
-        // ~12     = -13
+        // // 验证 12 和 10
+        // // 12 & 10 = 8 (1000)
+        // // 12 | 10 = 14 (1110)
+        // // 12 ^ 10 = 6 (0110)
+        // // ~12     = -13
         var row2 = bitQuery[1];
         Assert.Equal(8, row2.AndResult);
         Assert.Equal(14, row2.OrResult);
@@ -2497,5 +2517,213 @@ David,40,80000";
         // Assert.Equal(102, query[2].OrderId);
         // Assert.Equal("Cherry", query[2].Item.Sku);
         // Assert.Equal(10, query[2].Item.Qty);
+    }
+    public class JoinResult
+    {
+        public string DeptName { get; set; } = string.Empty;
+        public string? EmployeeName { get; set; } 
+    }
+    [Fact]
+    [Trait("Linq", "LeftJoinNew")]
+    public void Test_Polars_Linq_LeftJoin_Net10()
+    {
+        // Arrange
+        var depts = new[]
+        {
+            new DeptDto { DeptId = 1, DeptName = "Engineering" },
+            new DeptDto { DeptId = 2, DeptName = "Sales" },
+            new DeptDto { DeptId = 3, DeptName = "HR" } // HR 没有员工
+        };
+
+        var emps = new[]
+        {
+            new EmpDto { Name = "Alice", DeptId = 1 },
+            new EmpDto { Name = "Bob",   DeptId = 2 },
+            new EmpDto { Name = "Charlie", DeptId = 1 }
+        };
+
+        using var dfDepts = DataFrame.From(depts);
+        using var dfEmps = DataFrame.From(emps);
+
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        var deptQuery = db.RegisterTable<DeptDto>(dfDepts);
+        var empQuery = db.RegisterTable<EmpDto>(dfEmps);
+
+        // Act: 🚀 使用 .NET 10 原生 LeftJoin！告别 DefaultIfEmpty 地狱！
+        var query = deptQuery
+            .LeftJoin(
+                empQuery,
+                d => d.DeptId,
+                e => e.DeptId,
+                (d, e) => new 
+                {
+                    d.DeptId, // 临时保留用于排序
+                    DeptName = d.DeptName,
+                    // e 可能是 null，使用 C# null 条件运算符极致优雅
+                    EmployeeName = e != null ? e.Name : "NO_EMPLOYEE" 
+                })
+            .OrderBy(x => x.DeptId)
+            .ThenBy(x => x.EmployeeName)
+            .Select(x => new JoinResult
+            {
+                DeptName = x.DeptName,
+                EmployeeName = x.EmployeeName
+            });
+        Console.WriteLine(query.ToSqlString());
+        var results = query.ToList();
+
+        // Assert
+        Assert.Equal(4, results.Count);
+
+        // 验证 Engineering (1)
+        Assert.Equal("Engineering", results[0].DeptName);
+        Assert.Equal("Alice", results[0].EmployeeName);
+        Assert.Equal("Engineering", results[1].DeptName);
+        Assert.Equal("Charlie", results[1].EmployeeName);
+
+        // 验证 Sales (2)
+        Assert.Equal("Sales", results[2].DeptName);
+        Assert.Equal("Bob", results[2].EmployeeName);
+
+        // 验证 HR (3) - Left Join 空值兜底
+        Assert.Equal("HR", results[3].DeptName);
+        Assert.Equal("NO_EMPLOYEE", results[3].EmployeeName);
+    }
+
+    // ==========================================================
+    // 🌟 .NET 10 新语法测试：RightJoin
+    // ==========================================================
+    [Fact]
+    [Trait("Linq", "RightJoin")]
+    public void Test_Polars_Linq_RightJoin_Net10()
+    {
+        // Arrange (数据同上)
+        var depts = new[]
+        {
+            new DeptDto { DeptId = 1, DeptName = "Engineering" },
+            new DeptDto { DeptId = 2, DeptName = "Sales" },
+            new DeptDto { DeptId = 3, DeptName = "HR" }
+        };
+
+        var emps = new[]
+        {
+            new EmpDto { Name = "Alice", DeptId = 1 },
+            new EmpDto { Name = "Bob",   DeptId = 2 },
+            new EmpDto { Name = "Charlie", DeptId = 1 },
+            new EmpDto { Name = "David", DeptId = 99 } // 🚨 注意：David 没有匹配的部门！
+        };
+
+        using var dfDepts = DataFrame.From(depts);
+        using var dfEmps = DataFrame.From(emps);
+
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        var deptQuery = db.RegisterTable<DeptDto>(dfDepts);
+        var empQuery = db.RegisterTable<EmpDto>(dfEmps);
+
+        // Act: 🚀 使用 .NET 10 原生 RightJoin！
+        // 把 emps 放左边，depts 放右边，执行 RightJoin，就等于 depts LeftJoin emps
+        // 这里的 d (Dept) 永远有值，但 e (Emp) 可能为 null (由于是以 dept 为基准的 RightJoin)
+        var query = empQuery
+            .RightJoin(
+                deptQuery,
+                e => e.DeptId,
+                d => d.DeptId,
+                (e, d) => new 
+                {
+                    d.DeptId,
+                    DeptName = d.DeptName,
+                    // e 可能是 null，因为有些 Dept 没有员工 (比如 HR)
+                    EmployeeName = e != null ? e.Name : "NO_EMPLOYEE" 
+                })
+            .OrderBy(x => x.DeptId)
+            .ThenBy(x => x.EmployeeName)
+            .Select(x => new JoinResult
+            {
+                DeptName = x.DeptName,
+                EmployeeName = x.EmployeeName
+            });
+        // Console.WriteLine(query.ToSqlString());
+        var results = query.ToList();
+
+        // Assert: 结果应该与上面的 LeftJoin 完全一致，因为我们反转了表的位置和 Join 的方向
+        Assert.Equal(4, results.Count);
+        Assert.Equal("HR", results[3].DeptName);
+        Assert.Equal("NO_EMPLOYEE", results[3].EmployeeName);
+    }
+    public class SaleRecord
+    {
+        public int Id { get; set; }
+        public string Category { get; set; } = string.Empty;
+        public double Amount { get; set; }
+    }
+
+    [Fact]
+    [Trait("Linq", "CountBy_AggregateBy")]
+    public void Test_Polars_Linq_New_Aggregations_Net10()
+    {
+        // Arrange
+        var sales = new[]
+        {
+            new SaleRecord { Id = 1, Category = "Electronics", Amount = 1200.50 },
+            new SaleRecord { Id = 2, Category = "Electronics", Amount = 800.00 },
+            new SaleRecord { Id = 3, Category = "Clothing",    Amount = 150.00 },
+            new SaleRecord { Id = 4, Category = "Clothing",    Amount = 200.00 },
+            new SaleRecord { Id = 5, Category = "Clothing",    Amount = 50.00 },
+            new SaleRecord { Id = 6, Category = "Books",       Amount = 45.00 }
+        };
+
+        using var df = DataFrame.From(sales);
+        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
+        var salesQuery = db.RegisterTable<SaleRecord>(df);
+
+        // ==========================================================
+        // 🌟 跑车 1号：CountBy (按类目统计订单数)
+        // 预期 SQL: SELECT Category, COUNT(*) FROM Sales GROUP BY Category
+        // ==========================================================
+        var countResult = salesQuery
+            .CountBy(x => x.Category) // 🔥 原生 CountBy！返回 KeyValuePair<string, int>
+            .OrderBy(x => x.Key)
+            .ToList();
+
+        Assert.Equal(3, countResult.Count);
+        
+        // Books: 1, Clothing: 3, Electronics: 2
+        Assert.Equal("Books", countResult[0].Key);
+        Assert.Equal(1, countResult[0].Value);
+
+        Assert.Equal("Clothing", countResult[1].Key);
+        Assert.Equal(3, countResult[1].Value);
+
+        Assert.Equal("Electronics", countResult[2].Key);
+        Assert.Equal(2, countResult[2].Value);
+
+        // ==========================================================
+        // 🌟 经典跑车：GroupBy + Sum (按类目统计总销售额)
+        // 预期 SQL: SELECT Category, SUM(Amount) FROM Sales GROUP BY Category
+        // 这是所有 ORM 解析最完美、底层执行最快的绝对标准写法！
+        // ==========================================================
+        var sumResult = salesQuery
+            .GroupBy(x => x.Category)
+            .Select(g => new 
+            {
+                Key = g.Key, 
+                Value = g.Sum(x => x.Amount) // 🔥 经典的聚合投影，linq2db 100% 翻译为 SUM()
+            })
+            .OrderBy(x => x.Key)
+            .ToList();
+
+        Assert.Equal(3, sumResult.Count);
+
+        // Books: 45.0
+        Assert.Equal("Books", sumResult[0].Key);
+        Assert.Equal(45.0, sumResult[0].Value);
+
+        // Clothing: 150 + 200 + 50 = 400.0
+        Assert.Equal("Clothing", sumResult[1].Key);
+        Assert.Equal(400.0, sumResult[1].Value);
+
+        // Electronics: 1200.5 + 800 = 2000.5
+        Assert.Equal("Electronics", sumResult[2].Key);
+        Assert.Equal(2000.5, sumResult[2].Value);
     }
 }

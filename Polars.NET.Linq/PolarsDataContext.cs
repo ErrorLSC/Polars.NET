@@ -1,12 +1,31 @@
+using System.Data;
+using System.Data.Common;
 using System.Reflection;
 using LinqToDB;
 using LinqToDB.Data;
+using LinqToDB.Interceptors;
 using LinqToDB.Mapping;
 using Microsoft.FSharp.Core;
 using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
+using Polars.NET.Core.Data;
 
 namespace Polars.NET.Linq;
+
+internal class PolarsSqlInterceptor : CommandInterceptor
+{
+    // 拦截“命令初始化完成”的瞬间
+    public override DbCommand CommandInitialized(CommandEventData eventData, DbCommand command)
+    {
+        if (!string.IsNullOrEmpty(command.CommandText))
+        {
+            // 🔪 掏出我们的外科手术刀，给 linq2db 生成的方言做最后一次消毒！
+            command.CommandText = SqlSanitizer.Clean(command.CommandText);
+        }
+        
+        return command;
+    }
+}
 
 /// <summary>
 /// Represents the primary data context for Polars.NET LINQ operations.
@@ -26,6 +45,7 @@ namespace Polars.NET.Linq;
 /// </remarks>
 public class PolarsDataContext : DataConnection, IDisposable
 {
+
     private readonly IPolarsSqlContext _polarsContext;
     private readonly bool _ownsContext; 
     /// <summary>
@@ -42,6 +62,7 @@ public class PolarsDataContext : DataConnection, IDisposable
         InlineParameters = true;
         _polarsContext = polarsContext;
         _ownsContext = ownsContext;
+        this.AddInterceptor(new PolarsSqlInterceptor());
     }
     private static DataOptions CreateOptions(IPolarsSqlContext polarsContext)
     {
