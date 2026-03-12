@@ -17,6 +17,8 @@ open System.IO
 open System.Threading
 open Apache.Arrow.Adbc
 open Apache.Arrow.Ipc
+open System.Data.Common
+open System.Threading.Channels
 /// --- Series ---
 /// <summary>
 /// An eager Series holding a single column of data.
@@ -5002,6 +5004,42 @@ and DataFrame(handle: DataFrameHandle) =
             rowData.[i] <- this.[index, i]
 
         rowData
+
+    /// <summary>
+    /// Export DataFrame As DbDataReader (Zero-Copy Enabled)
+    /// </summary>
+    member this.AsDataReader(?bufferSize: int, ?typeOverrides: Dictionary<string, Type>) : DbDataReader =
+
+        let bufferSize = defaultArg bufferSize 5
+        let overrides = defaultArg typeOverrides null
+
+        let options = BoundedChannelOptions(bufferSize, 
+            FullMode = BoundedChannelFullMode.Wait,
+            SingleWriter = true,
+            SingleReader = true
+        )
+
+        let channel = Channel.CreateBounded<RecordBatch> options
+        let cts = new CancellationTokenSource()
+
+        let producerTask = Task.Run(fun () ->
+            try
+                this.ExportBatches(fun batch ->
+                    channel.Writer.WriteAsync(batch, cts.Token).AsTask().Wait cts.Token
+                )
+                channel.Writer.Complete()
+            with
+            | :? OperationCanceledException -> 
+                channel.Writer.Complete()
+            | ex -> 
+                channel.Writer.Complete ex
+        )
+
+        let stream = channel.Reader.ReadAllAsync(cts.Token).ToBlockingEnumerable cts.Token
+        
+        let innerReader = new ArrowToDbStream(stream, overrides)
+
+        new DataReaderLifecycleWrapper(innerReader, cts, producerTask) :> DbDataReader
 
     // ==========================================
     // IEnumerable<Series> Support
