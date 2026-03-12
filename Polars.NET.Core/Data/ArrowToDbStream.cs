@@ -22,17 +22,11 @@ internal interface IBinarySpanAccessor
     ReadOnlySpan<byte> GetBytesSpan(int index);
 }
 
-internal interface IStringSpanAccessor
-{
-    ReadOnlySpan<char> GetCharsSpan(int index);
-}
-
 /// <summary>
-/// Convert Arrow RecordBatch Stream to IDataReader。
+/// Convert Arrow RecordBatch Stream to DataReader
 /// For Polars/Arrow Sink to Database streamingly (With SqlBulkCopy, etc.)
 /// Zero-Allocation on Hot Paths.
 /// </summary>
-
 public sealed class ArrowToDbStream : DbDataReader
 {
     private readonly IEnumerator<RecordBatch> _batchEnumerator;
@@ -494,13 +488,16 @@ public sealed class ArrowToDbStream : DbDataReader
         public override bool IsNull(int index) => _array!.IsNull(index);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public ReadOnlySpan<byte> GetBytesSpan(int index) => _array!.GetBytes(index);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public override Guid GetTypedValue(int index) {
 
             return new Guid(_array!.GetBytes(index));
         }
     }
-  // ============================================================
-    // 1. FixedSizeBinaryAccessor (byte[])
+    // ============================================================
+    // FixedSizeBinaryAccessor (byte[])
     // ============================================================
     internal sealed class FixedSizeBinaryAccessor : TypedColumnAccessor<byte[]>,
         ITypedAccessor<byte[]>, 
@@ -513,9 +510,10 @@ public sealed class ArrowToDbStream : DbDataReader
         public override bool IsNull(int index) => _array!.IsNull(index);
         public override byte[] GetTypedValue(int index) => _array!.GetBytes(index).ToArray();
 
-        Guid ITypedAccessor<Guid>.GetTypedValue(int index) => new Guid(_array!.GetBytes(index));
+        Guid ITypedAccessor<Guid>.GetTypedValue(int index) => new(_array!.GetBytes(index));
         Guid? ITypedAccessor<Guid?>.GetTypedValue(int index) => new Guid(_array!.GetBytes(index));
-
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public ReadOnlySpan<byte> GetBytesSpan(int index) => _array!.GetBytes(index);
         byte[] ITypedAccessor<byte[]>.GetTypedValue(int index) => GetTypedValue(index);
     }
 
@@ -932,7 +930,7 @@ public sealed class ArrowToDbStream : DbDataReader
             => DateTime.UnixEpoch.AddMicroseconds(_array!.Values[index]);
 
         DateTime ITypedAccessor<DateTime>.GetTypedValue(int index) => GetTypedValue(index);
-        DateTimeOffset ITypedAccessor<DateTimeOffset>.GetTypedValue(int index) => new DateTimeOffset(GetTypedValue(index));
+        DateTimeOffset ITypedAccessor<DateTimeOffset>.GetTypedValue(int index) => new(GetTypedValue(index));
 
         DateTime? ITypedAccessor<DateTime?>.GetTypedValue(int index) => GetTypedValue(index);
         DateTimeOffset? ITypedAccessor<DateTimeOffset?>.GetTypedValue(int index) => new DateTimeOffset(GetTypedValue(index));
@@ -1026,7 +1024,7 @@ public sealed class ArrowToDbStream : DbDataReader
         public override DateTime GetTypedValue(int index) 
             => _array!.GetDateTime(index)!.Value;
         DateTime ITypedAccessor<DateTime>.GetTypedValue(int index) => GetTypedValue(index);
-        DateTimeOffset ITypedAccessor<DateTimeOffset>.GetTypedValue(int index) => new DateTimeOffset(GetTypedValue(index));
+        DateTimeOffset ITypedAccessor<DateTimeOffset>.GetTypedValue(int index) => new(GetTypedValue(index));
 
         DateTime? ITypedAccessor<DateTime?>.GetTypedValue(int index) => GetTypedValue(index);
         DateTimeOffset? ITypedAccessor<DateTimeOffset?>.GetTypedValue(int index) => new DateTimeOffset(GetTypedValue(index));
@@ -1223,7 +1221,7 @@ public sealed class ArrowToDbStream : DbDataReader
             }
 
             // =====================================================================
-            // 🌟 终极强类型 Fallback：彻底消灭装箱！
+            // Fallback
             // =====================================================================
             var result = new TElement[length];
             
