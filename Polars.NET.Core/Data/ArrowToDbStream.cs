@@ -17,6 +17,16 @@ internal interface ITypedAccessor<T>
     T GetTypedValue(int index);
 }
 
+internal interface IBinarySpanAccessor
+{
+    ReadOnlySpan<byte> GetBytesSpan(int index);
+}
+
+internal interface IStringSpanAccessor
+{
+    ReadOnlySpan<char> GetCharsSpan(int index);
+}
+
 /// <summary>
 /// Convert Arrow RecordBatch Stream to IDataReader。
 /// For Polars/Arrow Sink to Database streamingly (With SqlBulkCopy, etc.)
@@ -206,6 +216,21 @@ public sealed class ArrowToDbStream : DbDataReader
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public override char GetChar(int ordinal) => GetFieldValue<char>(ordinal);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public ReadOnlySpan<byte> GetBytesSpan(int ordinal)
+    {
+        if (IsDBNull(ordinal)) return default;
+
+        ref var accessor = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_accessors), ordinal);
+
+        if (accessor is IBinarySpanAccessor spanAccessor)
+        {
+            return spanAccessor.GetBytesSpan(_currentRowIndex);
+        }
+
+        throw new InvalidCastException($"Column '{GetName(ordinal)}' does not support zero-copy Span access.");
+    }
 
     // =========================================================
     // NotSupported
@@ -827,7 +852,7 @@ public sealed class ArrowToDbStream : DbDataReader
     // 1. StringViewAccessor (string)
     // ============================================================
     internal sealed class StringViewAccessor : TypedColumnAccessor<string>,
-        ITypedAccessor<string>
+        IBinarySpanAccessor 
     {
         private IArrowArray? _array;
         private bool _isView;
@@ -850,13 +875,22 @@ public sealed class ArrowToDbStream : DbDataReader
             
             throw new InvalidCastException($"Expected String or StringView, got {_array?.GetType()}");
         }
-
+        
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public ReadOnlySpan<byte> GetBytesSpan(int index)
+        {
+            if (_isView) return ((StringViewArray)_array!).GetBytes(index);
+            if (_array is LargeStringArray lsa) return lsa.GetBytes(index);
+            if (_array is StringArray sa) return sa.GetBytes(index);
+            
+            throw new InvalidCastException($"Expected String or StringView, got {_array?.GetType()}");
+        }
     }
 
     // ============================================================
     // 2. BinaryAccessor (byte[])
     // ============================================================
-    internal sealed class BinaryAccessor : TypedColumnAccessor<byte[]>,
+    internal sealed class BinaryAccessor : TypedColumnAccessor<byte[]>,IBinarySpanAccessor,
         ITypedAccessor<byte[]>
     {
         private IArrowArray? _array;
@@ -868,21 +902,16 @@ public sealed class ArrowToDbStream : DbDataReader
         public override bool IsNull(int index) => _array!.IsNull(index);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal ReadOnlySpan<byte> GetBytesFast(int index)
+        public ReadOnlySpan<byte> GetBytesSpan(int index)
         {
             if (_array is BinaryArray ba) return ba.GetBytes(index);
             if (_array is LargeBinaryArray lba) return lba.GetBytes(index);
             if (_array is BinaryViewArray bv) return bv.GetBytes(index);
             
-            throw new InvalidCastException($"Expected BinaryArray or LargeBinaryArray, got {_array?.GetType()}");
+            throw new InvalidCastException($"Expected BinaryArray, got {_array?.GetType()}");
         }
 
-        public override byte[] GetTypedValue(int index)
-        {
-            // 注意：byte[] 是引用类型，这里会产生一次数组拷贝分配。
-            // 真正高性能场景建议用户使用 GetFieldValue<ReadOnlySpan<byte>> (如果你的框架支持)
-            return GetBytesFast(index).ToArray();
-        }
+        public override byte[] GetTypedValue(int index) => GetBytesSpan(index).ToArray();
 
     }
 
