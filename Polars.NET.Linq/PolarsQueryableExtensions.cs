@@ -28,9 +28,7 @@ public static class PolarsQueryableExtensions
             throw new InvalidOperationException("[Polars.NET] linq2db SQL generation failed");
         var rawSql = sqlQueries[0].Sql;
         var sanitizedSql = SqlSanitizer.Clean(rawSql); 
-        // Type elementType = ((IQueryable)exprQuery).ElementType;
         var finalSql = PolarsSqlTranslator.InjectAliases(sanitizedSql, originalType);
-        // Console.WriteLine(rawSql);
         return finalSql;
     }
     /// <summary>

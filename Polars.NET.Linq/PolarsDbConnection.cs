@@ -3,7 +3,6 @@
 using System.Collections;
 using System.Data;
 using System.Data.Common;
-using System.Text.RegularExpressions;
 using Apache.Arrow;
 using Polars.NET.Core;
 using Polars.NET.Core.Data;
@@ -59,8 +58,6 @@ internal partial class PolarsDbCommand(IPolarsSqlContext sqlContext) : DbCommand
     public override void Cancel() { }
     public override int ExecuteNonQuery()
     {
-        // Console.WriteLine($"[Polars.NET.Linq] Native DML Execution:\n{CommandText}");
-
         var match = SqlSanitizer.MatchDmlTable(CommandText);
         string? tableName = match.Success ? match.Groups[1].Value : null;
 
@@ -88,7 +85,6 @@ internal partial class PolarsDbCommand(IPolarsSqlContext sqlContext) : DbCommand
         if (tableName != null)
         {
             _sqlContext.Register(tableName, newDf);
-            // Console.WriteLine($"[Polars.NET.Linq] Committed transaction. Table '{tableName}' updated in context.");
 
             if (oldHeight >= 0)
             {
@@ -119,7 +115,6 @@ internal partial class PolarsDbCommand(IPolarsSqlContext sqlContext) : DbCommand
 
     protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)
     {
-        // Console.WriteLine($"[Polars.NET.Linq] Native Execution: {CommandText}");
         var stream = ExecuteAndYieldBatches(CommandText);
         return new ArrowToDbStream(stream);
     }

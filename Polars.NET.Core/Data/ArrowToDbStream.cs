@@ -111,7 +111,7 @@ public sealed class ArrowToDbStream : DbDataReader
                 var arrowType = field.DataType;
                 targetType = arrowType switch
                 {
-                    Time64Type => typeof(TimeSpan), 
+                    Time64Type => typeof(TimeOnly), 
                     
                     Date32Type => typeof(DateOnly),
                     
@@ -262,7 +262,6 @@ public sealed class ArrowToDbStream : DbDataReader
             return typed.GetTypedValue(_currentRowIndex);
         }
 
-        // 终极兜底
         return (T)accessor.GetValue(_currentRowIndex)!;
     }
 

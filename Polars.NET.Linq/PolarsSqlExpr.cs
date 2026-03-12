@@ -104,7 +104,6 @@ internal static class PolarsSqlTranslator
             int snippetEndIndex = snippetStartIndex + rawSnippet.Length;
             vsb.Append(fullSql.AsSpan(snippetEndIndex));
 
-            // 生成最终字符串，并内部调用 Dispose 还给 ArrayPool
             return vsb.ToString(); 
         }
         
@@ -116,19 +115,19 @@ internal static class PolarsSqlTranslator
         if (t.Name.Contains("AnonymousType") || t.Name.Contains("AnonymousObject"))
         {
             var ctor = t.GetConstructors().FirstOrDefault();
-            if (ctor != null) return ctor.GetParameters().Select(p => p.Name!).ToArray();
+            if (ctor != null) return [.. ctor.GetParameters().Select(p => p.Name!)];
         }
         
         if (t.Name.Contains("AnonRecord"))
         {
             var namePart = t.Name;
             int backtickIdx = namePart.IndexOf('`');
-            if (backtickIdx > 0) namePart = namePart.Substring(0, backtickIdx); 
+            if (backtickIdx > 0) namePart = namePart[..backtickIdx]; 
             
             var prefix = "<>f__AnonymousRecord_";
             if (namePart.StartsWith(prefix))
             {
-                var fieldsPart = namePart.Substring(prefix.Length); 
+                var fieldsPart = namePart[prefix.Length..]; 
                 var parts = fieldsPart.Split('_', StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length > 0) return parts; 
             }
@@ -246,7 +245,7 @@ public static class PolarsExpr
 public static class PolarsSql
 {
     // ==========================================
-    // 1. Array / Nested List 
+    // Array / Nested List 
     // ==========================================
     
     /// <summary>
@@ -257,7 +256,7 @@ public static class PolarsSql
         => throw new InvalidOperationException("[Polars.NET] ListAgg can only be used within a LINQ to Polars query.");
 
     // ==========================================
-    // 2. Regex
+    // Regex
     // ==========================================
     
     /// <summary>
@@ -268,7 +267,7 @@ public static class PolarsSql
         => throw new InvalidOperationException("[Polars.NET] RegexMatch can only be used within a LINQ to Polars query.");
 
     // ==========================================
-    // 3. STAT 
+    // STAT 
     // ==========================================
     
     /// <summary>
@@ -292,7 +291,7 @@ public static class PolarsSql
     public static double QuantileDisc<T>(this IEnumerable<T> source, [ExprParameter] Expression<Func<T, double>> selector, double quantile)
         => throw new InvalidOperationException("[Polars.NET] QuantileDisc can only be used within a LINQ to Polars query.");
     // ==========================================
-    // 3. BITWISE
+    // BITWISE
     // ==========================================
     /// <summary>
     /// Calculates the bitwise XOR using BIT_XOR.
@@ -310,45 +309,105 @@ public static class PolarsSql
     // ==========================================
     // Degree <=> Radians
     // ==========================================
+
+    /// <summary>
+    /// Converts an angle measured in radians to an approximately equivalent angle measured in degrees.
+    /// </summary>
+    /// <param name="radians">An angle measured in radians.</param>
+    /// <returns>The angle measured in degrees.</returns>
     [Sql.Function("DEGREES", ServerSideOnly = true)]
     public static double Degrees(double radians) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
+    /// <summary>
+    /// Converts an angle measured in degrees to an approximately equivalent angle measured in radians.
+    /// </summary>
+    /// <param name="degrees">An angle measured in degrees.</param>
+    /// <returns>The angle measured in radians.</returns>
     [Sql.Function("RADIANS", ServerSideOnly = true)]
     public static double Radians(double degrees) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     // ==========================================
     // Cot
     // ==========================================
+
+    /// <summary>
+    /// Returns the cotangent of the specified angle in radians.
+    /// </summary>
+    /// <param name="value">An angle, measured in radians.</param>
+    /// <returns>The cotangent of the specified angle.</returns>
     [Sql.Function("COT", ServerSideOnly = true)]
     public static double Cot(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
+    /// <summary>
+    /// Returns the cotangent of the specified angle in degrees.
+    /// </summary>
+    /// <param name="value">An angle, measured in degrees.</param>
+    /// <returns>The cotangent of the specified angle.</returns>
     [Sql.Function("COTD", ServerSideOnly = true)]
     public static double Cotd(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     // ==========================================
     // Degree Trag
     // ==========================================
+
+    /// <summary>
+    /// Returns the sine of the specified angle in degrees.
+    /// </summary>
+    /// <param name="value">An angle, measured in degrees.</param>
+    /// <returns>The sine of the specified angle.</returns>
     [Sql.Function("SIND", ServerSideOnly = true)]
     public static double Sind(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
+    /// <summary>
+    /// Returns the cosine of the specified angle in degrees.
+    /// </summary>
+    /// <param name="value">An angle, measured in degrees.</param>
+    /// <returns>The cosine of the specified angle.</returns>
     [Sql.Function("COSD", ServerSideOnly = true)]
     public static double Cosd(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
+    /// <summary>
+    /// Returns the tangent of the specified angle in degrees.
+    /// </summary>
+    /// <param name="value">An angle, measured in degrees.</param>
+    /// <returns>The tangent of the specified angle.</returns>
     [Sql.Function("TAND", ServerSideOnly = true)]
     public static double Tand(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     // ==========================================
     // Degree Arc Trag
     // ==========================================
+
+    /// <summary>
+    /// Returns the angle in degrees whose cosine is the specified number.
+    /// </summary>
+    /// <param name="value">A number representing a cosine, where -1 ≤ value ≤ 1.</param>
+    /// <returns>The angle, measured in degrees.</returns>
     [Sql.Function("ACOSD", ServerSideOnly = true)]
     public static double Acosd(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
+    /// <summary>
+    /// Returns the angle in degrees whose sine is the specified number.
+    /// </summary>
+    /// <param name="value">A number representing a sine, where -1 ≤ value ≤ 1.</param>
+    /// <returns>The angle, measured in degrees.</returns>
     [Sql.Function("ASIND", ServerSideOnly = true)]
     public static double Asind(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
+    /// <summary>
+    /// Returns the angle in degrees whose tangent is the specified number.
+    /// </summary>
+    /// <param name="value">A number representing a tangent.</param>
+    /// <returns>The angle, measured in degrees.</returns>
     [Sql.Function("ATAND", ServerSideOnly = true)]
     public static double Atand(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
+    /// <summary>
+    /// Returns the angle in degrees whose tangent is the quotient of two specified numbers.
+    /// </summary>
+    /// <param name="y">The y coordinate of a point.</param>
+    /// <param name="x">The x coordinate of a point.</param>
+    /// <returns>The angle, measured in degrees.</returns>
     [Sql.Function("ATAN2D", ServerSideOnly = true)]
     public static double Atan2d(double y, double x) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
@@ -356,15 +415,38 @@ public static class PolarsSql
     // Base Math
     // ==========================================
     
+    /// <summary>
+    /// Returns the remainder resulting from the division of a specified number by another specified number.
+    /// </summary>
+    /// <param name="a">The dividend.</param>
+    /// <param name="b">The divisor.</param>
+    /// <returns>The remainder.</returns>
     [Sql.Expression("MOD({0}, {1})", ServerSideOnly = true)]
     public static T Mod<T>(T a, T b) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
+    /// <summary>
+    /// Returns the smallest integral value that is greater than or equal to the specified number.
+    /// </summary>
+    /// <param name="value">A numeric value.</param>
+    /// <returns>The ceiling of the value.</returns>
     [Sql.Expression("CEIL({0})", ServerSideOnly = true)]
     public static T Ceil<T>(T value) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
+    /// <summary>
+    /// Rounds a value to a specified number of fractional digits.
+    /// </summary>
+    /// <param name="value">A numeric value to be rounded.</param>
+    /// <param name="decimals">The number of decimal places in the return value.</param>
+    /// <returns>The rounded value.</returns>
     [Sql.Expression("ROUND({0}, {1})", ServerSideOnly = true)]
     public static T Round<T>(T value, int decimals) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
+    /// <summary>
+    /// Returns the result of integer division.
+    /// </summary>
+    /// <param name="a">The dividend.</param>
+    /// <param name="b">The divisor.</param>
+    /// <returns>The quotient of the division, truncated to an integer.</returns>
     [Sql.Function("DIV", ServerSideOnly = true)]
     public static long Div(long a, long b) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
@@ -372,6 +454,11 @@ public static class PolarsSql
     // Cbrt
     // ==========================================
 
+    /// <summary>
+    /// Returns the cube root of a specified number.
+    /// </summary>
+    /// <param name="value">A numeric value.</param>
+    /// <returns>The cube root of the value.</returns>
     [Sql.Function("CBRT", ServerSideOnly = true)]
     public static double Cbrt(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
@@ -379,12 +466,27 @@ public static class PolarsSql
     // Log
     // ==========================================
     
+    /// <summary>
+    /// Returns the base 10 logarithm of a specified number.
+    /// </summary>
+    /// <param name="value">A numeric value.</param>
+    /// <returns>The base 10 logarithm of the value.</returns>
     [Sql.Function("LOG10", ServerSideOnly = true)]
     public static double Log10(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
+    /// <summary>
+    /// Returns the base 2 logarithm of a specified number.
+    /// </summary>
+    /// <param name="value">A numeric value.</param>
+    /// <returns>The base 2 logarithm of the value.</returns>
     [Sql.Function("LOG2", ServerSideOnly = true)]
     public static double Log2(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
 
+    /// <summary>
+    /// Returns the natural logarithm of (1 + x).
+    /// </summary>
+    /// <param name="value">A numeric value.</param>
+    /// <returns>The natural logarithm of (1 + value).</returns>
     [Sql.Function("LOG1P", ServerSideOnly = true)]
     public static double Log1p(double value) => throw new InvalidOperationException("Only for LINQ to Polars.");
     
@@ -392,6 +494,10 @@ public static class PolarsSql
     // Constant Generator
     // ==========================================
     
+    /// <summary>
+    /// Returns the mathematical constant π (pi).
+    /// </summary>
+    /// <returns>The value of π.</returns>
     [Sql.Function("PI", ServerSideOnly = true)]
     public static double Pi() => throw new InvalidOperationException("Only for LINQ to Polars.");
     // ==========================================
@@ -405,7 +511,7 @@ public static class PolarsSql
     public static TResult[] ArrayAgg<TSource, TResult>(
         this IEnumerable<TSource> source, 
         [ExprParameter] Expression<Func<TSource, TResult>> selector)
-        => throw new InvalidOperationException("[Polars.NET] ArrayAgg is only for LINQ to Polars.");
+        => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     // ==========================================
     // Array Query
@@ -416,68 +522,68 @@ public static class PolarsSql
     /// </summary>
     [Sql.Expression("ARRAY_CONTAINS({0}, {1})", ServerSideOnly = true)]
     public static bool ArrayContains<T>(this IEnumerable<T> array, T item)
-        => throw new InvalidOperationException();
+        => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     /// <summary>
     /// Get array element by index: ARRAY_GET(array, index)
     /// </summary>
     [Sql.Expression("ARRAY_GET({0}, {1})", ServerSideOnly = true)]
     public static T ArrayGet<T>(this IEnumerable<T> array, int index)
-        => throw new InvalidOperationException();
+        => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     /// <summary>
     /// Get the length of array: ARRAY_LENGTH(array)
     /// </summary>
     [Sql.Expression("ARRAY_LENGTH({0})", ServerSideOnly = true)]
     public static int ArrayLength<T>(this IEnumerable<T> array)
-        => throw new InvalidOperationException();
+        => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     /// <summary>
     /// Returns the lower bound (min value) in an array: ARRAY_LOWER(array)
     /// </summary>
     [Sql.Expression("ARRAY_LOWER({0})", ServerSideOnly = true)]
     public static T ArrayMin<T>(this IEnumerable<T> array)
-        => throw new InvalidOperationException();
+        => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     /// <summary>
     /// Returns the upper bound (max value) in an array: ARRAY_UPPER(array)
     /// </summary>
     [Sql.Expression("ARRAY_UPPER({0})", ServerSideOnly = true)]
     public static T ArrayMax<T>(this IEnumerable<T> array)
-        => throw new InvalidOperationException();
+        => throw new InvalidOperationException("Only for LINQ to Polars.");
     /// <summary>
     /// Array mean value: ARRAY_MEAN(array)
     /// </summary>
     [Sql.Expression("ARRAY_MEAN({0})", ServerSideOnly = true)]
     public static double ArrayMean<T>(this IEnumerable<T> array)
-        => throw new InvalidOperationException();
+        => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     /// <summary>
     /// Array sum: ARRAY_SUM(array)
     /// </summary>
     [Sql.Expression("ARRAY_SUM({0})", ServerSideOnly = true)]
     public static T ArraySum<T>(this IEnumerable<T> array)
-        => throw new InvalidOperationException();
+        => throw new InvalidOperationException("Only for LINQ to Polars.");
     /// <summary>
     /// Reverse the array: ARRAY_REVERSE(array)
     /// </summary>
     [Sql.Expression("ARRAY_REVERSE({0})", ServerSideOnly = true)]
     public static T[] ArrayReverse<T>(this IEnumerable<T> array)
-        => throw new InvalidOperationException();
+        => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     /// <summary>
     /// Array to string: ARRAY_TO_STRING(array, separator)
     /// </summary>
     [Sql.Expression("ARRAY_TO_STRING({0}, {1})", ServerSideOnly = true)]
     public static string ArrayToString<T>(this IEnumerable<T> array, string separator)
-        => throw new InvalidOperationException();
+        => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     /// <summary>
     /// Deduplicate the array: ARRAY_UNIQUE(array)
     /// </summary>
     [Sql.Expression("ARRAY_UNIQUE({0})", ServerSideOnly = true)]
     public static T[] ArrayUnique<T>(this IEnumerable<T> array)
-        => throw new InvalidOperationException();
+        => throw new InvalidOperationException("Only for LINQ to Polars.");
 
     // ==========================================
     // UNNEST
@@ -488,5 +594,5 @@ public static class PolarsSql
     /// </summary>
     [Sql.Expression("UNNEST({0})", ServerSideOnly = true)]
     public static T Unnest<T>(this IEnumerable<T> array)
-        => throw new InvalidOperationException();
+        => throw new InvalidOperationException("Only for LINQ to Polars.");
 }

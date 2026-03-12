@@ -1,6 +1,5 @@
 using System.Buffers;
 using System.Text.RegularExpressions;
-#pragma warning disable CS1591 // 缺少对公共可见类型或成员的 XML 注释
 namespace Polars.NET.Linq;
 
 internal static partial class SqlSanitizer
@@ -31,7 +30,6 @@ internal static partial class SqlSanitizer
 
     internal static string Clean(string rawSql)
     {
-        // Console.WriteLine(rawSql);
         // Remove ESCAPE
         var sql = EscapeRegex().Replace(rawSql, "");
 
@@ -137,7 +135,7 @@ internal static partial class SqlSanitizer
             {
                 if (rentedRanges != null)
                 {
-                    System.Buffers.ArrayPool<Range>.Shared.Return(rentedRanges);
+                    ArrayPool<Range>.Shared.Return(rentedRanges);
                 }
             }
         }
@@ -225,15 +223,14 @@ internal static partial class SqlSanitizer
 }
 
 /// <summary>
-/// 真正的零分配字符串构建器 (Zero-Allocation Builder)
+/// Zero-Allocation Builder
 /// </summary>
-public ref struct ValueStringBuilder
+internal ref struct ValueStringBuilder
 {
     private char[]? _arrayToReturnToPool;
     private Span<char> _chars;
     private int _pos;
 
-    // 👑 灵魂所在：传入一块栈内存 (stackalloc) 作为初始底座
 
     public ValueStringBuilder(Span<char> initialBuffer)
     {
@@ -245,17 +242,15 @@ public ref struct ValueStringBuilder
     public void Append(ReadOnlySpan<char> value)
     {
         int pos = _pos;
-        // 如果栈内存够用，直接极其暴力的内存拷贝！
         if (pos + value.Length <= _chars.Length)
         {
-            value.CopyTo(_chars.Slice(pos));
+            value.CopyTo(_chars[pos..]);
             _pos = pos + value.Length;
         }
         else
         {
-            // 装不下了，去向对象池借一块大内存
             Grow(value.Length);
-            value.CopyTo(_chars.Slice(_pos));
+            value.CopyTo(_chars[_pos..]);
             _pos += value.Length;
         }
     }
@@ -264,13 +259,10 @@ public ref struct ValueStringBuilder
     {
         int newCapacity = Math.Max(_chars.Length * 2, _pos + additionalCapacityBeyondPos);
         
-        // 去 ArrayPool 借用字符数组，绝对不 new！
         char[] poolArray = ArrayPool<char>.Shared.Rent(newCapacity);
         
-        // 把之前栈上的数据拷进新数组
-        _chars.Slice(0, _pos).CopyTo(poolArray);
+        _chars[.._pos].CopyTo(poolArray);
 
-        // 如果之前借过数组，还回去
         if (_arrayToReturnToPool != null)
         {
             ArrayPool<char>.Shared.Return(_arrayToReturnToPool);
@@ -282,8 +274,7 @@ public ref struct ValueStringBuilder
     public void Append(char c)
     {
         int pos = _pos;
-        // 使用 (uint) 强转是一种极其底层的 C# 性能 Hack
-        // 它能把越界检查和负数检查合并成一条汇编指令！
+
         if ((uint)pos < (uint)_chars.Length)
         {
             _chars[pos] = c;
@@ -296,10 +287,9 @@ public ref struct ValueStringBuilder
             _pos += 1;
         }
     }
-
+    // the only allocation
     public override string ToString()
     {
-        // 这是全流程唯一一次产生字符串对象的地方
         string s = new(_chars[.._pos]);
         Dispose();
         return s;
@@ -308,7 +298,7 @@ public ref struct ValueStringBuilder
     public void Dispose()
     {
         char[]? toReturn = _arrayToReturnToPool;
-        this = default; // 清空结构体
+        this = default;
         if (toReturn != null)
         {
             ArrayPool<char>.Shared.Return(toReturn);
