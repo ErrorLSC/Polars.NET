@@ -57,7 +57,7 @@ pub extern "C" fn pl_dataframe_from_arrow_record_batch(
     })
 }
 // ==========================================
-// 内部统一的流解析引擎
+// Unified Stream Parse Engine
 // ==========================================
 #[inline(always)]
 unsafe fn consume_stream_impl(
@@ -82,7 +82,7 @@ unsafe fn consume_stream_impl(
     let mut has_data = false;
 
     // ==========================================
-    // 1. 横向读取，纵向归类 (完全公共的极速通道)
+    // Public Path
     // ==========================================
     while let Some(chunk_result) = unsafe {reader.next()} {
         has_data = true;
@@ -97,7 +97,7 @@ unsafe fn consume_stream_impl(
         }
     }
 
-    // 兜底：空流直接根据 Schema 构造空表
+    // Blank Flow to Blank DataFrame with Schema
     if !has_data {
         let columns = fields.iter().map(|f| {
             let p_field = PolarsField::from(f);
@@ -107,7 +107,7 @@ unsafe fn consume_stream_impl(
     }
 
     // ==========================================
-    // 2. 按列处理与组装 (分化策略)
+    // Assemble by column
     // ==========================================
     let mut series_vec = Vec::with_capacity(num_cols);
 
@@ -117,30 +117,29 @@ unsafe fn consume_stream_impl(
 
         let final_series = if strict {
             // ----------------------------------------
-            // 路线 A: 严格模式 (按列安全转换 + 零拷贝组装)
+            // Strict Path(with type safety) 
             // ----------------------------------------
             let mut safe_chunks = Vec::with_capacity(chunks.len());
             let mut safe_dtype = None;
 
             for arr in chunks {
-                // 1. 让 Polars 做物理类型的安全适配 (拦截 Utf8View 错位)
+                // Logic type kept here
                 let temp_s = Series::from_arrow(name.clone(), arr)?;
                 
-                // 2. 锁定转换后的标准 Polars 数据类型
+                // Lock Polars DataType
                 if safe_dtype.is_none() {
                     safe_dtype = Some(temp_s.dtype().clone());
                 }
                 
-                // 3. ✨ 核心魔法：窃取安全的物理内存块！
-                // chunks() 返回 &[Box<dyn Array>]，我们 clone 它只是轻量级增加引用计数，真正的零拷贝！
+                // Get Memory Chunk
                 safe_chunks.extend(temp_s.chunks().iter().cloned());
             }
 
-            // 4. 将安全的数据块一把梭哈组装为最终列，彻底摆脱 DataFrame::vstack
+            // Assemble to series
             unsafe { Series::from_chunks_and_dtype_unchecked(name, safe_chunks, safe_dtype.as_ref().unwrap()) }
         } else {
             // ----------------------------------------
-            // 路线 B: 非严格模式 (直接透传)
+            // Unstrict Path
             // ----------------------------------------
             let p_field = PolarsField::from(arrow_field); 
             unsafe { Series::from_chunks_and_dtype_unchecked(name, chunks, &p_field.dtype) }
@@ -149,21 +148,16 @@ unsafe fn consume_stream_impl(
         series_vec.push(Column::from(final_series));
     }
 
-    // 提取高度，组装最终 DataFrame
+    // Assemble Final DataFrame
     let height = series_vec.first().map(|s: &Column| s.len()).unwrap_or(0);
     DataFrame::new(height, series_vec)
 }
-
-// ==========================================
-// 暴露给 C# 的精简 FFI 入口
-// ==========================================
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pl_dataframe_new_from_stream(
     stream_ptr: *mut ArrowArrayStream,
 ) -> *mut DataFrameContext {
     ffi_try!({
-        // 传 false 走极速零拷贝路线
         let df = unsafe {consume_stream_impl(stream_ptr, false)?};
         Ok(Box::into_raw(Box::new(DataFrameContext { df })))
     })
@@ -174,7 +168,6 @@ pub unsafe extern "C" fn pl_dataframe_new_from_stream_strict_type(
     stream_ptr: *mut ArrowArrayStream,
 ) -> *mut DataFrameContext {
     ffi_try!({
-        // 传 true 走安全适配路线
         let df = unsafe {consume_stream_impl(stream_ptr, true)?};
         Ok(Box::into_raw(Box::new(DataFrameContext { df })))
     })
