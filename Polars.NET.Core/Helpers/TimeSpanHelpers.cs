@@ -1,3 +1,4 @@
+using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -7,17 +8,19 @@ namespace Polars.NET.Core.Helpers;
 public static partial class ArrayHelper
 {
     /// <summary>
-    /// [ILP Optimized] TimeSpan[] -> Int64[] (Microseconds)
+    /// [ILP Optimized] ReadOnlySpan<TimeSpan> -> Int64[] (Microseconds)
     /// Logic: Ticks / 10
     /// Use Unroll 8 to hide integer division latency.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static unsafe long[] UnzipTimeSpanToUs(TimeSpan[] data)
+    public static unsafe long[] UnzipTimeSpanToUs(ReadOnlySpan<TimeSpan> data)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<long>(len);
 
-        fixed (TimeSpan* pSrc = data)
+        ref TimeSpan srcRef = ref MemoryMarshal.GetReference(data);
+
+        fixed (TimeSpan* pSrc = &srcRef)
         fixed (long* pDst = values)
         {
             // TimeSpan is long (Ticks)
@@ -49,13 +52,14 @@ public static partial class ArrayHelper
         }
         return values;
     }
+    
     /// <summary>
-    /// [Scalar Extreme] TimeSpan?[] -> (Int64[], Validity)
+    /// [Scalar Extreme] ReadOnlySpan<TimeSpan?> -> (Int64[], Validity)
     /// Layout: 16 Bytes [Bool(1), Pad(7), Ticks(8)]
     /// Logic: Ticks / 10 -> Microseconds
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static unsafe (long[] values, byte[]? validity) UnzipTimeSpanToUs(TimeSpan?[] data)
+    public static unsafe (long[] values, byte[]? validity) UnzipTimeSpanToUs(ReadOnlySpan<TimeSpan?> data)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<long>(len);
@@ -63,10 +67,12 @@ public static partial class ArrayHelper
         byte[]? validity = null;
         ref byte validRef = ref Unsafe.NullRef<byte>();
 
-        fixed (TimeSpan?* pSrc = data)
+        ref TimeSpan? srcRef = ref MemoryMarshal.GetReference(data);
+
+        fixed (TimeSpan?* pSrc = &srcRef)
         fixed (long* pDst = values)
         {
-            // convert to 2 long*  (16 bytes)
+            // convert to 2 long* (16 bytes)
             long* pRawSrc = (long*)pSrc;
             
             int i = 0;
@@ -135,57 +141,69 @@ public static partial class ArrayHelper
             pDst[i] = 0; 
         }
     }
+
+    // ========================================================================
+    // Array Overloads for backward API compatibility (Inlined)
+    // ========================================================================
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static long[] UnzipTimeSpanToUs(TimeSpan[] data) => UnzipTimeSpanToUs(new ReadOnlySpan<TimeSpan>(data));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (long[] values, byte[]? validity) UnzipTimeSpanToUs(TimeSpan?[] data) => UnzipTimeSpanToUs(new ReadOnlySpan<TimeSpan?>(data));
 }
 
-        public static class DurationFormatter
+public static class DurationFormatter
+{
+    /// <summary>
+    /// Format C# Duration to Polars duration string
+    /// </summary>
+    public static string ToPolarsString(TimeSpan ts)
     {
-        /// <summary>
-        /// Format C# Duration to Polars duration string
-        /// </summary>
-        public static string ToPolarsString(TimeSpan ts)
-        {
-            if (ts == TimeSpan.Zero) return "0s";
+        if (ts == TimeSpan.Zero) return "0s";
 
-            var sb = new StringBuilder();
+        var sb = new StringBuilder();
 
-            // Polars suffixs: ns, us, ms, s, m, h, d, w
-            
-            // 1. Days (d)
-            if (ts.Days > 0) sb.Append($"{ts.Days}d");
+        // Polars suffixs: ns, us, ms, s, m, h, d, w
+        
+        // 1. Days (d)
+        if (ts.Days > 0) sb.Append($"{ts.Days}d");
 
-            // 2. Hours (h)
-            if (ts.Hours > 0) sb.Append($"{ts.Hours}h");
+        // 2. Hours (h)
+        if (ts.Hours > 0) sb.Append($"{ts.Hours}h");
 
-            // 3. Minutes (m)
-            if (ts.Minutes > 0) sb.Append($"{ts.Minutes}m");
+        // 3. Minutes (m)
+        if (ts.Minutes > 0) sb.Append($"{ts.Minutes}m");
 
-            // 4. Seconds (s)
-            if (ts.Seconds > 0) sb.Append($"{ts.Seconds}s");
+        // 4. Seconds (s)
+        if (ts.Seconds > 0) sb.Append($"{ts.Seconds}s");
 
-            // 5. Milliseconds (ms)
-            if (ts.Milliseconds > 0) sb.Append($"{ts.Milliseconds}ms");
+        // 5. Milliseconds (ms)
+        if (ts.Milliseconds > 0) sb.Append($"{ts.Milliseconds}ms");
 
-            // 6. [New in .NET 7+] Microseconds (us)
-            if (ts.Microseconds > 0) sb.Append($"{ts.Microseconds}us");
+        // 6. Microseconds (us)
+        if (ts.Microseconds > 0) sb.Append($"{ts.Microseconds}us");
 
-            // 7. [New in .NET 7+] Nanoseconds (ns)
-            if (ts.Nanoseconds > 0) sb.Append($"{ts.Nanoseconds}ns");
+        // 7. Nanoseconds (ns)
+        if (ts.Nanoseconds > 0) sb.Append($"{ts.Nanoseconds}ns");
 
-            return sb.ToString();
-        }
-        [return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(ts))]
-        public static string? ToPolarsString(TimeSpan? ts)
-        {
-            return ts.HasValue ? ToPolarsString(ts.Value) : null;
-        }
+        return sb.ToString();
     }
-    public static class PolarsExtensions
+    
+    [return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(ts))]
+    public static string? ToPolarsString(TimeSpan? ts)
     {
-        // ts.ToPolarsDuration()
-        public static string ToPolarsDuration(this TimeSpan ts) 
-            => DurationFormatter.ToPolarsString(ts);
-
-        // tsNullable.ToPolarsDuration()
-        public static string? ToPolarsDuration(this TimeSpan? ts) 
-            => DurationFormatter.ToPolarsString(ts);
+        return ts.HasValue ? ToPolarsString(ts.Value) : null;
     }
+}
+
+public static class PolarsExtensions
+{
+    // ts.ToPolarsDuration()
+    public static string ToPolarsDuration(this TimeSpan ts) 
+        => DurationFormatter.ToPolarsString(ts);
+
+    // tsNullable.ToPolarsDuration()
+    public static string? ToPolarsDuration(this TimeSpan? ts) 
+        => DurationFormatter.ToPolarsString(ts);
+}

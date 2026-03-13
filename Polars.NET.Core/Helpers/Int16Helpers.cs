@@ -12,15 +12,15 @@ public static partial class ArrayHelper
     // =================================================================================
     private static readonly Vector256<byte> Int16ShuffleMask = Vector256.Create(
         // Low 128: 8 Values (8 * 2 bytes)
-        (byte)2, 3,  (byte)6, 7,  (byte)10, 11, (byte)14, 15, 
-        (byte)18, 19, (byte)22, 23, (byte)26, 27, (byte)30, 31,
+        2, 3, 6, 7, 10, 11, 14, 15,
+        18, 19, 22, 23, 26, 27, 30, 31,
         // High 128: 8 Bools (Offset 0)
         0, 4, 8, 12, 16, 20, 24, 28,
         // Padding
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF 
     );
        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static unsafe (short[] values, byte[]? validity) UnzipInt16SIMD(short?[] data, short defaultValue)
+    private static unsafe (short[] values, byte[]? validity) UnzipInt16SIMD(ReadOnlySpan<short?> data, short defaultValue)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<short>(len);
@@ -104,4 +104,6 @@ public static partial class ArrayHelper
         }
         return (values, validity);
     }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (short[] values, byte[]? validity) UnzipInt16SIMD(short?[] data,short defaultValue) => UnzipInt16SIMD(new ReadOnlySpan<short?>(data),defaultValue );
 }

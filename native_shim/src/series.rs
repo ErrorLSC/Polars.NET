@@ -1,6 +1,5 @@
 use polars::prelude::*;
 use polars_arrow::array::{Array,FixedSizeListArray,ListArray, Utf8ViewArray, View};
-// use polars_arrow::offset::OffsetsBuffer;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use crate::types::{DataFrameContext, DataTypeContext, SeriesContext};
@@ -10,7 +9,6 @@ use polars_buffer::Buffer;
 use polars_arrow::array::PrimitiveArray;
 use polars_arrow::array::BooleanArray;
 use polars_arrow::bitmap::Bitmap;
-// use polars_arrow::array::Utf8Array;
 use crate::datatypes::parse_timeunit;
 
 // ==========================================
@@ -165,30 +163,6 @@ pub unsafe extern "C" fn pl_series_new_bool(
 
         let ca = BooleanChunked::with_chunk(PlSmallStr::from_str(name.as_ref()), arrow_array);
         
-        Ok(Box::into_raw(Box::new(SeriesContext { series: ca.into_series() })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_new_str(
-    name: *const c_char, 
-    strs: *const *const c_char, 
-    len: usize
-) -> *mut SeriesContext {
-    ffi_try!({
-        let name = unsafe { CStr::from_ptr(name).to_string_lossy() };
-        let slice = unsafe { std::slice::from_raw_parts(strs, len) };
-        
-        let iter = slice.iter().map(|&p| {
-            if p.is_null() {
-                None 
-            } else {
-                unsafe { CStr::from_ptr(p).to_str().ok() }
-            }
-        });
-
-        let ca = StringChunked::from_iter_options(name.into(), iter);
-
         Ok(Box::into_raw(Box::new(SeriesContext { series: ca.into_series() })))
     })
 }

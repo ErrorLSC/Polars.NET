@@ -1588,8 +1588,6 @@ public partial class Series : IDisposable,IPolarsSeries
     {
         var handle = SeriesFactory.CreateGenericType(name, data);
 
-        // var arrowArray = ArrowConverter.Build(data);
-        // var handle = ArrowFfiBridge.ImportSeries(name, arrowArray);
         return new Series(handle);
     }
     /// <summary>

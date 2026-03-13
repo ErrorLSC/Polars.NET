@@ -1,5 +1,7 @@
 using Polars.NET.Core.Arrow;
 using Microsoft.FSharp.Core;
+using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 namespace Polars.NET.Core.Helpers;
 
 /// <summary>
@@ -24,6 +26,88 @@ public static class SeriesFactory
 
         using var arrowArray = ArrowConverter.Build(data);
         return ArrowFfiBridge.ImportSeries(name, arrowArray);
+    }
+    // public static unsafe SeriesHandle Create<T>(string name, ReadOnlySpan<T> data) where T : unmanaged
+    // {
+    //     ref T srcRef = ref MemoryMarshal.GetReference(data);
+    //     fixed (T* ptr = &srcRef)
+    //     {
+    //         // Call the FFI layer. Assuming PolarsWrapper handles the memory copy to Rust/Arrow buffer.
+    //         return PolarsWrapper.SeriesNew(name, ptr, (nuint)data.Length);
+    //     }
+    // }
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public static SeriesHandle CreateSpan<T>(string name, ReadOnlySpan<T> data)
+    {
+        if (data.IsEmpty)
+            throw new ArgumentException("Cannot create Series from empty span.");
+
+        Type t = typeof(T);
+
+        // ==========================================
+        // 1. Signed Integers 
+        // ==========================================
+        if (t == typeof(int))
+        {
+            var span = ReinterpretSpan<T, int>(data);
+            // TODO: 这里需要对接接受 ref 指针和 length 的 FFI Wrapper，实现真正的零拷贝！
+            return PolarsWrapper.SeriesNew(name, span.ToArray(), null); // 暂时先 ToArray，下面会讲 FFI 升级
+        }
+        else if (t == typeof(int?))
+        {
+            var span = ReinterpretSpan<T, int?>(data);
+            // 完美接入我们刚升级的核动力 Helper！
+            var (vals, mask) = ArrayHelper.UnzipNullable(span); 
+            return PolarsWrapper.SeriesNew(name, vals, mask);
+        }
+        else if (t == typeof(long))
+        {
+            var span = ReinterpretSpan<T, long>(data);
+            return PolarsWrapper.SeriesNew(name, span.ToArray(), null);
+        }
+        else if (t == typeof(long?))
+        {
+            var span = ReinterpretSpan<T, long?>(data);
+            var (vals, mask) = ArrayHelper.UnzipNullable(span);
+            return PolarsWrapper.SeriesNew(name, vals, mask);
+        }
+
+        // ==========================================
+        // F# ValueOption<T> Support
+        // ==========================================
+        else if (t == typeof(FSharpValueOption<int>))
+        {
+            var span = ReinterpretSpan<T, FSharpValueOption<int>>(data);
+            // 完美接入刚改好的 FSharpHelper
+            var (vals, valid) = FSharpHelper.UnzipValueOption(span);
+            return PolarsWrapper.SeriesNew(name, vals, valid);
+        }
+        else if (t == typeof(FSharpValueOption<DateTime>))
+        {
+            var span = ReinterpretSpan<T, FSharpValueOption<DateTime>>(data);
+            var (vals, valid) = FSharpHelper.UnzipValueOptionDateTimeToUs(span);
+            return PolarsWrapper.SeriesNewDatetime(name, vals, valid, null);
+        }
+
+        // ==========================================
+        // String & Temporal
+        // ==========================================
+        else if (t == typeof(string))
+        {
+            // 对于引用类型，也可以用我们写的神器
+            var span = ReinterpretSpan<T, string>(data);
+            return PolarsWrapper.SeriesNewStringSimd(name, span.ToArray());
+        }
+        else if (t == typeof(DateTime))
+        {
+            var span = ReinterpretSpan<T, DateTime>(data);
+            var vals = ArrayHelper.UnzipDateTimeToUs(span); // 假设你的 ArrayHelper 也增加了 Span 支持
+            return PolarsWrapper.SeriesNewDatetime(name, vals, null, null);
+        }
+
+        // ... 继续添加其他类型 (byte, short, float, double 等等)
+
+        throw new NotSupportedException($"Type {t} is not supported for Span creation.");
     }
     /// <summary>
     /// Creates a SeriesHandle from a generic Array.
@@ -364,5 +448,13 @@ public static class SeriesFactory
 
         // 3. Create
         return PolarsWrapper.SeriesNewDecimal(name, vals, valid, scale);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static ReadOnlySpan<U> ReinterpretSpan<T, U>(ReadOnlySpan<T> span)
+    {
+        ref T srcRef = ref MemoryMarshal.GetReference(span);
+        ref U dstRef = ref Unsafe.As<T, U>(ref srcRef);
+        return MemoryMarshal.CreateReadOnlySpan(ref dstRef, span.Length);
     }
 }

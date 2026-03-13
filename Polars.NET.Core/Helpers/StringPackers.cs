@@ -1,3 +1,4 @@
+using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -17,32 +18,33 @@ public unsafe struct ArrowStringView
 
 public static unsafe class StringPacker
 {
+    /// <summary>
+    /// Packs a ReadOnlySpan of strings into Polars' Arrow StringView format.
+    /// Safely processes the span sequentially without needing to pin the managed reference types.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static (ArrowStringView[] views, byte[]? dataBuffer, byte[]? validity) PackStringView(string?[] data)
+    public static (ArrowStringView[] views, byte[]? dataBuffer, byte[]? validity) PackStringView(ReadOnlySpan<string?> data)
     {
         int len = data.Length;
         
-        // 【神之一手】：提前分配 Views 数组，它不仅是返回值，更是我们的“零成本缓存器”！
         var views = GC.AllocateUninitializedArray<ArrowStringView>(len);
         
         long totalDataSize = 0;
         bool hasNull = false;
 
-        // Pass 1: 计算并“完美白嫖” views[i].Length 缓存
         fixed (ArrowStringView* pViews = views)
         {
-            // 批量清零，保证 Arrow 内存规范无脏数据
             Unsafe.InitBlock(pViews, 0, (uint)(len * sizeof(ArrowStringView)));
 
+            // Pass 1: Calculate buffer size and check for nulls
             for (int i = 0; i < len; i++)
             {
+                // JIT optimally elides the bounds check here
                 string? s = data[i];
                 if (s != null)
                 {
-                    // 依然使用底层最快的 GetByteCount 计算所需容量
                     int byteCount = Encoding.UTF8.GetByteCount(s);
                     
-                    // 【缓存生效】：直接写进结果视图里，第二遍不用算了！
                     pViews[i].Length = byteCount; 
                     
                     if (byteCount > 12)
@@ -69,32 +71,31 @@ public static unsafe class StringPacker
             Array.Fill(validity, (byte)0xFF); 
         }
 
-        // Pass 2: 极速填充 (使用 .NET 8 Utf8.FromUtf16)
         int currentDataOffset = 0;
+        
+        // Pin outputs since they are unmanaged structs/bytes
         fixed (ArrowStringView* pViews = views)
         fixed (byte* pDataBuffer = dataBuffer) 
         fixed (byte* pValid = validity)
         {
+            // Pass 2: Encode utf8 directly into buffers
             for (int i = 0; i < len; i++)
             {
                 string? s = data[i];
 
-                // 优化 1：Guard Clause 拦截 null，代码瞬间拉平！
                 if (s is null)
                 {
                     if (pValid != null)
                     {
                         pValid[i >> 3] &= (byte)~(1 << (i & 7));
                     }
-                    continue; // 直接下一条，干脆利落
+                    continue; 
                 }
 
-                // 优化 2：直接读取 Pass 1 的缓存，0 额外开销
                 int byteCount = pViews[i].Length;
 
                 if (byteCount <= 12)
                 {
-                    // 极速内联路径 (.NET 8 SIMD)
                     if (byteCount > 0)
                     {
                         Utf8.FromUtf16(
@@ -107,7 +108,6 @@ public static unsafe class StringPacker
                 }
                 else
                 {
-                    // 长字符串分配路径
                     byte* targetDataPtr = pDataBuffer + currentDataOffset;
                     
                     Utf8.FromUtf16(
@@ -129,4 +129,11 @@ public static unsafe class StringPacker
 
         return (views, dataBuffer, validity);
     }
+
+    /// <summary>
+    /// Overload for standard string arrays to maintain API compatibility.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (ArrowStringView[] views, byte[]? dataBuffer, byte[]? validity) PackStringView(string?[] data) => 
+        PackStringView(new ReadOnlySpan<string?>(data));
 }

@@ -12,7 +12,7 @@ public static partial class ArrayHelper
     // =========================================================================
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static unsafe (Int128[] values, byte[]? validity) UnzipInt128SIMD(Int128?[] data, Int128 defaultValue)
+    private static unsafe (Int128[] values, byte[]? validity) UnzipInt128SIMD(ReadOnlySpan<Int128?> data, Int128 defaultValue)
     {
         int len = data.Length;
         // 1. Allocate Values (Uninitialized)
@@ -103,6 +103,8 @@ public static partial class ArrayHelper
         }
         return (values, validity);
     }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (Int128[] values, byte[]? validity) UnzipInt128SIMD(Int128?[] data,Int128 defaultValue) => UnzipInt128SIMD(new ReadOnlySpan<Int128?>(data),defaultValue );
 }
 
 internal static unsafe class Int128Packer

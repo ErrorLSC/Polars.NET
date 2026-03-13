@@ -9,10 +9,9 @@ public static unsafe class FSharpHelper
     // ========================================================================
     // 1. ValueOption<T> (struct) -> Values + Validity
     // ========================================================================
-    // F# ValueOption is struct. Generic type + Unmanaged
     
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static (T[] values, byte[]? validity) UnzipValueOption<T>(FSharpValueOption<T>[] data)
+    public static (T[] values, byte[]? validity) UnzipValueOption<T>(ReadOnlySpan<FSharpValueOption<T>> data)
         where T : unmanaged
     {
         int len = data.Length;
@@ -20,40 +19,49 @@ public static unsafe class FSharpHelper
         byte[]? validity = null;
         ref byte validRef = ref Unsafe.NullRef<byte>();
 
-        ref FSharpValueOption<T> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        // Get ref to the beginning of the ReadOnlySpan (No longer bound to array)
+        ref FSharpValueOption<T> srcRef = ref MemoryMarshal.GetReference(data);
+        
+        // Get ref to the beginning of the destination array (Replaces fixed T* pDst)
+        ref T dstRef = ref MemoryMarshal.GetArrayDataReference(values);
 
-        fixed (T* pDst = values)
+        // Unroll 8
+        int i = 0; 
+        int limit = len - 8;
+        int totalLen = len; 
+
+        // No fixed block needed anymore!
+        for (; i <= limit; i += 8)
         {
-            // Unroll 8
-            int i = 0; 
-            int limit = len - 8;
-            int totalLen = len; 
-
-            for (; i <= limit; i += 8)
-            {
-                HandleVOptionItem(i,     ref srcRef, pDst, ref validity, ref validRef, totalLen);
-                HandleVOptionItem(i + 1, ref srcRef, pDst, ref validity, ref validRef, totalLen);
-                HandleVOptionItem(i + 2, ref srcRef, pDst, ref validity, ref validRef, totalLen);
-                HandleVOptionItem(i + 3, ref srcRef, pDst, ref validity, ref validRef, totalLen);
-                HandleVOptionItem(i + 4, ref srcRef, pDst, ref validity, ref validRef, totalLen);
-                HandleVOptionItem(i + 5, ref srcRef, pDst, ref validity, ref validRef, totalLen);
-                HandleVOptionItem(i + 6, ref srcRef, pDst, ref validity, ref validRef, totalLen);
-                HandleVOptionItem(i + 7, ref srcRef, pDst, ref validity, ref validRef, totalLen);
-            }
-            
-            for (; i < len; i++)
-            {
-                HandleVOptionItem(i, ref srcRef, pDst, ref validity, ref validRef, totalLen);
-            }
+            HandleVOptionItem(i,     ref srcRef, ref dstRef, ref validity, ref validRef, totalLen);
+            HandleVOptionItem(i + 1, ref srcRef, ref dstRef, ref validity, ref validRef, totalLen);
+            HandleVOptionItem(i + 2, ref srcRef, ref dstRef, ref validity, ref validRef, totalLen);
+            HandleVOptionItem(i + 3, ref srcRef, ref dstRef, ref validity, ref validRef, totalLen);
+            HandleVOptionItem(i + 4, ref srcRef, ref dstRef, ref validity, ref validRef, totalLen);
+            HandleVOptionItem(i + 5, ref srcRef, ref dstRef, ref validity, ref validRef, totalLen);
+            HandleVOptionItem(i + 6, ref srcRef, ref dstRef, ref validity, ref validRef, totalLen);
+            HandleVOptionItem(i + 7, ref srcRef, ref dstRef, ref validity, ref validRef, totalLen);
         }
+        
+        for (; i < len; i++)
+        {
+            HandleVOptionItem(i, ref srcRef, ref dstRef, ref validity, ref validRef, totalLen);
+        }
+        
         return (values, validity);
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (T[] values, byte[]? validity) UnzipValueOption<T>(FSharpValueOption<T>[] data)
+        where T : unmanaged
+        => UnzipValueOption<T>(new ReadOnlySpan<FSharpValueOption<T>>(data));
+
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void HandleVOptionItem<T>(
         int i, 
         ref FSharpValueOption<T> srcBase, 
-        T* pDst, 
+        ref T dstBase, // Changed from T* pDst to ref T dstBase
         ref byte[]? validity, 
         ref byte validRef,
         int totalLen) where T : unmanaged
@@ -63,7 +71,8 @@ public static unsafe class FSharpHelper
         // F# ValueOption Tag: 1 = ValueSome, 0 = ValueNone
         if (item.Tag == FSharpValueOption<T>.Tags.ValueSome)
         {
-            pDst[i] = item.Value;
+            // Replaced pDst[i] with Unsafe.Add
+            Unsafe.Add(ref dstBase, i) = item.Value;
 
             if (validity != null)
             {
@@ -81,7 +90,8 @@ public static unsafe class FSharpHelper
                 InitValidity(ref validity, ref validRef, i, totalLen);
             }
             
-            pDst[i] = default;
+            // Replaced pDst[i] with Unsafe.Add
+            Unsafe.Add(ref dstBase, i) = default;
         }
     }
 
@@ -91,7 +101,7 @@ public static unsafe class FSharpHelper
     // F# Option is ref type (class) Array is object[] (ptr array)。
     
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static (T[] values, byte[]? validity) UnzipOption<T>(FSharpOption<T>[] data)
+    public static (T[] values, byte[]? validity) UnzipOption<T>(ReadOnlySpan<FSharpOption<T>> data)
         where T : unmanaged
     {
         int len = data.Length;
@@ -99,35 +109,43 @@ public static unsafe class FSharpHelper
         byte[]? validity = null;
         ref byte validRef = ref Unsafe.NullRef<byte>();
         
-        // Get ptr array ref
-        ref FSharpOption<T> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        // Get ref to the beginning of the ReadOnlySpan
+        ref FSharpOption<T> srcRef = ref MemoryMarshal.GetReference(data);
+        
+        // Get ref to the beginning of the destination array (Replaces fixed T* pDst)
+        ref T dstRef = ref MemoryMarshal.GetArrayDataReference(values);
 
-        fixed (T* pDst = values)
+        // No fixed block needed anymore!
+        int i = 0;
+        int limit = len - 4;
+
+        for (; i <= limit; i += 4)
         {
-            int i = 0;
-            int limit = len - 4;
-
-            for (; i <= limit; i += 4)
-            {
-                HandleOptionItem(i,     ref srcRef, pDst, ref validity, ref validRef, len);
-                HandleOptionItem(i + 1, ref srcRef, pDst, ref validity, ref validRef, len);
-                HandleOptionItem(i + 2, ref srcRef, pDst, ref validity, ref validRef, len);
-                HandleOptionItem(i + 3, ref srcRef, pDst, ref validity, ref validRef, len);
-            }
-
-            for (; i < len; i++)
-            {
-                HandleOptionItem(i, ref srcRef, pDst, ref validity, ref validRef, len);
-            }
+            HandleOptionItem(i,     ref srcRef, ref dstRef, ref validity, ref validRef, len);
+            HandleOptionItem(i + 1, ref srcRef, ref dstRef, ref validity, ref validRef, len);
+            HandleOptionItem(i + 2, ref srcRef, ref dstRef, ref validity, ref validRef, len);
+            HandleOptionItem(i + 3, ref srcRef, ref dstRef, ref validity, ref validRef, len);
         }
+
+        for (; i < len; i++)
+        {
+            HandleOptionItem(i, ref srcRef, ref dstRef, ref validity, ref validRef, len);
+        }
+        
         return (values, validity);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (T[] values, byte[]? validity) UnzipOption<T>(FSharpOption<T>[] data)
+        where T : unmanaged
+        => UnzipOption<T>(new ReadOnlySpan<FSharpOption<T>>(data));
+
+    // T* pDst => ref T dstBase
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void HandleOptionItem<T>(
         int i,
         ref FSharpOption<T> srcBase,
-        T* pDst,
+        ref T dstBase, // Changed from T* pDst to ref T dstBase
         ref byte[]? validity,
         ref byte validRef,
         int totalLen) where T : unmanaged
@@ -138,7 +156,8 @@ public static unsafe class FSharpHelper
         // item != null means Some
         if (item != null)
         {
-            pDst[i] = item.Value;
+            // Replaced pDst[i] with Unsafe.Add
+            Unsafe.Add(ref dstBase, i) = item.Value;
             
             if (validity != null) 
             {
@@ -154,7 +173,9 @@ public static unsafe class FSharpHelper
             {
                  InitValidity(ref validity, ref validRef, i, totalLen);
             }
-            pDst[i] = default;
+            
+            // Replaced pDst[i] with Unsafe.Add
+            Unsafe.Add(ref dstBase, i) = default;
         }
     }
     
@@ -192,11 +213,11 @@ public static unsafe class FSharpHelper
     // ========================================================================
 
     /// <summary>
-    /// Pack FSharpValueOption<bool>[] directly to Arrow Bitmaps (Values + Validity)
+    /// Pack ReadOnlySpan<FSharpValueOption<bool>> directly to Arrow Bitmaps (Values + Validity)
     /// Zero-Allocation intermediate.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static (byte[] values, byte[]? validity) PackValueOptionBool(FSharpValueOption<bool>[] data)
+    public static (byte[] values, byte[]? validity) PackValueOptionBool(ReadOnlySpan<FSharpValueOption<bool>> data)
     {
         int len = data.Length;
         int byteLen = (len + 7) >> 3;
@@ -207,11 +228,11 @@ public static unsafe class FSharpHelper
         // Pointers
         ref byte valuesRef = ref MemoryMarshal.GetArrayDataReference(values);
         ref byte validRef = ref Unsafe.NullRef<byte>(); // Placeholder
-        ref FSharpValueOption<bool> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        
+        ref FSharpValueOption<bool> srcRef = ref MemoryMarshal.GetReference(data);
 
         for (int i = 0; i < len; i++)
         {
-            // Get Item
             ref FSharpValueOption<bool> item = ref Unsafe.Add(ref srcRef, i);
 
             // Tag: 1 = Some, 0 = None
@@ -246,11 +267,12 @@ public static unsafe class FSharpHelper
         return (values, validity);
     }
 
-    /// <summary>
-    /// Pack FSharpOption<bool>[] directly to Arrow Bitmaps
-    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (byte[] values, byte[]? validity) PackValueOptionBool(FSharpValueOption<bool>[] data)
+        => PackValueOptionBool(new ReadOnlySpan<FSharpValueOption<bool>>(data));
+    
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static (byte[] values, byte[]? validity) PackOptionBool(FSharpOption<bool>[] data)
+    public static (byte[] values, byte[]? validity) PackOptionBool(ReadOnlySpan<FSharpOption<bool>> data)
     {
         int len = data.Length;
         int byteLen = (len + 7) >> 3;
@@ -261,8 +283,7 @@ public static unsafe class FSharpHelper
         ref byte valuesRef = ref MemoryMarshal.GetArrayDataReference(values);
         ref byte validRef = ref Unsafe.NullRef<byte>();
         
-        // Src is array of references (pointers)
-        ref FSharpOption<bool> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        ref FSharpOption<bool> srcRef = ref MemoryMarshal.GetReference(data);
 
         for (int i = 0; i < len; i++)
         {
@@ -294,6 +315,10 @@ public static unsafe class FSharpHelper
         return (values, validity);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (byte[] values, byte[]? validity) PackOptionBool(FSharpOption<bool>[] data)
+        => PackOptionBool(new ReadOnlySpan<FSharpOption<bool>>(data));
+
     // ========================================================================
     // 4. String Unwrapping (Option/VOption -> string[])
     // ========================================================================
@@ -302,12 +327,12 @@ public static unsafe class FSharpHelper
     /// Unwrap FSharpOption<string>[] -> string[] (null for None)
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static string?[] UnwrapOptionString(FSharpOption<string>[] data)
+    public static string?[] UnwrapOptionString(ReadOnlySpan<FSharpOption<string>> data)
     {
         int len = data.Length;
         var result = new string?[len];
         
-        ref FSharpOption<string> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        ref FSharpOption<string> srcRef = ref MemoryMarshal.GetReference(data);
         ref string? dstRef = ref MemoryMarshal.GetArrayDataReference(result);
 
         for (int i = 0; i < len; i++)
@@ -322,16 +347,17 @@ public static unsafe class FSharpHelper
         return result;
     }
 
-    /// <summary>
-    /// Unwrap FSharpValueOption<string>[] -> string[] (null for None)
-    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static string?[] UnwrapOptionString(FSharpOption<string>[] data)
+        => UnwrapOptionString(new ReadOnlySpan<FSharpOption<string>>(data));
+
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static string?[] UnwrapValueOptionString(FSharpValueOption<string>[] data)
+    public static string?[] UnwrapValueOptionString(ReadOnlySpan<FSharpValueOption<string>> data)
     {
         int len = data.Length;
         var result = new string?[len];
 
-        ref FSharpValueOption<string> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        ref FSharpValueOption<string> srcRef = ref MemoryMarshal.GetReference(data);
         ref string? dstRef = ref MemoryMarshal.GetArrayDataReference(result);
 
         for (int i = 0; i < len; i++)
@@ -349,12 +375,21 @@ public static unsafe class FSharpHelper
         }
         return result;
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static string?[] UnwrapValueOptionString(FSharpValueOption<string>[] data)
+        => UnwrapValueOptionString(new ReadOnlySpan<FSharpValueOption<string>>(data));
+
+    // ========================================================================
+    // DateTime Support (Option/VOption -> Int64[] Microseconds)
+    // ========================================================================
+
     /// <summary>
     /// Pack FSharpOption<DateTime>[] directly to Microseconds[]
     /// (Zero-Allocation, Pointer-based Unzip)
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static unsafe (long[] values, byte[]? validity) UnzipOptionDateTimeToUs(FSharpOption<DateTime>[] data)
+    public static (long[] values, byte[]? validity) UnzipOptionDateTimeToUs(ReadOnlySpan<FSharpOption<DateTime>> data)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<long>(len);
@@ -364,100 +399,88 @@ public static unsafe class FSharpHelper
         long mask = 0x3FFFFFFFFFFFFFFF; 
         long epoch = 621355968000000000; 
 
-        // Ref to the start of the pointer array
-        ref FSharpOption<DateTime> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        ref FSharpOption<DateTime> srcRef = ref MemoryMarshal.GetReference(data);
+        ref long dstRef = ref MemoryMarshal.GetArrayDataReference(values);
 
-        fixed (long* pDst = values)
+        for (int i = 0; i < len; i++)
         {
-            for (int i = 0; i < len; i++)
+            FSharpOption<DateTime> item = Unsafe.Add(ref srcRef, i);
+
+            if (item != null)
             {
-                // Load reference (pointer) directly
-                // FSharpOption<T> is a class, so this is effectively reading an object reference
-                FSharpOption<DateTime> item = Unsafe.Add(ref srcRef, i);
+                long ticks = item.Value.Ticks & mask;
+                Unsafe.Add(ref dstRef, i) = (ticks - epoch) / 10;
 
-                // Check for null (None)
-                if (item != null)
+                if (validity != null)
                 {
-                    // Some: Extract Value
-                    long ticks = item.Value.Ticks & mask;
-                    pDst[i] = (ticks - epoch) / 10;
-
-                    // Update Validity Bitmap
-                    if (validity != null)
-                    {
-                        if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
-                        ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
-                        target |= (byte)(1 << (i & 7));
-                    }
-                }
-                else
-                {
-                    // None
-                    if (validity == null)
-                    {
-                        // Initialize Validity (Backfill 1s for previous valid items)
-                        InitValidity(ref validity, ref validRef, i, len);
-                    }
-                    pDst[i] = 0;
+                    if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
+                    ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
+                    target |= (byte)(1 << (i & 7));
                 }
             }
+            else
+            {
+                if (validity == null)
+                {
+                    InitValidity(ref validity, ref validRef, i, len);
+                }
+                Unsafe.Add(ref dstRef, i) = 0;
+            }
         }
-        return (values, validity);
-    }
-    /// <summary>
-    /// Pack FSharpValueOption<DateTime>[] directly to Microseconds[]
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static (long[] values, byte[]? validity) UnzipValueOptionDateTimeToUs(FSharpValueOption<DateTime>[] data)
-    {
-        int len = data.Length;
-        var values = GC.AllocateUninitializedArray<long>(len);
-        byte[]? validity = null;
-        ref byte validRef = ref Unsafe.NullRef<byte>();
-
-        long mask = 0x3FFFFFFFFFFFFFFF; 
-        long epoch = 621355968000000000; 
-
-        // FSharpValueOption<DateTime> layout?
-        // It is struct: [Tag(4), DateTime(8)]? No.
-        // F# ValueOption<T> layout depends on T.
-        // For DateTime (struct), it likely packs nicely but alignment matters.
-        // It's safer to use ref Unsafe.Add logic rather than raw pointers unless verified layout.
         
-        ref FSharpValueOption<DateTime> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
-        fixed (long* pDst = values)
-        {
-            for (int i = 0; i < len; i++)
-            {
-                ref FSharpValueOption<DateTime> item = ref Unsafe.Add(ref srcRef, i);
-                
-                if (item.Tag == FSharpValueOption<DateTime>.Tags.ValueSome)
-                {
-                    // Logic from ArrayHelper
-                    long ticks = item.Value.Ticks & mask;
-                    pDst[i] = (ticks - epoch) / 10;
-                    
-                    if (validity != null)
-                    {
-                        if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
-                        ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
-                        target |= (byte)(1 << (i & 7));
-                    }
-                }
-                else
-                {
-                    if (validity == null)
-                    {
-                        InitValidity(ref validity, ref validRef, i, len);
-                    }
-                    pDst[i] = 0;
-                }
-            }
-        }
         return (values, validity);
     }
-    // Inside FSharpHelper.cs
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (long[] values, byte[]? validity) UnzipOptionDateTimeToUs(FSharpOption<DateTime>[] data)
+        => UnzipOptionDateTimeToUs(new ReadOnlySpan<FSharpOption<DateTime>>(data));
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public static (long[] values, byte[]? validity) UnzipValueOptionDateTimeToUs(ReadOnlySpan<FSharpValueOption<DateTime>> data)
+    {
+        int len = data.Length;
+        var values = GC.AllocateUninitializedArray<long>(len);
+        byte[]? validity = null;
+        ref byte validRef = ref Unsafe.NullRef<byte>();
+
+        long mask = 0x3FFFFFFFFFFFFFFF; 
+        long epoch = 621355968000000000; 
+
+        ref FSharpValueOption<DateTime> srcRef = ref MemoryMarshal.GetReference(data);
+        ref long dstRef = ref MemoryMarshal.GetArrayDataReference(values);
+
+        for (int i = 0; i < len; i++)
+        {
+            ref FSharpValueOption<DateTime> item = ref Unsafe.Add(ref srcRef, i);
+            
+            if (item.Tag == FSharpValueOption<DateTime>.Tags.ValueSome)
+            {
+                long ticks = item.Value.Ticks & mask;
+                Unsafe.Add(ref dstRef, i) = (ticks - epoch) / 10;
+                
+                if (validity != null)
+                {
+                    if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
+                    ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
+                    target |= (byte)(1 << (i & 7));
+                }
+            }
+            else
+            {
+                if (validity == null)
+                {
+                    InitValidity(ref validity, ref validRef, i, len);
+                }
+                Unsafe.Add(ref dstRef, i) = 0;
+            }
+        }
+        
+        return (values, validity);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (long[] values, byte[]? validity) UnzipValueOptionDateTimeToUs(FSharpValueOption<DateTime>[] data)
+        => UnzipValueOptionDateTimeToUs(new ReadOnlySpan<FSharpValueOption<DateTime>>(data));
     // ========================================================================
     // DateOnly Support (Option/VOption -> Int32[] Days)
     // ========================================================================
@@ -466,7 +489,7 @@ public static unsafe class FSharpHelper
     /// Pack FSharpOption<DateOnly>[] directly to Int32[] (Days since 1970-01-01)
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static (int[] values, byte[]? validity) UnzipOptionDateOnlyToInt32(FSharpOption<DateOnly>[] data)
+    public static (int[] values, byte[]? validity) UnzipOptionDateOnlyToInt32(ReadOnlySpan<FSharpOption<DateOnly>> data)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<int>(len);
@@ -475,45 +498,45 @@ public static unsafe class FSharpHelper
 
         int epochShift = 719162; 
 
-        ref FSharpOption<DateOnly> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        ref FSharpOption<DateOnly> srcRef = ref MemoryMarshal.GetReference(data);
+        ref int dstRef = ref MemoryMarshal.GetArrayDataReference(values);
 
-        fixed (int* pDst = values)
+        for (int i = 0; i < len; i++)
         {
-            for (int i = 0; i < len; i++)
+            FSharpOption<DateOnly> item = Unsafe.Add(ref srcRef, i);
+
+            if (item != null)
             {
-                FSharpOption<DateOnly> item = Unsafe.Add(ref srcRef, i);
+                // Item.Value is DateOnly struct -> .DayNumber is int
+                Unsafe.Add(ref dstRef, i) = item.Value.DayNumber - epochShift;
 
-                if (item != null)
+                if (validity != null)
                 {
-                    // Item.Value is DateOnly struct
-                    // .DayNumber is int
-                    pDst[i] = item.Value.DayNumber - epochShift;
-
-                    if (validity != null)
-                    {
-                        if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
-                        ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
-                        target |= (byte)(1 << (i & 7));
-                    }
-                }
-                else
-                {
-                    if (validity == null)
-                    {
-                        InitValidity(ref validity, ref validRef, i, len);
-                    }
-                    pDst[i] = 0;
+                    if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
+                    ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
+                    target |= (byte)(1 << (i & 7));
                 }
             }
+            else
+            {
+                if (validity == null)
+                {
+                    InitValidity(ref validity, ref validRef, i, len);
+                }
+                Unsafe.Add(ref dstRef, i) = 0;
+            }
         }
+        
         return (values, validity);
     }
 
-    /// <summary>
-    /// Pack FSharpValueOption<DateOnly>[] directly to Int32[] (Days since 1970-01-01)
-    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (int[] values, byte[]? validity) UnzipOptionDateOnlyToInt32(FSharpOption<DateOnly>[] data)
+        => UnzipOptionDateOnlyToInt32(new ReadOnlySpan<FSharpOption<DateOnly>>(data));
+
+
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static unsafe (int[] values, byte[]? validity) UnzipValueOptionDateOnlyToInt32(FSharpValueOption<DateOnly>[] data)
+    public static (int[] values, byte[]? validity) UnzipValueOptionDateOnlyToInt32(ReadOnlySpan<FSharpValueOption<DateOnly>> data)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<int>(len);
@@ -522,38 +545,40 @@ public static unsafe class FSharpHelper
 
         int epochShift = 719162;
 
-        ref FSharpValueOption<DateOnly> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        ref FSharpValueOption<DateOnly> srcRef = ref MemoryMarshal.GetReference(data);
+        ref int dstRef = ref MemoryMarshal.GetArrayDataReference(values);
 
-        fixed (int* pDst = values)
+        for (int i = 0; i < len; i++)
         {
-            for (int i = 0; i < len; i++)
+            ref FSharpValueOption<DateOnly> item = ref Unsafe.Add(ref srcRef, i);
+
+            if (item.Tag == FSharpValueOption<DateOnly>.Tags.ValueSome)
             {
-                ref FSharpValueOption<DateOnly> item = ref Unsafe.Add(ref srcRef, i);
+                Unsafe.Add(ref dstRef, i) = item.Value.DayNumber - epochShift;
 
-                if (item.Tag == FSharpValueOption<DateOnly>.Tags.ValueSome)
+                if (validity != null)
                 {
-                    pDst[i] = item.Value.DayNumber - epochShift;
-
-                    if (validity != null)
-                    {
-                        if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
-                        ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
-                        target |= (byte)(1 << (i & 7));
-                    }
-                }
-                else
-                {
-                    if (validity == null)
-                    {
-                        InitValidity(ref validity, ref validRef, i, len);
-                    }
-                    pDst[i] = 0;
+                    if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
+                    ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
+                    target |= (byte)(1 << (i & 7));
                 }
             }
+            else
+            {
+                if (validity == null)
+                {
+                    InitValidity(ref validity, ref validRef, i, len);
+                }
+                Unsafe.Add(ref dstRef, i) = 0;
+            }
         }
+        
         return (values, validity);
     }
-    // Inside FSharpHelper.cs
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (int[] values, byte[]? validity) UnzipValueOptionDateOnlyToInt32(FSharpValueOption<DateOnly>[] data)
+        => UnzipValueOptionDateOnlyToInt32(new ReadOnlySpan<FSharpValueOption<DateOnly>>(data));
 
     // ========================================================================
     // DateTimeOffset Support (Option/VOption -> UTC Microseconds)
@@ -563,7 +588,7 @@ public static unsafe class FSharpHelper
     /// Pack FSharpOption<DateTimeOffset>[] directly to UTC Microseconds[]
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static unsafe (long[] values, byte[]? validity) UnzipOptionDateTimeOffsetToUs(FSharpOption<DateTimeOffset>[] data)
+    public static (long[] values, byte[]? validity) UnzipOptionDateTimeOffsetToUs(ReadOnlySpan<FSharpOption<DateTimeOffset>> data)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<long>(len);
@@ -572,46 +597,46 @@ public static unsafe class FSharpHelper
 
         long epoch = 621355968000000000; 
 
-        ref FSharpOption<DateTimeOffset> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        ref FSharpOption<DateTimeOffset> srcRef = ref MemoryMarshal.GetReference(data);
+        ref long dstRef = ref MemoryMarshal.GetArrayDataReference(values);
 
-        fixed (long* pDst = values)
+        for (int i = 0; i < len; i++)
         {
-            for (int i = 0; i < len; i++)
+            // Load reference (pointer)
+            FSharpOption<DateTimeOffset> item = Unsafe.Add(ref srcRef, i);
+
+            if (item != null)
             {
-                // Load reference (pointer)
-                FSharpOption<DateTimeOffset> item = Unsafe.Add(ref srcRef, i);
+                // Access .Value.UtcTicks directly
+                long utcTicks = item.Value.UtcTicks;
+                Unsafe.Add(ref dstRef, i) = (utcTicks - epoch) / 10;
 
-                if (item != null)
+                if (validity != null)
                 {
-                    // Access .Value.UtcTicks directly
-                    long utcTicks = item.Value.UtcTicks;
-                    pDst[i] = (utcTicks - epoch) / 10;
-
-                    if (validity != null)
-                    {
-                        if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
-                        ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
-                        target |= (byte)(1 << (i & 7));
-                    }
-                }
-                else
-                {
-                    if (validity == null)
-                    {
-                        InitValidity(ref validity, ref validRef, i, len);
-                    }
-                    pDst[i] = 0;
+                    if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
+                    ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
+                    target |= (byte)(1 << (i & 7));
                 }
             }
+            else
+            {
+                if (validity == null)
+                {
+                    InitValidity(ref validity, ref validRef, i, len);
+                }
+                Unsafe.Add(ref dstRef, i) = 0;
+            }
         }
+        
         return (values, validity);
     }
 
-    /// <summary>
-    /// Pack FSharpValueOption<DateTimeOffset>[] directly to UTC Microseconds[]
-    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (long[] values, byte[]? validity) UnzipOptionDateTimeOffsetToUs(FSharpOption<DateTimeOffset>[] data)
+        => UnzipOptionDateTimeOffsetToUs(new ReadOnlySpan<FSharpOption<DateTimeOffset>>(data));
+
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static unsafe (long[] values, byte[]? validity) UnzipValueOptionDateTimeOffsetToUs(FSharpValueOption<DateTimeOffset>[] data)
+    public static (long[] values, byte[]? validity) UnzipValueOptionDateTimeOffsetToUs(ReadOnlySpan<FSharpValueOption<DateTimeOffset>> data)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<long>(len);
@@ -620,38 +645,41 @@ public static unsafe class FSharpHelper
 
         long epoch = 621355968000000000; 
 
-        ref FSharpValueOption<DateTimeOffset> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        ref FSharpValueOption<DateTimeOffset> srcRef = ref MemoryMarshal.GetReference(data);
+        ref long dstRef = ref MemoryMarshal.GetArrayDataReference(values);
 
-        fixed (long* pDst = values)
+        for (int i = 0; i < len; i++)
         {
-            for (int i = 0; i < len; i++)
+            ref FSharpValueOption<DateTimeOffset> item = ref Unsafe.Add(ref srcRef, i);
+
+            if (item.Tag == FSharpValueOption<DateTimeOffset>.Tags.ValueSome)
             {
-                ref FSharpValueOption<DateTimeOffset> item = ref Unsafe.Add(ref srcRef, i);
+                long utcTicks = item.Value.UtcTicks;
+                Unsafe.Add(ref dstRef, i) = (utcTicks - epoch) / 10;
 
-                if (item.Tag == FSharpValueOption<DateTimeOffset>.Tags.ValueSome)
+                if (validity != null)
                 {
-                    long utcTicks = item.Value.UtcTicks;
-                    pDst[i] = (utcTicks - epoch) / 10;
-
-                    if (validity != null)
-                    {
-                        if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
-                        ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
-                        target |= (byte)(1 << (i & 7));
-                    }
-                }
-                else
-                {
-                    if (validity == null)
-                    {
-                        InitValidity(ref validity, ref validRef, i, len);
-                    }
-                    pDst[i] = 0;
+                    if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
+                    ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
+                    target |= (byte)(1 << (i & 7));
                 }
             }
+            else
+            {
+                if (validity == null)
+                {
+                    InitValidity(ref validity, ref validRef, i, len);
+                }
+                Unsafe.Add(ref dstRef, i) = 0;
+            }
         }
+        
         return (values, validity);
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (long[] values, byte[]? validity) UnzipValueOptionDateTimeOffsetToUs(FSharpValueOption<DateTimeOffset>[] data)
+        => UnzipValueOptionDateTimeOffsetToUs(new ReadOnlySpan<FSharpValueOption<DateTimeOffset>>(data));
 
     // ========================================================================
     // TimeOnly Support (Option/VOption -> Int64[] Nanoseconds)
@@ -661,7 +689,7 @@ public static unsafe class FSharpHelper
     /// Pack FSharpOption<TimeOnly>[] directly to Int64[] (Nanoseconds)
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static (long[] values, byte[]? validity) UnzipOptionTimeOnlyToNs(FSharpOption<TimeOnly>[] data)
+    public static (long[] values, byte[]? validity) UnzipOptionTimeOnlyToNs(ReadOnlySpan<FSharpOption<TimeOnly>> data)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<long>(len);
@@ -670,44 +698,44 @@ public static unsafe class FSharpHelper
 
         long multiplier = 100; // Ticks(100ns) -> ns
 
-        ref FSharpOption<TimeOnly> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        ref FSharpOption<TimeOnly> srcRef = ref MemoryMarshal.GetReference(data);
+        ref long dstRef = ref MemoryMarshal.GetArrayDataReference(values);
 
-        fixed (long* pDst = values)
+        for (int i = 0; i < len; i++)
         {
-            for (int i = 0; i < len; i++)
+            FSharpOption<TimeOnly> item = Unsafe.Add(ref srcRef, i);
+
+            if (item != null)
             {
-                FSharpOption<TimeOnly> item = Unsafe.Add(ref srcRef, i);
+                // item.Value is TimeOnly struct -> .Ticks is long
+                Unsafe.Add(ref dstRef, i) = item.Value.Ticks * multiplier;
 
-                if (item != null)
+                if (validity != null)
                 {
-                    // item.Value is TimeOnly struct -> .Ticks is long
-                    pDst[i] = item.Value.Ticks * multiplier;
-
-                    if (validity != null)
-                    {
-                        if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
-                        ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
-                        target |= (byte)(1 << (i & 7));
-                    }
-                }
-                else
-                {
-                    if (validity == null)
-                    {
-                        InitValidity(ref validity, ref validRef, i, len);
-                    }
-                    pDst[i] = 0;
+                    if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
+                    ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
+                    target |= (byte)(1 << (i & 7));
                 }
             }
+            else
+            {
+                if (validity == null)
+                {
+                    InitValidity(ref validity, ref validRef, i, len);
+                }
+                Unsafe.Add(ref dstRef, i) = 0;
+            }
         }
+        
         return (values, validity);
     }
 
-    /// <summary>
-    /// Pack FSharpValueOption<TimeOnly>[] directly to Int64[] (Nanoseconds)
-    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (long[] values, byte[]? validity) UnzipOptionTimeOnlyToNs(FSharpOption<TimeOnly>[] data)
+        => UnzipOptionTimeOnlyToNs(new ReadOnlySpan<FSharpOption<TimeOnly>>(data));
+
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static (long[] values, byte[]? validity) UnzipValueOptionTimeOnlyToNs(FSharpValueOption<TimeOnly>[] data)
+    public static (long[] values, byte[]? validity) UnzipValueOptionTimeOnlyToNs(ReadOnlySpan<FSharpValueOption<TimeOnly>> data)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<long>(len);
@@ -716,165 +744,154 @@ public static unsafe class FSharpHelper
 
         long multiplier = 100;
 
-        ref FSharpValueOption<TimeOnly> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        ref FSharpValueOption<TimeOnly> srcRef = ref MemoryMarshal.GetReference(data);
+        ref long dstRef = ref MemoryMarshal.GetArrayDataReference(values);
 
-        fixed (long* pDst = values)
+        for (int i = 0; i < len; i++)
         {
-            for (int i = 0; i < len; i++)
+            ref FSharpValueOption<TimeOnly> item = ref Unsafe.Add(ref srcRef, i);
+
+            if (item.Tag == FSharpValueOption<TimeOnly>.Tags.ValueSome)
             {
-                ref FSharpValueOption<TimeOnly> item = ref Unsafe.Add(ref srcRef, i);
+                Unsafe.Add(ref dstRef, i) = item.Value.Ticks * multiplier;
 
-                if (item.Tag == FSharpValueOption<TimeOnly>.Tags.ValueSome)
+                if (validity != null)
                 {
-                    pDst[i] = item.Value.Ticks * multiplier;
-
-                    if (validity != null)
-                    {
-                        if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
-                        ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
-                        target |= (byte)(1 << (i & 7));
-                    }
-                }
-                else
-                {
-                    if (validity == null)
-                    {
-                        InitValidity(ref validity, ref validRef, i, len);
-                    }
-                    pDst[i] = 0;
+                    if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
+                    ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
+                    target |= (byte)(1 << (i & 7));
                 }
             }
+            else
+            {
+                if (validity == null)
+                {
+                    InitValidity(ref validity, ref validRef, i, len);
+                }
+                Unsafe.Add(ref dstRef, i) = 0;
+            }
         }
+        
         return (values, validity);
     }
-    // Inside FSharpHelper.cs
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (long[] values, byte[]? validity) UnzipValueOptionTimeOnlyToNs(FSharpValueOption<TimeOnly>[] data)
+        => UnzipValueOptionTimeOnlyToNs(new ReadOnlySpan<FSharpValueOption<TimeOnly>>(data));
 
     // ========================================================================
     // TimeSpan Support (Option/VOption -> Int64[] Microseconds)
     // ========================================================================
 
-    /// <summary>
-    /// Pack FSharpOption<TimeSpan>[] directly to Int64[] (Microseconds)
-    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public static (long[] values, byte[]? validity) UnzipOptionTimeSpanToUs(ReadOnlySpan<FSharpOption<TimeSpan>> data)
+    {
+        int len = data.Length;
+        var values = GC.AllocateUninitializedArray<long>(len);
+        byte[]? validity = null;
+        ref byte validRef = ref Unsafe.NullRef<byte>();
+
+        ref FSharpOption<TimeSpan> srcRef = ref MemoryMarshal.GetReference(data);
+        ref long dstRef = ref MemoryMarshal.GetArrayDataReference(values);
+
+        for (int i = 0; i < len; i++)
+        {
+            FSharpOption<TimeSpan> item = Unsafe.Add(ref srcRef, i);
+
+            if (item != null)
+            {
+                Unsafe.Add(ref dstRef, i) = item.Value.Ticks / 10;
+
+                if (validity != null)
+                {
+                    if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
+                    ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
+                    target |= (byte)(1 << (i & 7));
+                }
+            }
+            else
+            {
+                if (validity == null) InitValidity(ref validity, ref validRef, i, len);
+                Unsafe.Add(ref dstRef, i) = 0;
+            }
+        }
+        return (values, validity);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static (long[] values, byte[]? validity) UnzipOptionTimeSpanToUs(FSharpOption<TimeSpan>[] data)
-    {
-        int len = data.Length;
-        var values = GC.AllocateUninitializedArray<long>(len);
-        byte[]? validity = null;
-        ref byte validRef = ref Unsafe.NullRef<byte>();
+        => UnzipOptionTimeSpanToUs(new ReadOnlySpan<FSharpOption<TimeSpan>>(data));
 
-        // Ref to pointer array
-        ref FSharpOption<TimeSpan> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
-
-        fixed (long* pDst = values)
-        {
-            for (int i = 0; i < len; i++)
-            {
-                FSharpOption<TimeSpan> item = Unsafe.Add(ref srcRef, i);
-
-                if (item != null)
-                {
-                    // item.Value.Ticks / 10 -> us
-                    pDst[i] = item.Value.Ticks / 10;
-
-                    if (validity != null)
-                    {
-                        if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
-                        ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
-                        target |= (byte)(1 << (i & 7));
-                    }
-                }
-                else
-                {
-                    if (validity == null)
-                    {
-                        InitValidity(ref validity, ref validRef, i, len);
-                    }
-                    pDst[i] = 0;
-                }
-            }
-        }
-        return (values, validity);
-    }
-
-    /// <summary>
-    /// Pack FSharpValueOption<TimeSpan>[] directly to Int64[] (Microseconds)
-    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static (long[] values, byte[]? validity) UnzipValueOptionTimeSpanToUs(FSharpValueOption<TimeSpan>[] data)
+    public static (long[] values, byte[]? validity) UnzipValueOptionTimeSpanToUs(ReadOnlySpan<FSharpValueOption<TimeSpan>> data)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<long>(len);
         byte[]? validity = null;
         ref byte validRef = ref Unsafe.NullRef<byte>();
 
-        ref FSharpValueOption<TimeSpan> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        ref FSharpValueOption<TimeSpan> srcRef = ref MemoryMarshal.GetReference(data);
+        ref long dstRef = ref MemoryMarshal.GetArrayDataReference(values);
 
-        fixed (long* pDst = values)
+        for (int i = 0; i < len; i++)
         {
-            for (int i = 0; i < len; i++)
+            ref FSharpValueOption<TimeSpan> item = ref Unsafe.Add(ref srcRef, i);
+
+            if (item.Tag == FSharpValueOption<TimeSpan>.Tags.ValueSome)
             {
-                ref FSharpValueOption<TimeSpan> item = ref Unsafe.Add(ref srcRef, i);
+                Unsafe.Add(ref dstRef, i) = item.Value.Ticks / 10;
 
-                if (item.Tag == FSharpValueOption<TimeSpan>.Tags.ValueSome)
+                if (validity != null)
                 {
-                    pDst[i] = item.Value.Ticks / 10;
-
-                    if (validity != null)
-                    {
-                        if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
-                        ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
-                        target |= (byte)(1 << (i & 7));
-                    }
+                    if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
+                    ref byte target = ref Unsafe.Add(ref validRef, i >> 3);
+                    target |= (byte)(1 << (i & 7));
                 }
-                else
-                {
-                    if (validity == null)
-                    {
-                        InitValidity(ref validity, ref validRef, i, len);
-                    }
-                    pDst[i] = 0;
-                }
+            }
+            else
+            {
+                if (validity == null) InitValidity(ref validity, ref validRef, i, len);
+                Unsafe.Add(ref dstRef, i) = 0;
             }
         }
         return (values, validity);
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (long[] values, byte[]? validity) UnzipValueOptionTimeSpanToUs(FSharpValueOption<TimeSpan>[] data)
+        => UnzipValueOptionTimeSpanToUs(new ReadOnlySpan<FSharpValueOption<TimeSpan>>(data));
     // ========================================================================
     // Decimal Support (Option/VOption -> decimal?[])
     // ========================================================================
 
-    /// <summary>
-    /// Unwrap FSharpOption<decimal>[] -> decimal?[] (Fast Path)
-    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static decimal?[] UnwrapOptionDecimal(FSharpOption<decimal>[] data)
+    public static decimal?[] UnwrapOptionDecimal(ReadOnlySpan<FSharpOption<decimal>> data)
     {
         int len = data.Length;
         var result = new decimal?[len];
 
-        ref FSharpOption<decimal> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        ref FSharpOption<decimal> srcRef = ref MemoryMarshal.GetReference(data);
         ref decimal? dstRef = ref MemoryMarshal.GetArrayDataReference(result);
 
         for (int i = 0; i < len; i++)
         {
             FSharpOption<decimal> item = Unsafe.Add(ref srcRef, i);
-
             Unsafe.Add(ref dstRef, i) = item?.Value;
         }
         return result;
     }
 
-    /// <summary>
-    /// Unwrap FSharpValueOption<decimal>[] -> decimal?[] (Fast Path)
-    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static decimal?[] UnwrapOptionDecimal(FSharpOption<decimal>[] data)
+        => UnwrapOptionDecimal(new ReadOnlySpan<FSharpOption<decimal>>(data));
+
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static decimal?[] UnwrapValueOptionDecimal(FSharpValueOption<decimal>[] data)
+    public static decimal?[] UnwrapValueOptionDecimal(ReadOnlySpan<FSharpValueOption<decimal>> data)
     {
         int len = data.Length;
         var result = new decimal?[len];
 
-        ref FSharpValueOption<decimal> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        ref FSharpValueOption<decimal> srcRef = ref MemoryMarshal.GetReference(data);
         ref decimal? dstRef = ref MemoryMarshal.GetArrayDataReference(result);
 
         for (int i = 0; i < len; i++)
@@ -892,4 +909,8 @@ public static unsafe class FSharpHelper
         }
         return result;
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static decimal?[] UnwrapValueOptionDecimal(FSharpValueOption<decimal>[] data)
+        => UnwrapValueOptionDecimal(new ReadOnlySpan<FSharpValueOption<decimal>>(data));
 }

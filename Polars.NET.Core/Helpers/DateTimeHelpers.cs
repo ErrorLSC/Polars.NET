@@ -6,10 +6,10 @@ namespace Polars.NET.Core.Helpers;
 public static partial class ArrayHelper
 {
     /// <summary>
-    /// DateTime[] -> Microseconds[] (long[])
+    /// ReadOnlySpan<DateTime> -> Microseconds[] (long[])
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static unsafe long[] UnzipDateTimeToUs(DateTime[] data)
+    public static unsafe long[] UnzipDateTimeToUs(ReadOnlySpan<DateTime> data)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<long>(len);
@@ -17,8 +17,8 @@ public static partial class ArrayHelper
         // Constants 
         long mask = 0x3FFFFFFFFFFFFFFF;  // Ticks Mask (no Kind bits)
         long epoch = 621355968000000000; // 1970-01-01 Ticks
-
-        fixed (DateTime* pSrc = data)
+        ref DateTime srcRef = ref MemoryMarshal.GetReference(data);
+        fixed (DateTime* pSrc = &srcRef)
         fixed (long* pDst = values)
         {
             // DateTime in mem is ulong (private ulong _dateData)
@@ -56,7 +56,7 @@ public static partial class ArrayHelper
     /// Logic：Mask Kind -> Subtract Epoch -> Divide by 10
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static unsafe (long[] values, byte[]? validity) UnzipDateTimeToUs(DateTime?[] data)
+    public static unsafe (long[] values, byte[]? validity) UnzipDateTimeToUs(ReadOnlySpan<DateTime?> data)
     {
         int len = data.Length;
         // Alloc target mem
@@ -70,7 +70,9 @@ public static partial class ArrayHelper
         long mask = 0x3FFFFFFFFFFFFFFF; // Ticks Mask
         long epoch = 621355968000000000; // 1970-01-01 Ticks
 
-        fixed (DateTime?* pSrc = data) // DateTime? mem layout: [Bool(1), Pad(7), Val(8)] (Stride 16)
+        ref DateTime? srcRef = ref MemoryMarshal.GetReference(data);
+
+        fixed (DateTime?* pSrc = &srcRef) // DateTime? mem layout: [Bool(1), Pad(7), Val(8)] (Stride 16)
         fixed (long* pDst = values)
         {
             long* pRawSrc = (long*)pSrc;
@@ -165,4 +167,11 @@ public static partial class ArrayHelper
             pDst[i] = 0; 
         }
     }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static long[] UnzipDateTimeToUs(DateTime[] data) 
+        => UnzipDateTimeToUs(new ReadOnlySpan<DateTime>(data));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (long[] values, byte[]? validity) UnzipDateTimeToUs(DateTime?[] data) 
+        => UnzipDateTimeToUs(new ReadOnlySpan<DateTime?>(data));
 }

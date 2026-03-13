@@ -7,7 +7,7 @@ namespace Polars.NET.Core.Helpers;
 public static partial class ArrayHelper
 {
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static unsafe int[] UnzipDateOnlyToInt32(DateOnly[] data)
+    public static unsafe int[] UnzipDateOnlyToInt32(ReadOnlySpan<DateOnly> data)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<int>(len);
@@ -15,7 +15,10 @@ public static partial class ArrayHelper
         // 1970-01-01 DayNumber
         int epochShift = 719162; 
 
-        fixed (DateOnly* pSrc = data)
+        // Get ref to the first element
+        ref DateOnly srcRef = ref MemoryMarshal.GetReference(data);
+
+        fixed (DateOnly* pSrc = &srcRef)
         fixed (int* pDst = values)
         {
             int* pRawSrc = (int*)pSrc;
@@ -65,7 +68,7 @@ public static partial class ArrayHelper
     /// DateOnly? is 8 bytes, read it as long
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static unsafe (int[] values, byte[]? validity) UnzipDateOnlyToInt32(DateOnly?[] data)
+    public static unsafe (int[] values, byte[]? validity) UnzipDateOnlyToInt32(ReadOnlySpan<DateOnly?> data)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<int>(len);
@@ -76,7 +79,9 @@ public static partial class ArrayHelper
         // Constant Value：1970 Epoch
         int epochShift = 719162;
 
-        fixed (DateOnly?* pSrc = data)
+        ref DateOnly? srcRef = ref MemoryMarshal.GetReference(data);
+
+        fixed (DateOnly?* pSrc = &srcRef)
         fixed (int* pDst = values)
         {
             // Layout: [Bool(1), Pad(3), Int(4)]
@@ -109,7 +114,7 @@ public static partial class ArrayHelper
 
         return (values, validity);
     }
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static unsafe void HandleDateOnlyItem(
         int i,
         long* pRawSrc,
@@ -158,4 +163,9 @@ public static partial class ArrayHelper
             pDst[i] = 0; // Default
         }
     }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int[] UnzipDateOnlyToInt32(DateOnly[] data) => UnzipDateOnlyToInt32(new ReadOnlySpan<DateOnly>(data));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (int[] values, byte[]? validity) UnzipDateOnlyToInt32(DateOnly?[] data) => UnzipDateOnlyToInt32(new ReadOnlySpan<DateOnly?>(data));
 }

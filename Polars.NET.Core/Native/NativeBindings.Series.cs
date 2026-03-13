@@ -60,62 +60,56 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_series_to_frame(SeriesHandle s);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial SeriesHandle pl_series_new_i8(string name, sbyte[] ptr, byte[]? validity, UIntPtr len);
+    public static partial SeriesHandle pl_series_new_i8(string name, ref sbyte ptr, ref byte validity, UIntPtr len);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial SeriesHandle pl_series_new_u8(string name, byte[] ptr, byte[]? validity, UIntPtr len);
+    public static partial SeriesHandle pl_series_new_u8(string name, ref byte ptr, ref byte validity, UIntPtr len);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial SeriesHandle pl_series_new_i16(string name, short[] ptr, byte[]? validity, UIntPtr len);
+    public static partial SeriesHandle pl_series_new_i16(string name, ref short ptr, ref byte validity, UIntPtr len);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial SeriesHandle pl_series_new_u16(string name, ushort[] ptr, byte[]? validity, UIntPtr len);
+    public static partial SeriesHandle pl_series_new_u16(string name, ref ushort ptr, ref byte validity, UIntPtr len);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial SeriesHandle pl_series_new_i32(string name, int[] ptr, byte[]? validity, UIntPtr len);
+    public static partial SeriesHandle pl_series_new_i32(string name, ref int ptr, ref byte validity, UIntPtr len);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8,EntryPoint = "pl_series_new_u32")]
-    public static partial SeriesHandle pl_series_new_u32(string name, uint[] ptr, byte[]? validity, UIntPtr len);
+    public static partial SeriesHandle pl_series_new_u32(string name, ref uint ptr, ref byte validity, UIntPtr len);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial SeriesHandle pl_series_new_i64(string name, long[] ptr, byte[]? validity, UIntPtr len);
+    public static partial SeriesHandle pl_series_new_i64(string name, ref long ptr, ref byte validity, UIntPtr len);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial SeriesHandle pl_series_new_u64(string name, ulong[] ptr, byte[]? validity, UIntPtr len);
+    public static partial SeriesHandle pl_series_new_u64(string name, ref ulong ptr, ref byte validity, UIntPtr len);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial SeriesHandle pl_series_new_i128(string name, Int128[] ptr, byte[]? validity, UIntPtr len);
+    public static partial SeriesHandle pl_series_new_i128(string name,ref Int128 ptr, ref byte validity, UIntPtr len);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial SeriesHandle pl_series_new_u128(string name, UInt128[] ptr, byte[]? validity, UIntPtr len);
+    public static partial SeriesHandle pl_series_new_u128(string name, ref UInt128 ptr,ref byte validity, UIntPtr len);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial SeriesHandle pl_series_new_f16(string name, Half[] ptr, byte[]? validity, UIntPtr len);
+    public static partial SeriesHandle pl_series_new_f16(string name, ref Half ptr, ref byte validity, UIntPtr len);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial SeriesHandle pl_series_new_f32(string name, float[] ptr, byte[]? validity, UIntPtr len);
+    public static partial SeriesHandle pl_series_new_f32(string name, ref float ptr, ref byte validity, UIntPtr len);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial SeriesHandle pl_series_new_f64(string name, double[] ptr, byte[]? validity, UIntPtr len);
+    public static partial SeriesHandle pl_series_new_f64(string name, ref double ptr, ref byte validity, UIntPtr len);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial SeriesHandle pl_series_new_bool(
         string name, 
-        [In] byte[] data, 
-        [In] byte[]? validity, 
+        ref byte data,       
+        ref byte validity,  
         UIntPtr len
     );
 
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial SeriesHandle pl_series_new_str(
-        string name, 
-        [In] string?[] strs, 
-        UIntPtr len
-        );
     [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
-    public static unsafe partial SeriesHandle pl_series_new_str_simd(
+    public static partial SeriesHandle pl_series_new_str_simd(
         string name,
-        byte* values_ptr,           // 【变动】：改为 byte*，完美接收 dataBuffer 的 null
-        nuint values_len,           // 【变动】：UIntPtr 替换为更现代的 nuint
-        ArrowStringView* views_ptr, // 【神之一手】：别管什么 long 了，直接用我们新写的结构体指针！
-        byte* validity_ptr,         // 【变动】：改为 byte*，接收 validity 的 null
-        nuint len                   // Row count
+        ref byte values_ptr,           
+        nuint values_len,           
+        ref ArrowStringView views_ptr, 
+        ref byte validity_ptr,         
+        nuint len                   
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial SeriesHandle pl_series_new_datetime(
         string name,
         ref long ptr,
-        IntPtr validity,
+        ref byte validity,
         UIntPtr len,
         PlTimeUnit unit, // 0=ns, 1=us, 2=ms
         string? zone
@@ -124,21 +118,21 @@ unsafe internal partial class NativeBindings
     public static partial SeriesHandle pl_series_new_date(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
         ref int ptr,        // Int32
-        IntPtr validity,
+        ref byte validity,
         UIntPtr len
     );
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_time(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
         ref long ptr,       // Int64
-        IntPtr validity,
+        ref byte validity,
         UIntPtr len
     );
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_duration(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
         ref long ptr,       // Int64
-        IntPtr validity,
+        ref byte validity,
         UIntPtr len,
         PlTimeUnit unit           // 0=ns, 1=us, 2=ms
     );
@@ -146,7 +140,7 @@ unsafe internal partial class NativeBindings
     public static partial SeriesHandle pl_series_new_decimal(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
         ref Int128 ptr,   
-        IntPtr validity,
+        ref byte validity,
         UIntPtr len,
         UIntPtr precision,
         UIntPtr scale
@@ -162,9 +156,9 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_array_i8(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
-        sbyte* flat_ptr,
+        ref sbyte flat_ptr,
         UIntPtr flat_len,
-        IntPtr validity,
+        ref byte validity,
         UIntPtr parent_len,
         UIntPtr width
     );
@@ -172,9 +166,9 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_array_i16(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
-        short* flat_ptr,
+        ref short flat_ptr,
         UIntPtr flat_len,
-        IntPtr validity,
+        ref byte validity,
         UIntPtr parent_len,
         UIntPtr width
     );
@@ -182,9 +176,9 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_array_i32(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
-        int* flat_ptr,
+        ref int flat_ptr,
         UIntPtr flat_len,
-        IntPtr validity,
+        ref byte validity,
         UIntPtr parent_len,
         UIntPtr width
     );
@@ -192,9 +186,9 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_array_i64(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
-        long* flat_ptr,
+        ref long flat_ptr,
         UIntPtr flat_len,
-        IntPtr validity,
+        ref byte validity,
         UIntPtr parent_len,
         UIntPtr width
     );
@@ -202,9 +196,9 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_array_i128(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
-        Int128* flat_ptr,
+        ref Int128 flat_ptr,
         UIntPtr flat_len,
-        IntPtr validity,
+        ref byte validity,
         UIntPtr parent_len,
         UIntPtr width
     );
@@ -216,9 +210,9 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_array_u8(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
-        byte* flat_ptr,
+        ref byte flat_ptr,
         UIntPtr flat_len,
-        IntPtr validity,
+        ref byte validity,
         UIntPtr parent_len,
         UIntPtr width
     );
@@ -226,9 +220,9 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_array_u16(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
-        ushort* flat_ptr,
+        ref ushort flat_ptr,
         UIntPtr flat_len,
-        IntPtr validity,
+        ref byte validity,
         UIntPtr parent_len,
         UIntPtr width
     );
@@ -236,9 +230,9 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_array_u32(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
-        uint* flat_ptr,
+        ref uint flat_ptr,
         UIntPtr flat_len,
-        IntPtr validity,
+        ref byte validity,
         UIntPtr parent_len,
         UIntPtr width
     );
@@ -246,18 +240,18 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_array_u64(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
-        ulong* flat_ptr,
+        ref ulong flat_ptr,
         UIntPtr flat_len,
-        IntPtr validity,
+        ref byte validity,
         UIntPtr parent_len,
         UIntPtr width
     );
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_array_u128(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
-        UInt128* flat_ptr,
+        ref UInt128 flat_ptr,
         UIntPtr flat_len,
-        IntPtr validity,
+        ref byte validity,
         UIntPtr parent_len,
         UIntPtr width
     );
@@ -268,9 +262,9 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_array_f16(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
-        Half* flat_ptr,
+        ref Half flat_ptr,
         UIntPtr flat_len,
-        IntPtr validity,
+        ref byte validity,
         UIntPtr parent_len,
         UIntPtr width
     );
@@ -278,9 +272,9 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_array_f32(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
-        float* flat_ptr,
+        ref float flat_ptr,
         UIntPtr flat_len,
-        IntPtr validity,
+        ref byte validity,
         UIntPtr parent_len,
         UIntPtr width
     );
@@ -288,18 +282,18 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_array_f64(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
-        double* flat_ptr,
+        ref double flat_ptr,
         UIntPtr flat_len,
-        IntPtr validity,
+        ref byte validity,
         UIntPtr parent_len,
         UIntPtr width
     );
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_array_decimal(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
-        Int128* flat_ptr,   // Rust: *const i128
+        ref Int128 flat_ptr,   // Rust: *const i128
         UIntPtr flat_len,   // Rust: usize
-        IntPtr validity,    // Rust: *const u8
+        ref byte validity,    // Rust: *const u8
         UIntPtr parent_len, // Rust: usize
         UIntPtr width,      // Rust: usize
         UIntPtr scale       // Rust: usize (Extra param for Decimal)
@@ -308,7 +302,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_struct(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name, 
-        IntPtr[] fields, 
+        ref IntPtr fields, 
         nuint len
     );
     [LibraryImport(LibName)] 

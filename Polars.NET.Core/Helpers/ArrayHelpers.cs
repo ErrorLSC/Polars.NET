@@ -5,6 +5,123 @@ namespace Polars.NET.Core.Helpers;
 
 public static partial class ArrayHelper
 {
+
+    /// <summary>
+    /// Unzip nullable array to data array + validity BITMAP (1 bit per row)
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (T[] values, byte[]? validity) UnzipNullable<T>(ReadOnlySpan<T?> data, T defaultValue = default) 
+        where T : struct
+    {
+        if (data.IsEmpty) return ([], null);
+        Type t = typeof(T);
+
+        // --- 1 Byte Values (stride 2) ---
+        if (IsInt8LayoutCompatible) {
+            if (t == typeof(byte))  
+                return Reinterpret<byte, T>(UnzipInt8SIMD(CastNullableSpan<T, byte>(data), (byte)(object)defaultValue));
+            
+            if (t == typeof(sbyte)) 
+                return Reinterpret<byte, T>(UnzipInt8SIMD(CastNullableSpan<T, byte>(data), (byte)(sbyte)(object)defaultValue));
+        }
+
+        // --- 2 Byte Values (stride 4) ---
+        if (IsInt16LayoutCompatible) {
+            if (t == typeof(short))  
+                return Reinterpret<short, T>(UnzipInt16SIMD(CastNullableSpan<T, short>(data), (short)(object)defaultValue));
+            
+            if (t == typeof(ushort)) 
+                return Reinterpret<short, T>(UnzipInt16SIMD(CastNullableSpan<T, short>(data), (short)(ushort)(object)defaultValue));
+            
+            if (t == typeof(Half))   
+                return Reinterpret<short, T>(UnzipInt16SIMD(CastNullableSpan<T, short>(data), BitConverter.HalfToInt16Bits((Half)(object)defaultValue)));
+        }
+
+        // --- 4 Byte Values (stride 8) ---
+        if (IsInt32LayoutCompatible) {
+            if (t == typeof(int))   
+                return Reinterpret<int, T>(UnzipInt32SIMD(CastNullableSpan<T, int>(data), (int)(object)defaultValue));
+            
+            if (t == typeof(uint))  
+                return Reinterpret<int, T>(UnzipInt32SIMD(CastNullableSpan<T, int>(data), (int)(uint)(object)defaultValue));
+            
+            if (t == typeof(float)) 
+                return Reinterpret<int, T>(UnzipInt32SIMD(CastNullableSpan<T, int>(data), BitConverter.SingleToInt32Bits((float)(object)defaultValue)));
+        }
+
+        // --- 8 Byte Values (stride 16) ---
+        if (IsInt64LayoutCompatible) {
+            if (t == typeof(long))   
+                return Reinterpret<long, T>(UnzipInt64SIMD(CastNullableSpan<T, long>(data), (long)(object)defaultValue));
+            
+            if (t == typeof(ulong))  
+                return Reinterpret<long, T>(UnzipInt64SIMD(CastNullableSpan<T, long>(data), (long)(ulong)(object)defaultValue));
+            
+            if (t == typeof(double)) 
+                return Reinterpret<long, T>(UnzipInt64SIMD(CastNullableSpan<T, long>(data), BitConverter.DoubleToInt64Bits((double)(object)defaultValue)));
+        }
+
+        // --- 16 Byte Values (stride 32) ---
+        if (IsInt128TypeA || IsInt128TypeB) {
+            if (t == typeof(Int128))  
+                return Reinterpret<Int128, T>(UnzipInt128SIMD(CastNullableSpan<T, Int128>(data), (Int128)(object)defaultValue));
+            
+            if (t == typeof(UInt128)) 
+                return Reinterpret<Int128, T>(UnzipInt128SIMD(CastNullableSpan<T, Int128>(data), (Int128)(UInt128)(object)defaultValue));
+        }
+        
+        return UnzipGeneric(data, defaultValue);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (T[] values, byte[]? validity) UnzipNullable<T>(T?[] data, T defaultValue = default) 
+        where T : struct
+        => UnzipNullable(new ReadOnlySpan<T?>(data), defaultValue);
+
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static (T[] values, byte[]? validity) UnzipGeneric<T>(ReadOnlySpan<T?> data, T defaultValue) 
+        where T : struct
+    {
+        int len = data.Length;
+        var values = GC.AllocateUninitializedArray<T>(len);
+        byte[]? validity = null;
+
+        ref T? srcRef = ref MemoryMarshal.GetReference(data);
+        ref T valRef = ref MemoryMarshal.GetArrayDataReference(values);
+
+        UnzipScalarLoop(ref srcRef, ref valRef, ref validity, 0, len, defaultValue);
+
+        return (values, validity);
+    }
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+    
+    // Helper to cast result back
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static (T[], byte[]?) Reinterpret<S, T>((S[], byte[]?) res)
+        => (Unsafe.As<S[], T[]>(ref res.Item1), res.Item2);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void SetBitRef(ref byte baseRef, int bitIndex)
+    {
+        ref byte target = ref Unsafe.Add(ref baseRef, bitIndex >> 3);
+        target |= (byte)(1 << (bitIndex & 7));
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static ReadOnlySpan<U?> CastNullableSpan<T, U>(ReadOnlySpan<T?> span)
+        where T : struct
+        where U : struct
+    {
+        // Get Head Reference of original span
+        ref T? srcRef = ref MemoryMarshal.GetReference(span);
+        
+        // Convert its type to new span
+        ref U? dstRef = ref Unsafe.As<T?, U?>(ref srcRef);
+        
+        return MemoryMarshal.CreateReadOnlySpan(ref dstRef, span.Length);
+    }
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void UnzipScalarLoop<T>(
         ref T? baseSrcRef,      
@@ -61,106 +178,5 @@ public static partial class ArrayHelper
                 Unsafe.Add(ref baseValRef, i) = defaultValue;
             }
         }
-    }
- 
-    /// <summary>
-    /// Unzip nullable array to data array + validity BITMAP (1 bit per row)
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static (T[] values, byte[]? validity) UnzipNullable<T>(T?[] data, T defaultValue = default) 
-        where T : struct
-    {
-        if (data == null || data.Length == 0) return (Array.Empty<T>(), null);
-        Type t = typeof(T);
-
-        // --- 1 Byte Values (stride 2) ---
-        if (IsInt8LayoutCompatible) {
-            if (t == typeof(byte))  
-                return Reinterpret<byte, T>(UnzipInt8SIMD(Unsafe.As<T?[], byte?[]>(ref data), (byte)(object)defaultValue));
-            
-            if (t == typeof(sbyte)) 
-                return Reinterpret<byte, T>(UnzipInt8SIMD(Unsafe.As<T?[], byte?[]>(ref data), (byte)(sbyte)(object)defaultValue));
-        }
-
-        // --- 2 Byte Values (stride 4) ---
-        if (IsInt16LayoutCompatible) {
-            if (t == typeof(short))  
-                return Reinterpret<short, T>(UnzipInt16SIMD(Unsafe.As<T?[], short?[]>(ref data), (short)(object)defaultValue));
-            
-            if (t == typeof(ushort)) 
-                return Reinterpret<short, T>(UnzipInt16SIMD(Unsafe.As<T?[], short?[]>(ref data), (short)(ushort)(object)defaultValue));
-            
-            if (t == typeof(Half))   
-                return Reinterpret<short, T>(UnzipInt16SIMD(Unsafe.As<T?[], short?[]>(ref data), BitConverter.HalfToInt16Bits((Half)(object)defaultValue)));
-        }
-
-        // --- 4 Byte Values (stride 8) ---
-        if (IsInt32LayoutCompatible) {
-            if (t == typeof(int))   
-                return Reinterpret<int, T>(UnzipInt32SIMD(Unsafe.As<T?[], int?[]>(ref data), (int)(object)defaultValue));
-            
-            if (t == typeof(uint))  
-                return Reinterpret<int, T>(UnzipInt32SIMD(Unsafe.As<T?[], int?[]>(ref data), (int)(uint)(object)defaultValue));
-            
-            if (t == typeof(float)) 
-                return Reinterpret<int, T>(UnzipInt32SIMD(Unsafe.As<T?[], int?[]>(ref data), BitConverter.SingleToInt32Bits((float)(object)defaultValue)));
-        }
-
-        // --- 8 Byte Values (stride 16) ---
-        if (IsInt64LayoutCompatible) {
-            if (t == typeof(long))   
-                return Reinterpret<long, T>(UnzipInt64SIMD(Unsafe.As<T?[], long?[]>(ref data), (long)(object)defaultValue));
-            
-            if (t == typeof(ulong))  
-                return Reinterpret<long, T>(UnzipInt64SIMD(Unsafe.As<T?[], long?[]>(ref data), (long)(ulong)(object)defaultValue));
-            
-            if (t == typeof(double)) 
-                return Reinterpret<long, T>(UnzipInt64SIMD(Unsafe.As<T?[], long?[]>(ref data), BitConverter.DoubleToInt64Bits((double)(object)defaultValue)));
-        }
-
-        // --- 16 Byte Values (stride 32) ---
-        if (IsInt128TypeA || IsInt128TypeB) {
-            if (t == typeof(Int128))  
-                return Reinterpret<Int128, T>(UnzipInt128SIMD(Unsafe.As<T?[], Int128?[]>(ref data), (Int128)(object)defaultValue));
-            
-            if (t == typeof(UInt128)) 
-                return Reinterpret<Int128, T>(UnzipInt128SIMD(Unsafe.As<T?[], Int128?[]>(ref data), (Int128)(UInt128)(object)defaultValue));
-        }
-        return UnzipGeneric(data, defaultValue);
-    }
-
-    // =================================================================================
-    // Generic Fallback
-    // =================================================================================
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private static (T[] values, byte[]? validity) UnzipGeneric<T>(T?[] data, T defaultValue) 
-        where T : struct
-    {
-        int len = data.Length;
-        var values = GC.AllocateUninitializedArray<T>(len);
-        byte[]? validity = null;
-
-        ref T? srcRef = ref MemoryMarshal.GetArrayDataReference(data);
-        ref T valRef = ref MemoryMarshal.GetArrayDataReference(values);
-
-        UnzipScalarLoop(ref srcRef, ref valRef, ref validity, 0, len, defaultValue);
-
-        return (values, validity);
-    }
-    // =========================================================================
-    // Helpers
-    // =========================================================================
-    
-    // Helper to cast result back
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static (T[], byte[]?) Reinterpret<S, T>((S[], byte[]?) res)
-        => (Unsafe.As<S[], T[]>(ref res.Item1), res.Item2);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void SetBitRef(ref byte baseRef, int bitIndex)
-    {
-        ref byte target = ref Unsafe.Add(ref baseRef, bitIndex >> 3);
-        target |= (byte)(1 << (bitIndex & 7));
     }
 }

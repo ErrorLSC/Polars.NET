@@ -13,19 +13,19 @@ public static partial class ArrayHelper
     private static readonly Vector256<byte> Int64ShuffleMask = Vector256.Create(
         // --- Output Bytes 0-15: extract 2 double value (2 * 8B) ---
         // Item 0 Value (offset 8-15)
-        (byte)8, 9, 10, 11, 12, 13, 14, 15,
+        8, 9, 10, 11, 12, 13, 14, 15,
         // Item 1 Value (offset 24-31)
-        (byte)24, 25, 26, 27, 28, 29, 30, 31,
+        24, 25, 26, 27, 28, 29, 30, 31,
 
         // --- Output Bytes 16-17: extract 2 HasValue ---
-        (byte)0,   // Item 0 HasValue
+        0,   // Item 0 HasValue
         (byte)16,  // Item 1 HasValue
 
         // --- Fill ---
         0,0,0,0,0,0,0,0,0,0,0,0,0,0
     );
-       [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static unsafe (long[] values, byte[]? validity) UnzipInt64SIMD(long?[] data, long defaultValue)
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static unsafe (long[] values, byte[]? validity) UnzipInt64SIMD(ReadOnlySpan<long?> data, long defaultValue)
     {
         int len = data.Length;
         // 1. Allocate Values (Uninitialized)
@@ -92,7 +92,7 @@ public static partial class ArrayHelper
                         {
                             validRef = ref MemoryMarshal.GetArrayDataReference(validity);
                         }
-                        // 【Key Change 3】Use SetBitRef
+                        // Use SetBitRef
                         if (b0 != 0) SetBitRef(ref validRef, i);
                         if (b1 != 0) SetBitRef(ref validRef, i + 1);
 
@@ -120,4 +120,6 @@ public static partial class ArrayHelper
         }
         return (values, validity);
     }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (long[] values, byte[]? validity) UnzipInt64SIMD(long?[] data,long defaultValue) => UnzipInt64SIMD(new ReadOnlySpan<long?>(data),defaultValue );
 }

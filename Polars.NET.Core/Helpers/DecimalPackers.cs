@@ -5,7 +5,7 @@ using Microsoft.FSharp.Core;
 namespace Polars.NET.Core.Helpers;
 
 public static unsafe class DecimalPacker
-    {
+{
     // C# decimal mem layout(Sequential): flags, hi, lo, mid (4 int)
     internal static readonly Int128[] PowersOf10Int128;
     static DecimalPacker() // Static Constructor
@@ -18,7 +18,7 @@ public static unsafe class DecimalPacker
         }
     }
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static (Int128[] values, int scale) Pack(decimal[] data)
+    public static (Int128[] values, int scale) Pack(ReadOnlySpan<decimal> data)
     {
         int len = data.Length;
         if (len == 0) return (Array.Empty<Int128>(), 0);
@@ -84,9 +84,6 @@ public static unsafe class DecimalPacker
                     }
                     catch (OverflowException)
                     {
-                         // Since we are in a pointer loop, getting the actual decimal value for the error message 
-                         // requires reconstructing it, or just throwing a generic error.
-                         // For performance, a generic error is fine, or reconstruct 'd' if needed for debug.
                          throw new OverflowException(
                             $"Decimal overflow at index {i}. " +
                             $"Item cannot be rescaled to Scale {maxScale} without exceeding 38-digit limit.");
@@ -101,22 +98,22 @@ public static unsafe class DecimalPacker
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static (Int128[] values, byte[]? validity, int scale) Pack(decimal?[] data)
+    public static (Int128[] values, byte[]? validity, int scale) Pack(ReadOnlySpan<decimal?> data)
     {
         int len = data.Length;
-        
-        // Pass 1: Scan max Scale
+        if (len == 0) return ([], null, 0);
+
         byte maxScale = 0;
-        
-        fixed (decimal?* pSrc = data)
+        ref decimal? srcRef = ref MemoryMarshal.GetReference(data);
+
+        // Pass 1: Scan max Scale
+        for (int i = 0; i < len; i++)
         {
-            for (int i = 0; i < len; i++)
+            ref decimal? item = ref Unsafe.Add(ref srcRef, i);
+            if (item.HasValue)
             {
-                if (data[i].HasValue)
-                {
-                    byte s = data[i].GetValueOrDefault().Scale;
-                    if (s > maxScale) maxScale = s;
-                }
+                byte s = item.GetValueOrDefault().Scale;
+                if (s > maxScale) maxScale = s;
             }
         }
         
@@ -125,11 +122,8 @@ public static unsafe class DecimalPacker
         byte[]? validity = null;
         ref byte validRef = ref Unsafe.NullRef<byte>();
         
-        fixed (decimal?* pSrc = data)
         fixed (Int128* pDst = values)
         {
-            // Ref ptr scan
-            ref decimal? srcRef = ref MemoryMarshal.GetArrayDataReference(data);
             ref Int128 dstRef = ref MemoryMarshal.GetArrayDataReference(values);
 
             for (int i = 0; i < len; i++)
@@ -140,7 +134,6 @@ public static unsafe class DecimalPacker
                 {
                     decimal d = item.GetValueOrDefault();
                     
-                    // Treat decimal as 4 int struct
                     int* pDec = (int*)Unsafe.AsPointer(ref d);
                     
                     int flags = pDec[0];
@@ -148,21 +141,14 @@ public static unsafe class DecimalPacker
                     int lo    = pDec[2];
                     int mid   = pDec[3];
 
-                    // Convert 96-bit Int to Int128
-                    // Int128 = (Hi << 64) | (Mid << 32) | Lo
                     Int128 mantissa = ((Int128)(uint)hi << 64) | ((Int128)(uint)mid << 32) | (Int128)(uint)lo;
 
-                    // deal +-
                     if ((flags & 0x80000000) != 0)
                     {
                         mantissa = -mantissa;
                     }
                     
-                    // Get current Scale
                     int scale = (flags >> 16) & 0xFF;
-                    
-                    // Rescale
-                    // Target = Val * 10^(MaxScale - CurScale)
                     int diff = maxScale - scale;
                     if (diff > 0) 
                     {
@@ -175,9 +161,6 @@ public static unsafe class DecimalPacker
                         }
                         catch (OverflowException)
                         {
-                            // Since we are in a pointer loop, getting the actual decimal value for the error message 
-                            // requires reconstructing it, or just throwing a generic error.
-                            // For performance, a generic error is fine, or reconstruct 'd' if needed for debug.
                             throw new OverflowException(
                                 $"Decimal overflow at index {i}. " +
                                 $"Item cannot be rescaled to Scale {maxScale} without exceeding 38-digit limit.");
@@ -186,7 +169,6 @@ public static unsafe class DecimalPacker
                     
                     Unsafe.Add(ref dstRef, i) = mantissa;
                     
-                    // Validity
                     if (validity != null)
                     {
                         if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
@@ -261,9 +243,7 @@ public static unsafe class DecimalPacker
                     }
                     catch (OverflowException)
                     {
-                         // Since we are in a pointer loop, getting the actual decimal value for the error message 
-                         // requires reconstructing it, or just throwing a generic error.
-                         // For performance, a generic error is fine, or reconstruct 'd' if needed for debug.
+
                          throw new OverflowException(
                             $"Decimal overflow at index {i}. " +
                             $"Item cannot be rescaled to Scale {maxScale} without exceeding 38-digit limit.");
@@ -285,26 +265,24 @@ public static unsafe class DecimalPacker
     /// Pack FSharpOption<decimal> directly to Int128[] + Validity
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static (Int128[] values, byte[]? validity, int scale) Pack(FSharpOption<decimal>[] data)
+    public static (Int128[] values, byte[]? validity, int scale) Pack(ReadOnlySpan<FSharpOption<decimal>> data)
     {
         int len = data.Length;
+        if (len == 0) return ([], null, 0);
         
-        // Pass 1: Scan Max Scale
         byte maxScale = 0;
-        ref FSharpOption<decimal> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        ref FSharpOption<decimal> srcRef = ref MemoryMarshal.GetReference(data);
         
         for (int i = 0; i < len; i++)
         {
-            // F# Option is a reference type (pointer)
             FSharpOption<decimal> item = Unsafe.Add(ref srcRef, i);
-            if (item != null) // Some
+            if (item != null) 
             {
-                byte s = item.Value.Scale; // Accessing .Value is safe and fast here
+                byte s = item.Value.Scale; 
                 if (s > maxScale) maxScale = s;
             }
         }
         
-        // Pass 2: Convert
         var values = GC.AllocateUninitializedArray<Int128>(len);
         byte[]? validity = null;
         ref byte validRef = ref Unsafe.NullRef<byte>();
@@ -321,8 +299,6 @@ public static unsafe class DecimalPacker
                 {
                     decimal d = item.Value;
                     
-                    // --- Inline Decimal Conversion Logic (Copy from your existing Pack) ---
-                    // Treat decimal as 4 int struct
                     int* pDec = (int*)Unsafe.AsPointer(ref d);
                     int flags = pDec[0];
                     int hi    = pDec[1];
@@ -337,27 +313,12 @@ public static unsafe class DecimalPacker
                     int diff = maxScale - currentScale;
                     if (diff > 0) 
                     {
-                        try 
-                        {
-                            checked 
-                            {
-                                mantissa *= PowersOf10Int128[diff];
-                            }
-                        }
-                        catch (OverflowException)
-                        {
-                            // Since we are in a pointer loop, getting the actual decimal value for the error message 
-                            // requires reconstructing it, or just throwing a generic error.
-                            // For performance, a generic error is fine, or reconstruct 'd' if needed for debug.
-                            throw new OverflowException(
-                                $"Decimal overflow at index {i}. " +
-                                $"Item cannot be rescaled to Scale {maxScale} without exceeding 38-digit limit.");
-                        }
+                        try { checked { mantissa *= PowersOf10Int128[diff]; } }
+                        catch (OverflowException) { throw new OverflowException($"Decimal overflow at index {i}."); }
                     }
                     
                     Unsafe.Add(ref dstRef, i) = mantissa;
 
-                    // Validity Set
                     if (validity != null)
                     {
                         if (Unsafe.IsNullRef(ref validRef)) validRef = ref MemoryMarshal.GetArrayDataReference(validity);
@@ -367,10 +328,8 @@ public static unsafe class DecimalPacker
                 }
                 else
                 {
-                    // None
                     if (validity == null)
                     {
-                        // Init Validity (Backfill 1s)
                         validity = new byte[(len + 7) >> 3];
                         validRef = ref MemoryMarshal.GetArrayDataReference(validity);
                         int bytesToFill = i >> 3;
@@ -385,17 +344,14 @@ public static unsafe class DecimalPacker
         return (values, validity, maxScale);
     }
 
-    /// <summary>
-    /// Pack FSharpValueOption<decimal> directly to Int128[] + Validity
-    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static (Int128[] values, byte[]? validity, int scale) Pack(FSharpValueOption<decimal>[] data)
+    public static (Int128[] values, byte[]? validity, int scale) Pack(ReadOnlySpan<FSharpValueOption<decimal>> data)
     {
         int len = data.Length;
-        
-        // Pass 1: Scan Max Scale
+        if (len == 0) return (Array.Empty<Int128>(), null, 0);
+
         byte maxScale = 0;
-        ref FSharpValueOption<decimal> srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        ref FSharpValueOption<decimal> srcRef = ref MemoryMarshal.GetReference(data);
         
         for (int i = 0; i < len; i++)
         {
@@ -407,7 +363,6 @@ public static unsafe class DecimalPacker
             }
         }
         
-        // Pass 2: Convert
         var values = GC.AllocateUninitializedArray<Int128>(len);
         byte[]? validity = null;
         ref byte validRef = ref Unsafe.NullRef<byte>();
@@ -424,7 +379,6 @@ public static unsafe class DecimalPacker
                 {
                     decimal d = item.Value;
                     
-                    // --- Inline Decimal Conversion Logic ---
                     int* pDec = (int*)Unsafe.AsPointer(ref d);
                     int flags = pDec[0];
                     int hi    = pDec[1];
@@ -439,22 +393,8 @@ public static unsafe class DecimalPacker
                     int diff = maxScale - currentScale;
                     if (diff > 0) 
                     {
-                        try 
-                        {
-                            checked 
-                            {
-                                mantissa *= PowersOf10Int128[diff];
-                            }
-                        }
-                        catch (OverflowException)
-                        {
-                            // Since we are in a pointer loop, getting the actual decimal value for the error message 
-                            // requires reconstructing it, or just throwing a generic error.
-                            // For performance, a generic error is fine, or reconstruct 'd' if needed for debug.
-                            throw new OverflowException(
-                                $"Decimal overflow at index {i}. " +
-                                $"Item cannot be rescaled to Scale {maxScale} without exceeding 38-digit limit.");
-                        }
+                        try { checked { mantissa *= PowersOf10Int128[diff]; } }
+                        catch (OverflowException) { throw new OverflowException($"Decimal overflow at index {i}."); }
                     }
                     
                     Unsafe.Add(ref dstRef, i) = mantissa;
@@ -468,7 +408,6 @@ public static unsafe class DecimalPacker
                 }
                 else
                 {
-                    // None
                     if (validity == null)
                     {
                         validity = new byte[(len + 7) >> 3];
@@ -484,4 +423,23 @@ public static unsafe class DecimalPacker
         }
         return (values, validity, maxScale);
     }
+    // ========================================================================
+    // Array Overloads for backward API compatibility (Inlined)
+    // ========================================================================
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (Int128[] values, int scale) Pack(decimal[] data) 
+        => Pack(new ReadOnlySpan<decimal>(data));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (Int128[] values, byte[]? validity, int scale) Pack(decimal?[] data) 
+        => Pack(new ReadOnlySpan<decimal?>(data));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (Int128[] values, byte[]? validity, int scale) Pack(FSharpOption<decimal>[] data) 
+        => Pack(new ReadOnlySpan<FSharpOption<decimal>>(data));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (Int128[] values, byte[]? validity, int scale) Pack(FSharpValueOption<decimal>[] data) 
+        => Pack(new ReadOnlySpan<FSharpValueOption<decimal>>(data));
 }
