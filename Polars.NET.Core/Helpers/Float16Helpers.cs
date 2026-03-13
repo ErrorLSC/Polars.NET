@@ -20,7 +20,7 @@ public static partial class ArrayHelper
     );
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static unsafe (Half[] values, byte[]? validity) UnzipHalfSIMD(Half?[] data, Half defaultValue)
+    private static unsafe (Half[] values, byte[]? validity) UnzipHalfSIMD(ReadOnlySpan<Half?> data, Half defaultValue)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<Half>(len);

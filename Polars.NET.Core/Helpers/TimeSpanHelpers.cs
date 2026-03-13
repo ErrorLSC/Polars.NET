@@ -141,16 +141,6 @@ public static partial class ArrayHelper
             pDst[i] = 0; 
         }
     }
-
-    // ========================================================================
-    // Array Overloads for backward API compatibility (Inlined)
-    // ========================================================================
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static long[] UnzipTimeSpanToUs(TimeSpan[] data) => UnzipTimeSpanToUs(new ReadOnlySpan<TimeSpan>(data));
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static (long[] values, byte[]? validity) UnzipTimeSpanToUs(TimeSpan?[] data) => UnzipTimeSpanToUs(new ReadOnlySpan<TimeSpan?>(data));
 }
 
 public static class DurationFormatter

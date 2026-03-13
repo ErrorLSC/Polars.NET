@@ -636,56 +636,54 @@ public partial class Series : IDisposable,IPolarsSeries
     // Constructors
     // ==========================================
 
-   // 1. Signed Integers
-    public Series(string name, sbyte[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, sbyte?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, short[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, short?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, int[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, int?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, long[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, long?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, Int128[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, Int128?[] data) => Handle = SeriesFactory.Create(name, data);
+    // 1. Signed Integers
+    public Series(string name,ReadOnlySpan<sbyte> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<sbyte?> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<short> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<short?> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<int> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<int?> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<long> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<long?> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<Int128> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<Int128?> data) => Handle = SeriesFactory.CreateSpan(name, data);
 
     // 2. Unsigned Integers
-    public Series(string name, byte[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, byte?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, ushort[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, ushort?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, uint[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, uint?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, ulong[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, ulong?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, UInt128[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, UInt128?[] data) => Handle = SeriesFactory.Create(name, data);
-
+    public Series(string name,ReadOnlySpan<byte> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<byte?> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<ushort> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<ushort?> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<uint> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<uint?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<ulong> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<ulong?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<UInt128> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<UInt128?> data) => Handle = SeriesFactory.CreateSpan(name, data);
     // 3. Floating Point
-    public Series(string name, Half[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, Half?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, float[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, float?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, double[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, double?[] data) => Handle = SeriesFactory.Create(name, data);
+    public Series(string name,ReadOnlySpan<Half> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<Half?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<float> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<float?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<double> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<double?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
 
     // 4. Bool, String, Decimal
-    public Series(string name, bool[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, bool?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, string?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, decimal[] data ) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, decimal?[] data) => Handle = SeriesFactory.Create(name, data);
-
+    public Series(string name,ReadOnlySpan<bool> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<bool?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<string?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<decimal> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<decimal?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
     // 5. Temporal
-    public Series(string name, DateTime[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, DateTime?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, DateTimeOffset[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, DateTimeOffset?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, DateOnly[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, DateOnly?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, TimeOnly[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, TimeOnly?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, TimeSpan[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, TimeSpan?[] data) => Handle = SeriesFactory.Create(name, data);
+    public Series(string name,ReadOnlySpan<DateTime> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<DateTime?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<DateTimeOffset> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<DateTimeOffset?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<DateOnly> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<DateOnly?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<TimeOnly> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<TimeOnly?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<TimeSpan> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<TimeSpan?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
 
     // 6. Fixed Size Arrays (2D)
     public Series(string name, sbyte[,] data) => Handle = SeriesFactory.Create(name, data);

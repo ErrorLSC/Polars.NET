@@ -96,11 +96,4 @@ public static partial class ArrayHelper
         }
         return (values, validity);
     }
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static long[] UnzipDateTimeOffsetToUs(DateTimeOffset[] data) 
-        => UnzipDateTimeOffsetToUs(new ReadOnlySpan<DateTimeOffset>(data));
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static (long[] values, byte[]? validity) UnzipDateTimeOffsetToUs(DateTimeOffset?[] data) 
-        => UnzipDateTimeOffsetToUs(new ReadOnlySpan<DateTimeOffset?>(data));
 }

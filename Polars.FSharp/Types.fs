@@ -1603,17 +1603,40 @@ type Series(handle: SeriesHandle) =
     // Static Constructors
     // ==========================================
     /// <summary>
-    /// Create a Series from any sequence (Array, List, Seq).
     /// Supports:
     /// - Primitives ('T)
     /// - Option types ('T option)
     /// - ValueOption types ('T voption)
+    /// Create a Series directly from a ReadOnlySpan.
+    /// No memory allocation, pure FFI zero-copy!
+    /// </summary>
+    static member create(name: string, data: ReadOnlySpan<'T>) =
+        let handle = SeriesFactory.CreateSpan(name, data)
+        new Series(handle)
+
+    /// <summary>
+    /// Create a Series directly from a Span.
+    /// </summary>
+    static member create(name: string, data: Span<'T>) =
+        let roSpan = Span<'T>.op_Implicit data
+        
+        let handle = SeriesFactory.CreateSpan(name, roSpan)
+        new Series(handle)
+
+    /// <summary>
+    /// Create a Series from array
+    /// </summary>
+    static member create(name: string, data: 'T[]) =
+        let handle = SeriesFactory.CreateSpan(name, ReadOnlySpan<'T> data)
+        new Series(handle)
+
+    /// <summary>
+    /// Create a Series from any sequence (List, Seq, etc.).
+    /// This will allocate memory via Seq.toArray.
     /// </summary>
     static member create(name: string, data: seq<'T>) =
-
         let arr = Seq.toArray data
-        
-        let handle = SeriesFactory.Create(name, arr)
+        let handle = SeriesFactory.CreateSpan(name, ReadOnlySpan<'T>(arr))
         new Series(handle)
     
     // -------------------------------------------------------------------------

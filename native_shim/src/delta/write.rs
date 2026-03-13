@@ -61,7 +61,6 @@ pub extern "C" fn pl_sink_delta(
         let schema = lf_ctx.inner.collect_schema()
             .map_err(|e| PolarsError::ComputeError(format!("Failed to collect schema: {}", e).into()))?;
 
-        // 从 C# Selector 中提取分区列名
         let partition_cols = if !partition_by_ptr.is_null() {
             let selector_ctx = unsafe { &*partition_by_ptr };
             let ignored = PlHashSet::new();
@@ -81,7 +80,6 @@ pub extern "C" fn pl_sink_delta(
         )?;
         let file_format = FileWriteFormat::Parquet(write_options_arc);
         
-        // Unified args 封装了线程池大小、云端重试策略等
         let unified_args = unsafe {
             build_unified_sink_args(
                 mkdir, maintain_order, sync_on_close,
@@ -91,7 +89,6 @@ pub extern "C" fn pl_sink_delta(
             )
         };
 
-        // 核心移交：呼叫纯 Rust 调度器
         sink_delta_internal(
             lf_ctx.inner,
             schema,
@@ -132,7 +129,6 @@ pub(crate) fn sink_delta_internal(
     let rt = get_runtime();
     let write_id = Uuid::new_v4(); 
 
-    // 0. Build Staging Path (构建物理隔离区路径)
     let staging_dir_name = format!(".tmp_write_{}", write_id);
     let staging_uri = if base_path_str.contains("://") {
         format!("{}/{}", base_path_str.trim_end_matches('/'), staging_dir_name)
@@ -143,7 +139,6 @@ pub(crate) fn sink_delta_internal(
             .to_string()
     };
 
-    // 针对本地写入提前建目录 (保证 Polars Sink 畅通无阻)
     if mkdir {
         let is_local = !base_path_str.contains("://") || base_path_str.starts_with("file://");
         if is_local {
@@ -169,7 +164,6 @@ pub(crate) fn sink_delta_internal(
     // =========================================================
     // Phase 2: Execute Polars Sink (Write Parquet to Staging)
     // =========================================================
-    // 注意：这里是同步计算密集的代码，脱离 rt.block_on 执行！
     phase_execute_polars_sink(
         lf, &staging_uri, &final_partition_cols, include_keys, keys_pre_grouped, 
         max_rows_per_file, approx_bytes_per_file, file_format, unified_args
@@ -193,18 +187,23 @@ pub(crate) async fn phase_init_and_validate_sink(
     schema: &SchemaRef,
 ) -> PolarsResult<(DeltaTable, bool, Vec<String>)> {
     
-    // 1. 初始化 DeltaTable (如果是空目录，它的 version 会是 -1 或 None)
-    let table = DeltaTable::try_from_url_with_storage_options(table_url.clone(), delta_opts)
+    let mut table = DeltaTable::try_from_url_with_storage_options(table_url.clone(), delta_opts)
         .await
         .map_err(|e| PolarsError::ComputeError(format!("Delta init error: {}", e).into()))?;
+
+    match table.load().await {
+        Ok(_) => {},
+        Err(deltalake::errors::DeltaTableError::NotATable(_)) => {},
+        Err(e) => {
+            return Err(PolarsError::ComputeError(format!("Failed to load Delta state: {}", e).into()));
+        }
+    }
 
     let mut skip_write = false;
     let mut final_partition_cols = partition_cols.clone();
 
-    // 2. 检查表是否已经存在 (version >= 0)
     if table.version() >= Some(0) {
         
-        // 2.1 校验 SaveMode
         match save_mode {
             SaveMode::ErrorIfExists => {
                 return Err(PolarsError::ComputeError(
@@ -213,21 +212,17 @@ pub(crate) async fn phase_init_and_validate_sink(
             }
             SaveMode::Ignore => {
                 skip_write = true;
-                // 如果是 Ignore，我们其实可以直接 return 走人，
-                // 但为了保持结构统一，我们设置 flag 后继续走完返回
                 return Ok((table, skip_write, final_partition_cols));
             }
-            _ => {} // Append 或 Overwrite 允许继续
+            _ => {} 
         }
 
-        // 2.2 校验和对齐分区列 (Partition Columns)
         let snapshot = table.snapshot()
             .map_err(|e| PolarsError::ComputeError(format!("Snapshot: {}", e).into()))?;
         let existing_part_cols = snapshot.metadata().partition_columns().clone();
 
         if !existing_part_cols.is_empty() {
             if partition_cols.is_empty() {
-                // 情况 A: 表有分区，但用户没传。我们尝试自动从表定义里继承！
                 for col in &existing_part_cols {
                     if schema.get_field(col).is_none() {
                         return Err(PolarsError::ComputeError(
@@ -237,7 +232,6 @@ pub(crate) async fn phase_init_and_validate_sink(
                 }
                 final_partition_cols = existing_part_cols;
             } else if partition_cols != existing_part_cols {
-                // 情况 B: 用户传的分区策略和历史表不一致，坚决报错！
                 return Err(PolarsError::ComputeError(
                     format!(
                         "Partition mismatch. Table expects: {:?}, Input provided: {:?}",
@@ -264,12 +258,9 @@ pub(crate) fn phase_execute_polars_sink(
     unified_args: UnifiedSinkArgs,
 ) -> PolarsResult<()> {
     
-    // 1. 制定分区策略 (Partition Strategy)
     let partition_strategy = if final_partition_cols.is_empty() {
-        // 如果没有指定分区字段，按文件大小或行数切分
         PartitionStrategy::FileSize
     } else {
-        // 如果有分区字段，将其转换为 Polars 的 Expr
         let keys: Vec<Expr> = final_partition_cols.iter().map(|n| col(n)).collect();
         PartitionStrategy::Keyed {
             keys,
@@ -278,22 +269,18 @@ pub(crate) fn phase_execute_polars_sink(
         }
     };
 
-    // 2. 配置文件路径提供者 (按 Hive 规范命名：col=value/...)
     let hive_provider = file_provider::HivePathProvider {
         extension: PlSmallStr::from_str(".parquet"),
     };
     
-    // 3. 构建终极 Sink 目的地
     let destination = SinkDestination::Partitioned {
         base_path: PlRefPath::new(staging_uri), 
         file_path_provider: Some(file_provider::FileProviderType::Hive(hive_provider)),
         partition_strategy,
-        // 处理 C# 传来的 0 默认值
         max_rows_per_file: if max_rows_per_file == 0 { u32::MAX } else { max_rows_per_file as u32 },
         approximate_bytes_per_file: if approx_bytes_per_file == 0 { usize::MAX as u64 } else { approx_bytes_per_file },
     };
 
-    // 4. 火力全开！触发 Polars Streaming 引擎进行物理写入
     lf.sink(destination, file_format, unified_args)?
         .collect_with_engine(Engine::Streaming)?;
         
@@ -310,7 +297,8 @@ pub(crate) async fn phase_commit_and_cleanup(
     write_id: Uuid,
 ) -> PolarsResult<()> {
     
-    // 1. 如果表不存在 (version < 0)，执行自动建表 (Auto Create Table)
+    let _ = table.update_state().await;
+    
     if table.version() < Some(0) {
         let delta_schema = convert_to_delta_schema(&schema)?;
         table = table.create()
@@ -324,16 +312,14 @@ pub(crate) async fn phase_commit_and_cleanup(
     let mut actions = Vec::new();
 
     // ==========================================
-    // 2. Schema Evolution Check (模式演进检查)
+    // 2. Schema Evolution Check 
     // ==========================================
     let current_snapshot = table.snapshot()
         .map_err(|e| PolarsError::ComputeError(format!("Failed to get snapshot: {}", e).into()))?;
     let current_delta_schema = current_snapshot.schema();
     
-    // 将当前的 Polars Schema 转成 Delta Schema
     let new_delta_schema = convert_to_delta_schema(&schema)?;
 
-    // 如果 Schema 发生了变化
     if current_delta_schema.as_ref() != &new_delta_schema {
         if !can_evolve {
             return Err(PolarsError::ComputeError(
@@ -341,7 +327,6 @@ pub(crate) async fn phase_commit_and_cleanup(
             ));
         }
 
-        // 提取旧元数据，强行注入新的 Schema String
         let current_metadata = current_snapshot.metadata();
         let mut meta_json = serde_json::to_value(current_metadata)
             .map_err(|e| PolarsError::ComputeError(format!("Failed to serialize metadata: {}", e).into()))?;
@@ -358,14 +343,12 @@ pub(crate) async fn phase_commit_and_cleanup(
         let new_metadata_action: deltalake::kernel::Metadata = serde_json::from_value(meta_json)
             .map_err(|e| PolarsError::ComputeError(format!("Failed to recreate metadata: {}", e).into()))?;
 
-        // 把更新元数据的动作放在事务的最前面
         actions.insert(0, Action::Metadata(new_metadata_action));
     }
 
     // ==========================================
-    // 3. Staging 处理：把 Parquet 文件转为 Action::Add
+    // Staging
     // ==========================================
-    // 调用现有的高速并发处理模块，去提取 Parquet 文件的统计信息和边界
     let add_actions = phase_process_staging(&table, &staging_dir_name, &final_partition_cols, write_id).await?;
     
     for res in add_actions {
@@ -373,17 +356,15 @@ pub(crate) async fn phase_commit_and_cleanup(
     }
 
     // ==========================================
-    // 4. 处理 Overwrite 模式：标记旧文件为 Action::Remove
+    // Overwrite
     // ==========================================
     if let SaveMode::Overwrite = save_mode {
-        // 取出当前活跃的所有文件
         let mut stream = table.get_active_add_actions_by_partitions(&[]);
         
         while let Some(view_res) = stream.next().await {
             let view = view_res.map_err(|e| PolarsError::ComputeError(format!("List files error: {}", e).into()))?;
             let add_action = view_to_add_action(&view);
             
-            // 构造逻辑删除动作
             let remove = Remove {
                 path: add_action.path.clone(),
                 deletion_timestamp: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64),
@@ -400,13 +381,12 @@ pub(crate) async fn phase_commit_and_cleanup(
         }
     }
 
-    // 如果没有任何文件写进去（比如 DataFrame 是空的），直接优雅退出
     if actions.is_empty() {
         return Ok(());
     }
 
     // ==========================================
-    // 5. 组装事务并 Commit！
+    // Commit
     // ==========================================
     let operation = DeltaOperation::Write {
         mode: save_mode,
@@ -425,7 +405,7 @@ pub(crate) async fn phase_commit_and_cleanup(
         .map_err(|e| PolarsError::ComputeError(format!("Commit failed: {}", e).into()))?;
         
     // ==========================================
-    // 6. 清理战场 (Cleanup)
+    // Cleanup
     // ==========================================
     let _ = object_store.delete(&Path::from(staging_dir_name)).await;
     

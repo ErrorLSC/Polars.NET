@@ -128,6 +128,4 @@ public static partial class ArrayHelper
         }
         return (values, validity);
     }
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static (byte[] values, byte[]? validity) UnzipInt8SIMD(byte?[] data,byte defaultValue) => UnzipInt8SIMD(new ReadOnlySpan<byte?>(data),defaultValue );
 }

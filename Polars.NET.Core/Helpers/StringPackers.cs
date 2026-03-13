@@ -129,11 +129,4 @@ public static unsafe class StringPacker
 
         return (views, dataBuffer, validity);
     }
-
-    /// <summary>
-    /// Overload for standard string arrays to maintain API compatibility.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static (ArrowStringView[] views, byte[]? dataBuffer, byte[]? validity) PackStringView(string?[] data) => 
-        PackStringView(new ReadOnlySpan<string?>(data));
 }

@@ -243,14 +243,4 @@ public static class BoolPacker
 
         return (valuesBits, validityBits);
     }
-    /// <summary>
-    /// Overload for standard arrays to maintain API compatibility.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static byte[] Pack(bool[] data) => Pack(new ReadOnlySpan<bool>(data));
-    /// <summary>
-    /// Overload for standard arrays to maintain API compatibility.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static (byte[] values, byte[]? validity) PackNullable(bool?[] data) => PackNullable(new ReadOnlySpan<bool?>(data));
 }

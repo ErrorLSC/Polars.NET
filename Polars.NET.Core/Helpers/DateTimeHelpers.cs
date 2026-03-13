@@ -167,11 +167,4 @@ public static partial class ArrayHelper
             pDst[i] = 0; 
         }
     }
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static long[] UnzipDateTimeToUs(DateTime[] data) 
-        => UnzipDateTimeToUs(new ReadOnlySpan<DateTime>(data));
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static (long[] values, byte[]? validity) UnzipDateTimeToUs(DateTime?[] data) 
-        => UnzipDateTimeToUs(new ReadOnlySpan<DateTime?>(data));
 }

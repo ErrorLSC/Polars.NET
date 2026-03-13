@@ -163,9 +163,4 @@ public static partial class ArrayHelper
             pDst[i] = 0; // Default
         }
     }
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static int[] UnzipDateOnlyToInt32(DateOnly[] data) => UnzipDateOnlyToInt32(new ReadOnlySpan<DateOnly>(data));
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static (int[] values, byte[]? validity) UnzipDateOnlyToInt32(DateOnly?[] data) => UnzipDateOnlyToInt32(new ReadOnlySpan<DateOnly?>(data));
 }

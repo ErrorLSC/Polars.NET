@@ -173,14 +173,4 @@ public static partial class ArrayHelper
             pDst[i] = 0; 
         }
     }
-
-    // ========================================================================
-    // Array Overloads for backward API compatibility (Inlined)
-    // ========================================================================
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static long[] UnzipTimeOnlyToNs(TimeOnly[] data) => UnzipTimeOnlyToNs(new ReadOnlySpan<TimeOnly>(data));
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static (long[] values, byte[]? validity) UnzipTimeOnlyToNs(TimeOnly?[] data) => UnzipTimeOnlyToNs(new ReadOnlySpan<TimeOnly?>(data));
 }

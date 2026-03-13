@@ -880,11 +880,6 @@ public static unsafe class FSharpHelper
         }
         return result;
     }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static decimal?[] UnwrapOptionDecimal(FSharpOption<decimal>[] data)
-        => UnwrapOptionDecimal(new ReadOnlySpan<FSharpOption<decimal>>(data));
-
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static decimal?[] UnwrapValueOptionDecimal(ReadOnlySpan<FSharpValueOption<decimal>> data)
     {
@@ -909,8 +904,4 @@ public static unsafe class FSharpHelper
         }
         return result;
     }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static decimal?[] UnwrapValueOptionDecimal(FSharpValueOption<decimal>[] data)
-        => UnwrapValueOptionDecimal(new ReadOnlySpan<FSharpValueOption<decimal>>(data));
 }

@@ -104,6 +104,4 @@ public static partial class ArrayHelper
         }
         return (values, validity);
     }
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static (short[] values, byte[]? validity) UnzipInt16SIMD(short?[] data,short defaultValue) => UnzipInt16SIMD(new ReadOnlySpan<short?>(data),defaultValue );
 }

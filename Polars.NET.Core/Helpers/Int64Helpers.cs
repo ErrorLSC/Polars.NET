@@ -120,6 +120,4 @@ public static partial class ArrayHelper
         }
         return (values, validity);
     }
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static (long[] values, byte[]? validity) UnzipInt64SIMD(long?[] data,long defaultValue) => UnzipInt64SIMD(new ReadOnlySpan<long?>(data),defaultValue );
 }
