@@ -317,19 +317,20 @@ public class SeriesTests
     }
 
     [Fact]
+    [Trait("Series","CastDecimal")]
     public void Test_Series_Cast_Decimal()
     {
-        // 1. 创建 Double Series
-        using var s = Series.From("prices", [10.5, 20.0]);
+        // Create Double Series 
+        using var s = Series.FromSpan("prices", new double?[] {10.5, 20.0, double.NaN, null,double.MaxValue}.AsSpan());
 
-        // 2. Cast 到 Decimal(10, 2)
-        // 这需要 DataType 类发挥作用
+        // 2. Cast to Decimal(10, 2)
         using var sDecimal = s.Cast(DataType.Decimal(10, 2));
-        
-        // 验证 Cast 后的 Arrow 类型
-        var arrowArray = sDecimal.ToArrow();
-        // Apache Arrow C# 会把 Decimal128 映射为 Decimal128Array
-        Assert.IsType<Decimal128Array>(arrowArray);
+
+        Assert.Equal(DataType.Decimal(10,2),sDecimal.DataType);
+        Assert.Equal(10.50m,sDecimal[0]);
+        Assert.Null(sDecimal[2]);
+        Assert.Null(sDecimal[3]);
+        Assert.Null(sDecimal[4]);
     }
     [Fact]
     public void Test_Series_Constructor_DateTimeOffset()

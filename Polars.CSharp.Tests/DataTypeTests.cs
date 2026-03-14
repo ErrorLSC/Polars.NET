@@ -751,6 +751,7 @@ public class DataTypeTests
         Assert.Equal((sbyte)1, s.GetValue<sbyte>(0));
     }
     [Fact]
+    [Trait("Series","Int128")]
     public void Test_Int128_Beyond_Int64_Range()
     {
         // 1. 构造一个 Int64 绝对装不下的大数
@@ -763,7 +764,7 @@ public class DataTypeTests
 
         // 2. 创建 Series
         // C# 还没有 Int128 字面量后缀，所以这里用显式转换
-        var s = new Series("big_i128", [bigVal, -bigVal, null]);
+        var s = Series.FromSpan("big_i128",new Int128?[] {bigVal, -bigVal, null}.AsSpan());
 
         // 3. 验证取出
         // 如果底层按照 i64 截断，这个数会变成 0 或者其他奇怪的数
@@ -806,17 +807,17 @@ public class DataTypeTests
     {
         // 1. Int32 Empty
         int[] emptyInt = [];
-        using var sInt = new Series("empty_int", emptyInt);
+        using var sInt = Series.FromSpan("empty_int", emptyInt.AsSpan());
         Assert.Equal(0, sInt.Length);
 
         // 2. DateTime Empty (测试 UnzipDateTimeToUs 逻辑)
         DateTime?[] emptyDt = [];
-        using var sDt = new Series("empty_dt", emptyDt);
+        using var sDt = Series.From("empty_dt", emptyDt);
         Assert.Equal(0, sDt.Length);
 
         // 3. String Empty (测试 StringPacker 逻辑)
         string[] emptyStr = [];
-        using var sStr = new Series("empty_str", emptyStr);
+        using var sStr = Series.From("empty_str", emptyStr);
         Assert.Equal(0, sStr.Length);
         
         // 4. DataFrame Schema Alignment
@@ -859,7 +860,7 @@ public class DataTypeTests
         // =========================================================================
         // 这里会直接命中 Series(string, DateTime[]) -> UnzipDateTimeToUs (Unroll 8)
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        using var s = new Series("large_dt", dateArray);
+        using var s = Series.From("large_dt", dateArray);
         sw.Stop();
         Console.WriteLine($"Series Created in: {sw.Elapsed.TotalMilliseconds} ms");
 
@@ -883,7 +884,7 @@ public class DataTypeTests
         }
     }
 
-    private void CheckValue(Series s, DateTime[] source, int index)
+    private static void CheckValue(Series s, DateTime[] source, int index)
     {
         // 假设 s[i] 返回的是 object (boxed DateTime)
         // 如果你的索引器是泛型的 s.GetValue<DateTime>(i) 那更好
@@ -934,7 +935,7 @@ public class DataTypeTests
         }
 
         // 2. 创建 Series (这里会根据 CPU 自动命中 AVX-512 或 AVX2)
-        using var s = new Series("simd_dates", data);
+        using var s = Series.From("simd_dates", data);
 
         // 3. 验证基础
         Assert.Equal(count, s.Length);
@@ -1095,6 +1096,7 @@ public class DataTypeTests
         Assert.Equal(data[3], s[3]);
     }
     [Fact]
+    [Trait("DataType","DecimalStress")]
     public void Test_Decimal_LargeScale_Stress()
     {
         // 1. 准备 100 万数据
@@ -1107,13 +1109,13 @@ public class DataTypeTests
         // 这样 Packer 必须把偶数索引乘 100 来补齐
         for (int i = 0; i < count; i++)
         {
-            if (i % 2 == 0) data[i] = (decimal)i;       // Scale 0
-            else data[i] = (decimal)i + 0.55m;          // Scale 2
+            if (i % 2 == 0) data[i] = i;       // Scale 0
+            else data[i] = i + 0.55m;          // Scale 2
         }
-
+        ReadOnlySpan<decimal> dataSpan = data.AsSpan();
         // 2. 极速打包
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        using var s = new Series("stress_decimal", data);
+        using var s = Series.FromSpan("stress_decimal", dataSpan);
         sw.Stop();
         
         // 3. 验证
@@ -1176,6 +1178,7 @@ public class DataTypeTests
         Console.WriteLine(s); // 手动看一下输出是否是 [[0.1, 0.2], [0.8, 0.9]]
     }
     [Fact]
+    [Trait("DataType","Matrix")]
     public void Test_FixedSizeList_Performance_Large()
     {
         // 1. 准备 100万个 double (8MB 数据)
@@ -1189,7 +1192,7 @@ public class DataTypeTests
         var sw = System.Diagnostics.Stopwatch.StartNew();
         
         // 2. 瞬移！
-        using var s = new Series("large_matrix", largeMatrix);
+        using var s = Series.From("large_matrix", largeMatrix);
         
         sw.Stop();
         Console.WriteLine($"Transferred 1,000,000 doubles (2D) in {sw.Elapsed.TotalMilliseconds} ms");

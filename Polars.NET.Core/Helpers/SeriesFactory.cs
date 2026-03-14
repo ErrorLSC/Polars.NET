@@ -477,8 +477,7 @@ public static class SeriesFactory
             var (vals, valid, scale) = DecimalPacker.Pack(nullable);
             return PolarsWrapper.SeriesNewDecimal(name, vals, valid, scale);
         }
-
-        throw new NotSupportedException($"Type {t} is not supported for Span creation.");
+        return null!;
     }
     /// <summary>
     /// Creates a SeriesHandle from a generic Array.

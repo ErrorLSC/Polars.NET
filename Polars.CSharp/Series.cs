@@ -3,6 +3,7 @@ using Polars.NET.Core;
 using Apache.Arrow;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Helpers;
+using System.Runtime.CompilerServices;
 
 namespace Polars.CSharp;
 
@@ -1588,6 +1589,41 @@ public partial class Series : IDisposable,IPolarsSeries
 
         return new Series(handle);
     }
+    /// <summary>
+    /// Create Series from array
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Series From<T>(string name, T[] data)
+    {
+        var handle = SeriesFactory.CreateSpan(name, new ReadOnlySpan<T>(data));
+        
+        if (handle != null)
+        {
+            return new Series(handle);
+        }
+
+        return new Series(SeriesFactory.Create(name, data));
+    }
+    /// <summary>
+    /// Create Series from 2D matrix
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Series From<T>(string name, T[,] data)
+        => new(SeriesFactory.Create(name,data));
+    /// <summary>
+    /// Create Series from ReadOnlySpan
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Series FromSpan<T>(string name, ReadOnlySpan<T> data)
+        => new(SeriesFactory.CreateSpan(name, data));
+
+    /// <summary>
+    /// Create Series from Span
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Series FromSpan<T>(string name, Span<T> data)
+        => new(SeriesFactory.CreateSpan(name, (ReadOnlySpan<T>)data));
+
     /// <summary>
     /// Convert this single Series into a DataFrame.
     /// </summary>

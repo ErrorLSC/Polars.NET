@@ -1831,7 +1831,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // 初始数据: Id=1, Value=0
         using (var dfInit = DataFrame.FromColumns(new { Id = new[] { 1 }, Value = new[] { 0 } }))
         {
-            dfInit.Lazy().SinkDelta(rootUrl, mode: DeltaSaveMode.Overwrite, cloudOptions: options);
+            dfInit.WriteDelta(rootUrl, mode: DeltaSaveMode.Overwrite, cloudOptions: options);
         }
 
         // 2. 准备并发任务
@@ -1894,6 +1894,86 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
     // 我们要确保 Retry 之后，Insert 逻辑也被正确重新执行了。
     var countNewRows = result.Filter(Col("Id") > 100).Height;
     Assert.Equal(concurrency, countNewRows);
+    }
+    [Fact]
+    [Trait("DeltaLake", "ConcurrentWrite")]
+    public async Task Test_Concurrent_Write_Append_Stress_TestAsync()
+    {
+
+        var tableName = $"delta_concurrent_write_{Guid.NewGuid():N}";
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
+        
+        var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var polarsEndpoint = $"http://{rawEndpoint}";
+        
+        var options = CloudOptions.Aws(
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
+            endpoint: polarsEndpoint
+        );
+        options.Credentials!["AWS_ALLOW_HTTP"] = "true";
+        options.Credentials!["aws_s3_force_path_style"] = "true";
+        options.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
+
+        using (var dfInit = DataFrame.FromColumns(new { WorkerId = new[] { 0 }, RowId = new[] { 0 } }))
+        {
+            dfInit.WriteDelta(rootUrl, mode: DeltaSaveMode.Overwrite, cloudOptions: options);
+        }
+
+        int concurrency = 10;
+        int rowsPerWorker = 100;
+        var tasks = new List<Task>();
+
+        for (int i = 0; i < concurrency; i++)
+        {
+            int workerId = i + 1;
+            tasks.Add(Task.Run(() =>
+            {
+                try 
+                {
+                    var workerIds = Enumerable.Repeat(workerId, rowsPerWorker).ToArray();
+                    var rowIds = Enumerable.Range(1, rowsPerWorker).ToArray();
+
+                    using var sourceDf = DataFrame.FromColumns(new 
+                    { 
+                        WorkerId = workerIds, 
+                        RowId = rowIds 
+                    });
+
+                    Console.WriteLine($"[Worker {workerId}] Starting Append...");
+                    
+                    sourceDf.WriteDelta(
+                        rootUrl, 
+                        mode: DeltaSaveMode.Append, 
+                        cloudOptions: options
+                    );
+                    
+                    Console.WriteLine($"[Worker {workerId}] Success!");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Worker {workerId}] FAILED: {ex.Message}");
+                    throw; 
+                }
+            }));
+        }
+
+        await Task.WhenAll(tasks);
+
+        using var result = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect();
+        
+        result.Show();
+
+        long expectedHeight = 1 + (concurrency * rowsPerWorker);
+        Assert.Equal(expectedHeight, result.Height);
+
+        for (int i = 1; i <= concurrency; i++)
+        {
+            var workerRowCount = result.Filter(Col("WorkerId") == i).Height;
+            Assert.Equal(rowsPerWorker, workerRowCount);
+        }
+
     }
     [Fact]
     [Trait("DeltaLake", "Vacuum")]
