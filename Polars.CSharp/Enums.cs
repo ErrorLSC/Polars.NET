@@ -464,6 +464,12 @@ public enum AdbcIngestMode
     Replace
 }
 
+public enum CatalogTableType : byte
+{
+    Managed = 0,
+    External = 1
+}
+
 internal static class EnumExtensions
 {
     public static CoreEnums.PlDataType ToNative(this DataTypeKind kind) => kind switch
@@ -752,6 +758,12 @@ internal static class EnumExtensions
         MergeActionType.NotMatchedInsert => CoreEnums.PlMergeActionType.NotMatchedInsert,
         MergeActionType.NotMatchedBySourceDelete => CoreEnums.PlMergeActionType.NotMatchedBySourceDelete,
         _ => throw new ArgumentOutOfRangeException(nameof(condition), condition, null)
+    };
+    internal static CoreEnums.PlCatalogTableType ToNative(this CatalogTableType tableType) => tableType switch
+    {
+        CatalogTableType.External => CoreEnums.PlCatalogTableType.External,
+        CatalogTableType.Managed => CoreEnums.PlCatalogTableType.Managed,
+        _ => throw new ArgumentOutOfRangeException(nameof(tableType), tableType, null)
     };
 }
 

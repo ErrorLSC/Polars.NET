@@ -1,3 +1,4 @@
+using Apache.Arrow;
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
@@ -109,6 +110,138 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
 
         return new LazyFrame(h);
     }
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="catalogName"></param>
+    /// <param name="schemaName"></param>
+    /// <param name="tableName"></param>
+    /// <param name="lf"></param>
+    /// <param name="partitionBy"></param>
+    /// <param name="mode"></param>
+    /// <param name="canEvolve"></param>
+    /// <param name="includeKeys"></param>
+    /// <param name="keysPreGrouped"></param>
+    /// <param name="maxRowsPerFile"></param>
+    /// <param name="approxBytesPerFile"></param>
+    /// <param name="compression"></param>
+    /// <param name="compressionLevel"></param>
+    /// <param name="statistics"></param>
+    /// <param name="rowGroupSize"></param>
+    /// <param name="dataPageSize"></param>
+    /// <param name="compatLevel"></param>
+    /// <param name="maintainOrder"></param>
+    /// <param name="syncOnClose"></param>
+    /// <param name="mkdir"></param>
+    /// <param name="cloudOptions"></param>
+    public void SinkCatalogTable(
+        string catalogName,
+        string schemaName,
+        string tableName,
+        LazyFrame lf,
+        Selector? partitionBy = null,
+        DeltaSaveMode mode = DeltaSaveMode.Append,
+        bool canEvolve=false,
+        bool includeKeys = true,
+        bool keysPreGrouped = false,
+        int maxRowsPerFile = 0,
+        long approxBytesPerFile = 0,
+        ParquetCompression compression = ParquetCompression.Snappy,
+        int compressionLevel = -1,
+        bool statistics = true, 
+        uint rowGroupSize = 0,
+        uint dataPageSize = 0,
+        int compatLevel = -1,
+        bool maintainOrder = true,
+        SyncOnClose syncOnClose = SyncOnClose.None,
+        bool mkdir = false,
+        CloudOptions? cloudOptions = null)
+    {
+        var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = 
+            CloudOptions.ParseCloudOptions(cloudOptions);
+        using var partitionByH = partitionBy?.CloneHandle(); 
+        PolarsWrapper.SinkCatalogTable(
+            Handle,
+            catalogName,
+            schemaName,
+            tableName,
+            lf.Handle,
+            // --- Delta Options ---
+            mode.ToNative(), 
+            canEvolve,
+            // --- Partition Params ---
+            partitionByH,
+            includeKeys,
+            keysPreGrouped,
+            maxRowsPerFile > 0 ? (nuint)maxRowsPerFile : 0,
+            approxBytesPerFile > 0 ? (ulong)approxBytesPerFile : 0,
+
+            // --- Parquet Options ---
+            compression.ToNative(),
+            compressionLevel,
+            statistics,
+            rowGroupSize > 0 ? rowGroupSize : 0,
+            dataPageSize > 0 ? dataPageSize : 0,
+            compatLevel, 
+
+            // --- Unified Options ---
+            maintainOrder,
+            syncOnClose.ToNative(),
+            mkdir,
+
+            // --- Cloud Params ---
+            provider.ToNative(),
+            retries,
+            retryTimeoutMs,
+            retryInitBackoffMs,
+            retryMaxBackoffMs,
+            cacheTtl,
+            keys,
+            values
+        );
+    }
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="catalogName"></param>
+    /// <param name="schemaName"></param>
+    /// <param name="tableName"></param>
+    /// <param name="polarsSchema"></param>
+    /// <param name="tableType"></param>
+    /// <param name="storageLocation"></param>
+    public void CreateCatalogTable(
+        string catalogName,
+        string schemaName,
+        string tableName,
+        PolarsSchema polarsSchema,
+        CatalogTableType tableType = CatalogTableType.Managed,
+        string? storageLocation = null
+    )
+    => PolarsWrapper.CreateCatalogTable(
+        Handle,
+        catalogName,
+        schemaName,
+        tableName,
+        polarsSchema.Handle,
+        tableType.ToNative(),
+        storageLocation);
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="catalogName"></param>
+    /// <param name="schemaName"></param>
+    /// <param name="tableName"></param>
+    public void DeleteCatalogTable(
+        string catalogName,
+        string schemaName,
+        string tableName
+    )
+    => PolarsWrapper.DeleteCatalogTable(
+        Handle,
+        catalogName,
+        schemaName,
+        tableName);
+
 
     /// <summary>
     /// Dispose handle
@@ -146,4 +279,86 @@ public static partial class Polars
     /// <param name="bearerToken">Personal Access Token (PAT) or OAuth Token</param>
     public static UnityCatalog UnityCatalog(string workspaceUrl, string bearerToken)
         => new(workspaceUrl, bearerToken);
+}
+
+/// <summary>
+/// 
+/// </summary>
+public static class UnityCatalogExtensions
+{
+    /// <summary>
+    /// 将 LazyFrame 作为数据流，极其丝滑地写入 Unity Catalog 数据湖屋。
+    /// （注意：底层会立即触发 Polars Streaming 引擎执行计算并落盘）
+    /// </summary>
+    public static void SinkCatalogTable(
+        this LazyFrame lf,
+        UnityCatalog catalog,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        Selector? partitionBy = null,
+        DeltaSaveMode mode = DeltaSaveMode.Append,
+        bool canEvolve = false,
+        bool includeKeys = true,
+        bool keysPreGrouped = false,
+        int maxRowsPerFile = 0,
+        long approxBytesPerFile = 0,
+        ParquetCompression compression = ParquetCompression.Snappy,
+        int compressionLevel = -1,
+        bool statistics = true, 
+        uint rowGroupSize = 0,
+        uint dataPageSize = 0,
+        int compatLevel = -1,
+        bool maintainOrder = true,
+        SyncOnClose syncOnClose = SyncOnClose.None,
+        bool mkdir = false,
+        CloudOptions? cloudOptions = null)
+    {
+        // 直接路由给 Catalog 对象去执行真实逻辑
+        catalog.SinkCatalogTable(
+            catalogName, schemaName, tableName, lf,
+            partitionBy, mode, canEvolve, includeKeys, keysPreGrouped,
+            maxRowsPerFile, approxBytesPerFile, compression, compressionLevel,
+            statistics, rowGroupSize, dataPageSize, compatLevel,
+            maintainOrder, syncOnClose, mkdir, cloudOptions
+        );
+    }
+
+    /// <summary>
+    /// 将物理 DataFrame 写入 Unity Catalog 数据湖屋。
+    /// 自动处理鉴权、路径发现以及分区策略推断！
+    /// </summary>
+    public static void WriteCatalogTable(
+        this DataFrame df,
+        UnityCatalog catalog,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        Selector? partitionBy = null,
+        DeltaSaveMode mode = DeltaSaveMode.Append,
+        bool canEvolve = false,
+        bool includeKeys = true,
+        bool keysPreGrouped = false,
+        int maxRowsPerFile = 0,
+        long approxBytesPerFile = 0,
+        ParquetCompression compression = ParquetCompression.Snappy,
+        int compressionLevel = -1,
+        bool statistics = true, 
+        uint rowGroupSize = 0,
+        uint dataPageSize = 0,
+        int compatLevel = -1,
+        bool maintainOrder = true,
+        SyncOnClose syncOnClose = SyncOnClose.None,
+        bool mkdir = false,
+        CloudOptions? cloudOptions = null)
+    {
+        // DataFrame 转为 LazyFrame 后再走一遍 Sink 流
+        catalog.SinkCatalogTable(
+            catalogName, schemaName, tableName, df.Lazy(),
+            partitionBy, mode, canEvolve, includeKeys, keysPreGrouped,
+            maxRowsPerFile, approxBytesPerFile, compression, compressionLevel,
+            statistics, rowGroupSize, dataPageSize, compatLevel,
+            maintainOrder, syncOnClose, mkdir, cloudOptions
+        );
+    }
 }

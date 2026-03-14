@@ -302,8 +302,8 @@ public static partial class PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint rgs = rowGroupSize > 0 ? (nuint)rowGroupSize : 0;
-        nuint dps = dataPageSize > 0 ? (nuint)dataPageSize : 0;
+        nuint rgs = rowGroupSize > 0 ? rowGroupSize : 0;
+        nuint dps = dataPageSize > 0 ? dataPageSize : 0;
         
         int safeCompatLevel = compatLevel;
         if (safeCompatLevel < -1) safeCompatLevel = -1;

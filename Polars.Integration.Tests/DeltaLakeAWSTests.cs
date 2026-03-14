@@ -6,6 +6,8 @@ using Minio;
 using Minio.DataModel.Args;
 using Polars.Integration.Tests.Utils;
 using Polars.NET.Core;
+using Polars.NET.Linq.CSharpExtensions;
+using Polars.NET.Linq;
 
 namespace Polars.Integration.Tests;
 
@@ -2720,5 +2722,143 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         Assert.Equal("DeleteMe", resUpdateWins["Status"].ToArray<string>()[0]);
 
         Console.WriteLine("Order Semantics Test Passed!");
+    }
+
+    public record StoreRecord(string Region, int StoreId, int Stock, string Status);
+
+    [Fact]
+    [Trait("DeltaLake", "LINQ")]
+    public void Test_Merge_Delta_Composite_Keys_Ordered_Logic_With_LINQ()
+    {
+        // ==========================================
+        // 1. 环境准备
+        // ==========================================
+        var tableName = $"delta_merge_composite_ordered_{Guid.NewGuid():N}";
+        var rootUrl = $"s3://{minio.BucketName}/{tableName}";
+        
+        var options = CloudOptions.Aws(
+            region: minio.Region,
+            accessKey: minio.AccessKey,
+            secretKey: minio.SecretKey,
+            endpoint: $"http://{minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/')}"
+        );
+        options.Credentials!["AWS_ALLOW_HTTP"] = "true";
+        options.Credentials!["aws_s3_force_path_style"] = "true";
+        options.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
+
+        // ==========================================
+        // 2. [Target] 初始化数据 (Version 1)
+        // ==========================================
+        Console.WriteLine("Step 1: Initial Write (Target)...");
+
+        using (var df = DataFrame.FromColumns(new { 
+            Region = new[]  { "North", "North", "South", "South", "East" },
+            StoreId = new[] { 101,     102,     101,     999,     555 },
+            Stock = new[]   { 10,      20,      5,       0,       50 },
+            Status = new[]  { "Active","Active","Recall","Obsolete","Active" }
+        }))
+        {
+            df.WriteDelta(
+                rootUrl, 
+                partitionBy: "Region", 
+                mode: DeltaSaveMode.Append, 
+                cloudOptions: options
+            );
+        }
+
+        // ==========================================
+        // 3. [Source] 使用 LINQ 和 Record 准备 Merge 数据
+        // ==========================================
+        Console.WriteLine("Step 2: Preparing Source Data via LINQ...");
+
+        // 直接从刚才写入的 Target 中读取出 DataFrame
+        using var targetReadDf = DataFrame.ReadDelta(rootUrl, cloudOptions: options);
+
+        // 神奇的 LINQ to Polars 转换开始
+        var sourceQuery = targetReadDf.AsQueryable<StoreRecord>()
+            // A. 过滤掉不需要去 Merge 更新的数据 (原 Target 中的 South/999 和 East/555)
+            .Where(x => x.Region == "North" || (x.Region == "South" && x.StoreId == 101))
+            // B. 改变现有数据的值，制造 Update 和 Delete 条件
+            .Select(x => new StoreRecord(
+                x.Region,
+                x.StoreId,
+                // Stock 突变逻辑
+                (x.Region == "North" && x.StoreId == 101) ? 100 : 
+                (x.Region == "North" && x.StoreId == 102) ? 15 : 0, 
+                // Status 突变逻辑
+                (x.Region == "South" && x.StoreId == 101) ? "DeleteMe" : x.Status
+            ))
+            // C. 模拟外部系统新产生的数据，追加进流中
+            .Concat([
+                new StoreRecord("West", 888, 60, "New"),
+                new StoreRecord("West", 999, 0, "Bad")
+            ]);
+        // 终极转换：流式查询退化为物理 DataFrame，准备扔给 Rust
+        using var sourceDf = sourceQuery.ToDataFrame();
+
+        // 打印一下看看到底造出了什么数据，心里更有底
+        Console.WriteLine("--- Source DataFrame Generated from LINQ ---");
+        sourceDf.Show();
+
+        // ==========================================
+        // 4. 定义表达式 (使用语法糖)
+        // ==========================================
+        var updateCond = Delta.Source("Stock") > Delta.Target("Stock");
+        var matchDeleteCond = Delta.Source("Status") == "DeleteMe";
+        var insertCond = Delta.Source("Stock") > 0;
+        var srcDeleteCond = Delta.Target("Status") == "Obsolete";
+
+        // ==========================================
+        // 5. 执行 Ordered Full Merge
+        // ==========================================
+        Console.WriteLine("Step 3: Executing Composite Key Ordered Merge...");
+
+        sourceDf.MergeDeltaOrdered(
+                rootUrl,
+                mergeKeys: ["Region", "StoreId"], 
+                cloudOptions: options
+            )
+            .WhenMatchedDelete(matchDeleteCond)           
+            .WhenMatchedUpdate(updateCond)                
+            .WhenNotMatchedInsert(insertCond)             
+            .WhenNotMatchedBySourceDelete(srcDeleteCond)  
+            .Execute();                                   
+
+        // ==========================================
+        // 6. 验证结果
+        // ==========================================
+        Console.WriteLine("Step 4: Verifying Results...");
+        
+        using var dfRes = LazyFrame.ScanDelta(rootUrl, cloudOptions: options)
+            .Collect()
+            .Sort(["Region", "StoreId"]);
+
+        dfRes.Show();
+        
+        Assert.Equal(4, dfRes.Height);
+
+        // Case 1: Composite Match Update
+        var row1 = dfRes.Filter(Col("Region") == "North" & Col("StoreId") == 101);
+        Assert.Equal(100, row1["Stock"].ToArray<int>()[0]);
+
+        // Case 2: Composite Match Skip
+        var row2 = dfRes.Filter(Col("Region") == "North" & Col("StoreId") == 102);
+        Assert.Equal(20, row2["Stock"].ToArray<int>()[0]);
+
+        // Case 3: Composite Match Delete
+        Assert.Equal(0, dfRes.Filter(Col("Region") == "South" & Col("StoreId") == 101).Height);
+
+        // Case 4: Not Matched By Source Delete
+        Assert.Equal(0, dfRes.Filter(Col("Region") == "South" & Col("StoreId") == 999).Height);
+
+        // Case 5: Target Only Keep
+        var rowEast = dfRes.Filter(Col("Region") == "East");
+        Assert.Equal(50, rowEast["Stock"].ToArray<int>()[0]);
+
+        // Case 6: Insert
+        var rowWest = dfRes.Filter(Col("Region") == "West" & Col("StoreId") == 888);
+        Assert.Equal(60, rowWest["Stock"].ToArray<int>()[0]);
+
+        Console.WriteLine("Ordered Composite Key Merge with LINQ Passed!");
     }
 }

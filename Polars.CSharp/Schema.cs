@@ -49,7 +49,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema
     /// <returns>The schema instance (Fluent API).</returns>
     public PolarsSchema Add(string name, DataType dtype)
     {
-        if (dtype == null) throw new ArgumentNullException(nameof(dtype));
+        ArgumentNullException.ThrowIfNull(dtype);
         
         PolarsWrapper.SchemaAddField(Handle, name, dtype.Handle);
         return this;
@@ -75,74 +75,74 @@ public class PolarsSchema : IDisposable,IPolarsSchema
     }
 
     Dictionary<string, IPolarsDataType> IPolarsSchema.ToDictionary()
-        {
-            return this.ToDictionary()
-                       .ToDictionary(kvp => kvp.Key, kvp => (IPolarsDataType)kvp.Value);
-        }
+    {
+        return this.ToDictionary()
+                    .ToDictionary(kvp => kvp.Key, kvp => (IPolarsDataType)kvp.Value);
+    }
 
     public DataType this[string name]
+    {
+        get
         {
-            get
-            {
-                ulong len = PolarsWrapper.GetSchemaLen(Handle);
-                for (ulong i = 0; i < len; i++)
-                {
-                    PolarsWrapper.GetSchemaFieldAt(Handle, i, out string fName, out DataTypeHandle dtHandle);
-                    if (fName == name)
-                    {
-                        return new DataType(dtHandle);
-                    }
-                }
-                throw new KeyNotFoundException($"Column '{name}' not found in Schema.");
-            }
-        }
-        
-        // ==========================================
-        // ColumnNames / Length 
-        // ==========================================
-        public int Length => (int)PolarsWrapper.GetSchemaLen(Handle);
-
-        public List<string> ColumnNames
-        {
-            get
-            {
-                ulong len = PolarsWrapper.GetSchemaLen(Handle);
-                var list = new List<string>((int)len);
-                for (ulong i = 0; i < len; i++)
-                {
-                    PolarsWrapper.GetSchemaFieldAt(Handle, i, out string name, out _);
-                    list.Add(name);
-                }
-                return list;
-            }
-        }
-
-        IPolarsDataType IPolarsSchema.this[string name] 
-            => this[name];
-        // ==========================================
-        // ToString
-        // ==========================================
-        public override string ToString()
-        {
-            if (Handle.IsInvalid) return "Schema: {}";
-
-            var sb = new StringBuilder();
-            sb.Append("Schema: {");
-            
             ulong len = PolarsWrapper.GetSchemaLen(Handle);
             for (ulong i = 0; i < len; i++)
             {
-                PolarsWrapper.GetSchemaFieldAt(Handle, i, out string name, out DataTypeHandle dtHandle);
-
-                using var dt = new DataType(dtHandle); 
-                sb.Append($"{name}: {dt.Kind}");
-
-                if (i < len - 1) sb.Append(", ");
+                PolarsWrapper.GetSchemaFieldAt(Handle, i, out string fName, out DataTypeHandle dtHandle);
+                if (fName == name)
+                {
+                    return new DataType(dtHandle);
+                }
             }
-            
-            sb.Append('}');
-            return sb.ToString();
+            throw new KeyNotFoundException($"Column '{name}' not found in Schema.");
         }
+    }
+        
+    // ==========================================
+    // ColumnNames / Length 
+    // ==========================================
+    public int Length => (int)PolarsWrapper.GetSchemaLen(Handle);
+
+    public List<string> ColumnNames
+    {
+        get
+        {
+            ulong len = PolarsWrapper.GetSchemaLen(Handle);
+            var list = new List<string>((int)len);
+            for (ulong i = 0; i < len; i++)
+            {
+                PolarsWrapper.GetSchemaFieldAt(Handle, i, out string name, out _);
+                list.Add(name);
+            }
+            return list;
+        }
+    }
+
+    IPolarsDataType IPolarsSchema.this[string name] 
+        => this[name];
+    // ==========================================
+    // ToString
+    // ==========================================
+    public override string ToString()
+    {
+        if (Handle.IsInvalid) return "Schema: {}";
+
+        var sb = new StringBuilder();
+        sb.Append("Schema: {");
+        
+        ulong len = PolarsWrapper.GetSchemaLen(Handle);
+        for (ulong i = 0; i < len; i++)
+        {
+            PolarsWrapper.GetSchemaFieldAt(Handle, i, out string name, out DataTypeHandle dtHandle);
+
+            using var dt = new DataType(dtHandle); 
+            sb.Append($"{name}: {dt.Kind}");
+
+            if (i < len - 1) sb.Append(", ");
+        }
+        
+        sb.Append('}');
+        return sb.ToString();
+    }
     public void Dispose()
     {
         Dispose(true);

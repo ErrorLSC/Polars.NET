@@ -732,131 +732,113 @@ pub extern "C" fn pl_io_delta_delete(
     cloud_len: usize
 ) {
     ffi_try_void!({
-        // =================================================================================
-        // Step 0: Argument Parsing
-        // =================================================================================
         let path_str = ptr_to_str(table_path_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
         let table_url = parse_table_url(path_str)?;
-        
-        // Take ownership of Predicate Expression
         let predicate_ctx = unsafe { *Box::from_raw(predicate_ptr) };
         let predicate_expr = predicate_ctx.inner;
 
-        // Pack RawCloudArgs for later use in Context
         let cloud_args = RawCloudArgs {
-            provider: cloud_provider,
-            retries: cloud_retries,
-            retry_timeout_ms: cloud_retry_timeout_ms,
-            retry_init_backoff_ms: cloud_retry_init_backoff_ms,
-            retry_max_backoff_ms: cloud_retry_max_backoff_ms,
-            cache_ttl: cloud_cache_ttl,
-            keys: cloud_keys,
-            values: cloud_values,
-            len: cloud_len,
+            provider: cloud_provider, retries: cloud_retries, retry_timeout_ms: cloud_retry_timeout_ms,
+            retry_init_backoff_ms: cloud_retry_init_backoff_ms, retry_max_backoff_ms: cloud_retry_max_backoff_ms,
+            cache_ttl: cloud_cache_ttl, keys: cloud_keys, values: cloud_values, len: cloud_len,
         };
         
-        // Build options for Delta-RS loading
         let delta_storage_options = build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
 
-        let rt = get_runtime();
-
-        // =================================================================================
-        // Step 1: Load Phase - Async
-        // =================================================================================
-        let (table, polars_schema, partition_cols, all_files) = rt.block_on(async {
-            // 1.1 Load Table
-            let t = DeltaTable::try_from_url_with_storage_options(table_url.clone(), delta_storage_options)
-                .await.map_err(|e| PolarsError::ComputeError(format!("Delta load error: {}", e).into()))?;
-            
-            // 1.2 Get Schema & Metadata
-            let schema = get_polars_schema_from_delta(&t)?;
-            let snapshot = t.snapshot().map_err(|e| PolarsError::ComputeError(format!("Snapshot error: {}", e).into()))?;
-            let part_cols = snapshot.metadata().partition_columns().clone();
-
-            // 1.3 Collect Active Files (Convert View -> Add)
-            let binding = t.clone();
-            let mut stream = binding.get_active_add_actions_by_partitions(&[]);
-            let mut files = Vec::new();
-            
-            while let Some(item) = stream.next().await {
-                let view = item.map_err(|e| PolarsError::ComputeError(format!("Stream error: {}", e).into()))?;
-                files.push(view_to_add_action(&view));
-            }
-
-            Ok::<_, PolarsError>((t, schema, part_cols, files))
-        })?;
-
-        // =================================================================================
-        // Step 2: Execution Phase - Sync / Mixed
-        // =================================================================================
-        
-        // 2.1 Determine Strategy
-        let snapshot = table.snapshot().map_err(|e| PolarsError::ComputeError(format!("{}", e).into()))?;
-        let strategy = DeleteStrategy::determine(snapshot, false);
-
-        // 2.2 Build Context
-        let ctx = DeleteContext::new(
-            &table,
-            predicate_expr,
-            polars_schema,
-            partition_cols,
-            strategy,
-            cloud_args
-        );
-
-        let mut actions_to_commit = Vec::new();
-
-        // 2.3 Loop Files
-        for file in all_files {
-            // A. Pruning (Partition & Stats)
-
-            let decision = prune_file_from_add(&ctx, &file)?; 
-
-            match decision {
-                FileActionDecision::Skip => continue,
-                
-                FileActionDecision::FullDrop(action) => {
-                    actions_to_commit.push(action);
-                },
-                
-                FileActionDecision::Process { file_view } => {
-                    // B. Strategy Dispatch
-                    let new_actions = match ctx.strategy {
-                        DeleteStrategy::CopyOnWrite => {
-                            // CoW
-                            execute_copy_on_write(&ctx, &file_view)?
-                        },
-                        DeleteStrategy::MergeOnRead => {
-                            // MoR
-                            execute_merge_on_read(&ctx, &file_view)?
-                        }
-                    };
-                    actions_to_commit.extend(new_actions);
-                }
-            }
-        }
-
-        // =================================================================================
-        // Step 3: Commit Phase - Async
-        // =================================================================================
-        if !actions_to_commit.is_empty() {
-            rt.block_on(async {
-                let operation = DeltaOperation::Delete {
-                    predicate: None, // 我们已经物理删除了，这里留空或者是原来的 SQL 字符串
-                };
-                
-                let _ver = CommitBuilder::default()
-                    .with_actions(actions_to_commit)
-                    .build(
-                        Some(table.snapshot().map_err(|e| PolarsError::ComputeError(format!("{}", e).into()))?),
-                        table.log_store().clone(),
-                        operation
-                    ).await.map_err(|e| PolarsError::ComputeError(format!("Commit failed: {}", e).into()))?;
-                
-                Ok::<(), PolarsError>(())
-            })?;
-        }
-
+        delete_delta_internal(table_url, predicate_expr, delta_storage_options, cloud_args)?;
         Ok(())
     })
+
+}
+
+
+pub(crate) fn delete_delta_internal(
+    table_url: url::Url,
+    predicate_expr: Expr,
+    delta_storage_options: HashMap<String, String>,
+    cloud_args: RawCloudArgs,
+) -> PolarsResult<()> {
+    let rt = get_runtime();
+
+    // =================================================================================
+    // Step 1: Load Phase - Async
+    // =================================================================================
+    let (table, polars_schema, partition_cols, all_files) = rt.block_on(async {
+        let t = DeltaTable::try_from_url_with_storage_options(table_url.clone(), delta_storage_options)
+            .await.map_err(|e| PolarsError::ComputeError(format!("Delta load error: {}", e).into()))?;
+        
+        let schema = get_polars_schema_from_delta(&t)?;
+        let snapshot = t.snapshot().map_err(|e| PolarsError::ComputeError(format!("Snapshot error: {}", e).into()))?;
+        let part_cols = snapshot.metadata().partition_columns().clone();
+
+        let binding = t.clone();
+        let mut stream = binding.get_active_add_actions_by_partitions(&[]);
+        let mut files = Vec::new();
+        
+        while let Some(item) = stream.next().await {
+            let view = item.map_err(|e| PolarsError::ComputeError(format!("Stream error: {}", e).into()))?;
+            files.push(view_to_add_action(&view));
+        }
+
+        Ok::<_, PolarsError>((t, schema, part_cols, files))
+    })?;
+
+    // =================================================================================
+    // Step 2: Execution Phase - Sync / Mixed
+    // =================================================================================
+    let snapshot = table.snapshot().map_err(|e| PolarsError::ComputeError(format!("{}", e).into()))?;
+    let strategy = DeleteStrategy::determine(snapshot, false);
+
+    let ctx = DeleteContext::new(
+        &table,
+        predicate_expr,
+        polars_schema,
+        partition_cols,
+        strategy,
+        cloud_args
+    );
+
+    let mut actions_to_commit = Vec::new();
+
+    for file in all_files {
+        let decision = prune_file_from_add(&ctx, &file)?; 
+
+        match decision {
+            FileActionDecision::Skip => continue,
+            FileActionDecision::FullDrop(action) => {
+                actions_to_commit.push(action);
+            },
+            FileActionDecision::Process { file_view } => {
+                let new_actions = match ctx.strategy {
+                    DeleteStrategy::CopyOnWrite => execute_copy_on_write(&ctx, &file_view)?,
+                    DeleteStrategy::MergeOnRead => execute_merge_on_read(&ctx, &file_view)?,
+                };
+                actions_to_commit.extend(new_actions);
+            }
+        }
+    }
+
+    // =================================================================================
+    // Step 3: Commit Phase - Async
+    // =================================================================================
+    if !actions_to_commit.is_empty() {
+        rt.block_on(async {
+
+            let mut table = table;
+            let _ = table.update_state().await;
+
+            let operation = DeltaOperation::Delete { predicate: None };
+            let _ver = CommitBuilder::default()
+                .with_actions(actions_to_commit)
+                .build(
+                    Some(table.snapshot().map_err(|e| PolarsError::ComputeError(format!("{}", e).into()))?),
+                    table.log_store().clone(),
+                    operation
+                ).await.map_err(|e| PolarsError::ComputeError(format!("Commit failed: {}", e).into()))?;
+            
+            Ok::<(), PolarsError>(())
+        })?;
+    }
+
+    Ok(())
 }

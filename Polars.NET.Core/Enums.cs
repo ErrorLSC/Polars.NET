@@ -327,3 +327,10 @@ public enum PlMergeActionType : byte
     NotMatchedInsert = 2,
     NotMatchedBySourceDelete = 3
 }
+
+public enum PlCatalogTableType : byte
+{
+    Managed = 0,
+    External = 1
+}
+

@@ -48,4 +48,65 @@ internal partial class NativeBindings
         string[]? cloud_values,
         nuint cloud_len
     );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_sink_catalog_table(
+        CatalogHandle handle,
+        // --- catalog info ---
+        string catalogName,
+        string schemaName,
+        string tableName,
+        LazyFrameHandle lf,
+        // --- Delta Options --- 
+        PlDeltaSaveMode mode,
+        [MarshalAs(UnmanagedType.U1)] bool can_evolve,
+        // --- Partition Params---
+        IntPtr partition_by,
+        [MarshalAs(UnmanagedType.U1)] bool include_keys,
+        [MarshalAs(UnmanagedType.U1)] bool keys_pre_grouped,
+        nuint max_rows_per_file,
+        ulong approx_bytes_per_file,
+
+        // --- Parquet Options ---
+        PlParquetCompression compression,
+        int compression_level,
+        [MarshalAs(UnmanagedType.U1)] bool statistics,
+        nuint row_group_size,
+        nuint data_page_size,
+        int compat_level,
+        // --- Unified Options ---
+        [MarshalAs(UnmanagedType.U1)] bool maintain_order,
+        PlSyncOnClose sync_on_close,
+        [MarshalAs(UnmanagedType.U1)] bool mkdir,
+
+        // --- Cloud Params ---
+        PlCloudProvider cloud_provider,
+        nuint cloud_retries,
+        ulong cloud_retry_timeout_ms,
+        ulong cloud_retry_init_backoff_ms,
+        ulong cloud_retry_max_backoff_ms,
+        ulong cloud_cache_ttl,
+        string[]? cloud_keys,
+        string[]? cloud_values,
+        nuint cloud_len
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_catalog_create_table(
+        CatalogHandle handle,
+        // --- catalog info ---
+        string catalogName,
+        string schemaName,
+        string tableName,
+        // --- schema ---
+        SchemaHandle schema,
+        PlCatalogTableType table_type,
+        string? storage_location
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_catalog_delete_table(
+        CatalogHandle handle,
+        // --- catalog info ---
+        string catalogName,
+        string schemaName,
+        string tableName
+    );
 }

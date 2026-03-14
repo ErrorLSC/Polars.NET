@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime;
 using static Polars.CSharp.Polars;
 namespace Polars.CSharp.Tests;
 
@@ -618,22 +619,24 @@ public class DataTypeTests
     }
 
     [Fact]
+    [Trait("DataType","TinyInteger")]
     public void Test_Tiny_Integers_i8_u8_i16_u16()
     {
         // --- i8 (SByte) [-128, 127] ---
-        var sI8 = new Series("i8", [ (sbyte)-10, (sbyte)127, null ]);
-        Assert.Equal((sbyte)-10, sI8.GetValue<sbyte?>(0));
-        Assert.Equal((sbyte)127, sI8.GetValue<sbyte?>(1));
+        sbyte?[] i8Array = [-5,127,null];
+        var sI8 = Series.From("i8",i8Array);
+        Assert.Equal((sbyte)-5, sI8[0]);
+        Assert.Equal((sbyte)127, sI8[1]);
 
         // --- u8 (Byte) [0, 255] ---
         // 注意：C# 字面量 255 默认是 int，在集合表达式里如果目标确认为 byte[] 会自动转换
         // 但这里为了保险和明确，我们看看 new Series("u8", [10, 255]) 能否工作
         // 编译器需要知道我们要调哪个构造函数，对于 Collection Expression 有时需要指引
         byte[] u8Raw = [10, 255]; 
-        var sU8 = new Series("u8", u8Raw); // 显式传数组肯定没问题
-        
+        var sU8 = Series.From("u8", u8Raw); // 显式传数组肯定没问题
+        Assert.Equal((byte)255,sU8[1]);
         // 测试直接推断 (Nullable):
-        var sU8_Null = new Series("u8_n", [(byte)10, (byte)255, null]);
+        var sU8_Null = new Series("u8_n", [10, 255, null]);
         Assert.Equal((byte)255, sU8_Null.GetValue<byte?>(1));
 
         // --- i16 (Short) ---
@@ -687,7 +690,7 @@ public class DataTypeTests
         // 这一步会触发你的 SIMD 优化的 Arrow Buffer 构建逻辑 (Bitmask + Value Buffer Copy)
         var sw = Stopwatch.StartNew();
         
-        using var s = new Series("f16_million", rawData);
+        using var s = Series.From("f16_million", rawData);
         
         sw.Stop();
         
@@ -797,7 +800,7 @@ public class DataTypeTests
         // 验证我们那个通用的 UnzipNullable<T> 泛型方法是否对 16字节的结构体生效
         Int128?[] data = [1, null, 2];
         
-        var s = new Series("opt_test", data);
+        var s = Series.From("opt_test", data);
         
         Assert.Equal((Int128)1, s.GetValue<Int128?>(0));
         Assert.Null(s.GetValue<Int128?>(1));
@@ -962,13 +965,14 @@ public class DataTypeTests
     }
 
     // 泛型验证辅助函数
-    private void CheckIndex<T>(Series s, T[] expectedData, int index)
+    private static void CheckIndex<T>(Series s, T[] expectedData, int index)
     {
         // 利用万能索引器
         object actual = s[index];
         Assert.Equal(expectedData[index], actual);
     }
     [Fact]
+    [Trait("DataType","TimeOnlySIMD")]
     public void Test_TimeOnly_SIMD_Path()
     {
         // 1. 准备数据：长度 2050
@@ -984,7 +988,7 @@ public class DataTypeTests
         }
 
         // 2. 创建 Series (命中 AVX-512/AVX2 Mul)
-        using var s = new Series("simd_times", data);
+        using var s = Series.From("simd_times", data);
 
         // 3. 验证
         Assert.Equal(count, s.Length);
@@ -1001,6 +1005,7 @@ public class DataTypeTests
         CheckIndex(s, data, count - 1);
     }
     [Fact]
+    [Trait("DataType","TimeSpanILP")]
     public void Test_TimeSpan_ILP_Path()
     {
         // 1. 准备数据：长度 2050
@@ -1015,7 +1020,7 @@ public class DataTypeTests
         }
 
         // 2. 创建 Series (命中 Unroll 8 标量除法)
-        using var s = new Series("ilp_durations", data);
+        using var s = Series.From("ilp_durations", data);
 
         // 3. 验证
         Assert.Equal(count, s.Length);
@@ -1034,6 +1039,7 @@ public class DataTypeTests
         CheckIndex(s, data, count - 3); // Main Loop End
     }
     [Fact]
+    [Trait("DataType","DecimalMix")]
     public void Test_Decimal_Integration_MixedScale()
     {
         // 1. 准备数据：标度大乱炖
@@ -1050,7 +1056,7 @@ public class DataTypeTests
         };
 
         // 2. 创建 Series (命中 DecimalPacker.Pack 可空路径)
-        using var s = new Series("mixed_decimal", data);
+        using var s = Series.From("mixed_decimal", data);
 
         // 3. 验证基础
         Assert.Equal(7, s.Length);
@@ -1084,7 +1090,7 @@ public class DataTypeTests
         };
 
         // 2. 创建 Series (命中 DecimalPacker.Pack 非空路径)
-        using var s = new Series("fast_decimal", data);
+        using var s = Series.From("fast_decimal", data);
 
         // 3. 验证
         Assert.Equal(4, s.Length);
@@ -1198,7 +1204,6 @@ public class DataTypeTests
         Console.WriteLine($"Transferred 1,000,000 doubles (2D) in {sw.Elapsed.TotalMilliseconds} ms");
 
         // Zero-Copy 理论上耗时应该极短（< 1ms 或者仅包含一些 P/Invoke 开销）
-        // 如果这里超过了 10ms，那就说明发生了拷贝
         Assert.Equal(size, s.Length);
     }
     [Fact]
@@ -1229,6 +1234,7 @@ public class DataTypeTests
         Console.WriteLine($"Int128 Check Passed. Series: {s}");
     }
     [Fact]
+    [Trait("DataType","DecimalMatrix")]
     public void Test_Decimal_Matrix_AutoScaling()
     {
         // 1. Arrange: 准备一个 "刺激" 的 decimal 矩阵
@@ -1249,13 +1255,10 @@ public class DataTypeTests
         string name = "decimal_matrix";
 
         // 2. Act: 通过 Wrapper 创建 Series
-        // 注意：这是 C# 侧的调用，假设你有一个 C# Series 类或者直接调 Wrapper
-        // 这里模拟直接调用 Wrapper 并封装 (类似 F# 的行为)
         
-        using var series = new Series(name, data); // 假设 C# 也有类似的 Create<T>(string, T[,])
+        using var series = Series.From(name, data);
 
         // 3. Assert: 验证结果
-        
         // A. 验证类型和形状
         // 假设 Polars 返回的类型字符串类似于 "FixedSizeList[3] (Decimal(38, 5))"
         // 或者是 List<Decimal>
@@ -1285,6 +1288,7 @@ public class DataTypeTests
     }
 
     [Fact]
+    [Trait("DataType","DecimalOverflow")]
     public void Test_Decimal_OverflowException()
     {
         // Test Decimal Scale Overflow exception
@@ -1297,6 +1301,6 @@ public class DataTypeTests
             { tiny }
         };
 
-        Assert.Throws<OverflowException>(() => new Series("huge_decimal", data));
+        Assert.Throws<OverflowException>(() => Series.From("huge_decimal", data));
     }
 }
