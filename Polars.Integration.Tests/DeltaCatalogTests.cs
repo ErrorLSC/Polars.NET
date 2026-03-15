@@ -707,6 +707,219 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         Assert.Equal(4, dfBackV1.Height);
         Assert.DoesNotContain(4, dfBackV1["Id"].ToArray<int>());
 
-        Console.WriteLine("Catalog Delete Full Cycle Passed Perfectly! 🗑️✨");
+        Console.WriteLine("Catalog Delete Full Cycle Passed Perfectly! ");
+    }
+    [Fact]
+    [Trait("Catalog", "DeleteConcurrent")]
+    public async Task Test_Concurrent_Catalog_Delete_Conflict_Stress_TestAsync()
+    {
+        // ==========================================
+        // 1. 环境准备与 Mock 部署
+        // ==========================================
+        var catalog = "main";
+        var schema = "default";
+        var table = $"delta_catalog_concurrent_del_{Guid.NewGuid():N}";
+        var s3StorageLocation = $"s3://{_minio.BucketName}/{table}";
+        var expectedToken = "dapi-concurrent-del-token";
+
+        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var polarsEndpoint = $"http://{rawEndpoint}";
+
+        SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
+
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
+        cloudOptions.Credentials!["aws_allow_http"] = "true";
+        cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
+        cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
+
+        using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
+
+        // ==========================================
+        // 2. 初始写入：10 行数据，全塞在一个文件里（不设分区）
+        // ==========================================
+        Console.WriteLine("Step 1: Initializing Table with 10 rows in a single file...");
+        using (var dfInit = DataFrame.FromColumns(new { 
+            Id = Enumerable.Range(1, 10).ToArray(),
+            Msg = Enumerable.Repeat("Target", 10).ToArray()
+        }))
+        {
+            dfInit.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Overwrite, cloudOptions: cloudOptions);
+        }
+
+        // ==========================================
+        // 3. 并发删除风暴 (大逃杀开始)
+        // ==========================================
+        Console.WriteLine("Step 2: Starting Concurrent Deletes on the SAME file...");
+        
+        int concurrency = 5;
+        var tasks = new List<Task>();
+        
+        // 用来统计战况
+        int successCount = 0;
+        int conflictCount = 0;
+
+        for (int i = 0; i < concurrency; i++)
+        {
+            int targetId = i + 1; // 每个 worker 试图删除不同的 Id (1 到 5)
+            tasks.Add(Task.Run(() =>
+            {
+                try 
+                {
+                    var predicate = Col("Id") == targetId;
+                    uc.DeleteCatalogRecords(catalog, schema, table, predicate, cloudOptions: cloudOptions);
+                    
+                    Console.WriteLine($"[Worker {targetId}] WINNER! Successfully deleted Id={targetId}.");
+                    Interlocked.Increment(ref successCount);
+                }
+                catch (Exception ex)
+                {
+                    // 期待捕获到底层的 Commit 冲突异常
+                    Console.WriteLine($"[Worker {targetId}] BLOCKED by OCC lock: {ex.Message}");
+                    Interlocked.Increment(ref conflictCount);
+                }
+            }));
+        }
+
+        await Task.WhenAll(tasks);
+
+        // ==========================================
+        // 4. 战报核验 (Data Integrity Check)
+        // ==========================================
+        Console.WriteLine("\nStep 3: Verifying Battlefield...");
+        Console.WriteLine($"Total Success: {successCount}, Total Conflicts: {conflictCount}");
+
+        // 由于时间差，可能不止1个成功（如果某个 worker 启动慢，在别人 commit 之后才 load，那它就会成功），
+        // 但肯定会有失败的，且 成功数 + 失败数 必须 = 5
+        Assert.True(successCount >= 1, "At least one deletion should succeed.");
+        Assert.Equal(concurrency, successCount + conflictCount);
+
+        using var resultLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
+        using var resultDf = resultLf.Collect();
+        
+        resultDf.Show();
+
+        // 终极一致性断言：剩余的数据行数 = 初始 10 行 - 成功的删除次数
+        // 如果这里通过了，说明引擎的原子性和锁机制完美无瑕，绝对没有脏覆盖！
+        Assert.Equal(10 - successCount, resultDf.Height);
+
+        Console.WriteLine("Catalog Concurrent Delete Stress Test Passed! OCC is working perfectly. ");
+    }
+    [Fact]
+    [Trait("Catalog", "Chaos")]
+    public async Task Test_Concurrent_Chaos_Mixed_Append_And_Delete_Async()
+    {
+        // ==========================================
+        // 0. 注入“鸡血”：调高引擎重试上限
+        // ==========================================
+
+        PolarsConfig.SetEnvVar("POLARS_DELTA_MAX_RETRIES", "20");
+
+        // ==========================================
+        // 1. 环境准备与 Mock 部署
+        // ==========================================
+        var catalog = "main";
+        var schema = "default";
+        var table = $"delta_chaos_{Guid.NewGuid():N}";
+        var s3StorageLocation = $"s3://{_minio.BucketName}/{table}";
+        var expectedToken = "dapi-chaos-token";
+
+        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var polarsEndpoint = $"http://{rawEndpoint}";
+
+        SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
+
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
+        cloudOptions.Credentials!["aws_allow_http"] = "true";
+        cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
+        cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
+
+        using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
+
+        // ==========================================
+        // 2. 初始阵地：写入 50 行基础数据 (ID: 1 ~ 50)
+        // ==========================================
+        Console.WriteLine("Step 1: Setting up the battlefield (50 initial rows)...");
+        using (var dfInit = DataFrame.FromColumns(new { 
+            Id = Enumerable.Range(1, 50).ToArray(),
+            Team = Enumerable.Repeat("Init", 50).ToArray()
+        }))
+        {
+            dfInit.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Overwrite, cloudOptions: cloudOptions);
+        }
+
+        // ==========================================
+        // 3. 混沌大逃杀：5 个 Append 狂战士 vs 5 个 Delete 刺客
+        // ==========================================
+        Console.WriteLine("Step 2: Unleashing Chaos (Mixed Append and Delete)...");
+        
+        var tasks = new List<Task>();
+        int writeConcurrency = 5;
+        int deleteConcurrency = 5;
+
+        // 【Team Fire：疯狂写入】
+        // 5 个 Worker，每个追加 10 行新数据 (ID: 101~110, 111~120...)
+        for (int i = 0; i < writeConcurrency; i++)
+        {
+            int workerId = i;
+            tasks.Add(Task.Run(() =>
+            {
+                var startId = 100 + (workerId * 10) + 1;
+                var ids = Enumerable.Range(startId, 10).ToArray();
+                using var dfAppend = DataFrame.FromColumns(new { 
+                    Id = ids, 
+                    Team = Enumerable.Repeat($"Writer_{workerId}", 10).ToArray() 
+                });
+                
+                dfAppend.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Append, cloudOptions: cloudOptions);
+                Console.WriteLine($"[Team Fire] Writer {workerId} appended 10 rows.");
+            }));
+        }
+
+        // 【Team Ice：疯狂删除】
+        // 5 个 Worker，每个去试图删除基础数据中的 10 行 (ID: 1~10, 11~20...)
+        // 注意：它们都在试图读取并改写同一个初始文件（part-0001）！
+        for (int i = 0; i < deleteConcurrency; i++)
+        {
+            int workerId = i;
+            tasks.Add(Task.Run(() =>
+            {
+                var minId = (workerId * 10) + 1;
+                var maxId = minId + 9;
+                
+                var predicate = (Col("Id") >= minId) & (Col("Id") <= maxId);
+                uc.DeleteCatalogRecords(catalog, schema, table, predicate, cloudOptions: cloudOptions);
+                Console.WriteLine($"[Team Ice] Deleter {workerId} deleted IDs {minId} to {maxId}.");
+            }));
+        }
+
+        // 观战，直到全部完成
+        await Task.WhenAll(tasks);
+
+        // ==========================================
+        // 4. 打扫战场：终极一致性校验
+        // ==========================================
+        Console.WriteLine("\nStep 3: Checking Battlefield Integrity...");
+        
+        using var resultLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
+        using var resultDf = resultLf.Collect().Sort("Id");
+        
+        // 数学题对账：
+        // 初始 50 行 - 被刺客删掉的 50 行 + 狂战士加的 50 行 = 最终应该剩 50 行！
+        Assert.Equal(50, resultDf.Height);
+
+        var remainingIds = resultDf["Id"].ToArray<int>();
+
+        // 校验 1：初始的 1~50 应该被删得干干净净
+        Assert.DoesNotContain(1, remainingIds);
+        Assert.DoesNotContain(50, remainingIds);
+
+        // 校验 2：新追加的 101~150 必须全都在
+        Assert.Contains(101, remainingIds);
+        Assert.Contains(150, remainingIds);
+
+        Console.WriteLine("ULTIMATE CHAOS TEST PASSED! The OCC engine survived the storm!");
+        
+        // 测试完把环境变量重置，免得影响别人
+        Environment.SetEnvironmentVariable("POLARS_DELTA_MAX_RETRIES", null);
     }
 }

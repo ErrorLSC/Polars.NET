@@ -1,7 +1,7 @@
 use std::{cmp::Ordering, collections::HashMap, ffi::c_char, time::{SystemTime, UNIX_EPOCH}};
 
 use chrono::{NaiveDate, TimeDelta, Utc};
-use deltalake::{DeltaTable, ObjectStore, kernel::{DeletionVectorDescriptor, StorageType}, table::state::DeltaTableState}; 
+use deltalake::{DeltaTable, DeltaTableError, ObjectStore, kernel::{DeletionVectorDescriptor, StorageType}, table::state::DeltaTableState}; 
 use deltalake::kernel::{Action, Add, Remove};
 use deltalake::kernel::transaction::CommitBuilder;
 use deltalake::parquet::arrow::async_reader::{AsyncFileReader, ParquetObjectReader};
@@ -9,6 +9,7 @@ use deltalake::protocol::DeltaOperation;
 use futures::StreamExt;
 use polars::{error::{PolarsError, PolarsResult}, frame::DataFrame, prelude::{DataType, LazyFrame, PlRefPath, ScanArgsParquet}, series::Series};
 use polars::prelude::*;
+use rand::Rng;
 use roaring::RoaringBitmap;
 use serde_json::Value;
 use uuid::Uuid;
@@ -752,6 +753,97 @@ pub extern "C" fn pl_io_delta_delete(
 }
 
 
+// pub(crate) fn delete_delta_internal(
+//     table_url: url::Url,
+//     predicate_expr: Expr,
+//     delta_storage_options: HashMap<String, String>,
+//     cloud_args: RawCloudArgs,
+// ) -> PolarsResult<()> {
+//     let rt = get_runtime();
+
+//     // =================================================================================
+//     // Step 1: Load Phase - Async
+//     // =================================================================================
+//     let (table, polars_schema, partition_cols, all_files) = rt.block_on(async {
+//         let t = DeltaTable::try_from_url_with_storage_options(table_url.clone(), delta_storage_options)
+//             .await.map_err(|e| PolarsError::ComputeError(format!("Delta load error: {}", e).into()))?;
+        
+//         let schema = get_polars_schema_from_delta(&t)?;
+//         let snapshot = t.snapshot().map_err(|e| PolarsError::ComputeError(format!("Snapshot error: {}", e).into()))?;
+//         let part_cols = snapshot.metadata().partition_columns().clone();
+
+//         let binding = t.clone();
+//         let mut stream = binding.get_active_add_actions_by_partitions(&[]);
+//         let mut files = Vec::new();
+        
+//         while let Some(item) = stream.next().await {
+//             let view = item.map_err(|e| PolarsError::ComputeError(format!("Stream error: {}", e).into()))?;
+//             files.push(view_to_add_action(&view));
+//         }
+
+//         Ok::<_, PolarsError>((t, schema, part_cols, files))
+//     })?;
+
+//     // =================================================================================
+//     // Step 2: Execution Phase - Sync / Mixed
+//     // =================================================================================
+//     let snapshot = table.snapshot().map_err(|e| PolarsError::ComputeError(format!("{}", e).into()))?;
+//     let strategy = DeleteStrategy::determine(snapshot, false);
+
+//     let ctx = DeleteContext::new(
+//         &table,
+//         predicate_expr,
+//         polars_schema,
+//         partition_cols,
+//         strategy,
+//         cloud_args
+//     );
+
+//     let mut actions_to_commit = Vec::new();
+
+//     for file in all_files {
+//         let decision = prune_file_from_add(&ctx, &file)?; 
+
+//         match decision {
+//             FileActionDecision::Skip => continue,
+//             FileActionDecision::FullDrop(action) => {
+//                 actions_to_commit.push(action);
+//             },
+//             FileActionDecision::Process { file_view } => {
+//                 let new_actions = match ctx.strategy {
+//                     DeleteStrategy::CopyOnWrite => execute_copy_on_write(&ctx, &file_view)?,
+//                     DeleteStrategy::MergeOnRead => execute_merge_on_read(&ctx, &file_view)?,
+//                 };
+//                 actions_to_commit.extend(new_actions);
+//             }
+//         }
+//     }
+
+//     // =================================================================================
+//     // Step 3: Commit Phase - Async
+//     // =================================================================================
+//     if !actions_to_commit.is_empty() {
+//         rt.block_on(async {
+
+//             let mut table = table;
+//             let _ = table.update_state().await;
+
+//             let operation = DeltaOperation::Delete { predicate: None };
+//             let _ver = CommitBuilder::default()
+//                 .with_actions(actions_to_commit)
+//                 .build(
+//                     Some(table.snapshot().map_err(|e| PolarsError::ComputeError(format!("{}", e).into()))?),
+//                     table.log_store().clone(),
+//                     operation
+//                 ).await.map_err(|e| PolarsError::ComputeError(format!("Commit failed: {}", e).into()))?;
+            
+//             Ok::<(), PolarsError>(())
+//         })?;
+//     }
+
+//     Ok(())
+// }
+
 pub(crate) fn delete_delta_internal(
     table_url: url::Url,
     predicate_expr: Expr,
@@ -759,86 +851,111 @@ pub(crate) fn delete_delta_internal(
     cloud_args: RawCloudArgs,
 ) -> PolarsResult<()> {
     let rt = get_runtime();
+    let max_attempts = std::env::var("POLARS_DELTA_MAX_RETRIES")
+        .unwrap_or_else(|_| "5".to_string())
+        .parse::<u32>()
+        .unwrap_or(5);
 
-    // =================================================================================
-    // Step 1: Load Phase - Async
-    // =================================================================================
-    let (table, polars_schema, partition_cols, all_files) = rt.block_on(async {
-        let t = DeltaTable::try_from_url_with_storage_options(table_url.clone(), delta_storage_options)
-            .await.map_err(|e| PolarsError::ComputeError(format!("Delta load error: {}", e).into()))?;
-        
-        let schema = get_polars_schema_from_delta(&t)?;
-        let snapshot = t.snapshot().map_err(|e| PolarsError::ComputeError(format!("Snapshot error: {}", e).into()))?;
-        let part_cols = snapshot.metadata().partition_columns().clone();
+    // 核心修复：外层保持为同步循环，绝不嵌套 block_on
+    for attempt in 1..=max_attempts {
+        // ==========================================
+        // Phase 1: Load (进入异步获取表状态)
+        // ==========================================
+        let (t, schema, part_cols, all_files) = rt.block_on(async {
+            let t = DeltaTable::try_from_url_with_storage_options(table_url.clone(), delta_storage_options.clone())
+                .await.map_err(|e| PolarsError::ComputeError(format!("Delta load error: {}", e).into()))?;
+            
+            let schema = get_polars_schema_from_delta(&t)?;
+            let snapshot = t.snapshot().map_err(|e| PolarsError::ComputeError(format!("Snapshot error: {}", e).into()))?;
+            let part_cols = snapshot.metadata().partition_columns().clone();
 
-        let binding = t.clone();
-        let mut stream = binding.get_active_add_actions_by_partitions(&[]);
-        let mut files = Vec::new();
-        
-        while let Some(item) = stream.next().await {
-            let view = item.map_err(|e| PolarsError::ComputeError(format!("Stream error: {}", e).into()))?;
-            files.push(view_to_add_action(&view));
-        }
+            let binding = t.clone();
+            let mut stream = binding.get_active_add_actions_by_partitions(&[]);
+            let mut all_files = Vec::new();
+            while let Some(item) = stream.next().await {
+                let view = item.map_err(|e| PolarsError::ComputeError(format!("Stream error: {}", e).into()))?;
+                all_files.push(view_to_add_action(&view));
+            }
+            Ok::<_, PolarsError>((t, schema, part_cols, all_files))
+        })?;
 
-        Ok::<_, PolarsError>((t, schema, part_cols, files))
-    })?;
+        // ==========================================
+        // Phase 2: Execution (完全同步执行)
+        // 注意：这里的 execute_copy_on_write 内部有它自己的 block_on，
+        // 由于我们在外层是同步环境，这里调用绝对安全，不会触发嵌套 Panic！
+        // ==========================================
+        let snapshot = t.snapshot().map_err(|e| PolarsError::ComputeError(format!("{}", e).into()))?;
+        let strategy = DeleteStrategy::determine(snapshot, false);
+        let ctx = DeleteContext::new(
+            &t, predicate_expr.clone(), schema.clone(), part_cols.clone(), strategy, cloud_args.clone()
+        );
 
-    // =================================================================================
-    // Step 2: Execution Phase - Sync / Mixed
-    // =================================================================================
-    let snapshot = table.snapshot().map_err(|e| PolarsError::ComputeError(format!("{}", e).into()))?;
-    let strategy = DeleteStrategy::determine(snapshot, false);
-
-    let ctx = DeleteContext::new(
-        &table,
-        predicate_expr,
-        polars_schema,
-        partition_cols,
-        strategy,
-        cloud_args
-    );
-
-    let mut actions_to_commit = Vec::new();
-
-    for file in all_files {
-        let decision = prune_file_from_add(&ctx, &file)?; 
-
-        match decision {
-            FileActionDecision::Skip => continue,
-            FileActionDecision::FullDrop(action) => {
-                actions_to_commit.push(action);
-            },
-            FileActionDecision::Process { file_view } => {
-                let new_actions = match ctx.strategy {
-                    DeleteStrategy::CopyOnWrite => execute_copy_on_write(&ctx, &file_view)?,
-                    DeleteStrategy::MergeOnRead => execute_merge_on_read(&ctx, &file_view)?,
-                };
-                actions_to_commit.extend(new_actions);
+        let mut actions_to_commit = Vec::new();
+        for file in all_files {
+            let decision = prune_file_from_add(&ctx, &file)?; 
+            match decision {
+                FileActionDecision::Skip => continue,
+                FileActionDecision::FullDrop(action) => actions_to_commit.push(action),
+                FileActionDecision::Process { file_view } => {
+                    let new_actions = match ctx.strategy {
+                        DeleteStrategy::CopyOnWrite => execute_copy_on_write(&ctx, &file_view)?,
+                        DeleteStrategy::MergeOnRead => execute_merge_on_read(&ctx, &file_view)?,
+                    };
+                    actions_to_commit.extend(new_actions);
+                }
             }
         }
-    }
 
-    // =================================================================================
-    // Step 3: Commit Phase - Async
-    // =================================================================================
-    if !actions_to_commit.is_empty() {
-        rt.block_on(async {
+        if actions_to_commit.is_empty() {
+            // 没有需要提交的操作（别人已经帮我们删了，或者本身就没匹配）
+            return Ok(());
+        }
 
-            let mut table = table;
-            let _ = table.update_state().await;
-
+        // ==========================================
+        // Phase 3: Commit (再次进入异步世界提交事务)
+        // ==========================================
+        let commit_res = rt.block_on(async {
             let operation = DeltaOperation::Delete { predicate: None };
-            let _ver = CommitBuilder::default()
+            
+            // 注意：这里传进去的 t 还是 Phase 1 拿到的那个，保证了快照的一致性
+            CommitBuilder::default()
                 .with_actions(actions_to_commit)
                 .build(
-                    Some(table.snapshot().map_err(|e| PolarsError::ComputeError(format!("{}", e).into()))?),
-                    table.log_store().clone(),
+                    Some(t.snapshot().map_err(|e| DeltaTableError::Generic(e.to_string()))?),
+                    t.log_store().clone(),
                     operation
-                ).await.map_err(|e| PolarsError::ComputeError(format!("Commit failed: {}", e).into()))?;
-            
-            Ok::<(), PolarsError>(())
-        })?;
-    }
+                ).await
+        });
 
+        match commit_res {
+            Ok(_) => return Ok(()), // 完美闯关！
+            Err(deltalake::errors::DeltaTableError::CommitValidation { .. }) 
+            | Err(deltalake::errors::DeltaTableError::VersionAlreadyExists(_)) 
+            | Err(deltalake::errors::DeltaTableError::Transaction { .. }) => {
+                
+                if attempt < max_attempts {
+                    let base_sleep = 50_u64.saturating_mul(2_u64.pow(attempt - 1));
+                    let capped_sleep = std::cmp::min(base_sleep, 1000);
+                    
+                    let mut rng = rand::rng();
+                    let jitter_millis = rng.random_range((capped_sleep / 2)..=(capped_sleep * 3 / 2));
+
+                    println!("[Delta-RS] OCC Conflict! Backoff for {}ms (Attempt {}/{})", 
+                             jitter_millis, attempt, max_attempts);
+
+                    std::thread::sleep(std::time::Duration::from_millis(jitter_millis));
+                    continue; 
+                } else {
+                    return Err(PolarsError::ComputeError(
+                        format!("Max retry attempts ({}) reached for Delete OCC conflict", max_attempts).into()
+                    ));
+                }
+            },
+            
+            // 真正不可恢复的致命错误才抛给上层
+            Err(e) => return Err(PolarsError::ComputeError(format!("Commit failed: {}", e).into())),
+        }
+    }
+    
     Ok(())
 }
