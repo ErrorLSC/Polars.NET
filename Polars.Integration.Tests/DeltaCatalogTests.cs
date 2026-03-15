@@ -597,4 +597,116 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         Console.WriteLine("Success! Unity Catalog Full Roundtrip (Create -> Write -> Scan -> Delete) completed perfectly!");
     }
+    [Fact]
+    [Trait("Catalog", "Delete")]
+    public void Test_Catalog_Delete_Full_Cycle_Logic()
+    {
+        // ==========================================
+        // 1. 环境准备与 Mock 部署
+        // ==========================================
+        var catalog = "main";
+        var schema = "default";
+        var table = $"delta_catalog_delete_{Guid.NewGuid():N}";
+        var s3StorageLocation = $"s3://{_minio.BucketName}/{table}";
+        var expectedToken = "dapi-delete-secret-token";
+
+        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var polarsEndpoint = $"http://{rawEndpoint}";
+
+        // 部署读写拦截网
+        SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
+
+        // 纯净版 Options
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
+        cloudOptions.Credentials!["aws_allow_http"] = "true";
+        cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
+        cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
+
+        using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
+
+        // ==========================================
+        // 2. 初始化写入 (Version 0) - 带有分区
+        // ==========================================
+        Console.WriteLine("Step 1: Initial Write (Partitioned by Year)...");
+        using (var df = DataFrame.FromColumns(new { 
+            Id = new[] { 1, 2, 3, 4, 5 }, 
+            Msg = new[] { "A", "B", "C", "D", "E" },
+            Year = new[] { "2023", "2023", "2024", "2024", "2024" }
+        }))
+        {
+            // 注意这里测试一下咱们上一轮加的 partitionBy
+            df.WriteCatalogTable(
+                uc, catalog, schema, table, 
+                partitionBy: Selector.Col("Year"), 
+                mode: DeltaSaveMode.Overwrite, 
+                cloudOptions: cloudOptions
+            );
+        }
+
+        // 验证 V0 (5 行数据)
+        using var dfV0 = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions).Collect();
+        Assert.Equal(5, dfV0.Height);
+
+        // ==========================================
+        // 3. 执行删除：部分删除 (Rewrite Test) -> 产生 Version 1
+        // ==========================================
+        Console.WriteLine("Step 2: Delete Row (Id=4) - Rewrite Partition 2024...");
+        
+        // Predicate: (Year == '2024') & (Id == 4)
+        var predicateRewrite = (Col("Year") == Lit("2024")) & (Col("Id") == 4);
+        
+        // 呼叫全新的 DeleteCatalogRecords API！
+        uc.DeleteCatalogRecords(catalog, schema, table, predicateRewrite, cloudOptions: cloudOptions);
+
+        // 验证 V1 (应该剩 4 行: 1,2,3,5)
+        using var dfV1 = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions).Collect().Sort("Id");
+        Assert.Equal(4, dfV1.Height);
+        Assert.DoesNotContain(4, dfV1["Id"].ToArray<int>());
+        Assert.Contains(3, dfV1["Id"].ToArray<int>());
+        Assert.Contains(5, dfV1["Id"].ToArray<int>());
+
+        // ==========================================
+        // 4. 执行删除：整分区删除 (Drop Partition) -> 产生 Version 2
+        // ==========================================
+        Console.WriteLine("Step 3: Delete Partition (Year='2023') - Drop Files...");
+        
+        var predicateDrop = Col("Year") == Lit("2023");
+        
+        uc.DeleteCatalogRecords(catalog, schema, table, predicateDrop, cloudOptions: cloudOptions);
+
+        // 验证 V2 (应该剩 2 行: 3, 5)
+        using var dfV2 = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions).Collect().Sort("Id");
+        Assert.Equal(2, dfV2.Height);
+        Assert.DoesNotContain(1, dfV2["Id"].ToArray<int>());
+        Assert.DoesNotContain(2, dfV2["Id"].ToArray<int>());
+        Assert.Equal("2024", dfV2["Year"].ToArray<string>()[0]); // 只剩 2024 的数据了
+
+        // ==========================================
+        // 5. 执行删除：无匹配 (No-op Test)
+        // ==========================================
+        Console.WriteLine("Step 4: Delete Non-existent (Id=999) - No-op...");
+        
+        var predicateNoOp = Col("Id") == 999;
+        uc.DeleteCatalogRecords(catalog, schema, table, predicateNoOp, cloudOptions: cloudOptions);
+
+        // 验证数据无变化
+        using var dfV3 = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions).Collect();
+        Assert.Equal(2, dfV3.Height);
+
+        // ==========================================
+        // 6. Time Travel 验证
+        // ==========================================
+        Console.WriteLine("Step 5: Time Travel Check...");
+        
+        // 回溯到 V1 (包含全部 5 行)
+        using var dfBackV0 = uc.ScanCatalogTable(catalog, schema, table, version: 1, cloudOptions: cloudOptions).Collect();
+        Assert.Equal(5, dfBackV0.Height);
+        
+        // 回溯到 V2 (删除 Id=4 后，剩 4 行)
+        using var dfBackV1 = uc.ScanCatalogTable(catalog, schema, table, version: 2, cloudOptions: cloudOptions).Collect();
+        Assert.Equal(4, dfBackV1.Height);
+        Assert.DoesNotContain(4, dfBackV1["Id"].ToArray<int>());
+
+        Console.WriteLine("Catalog Delete Full Cycle Passed Perfectly! 🗑️✨");
+    }
 }

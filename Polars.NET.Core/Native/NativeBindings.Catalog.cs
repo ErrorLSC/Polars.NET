@@ -90,6 +90,26 @@ internal partial class NativeBindings
         nuint cloud_len
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_catalog_delete_records(
+        CatalogHandle handle,
+        // --- catalog info ---
+        string catalogName,
+        string schemaName,
+        string tableName,
+        ExprHandle predicate,
+
+        // --- Cloud Params ---
+        PlCloudProvider cloud_provider,
+        nuint cloud_retries,
+        ulong cloud_retry_timeout_ms,
+        ulong cloud_retry_init_backoff_ms,
+        ulong cloud_retry_max_backoff_ms,
+        ulong cloud_cache_ttl,
+        string[]? cloud_keys,
+        string[]? cloud_values,
+        nuint cloud_len
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_catalog_create_table(
         CatalogHandle handle,
         // --- catalog info ---

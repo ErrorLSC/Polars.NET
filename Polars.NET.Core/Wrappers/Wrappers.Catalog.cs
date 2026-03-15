@@ -1,3 +1,4 @@
+using Apache.Arrow;
 using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
@@ -178,6 +179,46 @@ public static partial class PolarsWrapper
         );
 
         lf.TransferOwnership();
+
+        ErrorHelper.CheckVoid();
+    }
+    public static void DeleteCatalogRecords(
+        CatalogHandle handle,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        ExprHandle predicate,
+        // Cloud Options
+        PlCloudProvider cloudProvider,
+        nuint cloudRetries,
+        ulong cloudRetryTimeoutMs,
+        ulong cloudRetryInitBackoffMs,
+        ulong cloudRetryMaxBackoffMs,
+        ulong cloudCacheTtl,
+        string[]? cloudKeys,
+        string[]? cloudValues
+    )
+    {
+        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+        
+        NativeBindings.pl_catalog_delete_records(
+            handle,
+            catalogName,
+            schemaName,
+            tableName,
+            predicate,
+            cloudProvider,
+            cloudRetries,
+            cloudRetryTimeoutMs,
+            cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs,
+            cloudCacheTtl,
+            cloudKeys,
+            cloudValues,
+            cloudLen
+        );
+
+        predicate.TransferOwnership();
 
         ErrorHelper.CheckVoid();
     }

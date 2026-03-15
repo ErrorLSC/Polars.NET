@@ -236,12 +236,46 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         string schemaName,
         string tableName
     )
-    => PolarsWrapper.DeleteCatalogTable(
-        Handle,
-        catalogName,
-        schemaName,
-        tableName);
+        => PolarsWrapper.DeleteCatalogTable(
+            Handle,
+            catalogName,
+            schemaName,
+            tableName);
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="catalogName"></param>
+    /// <param name="schemaName"></param>
+    /// <param name="tableName"></param>
+    /// <param name="predicate"></param>
+    /// <param name="cloudOptions"></param>
+    public void DeleteCatalogRecords(
+        string catalogName,
+        string schemaName,
+        string tableName,
+        Expr predicate,
+        CloudOptions? cloudOptions = null)
+    {
+        var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 
+        using var clonedPredicate = predicate.CloneHandle();
+
+        PolarsWrapper.DeleteCatalogRecords(
+            Handle,
+            catalogName,
+            schemaName,
+            tableName,
+            clonedPredicate,
+            provider.ToNative(),
+            retries,
+            retryTimeoutMs,
+            retryInitBackoffMs,
+            retryMaxBackoffMs,
+            cacheTtl,
+            keys,
+            values
+        );
+    }
 
     /// <summary>
     /// Dispose handle

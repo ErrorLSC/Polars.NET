@@ -10,7 +10,7 @@ use crate::{delta::utils::get_runtime, types::SchemaContext, utils::ptr_to_str};
 /// 包装官方的 CatalogClient，作为一个 Opaque Pointer (不透明指针) 传给 C#
 pub struct CatalogContext {
     pub client: CatalogClient,
-    pub workspace_url: String, // 留着备用，方便后续组装完整路径
+    // pub workspace_url: String, // 留着备用，方便后续组装完整路径
 }
 
 impl CatalogContext {
@@ -22,7 +22,7 @@ impl CatalogContext {
             
         Ok(Self { 
             client,
-            workspace_url 
+            // workspace_url 
         })
     }
 }
