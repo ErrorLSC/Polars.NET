@@ -118,11 +118,12 @@ public static class ArrowTypeResolver
     
     public static Field ResolveField(string name, Type type)
     {
-        // Helper to create a Field with correct Nullability
         bool isFSharpOption = type.IsGenericType && type.GetGenericTypeDefinition() == typeof(FSharpOption<>);
-        bool isNullable = !type.IsValueType || Nullable.GetUnderlyingType(type) != null || isFSharpOption;
+        bool isFSharpVOption = type.IsGenericType && type.GetGenericTypeDefinition() == typeof(FSharpValueOption<>); 
+        
+        bool isNullable = !type.IsValueType || Nullable.GetUnderlyingType(type) != null || isFSharpOption || isFSharpVOption;
 
-        IArrowType arrowType = GetArrowTypeFromNetType(type); // Recursive call
+        IArrowType arrowType = GetArrowTypeFromNetType(type); 
 
         return new Field(name, arrowType, isNullable);
     }
