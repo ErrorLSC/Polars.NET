@@ -1,7 +1,7 @@
 use std::{collections::HashMap, ffi::c_char, time::{SystemTime, UNIX_EPOCH}};
 use deltalake::{DeltaTable, Path, kernel::{Action, Remove, transaction}, protocol::DeltaOperation};
 use futures::StreamExt;
-use rand::Rng;
+use rand::RngExt;
 use serde_json::Value;
 use url::Url;
 use uuid::Uuid;
@@ -287,131 +287,6 @@ pub(crate) fn phase_execute_polars_sink(
         
     Ok(())
 }
-
-// pub(crate) async fn phase_commit_and_cleanup(
-//     mut table: DeltaTable,
-//     schema: SchemaRef,
-//     staging_dir_name: String,
-//     final_partition_cols: Vec<String>,
-//     save_mode: SaveMode,
-//     can_evolve: bool,
-//     write_id: Uuid,
-// ) -> PolarsResult<()> {
-    
-//     let _ = table.update_state().await;
-    
-//     if table.version() < Some(0) {
-//         let delta_schema = convert_to_delta_schema(&schema)?;
-//         table = table.create()
-//             .with_columns(delta_schema.fields().cloned())
-//             .with_partition_columns(final_partition_cols.clone()) 
-//             .await
-//             .map_err(|e| PolarsError::ComputeError(format!("Create table error: {}", e).into()))?;
-//     }
-
-//     let object_store = table.object_store();
-//     let mut actions = Vec::new();
-
-//     // ==========================================
-//     // 2. Schema Evolution Check 
-//     // ==========================================
-//     let current_snapshot = table.snapshot()
-//         .map_err(|e| PolarsError::ComputeError(format!("Failed to get snapshot: {}", e).into()))?;
-//     let current_delta_schema = current_snapshot.schema();
-    
-//     let new_delta_schema = convert_to_delta_schema(&schema)?;
-
-//     if current_delta_schema.as_ref() != &new_delta_schema {
-//         if !can_evolve {
-//             return Err(PolarsError::ComputeError(
-//                 "Schema mismatch detected. If you want to evolve the schema, enable 'can_evolve'.".into()
-//             ));
-//         }
-
-//         let current_metadata = current_snapshot.metadata();
-//         let mut meta_json = serde_json::to_value(current_metadata)
-//             .map_err(|e| PolarsError::ComputeError(format!("Failed to serialize metadata: {}", e).into()))?;
-
-//         let new_schema_string = serde_json::to_string(&new_delta_schema)
-//             .map_err(|e| PolarsError::ComputeError(format!("Failed to serialize new schema: {}", e).into()))?;
-
-//         if let Some(obj) = meta_json.as_object_mut() {
-//             obj.insert("schemaString".to_string(), Value::String(new_schema_string));
-//         } else {
-//             return Err(PolarsError::ComputeError("Metadata is not a JSON object".into()));
-//         }
-
-//         let new_metadata_action: deltalake::kernel::Metadata = serde_json::from_value(meta_json)
-//             .map_err(|e| PolarsError::ComputeError(format!("Failed to recreate metadata: {}", e).into()))?;
-
-//         actions.insert(0, Action::Metadata(new_metadata_action));
-//     }
-
-//     // ==========================================
-//     // Staging
-//     // ==========================================
-//     let add_actions = phase_process_staging(&table, &staging_dir_name, &final_partition_cols, write_id).await?;
-    
-//     for res in add_actions {
-//         actions.push(res);
-//     }
-
-//     // ==========================================
-//     // Overwrite
-//     // ==========================================
-//     if let SaveMode::Overwrite = save_mode {
-//         let mut stream = table.get_active_add_actions_by_partitions(&[]);
-        
-//         while let Some(view_res) = stream.next().await {
-//             let view = view_res.map_err(|e| PolarsError::ComputeError(format!("List files error: {}", e).into()))?;
-//             let add_action = view_to_add_action(&view);
-            
-//             let remove = Remove {
-//                 path: add_action.path.clone(),
-//                 deletion_timestamp: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64),
-//                 data_change: true,
-//                 extended_file_metadata: Some(true),
-//                 partition_values: Some(add_action.partition_values),
-//                 size: Some(add_action.size),
-//                 deletion_vector: add_action.deletion_vector,
-//                 tags: add_action.tags,
-//                 base_row_id: add_action.base_row_id,
-//                 default_row_commit_version: add_action.default_row_commit_version,
-//             };
-//             actions.push(Action::Remove(remove));
-//         }
-//     }
-
-//     if actions.is_empty() {
-//         return Ok(());
-//     }
-
-//     // ==========================================
-//     // Commit
-//     // ==========================================
-//     let operation = DeltaOperation::Write {
-//         mode: save_mode,
-//         partition_by: if !final_partition_cols.is_empty() { Some(final_partition_cols) } else { None },
-//         predicate: None,
-//     };
-
-//     let _ver = transaction::CommitBuilder::default()
-//         .with_actions(actions)
-//         .build(
-//             table.state.as_ref().map(|s| s as &dyn transaction::TableReference), 
-//             table.log_store().clone(), 
-//             operation
-//         )
-//         .await
-//         .map_err(|e| PolarsError::ComputeError(format!("Commit failed: {}", e).into()))?;
-        
-//     // ==========================================
-//     // Cleanup
-//     // ==========================================
-//     let _ = object_store.delete(&Path::from(staging_dir_name)).await;
-    
-//     Ok(())
-// }
 
 pub(crate) async fn phase_commit_and_cleanup(
     mut table: DeltaTable,

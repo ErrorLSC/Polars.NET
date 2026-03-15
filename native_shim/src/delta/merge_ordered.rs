@@ -457,7 +457,7 @@ pub extern "C" fn pl_io_delta_merge_ordered(
                         
                         // Full Jitter
                         let mut rng = rand::rng();
-                        let jitter_millis = rand::Rng::random_range(&mut rng, (capped_sleep/2)..=(capped_sleep*3/2));
+                        let jitter_millis = rand::RngExt::random_range(&mut rng, (capped_sleep/2)..=(capped_sleep*3/2));
 
                         println!("[Delta-RS] Conflict! Backoff for {}ms (Attempt {})", jitter_millis, attempt);
 

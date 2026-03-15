@@ -9,7 +9,7 @@ use deltalake::protocol::DeltaOperation;
 use futures::StreamExt;
 use polars::{error::{PolarsError, PolarsResult}, frame::DataFrame, prelude::{DataType, LazyFrame, PlRefPath, ScanArgsParquet}, series::Series};
 use polars::prelude::*;
-use rand::Rng;
+use rand::RngExt;
 use roaring::RoaringBitmap;
 use serde_json::Value;
 use uuid::Uuid;

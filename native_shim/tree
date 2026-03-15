@@ -27,7 +27,7 @@ cpufeatures v0.2.17
 ├── sha1 v0.10.6
 │   └── aws-config v1.8.15
 │       └── deltalake-aws v0.14.0
-│           └── deltalake v0.31.0
+│           └── deltalake v0.31.1
 │               └── native_shim v0.3.1 (/home/qinglei/Projects/Polars.NET/native_shim)
 └── sha2 v0.10.9
     └── aws-sigv4 v1.4.2
@@ -52,16 +52,16 @@ cpufeatures v0.3.0
         └── uuid v1.22.0
             ├── aws-runtime v1.7.2 (*)
             ├── delta_kernel v0.19.2
-            │   ├── deltalake v0.31.0 (*)
-            │   └── deltalake-core v0.31.0
-            │       ├── deltalake v0.31.0 (*)
+            │   ├── deltalake v0.31.1 (*)
+            │   └── deltalake-core v0.31.1
+            │       ├── deltalake v0.31.1 (*)
             │       ├── deltalake-aws v0.14.0 (*)
             │       ├── deltalake-azure v0.14.0
-            │       │   └── deltalake v0.31.0 (*)
+            │       │   └── deltalake v0.31.1 (*)
             │       └── deltalake-gcp v0.15.0
-            │           └── deltalake v0.31.0 (*)
+            │           └── deltalake v0.31.1 (*)
             ├── deltalake-aws v0.14.0 (*)
-            ├── deltalake-core v0.31.0 (*)
+            ├── deltalake-core v0.31.1 (*)
             ├── native_shim v0.3.1 (/home/qinglei/Projects/Polars.NET/native_shim)
             ├── polars-core v0.53.0
             │   ├── native_shim v0.3.1 (/home/qinglei/Projects/Polars.NET/native_shim)
@@ -203,34 +203,34 @@ foldhash v0.2.0
 │   ├── arrow-array v57.3.0
 │   │   ├── arrow v57.3.0
 │   │   │   ├── delta_kernel v0.19.2 (*)
-│   │   │   └── deltalake-core v0.31.0 (*)
+│   │   │   └── deltalake-core v0.31.1 (*)
 │   │   ├── arrow-arith v57.3.0
 │   │   │   ├── arrow v57.3.0 (*)
-│   │   │   └── deltalake-core v0.31.0 (*)
+│   │   │   └── deltalake-core v0.31.1 (*)
 │   │   ├── arrow-cast v57.3.0
 │   │   │   ├── arrow v57.3.0 (*)
 │   │   │   ├── arrow-csv v57.3.0
 │   │   │   │   └── arrow v57.3.0 (*)
 │   │   │   ├── arrow-json v57.3.0
 │   │   │   │   ├── arrow v57.3.0 (*)
-│   │   │   │   └── deltalake-core v0.31.0 (*)
-│   │   │   ├── deltalake-core v0.31.0 (*)
+│   │   │   │   └── deltalake-core v0.31.1 (*)
+│   │   │   ├── deltalake-core v0.31.1 (*)
 │   │   │   └── parquet v57.3.0
 │   │   │       ├── delta_kernel v0.19.2 (*)
-│   │   │       └── deltalake-core v0.31.0 (*)
+│   │   │       └── deltalake-core v0.31.1 (*)
 │   │   ├── arrow-csv v57.3.0 (*)
 │   │   ├── arrow-ipc v57.3.0
 │   │   │   ├── arrow v57.3.0 (*)
-│   │   │   ├── deltalake-core v0.31.0 (*)
+│   │   │   ├── deltalake-core v0.31.1 (*)
 │   │   │   └── parquet v57.3.0 (*)
 │   │   ├── arrow-json v57.3.0 (*)
 │   │   ├── arrow-ord v57.3.0
 │   │   │   ├── arrow v57.3.0 (*)
 │   │   │   ├── arrow-cast v57.3.0 (*)
-│   │   │   └── deltalake-core v0.31.0 (*)
+│   │   │   └── deltalake-core v0.31.1 (*)
 │   │   ├── arrow-row v57.3.0
 │   │   │   ├── arrow v57.3.0 (*)
-│   │   │   └── deltalake-core v0.31.0 (*)
+│   │   │   └── deltalake-core v0.31.1 (*)
 │   │   ├── arrow-select v57.3.0
 │   │   │   ├── arrow v57.3.0 (*)
 │   │   │   ├── arrow-cast v57.3.0 (*)
@@ -238,10 +238,10 @@ foldhash v0.2.0
 │   │   │   ├── arrow-ord v57.3.0 (*)
 │   │   │   ├── arrow-string v57.3.0
 │   │   │   │   └── arrow v57.3.0 (*)
-│   │   │   ├── deltalake-core v0.31.0 (*)
+│   │   │   ├── deltalake-core v0.31.1 (*)
 │   │   │   └── parquet v57.3.0 (*)
 │   │   ├── arrow-string v57.3.0 (*)
-│   │   ├── deltalake-core v0.31.0 (*)
+│   │   ├── deltalake-core v0.31.1 (*)
 │   │   └── parquet v57.3.0 (*)
 │   ├── halfbrown v0.4.0
 │   │   ├── simd-json v0.17.0
@@ -252,7 +252,7 @@ foldhash v0.2.0
 │   ├── indexmap v2.13.0
 │   │   ├── arrow-json v57.3.0 (*)
 │   │   ├── delta_kernel v0.19.2 (*)
-│   │   ├── deltalake-core v0.31.0 (*)
+│   │   ├── deltalake-core v0.31.1 (*)
 │   │   ├── h2 v0.4.13
 │   │   │   ├── aws-smithy-http-client v1.1.12
 │   │   │   │   └── aws-smithy-runtime v1.10.3
@@ -272,7 +272,7 @@ foldhash v0.2.0
 │   │   │   │   │       │   ├── delta_kernel v0.19.2 (*)
 │   │   │   │   │       │   ├── deltalake-aws v0.14.0 (*)
 │   │   │   │   │       │   ├── deltalake-azure v0.14.0 (*)
-│   │   │   │   │       │   ├── deltalake-core v0.31.0 (*)
+│   │   │   │   │       │   ├── deltalake-core v0.31.1 (*)
 │   │   │   │   │       │   ├── deltalake-gcp v0.15.0 (*)
 │   │   │   │   │       │   └── parquet v57.3.0 (*)
 │   │   │   │   │       ├── object_store v0.13.1
@@ -296,7 +296,7 @@ foldhash v0.2.0
 │   │   │   ├── arrow-json v57.3.0 (*)
 │   │   │   ├── avro-schema v0.3.0 (*)
 │   │   │   ├── delta_kernel v0.19.2 (*)
-│   │   │   ├── deltalake-core v0.31.0 (*)
+│   │   │   ├── deltalake-core v0.31.1 (*)
 │   │   │   ├── jsonpath_lib_polars_vendor v0.0.1
 │   │   │   │   └── polars-ops v0.53.0 (*)
 │   │   │   ├── native_shim v0.3.1 (/home/qinglei/Projects/Polars.NET/native_shim)
@@ -310,9 +310,9 @@ foldhash v0.2.0
 │   │   │   ├── reqwest v0.12.28 (*)
 │   │   │   ├── simd-json v0.17.0 (*)
 │   │   │   └── validator v0.19.0
-│   │   │       └── deltalake-core v0.31.0 (*)
+│   │   │       └── deltalake-core v0.31.1 (*)
 │   │   └── zip v7.2.0
-│   │       ├── calamine v0.33.0
+│   │       ├── calamine v0.34.0
 │   │       │   └── native_shim v0.3.1 (/home/qinglei/Projects/Polars.NET/native_shim)
 │   │       └── rust_xlsxwriter v0.94.0
 │   │           └── native_shim v0.3.1 (/home/qinglei/Projects/Polars.NET/native_shim)
@@ -333,7 +333,7 @@ foldhash v0.2.0
 getrandom v0.2.17
 ├── rand_core v0.6.4
 │   ├── rand v0.8.5
-│   │   └── deltalake-core v0.31.0 (*)
+│   │   └── deltalake-core v0.31.1 (*)
 │   └── rand_chacha v0.3.1
 │       └── rand v0.8.5 (*)
 └── ring v0.17.14
@@ -379,7 +379,7 @@ getrandom v0.4.2
 
 hashbrown v0.14.5
 └── dashmap v6.1.0
-    └── deltalake-core v0.31.0 (*)
+    └── deltalake-core v0.31.1 (*)
 
 hashbrown v0.15.5 (*)
 
@@ -511,7 +511,7 @@ memchr v2.8.0
 │   │   ├── arrow-csv v57.3.0 (*)
 │   │   ├── arrow-string v57.3.0 (*)
 │   │   ├── deltalake-aws v0.14.0 (*)
-│   │   ├── deltalake-core v0.31.0 (*)
+│   │   ├── deltalake-core v0.31.1 (*)
 │   │   ├── polars-core v0.53.0 (*)
 │   │   ├── polars-error v0.53.0 (*)
 │   │   ├── polars-expr v0.53.0 (*)
@@ -548,7 +548,7 @@ memchr v2.8.0
 │   ├── futures v0.3.32
 │   │   ├── delta_kernel v0.19.2 (*)
 │   │   ├── deltalake-aws v0.14.0 (*)
-│   │   ├── deltalake-core v0.31.0 (*)
+│   │   ├── deltalake-core v0.31.1 (*)
 │   │   ├── deltalake-gcp v0.15.0 (*)
 │   │   ├── native_shim v0.3.1 (/home/qinglei/Projects/Polars.NET/native_shim)
 │   │   ├── object_store v0.12.5 (*)
@@ -575,9 +575,10 @@ memchr v2.8.0
 ├── polars-ops v0.53.0 (*)
 ├── polars-stream v0.53.0 (*)
 ├── quick-xml v0.38.4
-│   ├── calamine v0.33.0 (*)
 │   ├── object_store v0.12.5 (*)
 │   └── object_store v0.13.1 (*)
+├── quick-xml v0.39.2
+│   └── calamine v0.34.0 (*)
 ├── regex v1.12.3 (*)
 ├── regex-automata v0.4.14 (*)
 ├── serde_json v1.0.149 (*)
@@ -596,7 +597,7 @@ memchr v2.8.0
                 │   ├── polars-plan v0.53.0 (*)
                 │   ├── polars-stream v0.53.0 (*)
                 │   ├── sqlparser v0.59.0
-                │   │   └── deltalake-core v0.31.0 (*)
+                │   │   └── deltalake-core v0.31.1 (*)
                 │   └── sqlparser v0.60.0
                 │       └── polars-sql v0.53.0 (*)
                 └── serde_stacker v0.1.14
@@ -605,6 +606,10 @@ memchr v2.8.0
 object_store v0.12.5 (*)
 
 object_store v0.13.1 (*)
+
+quick-xml v0.38.4 (*)
+
+quick-xml v0.39.2 (*)
 
 rand v0.8.5 (*)
 
