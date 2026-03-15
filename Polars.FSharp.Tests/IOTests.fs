@@ -60,7 +60,7 @@ type IOTests() =
     [<Fact>]
     member _.``ScanParquet (Memory): Bytes and Schema Overwrite``() =
         // 1. 读取 bytes
-        let bytes = File.ReadAllBytes(tempPath)
+        let bytes = File.ReadAllBytes tempPath
 
         // 2. 构造一个 PolarsSchema
         // 我们故意只定义两列，看看 Schema Projection 是否生效，或者验证 handle 传递是否成功

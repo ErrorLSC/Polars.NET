@@ -630,3 +630,13 @@ type AdbcIngestMode =
     /// </summary>
     | Replace
 
+type SearchSortedSide =
+    | Any 
+    | Left  
+    | Right
+    member internal this.ToNative() =
+        match this with
+        | Any -> PlSearchSortedSide.Any
+        | Left -> PlSearchSortedSide.Left
+        | Right -> PlSearchSortedSide.Right
+    

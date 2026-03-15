@@ -50,6 +50,7 @@ unsafe internal partial class NativeBindings
 
         // --- 4. Schema & Encoding ---
         SchemaHandle schema,
+        SchemaHandle dtype_overwrite,
         PlCsvEncoding encoding,
 
         // --- 5. Advanced Parsing ---
@@ -73,7 +74,7 @@ unsafe internal partial class NativeBindings
     );
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static unsafe partial LazyFrameHandle pl_scan_csv_mem(
+    public static partial LazyFrameHandle pl_scan_csv_mem(
         byte* bufferPtr,        // Buffer Pointer
         UIntPtr bufferLen,      // Buffer Length
         
@@ -106,6 +107,7 @@ unsafe internal partial class NativeBindings
 
         // --- 4. Schema & Encoding ---
         SchemaHandle schema,
+        SchemaHandle dtype_override,
         PlCsvEncoding encoding,
 
         // --- 5. Advanced Parsing ---
@@ -727,9 +729,5 @@ unsafe internal partial class NativeBindings
         PlAvroCompression compressionType,
         string name
     );
-    [LibraryImport(LibName)]
-    public static partial int pl_dataframe_export_to_stream(
-        DataFrameHandle df_ptr, 
-        Apache.Arrow.C.CArrowArrayStream* out_stream
-    );
+
 }

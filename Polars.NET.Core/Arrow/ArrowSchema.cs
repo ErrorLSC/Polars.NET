@@ -41,7 +41,7 @@ public static class ArrowTypeResolver
     }
 
     // =================================================================================
-    // 2. .NET Type -> Arrow Type (The Brain)
+    // 2. .NET Type -> Arrow Type
     // =================================================================================
     public static IArrowType GetArrowTypeFromNetType(Type type)
     {

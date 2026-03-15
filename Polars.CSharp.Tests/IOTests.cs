@@ -1307,7 +1307,7 @@ public class CsvSchemaTests
             // 顺便测试一下新的 Lazy 参数：行号生成 (rowIndexName)
             using var lf = LazyFrame.ScanCsv(
                 filePath, 
-                schema: explicitSchema,
+                dtypeOverride: explicitSchema,
                 rowIndexName: "row_id", // 让 Polars 自动生成行号列
                 rowIndexOffset: 10      // 从 10 开始计数
             );
@@ -1376,7 +1376,7 @@ ID;ProductName;Weight;ReleaseDate
             // 3. 调用全参数 ReadCsv
             using var df = DataFrame.ReadCsv(
                 path: filePath,
-                schema: explicitSchema,    
+                dtypeOverride: explicitSchema,    
                 hasHeader: true,           
                 separator: ';',            
                 skipRows: 2,               

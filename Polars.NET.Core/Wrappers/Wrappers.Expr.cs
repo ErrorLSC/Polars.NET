@@ -1,3 +1,4 @@
+using System.Net.NetworkInformation;
 using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
@@ -964,4 +965,64 @@ public static partial class PolarsWrapper
     }
     public static ExprHandle SqlExpr(string sql)
         =>ErrorHelper.Check(NativeBindings.pl_expr_sql(sql));
+    public static ExprHandle Gather(ExprHandle expr,ExprHandle idx)
+        => BinaryOp(NativeBindings.pl_expr_gather, expr, idx);
+    public static ExprHandle GatherEvery(ExprHandle expr,nuint n, nuint offset)
+    {
+        var h = NativeBindings.pl_expr_gather_every(expr,n,offset);
+        expr.TransferOwnership();
+
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle Get(ExprHandle expr,ExprHandle idx,bool nullOnOob)
+    {
+        var h = NativeBindings.pl_expr_get(expr,idx,nullOnOob);
+        expr.TransferOwnership();
+        idx.TransferOwnership();
+
+        return ErrorHelper.Check(h);
+    }
+    public static unsafe ExprHandle Sort(
+        ExprHandle expr, 
+        bool descending, 
+        bool nullsLast, 
+        bool multithreaded, 
+        bool maintainOrder, 
+        uint? limit)
+    {
+        if (expr.IsInvalid) throw new ArgumentException("Expr handle is invalid");
+
+        uint localLimit = limit.GetValueOrDefault();
+        uint* limitPtr = limit.HasValue ? &localLimit : null;
+
+        var h = NativeBindings.pl_expr_sort(
+            expr, 
+            descending, 
+            nullsLast, 
+            multithreaded, 
+            maintainOrder, 
+            limitPtr
+        );
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ArgUnique(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_arg_unique,expr);
+    public static ExprHandle ArgMax(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_arg_max,expr);
+    public static ExprHandle ArgMin(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_arg_min,expr);
+    public static ExprHandle ArgSort(ExprHandle expr, bool descending, bool nullsLast)
+    {
+        var h = NativeBindings.pl_expr_arg_sort(expr,descending,nullsLast);
+        expr.TransferOwnership();
+
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle IndexOf(ExprHandle expr, ExprHandle element) 
+        => BinaryOp(NativeBindings.pl_expr_index_of,expr,element);
+    public static ExprHandle SearchSorted(ExprHandle expr,ExprHandle element, PlSearchSortedSide side,bool descending)
+    {
+        var h = NativeBindings.pl_expr_search_sorted(expr,element,side,descending);
+        expr.TransferOwnership();
+        element.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
 }

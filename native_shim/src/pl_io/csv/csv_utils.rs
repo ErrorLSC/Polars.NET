@@ -61,6 +61,7 @@ pub(crate) unsafe fn apply_scan_csv_options(
 
     // --- 4. Schema & Encoding ---
     schema_ptr: *mut SchemaContext,
+    dtype_override_ptr: *mut SchemaContext,
     encoding: u8, 
     
     // --- 5. Advanced Parsing ---
@@ -112,9 +113,14 @@ pub(crate) unsafe fn apply_scan_csv_options(
         reader = reader.with_n_threads(Some(unsafe { *n_threads_ptr }));
     }
 
+    if !dtype_override_ptr.is_null() {
+        let override_schema = unsafe {(*dtype_override_ptr ).schema.clone()};
+        reader = reader.with_dtype_overwrite(Some(override_schema));
+    }
     if !schema_ptr.is_null() {
-        let schema = unsafe {(*schema_ptr ).schema.clone()};
-        reader = reader.with_dtype_overwrite(Some(schema));
+        let schema = unsafe { (*schema_ptr).schema.clone() };
+        
+        reader = reader.with_schema(Some(schema));
     }
 
     if !row_index_name.is_null() {

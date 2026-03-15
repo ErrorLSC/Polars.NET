@@ -232,6 +232,92 @@ and Expr(handle: ExprHandle) =
     member this.ArcSinh() = new Expr(PolarsWrapper.ArcSinh(this.CloneHandle()))
     member this.ArcCosh() = new Expr(PolarsWrapper.ArcCosh(this.CloneHandle()))
     member this.ArcTanh() = new Expr(PolarsWrapper.ArcTanh(this.CloneHandle()))
+    // ==========================================
+    // Indexing & Searching (Get / Gather / Arg / Index)
+    // ==========================================
+
+    /// <summary>
+    /// Get a single value by index. Returns a scalar.
+    /// </summary>
+    /// <param name="index">The index expression.</param>
+    /// <param name="nullOnOutOfBounds">If true, returns Null when the index is out of bounds instead of raising an error.</param>
+    member this.Get(index: Expr, ?nullOnOutOfBounds: bool) =
+        let nullOnOutOfBounds = defaultArg nullOnOutOfBounds false
+        new Expr(PolarsWrapper.Get(this.CloneHandle(), index.CloneHandle(), nullOnOutOfBounds))
+
+    /// <summary>
+    /// Get a single value by index. Returns a scalar.
+    /// </summary>
+    /// <param name="index">The index number.</param>
+    /// <param name="nullOnOutOfBounds">If true, returns Null when the index is out of bounds instead of raising an error.</param>
+    member this.Get(index: uint64, ?nullOnOutOfBounds: bool) =
+        let nullOnOutOfBounds = defaultArg nullOnOutOfBounds false
+        new Expr(PolarsWrapper.Get(this.CloneHandle(), PolarsWrapper.Lit index, nullOnOutOfBounds))
+
+    /// <summary>
+    /// Gather values by an index expression.
+    /// </summary>
+    member this.Gather(indices: Expr) =
+        new Expr(PolarsWrapper.Gather(this.CloneHandle(), indices.CloneHandle()))
+
+    /// <summary>
+    /// LINQ-like alias for Gather.
+    /// </summary>
+    member this.Take(indices: Expr) = 
+        this.Gather indices
+
+    /// <summary>
+    /// Take every nth value starting from an offset.
+    /// </summary>
+    member this.GatherEvery(n: uint64, ?offset: uint64) =
+        let offset = defaultArg offset 0UL
+        new Expr(PolarsWrapper.GatherEvery(this.CloneHandle(), unativeint n, unativeint offset))
+
+    /// <summary>
+    /// Get the index of the unique values.
+    /// </summary>
+    member this.ArgUnique() =
+        new Expr(PolarsWrapper.ArgUnique(this.CloneHandle()))
+
+    /// <summary>
+    /// Get the index of the maximum value.
+    /// </summary>
+    member this.ArgMax() =
+        new Expr(PolarsWrapper.ArgMax(this.CloneHandle()))
+
+    /// <summary>
+    /// Get the index of the minimum value.
+    /// </summary>
+    member this.ArgMin() =
+        new Expr(PolarsWrapper.ArgMin(this.CloneHandle()))
+
+    /// <summary>
+    /// Get the index values that would sort this expression.
+    /// </summary>
+    /// <param name="descending">If true, sort in descending order. Default is false.</param>
+    /// <param name="nullsLast">If true, place null values last. Default is false.</param>
+    member this.ArgSort(?descending: bool, ?nullsLast: bool) =
+        let descending = defaultArg descending false
+        let nullsLast = defaultArg nullsLast false
+        new Expr(PolarsWrapper.ArgSort(this.CloneHandle(), descending, nullsLast))
+
+    /// <summary>
+    /// Find the index of the first occurrence of a specific value.
+    /// </summary>
+    /// <param name="element">The element expression to search for.</param>
+    member this.IndexOf(element: Expr) =
+        new Expr(PolarsWrapper.IndexOf(this.CloneHandle(), element.CloneHandle()))
+
+    /// <summary>
+    /// Find indices where elements should be inserted to maintain order (Binary Search).
+    /// </summary>
+    /// <param name="element">The element expression to insert/search.</param>
+    /// <param name="side">The insertion side (Any, Left, Right). Default is Any.</param>
+    /// <param name="descending">Whether the target column is sorted in descending order. Default is false.</param>
+    member this.SearchSorted(element: Expr, ?side: SearchSortedSide, ?descending: bool) =
+        let side = defaultArg side SearchSortedSide.Any
+        let descending = defaultArg descending false
+        new Expr(PolarsWrapper.SearchSorted(this.CloneHandle(), element.CloneHandle(), side.ToNative(), descending))
     // ------ Stats ------
     /// <summary>
     /// Count the number of valid (non-null) values.

@@ -28,7 +28,7 @@ pub extern "C" fn pl_scan_csv(
     row_index_name: *const c_char, row_index_offset: usize, include_file_paths: *const c_char,
 
     // --- 4. Schema & Encoding ---
-    schema_ptr: *mut SchemaContext, encoding: u8, 
+    schema_ptr: *mut SchemaContext,dtype_override_ptr: *mut SchemaContext, encoding: u8, 
     
     // --- 5. Advanced Parsing ---
     null_values_ptr: *const *const c_char, null_values_len: usize,                
@@ -62,7 +62,7 @@ pub extern "C" fn pl_scan_csv(
                 skip_rows, skip_rows_after_header, skip_lines,
                 n_rows_ptr, infer_schema_len_ptr, n_threads_ptr, chunk_size,
                 row_index_name, row_index_offset, include_file_paths,
-                schema_ptr, encoding,
+                schema_ptr,dtype_override_ptr, encoding,
                 null_values_ptr, null_values_len, missing_is_null,
                 comment_prefix, decimal_comma, truncate_ragged_lines,
                 cloud_opts
@@ -94,7 +94,7 @@ pub extern "C" fn pl_scan_csv_mem(
     row_index_name: *const c_char, row_index_offset: usize, include_file_paths: *const c_char,
 
     // --- 4. Schema & Encoding ---
-    schema_ptr: *mut SchemaContext, encoding: u8, 
+    schema_ptr: *mut SchemaContext,dtype_override_ptr: *mut SchemaContext, encoding: u8, 
     
     // --- 5. Advanced Parsing ---
     null_values_ptr: *const *const c_char, null_values_len: usize,                
@@ -115,7 +115,7 @@ pub extern "C" fn pl_scan_csv_mem(
                 skip_rows, skip_rows_after_header, skip_lines,
                 n_rows_ptr, infer_schema_len_ptr, n_threads_ptr, chunk_size,
                 row_index_name, row_index_offset, include_file_paths,
-                schema_ptr, encoding,
+                schema_ptr,dtype_override_ptr, encoding,
                 null_values_ptr, null_values_len, missing_is_null,
                 comment_prefix, decimal_comma, truncate_ragged_lines,
                 None // Memory buffer does not need Cloud Options

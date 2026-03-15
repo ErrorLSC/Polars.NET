@@ -334,3 +334,4 @@ public enum PlCatalogTableType : byte
     External = 1
 }
 
+public enum PlSearchSortedSide : byte { Any = 0, Left = 1, Right = 2 }

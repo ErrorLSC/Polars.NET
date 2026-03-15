@@ -1130,10 +1130,7 @@ David,40,80000";
 
         try
         {
-            // 2. 【核心改变】：不要用 ReadCsv！用 ScanCsv 创建 LazyFrame！
-            // 此时磁盘根本没有真正开始读数据，仅仅是创建了一个文件指针和逻辑计划
-            using var schema = new PolarsSchema();
-            schema.Add("age",DataType.Int32).Add("salary",DataType.Int32);
+            using var schema = PolarsSchema.From<StaffRecord>();
 
             using var lf = LazyFrame.ScanCsv(fileName,schema:schema);
             
@@ -1247,7 +1244,7 @@ David,40,80000";
     [Trait("Linq", "HybridLazy")]
     public void Test_Polars_Linq_Hybrid_Native_And_Linq_Pushdown_With_Sugar()
     {
-        var csvContent = @"name,age,salary
+        var csvContent = @"
 Alice,25,50000
 Bob,30,60000
 Charlie,35,70000
@@ -1257,18 +1254,12 @@ David,40,80000";
 
         try
         {
-            using var schema = new PolarsSchema();
-            schema.Add("age", DataType.Int32).Add("salary", DataType.Int32);
+            using var schema = PolarsSchema.From<StaffRecord>();
 
-            using var lf = LazyFrame.ScanCsv(fileName, schema: schema);
+            using var lf = LazyFrame.ScanCsv(fileName, schema: schema,hasHeader:false);
             
-            // 原生 API 混写
             using var lfWithBonus = lf.WithColumns((Col("salary") * 0.1).Alias("bonus"));
 
-            // ====================================================================
-            // 🌟 见证奇迹的时刻：使用 AsQueryable 语法糖！
-            // 连表名 "employees" 都不用写了，直接从 lfWithBonus 起手，完美融入 LINQ！
-            // ====================================================================
             var query = lfWithBonus.AsQueryable<StaffRecordWithBonus>()
                                    .Where(e => e.age > 30 && e.bonus >= 7000.0) 
                                    .Select(e => new 
@@ -1277,7 +1268,6 @@ David,40,80000";
                                        TotalCompensation = e.salary + e.bonus 
                                    });
 
-            // 终极点火
             var results = query.ToList();
 
             // 验证结果
@@ -1301,8 +1291,7 @@ David,40,80000";
     {
         using var db = new PolarsDataContext(Sql(),true);
 
-        using var schema = new PolarsSchema();
-        schema.Add("age",DataType.Int32).Add("salary",DataType.Int32);
+        using var schema = PolarsSchema.From<StaffRecord>();
         string path = "/home/qinglei/Projects/Polars.NET/Polars.Integration.Tests/TestData/staffrecord.csv";
         // --- 1. 底层 Native (IO 阶段) ---
         using var rawLf = LazyFrame.ScanCsv(path,schema:schema);

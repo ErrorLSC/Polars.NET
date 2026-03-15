@@ -470,6 +470,8 @@ public enum CatalogTableType : byte
     External = 1
 }
 
+public enum SearchSortedSide : byte { Any = 0, Left = 1, Right = 2 }
+
 internal static class EnumExtensions
 {
     public static CoreEnums.PlDataType ToNative(this DataTypeKind kind) => kind switch
@@ -764,6 +766,13 @@ internal static class EnumExtensions
         CatalogTableType.External => CoreEnums.PlCatalogTableType.External,
         CatalogTableType.Managed => CoreEnums.PlCatalogTableType.Managed,
         _ => throw new ArgumentOutOfRangeException(nameof(tableType), tableType, null)
+    };
+    internal static CoreEnums.PlSearchSortedSide ToNative(this SearchSortedSide side) => side switch
+    {
+        SearchSortedSide.Any => CoreEnums.PlSearchSortedSide.Any,
+        SearchSortedSide.Left => CoreEnums.PlSearchSortedSide.Left,
+        SearchSortedSide.Right => CoreEnums.PlSearchSortedSide.Right,
+        _ => throw new ArgumentOutOfRangeException(nameof(side), side, null)
     };
 }
 

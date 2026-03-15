@@ -386,6 +386,54 @@ public partial class Series : IDisposable,IPolarsSeries
 
     /// <summary>Rounds down to the nearest integer.</summary>
     public Series Floor() => ApplyExpr(Polars.Col(Name).Floor());
+
+    // ==========================================
+    // Indexing & Searching (Forwarded to Expr)
+    // ==========================================
+
+    /// <inheritdoc cref="Expr.Get(Expr, bool)"/>
+    public Series Get(Expr index, bool nullOnOutOfBounds = false)
+        => ApplyExpr(Polars.Col(Name).Get(index, nullOnOutOfBounds));
+
+    /// <inheritdoc cref="Expr.Get(ulong, bool)"/>
+    public Series Get(ulong index, bool nullOnOutOfBounds = false)
+        => ApplyExpr(Polars.Col(Name).Get(index, nullOnOutOfBounds));
+
+    /// <inheritdoc cref="Expr.Gather(Expr)"/>
+    public Series Gather(Expr indices)
+        => ApplyExpr(Polars.Col(Name).Gather(indices));
+
+    /// <inheritdoc cref="Expr.Take(Expr)"/>
+    public Series Take(Expr indices)
+        => ApplyExpr(Polars.Col(Name).Take(indices));
+
+    /// <inheritdoc cref="Expr.GatherEvery(ulong, ulong)"/>
+    public Series GatherEvery(ulong n, ulong offset = 0)
+        => ApplyExpr(Polars.Col(Name).GatherEvery(n, offset));
+
+    /// <inheritdoc cref="Expr.ArgUnique()"/>
+    public Series ArgUnique()
+        => ApplyExpr(Polars.Col(Name).ArgUnique());
+
+    /// <inheritdoc cref="Expr.ArgMax()"/>
+    public Series ArgMax()
+        => ApplyExpr(Polars.Col(Name).ArgMax());
+
+    /// <inheritdoc cref="Expr.ArgMin()"/>
+    public Series ArgMin()
+        => ApplyExpr(Polars.Col(Name).ArgMin());
+
+    /// <inheritdoc cref="Expr.ArgSort(bool, bool)"/>
+    public Series ArgSort(bool descending = false, bool nullsLast = false)
+        => ApplyExpr(Polars.Col(Name).ArgSort(descending, nullsLast));
+
+    /// <inheritdoc cref="Expr.IndexOf(Expr)"/>
+    public Series IndexOf(Expr element)
+        => ApplyExpr(Polars.Col(Name).IndexOf(element));
+
+    /// <inheritdoc cref="Expr.SearchSorted(Expr, SearchSortedSide, bool)"/>
+    public Series SearchSorted(Expr element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
+        => ApplyExpr(Polars.Col(Name).SearchSorted(element, side, descending));
     
     // ==========================================
     // Bitwise Operators (<<, >>)

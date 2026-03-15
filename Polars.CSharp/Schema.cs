@@ -42,6 +42,18 @@ public class PolarsSchema : IDisposable,IPolarsSchema
     }
 
     /// <summary>
+    /// Create a Schema directly from a .NET type (e.g., a record or class).
+    /// </summary>
+    /// <typeparam name="T">The record or class type.</typeparam>
+    /// <returns>A PolarsSchema mapped from the type's properties.</returns>
+    public static PolarsSchema From<T>()
+    {
+        SchemaHandle handle = PolarsWrapper.NewSchemaFromType(typeof(T));
+
+        return new PolarsSchema(handle);
+    }
+
+    /// <summary>
     /// Add a field to the schema.
     /// </summary>
     /// <param name="name">Column name.</param>

@@ -108,6 +108,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
         int? nRows = null,
         int? inferSchemaLength = null,
         PolarsSchema? schema = null,
+        PolarsSchema? dtypeOverride = null,
         CsvEncoding encoding = CsvEncoding.UTF8,
         string[]? nullValues = null,
         bool missingIsNull = true,
@@ -121,6 +122,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
         var lf = LazyFrame.ScanCsv(
             path: path,
             schema: schema,
+            dtypeOverride:dtypeOverride,
             hasHeader: hasHeader,
             separator: separator,
             quoteChar: quoteChar,
@@ -164,7 +166,8 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     /// <param name="skipRows">Number of rows to skip from the start. Defaults to 0.</param>
     /// <param name="nRows">Stop reading after n rows. If null, read all.</param>
     /// <param name="inferSchemaLength">Number of rows to scan for schema inference. If null, use Polars default (100).</param>
-    /// <param name="schema">Provide a schema to ignore schema inference.</param>
+    /// <param name="schema">Optional PolarsSchema to specify all column names and types.</param>
+    /// <param name="dtypeOverride">Optional PolarsSchema to specify column types or overwrite inference.</param>
     /// <param name="encoding">Encoding of the CSV file. Defaults to Utf8.</param>
     /// <param name="nullValues">List of strings to consider as null values.</param>
     /// <param name="missingIsNull">Treat missing fields as null. Defaults to true.</param>
@@ -187,6 +190,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
         int? nRows = null,
         int? inferSchemaLength = null,
         PolarsSchema? schema = null,
+        PolarsSchema? dtypeOverride = null,
         CsvEncoding encoding = CsvEncoding.UTF8,
         string[]? nullValues = null,
         bool missingIsNull = true,
@@ -200,6 +204,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
         var lf = LazyFrame.ScanCsv(
             buffer,
             schema: schema,
+            dtypeOverride:dtypeOverride,
             hasHeader: hasHeader,
             separator: separator,
             quoteChar: quoteChar,
@@ -242,7 +247,8 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     /// <param name="skipRows">Number of rows to skip from the start. Defaults to 0.</param>
     /// <param name="nRows">Stop reading after n rows. If null, read all.</param>
     /// <param name="inferSchemaLength">Number of rows to scan for schema inference. If null, use Polars default (100).</param>
-    /// <param name="schema">Provide a schema to ignore schema inference.</param>
+    /// <param name="schema">Optional PolarsSchema to specify all column names and types.</param>
+    /// <param name="dtypeOverride">Optional PolarsSchema to specify column types or overwrite inference.</param>
     /// <param name="encoding">Encoding of the CSV file. Defaults to Utf8.</param>
     /// <param name="nullValues">List of strings to consider as null values.</param>
     /// <param name="missingIsNull">Treat missing fields as null. Defaults to true.</param>
@@ -265,6 +271,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
         int? nRows = null,
         int? inferSchemaLength = null,
         PolarsSchema? schema = null,
+        PolarsSchema? dtypeOverride = null, 
         CsvEncoding encoding = CsvEncoding.UTF8,
         string[]? nullValues = null,
         bool missingIsNull = true,
@@ -280,6 +287,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
         var lf = LazyFrame.ScanCsv(
             ms.ToArray(),
             schema: schema,
+            dtypeOverride:dtypeOverride,
             hasHeader: hasHeader,
             separator: separator,
             quoteChar: quoteChar,

@@ -1,6 +1,7 @@
 #pragma warning disable CS1591
 #pragma warning disable CS1573
 using Apache.Arrow;
+using Microsoft.FSharp.Core;
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
 
@@ -213,6 +214,109 @@ public class Expr : IDisposable
         new(PolarsWrapper.Neq(left.CloneHandle(), MakeLit(right).Handle));
     public static Expr operator !=(object left, Expr right) =>
         new(PolarsWrapper.Neq(MakeLit(left).Handle, right.CloneHandle()));
+
+    // ==========================================
+    // Sort
+    // ==========================================
+    /// <summary>
+    /// Sort the expression.
+    /// </summary>
+    /// <param name="descending">If true, sort in descending order. Default is false.</param>
+    /// <param name="nullsLast">Whether to place null values last. Default is false.</param>
+    /// <param name="multithreaded">If true, sort in multiple threads. Default is true.</param>
+    /// <param name="maintainOrder">If true, maintain the order of equal elements. Default is false.</param>
+    /// <param name="limit">Limit the sort output (for optimization purposes).</param>
+    public Expr Sort(
+        bool descending = false,
+        bool nullsLast = false,
+        bool multithreaded = true,
+        bool maintainOrder = false,
+        uint? limit = null)
+    {
+        return new Expr(PolarsWrapper.Sort(
+            CloneHandle(), 
+            descending, 
+            nullsLast, 
+            multithreaded, 
+            maintainOrder, 
+            limit
+        ));
+    }
+    // ==========================================
+    // Indexing & Searching (Arg / Index / Search)
+    // ==========================================
+    /// <summary>
+    /// Get a single value by index. Returns a scalar.
+    /// </summary>
+    /// <param name="index">The index expression.</param>
+    /// <param name="nullOnOutOfBounds">If true, returns Null when the index is out of bounds instead of raising an error.</param>
+    public Expr Get(Expr index, bool nullOnOutOfBounds = false)
+        => new(PolarsWrapper.Get(CloneHandle(), index.CloneHandle(), nullOnOutOfBounds));
+    /// <summary>
+    /// Get a single value by index. Returns a scalar.
+    /// </summary>
+    /// <param name="index">The index number.</param>
+    /// <param name="nullOnOutOfBounds">If true, returns Null when the index is out of bounds instead of raising an error.</param>
+    public Expr Get(ulong index, bool nullOnOutOfBounds = false)
+        => new(PolarsWrapper.Get(CloneHandle(), Polars.Lit(index).Handle, nullOnOutOfBounds));
+    /// <summary>
+    /// Gather values by an index expression.
+    /// </summary>
+    public Expr Gather(Expr indices)
+        => new(PolarsWrapper.Gather(CloneHandle(), indices.CloneHandle()));
+
+    /// <summary>
+    /// LINQ-like alias for Gather.
+    /// </summary>
+    public Expr Take(Expr indices) => Gather(indices);
+
+    /// <summary>
+    /// Take every nth value starting from an offset.
+    /// </summary>
+    public Expr GatherEvery(ulong n, ulong offset = 0)
+       => new(PolarsWrapper.GatherEvery(CloneHandle(), (nuint)n, (nuint)offset));
+    /// <summary>
+    /// Get the index of the unique values.
+    /// </summary>
+    public Expr ArgUnique() 
+        => new(PolarsWrapper.ArgUnique(CloneHandle()));
+
+    /// <summary>
+    /// Get the index of the maximum value.
+    /// </summary>
+    public Expr ArgMax() 
+        => new(PolarsWrapper.ArgMax(CloneHandle()));
+
+    /// <summary>
+    /// Get the index of the minimum value.
+    /// </summary>
+    public Expr ArgMin() 
+        => new(PolarsWrapper.ArgMin(CloneHandle()));
+
+    /// <summary>
+    /// Get the index values that would sort this expression.
+    /// </summary>
+    /// <param name="descending">If true, sort in descending order. Default is false.</param>
+    /// <param name="nullsLast">If true, place null values last. Default is false.</param>
+    public Expr ArgSort(bool descending = false, bool nullsLast = false)
+        => new(PolarsWrapper.ArgSort(CloneHandle(), descending, nullsLast));
+
+    /// <summary>
+    /// Find the index of the first occurrence of a specific value.
+    /// </summary>
+    /// <param name="element">The element expression to search for.</param>
+    public Expr IndexOf(Expr element) 
+        => new(PolarsWrapper.IndexOf(CloneHandle(), element.CloneHandle()));
+
+    /// <summary>
+    /// Find indices where elements should be inserted to maintain order (Binary Search).
+    /// </summary>
+    /// <param name="element">The element expression to insert/search.</param>
+    /// <param name="side">The insertion side (Any, Left, Right). Default is Any.</param>
+    /// <param name="descending">Whether the target column is sorted in descending order. Default is false.</param>
+    public Expr SearchSorted(Expr element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
+        => new(PolarsWrapper.SearchSorted(CloneHandle(), element.CloneHandle(), side.ToNative(), descending));
+
     // ==========================================
     // Arithmetic Operators
     // ==========================================

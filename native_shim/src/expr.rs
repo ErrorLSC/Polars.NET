@@ -326,6 +326,10 @@ gen_unary_op!(pl_expr_is_unique, is_unique);
 gen_unary_op!(pl_expr_sqrt,sqrt);
 gen_unary_op!(pl_expr_cbrt, cbrt);
 gen_unary_op!(pl_expr_exp,exp);
+// Arg Ops
+gen_unary_op!(pl_expr_arg_unique,arg_unique);
+gen_unary_op!(pl_expr_arg_min,arg_min);
+gen_unary_op!(pl_expr_arg_max,arg_max);
 // --- Trigonometry ---
 gen_unary_op!(pl_expr_sin, sin);
 gen_unary_op!(pl_expr_cos, cos);
@@ -373,6 +377,8 @@ gen_binary_op!(pl_expr_interpolate_by, interpolate_by);
 // Math Ops
 gen_binary_op!(pl_expr_pow,pow);
 gen_binary_op!(pl_expr_dot, dot);
+// Gather 
+gen_binary_op!(pl_expr_gather, gather);
 // --- Cumulative Functions ---
 gen_unary_op_arg_bool!(pl_expr_cum_sum, cum_sum);
 gen_unary_op_arg_bool!(pl_expr_cum_max, cum_max);
@@ -474,6 +480,140 @@ pub extern "C" fn pl_expr_is_in(
         let other = unsafe { Box::from_raw(other_ptr) };
 
         let new_expr = ctx.inner.is_in(other.inner,nulls_equal);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+// ==========================================
+// Gather(Take)
+// ==========================================
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_get(
+    expr_ptr: *mut ExprContext,
+    idx_ptr: *mut ExprContext,
+    null_on_oob: bool,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let idx = unsafe { Box::from_raw(idx_ptr) };
+        
+        let new_expr = ctx.inner.get(idx.inner, null_on_oob);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_gather_every(
+    expr_ptr: *mut ExprContext,
+    n: usize,
+    offset: usize,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        
+        let new_expr = ctx.inner.gather_every(n, offset);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+// ==========================================
+// Sort
+// ==========================================
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_sort(
+    expr_ptr: *mut ExprContext,
+    descending: bool,
+    nulls_last: bool,
+    multithreaded: bool,
+    maintain_order: bool,
+    limit_ptr: *const IdxSize, 
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        
+        let limit = if limit_ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { *limit_ptr })
+        };
+
+        let options = SortOptions {
+            descending,
+            nulls_last,
+            multithreaded,
+            maintain_order,
+            limit,
+        };
+        
+        let new_expr = ctx.inner.sort(options);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+// ==========================================
+// Arg Ops
+// ==========================================
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_arg_sort(
+    expr_ptr: *mut ExprContext,
+    descending: bool,
+    nulls_last: bool,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        
+        let new_expr = ctx.inner.arg_sort(descending, nulls_last);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+// ==========================================
+// Index Of
+// ==========================================
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_index_of(
+    expr_ptr: *mut ExprContext,
+    element_ptr: *mut ExprContext
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let element = unsafe { Box::from_raw(element_ptr) };
+        
+        let new_expr = ctx.inner.index_of(element.inner);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+// ==========================================
+// SearchSorted
+// ==========================================
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_search_sorted(
+    expr_ptr: *mut ExprContext,
+    element_ptr: *mut ExprContext,
+    side: u8, 
+    descending: bool,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let element = unsafe { Box::from_raw(element_ptr) };
+        
+        // FFI u8 映射到 Rust Enum
+        let search_side = match side {
+            1 => SearchSortedSide::Left,
+            2 => SearchSortedSide::Right,
+            _ => SearchSortedSide::Any, 
+        };
+
+        let new_expr = ctx.inner.search_sorted(element.inner, search_side, descending);
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })

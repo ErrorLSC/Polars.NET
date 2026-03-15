@@ -35,7 +35,8 @@ public class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </para>
     /// </summary>
     /// <param name="path">Path to the CSV file.</param>
-    /// <param name="schema">Optional PolarsSchema to specify column types or overwrite inference.</param>
+    /// <param name="schema">Optional PolarsSchema to specify all column names and types.</param>
+    /// <param name="dtypeOverride">Optional PolarsSchema to specify column types or overwrite inference.</param>
     /// <param name="hasHeader">Whether the CSV file has a header row. Defaults to true.</param>
     /// <param name="separator">The character used as a field separator. Defaults to ','.</param>
     /// <param name="quoteChar">The character used for quoting fields. Defaults to '"'. Set to '\0' to disable quoting.</param>
@@ -68,6 +69,7 @@ public class LazyFrame : IDisposable,IPolarsLazyFrame
     public static LazyFrame ScanCsv(
         string path,
         PolarsSchema? schema = null,
+        PolarsSchema? dtypeOverride = null,
         bool hasHeader = true,
         char separator = ',',
         char? quoteChar = '"',           
@@ -103,6 +105,7 @@ public class LazyFrame : IDisposable,IPolarsLazyFrame
         var handle = PolarsWrapper.ScanCsv(
             path,
             schema?.Handle,
+            dtypeOverride?.Handle,
             hasHeader,
             separator,
             quoteChar,
@@ -150,7 +153,8 @@ public class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </para>
     /// </summary>
     /// <param name="buffer">The byte array containing CSV data.</param>
-    /// <param name="schema">Optional PolarsSchema to specify column types or overwrite inference.</param>
+    /// <param name="schema">Optional PolarsSchema to specify all column names and types.</param>
+    /// <param name="dtypeOverride">Optional PolarsSchema to specify column types or overwrite inference.</param>
     /// <param name="hasHeader">Whether the CSV data has a header row. Defaults to true.</param>
     /// <param name="separator">The character used as a field separator. Defaults to ','.</param>
     /// <param name="quoteChar">The character used for quoting fields. Defaults to '"'. Set to '\0' to disable.</param>
@@ -182,6 +186,7 @@ public class LazyFrame : IDisposable,IPolarsLazyFrame
     public static LazyFrame ScanCsv(
         byte[] buffer,
         PolarsSchema? schema = null,
+        PolarsSchema? dtypeOverride = null,
         bool hasHeader = true,
         char separator = ',',
         char? quoteChar = '"',          
@@ -213,6 +218,7 @@ public class LazyFrame : IDisposable,IPolarsLazyFrame
         var handle = PolarsWrapper.ScanCsv(
             buffer,
             schema?.Handle,
+            dtypeOverride?.Handle,
             hasHeader,
             separator,
             quoteChar,

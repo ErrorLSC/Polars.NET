@@ -168,7 +168,85 @@ type Series(handle: SeriesHandle) =
         use typeHandle = PolarsWrapper.GetSeriesDataType handle
         
         DataType.FromHandle typeHandle
-        
+    // ==========================================
+    // Indexing & Searching (Forwarded to Expr)
+    // ==========================================
+
+    /// <summary>
+    /// Get a single value by index. Returns a scalar.
+    /// </summary>
+    /// <param name="index">The index expression.</param>
+    /// <param name="nullOnOutOfBounds">If true, returns Null when the index is out of bounds instead of raising an error.</param>
+    member this.Get(index: Expr, ?nullOnOutOfBounds: bool) =
+        this.ApplyExpr(Expr.Col(this.Name).Get(index, ?nullOnOutOfBounds = nullOnOutOfBounds))
+
+    /// <summary>
+    /// Get a single value by index. Returns a scalar.
+    /// </summary>
+    /// <param name="index">The index number.</param>
+    /// <param name="nullOnOutOfBounds">If true, returns Null when the index is out of bounds instead of raising an error.</param>
+    member this.Get(index: uint64, ?nullOnOutOfBounds: bool) =
+        this.ApplyExpr(Expr.Col(this.Name).Get(index, ?nullOnOutOfBounds = nullOnOutOfBounds))
+
+    /// <summary>
+    /// Gather values by an index expression.
+    /// </summary>
+    member this.Gather(indices: Expr) =
+        this.ApplyExpr(Expr.Col(this.Name).Gather indices)
+
+    /// <summary>
+    /// LINQ-like alias for Gather.
+    /// </summary>
+    member this.Take(indices: Expr) = 
+        this.ApplyExpr(Expr.Col(this.Name).Take indices)
+
+    /// <summary>
+    /// Take every nth value starting from an offset.
+    /// </summary>
+    member this.GatherEvery(n: uint64, ?offset: uint64) =
+        this.ApplyExpr(Expr.Col(this.Name).GatherEvery(n, ?offset = offset))
+
+    /// <summary>
+    /// Get the index of the unique values.
+    /// </summary>
+    member this.ArgUnique() =
+        this.ApplyExpr(Expr.Col(this.Name).ArgUnique())
+
+    /// <summary>
+    /// Get the index of the maximum value.
+    /// </summary>
+    member this.ArgMax() =
+        this.ApplyExpr(Expr.Col(this.Name).ArgMax())
+
+    /// <summary>
+    /// Get the index of the minimum value.
+    /// </summary>
+    member this.ArgMin() =
+        this.ApplyExpr(Expr.Col(this.Name).ArgMin())
+
+    /// <summary>
+    /// Get the index values that would sort this expression.
+    /// </summary>
+    /// <param name="descending">If true, sort in descending order. Default is false.</param>
+    /// <param name="nullsLast">If true, place null values last. Default is false.</param>
+    member this.ArgSort(?descending: bool, ?nullsLast: bool) =
+        this.ApplyExpr(Expr.Col(this.Name).ArgSort(?descending = descending, ?nullsLast = nullsLast))
+
+    /// <summary>
+    /// Find the index of the first occurrence of a specific value.
+    /// </summary>
+    /// <param name="element">The element expression to search for.</param>
+    member this.IndexOf(element: Expr) =
+        this.ApplyExpr(Expr.Col(this.Name).IndexOf element)
+
+    /// <summary>
+    /// Find indices where elements should be inserted to maintain order (Binary Search).
+    /// </summary>
+    /// <param name="element">The element expression to insert/search.</param>
+    /// <param name="side">The insertion side (Any, Left, Right). Default is Any.</param>
+    /// <param name="descending">Whether the target column is sorted in descending order. Default is false.</param>
+    member this.SearchSorted(element: Expr, ?side: SearchSortedSide, ?descending: bool) =
+        this.ApplyExpr(Expr.Col(this.Name).SearchSorted(element, ?side = side, ?descending = descending))
     // ==========================================
     // Missing Data Handling (FillNull & FillNan)
     // ==========================================
@@ -2570,6 +2648,7 @@ and DataFrame(handle: DataFrameHandle) =
         ?nRows: uint64,
         ?inferSchemaLength: uint64,
         ?schema: PolarsSchema,
+        ?dtypeOverride:PolarsSchema,
         ?encoding: CsvEncoding,
         ?nullValues: seq<string>,
         ?missingIsNull: bool,
@@ -2584,6 +2663,7 @@ and DataFrame(handle: DataFrameHandle) =
         let mutable lf = LazyFrame.ScanCsv(
             path,
             ?schema = schema,
+            ?dtypeOverride = dtypeOverride,
             ?hasHeader = hasHeader,
             ?separator = separator,
             ?quoteChar = quoteChar,
@@ -2636,6 +2716,7 @@ and DataFrame(handle: DataFrameHandle) =
         ?nRows: uint64,
         ?inferSchemaLength: uint64,
         ?schema: PolarsSchema,
+        ?dtypeOverride:PolarsSchema,
         ?encoding: CsvEncoding,
         ?nullValues: seq<string>,
         ?missingIsNull: bool,
@@ -2649,6 +2730,7 @@ and DataFrame(handle: DataFrameHandle) =
         let mutable lf = LazyFrame.ScanCsv(
             buffer,
             ?schema = schema,
+            ?dtypeOverride = dtypeOverride,
             ?hasHeader = hasHeader,
             ?separator = separator,
             ?quoteChar = quoteChar,
@@ -5190,6 +5272,7 @@ and LazyFrame(handle: LazyFrameHandle) =
     static member ScanCsv(
         path: string,
         ?schema: PolarsSchema,
+        ?dtypeOverride:PolarsSchema,
         ?hasHeader: bool,
         ?separator: char,
         ?quoteChar: char,
@@ -5221,6 +5304,7 @@ and LazyFrame(handle: LazyFrameHandle) =
     ) : LazyFrame =
         
         let schemaHandle = match schema with Some s -> s.Handle | None -> null
+        let dtypeOverrideHandle = match dtypeOverride with Some s -> s.Handle | None -> null
         let pHasHdr = defaultArg hasHeader true
         let pSep = defaultArg separator ','
         let pQuote = match quoteChar with Some c -> System.Nullable c | None -> System.Nullable '"'
@@ -5255,6 +5339,7 @@ and LazyFrame(handle: LazyFrameHandle) =
         let h = PolarsWrapper.ScanCsv(
             path,
             schemaHandle,
+            dtypeOverrideHandle,
             pHasHdr,
             pSep,
             pQuote,
@@ -5296,6 +5381,7 @@ and LazyFrame(handle: LazyFrameHandle) =
     static member ScanCsv(
         buffer: byte[],
         ?schema: PolarsSchema,
+        ?dtypeOverride:PolarsSchema,
         ?hasHeader: bool,
         ?separator: char,
         ?quoteChar: char,
@@ -5326,6 +5412,7 @@ and LazyFrame(handle: LazyFrameHandle) =
     ) : LazyFrame =
         
         let schemaHandle = match schema with Some s -> s.Handle | None -> null
+        let dtypeOverrideHandle = match dtypeOverride with Some s -> s.Handle | None -> null
         let pHasHdr = defaultArg hasHeader true
         let pSep = defaultArg separator ','
         let pQuote = match quoteChar with Some c -> System.Nullable c | None -> System.Nullable '"'
@@ -5357,6 +5444,7 @@ and LazyFrame(handle: LazyFrameHandle) =
         let h = PolarsWrapper.ScanCsv(
             buffer,
             schemaHandle,
+            dtypeOverrideHandle,
             pHasHdr,
             pSep,
             pQuote,
@@ -7881,6 +7969,14 @@ and PolarsSchema (handle: SchemaHandle) =
     /// <summary> Create schema from field definitions </summary>
     new (fields: seq<string * DataType>) =
         new PolarsSchema(PolarsSchema.CreateHandleFromFields fields)
+    /// <summary>
+    /// Create a Schema directly from a .NET type (e.g., a record or class).
+    /// </summary>
+    /// <typeparam name="T">The record or class type.</typeparam>
+    /// <returns>A PolarsSchema mapped from the type's properties.</returns>
+    static member FromRecord<'T>() =
+        let handle = PolarsWrapper.NewSchemaFromType(typeof<'T>)
+        new PolarsSchema(handle)
 
     static member ofMap (m: Map<string, DataType>) = new PolarsSchema(m |> Map.toSeq)
     static member ofList (fields: (string * DataType) list) = new PolarsSchema(fields)

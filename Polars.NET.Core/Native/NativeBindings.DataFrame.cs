@@ -1,7 +1,5 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using Apache.Arrow.C;
-using Polars.NET.Core.Arrow;
 
 [assembly: DisableRuntimeMarshalling]
 
@@ -14,25 +12,13 @@ unsafe internal partial class NativeBindings
 {
     [LibraryImport(LibName)]
     public static partial void pl_dataframe_free(IntPtr ptr);
-    [LibraryImport(LibName)] public static partial void pl_to_arrow(DataFrameHandle handle, CArrowArray* arr, CArrowSchema* schema);
-    [LibraryImport(LibName)]
-    public static partial DataFrameHandle pl_dataframe_from_arrow_record_batch(
-        CArrowArray* cArray, 
-        CArrowSchema* cSchema
-    );
+
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_dataframe_new(
         IntPtr[] columns, 
         UIntPtr len
     );
-    [LibraryImport(LibName)]
-    public static partial DataFrameHandle pl_dataframe_new_from_stream(
-        Arrow.CArrowArrayStream* stream
-    );
-    [LibraryImport(LibName)]
-    public static partial DataFrameHandle pl_dataframe_new_from_stream_strict_type(
-        Arrow.CArrowArrayStream* stream
-    );
+
     [LibraryImport(LibName)]
     public static partial SchemaHandle pl_dataframe_get_schema(DataFrameHandle df);
     [LibraryImport(LibName)]
@@ -185,15 +171,6 @@ unsafe internal partial class NativeBindings
         SelectorHandle? on, // Nullable
         string? varName,
         string? valName
-    );
-
-    [LibraryImport(LibName)]
-    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    public static partial void pl_dataframe_export_batches(
-        DataFrameHandle df,
-        ArrowStreamInterop.SinkCallback callback,
-        ArrowStreamInterop.CleanupCallback cleanup,
-        IntPtr userData
     );
     // Stack Ops
     [LibraryImport(LibName)]

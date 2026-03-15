@@ -1129,10 +1129,7 @@ module QueryTests =
         use sqlCtx = new SqlContext()
         use db = new PolarsDataContext(sqlCtx)
 
-        use schema = new PolarsSchema([
-            "age", Polars.FSharp.DataType.Int32
-            "salary", DataType.Float64
-        ])
+        use schema = PolarsSchema.FromRecord<StaffRecord>()
         
         let path = "/home/qinglei/Projects/Polars.NET/Polars.Integration.Tests/TestData/staffrecord.csv"
         
@@ -1143,7 +1140,7 @@ module QueryTests =
         use rawLf = LazyFrame.ScanCsv(path, schema = schema)
         // let plan = rawLf.Explain()
         // Console.WriteLine plan
-        let emps = db.RegisterTable<StaffRecord>(rawLf)
+        let emps = db.RegisterTable<StaffRecord> rawLf
         
         // ==========================================
         // 2. LINQ 阶段 (业务表达阶段)
@@ -1170,9 +1167,8 @@ module QueryTests =
         // 4. 终极点火 (Materialization)
         // ==========================================
         // 只有在调用 Collect 的这一瞬间，Polars 才会真正去读取 CSV
-        // 并且是以经过 C# -> SQL -> Rust 极致优化后的物理执行计划去运行！
-        use df = finalLf.Collect()
         
+        let df = finalLf |> pl.collect
         df.Show() |> ignore
         // 注意 Polars 的 Height 通常是 int64/long 类型，所以在 F# 里用 0L 对比
         Assert.True(df.Height > 0L)
@@ -1262,13 +1258,13 @@ module QueryTests =
         File.WriteAllText(fileName, csvContent)
 
         try
-            use schema = new PolarsSchema([
+            use overrideSchema = new PolarsSchema([
                 "age", Polars.FSharp.DataType.Int32
                 "salary", DataType.Float64
             ])
             
             // 2. ScanCsv 创建文件指针和基础逻辑计划
-            use lf = LazyFrame.ScanCsv(fileName, schema = schema)
+            use lf = LazyFrame.ScanCsv(fileName, dtypeOverride = overrideSchema)
             
             // ====================================================================
             // 【核心混写阶段 1：Polars 原生 API】

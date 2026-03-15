@@ -321,7 +321,7 @@ public class SeriesTests
     public void Test_Series_Cast_Decimal()
     {
         // Create Double Series 
-        using var s = Series.FromSpan("prices", new double?[] {10.5, 20.0, double.NaN, null,double.MaxValue}.AsSpan());
+        using var s = Series.From("prices", new double?[] {10.5, 20.0, double.NaN, null,double.MaxValue});
 
         // 2. Cast to Decimal(10, 2)
         using var sDecimal = s.Cast(DataType.Decimal(10, 2));

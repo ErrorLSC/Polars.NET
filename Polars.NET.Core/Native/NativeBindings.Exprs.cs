@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using System.Text.Unicode;
 using Apache.Arrow.C;
 
 namespace Polars.NET.Core.Native;
@@ -574,11 +573,47 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial void pl_free_c_string(IntPtr ptr);
     [LibraryImport(LibName)]
-    public static partial void pl_arrow_array_free(IntPtr ptr);
-
+    public static partial ExprHandle pl_expr_gather(ExprHandle expr, ExprHandle idx);
     [LibraryImport(LibName)]
-    public static partial void pl_arrow_array_export(ArrowArrayContextHandle ptr, void* out_c_array);
-
+    public static partial ExprHandle pl_expr_gather_every(ExprHandle expr, nuint n, nuint offset);
     [LibraryImport(LibName)]
-    public static partial void pl_arrow_schema_export(ArrowArrayContextHandle ptr, void* out_c_schema);
+    public static partial ExprHandle pl_expr_get(
+        ExprHandle expr, 
+        ExprHandle idx, 
+        [MarshalAs(UnmanagedType.I1)] bool nullOnOob
+    );
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_sort(
+        ExprHandle expr,
+        [MarshalAs(UnmanagedType.I1)] bool descending,
+        [MarshalAs(UnmanagedType.I1)] bool nullsLast,
+        [MarshalAs(UnmanagedType.I1)] bool multithreaded,
+        [MarshalAs(UnmanagedType.I1)] bool maintainOrder,
+        uint* limitPtr
+    );
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_arg_unique(ExprHandle expr);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_arg_min(ExprHandle expr);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_arg_max(ExprHandle expr);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_arg_sort(
+        ExprHandle expr, 
+        [MarshalAs(UnmanagedType.I1)] bool descending,
+        [MarshalAs(UnmanagedType.I1)] bool nullsLast
+    );
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_index_of(
+        ExprHandle expr, 
+        ExprHandle element
+    );
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_search_sorted(
+        ExprHandle expr, 
+        ExprHandle element,
+        PlSearchSortedSide side,
+        [MarshalAs(UnmanagedType.I1)] bool descending
+    );
+    
 }

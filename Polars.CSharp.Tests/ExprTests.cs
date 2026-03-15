@@ -2363,4 +2363,170 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(1, origArr[0]);
         Assert.Equal(3, origArr[2]);
     }
+    [Fact]
+    [Trait("Expr","Get")]
+    public void Test_Expr_Get()
+    {
+        // 构造测试数据
+        // Index: 0,  1,  2,  3,  4
+        // Value: 10, 20, 30, 40, 50
+        using var df = DataFrame.FromColumns(new
+        {
+            val = new int[] { 10, 20, 30, 40, 50 }
+        });
+
+        using var res = df.Select(
+            // 正常取值：取 Index 2 的值，应该返回 30
+            Col("val").Get(2).Alias("get_valid"),
+            
+            // 越界取值：取 Index 10，由于开启了 nullOnOutOfBounds = true，应该返回 null 而不报错
+            Col("val").Get(10, nullOnOutOfBounds: true).Alias("get_oob")
+        );
+
+        // 验证正常取值
+        Assert.Equal(30, (int)res["get_valid"][0]!);
+
+        // 验证越界安全返回 Null
+        Assert.Null(res["get_oob"][0]);
+    }
+
+    [Fact]
+    [Trait("Expr","GatherTake")]
+    public void Test_Expr_Gather_And_Take()
+    {
+        // 构造测试数据
+        // 这个例子模拟了非常经典的 LINQ 场景：按成绩排名，提取前几名的人名
+        using var df = DataFrame.FromColumns(new
+        {
+            name = new string[] { "Alice", "Bob", "Charlie", "David" },
+            score = new int[]   { 85,      92,    78,        95      }
+        });
+
+        // idx_gather: 取排名第一和第二的索引 (对应 David: 3, Bob: 1)
+        // idx_take:   随意挑几个索引提取
+        using var dfIndices = DataFrame.FromColumns(new
+        {
+            idx_take = new int[] { 0, 2, 0 } // 取 Alice(0), Charlie(2), Alice(0)
+        });
+
+        using var res = df.Select(
+            // Gather: 配合 ArgSort，按成绩从高到低提取名字
+            Col("name").Gather(Col("score").ArgSort(descending:true)).Alias("ranked_names"),
+            
+            // Take (Gather的别名糖): 通过指定的整数列提取
+            Col("name").Take(Lit([0, 2, 0,1])).Alias("taken_names") 
+        );
+
+        var rankedNames = res["ranked_names"];
+        Assert.Equal(4, rankedNames.Length);
+        Assert.Equal("David",   (string)rankedNames[0]!); // 第1名
+        Assert.Equal("Bob",     (string)rankedNames[1]!); // 第2名
+        Assert.Equal("Alice",   (string)rankedNames[2]!); // 第3名
+        Assert.Equal("Charlie", (string)rankedNames[3]!); // 第4名
+
+        var takenNames = res["taken_names"];
+        Assert.Equal(4, takenNames.Length);
+        Assert.Equal("Alice",   (string)takenNames[0]!);
+        Assert.Equal("Charlie", (string)takenNames[1]!);
+        Assert.Equal("Alice",   (string)takenNames[2]!);
+        Assert.Equal("Bob",     (string)takenNames[3]!);
+    }
+
+    [Fact]
+    [Trait("Expr","GatherEvery")]
+    public void Test_Expr_GatherEvery()
+    {
+        // 构造测试数据
+        // Index: 0,  1,  2,  3,  4,  5,  6,  7,  8
+        // Value: 0, 10, 20, 30, 40, 50, 60, 70, 80
+        using var df = DataFrame.FromColumns(new
+        {
+            val = new int[] { 0, 10, 20, 30, 40, 50, 60, 70, 80 }
+        });
+
+        // 测试目标：从 offset = 2 (即数字 20) 开始，每隔 3 个取一次
+        // 提取的索引应该是：2, 5, 8
+        // 对应的值应该是：20, 50, 80
+        using var res = df.Select(
+            Col("val").GatherEvery(n: 3, offset: 2).Alias("every_3_offset_2")
+        );
+
+        var resultCol = res["every_3_offset_2"];
+        
+        Assert.Equal(3, resultCol.Length);
+        Assert.Equal(20, (int)resultCol[0]!);
+        Assert.Equal(50, (int)resultCol[1]!);
+        Assert.Equal(80, (int)resultCol[2]!);
+    }
+    [Fact]
+    [Trait("Expr","Arg")]
+    public void Test_Expr_Arg_Extremes_And_Unique()
+    {
+        // 构造测试数据
+        // Index: 0, 1,  2,  3, 4
+        // Value: 5, 5, 10, 10, 1
+        using var df = DataFrame.FromColumns(new
+        {
+            val = new int[] { 5, 5, 10, 10, 1 }
+        });
+
+        using var res = df.Select(
+            Col("val").ArgMin().Alias("min_idx"),
+            Col("val").ArgMax().Alias("max_idx"),
+            Col("val").ArgUnique().Alias("unique_idx")
+        );
+
+        // 1. 验证 ArgMin: 最小值是 1，位于索引 4
+        // Polars 的索引类型默认是 UInt32 (u32)
+        Assert.Equal(4u, (uint)res["min_idx"][0]!);
+
+        // 2. 验证 ArgMax: 最大值是 10，第一次出现位于索引 2
+        Assert.Equal(2u, (uint)res["max_idx"][0]!);
+
+        // 3. 验证 ArgUnique: 唯一值分别是 5, 10, 1，它们第一次出现的索引是 0, 2, 4
+        var uniqueIdx = res["unique_idx"];
+        Assert.Equal(3, uniqueIdx.Length);
+        Assert.Equal(0u, (uint)uniqueIdx[0]!); // 首次出现的 5
+        Assert.Equal(2u, (uint)uniqueIdx[1]!); // 首次出现的 10
+        Assert.Equal(4u, (uint)uniqueIdx[2]!); // 首次出现的 1
+    }
+    [Fact]
+    [Trait("Expr","IndexSearch")]
+    public void Test_Expr_IndexOf_And_SearchSorted()
+    {
+        // 构造测试数据 (对于 SearchSorted，数据最好是有序的)
+        // Index:  0,  1,  2,  3,  4,  5
+        // Value: 10, 20, 20, 30, 40, 50
+        using var df = DataFrame.FromColumns(new
+        {
+            val = new int[] { 10, 20, 20, 30, 40, 50 }
+        });
+
+        using var res = df.Select(
+            // --- IndexOf 测试 ---
+            Col("val").IndexOf(Lit(20)).Alias("idx_of_20"),
+            Col("val").IndexOf(Lit(99)).Alias("idx_of_99"), // 查找不存在的值
+            
+            // --- SearchSorted 测试 ---
+            // 查找 25 应该插入的位置：在 20 和 30 之间，即索引 3
+            Col("val").SearchSorted(Lit(25)).Alias("search_25"),
+            
+            // 查找 20 插入位置 (Left 边界)：插在第一个 20 前面，即索引 1
+            Col("val").SearchSorted(Lit(20), side: SearchSortedSide.Left).Alias("search_20_left"),
+            
+            // 查找 20 插入位置 (Right 边界)：插在最后一个 20 后面，即索引 3
+            Col("val").SearchSorted(Lit(20), side: SearchSortedSide.Right).Alias("search_20_right")
+        );
+
+        // 1. 验证 IndexOf
+        Assert.Equal(1u, (uint)res["idx_of_20"][0]!); // 20 首次出现在索引 1
+        Assert.Null(res["idx_of_99"][0]); // 找不到 99，返回 Null
+
+        // 2. 验证 SearchSorted 常规插入点
+        Assert.Equal(3u, (uint)res["search_25"][0]!); 
+
+        // 3. 验证 SearchSorted 左右边界行为
+        Assert.Equal(1u, (uint)res["search_20_left"][0]!);
+        Assert.Equal(3u, (uint)res["search_20_right"][0]!);
+    }
 }

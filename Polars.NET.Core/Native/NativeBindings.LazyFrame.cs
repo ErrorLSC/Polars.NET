@@ -1,6 +1,5 @@
 using System.Runtime.InteropServices;
 using Apache.Arrow.C;
-using Polars.NET.Core.Arrow;
 
 namespace Polars.NET.Core.Native;
 unsafe internal partial class NativeBindings
@@ -187,13 +186,4 @@ unsafe internal partial class NativeBindings
     // --- Streaming & Sink ---
     [LibraryImport(LibName)] 
     public static partial DataFrameHandle pl_lazy_collect_streaming(LazyFrameHandle lf);
-
-    [LibraryImport(LibName)]
-    [UnmanagedCallConv(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]
-    public static partial LazyFrameHandle pl_lazy_map_batches(
-        LazyFrameHandle lf, 
-        ArrowStreamInterop.SinkCallback callback,
-        ArrowStreamInterop.CleanupCallback cleanup,
-        IntPtr userData 
-    );
 }

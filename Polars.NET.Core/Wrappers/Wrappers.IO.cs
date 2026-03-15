@@ -9,6 +9,7 @@ public static partial class PolarsWrapper
     public static LazyFrameHandle ScanCsv(
         string path,
         SchemaHandle? schema,
+        SchemaHandle? dtypeOverride,
         bool hasHeader,
         char separator,
         char? quoteChar,       
@@ -61,6 +62,7 @@ public static partial class PolarsWrapper
             byte quoteVal = quoteChar.HasValue ? (byte)quoteChar.Value : (byte)0;
             
             SchemaHandle schemaHandle = schema ?? new SchemaHandle();
+            SchemaHandle dtypeOverrideHandle = dtypeOverride ?? new SchemaHandle();
             
             nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
 
@@ -79,7 +81,7 @@ public static partial class PolarsWrapper
                 rowIndexName, (nuint)rowIndexOffset, includeFilePaths,
                 
                 // --- Schema & Encoding ---
-                schemaHandle, encoding,
+                schemaHandle,dtypeOverrideHandle, encoding,
                 
                 // --- Advanced ---
                 nullValues, (nuint)(nullValues?.Length ?? 0), 
@@ -104,6 +106,7 @@ public static partial class PolarsWrapper
     public static LazyFrameHandle ScanCsv(
         byte[] buffer,
         SchemaHandle? schema,
+        SchemaHandle? dtypeOverride,
         bool hasHeader,
         char separator,
         char? quoteChar,       
@@ -150,6 +153,7 @@ public static partial class PolarsWrapper
             byte quoteVal = quoteChar.HasValue ? (byte)quoteChar.Value : (byte)0;
             
             SchemaHandle schemaHandle = schema ?? new SchemaHandle();
+            SchemaHandle dtypeOverrideHandle = dtypeOverride ?? new SchemaHandle();
 
             fixed (byte* pBuffer = buffer)
             {
@@ -169,7 +173,7 @@ public static partial class PolarsWrapper
                     rowIndexName, (nuint)rowIndexOffset, includeFilePaths,
                     
                     // --- Schema & Encoding ---
-                    schemaHandle, encoding,
+                    schemaHandle,dtypeOverrideHandle, encoding,
                     
                     // --- Advanced ---
                     nullValues, (nuint)(nullValues?.Length ?? 0), 
