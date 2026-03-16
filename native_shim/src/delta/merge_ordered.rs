@@ -331,6 +331,7 @@ pub(crate) fn merge_delta_internal(
         };
 
         let commit_result = rt.block_on(async {
+
             let mut final_actions = phase_process_staging(&table, &staging_dir, &partition_cols, write_id).await
                 .map_err(|e| deltalake::errors::DeltaTableError::Generic(e.to_string()))?; 
 

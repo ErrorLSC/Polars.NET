@@ -298,6 +298,53 @@ public static partial class PolarsWrapper
 
         ErrorHelper.CheckVoid();
     }
+    public static ulong CatalogOptimize(
+        CatalogHandle handle,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        long targetSizeMb,
+        string? filterJson,
+        string[]? zOrderCols,
+        // Cloud Options
+        PlCloudProvider cloudProvider,
+        UIntPtr cloudRetries,
+        ulong cloudRetryTimeoutMs,
+        ulong cloudRetryInitBackoffMs,
+        ulong cloudRetryMaxBackoffMs,
+        ulong cloudCacheTtl,
+        string[]? cloudKeys,
+        string[]? cloudValues
+    )
+    {
+        nuint zOrderLen = (nuint)(zOrderCols?.Length ?? 0);
+        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+
+        NativeBindings.pl_catalog_optimize(
+            handle,
+            catalogName,
+            schemaName,
+            tableName,
+            targetSizeMb,
+            filterJson,
+            zOrderCols,
+            zOrderLen,
+            cloudProvider,
+            cloudRetries,
+            cloudRetryTimeoutMs,
+            cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs,
+            cloudCacheTtl,
+            cloudKeys,
+            cloudValues,
+            cloudLen,
+            out nuint optimizedFilesCount
+        );
+
+        ErrorHelper.CheckVoid();
+
+        return optimizedFilesCount;
+    }
     public static void CreateCatalogTable
     (
         CatalogHandle handle,

@@ -157,4 +157,29 @@ internal partial class NativeBindings
         string[]? cloud_values,
         nuint cloud_len
     );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_catalog_optimize(
+        CatalogHandle handle,
+        // --- catalog info ---
+        string catalogName,
+        string schemaName,
+        string tableName,
+        long target_size_mb,
+        string? filter_json,
+        // Z-Order
+        string[]? z_order_cols,
+        nuint z_order_len,
+        // Cloud Options
+        PlCloudProvider cloud_provider,
+        UIntPtr cloud_retries,
+        ulong cloud_retry_timeout_ms,
+        ulong cloud_retry_init_backoff_ms,
+        ulong cloud_retry_max_backoff_ms,
+        ulong cloud_cache_ttl,
+        string[]? keys,
+        string[]? values,
+        nuint cloud_len,
+
+        out nuint optimized_files
+    );
 }

@@ -13,7 +13,7 @@ use deltalake::parquet::arrow::async_reader::{AsyncFileReader, ParquetObjectRead
 use deltalake::protocol::{DeltaOperation};
 use uuid::Uuid;
 
-use crate::{delta::{delete::{create_dv_descriptor, write_dv_file}, deletion_vector::{apply_deletion_vector, read_deletion_vector}, utils::*}, pl_io::parquet::parquet_utils::build_parquet_write_options, types::{ExprContext, LazyFrameContext}};
+use crate::{delta::{delete::{create_dv_descriptor, write_dv_file}, deletion_vector::{read_deletion_vector}, utils::*}, pl_io::parquet::parquet_utils::build_parquet_write_options, types::{ExprContext, LazyFrameContext}};
 use crate::pl_io::io_utils::{build_cloud_options, build_unified_sink_args};
 
 const MAX_PRUNING_CANDIDATES: usize = 100_000;
@@ -478,19 +478,27 @@ pub(crate) fn phase_validation(
 
 pub(crate) fn construct_target_lf(
     table_url: &url::Url,       
-    strategy: MergeStrategy,
-    table: &DeltaTable, 
-    remove_actions: &[Add], 
+    strategy: crate::delta::merge::MergeStrategy,
+    table: &deltalake::DeltaTable, 
+    remove_actions: &[deltalake::kernel::Add], 
     target_schema: &Schema,
-    cloud_args: &RawCloudArgs,
+    cloud_args: &crate::delta::utils::RawCloudArgs,
 ) -> PolarsResult<LazyFrame> {
     
+    let is_mor = strategy == crate::delta::merge::MergeStrategy::MergeOnRead;
+
     if remove_actions.is_empty() {
-        return Ok(DataFrame::empty_with_schema(target_schema).lazy());
+        if is_mor {
+            let mut final_schema = target_schema.clone();
+            final_schema.with_column(PlSmallStr::from_static("__file_path"), DataType::String.into());
+            final_schema.with_column(PlSmallStr::from_static("__row_index"), DataType::UInt32.into());
+            return Ok(DataFrame::empty_with_schema(&final_schema).lazy());
+        } else {
+            return Ok(DataFrame::empty_with_schema(target_schema).lazy());
+        }
     }
 
     let root_trimmed = table_url.as_str().trim_end_matches('/');
-    let is_mor = strategy == MergeStrategy::MergeOnRead;
     
     let make_scan_args = || unsafe {
         let mut args = ScanArgsParquet::default();
@@ -528,9 +536,9 @@ pub(crate) fn construct_target_lf(
     // =========================================================
     // MoR Mode: MUST scan iteratively to guarantee row_index = 0 per file
     // =========================================================
-    let rt = get_runtime();
+    let rt = crate::delta::utils::get_runtime();
     let object_store = table.object_store();
-    let table_root = Path::from(root_trimmed);
+    let table_root = deltalake::Path::from(root_trimmed);
 
     let lfs = rt.block_on(async {
         let mut processed = Vec::with_capacity(remove_actions.len());
@@ -546,8 +554,13 @@ pub(crate) fn construct_target_lf(
 
             // Read and Apply DV if exists
             if let Some(dv) = &r.deletion_vector {
-                let bitmap = read_deletion_vector(object_store.clone(), dv, &table_root).await?;
-                lf = apply_deletion_vector(lf, bitmap)?;
+                let bitmap = crate::delta::deletion_vector::read_deletion_vector(object_store.clone(), dv, &table_root).await?;
+                
+                let indices: Vec<u32> = bitmap.into_iter().collect();
+                if !indices.is_empty() {
+                    let mask = col("__row_index").is_in(lit(Series::new(PlSmallStr::from_static(""), indices)).implode(),false).not();
+                    lf = lf.filter(mask);
+                }
             }
             processed.push(lf);
         }
@@ -1040,7 +1053,6 @@ pub(crate) async fn phase_execution_dv(
 
     Ok(final_actions)
 }
-
 
 
 /// Phase 5-A: Process Staging Files

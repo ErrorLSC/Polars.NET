@@ -897,9 +897,8 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
                     Id = Enumerable.Range(startId, 10).ToArray(), 
                     Team = Enumerable.Repeat($"Merger_{workerId}", 10).ToArray() 
                 });
-                
-                // 注意这里用了 .Lazy() 将 DataFrame 转为 LazyFrame
-                uc.MergeCatalogRecords(catalog, schema, table, dfMerge.Lazy(), ["Id"], cloudOptions: cloudOptions)
+
+                uc.MergeCatalogRecords(catalog, schema, table, dfMerge, ["Id"], cloudOptions: cloudOptions)
                   .WhenMatchedUpdate()
                   .WhenNotMatchedInsert()
                   .Execute();
@@ -937,9 +936,654 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         Assert.Contains(201, remainingIds);
         Assert.Contains(250, remainingIds);
 
-        Console.WriteLine("ULTIMATE 3-WAY CHAOS TEST PASSED! Append, Delete, and Merge survived together! 🏆");
+        Console.WriteLine("ULTIMATE 3-WAY CHAOS TEST PASSED! Append, Delete, and Merge survived together!");
         
         // 测试完把环境变量重置
         Environment.SetEnvironmentVariable("POLARS_DELTA_MAX_RETRIES", null);
     }
+    [Fact]
+    [Trait("Catalog", "FourWayChaos")]
+    public async Task Test_Ultimate_Chaos_DV_Append_Delete_Merge_Optimize_Async()
+    {
+        // ==========================================
+        // 0. 注入“鸡血”：调高引擎重试上限，允许 20 次大乱斗
+        // ==========================================
+        PolarsConfig.SetEnvVar("POLARS_DELTA_MAX_RETRIES", "30");
+
+        // ==========================================
+        // 1. 环境准备与 Mock 部署
+        // ==========================================
+        var catalog = "main";
+        var schema = "default";
+        var table = $"delta_chaos_dv_ultimate_{Guid.NewGuid():N}";
+        var s3StorageLocation = $"s3://{_minio.BucketName}/{table}";
+        var expectedToken = "dapi-chaos-dv-token";
+
+        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var polarsEndpoint = $"http://{rawEndpoint}";
+
+        SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
+
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
+        cloudOptions.Credentials!["aws_allow_http"] = "true";
+        cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
+        cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
+
+        using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
+
+        // ==========================================
+        // 2. 初始阵地与 DV 激活
+        // ==========================================
+        Console.WriteLine("Step 1: Setting up the battlefield (50 initial rows)...");
+        using (var dfInit = DataFrame.FromColumns(new { 
+            Id = Enumerable.Range(1, 50).ToArray(),
+            Team = Enumerable.Repeat("Init", 50).ToArray(),
+            Value = Enumerable.Repeat(1.0, 50).ToArray()
+        }))
+        {
+            dfInit.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Overwrite, cloudOptions: cloudOptions);
+        }
+
+        // 【核心操作】：直接使用物理路径调用原生 API，为该表开启 Deletion Vectors！
+        Console.WriteLine("Step 1.5: Activating Deletion Vectors (DV)...");
+        // Delta.SetTableProperties(
+        //     s3StorageLocation, 
+        //     new Dictionary<string, string> { { "delta.enableDeletionVectors", "true" } }, 
+        //     cloudOptions: cloudOptions
+        // );
+        Delta.AddFeature(
+            s3StorageLocation, // 使用物理路径强制开启底层 Feature
+            "deletionVectors", 
+            allowProtocolIncrease: true, 
+            cloudOptions: cloudOptions
+        );
+
+        // ==========================================
+        // 3. 混沌机制：模拟网络延迟与假死重试
+        // ==========================================
+        // 我们需要保证最终数据一致性，所以这里模拟的是“带有重试机制的脆弱 Worker”
+        static async Task ExecuteWithChaosAsync(string workerName, Action action)
+        {
+            var rnd = new Random(Guid.NewGuid().GetHashCode());
+            int maxWorkerRetries = 3;
+
+            for (int attempt = 1; attempt <= maxWorkerRetries; attempt++)
+            {
+                // 1. 模拟网络抖动，随机延迟 10ms ~ 300ms 进场
+                await Task.Delay(rnd.Next(10, 300));
+
+                try
+                {
+                    // 2. 模拟 20% 概率的 Worker 进程崩溃/网络断开 (直接抛错)
+                    if (rnd.NextDouble() < 0.20)
+                    {
+                        throw new Exception("Simulated Transient Network Failure!");
+                    }
+
+                    // 3. 执行真正的业务动作 (交由底层的 Rust Jitter 扛并发)
+                    action();
+                    return; // 成功则退出重试
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Chaos Simulator] {workerName} failed on attempt {attempt}: {ex.Message}");
+                    if (attempt == maxWorkerRetries)
+                        throw; // 彻底挂了，抛出让测试 Fail
+                }
+            }
+        }
+
+        // ==========================================
+        // 4. 终极大乱斗：四军混战
+        // ==========================================
+        Console.WriteLine("Step 2: Unleashing DV + Optimize TRUE Chaos...");
+        
+        var tasks = new List<Task>();
+        int concurrency = 5;
+
+        // 【🔥 Team Fire：疯狂写入】 (101~150)
+        for (int i = 0; i < concurrency; i++)
+        {
+            int workerId = i;
+            tasks.Add(Task.Run(() => ExecuteWithChaosAsync($"Writer_{workerId}", () =>
+            {
+                var startId = 100 + (workerId * 10) + 1;
+                using var dfAppend = DataFrame.FromColumns(new { 
+                    Id = Enumerable.Range(startId, 10).ToArray(), 
+                    Team = Enumerable.Repeat($"Writer_{workerId}", 10).ToArray(),
+                    Value = Enumerable.Repeat(1.0, 10).ToArray() 
+                });
+                dfAppend.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Append, cloudOptions: cloudOptions);
+                Console.WriteLine($"[Team Fire] Writer {workerId} appended IDs {startId} to {startId+9}.");
+            })));
+        }
+
+        // 【🧊 Team Ice：疯狂 DV 删除】 (1~50)
+        for (int i = 0; i < concurrency; i++)
+        {
+            int workerId = i;
+            tasks.Add(Task.Run(() => ExecuteWithChaosAsync($"Deleter_{workerId}", () =>
+            {
+                var minId = (workerId * 10) + 1;
+                var maxId = minId + 9;
+                var predicate = (Col("Id") >= minId) & (Col("Id") <= maxId);
+                uc.DeleteCatalogRecords(catalog, schema, table, predicate, cloudOptions: cloudOptions);
+                Console.WriteLine($"[Team Ice] Deleter {workerId} deleted IDs {minId} to {maxId} (using DV!).");
+            })));
+        }
+
+        // 【⚡ Team Lightning：极限合并】 (201~250)
+        for (int i = 0; i < concurrency; i++)
+        {
+            int workerId = i;
+            tasks.Add(Task.Run(() => ExecuteWithChaosAsync($"Merger_{workerId}", () =>
+            {
+                var startId = 200 + (workerId * 10) + 1;
+                using var dfMerge = DataFrame.FromColumns(new { 
+                    Id = Enumerable.Range(startId, 10).ToArray(), 
+                    Team = Enumerable.Repeat($"Merger_{workerId}", 10).ToArray(),
+                    Value = Enumerable.Repeat(99.9, 10).ToArray() 
+                });
+
+                uc.MergeCatalogRecords(catalog, schema, table, dfMerge, ["Id"], cloudOptions: cloudOptions)
+                  .WhenMatchedUpdate()
+                  .WhenNotMatchedInsert()
+                  .Execute();
+                Console.WriteLine($"[Team Lightning] Merger {workerId} upserted IDs {startId} to {startId+9}.");
+            })));
+        }
+
+        // 【🛠️ Team Architect：并发 Optimize】 (3 个 Worker，负责把刚生成的 DV 和小碎片疯狂压实)
+        for (int i = 0; i < 3; i++)
+        {
+            int workerId = i;
+            tasks.Add(Task.Run(() => ExecuteWithChaosAsync($"Optimizer_{workerId}", () =>
+            {
+                long filesOptimized = uc.OptimizeCatalogTable(
+                    catalog, schema, table, 
+                    targetSizeMb: 128, 
+                    zOrderColumns: ["Id"], 
+                    cloudOptions: cloudOptions
+                );
+                Console.WriteLine($"[Team Architect] Optimizer {workerId} successfully compacted {filesOptimized} files.");
+            })));
+        }
+
+        // 观战，直到全部 18 个操作完成
+        await Task.WhenAll(tasks);
+
+        // ==========================================
+        // 5. 打扫战场：终极一致性校验
+        // ==========================================
+        Console.WriteLine("\nStep 3: Checking Battlefield Integrity...");
+        
+        using var resultLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
+        using var resultDf = resultLf.Collect().Sort("Id");
+        resultDf.Show();
+        // 极致对账：初始 50 - 删 50 + 写 50 + 合并 50 = 最终 100 行！
+        Assert.Equal(100, resultDf.Height);
+
+        var remainingIds = resultDf["Id"].ToArray<int>();
+
+        // 校验 1：1~50 必须死透了 (Team Ice 利用 DV 删掉，可能被 Optimize 清理了物理行)
+        Assert.DoesNotContain(1, remainingIds);
+        Assert.DoesNotContain(50, remainingIds);
+
+        // 校验 2：101~150 必须全都在 (Team Fire 追加)
+        Assert.Contains(101, remainingIds);
+        Assert.Contains(150, remainingIds);
+
+        // 校验 3：201~250 必须全都在 (Team Lightning 插入)
+        Assert.Contains(201, remainingIds);
+        Assert.Contains(250, remainingIds);
+
+        Console.WriteLine("ULTIMATE 4-WAY CHAOS TEST (DV + OPTIMIZE + JITTER) PASSED! ");
+        
+        // 测试完把环境变量重置
+        Environment.SetEnvironmentVariable("POLARS_DELTA_MAX_RETRIES", null);
+    }
+    [Fact]
+    [Trait("Catalog", "DeleteDV")]
+    public async Task Test_Isolation_Pure_Delete_With_DV_Async()
+    {
+        // ==========================================
+        // 1. 环境准备与 Mock 部署
+        // ==========================================
+        var catalog = "main";
+        var schema = "default";
+        var table = $"delta_iso_delete_dv_{Guid.NewGuid():N}";
+        var s3StorageLocation = $"s3://{_minio.BucketName}/{table}";
+        var expectedToken = "dapi-iso-delete-token";
+
+        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var polarsEndpoint = $"http://{rawEndpoint}";
+
+        SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
+
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
+        cloudOptions.Credentials!["aws_allow_http"] = "true";
+        cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
+        cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
+
+        using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
+
+        // ==========================================
+        // 2. 初始阵地：写入 50 行基础数据
+        // ==========================================
+        Console.WriteLine("Step 1: Writing initial 50 rows...");
+        using (var dfInit = DataFrame.FromColumns(new { 
+            Id = Enumerable.Range(1, 50).ToArray(),
+            Team = Enumerable.Repeat("Init", 50).ToArray(),
+            Value = Enumerable.Repeat(1.0, 50).ToArray()
+        }))
+        {
+            dfInit.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Overwrite, cloudOptions: cloudOptions);
+        }
+
+        // ==========================================
+        // 3. 开启 Deletion Vectors 特性 (MoR 模式)
+        // ==========================================
+        Console.WriteLine("Step 2: Enabling Deletion Vectors...");
+        Delta.AddFeature(
+            s3StorageLocation, // 使用物理路径强制开启底层 Feature
+            "deletionVectors", 
+            allowProtocolIncrease: true, 
+            cloudOptions: cloudOptions
+        );
+
+        // ==========================================
+        // 4. 执行纯 Delete 操作 (利用 Catalog API)
+        // ==========================================
+        Console.WriteLine("Step 3: Executing Delete (Id <= 10)...");
+        // 我们期望删除 10 行，底层应该生成一个包含 10 个标记的 DV 文件
+        var deletePredicate = Col("Id") <= 10;
+        
+        // 记录一下执行前的版本
+        // var historyBefore = Delta.History(s3StorageLocation, cloudOptions: cloudOptions);
+        
+        uc.DeleteCatalogRecords(catalog, schema, table, deletePredicate, cloudOptions: cloudOptions);
+
+        // ==========================================
+        // 5. 验证结果
+        // ==========================================
+        Console.WriteLine("Step 4: Verifying Results...");
+        using var resultLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
+        using var resultDf = resultLf.Collect().Sort("Id");
+        
+        // 预期：50 - 10 = 40 行
+        Assert.Equal(40, resultDf.Height);
+
+        // 验证被删的数据彻底消失
+        var remainingIds = resultDf["Id"].ToArray<int>();
+        Assert.DoesNotContain(1, remainingIds);
+        Assert.DoesNotContain(10, remainingIds);
+        
+        // 验证保留的数据原封不动
+        Assert.Contains(11, remainingIds);
+        Assert.Contains(50, remainingIds);
+
+        Console.WriteLine("Pure Delete with DV under Catalog works perfectly!");
+    }
+    [Fact]
+    [Trait("Catalog", "MergeDV")]
+    public async Task Test_Isolation_Pure_Merge_With_DV_Async()
+    {
+        // ==========================================
+        // 1. 环境准备与 Mock
+        // ==========================================
+        var catalog = "main";
+        var schema = "default";
+        var table = $"delta_iso_merge_dv_{Guid.NewGuid():N}";
+        var s3StorageLocation = $"s3://{_minio.BucketName}/{table}";
+        var expectedToken = "dapi-iso-merge-token";
+
+        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var polarsEndpoint = $"http://{rawEndpoint}";
+
+        SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
+
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
+        cloudOptions.Credentials!["aws_allow_http"] = "true";
+        cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
+        cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
+
+        using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
+
+        // ==========================================
+        // 2. 初始阵地：写入 5 行基础数据 (Id: 1~5)
+        // ==========================================
+        Console.WriteLine("Step 1: Writing initial 5 rows...");
+        using (var dfInit = DataFrame.FromColumns(new { 
+            Id = new[] { 1, 2, 3, 4, 5 },
+            Team = new[] { "A", "A", "B", "B", "C" },
+            Value = new[] { 10.0, 20.0, 30.0, 40.0, 50.0 }
+        }))
+        {
+            dfInit.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Overwrite, cloudOptions: cloudOptions);
+        }
+
+        // ==========================================
+        // 3. 开启 Deletion Vectors 特性 (激活 MoR)
+        // ==========================================
+        Console.WriteLine("Step 2: Enabling Deletion Vectors...");
+        Delta.AddFeature(
+            s3StorageLocation, 
+            "deletionVectors", 
+            allowProtocolIncrease: true, 
+            cloudOptions: cloudOptions
+        );
+
+        // ==========================================
+        // 4. 执行纯 Merge 操作 (Update 1~3, Insert 6~7)
+        // ==========================================
+        Console.WriteLine("Step 3: Executing Merge...");
+        using (var dfMerge = DataFrame.FromColumns(new { 
+            Id = new[] { 1, 2, 3, 6, 7 },
+            Team = new[] { "A_Upd", "A_Upd", "B_Upd", "New", "New" },
+            Value = new[] { 99.0, 99.0, 99.0, 100.0, 100.0 }
+        }))
+        {
+            uc.MergeCatalogRecords(catalog, schema, table, dfMerge, ["Id"], cloudOptions: cloudOptions)
+              .WhenMatchedUpdate() // 触发目标表旧数据的 Delete (写 DV)
+              .WhenNotMatchedInsert() // 触发新数据写入 (写新 Parquet)
+              .Execute();
+        }
+
+        // ==========================================
+        // 5. 验证结果
+        // ==========================================
+        Console.WriteLine("Step 4: Verifying Results...");
+        using var resultLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
+        using var resultDf = resultLf.Collect().Sort("Id");
+        
+        // 预期行数：原来 5 行 + 新增 2 行 (6, 7) = 7 行
+        Assert.Equal(7, resultDf.Height);
+
+        // 验证 Update 是否成功 (旧的 1~3 应该被 DV 隐藏了，读出来的是新的)
+        var row1 = resultDf.Filter(Col("Id") == 1);
+        Assert.Equal("A_Upd", row1["Team"].ToArray<string>()[0]);
+        Assert.Equal(99.0, row1["Value"].ToArray<double>()[0]);
+
+        // 验证没被碰过的行 (4, 5) 原封不动
+        var row4 = resultDf.Filter(Col("Id") == 4);
+        Assert.Equal("B", row4["Team"].ToArray<string>()[0]);
+
+        Console.WriteLine("Pure Merge with DV under Catalog works perfectly!");
+    }
+    [Fact]
+    [Trait("Catalog", "MergeOptimizeDV")]
+    public async Task Test_Concurrent_Chaos_Merge_And_Optimize_With_DV_Async()
+    {
+        PolarsConfig.SetEnvVar("POLARS_DELTA_MAX_RETRIES", "20");
+
+        var catalog = "main";
+        var schema = "default";
+        var table = $"delta_chaos_merge_opt_dv_{Guid.NewGuid():N}";
+        var s3StorageLocation = $"s3://{_minio.BucketName}/{table}";
+        var expectedToken = "dapi-chaos-merge-opt-dv-token";
+
+        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var polarsEndpoint = $"http://{rawEndpoint}";
+
+        SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
+
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
+        cloudOptions.Credentials!["aws_allow_http"] = "true";
+        cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
+        cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
+
+        using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
+
+        // 1. 制造碎片阵地：写入 10 个小文件 (共 100 行)
+        Console.WriteLine("Step 1: Creating 10 fragmented files (IDs 1-100)...");
+        for (int i = 0; i < 10; i++)
+        {
+            int startId = (i * 10) + 1;
+            using var dfInit = DataFrame.FromColumns(new { 
+                Id = Enumerable.Range(startId, 10).ToArray(),
+                Team = Enumerable.Repeat("Init", 10).ToArray(),
+                Value = Enumerable.Repeat(1.0, 10).ToArray()
+            });
+            var mode = i == 0 ? DeltaSaveMode.Overwrite : DeltaSaveMode.Append;
+            dfInit.WriteCatalogTable(uc, catalog, schema, table, mode: mode, cloudOptions: cloudOptions);
+        }
+
+        // 2. 开启 Deletion Vectors 特性 (MoR)
+        Console.WriteLine("Step 2: Enabling Deletion Vectors...");
+        Delta.AddFeature(s3StorageLocation, "deletionVectors", allowProtocolIncrease: true, cloudOptions: cloudOptions);
+
+        // 3. 混沌大逃杀
+        Console.WriteLine("Step 3: Unleashing Chaos (5 Mergers vs 3 Optimizers)...");
+        var tasks = new List<Task>();
+
+        // 【⚡ 闪电军团：Merge 5个 Worker】(各自负责 Update 10行旧数据，Insert 10行新数据)
+        for (int i = 0; i < 5; i++)
+        {
+            int workerId = i;
+            tasks.Add(Task.Run(() => 
+            {
+                var startId = 51 + (workerId * 10); // Update: 51~100
+                var insertId = 101 + (workerId * 10); // Insert: 101~150
+                using var dfMerge = DataFrame.FromColumns(new { 
+                    Id = Enumerable.Range(startId, 10).Concat(Enumerable.Range(insertId, 10)).ToArray(), 
+                    Team = Enumerable.Repeat($"Merger_{workerId}", 20).ToArray(),
+                    Value = Enumerable.Repeat(99.9, 20).ToArray() 
+                });
+                
+                uc.MergeCatalogRecords(catalog, schema, table, dfMerge, ["Id"], cloudOptions: cloudOptions)
+                  .WhenMatchedUpdate()
+                  .WhenNotMatchedInsert()
+                  .Execute();
+                  
+                Console.WriteLine($"[Team Lightning] Merger {workerId} Finished.");
+            }));
+        }
+
+        // 【🛠️ 空间架构师：Optimize 3个 Worker】(负责吸收 DV 并进行 Z-Order)
+        for (int i = 0; i < 3; i++)
+        {
+            int workerId = i;
+            tasks.Add(Task.Run(async () => 
+            {
+                // 稍微延迟进场，让 Merge 先打出一点 DV 碎片
+                await Task.Delay(new Random().Next(100, 500));
+                try 
+                {
+                    long filesOptimized = uc.OptimizeCatalogTable(
+                        catalog, schema, table, 
+                        targetSizeMb: 128, 
+                        zOrderColumns: ["Id"], 
+                        cloudOptions: cloudOptions
+                    );
+                    Console.WriteLine($"[Team Architect] Optimizer {workerId} compacted {filesOptimized} files.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Team Architect] Optimizer {workerId} exited gracefully: {ex.Message}");
+                }
+            }));
+        }
+
+        await Task.WhenAll(tasks);
+
+        // 4. 终极校验
+        Console.WriteLine("\nStep 4: Checking Battlefield Integrity...");
+        using var resultLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
+        using var resultDf = resultLf.Collect().Sort("Id");
+        
+        // 初始 100 行。Update 50 行不增加总数，Insert 50 行。最终必须是 150 行！
+        Assert.Equal(150, resultDf.Height);
+
+        var remainingIds = resultDf["Id"].ToArray<int>();
+        var remainingValues = resultDf["Value"].ToArray<double>();
+
+        // Id 1 是没被碰过的
+        Assert.Equal(1, remainingIds[0]);
+        Assert.Equal(1.0, remainingValues[0]);
+
+        // Id 51 是被 Update 过的
+        Assert.Equal(51, remainingIds[50]);
+        Assert.Equal(99.9, remainingValues[50]);
+
+        // Id 150 是被 Insert 进去的
+        Assert.Equal(150, remainingIds[149]);
+        Assert.Equal(99.9, remainingValues[149]);
+
+        Console.WriteLine("ULTIMATE MERGE vs OPTIMIZE WITH DV PASSED! ");
+        Environment.SetEnvironmentVariable("POLARS_DELTA_MAX_RETRIES", null);
+    }
+    [Fact]
+    [Trait("Catalog", "LogicalChaos")]
+    public async Task Test_Ultimate_Chaos_Logical_Overlap_Async()
+    {
+        PolarsConfig.SetEnvVar("POLARS_DELTA_MAX_RETRIES", "30");
+
+        var catalog = "main";
+        var schema = "default";
+        var table = $"delta_overlap_chaos_{Guid.NewGuid():N}";
+        var s3StorageLocation = $"s3://{_minio.BucketName}/{table}";
+        var expectedToken = "dapi-overlap-token";
+
+        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var polarsEndpoint = $"http://{rawEndpoint}";
+
+        SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
+
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
+        cloudOptions.Credentials!["aws_allow_http"] = "true";
+        cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
+        cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
+
+        using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
+
+        // 1. 初始阵地: 1 ~ 50
+        Console.WriteLine("Step 1: Setting up the battlefield (50 initial rows)...");
+        using (var dfInit = DataFrame.FromColumns(new { 
+            Id = Enumerable.Range(1, 50).ToArray(),
+            Team = Enumerable.Repeat("Init", 50).ToArray(),
+            Value = Enumerable.Repeat(1.0, 50).ToArray()
+        }))
+        {
+            dfInit.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Overwrite, cloudOptions: cloudOptions);
+        }
+
+        // 1.5 开启 DV
+        Delta.AddFeature(s3StorageLocation, "deletionVectors", allowProtocolIncrease: true, cloudOptions: cloudOptions);
+
+        static async Task ExecuteWithChaosAsync(string workerName, Action action)
+        {
+            var rnd = new Random(Guid.NewGuid().GetHashCode());
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                await Task.Delay(rnd.Next(10, 300));
+                try
+                {
+                    if (rnd.NextDouble() < 0.20) throw new Exception("Simulated Transient Network Failure!");
+                    action();
+                    return; 
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Chaos Simulator] {workerName} failed on attempt {attempt}: {ex.Message}");
+                    if (attempt == 3) throw;
+                }
+            }
+        }
+
+        Console.WriteLine("Step 2: Unleashing Logical Overlap Chaos...");
+        var tasks = new List<Task>();
+
+        // 【🔥 Team Fire：单纯追加】 (101~150，共 50 行) - 5个 Worker
+        for (int i = 0; i < 5; i++)
+        {
+            int workerId = i;
+            tasks.Add(Task.Run(() => ExecuteWithChaosAsync($"Writer_{workerId}", () =>
+            {
+                var startId = 100 + (workerId * 10) + 1;
+                using var dfAppend = DataFrame.FromColumns(new { 
+                    Id = Enumerable.Range(startId, 10).ToArray(), 
+                    Team = Enumerable.Repeat($"Writer_{workerId}", 10).ToArray(),
+                    Value = Enumerable.Repeat(1.0, 10).ToArray() 
+                });
+                dfAppend.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Append, cloudOptions: cloudOptions);
+            })));
+        }
+
+        // 【🧊 Team Ice：删除 1 ~ 30】 - 3个 Worker
+        // (涵盖纯删除区 1~20，以及死亡交叉区 21~30)
+        for (int i = 0; i < 3; i++)
+        {
+            int workerId = i;
+            tasks.Add(Task.Run(() => ExecuteWithChaosAsync($"Deleter_{workerId}", () =>
+            {
+                var minId = (workerId * 10) + 1;
+                var maxId = minId + 9;
+                var predicate = (Col("Id") >= minId) & (Col("Id") <= maxId);
+                uc.DeleteCatalogRecords(catalog, schema, table, predicate, cloudOptions: cloudOptions);
+            })));
+        }
+
+        // 【⚡ Team Lightning：纯 Update 21 ~ 50】 - 3个 Worker
+        // (涵盖死亡交叉区 21~30，以及纯更新区 31~50)
+        for (int i = 0; i < 3; i++)
+        {
+            int workerId = i;
+            tasks.Add(Task.Run(() => ExecuteWithChaosAsync($"Merger_{workerId}", () =>
+            {
+                var startId = 20 + (workerId * 10) + 1; // 21, 31, 41
+                using var dfMerge = DataFrame.FromColumns(new { 
+                    Id = Enumerable.Range(startId, 10).ToArray(), 
+                    Team = Enumerable.Repeat($"Merger_{workerId}", 10).ToArray(),
+                    Value = Enumerable.Repeat(99.9, 10).ToArray() 
+                });
+
+                uc.MergeCatalogRecords(catalog, schema, table, dfMerge, ["Id"], cloudOptions: cloudOptions)
+                  .WhenMatchedUpdate() // ！！！注意：没有 Insert 分支了！！！
+                  .Execute();
+            })));
+        }
+
+        // 【🛠️ Team Architect：并发 Optimize】
+        for (int i = 0; i < 3; i++)
+        {
+            int workerId = i;
+            tasks.Add(Task.Run(() => ExecuteWithChaosAsync($"Optimizer_{workerId}", () =>
+            {
+                uc.OptimizeCatalogTable(catalog, schema, table, targetSizeMb: 128, zOrderColumns: ["Id"], cloudOptions: cloudOptions);
+            })));
+        }
+
+        await Task.WhenAll(tasks);
+
+        Console.WriteLine("\nStep 3: Checking Battlefield Integrity...");
+        using var resultLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
+        using var resultDf = resultLf.Collect().Sort("Id");
+        
+        // 【终极数学题账本】
+        // 初始: 50
+        // 删除 1~30: -30
+        // Update 21~50: (21~30 已重叠死亡), 31~50 存活被更新 (共20行)
+        // 追加 101~150: +50
+        // 最终存活: 31~50 (20行) + 101~150 (50行) = 70 行！
+        Assert.Equal(70, resultDf.Height);
+
+        var remainingIds = resultDf["Id"].ToArray<int>();
+
+        // 校验 1：1~30 必须死透了 (不管是被先删还是被先更新)
+        Assert.DoesNotContain(1, remainingIds);
+        Assert.DoesNotContain(30, remainingIds);
+
+        // 校验 2：31~50 必须存活，且被 Update 过了
+        var row31 = resultDf.Filter(Col("Id") == 31);
+        Assert.Equal(31, row31["Id"].ToArray<int>()[0]);
+        Assert.Equal(99.9, row31["Value"].ToArray<double>()[0]); // 必须是 99.9
+
+        // 校验 3：101~150 必须全都在
+        Assert.Contains(101, remainingIds);
+        Assert.Contains(150, remainingIds);
+
+        Console.WriteLine("ULTIMATE LOGICAL OVERLAP CHAOS PASSED! ROW LEVEL CONFLICTS RESOLVED!");
+        Environment.SetEnvironmentVariable("POLARS_DELTA_MAX_RETRIES", null);
+    }
+
 }

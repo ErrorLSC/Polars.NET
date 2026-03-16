@@ -2265,6 +2265,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
     [Trait("DeltaLake", "OptimizeDV")]
     public void Test_Optimize_ZOrder_With_Deletion_Vectors_Scale_100()
     {
+        PolarsConfig.SetEnvVar("POLARS_DELTA_MAX_RETRIES", "30");
         var tableName = $"delta_opt_dv_100_{Guid.NewGuid()}";
         var rootUrl = $"s3://{minio.BucketName}/{tableName}";
         var rawEndpoint = minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');

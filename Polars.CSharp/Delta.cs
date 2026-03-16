@@ -553,43 +553,6 @@ public class DeltaMergeBuilder
     /// <summary>
     /// Executes the constructed merge operation against the Delta Table.
     /// </summary>
-    // public void Execute()
-    // {
-    //     if (_actions.Count == 0)
-    //     {
-    //         WhenMatchedUpdate();     
-    //         WhenNotMatchedInsert();  
-    //     }
-
-    //     var actionTypes = new PlMergeActionType[_actions.Count];
-    //     var actionExprs = new ExprHandle[_actions.Count];
-
-    //     for (int i = 0; i < _actions.Count; i++)
-    //     {
-    //         actionTypes[i] = _actions[i].ActionType.ToNative();
-    //         actionExprs[i] = _actions[i].Condition.CloneHandle(); 
-    //     }
-
-    //     var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = 
-    //         CloudOptions.ParseCloudOptions(_cloudOptions);
-
-    //     PolarsWrapper.DeltaMergeOrdered(
-    //         _sourceLf.CloneHandle(), 
-    //         _path,
-    //         _mergeKeys,
-    //         actionTypes,
-    //         actionExprs,
-    //         _canEvolve,
-    //         provider.ToNative(),
-    //         retries,
-    //         timeout,
-    //         initBackoff,
-    //         maxBackoff,
-    //         cacheTtl,
-    //         keys,
-    //         values
-    //     );
-    // }
     public void Execute()
     {
         if (_actions.Count == 0)

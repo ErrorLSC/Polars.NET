@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Apache.Arrow;
 using Polars.NET.Core;
 
@@ -294,6 +295,95 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             canEvolve, 
             cloudOptions
         );
+    }
+    /// <summary>
+    /// Starts building a Merge (Upsert) operation for a Unity Catalog table.
+    /// </summary>
+    public DeltaMergeBuilder MergeCatalogRecords(
+        string catalogName,
+        string schemaName,
+        string tableName,
+        DataFrame sourceData,
+        string[] mergeKeys,
+        bool canEvolve = false,
+        CloudOptions? cloudOptions = null)
+    {
+        return new DeltaMergeBuilder(
+            sourceData.Lazy(), 
+            this, 
+            catalogName, 
+            schemaName, 
+            tableName, 
+            mergeKeys, 
+            canEvolve, 
+            cloudOptions
+        );
+    }
+    /// <summary>
+    /// Optimizes the layout of the Delta table by compacting small files (bin-packing) and optionally applying Z-Order clustering.
+    /// <para>
+    /// This operation significantly improves read performance by reducing the number of files and co-locating related data.
+    /// </para>
+    /// <para>
+    /// Note: If Deletion Vectors (DV) are enabled on the table, any soft-deleted rows tracked by the vectors 
+    /// will be physically removed (materialized) from the newly compacted Parquet files, effectively clearing 
+    /// the deletion vectors for the optimized partitions.
+    /// </para>
+    /// </summary>
+    public long OptimizeCatalogTable(
+        string catalogName,
+        string schemaName,
+        string tableName,
+        long targetSizeMb = 128,
+        Dictionary<string, string>? partitionFilters = null,
+        IEnumerable<string>? zOrderColumns = null,
+        CloudOptions? cloudOptions = null)
+    {
+        // 1. Validation
+        if (targetSizeMb <= 0)
+            throw new ArgumentException("Target size must be greater than 0 MB.", nameof(targetSizeMb));
+
+        // 2. Prepare Parameters
+        // Serialize partition filters to JSON string for the Rust backend
+        string? filterJson = null;
+        if (partitionFilters != null && partitionFilters.Count > 0)
+        {
+            filterJson = JsonSerializer.Serialize(partitionFilters);
+        }
+
+        // Convert Z-Order columns to array (Rust FFI expects string[] or null)
+        string[]? zOrderColsArr = zOrderColumns?.ToArray();
+        if (zOrderColsArr != null && zOrderColsArr.Length == 0)
+        {
+            zOrderColsArr = null;
+        }
+
+        // 3. Parse Cloud Options
+        // Unlike Restore, Optimize needs all cloud retry/timeout settings passed down
+        var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = 
+            CloudOptions.ParseCloudOptions(cloudOptions);
+
+        // 4. Call Wrapper
+        // The wrapper returns ulong (nuint), we cast to long for API consistency
+        ulong result = PolarsWrapper.CatalogOptimize(
+            Handle,
+            catalogName, 
+            schemaName, 
+            tableName, 
+            targetSizeMb,
+            filterJson,
+            zOrderColsArr,
+            provider.ToNative(),
+            retries,
+            timeout,
+            initBackoff,
+            maxBackoff,
+            cacheTtl,
+            keys,
+            values
+        );
+
+        return (long)result;
     }
 
     /// <summary>
