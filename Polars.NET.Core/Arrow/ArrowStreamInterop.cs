@@ -5,8 +5,6 @@ using Apache.Arrow;
 using Apache.Arrow.Ipc;
 using System.Reflection;
 using Polars.NET.Core.Native;
-using System.Collections.Concurrent;
-using System.Reflection.Emit;
 
 namespace Polars.NET.Core.Arrow;
 /// <summary>

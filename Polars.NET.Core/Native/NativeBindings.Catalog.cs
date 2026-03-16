@@ -129,4 +129,32 @@ internal partial class NativeBindings
         string schemaName,
         string tableName
     );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_catalog_merge_ordered(
+        CatalogHandle handle,
+        // --- catalog info ---
+        string catalogName,
+        string schemaName,
+        string tableName,
+        LazyFrameHandle source_lf,
+        string[] merge_key,
+        nuint merge_key_len,
+
+        PlMergeActionType[] action_types,    
+        IntPtr[] action_exprs,    
+        nuint actions_count,      
+
+        [MarshalAs(UnmanagedType.U1)] bool can_evolve,
+        
+        // --- Cloud Options ---
+        PlCloudProvider cloud_provider,
+        UIntPtr cloud_retries,
+        ulong cloud_retry_timeout_ms,
+        ulong cloud_retry_init_backoff_ms,
+        ulong cloud_retry_max_backoff_ms,
+        ulong cloud_cache_ttl,
+        string[]? cloud_keys,
+        string[]? cloud_values,
+        nuint cloud_len
+    );
 }

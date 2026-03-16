@@ -43,7 +43,19 @@ internal class PolarsSqlInterceptor : CommandInterceptor
 /// </remarks>
 public class PolarsDataContext : DataConnection, IDisposable
 {
+    private static class TableMetadataCache<T> where T : class
+    {
+        public static readonly string TableName;
 
+        static TableMetadataCache()
+        {
+            var tableAttr = typeof(T).GetCustomAttribute<TableAttribute>();
+            
+            TableName = !string.IsNullOrWhiteSpace(tableAttr?.Name) 
+                ? tableAttr.Name 
+                : typeof(T).Name;
+        }
+    }
     private readonly IPolarsSqlContext _polarsContext;
     private readonly bool _ownsContext; 
     /// <summary>
@@ -188,18 +200,7 @@ public class PolarsDataContext : DataConnection, IDisposable
     /// <returns>A LINQ-enabled <see cref="IQueryable{T}"/> ready for further querying.</returns>
     public IQueryable<T> RegisterTable<T>(IPolarsLazyFrame lazyFrame)
         where T : class
-    {
-        // 1. Attempt to extract the Linq2DB TableAttribute
-        var tableAttr = typeof(T).GetCustomAttribute<TableAttribute>();
-        
-        // 2. Fallback strategy: Attribute Name -> Class Name
-        string tableName = !string.IsNullOrWhiteSpace(tableAttr?.Name) 
-            ? tableAttr.Name 
-            : typeof(T).Name;
-
-        // 3. Delegate to the underlying explicit registration method
-        return RegisterTable<T>(lazyFrame,tableName);
-    }
+        =>RegisterTable<T>(lazyFrame, TableMetadataCache<T>.TableName);
     // ====================================================================
     // DataFrame Register
     // ====================================================================
@@ -244,15 +245,8 @@ public class PolarsDataContext : DataConnection, IDisposable
     /// <returns>A LINQ-enabled <see cref="IQueryable{T}"/> ready for further querying.</returns>
     public IQueryable<T> RegisterTable<T>(IPolarsDataFrame dataFrame)
      where T : class
-    {
-        var tableAttr = typeof(T).GetCustomAttribute<TableAttribute>();
-        
-        string tableName = !string.IsNullOrWhiteSpace(tableAttr?.Name) 
-            ? tableAttr.Name 
-            : typeof(T).Name;
-
-        return RegisterTable<T>(dataFrame,tableName);
-    }
+        => RegisterTable<T>(dataFrame, TableMetadataCache<T>.TableName);
+    
     // ====================================================================
     // Series Register
     // ====================================================================

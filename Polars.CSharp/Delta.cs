@@ -455,14 +455,23 @@ public static class Delta
 public class DeltaMergeBuilder
 {
     private readonly LazyFrame _sourceLf;
-    private readonly string _path;
+    // --- Physical Path ---
+    private readonly string? _path;
+    // --- Catalog  ---
+    private readonly UnityCatalog? _catalog;
+    private readonly string? _catalogName;
+    private readonly string? _schemaName;
+    private readonly string? _tableName;
     private readonly string[] _mergeKeys;
     private readonly bool _canEvolve;
     private readonly CloudOptions? _cloudOptions;
 
     // Use a List to strictly preserve the exact order of method calls
-    private readonly List<(MergeActionType ActionType, Expr Condition)> _actions = new();
+    private readonly List<(MergeActionType ActionType, Expr Condition)> _actions = [];
 
+    /// <summary>
+    /// Physical Path Merge Builder
+    /// </summary>
     internal DeltaMergeBuilder(
         LazyFrame sourceLf, 
         string path, 
@@ -472,6 +481,29 @@ public class DeltaMergeBuilder
     {
         _sourceLf = sourceLf;
         _path = path;
+        _mergeKeys = mergeKeys;
+        _canEvolve = canEvolve;
+        _cloudOptions = cloudOptions;
+    }
+
+    /// <summary>
+    /// Unity Catalog Merge Builder
+    /// </summary>
+    internal DeltaMergeBuilder(
+        LazyFrame sourceLf, 
+        UnityCatalog catalog,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        string[] mergeKeys, 
+        bool canEvolve = false, 
+        CloudOptions? cloudOptions = null)
+    {
+        _sourceLf = sourceLf;
+        _catalog = catalog;
+        _catalogName = catalogName;
+        _schemaName = schemaName;
+        _tableName = tableName;
         _mergeKeys = mergeKeys;
         _canEvolve = canEvolve;
         _cloudOptions = cloudOptions;
@@ -521,6 +553,43 @@ public class DeltaMergeBuilder
     /// <summary>
     /// Executes the constructed merge operation against the Delta Table.
     /// </summary>
+    // public void Execute()
+    // {
+    //     if (_actions.Count == 0)
+    //     {
+    //         WhenMatchedUpdate();     
+    //         WhenNotMatchedInsert();  
+    //     }
+
+    //     var actionTypes = new PlMergeActionType[_actions.Count];
+    //     var actionExprs = new ExprHandle[_actions.Count];
+
+    //     for (int i = 0; i < _actions.Count; i++)
+    //     {
+    //         actionTypes[i] = _actions[i].ActionType.ToNative();
+    //         actionExprs[i] = _actions[i].Condition.CloneHandle(); 
+    //     }
+
+    //     var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = 
+    //         CloudOptions.ParseCloudOptions(_cloudOptions);
+
+    //     PolarsWrapper.DeltaMergeOrdered(
+    //         _sourceLf.CloneHandle(), 
+    //         _path,
+    //         _mergeKeys,
+    //         actionTypes,
+    //         actionExprs,
+    //         _canEvolve,
+    //         provider.ToNative(),
+    //         retries,
+    //         timeout,
+    //         initBackoff,
+    //         maxBackoff,
+    //         cacheTtl,
+    //         keys,
+    //         values
+    //     );
+    // }
     public void Execute()
     {
         if (_actions.Count == 0)
@@ -541,21 +610,34 @@ public class DeltaMergeBuilder
         var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = 
             CloudOptions.ParseCloudOptions(_cloudOptions);
 
-        PolarsWrapper.DeltaMergeOrdered(
-            _sourceLf.CloneHandle(), 
-            _path,
-            _mergeKeys,
-            actionTypes,
-            actionExprs,
-            _canEvolve,
-            provider.ToNative(),
-            retries,
-            timeout,
-            initBackoff,
-            maxBackoff,
-            cacheTtl,
-            keys,
-            values
-        );
+        if (_catalog != null)
+        {
+            PolarsWrapper.CatalogMergeOrdered(
+                _catalog.Handle,
+                _catalogName!,
+                _schemaName!,
+                _tableName!,
+                _sourceLf.CloneHandle(),
+                _mergeKeys,
+                actionTypes,
+                actionExprs,
+                _canEvolve,
+                provider.ToNative(),
+                retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values
+            );
+        }
+        else
+        {
+            PolarsWrapper.DeltaMergeOrdered(
+                _sourceLf.CloneHandle(), 
+                _path!,
+                _mergeKeys,
+                actionTypes,
+                actionExprs,
+                _canEvolve,
+                provider.ToNative(),
+                retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values
+            );
+        }
     }
 }

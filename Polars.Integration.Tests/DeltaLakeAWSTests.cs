@@ -1541,6 +1541,13 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
             notMatchedBySourceDeleteCond: srcDeleteCond,
             cloudOptions: options
         );
+        // sourceDf.MergeDeltaOrdered(rootUrl,mergeKeys:["Region", "StoreId"],cloudOptions:options)
+        //     .WhenMatchedDelete(matchDeleteCond)
+        //     .WhenMatchedUpdate(updateCond)
+        //     .WhenNotMatchedInsert(insertCond)
+        //     .WhenNotMatchedBySourceDelete(srcDeleteCond)
+        //     .Execute();
+            
 
         // ==========================================
         // 6. 验证结果

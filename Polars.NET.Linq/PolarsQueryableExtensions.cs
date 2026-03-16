@@ -192,17 +192,13 @@ public static class PolarsQueryableExtensions
         return lf.Explain(optimized);
     }
 }
-
 internal class FSharpAstRewriter : ExpressionVisitor
 {
     public IQueryProvider? Provider { get; private set; }
     public PolarsDataContext? Context { get; private set; }
-    private readonly struct CachedField(FieldInfo? info)
-    {
-        public readonly FieldInfo? Info = info;
-    }
 
-    private static readonly ConcurrentDictionary<Type, Func<object, object?>?> _compiledGetters = new();
+    private static readonly ConcurrentDictionary<Type, FieldInfo?> _fieldCache = new();
+
     protected override Expression VisitConstant(ConstantExpression node)
     {
         if (node.Value != null && node.Value.GetType().IsGenericType && 
@@ -230,31 +226,91 @@ internal class FSharpAstRewriter : ExpressionVisitor
         {
             var type = obj.GetType();
 
-            var getter = _compiledGetters.GetOrAdd(type, CreateCompiledGetter);
+            var fieldInfo = _fieldCache.GetOrAdd(type, SniffSourceField);
 
-            if (getter != null)
+            if (fieldInfo != null)
             {
-                return DeepUnwrap(getter(obj)); 
+                return DeepUnwrap(fieldInfo.GetValue(obj)); 
             }
         }
         return obj;
     }
 
-    private static Func<object, object?>? CreateCompiledGetter(Type targetType)
+    private static FieldInfo? SniffSourceField(Type targetType)
     {
-        var flags = BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public;
-        var sourceField = targetType.GetField("source", flags) ?? 
-                          targetType.GetField("_source", flags) ??
-                          targetType.GetField("enumerable", flags) ?? 
-                          targetType.GetField("_enumerable", flags);
-
-        if (sourceField == null) return null;
-
-        var objParam = Expression.Parameter(typeof(object), "obj");
-        var castExpr = Expression.Convert(objParam, targetType);
-        var fieldExpr = Expression.Field(castExpr, sourceField);
-        var resultCastExpr = Expression.Convert(fieldExpr, typeof(object));
-
-        return Expression.Lambda<Func<object, object?>>(resultCastExpr, objParam).Compile();
+        const BindingFlags flags = BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public;
+        
+        return targetType.GetField("source", flags) ?? 
+               targetType.GetField("_source", flags) ??
+               targetType.GetField("enumerable", flags) ?? 
+               targetType.GetField("_enumerable", flags);
     }
 }
+
+// NOT AOT SAFE
+
+// internal class FSharpAstRewriter : ExpressionVisitor
+// {
+//     public IQueryProvider? Provider { get; private set; }
+//     public PolarsDataContext? Context { get; private set; }
+//     private readonly struct CachedField(FieldInfo? info)
+//     {
+//         public readonly FieldInfo? Info = info;
+//     }
+
+//     private static readonly ConcurrentDictionary<Type, Func<object, object?>?> _compiledGetters = new();
+//     protected override Expression VisitConstant(ConstantExpression node)
+//     {
+//         if (node.Value != null && node.Value.GetType().IsGenericType && 
+//             node.Value.GetType().GetGenericTypeDefinition() == typeof(EnumerableQuery<>))
+//         {
+//             var bedrockQuery = DeepUnwrap(node.Value);
+            
+//             if (bedrockQuery is IQueryable q && q is IExpressionQuery eq && eq.DataContext is PolarsDataContext db)
+//             {
+//                 Provider = q.Provider;
+//                 Context = db;
+                
+//                 return Expression.Constant(bedrockQuery, bedrockQuery.GetType());
+//             }
+//         }
+//         return base.VisitConstant(node);
+//     }
+
+//     private static object? DeepUnwrap(object? obj)
+//     {
+//         if (obj == null) return null;
+//         if (obj is IExpressionQuery) return obj; 
+
+//         if (obj is System.Collections.IEnumerable)
+//         {
+//             var type = obj.GetType();
+
+//             var getter = _compiledGetters.GetOrAdd(type, CreateCompiledGetter);
+
+//             if (getter != null)
+//             {
+//                 return DeepUnwrap(getter(obj)); 
+//             }
+//         }
+//         return obj;
+//     }
+
+//     private static Func<object, object?>? CreateCompiledGetter(Type targetType)
+//     {
+//         var flags = BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public;
+//         var sourceField = targetType.GetField("source", flags) ?? 
+//                           targetType.GetField("_source", flags) ??
+//                           targetType.GetField("enumerable", flags) ?? 
+//                           targetType.GetField("_enumerable", flags);
+
+//         if (sourceField == null) return null;
+
+//         var objParam = Expression.Parameter(typeof(object), "obj");
+//         var castExpr = Expression.Convert(objParam, targetType);
+//         var fieldExpr = Expression.Field(castExpr, sourceField);
+//         var resultCastExpr = Expression.Convert(fieldExpr, typeof(object));
+
+//         return Expression.Lambda<Func<object, object?>>(resultCastExpr, objParam).Compile();
+//     }
+// }

@@ -16,10 +16,6 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
     internal CatalogHandle Handle { get;  } = PolarsWrapper.InitUnityCatalog(workspaceUrl, bearerToken);
     private bool _isDisposed;
 
-    // ==========================================
-    // 预留的 API 位置（咱们下一步要填满它们！）
-    // ==========================================
-
     /// <summary>
     /// Scan Catalog Table
     /// </summary>
@@ -274,6 +270,29 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             cacheTtl,
             keys,
             values
+        );
+    }
+    /// <summary>
+    /// Starts building a Merge (Upsert) operation for a Unity Catalog table.
+    /// </summary>
+    public DeltaMergeBuilder MergeCatalogRecords(
+        string catalogName,
+        string schemaName,
+        string tableName,
+        LazyFrame sourceData,
+        string[] mergeKeys,
+        bool canEvolve = false,
+        CloudOptions? cloudOptions = null)
+    {
+        return new DeltaMergeBuilder(
+            sourceData, 
+            this, 
+            catalogName, 
+            schemaName, 
+            tableName, 
+            mergeKeys, 
+            canEvolve, 
+            cloudOptions
         );
     }
 

@@ -15,6 +15,7 @@ using Apache.Arrow.Ipc;
 using Apache.Arrow.Adbc;
 using System.Data.Common;
 using System.Threading.Channels;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Polars.CSharp;
 
@@ -3734,6 +3735,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     ///     Val = new[] { 1.0, 2.0 } 
     /// });
     /// </example>
+    [RequiresUnreferencedCode("Uses reflection and dynamic to extract properties from anonymous types.")]
     public static DataFrame FromColumns(object columns)
     {
         ArgumentNullException.ThrowIfNull(columns);
@@ -3752,7 +3754,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
         return FromColumns(cols);
     }
     /// <summary>
-    /// [AOT Safe] Create DataFrame from explicitly named columns.
+    /// Create DataFrame from explicitly named columns.
     /// No reflection used. Best performance.
     /// </summary>
     public static DataFrame FromColumns(params (string Name, object Data)[] columns)

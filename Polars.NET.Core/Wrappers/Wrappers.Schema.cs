@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using Apache.Arrow.Types;
 using Polars.NET.Core.Arrow;
@@ -69,7 +70,9 @@ public static partial class PolarsWrapper
     /// <summary>
     /// Create a SchemaHandle directly from a .NET Type by leveraging Apache Arrow Type resolution.
     /// </summary>
-    public static SchemaHandle NewSchemaFromType(Type type)
+    public static SchemaHandle NewSchemaFromType(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+        Type type)
     {
         ArgumentNullException.ThrowIfNull(type);
 

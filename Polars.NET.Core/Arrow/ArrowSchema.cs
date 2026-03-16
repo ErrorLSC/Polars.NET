@@ -1,4 +1,5 @@
 using System.Data;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Apache.Arrow;
 using Apache.Arrow.Types;
@@ -43,7 +44,9 @@ public static class ArrowTypeResolver
     // =================================================================================
     // 2. .NET Type -> Arrow Type
     // =================================================================================
-    public static IArrowType GetArrowTypeFromNetType(Type type)
+    public static IArrowType GetArrowTypeFromNetType(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+        Type type)
     {
         // Handle Nullable<T> and F# Option
         bool isFSharpOption = type.IsGenericType && type.GetGenericTypeDefinition() == typeof(FSharpOption<>);
@@ -116,7 +119,9 @@ public static class ArrowTypeResolver
     // 3. Helpers (Reflection & Struct Support)
     // =================================================================================
     
-    public static Field ResolveField(string name, Type type)
+    public static Field ResolveField(string name, 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+    Type type)
     {
         bool isFSharpOption = type.IsGenericType && type.GetGenericTypeDefinition() == typeof(FSharpOption<>);
         bool isFSharpVOption = type.IsGenericType && type.GetGenericTypeDefinition() == typeof(FSharpValueOption<>); 
@@ -128,7 +133,9 @@ public static class ArrowTypeResolver
         return new Field(name, arrowType, isNullable);
     }
 
-    public static MemberInfo[] GetReadableMembers(Type type)
+    public static MemberInfo[] GetReadableMembers(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+        Type type)
     {
         var flags = BindingFlags.Public | BindingFlags.Instance;
         
@@ -144,7 +151,9 @@ public static class ArrowTypeResolver
         return [.. properties, .. fields];
     }
 
-    public static Type GetMemberType(MemberInfo member)
+    public static Type GetMemberType(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+        MemberInfo member)
     {
         return member switch
         {
@@ -154,7 +163,9 @@ public static class ArrowTypeResolver
         };
     }
 
-    public static Type? GetEnumerableElementType(Type type)
+    public static Type? GetEnumerableElementType(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+        Type type)
     {
         if (type.IsArray) return type.GetElementType();
         if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IEnumerable<>)) return type.GetGenericArguments()[0];

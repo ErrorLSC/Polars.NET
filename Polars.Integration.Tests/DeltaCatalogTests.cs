@@ -806,12 +806,11 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
     }
     [Fact]
     [Trait("Catalog", "Chaos")]
-    public async Task Test_Concurrent_Chaos_Mixed_Append_And_Delete_Async()
+    public async Task Test_Concurrent_Chaos_Mixed_Append_Delete_Merge_Async()
     {
         // ==========================================
-        // 0. 注入“鸡血”：调高引擎重试上限
+        // 0. 注入“鸡血”：调高引擎重试上限，允许 20 次大乱斗
         // ==========================================
-
         PolarsConfig.SetEnvVar("POLARS_DELTA_MAX_RETRIES", "20");
 
         // ==========================================
@@ -819,9 +818,9 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         // ==========================================
         var catalog = "main";
         var schema = "default";
-        var table = $"delta_chaos_{Guid.NewGuid():N}";
+        var table = $"delta_chaos_ultimate_{Guid.NewGuid():N}";
         var s3StorageLocation = $"s3://{_minio.BucketName}/{table}";
-        var expectedToken = "dapi-chaos-token";
+        var expectedToken = "dapi-chaos-ultimate-token";
 
         var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
         var polarsEndpoint = $"http://{rawEndpoint}";
@@ -848,37 +847,32 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         }
 
         // ==========================================
-        // 3. 混沌大逃杀：5 个 Append 狂战士 vs 5 个 Delete 刺客
+        // 3. 混沌大逃杀：5个Append vs 5个Delete vs 5个Merge
         // ==========================================
-        Console.WriteLine("Step 2: Unleashing Chaos (Mixed Append and Delete)...");
+        Console.WriteLine("Step 2: Unleashing TRUE Chaos (Append vs Delete vs Merge)...");
         
         var tasks = new List<Task>();
-        int writeConcurrency = 5;
-        int deleteConcurrency = 5;
+        int concurrency = 5;
 
-        // 【Team Fire：疯狂写入】
-        // 5 个 Worker，每个追加 10 行新数据 (ID: 101~110, 111~120...)
-        for (int i = 0; i < writeConcurrency; i++)
+        // 【🔥 Team Fire：疯狂写入】 (101~150)
+        for (int i = 0; i < concurrency; i++)
         {
             int workerId = i;
             tasks.Add(Task.Run(() =>
             {
                 var startId = 100 + (workerId * 10) + 1;
-                var ids = Enumerable.Range(startId, 10).ToArray();
                 using var dfAppend = DataFrame.FromColumns(new { 
-                    Id = ids, 
+                    Id = Enumerable.Range(startId, 10).ToArray(), 
                     Team = Enumerable.Repeat($"Writer_{workerId}", 10).ToArray() 
                 });
                 
                 dfAppend.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Append, cloudOptions: cloudOptions);
-                Console.WriteLine($"[Team Fire] Writer {workerId} appended 10 rows.");
+                Console.WriteLine($"[Team Fire] Writer {workerId} appended IDs {startId} to {startId+9}.");
             }));
         }
 
-        // 【Team Ice：疯狂删除】
-        // 5 个 Worker，每个去试图删除基础数据中的 10 行 (ID: 1~10, 11~20...)
-        // 注意：它们都在试图读取并改写同一个初始文件（part-0001）！
-        for (int i = 0; i < deleteConcurrency; i++)
+        // 【🧊 Team Ice：疯狂删除】 (1~50)
+        for (int i = 0; i < concurrency; i++)
         {
             int workerId = i;
             tasks.Add(Task.Run(() =>
@@ -892,7 +886,29 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             }));
         }
 
-        // 观战，直到全部完成
+        // 【⚡ Team Lightning：极限合并】 (201~250)
+        for (int i = 0; i < concurrency; i++)
+        {
+            int workerId = i;
+            tasks.Add(Task.Run(() =>
+            {
+                var startId = 200 + (workerId * 10) + 1;
+                using var dfMerge = DataFrame.FromColumns(new { 
+                    Id = Enumerable.Range(startId, 10).ToArray(), 
+                    Team = Enumerable.Repeat($"Merger_{workerId}", 10).ToArray() 
+                });
+                
+                // 注意这里用了 .Lazy() 将 DataFrame 转为 LazyFrame
+                uc.MergeCatalogRecords(catalog, schema, table, dfMerge.Lazy(), ["Id"], cloudOptions: cloudOptions)
+                  .WhenMatchedUpdate()
+                  .WhenNotMatchedInsert()
+                  .Execute();
+                  
+                Console.WriteLine($"[Team Lightning] Merger {workerId} upserted IDs {startId} to {startId+9}.");
+            }));
+        }
+
+        // 观战，直到全部 15 个操作完成
         await Task.WhenAll(tasks);
 
         // ==========================================
@@ -903,23 +919,27 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         using var resultLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
         using var resultDf = resultLf.Collect().Sort("Id");
         
-        // 数学题对账：
-        // 初始 50 行 - 被刺客删掉的 50 行 + 狂战士加的 50 行 = 最终应该剩 50 行！
-        Assert.Equal(50, resultDf.Height);
+        // 极致的数学题对账：
+        // 初始 50 - 被刺客删掉 50 + 狂战士加的 50 + 闪电军团Upsert的 50 = 最终 100 行！
+        Assert.Equal(100, resultDf.Height);
 
         var remainingIds = resultDf["Id"].ToArray<int>();
 
-        // 校验 1：初始的 1~50 应该被删得干干净净
+        // 校验 1：1~50 必须死透了 (被 Team Ice 干掉)
         Assert.DoesNotContain(1, remainingIds);
         Assert.DoesNotContain(50, remainingIds);
 
-        // 校验 2：新追加的 101~150 必须全都在
+        // 校验 2：101~150 必须全都在 (Team Fire 追加)
         Assert.Contains(101, remainingIds);
         Assert.Contains(150, remainingIds);
 
-        Console.WriteLine("ULTIMATE CHAOS TEST PASSED! The OCC engine survived the storm!");
+        // 校验 3：201~250 必须全都在 (Team Lightning 插入)
+        Assert.Contains(201, remainingIds);
+        Assert.Contains(250, remainingIds);
+
+        Console.WriteLine("ULTIMATE 3-WAY CHAOS TEST PASSED! Append, Delete, and Merge survived together! 🏆");
         
-        // 测试完把环境变量重置，免得影响别人
+        // 测试完把环境变量重置
         Environment.SetEnvironmentVariable("POLARS_DELTA_MAX_RETRIES", null);
     }
 }

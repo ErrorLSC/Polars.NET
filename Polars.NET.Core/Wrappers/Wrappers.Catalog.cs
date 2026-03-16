@@ -222,6 +222,82 @@ public static partial class PolarsWrapper
 
         ErrorHelper.CheckVoid();
     }
+    public static void CatalogMergeOrdered(
+        CatalogHandle handle,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        LazyFrameHandle sourceLf,
+        string[] mergeKeys,
+        PlMergeActionType[] actionTypes,
+        ExprHandle[] actionExprs,
+        bool can_evolve,
+        // Cloud Options
+        PlCloudProvider cloudProvider,
+        nuint cloudRetries,
+        ulong cloudRetryTimeoutMs,
+        ulong cloudRetryInitBackoffMs,
+        ulong cloudRetryMaxBackoffMs,
+        ulong cloudCacheTtl,
+        string[]? cloudKeys,
+        string[]? cloudValues
+    )
+    {
+        if (mergeKeys == null || mergeKeys.Length == 0)
+        {
+            throw new ArgumentException("Merge keys cannot be null or empty.", nameof(mergeKeys));
+        }
+        
+        if (actionTypes == null || actionExprs == null || actionTypes.Length != actionExprs.Length)
+        {
+            throw new ArgumentException("Action types and expressions must be non-null and of the same length.");
+        }
+
+        nuint mergeKeysLen = (nuint)mergeKeys.Length;
+        nuint actionsCount = (nuint)actionTypes.Length;
+
+        IntPtr[] exprPtrs = new IntPtr[actionsCount];
+        for (int i = 0; i < (int)actionsCount; i++)
+        {
+            if (actionExprs[i] == null)
+            {
+                throw new ArgumentNullException(nameof(actionExprs), $"Expression at index {i} cannot be null.");
+            }
+            
+            exprPtrs[i] = actionExprs[i].TransferOwnership();
+        }
+
+        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+
+        NativeBindings.pl_catalog_merge_ordered(
+            handle,
+            catalogName,
+            schemaName,
+            tableName,
+            sourceLf,
+            mergeKeys,
+            mergeKeysLen,
+            
+            actionTypes,  
+            exprPtrs,     
+            actionsCount, 
+            
+            can_evolve,
+            cloudProvider,
+            cloudRetries,
+            cloudRetryTimeoutMs,
+            cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs,
+            cloudCacheTtl,
+            cloudKeys,
+            cloudValues,
+            cloudLen
+        );
+
+        sourceLf.TransferOwnership();
+
+        ErrorHelper.CheckVoid();
+    }
     public static void CreateCatalogTable
     (
         CatalogHandle handle,
