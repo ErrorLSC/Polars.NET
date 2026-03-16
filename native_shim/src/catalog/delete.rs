@@ -27,7 +27,6 @@ pub extern "C" fn pl_catalog_delete_records(
     cloud_len: usize
 ) {
     ffi_try_void!({
-        // 1. 解包指针
         let ctx = unsafe { &*ctx_ptr };
         let catalog_name = ptr_to_str(catalog_name_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
         let schema_name = ptr_to_str(schema_name_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
@@ -42,17 +41,14 @@ pub extern "C" fn pl_catalog_delete_records(
             cache_ttl: cloud_cache_ttl, keys: cloud_keys, values: cloud_values, len: cloud_len,
         };
 
-        // 基础网络配置 (如 MinIO Endpoint)
         let mut final_options = build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
 
         let rt = get_runtime();
 
-        // 2. 呼叫 Unity Catalog，拿物理地址和【写凭证】！
         let table_url = rt.block_on(async {
             let info = ctx.client.get_table_info(&catalog_name, &schema_name, &table_name).await
                 .map_err(|e| PolarsError::ComputeError(format!("Failed to get table info: {}", e).into()))?;
             
-            // 注意：删除记录属于修改操作，必须请求 WRITE 权限 (true)
             let creds_wrapper = ctx.client.get_table_credentials(&info.table_id, true).await
                 .map_err(|e| PolarsError::ComputeError(format!("Failed to get write credentials: {}", e).into()))?;
                 
@@ -60,7 +56,6 @@ pub extern "C" fn pl_catalog_delete_records(
                 PolarsError::ComputeError("Unsupported or missing credentials".into())
             })?;
 
-            // 融合临时凭证
             final_options.extend(convert_catalog_creds(creds));
 
             let location_str = info.storage_location.clone().ok_or_else(|| {
@@ -70,7 +65,6 @@ pub extern "C" fn pl_catalog_delete_records(
             url::Url::parse(&location_str).map_err(|_| PolarsError::ComputeError("Invalid URL".into()))
         })?;
 
-        // 3. 移交指挥权：直接调用纯 Rust 调度器
         delete_delta_internal(table_url, predicate_expr, final_options, cloud_args)?;
         Ok(())
     })

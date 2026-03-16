@@ -764,10 +764,9 @@ pub(crate) fn delete_delta_internal(
         .parse::<u32>()
         .unwrap_or(5);
 
-    // 核心修复：外层保持为同步循环，绝不嵌套 block_on
     for attempt in 1..=max_attempts {
         // ==========================================
-        // Phase 1: Load (进入异步获取表状态)
+        // Phase 1: Load 
         // ==========================================
         let (t, schema, part_cols, all_files) = rt.block_on(async {
             let t = DeltaTable::try_from_url_with_storage_options(table_url.clone(), delta_storage_options.clone())
@@ -788,9 +787,7 @@ pub(crate) fn delete_delta_internal(
         })?;
 
         // ==========================================
-        // Phase 2: Execution (完全同步执行)
-        // 注意：这里的 execute_copy_on_write 内部有它自己的 block_on，
-        // 由于我们在外层是同步环境，这里调用绝对安全，不会触发嵌套 Panic！
+        // Phase 2: Execution 
         // ==========================================
         let snapshot = t.snapshot().map_err(|e| PolarsError::ComputeError(format!("{}", e).into()))?;
         let strategy = DeleteStrategy::determine(snapshot, false);
@@ -815,17 +812,15 @@ pub(crate) fn delete_delta_internal(
         }
 
         if actions_to_commit.is_empty() {
-            // 没有需要提交的操作（别人已经帮我们删了，或者本身就没匹配）
             return Ok(());
         }
 
         // ==========================================
-        // Phase 3: Commit (再次进入异步世界提交事务)
+        // Phase 3: Commit 
         // ==========================================
         let commit_res = rt.block_on(async {
             let operation = DeltaOperation::Delete { predicate: None };
             
-            // 注意：这里传进去的 t 还是 Phase 1 拿到的那个，保证了快照的一致性
             CommitBuilder::default()
                 .with_actions(actions_to_commit)
                 .build(
@@ -836,7 +831,7 @@ pub(crate) fn delete_delta_internal(
         });
 
         match commit_res {
-            Ok(_) => return Ok(()), // 完美闯关！
+            Ok(_) => return Ok(()), 
             Err(deltalake::errors::DeltaTableError::CommitValidation { .. }) 
             | Err(deltalake::errors::DeltaTableError::VersionAlreadyExists(_)) 
             | Err(deltalake::errors::DeltaTableError::Transaction { .. }) => {
@@ -860,7 +855,6 @@ pub(crate) fn delete_delta_internal(
                 }
             },
             
-            // 真正不可恢复的致命错误才抛给上层
             Err(e) => return Err(PolarsError::ComputeError(format!("Commit failed: {}", e).into())),
         }
     }

@@ -298,18 +298,15 @@ pub(crate) async fn phase_commit_and_cleanup(
     write_id: Uuid,
 ) -> PolarsResult<()> {
     
-    // 1. 解析临时目录生成 Add Actions (这步只需要做一次，物理文件已经在 S3 上了)
     let add_actions = phase_process_staging(&table, &staging_dir_name, &final_partition_cols, write_id).await?;
     
-    // 读取重试环境变量
     let max_attempts = std::env::var("POLARS_DELTA_MAX_RETRIES")
         .unwrap_or_else(|_| "5".to_string())
         .parse::<u32>()
         .unwrap_or(5);
 
-    // 2. 开启重试大循环！
     for attempt in 1..=max_attempts {
-        // 核心：每次重试必须拿取最新的表状态！
+        // Update Table state
         let _ = table.update_state().await;
         
         if table.version() < Some(0) {
@@ -323,7 +320,6 @@ pub(crate) async fn phase_commit_and_cleanup(
 
         let mut actions = Vec::new();
 
-        // Schema 进化检查 (代码保持原样)
         let current_snapshot = table.snapshot()
             .map_err(|e| PolarsError::ComputeError(format!("Failed to get snapshot: {}", e).into()))?;
         let current_delta_schema = current_snapshot.schema();
@@ -347,12 +343,10 @@ pub(crate) async fn phase_commit_and_cleanup(
             actions.insert(0, Action::Metadata(new_metadata_action));
         }
 
-        // 把刚才拿到的 Add Actions 塞进去
         for res in &add_actions {
             actions.push(res.clone());
         }
 
-        // 如果是 Overwrite，动态获取*当前最新版本*的待删除文件
         if let SaveMode::Overwrite = save_mode {
             let mut stream = table.get_active_add_actions_by_partitions(&[]);
             while let Some(view_res) = stream.next().await {
@@ -384,7 +378,6 @@ pub(crate) async fn phase_commit_and_cleanup(
             predicate: None,
         };
 
-        // 提交事务！
         let commit_res = transaction::CommitBuilder::default()
             .with_actions(actions)
             .build(
@@ -395,9 +388,8 @@ pub(crate) async fn phase_commit_and_cleanup(
             .await;
 
         match commit_res {
-            Ok(_) => break, // 突围成功，跳出重试环！
+            Ok(_) => break, 
             
-            // 把所有冲突一网打尽！
             Err(deltalake::errors::DeltaTableError::CommitValidation { .. }) 
             | Err(deltalake::errors::DeltaTableError::VersionAlreadyExists(_)) 
             | Err(deltalake::errors::DeltaTableError::Transaction { .. }) => {
@@ -423,7 +415,6 @@ pub(crate) async fn phase_commit_and_cleanup(
         }
     }
 
-    // 3. 战场打扫：清理临时目录
     let object_store = table.object_store();
     let _ = object_store.delete(&Path::from(staging_dir_name)).await;
     
