@@ -1464,12 +1464,12 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         // 1.5 开启 DV
         Delta.AddFeature(s3StorageLocation, DeltaTableFeatures.DeletionVectors,allowProtocolIncrease: true, cloudOptions: cloudOptions);
-        Delta.AddFeature(s3StorageLocation, DeltaTableFeatures.ChangeDataFeed, allowProtocolIncrease: true, cloudOptions: cloudOptions);
-        var properties = new Dictionary<string, string>
-        {
-            { "delta.enableChangeDataFeed", "true" }
-        };
-        Delta.SetTableProperties(s3StorageLocation, properties,true,cloudOptions:cloudOptions);
+        // Delta.AddFeature(s3StorageLocation, DeltaTableFeatures.ChangeDataFeed, allowProtocolIncrease: true, cloudOptions: cloudOptions);
+        // var properties = new Dictionary<string, string>
+        // {
+        //     { "delta.enableChangeDataFeed", "true" }
+        // };
+        // Delta.SetTableProperties(s3StorageLocation, properties,true,cloudOptions:cloudOptions);
 
         static async Task ExecuteWithChaosAsync(string workerName, Action action)
         {

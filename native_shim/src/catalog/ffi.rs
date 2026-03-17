@@ -4,13 +4,10 @@ use polars::error::{PolarsError, PolarsResult};
 use polars_io::catalog::unity::{client::{CatalogClient, CatalogClientBuilder}, models::{DataSourceFormat, TableType}};
 
 use crate::{delta::utils::get_runtime, types::SchemaContext, utils::ptr_to_str};
-// ==========================================
-// 1. Rust 核心结构体
-// ==========================================
-/// 包装官方的 CatalogClient，作为一个 Opaque Pointer (不透明指针) 传给 C#
+
 pub struct CatalogContext {
     pub client: CatalogClient,
-    // pub workspace_url: String, // 留着备用，方便后续组装完整路径
+
 }
 
 impl CatalogContext {
@@ -22,14 +19,10 @@ impl CatalogContext {
             
         Ok(Self { 
             client,
-            // workspace_url 
         })
     }
 }
 
-// ==========================================
-// 2. FFI 生命周期暴露
-// ==========================================
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_catalog_unity_new(
     workspace_url_ptr: *const c_char,
@@ -57,9 +50,9 @@ pub extern "C" fn pl_catalog_create_table(
     catalog_name_ptr: *const c_char,
     schema_name_ptr: *const c_char,
     table_name_ptr: *const c_char,
-    schema_ptr: *mut SchemaContext, // 直接接收 C# 传来的 Schema
-    table_type: u8, // 0: Managed, 1: External
-    storage_location_ptr: *const c_char, // External 表需传物理路径
+    schema_ptr: *mut SchemaContext, 
+    table_type: u8, 
+    storage_location_ptr: *const c_char, 
 ) {
     ffi_try_void!({
         let ctx = unsafe { &*ctx_ptr };
@@ -67,7 +60,6 @@ pub extern "C" fn pl_catalog_create_table(
         let schema_name = ptr_to_str(schema_name_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
         let table_name = ptr_to_str(table_name_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
         
-        // 提取 Schema
         let schema = unsafe { &(*schema_ptr).schema };
 
         let t_type = match table_type {
@@ -76,7 +68,6 @@ pub extern "C" fn pl_catalog_create_table(
             _ => return Err(PolarsError::ComputeError("Invalid table_type".into())),
         };
 
-        // 处理可选的存储路径
         let storage_location = if storage_location_ptr.is_null() {
             None
         } else {
@@ -85,19 +76,17 @@ pub extern "C" fn pl_catalog_create_table(
 
         let rt = crate::delta::utils::get_runtime();
 
-        // 执行异步建表
         rt.block_on(async {
             let mut empty_props = std::iter::empty();
             
-            // 调用咱们刚才看到的底层 API
             ctx.client.create_table(
                 &catalog_name,
                 &schema_name,
                 &table_name,
-                Some(schema), // 【魔法核心】：Polars 自动翻译类型！
+                Some(schema), 
                 &t_type,
-                Some(&DataSourceFormat::Delta), // 固定为 Delta 格式
-                None, // comment 暂不暴露
+                Some(&DataSourceFormat::Delta), 
+                None, 
                 storage_location.as_deref(),
                 &mut empty_props
             ).await

@@ -130,7 +130,6 @@ pub extern "C" fn pl_io_delta_read_cdc(
             .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
         let table_url = crate::delta::utils::parse_table_url(path_str)?;
         
-        // 【修正核心】：满血复活的 RawCloudArgs
         let cloud_args = RawCloudArgs {
             provider: cloud_provider, 
             retries: cloud_retries, 
@@ -209,27 +208,23 @@ pub extern "C" fn pl_io_delta_read_cdc_by_time(
         ) };
 
         let rt = crate::delta::utils::get_runtime();
-        println!("1");
         let lf = rt.block_on(async {
             use chrono::{TimeZone, Utc};
             let start_dt = Utc.timestamp_millis_opt(start_timestamp_ms).single()
                 .ok_or_else(|| PolarsError::ComputeError("Invalid start timestamp".into()))?;
             let end_dt = Utc.timestamp_millis_opt(end_timestamp_ms).single()
                 .ok_or_else(|| PolarsError::ComputeError("Invalid end timestamp".into()))?;
-            println!("2");
             let mut table = deltalake::DeltaTable::try_from_url_with_storage_options(
                 table_url.clone(), 
                 delta_storage_options
             )
             .await
             .map_err(|e| PolarsError::ComputeError(format!("Failed to safely load table: {}", e).into()))?;
-            println!("3");
             let v_start = match table.load_with_datetime(start_dt).await {
                 Ok(_) => table.version().unwrap_or(0), 
                 Err(deltalake::errors::DeltaTableError::InvalidDateTimeString { .. }) => 0, 
                 Err(e) => return Err(PolarsError::ComputeError(format!("Failed to parse start datetime: {}", e).into())),
             };
-            println!("4");
             let v_end = match table.load_with_datetime(end_dt).await {
                 Ok(_) => table.version().unwrap_or(0), 
                 Err(deltalake::errors::DeltaTableError::InvalidDateTimeString { .. }) => {
@@ -237,13 +232,10 @@ pub extern "C" fn pl_io_delta_read_cdc_by_time(
                 },
                 Err(e) => return Err(PolarsError::ComputeError(format!("Failed to parse end datetime: {}", e).into())),
             };
-            println!("5");
             let mut lf = crate::delta::cdc::read_change_data_stream(&table, &table_url, v_start, v_end, scan_args).await?;
-            println!("6");
             
             use polars::prelude::*;
             let dt_type = DataType::Datetime(polars::datatypes::TimeUnit::Milliseconds, None);
-            println!("7");
             
             lf = lf.filter(
                 col("_commit_timestamp")
