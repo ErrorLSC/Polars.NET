@@ -378,7 +378,7 @@ public class AdbcLocalTests : IDisposable
         };
         using var df = DataFrame.FromEnumerable(records);
         df.WriteToAdbc(_connection, "stage1_table");
-        Console.WriteLine("✅ Stage 1: Polars written to DuckDB");
+        Console.WriteLine("Stage 1: Polars written to DuckDB");
 
         // ==========================================
         // Act 2: DuckDB 引擎计算 -> Polars (LINQ 下推)
@@ -397,7 +397,7 @@ public class AdbcLocalTests : IDisposable
             })
             .ToDataFrameAdbc(_connection);
             
-        Console.WriteLine("✅ Stage 2: Pushdown computed by DuckDB, pulled to Polars");
+        Console.WriteLine(" Stage 2: Pushdown computed by DuckDB, pulled to Polars");
         pushdownDf.Show();
 
         // ==========================================
@@ -413,20 +413,20 @@ public class AdbcLocalTests : IDisposable
             })
             .ToDataFrame(); // 终极点火！Polars 内存引擎开始狂奔！
 
-        Console.WriteLine("✅ Stage 3: In-Memory computed by Polars Engine");
+        Console.WriteLine(" Stage 3: In-Memory computed by Polars Engine");
         finalPolarsDf.Show();
 
         // ==========================================
         // Act 4: Polars -> DuckDB (最终结果归档)
         // ==========================================
         finalPolarsDf.WriteToAdbc(_connection, "final_destination_table");
-        Console.WriteLine("✅ Stage 4: Final results written back to DuckDB");
+        Console.WriteLine("Stage 4: Final results written back to DuckDB");
 
         // ==========================================
         // Act 5: 验证终极闭环
         // ==========================================
         using var verifyFinalDf = DataFrame.ReadAdbc(_connection, "SELECT * FROM final_destination_table ORDER BY FinalId");
-        Console.WriteLine("====== 🎯 Ultimate Verification from DuckDB ======");
+        Console.WriteLine("======  Ultimate Verification from DuckDB ======");
         verifyFinalDf.Show();
 
         Assert.Equal(2, verifyFinalDf.Height);

@@ -517,4 +517,73 @@ public static partial class PolarsWrapper
 
         ErrorHelper.CheckVoid();
     }
+    public static LazyFrameHandle DeltaReadCdc(
+        string path,
+        long startVersion,
+        long endVersion,
+        // Cloud Options
+        PlCloudProvider cloudProvider,
+        nuint cloudRetries,
+        ulong cloudRetryTimeoutMs,
+        ulong cloudRetryInitBackoffMs,
+        ulong cloudRetryMaxBackoffMs,
+        ulong cloudCacheTtl,
+        string[]? cloudKeys,
+        string[]? cloudValues
+    )
+    {
+        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+
+        NativeBindings.pl_io_delta_read_cdc(
+            path,
+            startVersion,
+            endVersion,
+            cloudProvider,
+            cloudRetries,
+            cloudRetryTimeoutMs,
+            cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs,
+            cloudCacheTtl,
+            cloudKeys,
+            cloudValues,
+            cloudLen,
+            out LazyFrameHandle outLfPtr
+        );
+
+        return outLfPtr;
+    }
+    public static LazyFrameHandle DeltaReadCdcByTime(
+        string path,
+        long startTimestampMs,
+        long endTimestampMs,
+        PlCloudProvider cloudProvider,
+        nuint cloudRetries,
+        ulong cloudRetryTimeoutMs,
+        ulong cloudRetryInitBackoffMs,
+        ulong cloudRetryMaxBackoffMs,
+        ulong cloudCacheTtl,
+        string[]? cloudKeys,
+        string[]? cloudValues
+    )
+    {
+        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+
+        NativeBindings.pl_io_delta_read_cdc_by_time(
+            path,
+            startTimestampMs,
+            endTimestampMs,
+            cloudProvider,
+            cloudRetries,
+            cloudRetryTimeoutMs,
+            cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs,
+            cloudCacheTtl,
+            cloudKeys,
+            cloudValues,
+            cloudLen,
+            out LazyFrameHandle outLfPtr
+        );
+
+        return outLfPtr;
+    }
 }

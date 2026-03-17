@@ -842,7 +842,7 @@ pub(crate) fn delete_delta_internal(
                     
                     let mut rng = rand::rng();
                     let jitter_millis = rng.random_range((capped_sleep / 2)..=(capped_sleep * 3 / 2));
-
+                    
                     println!("[Delta-RS] OCC Conflict! Backoff for {}ms (Attempt {}/{})", 
                              jitter_millis, attempt, max_attempts);
 

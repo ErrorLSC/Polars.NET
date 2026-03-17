@@ -1,5 +1,6 @@
 pub mod client;
 pub mod ffi;
+pub mod maintenance;
 pub(crate) mod utils;
 pub mod read;
 pub mod write;

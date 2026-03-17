@@ -445,6 +445,91 @@ public static class Delta
             cloudValues
         );
     }
+    /// <summary>
+    /// Reads the Change Data Feed (CDC) stream for a Delta table between the specified versions.
+    /// The table must have 'delta.enableChangeDataFeed' set to 'true'.
+    /// </summary>
+    /// <param name="path">The URI or local path of the Delta table.</param>
+    /// <param name="startVersion">The starting version (inclusive).</param>
+    /// <param name="endVersion">The ending version (inclusive).</param>
+    /// <param name="cloudOptions">Optional cloud storage credentials and retry policies.</param>
+    /// <returns>A LazyFrame containing the change data stream.</returns>
+    public static LazyFrame ReadChangeDataFeed(
+        string path, 
+        long startVersion, 
+        long endVersion, 
+        CloudOptions? cloudOptions = null)
+    {
+        if (startVersion > endVersion)
+        {
+            throw new ArgumentException("startVersion cannot be greater than endVersion.");
+        }
+
+        var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = 
+            CloudOptions.ParseCloudOptions(cloudOptions);
+
+        var handle = PolarsWrapper.DeltaReadCdc(
+            path,
+            startVersion,
+            endVersion,
+            provider.ToNative(),
+            retries, 
+            timeout, 
+            initBackoff, 
+            maxBackoff, 
+            cacheTtl, 
+            keys, 
+            values
+        );
+
+        return new LazyFrame(handle);
+    }
+    /// <summary>
+    /// Reads the Change Data Feed (CDC) stream for a Delta table between the specified datetimes.
+    /// The table must have 'delta.enableChangeDataFeed' set to 'true'.
+    /// </summary>
+    /// <param name="path">The URI or local path of the Delta table.</param>
+    /// <param name="startTimestamp">The starting datetime (inclusive).</param>
+    /// <param name="endTimestamp">Optional. The ending datetime (inclusive). Defaults to DateTime.UtcNow if null.</param>
+    /// <param name="cloudOptions">Optional cloud storage credentials and retry policies.</param>
+    /// <returns>A LazyFrame containing the change data stream filtered by the exact milliseconds.</returns>
+    public static LazyFrame ReadChangeDataFeed(
+        string path, 
+        DateTime startTimestamp, 
+        DateTime? endTimestamp = null, 
+        CloudOptions? cloudOptions = null)
+    {
+        // 兜底逻辑：如果用户没填结束时间，默认为当前 UTC 时间
+        DateTime actualEnd = endTimestamp ?? DateTime.UtcNow;
+
+        if (startTimestamp > actualEnd)
+        {
+            throw new ArgumentException("startTimestamp cannot be greater than endTimestamp.");
+        }
+
+        // 精确转换为 Unix 毫秒时间戳
+        long startMs = new DateTimeOffset(startTimestamp.ToUniversalTime()).ToUnixTimeMilliseconds();
+        long endMs = new DateTimeOffset(actualEnd.ToUniversalTime()).ToUnixTimeMilliseconds();
+
+        var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = 
+            CloudOptions.ParseCloudOptions(cloudOptions);
+
+        var handle = PolarsWrapper.DeltaReadCdcByTime(
+            path,
+            startMs,
+            endMs,
+            provider.ToNative(),
+            retries, 
+            timeout, 
+            initBackoff, 
+            maxBackoff, 
+            cacheTtl, 
+            keys, 
+            values
+        );
+
+        return new LazyFrame(handle);
+    }
 }
 
 /// <summary>

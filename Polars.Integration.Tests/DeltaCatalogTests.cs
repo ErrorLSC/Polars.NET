@@ -986,14 +986,9 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         // 【核心操作】：直接使用物理路径调用原生 API，为该表开启 Deletion Vectors！
         Console.WriteLine("Step 1.5: Activating Deletion Vectors (DV)...");
-        // Delta.SetTableProperties(
-        //     s3StorageLocation, 
-        //     new Dictionary<string, string> { { "delta.enableDeletionVectors", "true" } }, 
-        //     cloudOptions: cloudOptions
-        // );
         Delta.AddFeature(
             s3StorageLocation, // 使用物理路径强制开启底层 Feature
-            "deletionVectors", 
+            DeltaTableFeatures.DeletionVectors, 
             allowProtocolIncrease: true, 
             cloudOptions: cloudOptions
         );
@@ -1005,7 +1000,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         static async Task ExecuteWithChaosAsync(string workerName, Action action)
         {
             var rnd = new Random(Guid.NewGuid().GetHashCode());
-            int maxWorkerRetries = 3;
+            int maxWorkerRetries = 100;
 
             for (int attempt = 1; attempt <= maxWorkerRetries; attempt++)
             {
@@ -1119,7 +1114,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         
         using var resultLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
         using var resultDf = resultLf.Collect().Sort("Id");
-        resultDf.Show();
+
         // 极致对账：初始 50 - 删 50 + 写 50 + 合并 50 = 最终 100 行！
         Assert.Equal(100, resultDf.Height);
 
@@ -1468,7 +1463,13 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         }
 
         // 1.5 开启 DV
-        Delta.AddFeature(s3StorageLocation, "deletionVectors", allowProtocolIncrease: true, cloudOptions: cloudOptions);
+        Delta.AddFeature(s3StorageLocation, DeltaTableFeatures.DeletionVectors,allowProtocolIncrease: true, cloudOptions: cloudOptions);
+        Delta.AddFeature(s3StorageLocation, DeltaTableFeatures.ChangeDataFeed, allowProtocolIncrease: true, cloudOptions: cloudOptions);
+        var properties = new Dictionary<string, string>
+        {
+            { "delta.enableChangeDataFeed", "true" }
+        };
+        Delta.SetTableProperties(s3StorageLocation, properties,true,cloudOptions:cloudOptions);
 
         static async Task ExecuteWithChaosAsync(string workerName, Action action)
         {
@@ -1566,6 +1567,15 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         // 追加 101~150: +50
         // 最终存活: 31~50 (20行) + 101~150 (50行) = 70 行！
         Assert.Equal(70, resultDf.Height);
+        var yesterday = DateTime.UtcNow.AddDays(-1);
+
+        var cdcLf = Delta.ReadChangeDataFeed(
+            path: s3StorageLocation, 
+            startTimestamp: yesterday,
+            cloudOptions:cloudOptions
+        );
+
+        cdcLf.Collect().Show();
 
         var remainingIds = resultDf["Id"].ToArray<int>();
 

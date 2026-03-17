@@ -175,7 +175,7 @@ internal partial class NativeBindings
         nuint cloud_len
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial void pl_io_delta_merge(
+    public static partial void pl_io_delta_merge(
         LazyFrameHandle source_lf,
         string path,
         string[] merge_key,
@@ -219,5 +219,41 @@ internal partial class NativeBindings
         string[]? cloud_keys,
         string[]? cloud_values,
         nuint cloud_len
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_io_delta_read_cdc(
+        string table_path_ptr,
+        long start_version,
+        long end_version,
+        // Cloud Options
+        PlCloudProvider cloud_provider,
+        nuint cloud_retries,
+        ulong cloud_retry_timeout_ms,
+        ulong cloud_retry_init_backoff_ms,
+        ulong cloud_retry_max_backoff_ms,
+        ulong cloud_cache_ttl,
+        string[]? cloud_keys,
+        string[]? cloud_values,
+        nuint cloud_len,
+        // Output
+        out LazyFrameHandle out_lf_ptr
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_io_delta_read_cdc_by_time(
+        string table_path_ptr,
+        long start_timestamp_ms,
+        long end_timestamp_ms,
+        // Cloud Options
+        PlCloudProvider cloud_provider,
+        nuint cloud_retries,
+        ulong cloud_retry_timeout_ms,
+        ulong cloud_retry_init_backoff_ms,
+        ulong cloud_retry_max_backoff_ms,
+        ulong cloud_cache_ttl,
+        string[]? cloud_keys,
+        string[]? cloud_values,
+        nuint cloud_len,
+        // Output
+        out LazyFrameHandle out_lf_ptr
     );
 }

@@ -1,6 +1,6 @@
 [package]
 name = "native_shim"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2024"
 
 [dependencies]
@@ -20,7 +20,7 @@ calamine = { version = "0.34", features = ["dates","chrono"] }
 chrono = "0.4.41"
 rust_xlsxwriter = { version = "0.94", features = ["chrono"] }
 mimalloc = { version = "*", default-features = false }
-deltalake = { version = "0.31.0", default-features = false, features = ["s3", "azure", "gcs", "rustls"] }
+deltalake = { version = "0.31.1", default-features = false, features = ["s3", "azure", "gcs", "rustls"] }
 tokio = { version = "1.49.0"}
 url = "2.5.8"
 uuid = {version="1.20.0", features=["v4"]}
