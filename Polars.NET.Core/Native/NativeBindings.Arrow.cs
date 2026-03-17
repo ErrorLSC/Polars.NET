@@ -45,7 +45,7 @@ unsafe internal partial class NativeBindings
         Apache.Arrow.C.CArrowArrayStream* out_stream
     );
     [LibraryImport(LibName)]
-    [UnmanagedCallConv(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]
+    [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     public static partial LazyFrameHandle pl_lazy_map_batches(
         LazyFrameHandle lf, 
         ArrowStreamInterop.SinkCallback callback,

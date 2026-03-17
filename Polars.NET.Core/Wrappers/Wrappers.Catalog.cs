@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Polars.NET.Core.Native;
 
@@ -382,5 +383,115 @@ public static partial class PolarsWrapper
             tableName
         );
         ErrorHelper.CheckVoid();
+    }
+    public static long CatalogVacuum(
+        CatalogHandle handle,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        int retentionHours,
+        bool enforceRetention,
+        bool dryRun,
+        bool vacuumModeFull,
+        // Delta Cloud Options
+        string[]? cloudKeys,
+        string[]? cloudValues
+    )
+    {
+        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+
+        NativeBindings.pl_catalog_delta_vacuum(
+            handle,
+            catalogName,
+            schemaName,
+            tableName,
+            retentionHours,
+            enforceRetention,
+            dryRun,
+            vacuumModeFull,
+            cloudKeys,
+            cloudValues,
+            cloudLen,
+            out var filesDeleted
+        );
+
+        ErrorHelper.CheckVoid();
+        return (long)filesDeleted;
+    }
+    public static long CatalogRestore(
+        CatalogHandle handle,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        long targetVersion,
+        long targetTimestamp,
+        bool ignoreMissingFiles,
+        bool protocolDowngradeAllowed,
+        // Delta Cloud Options
+        string[]? cloudKeys,
+        string[]? cloudValues
+    )
+    {
+        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+
+        NativeBindings.pl_catalog_delta_restore(
+            handle,
+            catalogName,
+            schemaName,
+            tableName,
+            targetVersion,
+            targetTimestamp,
+            ignoreMissingFiles,
+            protocolDowngradeAllowed,
+            cloudKeys,
+            cloudValues,
+            cloudLen,
+            out var newVersion
+        );
+
+        ErrorHelper.CheckVoid();
+        return newVersion;
+    }
+    public static string CatalogHistory(
+        CatalogHandle handle,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        int limit,
+        string[]? cloudKeys,
+        string[]? cloudValues
+    )
+    {
+        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+        nuint limitNative = (nuint)(limit < 0 ? 0 : limit); // <0 or 0 means All
+
+        IntPtr jsonPtr = IntPtr.Zero;
+
+        try
+        {
+            NativeBindings.pl_catalog_delta_history(
+                handle,
+                catalogName,
+                schemaName,
+                tableName,
+                limitNative,
+                cloudKeys,
+                cloudValues,
+                cloudLen,
+                out jsonPtr
+            );
+            
+            ErrorHelper.CheckVoid();
+
+            string? json = Marshal.PtrToStringUTF8(jsonPtr);
+            return json ?? "[]";
+        }
+        finally
+        {
+            if (jsonPtr != IntPtr.Zero)
+            {
+                NativeBindings.pl_free_string(jsonPtr);
+            }
+        }
     }
 }

@@ -1,7 +1,6 @@
 use polars::error::PolarsError;
 use polars_io::catalog::unity::models::{TableCredentialsVariants, TableInfo};
 
-
 use crate::catalog::ffi::CatalogContext;
 
 pub(crate) fn convert_catalog_creds(creds: TableCredentialsVariants) -> std::collections::HashMap<String, String> {

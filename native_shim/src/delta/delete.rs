@@ -823,6 +823,7 @@ pub(crate) fn delete_delta_internal(
             
             CommitBuilder::default()
                 .with_actions(actions_to_commit)
+                .with_app_metadata(crate::delta::utils::get_polars_net_metadata())
                 .build(
                     Some(t.snapshot().map_err(|e| DeltaTableError::Generic(e.to_string()))?),
                     t.log_store().clone(),

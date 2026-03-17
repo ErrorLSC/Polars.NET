@@ -460,3 +460,10 @@ pub(crate) fn view_to_add_action(view: &LogicalFileView) -> Add {
         clustering_provider: None,
     }
 }
+
+pub(crate) fn get_polars_net_metadata() -> HashMap<String, Value> {
+    let mut meta = HashMap::new();
+    meta.insert("engine".to_string(), json!("Polars.NET"));
+    meta.insert("engineMaker".to_string(), json!("ErrorLSC"));
+    meta
+}

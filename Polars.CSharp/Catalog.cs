@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using Apache.Arrow;
 using Polars.NET.Core;
@@ -385,7 +386,173 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
 
         return (long)result;
     }
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="catalogName"></param>
+    /// <param name="schemaName"></param>
+    /// <param name="tableName"></param>
+    /// <param name="retentionHours"></param>
+    /// <param name="enforceRetention"></param>
+    /// <param name="dryRun"></param>
+    /// <param name="vacuumModeFull"></param>
+    /// <param name="cloudOptions"></param>
+    /// <returns></returns>
+    /// <exception cref="ArgumentException"></exception>
+    public long DeltaVacuum(
+        string catalogName,
+        string schemaName,
+        string tableName,
+        int? retentionHours = null,
+        bool enforceRetention = true,
+        bool dryRun = false,
+        bool vacuumModeFull = false, 
+        CloudOptions? cloudOptions = null)
+    {
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        int retentionArg = retentionHours ?? -1;
+        if (retentionHours.HasValue && retentionHours.Value < 0)
+            throw new ArgumentException("Retention hours cannot be negative.", nameof(retentionHours));
+        return PolarsWrapper.CatalogVacuum(
+            Handle,
+            catalogName, 
+            schemaName, 
+            tableName, 
+            retentionArg,
+            enforceRetention,
+            dryRun,
+            vacuumModeFull,
+            keys,
+            values
+        );
+    }
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="catalogName"></param>
+    /// <param name="schemaName"></param>
+    /// <param name="tableName"></param>
+    /// <param name="version"></param>
+    /// <param name="timestamp"></param>
+    /// <param name="ignoreMissingFiles"></param>
+    /// <param name="protocolDowngradeAllowed"></param>
+    /// <param name="cloudOptions"></param>
+    /// <returns></returns>
+    /// <exception cref="ArgumentException"></exception>
+    public long DeltaRestore(
+        string catalogName,
+        string schemaName,
+        string tableName,
+        long? version = null,
+        DateTime? timestamp = null,
+        bool ignoreMissingFiles = false,
+        bool protocolDowngradeAllowed = false,
+        CloudOptions? cloudOptions = null)
+    {
+        // 1. Validation: Version and Timestamp are mutually exclusive
+        if (version.HasValue && timestamp.HasValue)
+            throw new ArgumentException("Cannot specify both 'version' and 'timestamp' for Restore.");
 
+        if (!version.HasValue && !timestamp.HasValue)
+            throw new ArgumentException("Must specify either 'version' or 'timestamp' for Restore.");
+
+        // 2. Prepare Parameters
+        // Rust uses -1 to indicate "not set"
+        long targetVer = version ?? -1;
+        long targetTs = -1;
+
+        if (timestamp.HasValue)
+        {
+            // Convert DateTime to Unix Milliseconds
+            DateTime utcTime = timestamp.Value.ToUniversalTime();
+            targetTs = new DateTimeOffset(utcTime).ToUnixTimeMilliseconds();
+        }
+
+        // 3. Parse Cloud Options
+        // We only need keys/values for the Delta Lake object store
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+
+        // 4. Call Wrapper
+        return PolarsWrapper.CatalogRestore(
+            Handle,
+            catalogName, 
+            schemaName, 
+            tableName, 
+            targetVer,
+            targetTs,
+            ignoreMissingFiles,
+            protocolDowngradeAllowed,
+            keys,
+            values
+        );
+    }
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="catalogName"></param>
+    /// <param name="schemaName"></param>
+    /// <param name="tableName"></param>
+    /// <param name="limit"></param>
+    /// <param name="cloudOptions"></param>
+    /// <returns></returns>
+    public DataFrame DeltaHistory(
+        string catalogName,
+        string schemaName,
+        string tableName,
+        int limit = 0,
+        CloudOptions? cloudOptions = null)
+    {
+        var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
+        string json = PolarsWrapper.CatalogHistory(        
+            Handle,
+            catalogName, 
+            schemaName, 
+            tableName, limit, keys, values);
+        byte[] buffer = Encoding.UTF8.GetBytes(json);
+        
+        var df = DataFrame.ReadJson(buffer, jsonFormat: JsonFormat.Json, inferSchemaLen: 2000);
+
+        // =========================================================
+        // Post-Processing
+        // =========================================================
+
+        // i64 -> Datetime
+        if (df.ColumnNames.Contains("timestamp"))
+        {
+            df = df.WithColumns(
+                Polars.Col("timestamp")
+                    .Cast(DataType.Datetime(TimeUnit.Milliseconds,"UCT")) 
+                    .Alias("timestamp") 
+            );
+        }
+        if (df.ColumnNames.Contains("operationMetrics"))
+        {
+            df = df.Unnest("operationMetrics");
+        }
+
+        // operationParameters (Struct -> Columns)
+        if (df.ColumnNames.Contains("operationParameters"))
+        {
+            df = df.Unnest("operationParameters");
+        }
+
+        if (df.ColumnNames.Contains("version"))
+        {
+            df = df.Sort("version", descending: true);
+        }
+        else
+        {
+            df = df.Sort("timestamp", descending: true);
+        }
+
+        string[] priorityCols = ["version", "timestamp", "operation", "mode", "predicate", "userName"];
+        var existingCols = df.ColumnNames;
+        var selection = priorityCols.Where(c => existingCols.Contains(c)).ToList();
+        
+        selection.AddRange(existingCols.Except(priorityCols));
+        
+        return df.Select(selection.Select(Polars.Col).ToArray());
+    }
     /// <summary>
     /// Dispose handle
     /// </summary>

@@ -1132,7 +1132,37 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         Assert.Contains(201, remainingIds);
         Assert.Contains(250, remainingIds);
 
-        Console.WriteLine("ULTIMATE 4-WAY CHAOS TEST (DV + OPTIMIZE + JITTER) PASSED! ");
+        long newVersion = uc.DeltaRestore(
+            catalog, schema, table, 
+            version: 1, 
+            cloudOptions: cloudOptions
+        );
+
+        Console.WriteLine($"--- New Version is {newVersion} ---");
+
+        // 校验回滚后的状态：只剩最初的 50 条英雄
+        using var restoredLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
+        using var restoredDf = restoredLf.Collect().Sort("Id");
+        
+        Console.WriteLine("--- Restored Data ---");
+        restoredDf.Show();
+        Assert.Equal(50, restoredDf.Height);
+
+        using var historyDf = uc.DeltaHistory(catalog, schema, table, cloudOptions: cloudOptions);
+        
+        Console.WriteLine("--- Table History ---");
+        historyDf.Show();
+
+        long deletedFiles = uc.DeltaVacuum(
+            catalog, schema, table,
+            retentionHours: 0,          
+            enforceRetention: false,    
+            cloudOptions: cloudOptions
+        );
+
+        Console.WriteLine($"--- Vacuum deleted {deletedFiles} orphaned files ---");
+
+        Console.WriteLine("ULTIMATE 4-WAY CHAOS TEST (DV + OPTIMIZE + JITTER + VACUUM + RESTORE + HISTORY) PASSED! ");
         
         // 测试完把环境变量重置
         Environment.SetEnvironmentVariable("POLARS_DELTA_MAX_RETRIES", null);
@@ -1594,6 +1624,108 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         Console.WriteLine("ULTIMATE LOGICAL OVERLAP CHAOS PASSED! ROW LEVEL CONFLICTS RESOLVED!");
         Environment.SetEnvironmentVariable("POLARS_DELTA_MAX_RETRIES", null);
+    }
+    [Fact]
+    [Trait("Catalog", "Maintenance")]
+    public void Test_Catalog_History_Restore_Vacuum_Lifecycle()
+    {
+        // ==========================================
+        // 0. 环境与 Mock 初始化
+        // ==========================================
+        var catalog = "main";
+        var schema = "default";
+        var table = $"delta_maintenance_{Guid.NewGuid():N}";
+        var s3StorageLocation = $"s3://{_minio.BucketName}/{table}";
+        var expectedToken = "dapi-maintenance-token";
+
+        var rawEndpoint = _minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/');
+        var polarsEndpoint = $"http://{rawEndpoint}";
+
+        SetupUnityCatalogMock(catalog, schema, table, s3StorageLocation, expectedToken, _minio.AccessKey, _minio.SecretKey);
+
+        var cloudOptions = CloudOptions.Aws(region: _minio.Region, endpoint: polarsEndpoint);
+        cloudOptions.Credentials!["aws_allow_http"] = "true";
+        cloudOptions.Credentials!["aws_s3_force_path_style"] = "true";
+        cloudOptions.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
+
+        using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
+
+        // ==========================================
+        // 1. 创世 (V1)
+        // ==========================================
+        Console.WriteLine("Step 1: Creating initial table (V1)...");
+        using var dfV1 = DataFrame.FromColumns(new { 
+            Id = new[] { 1, 2, 3 },
+            Hero = new[] { "Iron Man", "Captain America", "Thor" }
+        });
+        
+        dfV1.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Overwrite, cloudOptions: cloudOptions);
+
+        // ==========================================
+        // 2. 变异 (V2) - 混入反派
+        // ==========================================
+        Console.WriteLine("Step 2: Appending bad data (V2)...");
+        using var dfV2 = DataFrame.FromColumns(new { 
+            Id = new[] { 4, 5 },
+            Hero = new[] { "Thanos", "Ultron" } 
+        });
+
+        dfV2.WriteCatalogTable(uc, catalog, schema, table, mode: DeltaSaveMode.Append, cloudOptions: cloudOptions);
+
+        // 校验 V2 状态
+        using var currentLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
+        using var currentDf = currentLf.Collect();
+        Assert.Equal(5, currentDf.Height);
+
+        // ==========================================
+        // 3. 审计 (History)
+        // ==========================================
+        Console.WriteLine("\nStep 3: Checking Table History...");
+        using var historyDf = uc.DeltaHistory(catalog, schema, table, cloudOptions: cloudOptions);
+        
+        Console.WriteLine("--- Table History ---");
+        historyDf.Show();
+        
+        // 历史记录至少应该有 2 条 (V0: WRITE, V1: APPEND)
+        Assert.True(historyDf.Height >= 2);
+
+        // ==========================================
+        // 4. 时光倒流 (Restore)
+        // ==========================================
+        Console.WriteLine("\nStep 4: Restoring to V1...");
+        long newVersion = uc.DeltaRestore(
+            catalog, schema, table, 
+            version: 1, 
+            cloudOptions: cloudOptions
+        );
+
+        // Restore 会产生一个新的 Commit (V3)
+        Assert.Equal(3, newVersion);
+
+        // 校验回滚后的状态：只剩最初的 3 条英雄
+        using var restoredLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
+        using var restoredDf = restoredLf.Collect().Sort("Id");
+        
+        Console.WriteLine("--- Restored Data ---");
+        restoredDf.Show();
+        Assert.Equal(3, restoredDf.Height);
+
+        // ==========================================
+        // 5. 毁灭 (Vacuum)
+        // ==========================================
+        Console.WriteLine("\nStep 5: Vacuuming orphaned files...");
+        // 虽然回滚到了 V1，但 V1 (Thanos/Ultron) 的 Parquet 文件仍在 S3 中。
+        // 强行关闭保留期保护，清理孤儿文件。
+        long deletedFiles = uc.DeltaVacuum(
+            catalog, schema, table,
+            retentionHours: 0,          
+            enforceRetention: false,    
+            cloudOptions: cloudOptions
+        );
+
+        Console.WriteLine($"--- Vacuum deleted {deletedFiles} orphaned files ---");
+        // 至少删除了 1 个文件 (V1 的 Append 产生的文件)
+        Assert.True(deletedFiles > 0);
     }
 
 }

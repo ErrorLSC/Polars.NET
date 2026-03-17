@@ -380,6 +380,7 @@ pub(crate) async fn phase_commit_and_cleanup(
 
         let commit_res = transaction::CommitBuilder::default()
             .with_actions(actions)
+            .with_app_metadata(crate::delta::utils::get_polars_net_metadata())
             .build(
                 table.state.as_ref().map(|s| s as &dyn transaction::TableReference), 
                 table.log_store().clone(), 

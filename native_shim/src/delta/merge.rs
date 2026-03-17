@@ -1248,6 +1248,7 @@ pub(crate) async fn phase_commit(
     
     let _commit_res = deltalake::kernel::transaction::CommitBuilder::default()
         .with_actions(actions)
+        .with_app_metadata(crate::delta::utils::get_polars_net_metadata())
         .build(
             Some(table.snapshot()?), 
             table.log_store().clone(),

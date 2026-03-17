@@ -285,6 +285,10 @@ public static class Delta
         {
             df = df.Unnest("operationParameters");
         }
+        if (df.ColumnNames.Contains("operationMetrics"))
+        {
+            df = df.Unnest("operationMetrics");
+        }
 
         if (df.ColumnNames.Contains("version"))
         {
@@ -499,7 +503,6 @@ public static class Delta
         DateTime? endTimestamp = null, 
         CloudOptions? cloudOptions = null)
     {
-        // 兜底逻辑：如果用户没填结束时间，默认为当前 UTC 时间
         DateTime actualEnd = endTimestamp ?? DateTime.UtcNow;
 
         if (startTimestamp > actualEnd)
@@ -507,7 +510,6 @@ public static class Delta
             throw new ArgumentException("startTimestamp cannot be greater than endTimestamp.");
         }
 
-        // 精确转换为 Unix 毫秒时间戳
         long startMs = new DateTimeOffset(startTimestamp.ToUniversalTime()).ToUnixTimeMilliseconds();
         long endMs = new DateTimeOffset(actualEnd.ToUniversalTime()).ToUnixTimeMilliseconds();
 

@@ -182,4 +182,56 @@ internal partial class NativeBindings
 
         out nuint optimized_files
     );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_catalog_delta_vacuum(
+        CatalogHandle handle,
+        // --- catalog info ---
+        string catalogName,
+        string schemaName,
+        string tableName,
+        int retentionHours,
+        [MarshalAs(UnmanagedType.U1)] bool enforceRetention,
+        [MarshalAs(UnmanagedType.U1)] bool dryRun,
+        [MarshalAs(UnmanagedType.U1)] bool vacuumModeFull,
+        // Cloud Args (Simplified)
+        string[]? keys,
+        string[]? values,
+        nuint len,
+        out nuint filesDeleted
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_catalog_delta_restore(
+        CatalogHandle handle,
+        // --- catalog info ---
+        string catalogName,
+        string schemaName,
+        string tableName,
+        long targetVersion,
+        long targetTimestampMs,
+        [MarshalAs(UnmanagedType.U1)] bool ignoreMissingFiles,
+        [MarshalAs(UnmanagedType.U1)] bool protocolDowngradeAllowed,
+        
+        // Cloud Options
+        string[]? keys,
+        string[]? values,
+        nuint len,
+        
+        // Output
+        out long newVersion
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_catalog_delta_history(
+        CatalogHandle handle,
+        // --- catalog info ---
+        string catalogName,
+        string schemaName,
+        string tableName,
+        nuint limit,
+        // Cloud Options
+        string[]? keys,
+        string[]? values,
+        nuint len,
+        // Output: ptr to json
+        out IntPtr jsonPtr
+    );
 }
