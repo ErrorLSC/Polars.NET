@@ -299,12 +299,12 @@ public static class PolarsSql
     [Sql.Expression("BIT_XOR({0}, {1})", ServerSideOnly = true)]
     public static int BitXor(int a, int b) 
         => throw new InvalidOperationException("Only for LINQ to Polars.");
-    // /// <summary>
-    // /// Calculates the bitwise count(the number of 1) using BIT_COUNT.
-    // /// </summary>
-    // [Sql.Expression("BIT_COUNT({0})", ServerSideOnly = true)]
-    // public static int BitCount(int a) 
-    //     => throw new InvalidOperationException("Only for LINQ to Polars.");
+    /// <summary>
+    /// Calculates the bitwise count(the number of 1) using BIT_COUNT.
+    /// </summary>
+    [Sql.Expression("BIT_COUNT({0})", ServerSideOnly = true)]
+    public static int BitCount(int a) 
+        => throw new InvalidOperationException("Only for LINQ to Polars.");
     /// <summary>
     /// Returns the bitwise NOT of the specified value.
     /// </summary>
@@ -599,4 +599,21 @@ public static class PolarsSql
     [Sql.Expression("UNNEST({0})", ServerSideOnly = true)]
     public static T Unnest<T>(this IEnumerable<T> array)
         => throw new InvalidOperationException("Only for LINQ to Polars.");
+        
+    // ==========================================
+    // Temporal
+    // ==========================================
+
+    [Sql.Function("strftime", ServerSideOnly = true)]
+    public static string ToPolarsString(this DateTime date, string format)
+        => throw new InvalidOperationException("Only for LINQ to Polars.");
+  
+    [Sql.Function("strftime", ServerSideOnly = true)]
+    public static string ToPolarsString(this DateTimeOffset date, string format)
+        => throw new InvalidOperationException("Only for LINQ to Polars.");
+    [Sql.Function("STRPTIME", ServerSideOnly = true)]
+    public static DateTime ParsePolarsDate(this string text, string format)
+        => throw new InvalidOperationException("Only for LINQ to Polars.");
+    
+    
 }

@@ -2,17 +2,14 @@ using Polars.CSharp;
 using static Polars.CSharp.Polars;
 using Polars.NET.Linq.CSharpExtensions;
 using LinqToDB;
-using DataType = Polars.CSharp.DataType;
 using LinqToDB.Async;
 using Polars.NET.Linq;
-using LinqToDB.Mapping; // 引入我们刚才写的扩展
+using LinqToDB.Mapping; 
 
 namespace Polars.Integration.Tests;
 
 public class LinqProviderTests
 {
-    // 1. 定义一个用于映射的强类型 POCO
-    // 注意：底层由于复用了 DataFrame.Rows<T>()，要求实体类必须有无参构造函数 (new())
     public class Person
     {
         public string Name { get; set; } = string.Empty;
@@ -33,7 +30,6 @@ public class LinqProviderTests
         public string DeptName { get; set; } = string.Empty;
     }
 
-    // 定义包含外键的员工类
     public class Employee
     {
         public string Name { get; set; } = string.Empty;
@@ -68,7 +64,6 @@ public class LinqProviderTests
     [Trait("Linq", "Where")]
     public void Test_Polars_Linq_Where_And_OrderBy()
     {
-        // Arrange: 准备模拟数据
         var data = new[]
         {
             new Person { Name = "Alice",   Age = 25, Sales = 100.0 },
@@ -77,23 +72,39 @@ public class LinqProviderTests
             new Person { Name = "David",   Age = 18, Sales =  50.0 }
         };
 
-        // 创建 Polars 内存 DataFrame
         using var df = DataFrame.From(data);
 
-        // 定义外部闭包变量，测试 linq2db 能否将它们内联为纯文本 SQL
         int ageLimit = 20;
         string excludeName = "Alice";
 
-        var results = df.AsQueryable<Person>()
+        var query = df.AsQueryable<Person>()
                       .Where(p => p.Age > ageLimit && p.Name != excludeName)
-                      .OrderByDescending(p => p.Sales)
-                      .ToList();
+                      .OrderByDescending(p => p.Sales);
 
-        // Assert: 验证结果
+        // SELECT
+        //         p."Name",
+        //         p."Age",
+        //         p."Sales"
+        // FROM
+        //         "Person" p
+        // WHERE
+        //         p."Age" > 20 AND (p."Name" <> 'Alice' OR p."Name" IS NULL)
+        // ORDER BY
+        //         p."Sales" DESC
+
+        // shape: (2, 3)
+        // ┌─────────┬─────┬───────┐
+        // │ Name    ┆ Age ┆ Sales │
+        // │ ---     ┆ --- ┆ ---   │
+        // │ str     ┆ i32 ┆ f64   │
+        // ╞═════════╪═════╪═══════╡
+        // │ Charlie ┆ 35  ┆ 300.0 │
+        // │ Bob     ┆ 30  ┆ 200.0 │
+        // └─────────┴─────┴───────┘
+        var results = query.ToList();
         Assert.NotNull(results);
-        Assert.Equal(2, results.Count); // 应该只剩下 Bob 和 Charlie
+        Assert.Equal(2, results.Count); 
 
-        // 验证 OrderByDescending (Sales 降序，Charlie 应该在第一位)
         Assert.Equal("Charlie", results[0].Name);
         Assert.Equal(35, results[0].Age);
         Assert.Equal(300.0, results[0].Sales);
@@ -115,20 +126,33 @@ public class LinqProviderTests
         };
 
         using var df = DataFrame.From(data);
-        
-        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
 
-        var query = db.RegisterTable<Person>(df)
+        var query = df.AsQueryable<Person>()
                       .Where(p => p.Sales > 150)
                       .Select(p => new PersonDto 
                       { 
                           Name = p.Name, 
                           Sales = p.Sales 
                       });
+        // SELECT
+        //         p."Name",
+        //         p."Sales"
+        // FROM
+        //         "Person" p
+        // WHERE
+        //         p."Sales" > 150
+
+        // shape: (2, 2)
+        // ┌─────────┬───────┐
+        // │ Name    ┆ Sales │
+        // │ ---     ┆ ---   │
+        // │ str     ┆ f64   │
+        // ╞═════════╪═══════╡
+        // │ Bob     ┆ 200.0 │
+        // │ Charlie ┆ 300.0 │
+        // └─────────┴───────┘
 
         var results = query.ToList();
-
-        // Assert
         Assert.Equal(2, results.Count);
         
         Assert.IsType<List<PersonDto>>(results);
@@ -159,7 +183,6 @@ public class LinqProviderTests
         var deptQuery = dfDepts.AsQueryable<Department>(db);
         var empQuery = dfEmps.AsQueryable<Employee>(db);
 
-        // Act: 经典的 LINQ Join 语法
         var query = from e in empQuery
                     join d in deptQuery on e.DeptId equals d.DeptId
                     where e.Name != "Bob"
@@ -169,12 +192,30 @@ public class LinqProviderTests
                         EmpName = e.Name,
                         DepartmentName = d.DeptName
                     };
+        // SELECT
+        //         e."Name",
+        //         d."DeptName"
+        // FROM
+        //         "Employee" e
+        //                 INNER JOIN "Department" d ON e."DeptId" = d."DeptId"
+        // WHERE
+        //         e."Name" <> 'Bob' OR e."Name" IS NULL
+        // ORDER BY
+        //         d."DeptName",
+        //         e."Name"
+        // shape: (2, 2)
+        // ┌─────────┬─────────────┐
+        // │ Name    ┆ DeptName    │
+        // │ ---     ┆ ---         │
+        // │ str     ┆ str         │
+        // ╞═════════╪═════════════╡
+        // │ Alice   ┆ Engineering │
+        // │ Charlie ┆ Engineering │
+        // └─────────┴─────────────┘
 
         var results = query.ToList();
-        // Assert
         Assert.Equal(2, results.Count);
         
-        // 应该只有 Alice 和 Charlie (因为 Bob 被过滤了)，且按部门名称排序
         Assert.Equal("Alice", results[0].EmpName);
         Assert.Equal("Engineering", results[0].DepartmentName);
 
@@ -185,7 +226,6 @@ public class LinqProviderTests
     [Trait("Linq","GroupByHaving")]
     public void Test_Polars_Linq_GroupBy_Aggregation_With_Having()
     {
-        // Arrange: 准备数据
         var emps = new[]
         {
             new EmployeeSalary { Name = "Alice", DeptId = 1, Salary = 5000.0 },
@@ -196,16 +236,11 @@ public class LinqProviderTests
         };
 
         using var dfEmps = DataFrame.From(emps);
-        using var ctx = new SqlContext();
-        using var db = new PolarsDataContext(ctx);
         
-        var empQuery = db.RegisterTable<EmployeeSalary>(dfEmps);
+        var empQuery = dfEmps.AsQueryable<EmployeeSalary>();
 
-        // Act: LINQ GroupBy + Having 语法
-        // 预期 SQL: GROUP BY e."DeptId" HAVING SUM(e."Salary") > 5000
         var query = from e in empQuery
                     group e by e.DeptId into g
-                    // 【核心升级】：这里的 where 会被翻译成 HAVING
                     where g.Sum(x => x.Salary) > 5000.0 
                     orderby g.Key
                     select new DeptStatsDto
@@ -217,21 +252,37 @@ public class LinqProviderTests
 
         var results = query.ToList();
 
-        // Assert: 验证聚合和过滤结果
-        // 一共 3 个部门，但 Dept 3 (3000) 被 HAVING 过滤掉了，只剩下 2 个
+        // SELECT
+        //         e."Name",
+        //         d."DeptName"
+        // FROM
+        //         "Employee" e
+        // INNER JOIN "Department" d ON e."DeptId" = d."DeptId"
+        // WHERE
+        //         e."Name" <> 'Bob' OR e."Name" IS NULL
+        // ORDER BY
+        //         d."DeptName",
+        //         e."Name"
+        // shape: (2, 2)
+        // ┌─────────┬─────────────┐
+        // │ Name    ┆ DeptName    │
+        // │ ---     ┆ ---         │
+        // │ str     ┆ str         │
+        // ╞═════════╪═════════════╡
+        // │ Alice   ┆ Engineering │
+        // │ Charlie ┆ Engineering │
+        // └─────────┴─────────────┘
+
         Assert.Equal(2, results.Count); 
 
-        // 验证 Dept 1 (Alice + Charlie)
         Assert.Equal(1, results[0].DeptId);
         Assert.Equal(11000.0, results[0].TotalSalary); // 5000 + 6000
         Assert.Equal(2, results[0].EmployeeCount);
 
-        // 验证 Dept 2 (Bob + David)
         Assert.Equal(2, results[1].DeptId);
         Assert.Equal(8500.0, results[1].TotalSalary); // 4000 + 4500
         Assert.Equal(2, results[1].EmployeeCount);
         
-        // 确保 Dept 3 不存在
         Assert.DoesNotContain(results, r => r.DeptId == 3);
     }
     [Fact]
@@ -246,24 +297,16 @@ public class LinqProviderTests
         };
 
         var query = DataFrame.From(data).AsQueryable(data);
-        // ==========================================
-        // 测试 1：标量聚合 (Scalar Aggregation)
-        // linq2db 预期生成: SELECT COUNT(*) FROM students WHERE Score > 82
-        // ==========================================
-        int highScorersCount = query.Where(s => s.Score > 82).Count();
-        Assert.Equal(2, highScorersCount); // Bob 和 Charlie
 
-        // ==========================================
-        // 测试 2：求最大值 (Max)
-        // linq2db 预期生成: SELECT MAX(Score) FROM students
-        // ==========================================
+        int highScorersCount = query.Where(s => s.Score > 82).Count();
+        
+        Assert.Equal(2, highScorersCount); 
+
+        // linq2db : SELECT MAX(Score) FROM students
         int maxScore = query.Max(s => s.Score);
         Assert.Equal(90, maxScore);
 
-        // ==========================================
-        // 测试 3：单行查询 (First / Take 1)
-        // linq2db 预期生成: SELECT Id, Name, Score FROM students WHERE Score > 82 ORDER BY Score DESC LIMIT 1
-        // ==========================================
+        // linq2db : SELECT Id, Name, Score FROM students WHERE Score > 82 ORDER BY Score DESC LIMIT 1
         var topStudent = query.Where(s => s.Score > 82)
                               .OrderByDescending(s => s.Score)
                               .First();
@@ -277,7 +320,6 @@ public class LinqProviderTests
     [Trait("Linq", "AdvancedFilters")]
     public void Test_Polars_Linq_In_And_String_Like()
     {
-        // Arrange: 准备测试数据
         var data = new[]
         {
             new Product(1, "Apple", "Fruit", 1.2),
@@ -288,23 +330,17 @@ public class LinqProviderTests
         };
 
         using var df = DataFrame.From(data);
-        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
 
-        var query = db.RegisterTable<Product>(df);
+        var query = df.AsQueryable<Product>();
 
-        // ==========================================
-        // 测试 1：集合包含 (映射为 IN 子句)
-        // linq2db 预期生成: SELECT ... FROM products WHERE Category IN ('Fruit', 'Meat')
-        // ==========================================
+        // linq2db : SELECT ... FROM products WHERE Category IN ('Fruit', 'Meat')
         var targetCategories = new[] { "Fruit", "Meat" };
         var inResult = query.Where(p => targetCategories.Contains(p.Category)).ToList();
         
         Assert.Equal(3, inResult.Count); // Apple, Banana, Beef
         Assert.DoesNotContain(inResult, p => p.Category == "Vegetable");
 
-        // ==========================================
-        // 测试 2：字符串前缀匹配 (映射为 LIKE 'A%')
-        // linq2db 预期生成: SELECT ... FROM products WHERE Name LIKE 'A%' ESCAPE '~' (或者没 ESCAPE)
+        // linq2db : SELECT ... FROM products WHERE Name LIKE 'A%' ESCAPE '~' (ESCAPE will be removed)
         // ==========================================
         var likeResult = query.Where(p => p.Name.StartsWith("A")).ToList();
         
@@ -312,23 +348,18 @@ public class LinqProviderTests
         Assert.Contains(likeResult, p => p.Name == "Apple");
         Assert.Contains(likeResult, p => p.Name == "Avocado");
 
-        // ==========================================
-        // 测试 3：组合拳！IN + LIKE + 复杂条件
-        // ==========================================
         var complexResult = query.Where(p => 
             targetCategories.Contains(p.Category) && 
             p.Name.Contains('e') && 
             p.Price > 1.0
         ).ToList();
 
-        // 只有 Apple 和 Beef 满足：类别是水果或肉，名字包含 e，且价格大于 1.0
         Assert.Equal(2, complexResult.Count); 
     }
     [Fact]
     [Trait("Linq", "PaginationAndDistinct")]
     public void Test_Polars_Linq_Skip_Take_And_Distinct()
     {
-        // Arrange
         var data = new[]
         {
             new Product(1, "Apple", "Fruit", 1.2),
@@ -336,39 +367,29 @@ public class LinqProviderTests
             new Product(3, "Cherry", "Fruit", 1.5),
             new Product(4, "Beef", "Meat", 5.0),
             new Product(5, "Pork", "Meat", 4.0),
-            new Product(6, "Apple", "Fruit", 1.2) // 故意加一个重复的苹果
+            new Product(6, "Apple", "Fruit", 1.2) // Duplicated
         };
 
         using var df = DataFrame.From(data);
-        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-        var query = db.RegisterTable<Product>(df);
+        var query = df.AsQueryable<Product>();
 
-        // ==========================================
-        // 测试 1：投影去重 (Distinct)
-        // linq2db 预期生成: SELECT DISTINCT p."Category" FROM products p
-        // ==========================================
+        // linq2db : SELECT DISTINCT p."Category" FROM products p
         var distinctCategories = query.Select(p => p.Category).Distinct().ToList();
         
         Assert.Equal(2, distinctCategories.Count);
         Assert.Contains("Fruit", distinctCategories);
         Assert.Contains("Meat", distinctCategories);
 
-        // 我们还可以测试整行去重
         var distinctProducts = query.Distinct().ToList();
-        // 因为 Id 不同 (1 和 6)，所以它们不算完全重复，总数还是 6
         Assert.Equal(6, distinctProducts.Count); 
 
-        // ==========================================
-        // 测试 2：分页与切片 (Skip & Take)
-        // linq2db 预期生成: SELECT ... FROM products ORDER BY p."Id" LIMIT 2 OFFSET 2
-        // ==========================================
+        // linq2db : SELECT ... FROM products ORDER BY p."Id" LIMIT 2 OFFSET 2
         var pagedResult = query.OrderBy(p => p.Id)
                                .Skip(2)
                                .Take(2)
                                .ToList();
                                
         Assert.Equal(2, pagedResult.Count);
-        // 跳过 Apple(1) 和 Banana(2)，应该取到 Cherry(3) 和 Beef(4)
         Assert.Equal(3, pagedResult[0].Id); 
         Assert.Equal(4, pagedResult[1].Id);
     }
@@ -376,7 +397,6 @@ public class LinqProviderTests
     [Trait("Linq", "Subquery")]
     public void Test_Polars_Linq_Subquery_Any()
     {
-        // Arrange: 准备部门和员工数据
         var depts = new[]
         {
             new { DeptId = 1, DeptName = "Engineering" },
@@ -386,45 +406,28 @@ public class LinqProviderTests
 
         var emps = new[]
         {
-            new { Name = "Alice", DeptId = 1, Salary = 6000.0 }, // Engineering 达标 (> 5000)
-            new { Name = "Bob",   DeptId = 2, Salary = 4000.0 }, // Sales 不达标
+            new { Name = "Alice", DeptId = 1, Salary = 6000.0 }, 
+            new { Name = "Bob",   DeptId = 2, Salary = 4000.0 }, 
             new { Name = "Charlie", DeptId = 1, Salary = 4500.0 }
         };
 
         using var dfDepts = DataFrame.From(depts);
         using var dfEmps = DataFrame.From(emps);
 
-        using var ctx = new SqlContext();
-        using var db = new PolarsDataContext(ctx);
-        var deptQuery = db.RegisterTable(dfDepts, depts);
-        var empQuery = db.RegisterTable(dfEmps, emps);
+        using var db = new PolarsDataContext(Sql(),true);
+        var deptQuery = dfDepts.AsQueryable(depts,db);
+        var empQuery = dfEmps.AsQueryable(emps,db);
 
-        // ==========================================
-        // 测试：相关子查询 Any
-        // 业务需求：找出“至少拥有一个薪水大于 5000 的员工”的部门
-        // ==========================================
-        // var query = deptQuery.Where(d => 
-        //     empQuery.Any(e => e.DeptId == d.DeptId && e.Salary > 5000)
-        // );
-        // 1. 先查出所有符合条件的高薪部门 ID 集合（这是一个独立查询，没有外部依赖）
-        // var highSalaryDeptIds = empQuery
-        //     .Where(e => e.Salary > 5000)
-        //     .Select(e => e.DeptId);
-
-        // // 2. 外层用 Contains 触发 IN 语法
-        // var query = deptQuery
-        //     .Where(d => highSalaryDeptIds.Contains(d.DeptId));
         var query = deptQuery
             .Join(
                 empQuery.Where(e => e.Salary > 5000), 
                 d => d.DeptId, 
                 e => e.DeptId, 
-                (d, e) => d // 只要左边的 Dept
+                (d, e) => d 
             )
             .Distinct();
         var result = query.ToList();
         
-        // Assert: 只有 Engineering 部门满足条件
         Assert.Single(result);
         Assert.Equal("Engineering", result[0].DeptName);
     }
@@ -443,7 +446,7 @@ public class LinqProviderTests
     public class LeftJoinResult
     {
         public string DeptName { get; set; } = string.Empty;
-        public string? EmployeeName { get; set; } // 左连接可能没有员工，允许为空
+        public string? EmployeeName { get; set; }
     }
     [Fact]
     [Trait("Linq", "LeftJoin")]
@@ -454,7 +457,7 @@ public class LinqProviderTests
         {
             new DeptDto { DeptId = 1, DeptName = "Engineering" },
             new DeptDto { DeptId = 2, DeptName = "Sales" },
-            new DeptDto { DeptId = 3, DeptName = "HR" } // 注意：HR 部门没有员工！
+            new DeptDto { DeptId = 3, DeptName = "HR" } 
         };
 
         var emps = new[]
@@ -471,36 +474,53 @@ public class LinqProviderTests
         var deptQuery = db.RegisterTable<DeptDto>(dfDepts);
         var empQuery = db.RegisterTable<EmpDto>(dfEmps);
 
-        // Act: 经典的 LINQ Left Join 语法
+        // Classic LINQ Left Join
         var query = from d in deptQuery
                     join e in empQuery on d.DeptId equals e.DeptId into empGroup
-                    from e in empGroup.DefaultIfEmpty() // DefaultIfEmpty 触发 Left Join
+                    from e in empGroup.DefaultIfEmpty() 
                     orderby d.DeptId, e.Name
                     select new LeftJoinResult
                     {
                         DeptName = d.DeptName,
-                        // 如果 e 是 null（没有匹配的员工），我们给个默认值或者保留 null
                         EmployeeName = e != null ? e.Name : "NO_EMPLOYEE" 
                     };
 
         var results = query.ToList();
+        // SELECT
+        //         d."DeptName",
+        //         CASE
+        //                 WHEN e."DeptId" IS NOT NULL THEN e."Name"
+        //                 ELSE 'NO_EMPLOYEE'
+        //         END as "EmployeeName"
+        // FROM
+        //         "DeptDto" d
+        // LEFT JOIN "EmpDto" e ON d."DeptId" = e."DeptId"
+        // ORDER BY
+        //         d."DeptId",
+        //         e."Name"
+        // shape: (4, 2)
+        // ┌─────────────┬──────────────┐
+        // │ DeptName    ┆ EmployeeName │
+        // │ ---         ┆ ---          │
+        // │ str         ┆ str          │
+        // ╞═════════════╪══════════════╡
+        // │ Engineering ┆ Alice        │
+        // │ Engineering ┆ Charlie      │
+        // │ Sales       ┆ Bob          │
+        // │ HR          ┆ NO_EMPLOYEE  │
+        // └─────────────┴──────────────┘
 
-        // Assert
-        // Engineering有2人，Sales有1人，HR有0人(但因为是Left Join，HR也会出现1次)，总共应该返回4条记录
         Assert.Equal(4, results.Count);
 
-        // 验证 Engineering 部门 (Alice, Charlie)
         Assert.Equal("Engineering", results[0].DeptName);
         Assert.Equal("Alice", results[0].EmployeeName);
         
         Assert.Equal("Engineering", results[1].DeptName);
         Assert.Equal("Charlie", results[1].EmployeeName);
 
-        // 验证 Sales 部门 (Bob)
         Assert.Equal("Sales", results[2].DeptName);
         Assert.Equal("Bob", results[2].EmployeeName);
 
-        // 验证 HR 部门 (无员工，应该触发空值处理)
         Assert.Equal("HR", results[3].DeptName);
         Assert.Equal("NO_EMPLOYEE", results[3].EmployeeName);
     }
@@ -527,41 +547,27 @@ public class LinqProviderTests
         var deptQuery = db.RegisterTable<DeptDto>(dfDepts);
         var empQuery = db.RegisterTable<EmpDto>(dfEmps);
 
-        // ==========================================
-        // 测试 1：交叉连接 (Cross Join / Cartesian Product)
-        // 语法：连续使用多个 from
-        // linq2db 预期生成: SELECT ... FROM departments d CROSS JOIN employees e
-        // ==========================================
+        // linq2db : SELECT ... FROM departments d CROSS JOIN employees e
         var crossJoinQuery = from d in deptQuery
                              from e in empQuery
                              select new { d.DeptName, e.Name };
 
         var crossResult = crossJoinQuery.ToList();
         
-        // 2 个部门 * 2 个员工 = 4 条记录
         Assert.Equal(4, crossResult.Count);
         Assert.Contains(crossResult, x => x.DeptName == "Engineering" && x.Name == "Alice");
         Assert.Contains(crossResult, x => x.DeptName == "Sales" && x.Name == "Bob");
 
-        // ==========================================
-        // 测试 2：集合拼接 (Concat -> UNION ALL)
-        // 业务场景：将两批相同结构的数据合并
-        // linq2db 预期生成: SELECT ... FROM employees WHERE ... UNION ALL SELECT ... FROM employees WHERE ...
-        // ==========================================
+        // linq2db : SELECT ... FROM employees WHERE ... UNION ALL SELECT ... FROM employees WHERE ...
         var query1 = empQuery.Where(e => e.DeptId == 1);
         var query2 = empQuery.Where(e => e.DeptId == 2);
         
-        // Concat 对应 UNION ALL (不去重), Union 对应 UNION (去重)
         var unionResult = query1.Concat(query2).ToList();
 
         Assert.Equal(2, unionResult.Count);
         Assert.Contains(unionResult, x => x.Name == "Alice");
         Assert.Contains(unionResult, x => x.Name == "Bob");
 
-        // ==========================================
-        // 测试 3：内置函数映射 (String / Math Functions)
-        // linq2db 预期将 C# 的 string.ToUpper() 翻译为 SQL 的 UPPER()
-        // ==========================================
         var upperResult = empQuery.Select(e => e.Name.ToUpper()).ToList();
         
         Assert.Contains("ALICE", upperResult);
@@ -583,38 +589,24 @@ public class LinqProviderTests
         };
 
         using var dfEmps = DataFrame.From(emps);
-        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-        var empQuery = db.RegisterTable<EmpSalaryDto>(dfEmps);
+        var empQuery = dfEmps.AsQueryable<EmpSalaryDto>();
 
-        // ==========================================
-        // 测试 1：交集 (Intersect)
-        // 找出：既是 1 部门，又薪水大于 4000 的员工
-        // linq2db 预期: SELECT ... INTERSECT SELECT ...
-        // ==========================================
+        // linq2db: SELECT ... INTERSECT SELECT ...
         var q1 = empQuery.Where(e => e.DeptId == 1);
         var q2 = empQuery.Where(e => e.Salary > 4000);
         
         var intersectResult = q1.Intersect(q2).ToList();
         
-        Assert.Equal(2, intersectResult.Count); // Alice 和 Charlie
+        Assert.Equal(2, intersectResult.Count); // Alice , Charlie
         Assert.Contains(intersectResult, e => e.Name == "Alice");
         Assert.Contains(intersectResult, e => e.Name == "Charlie");
 
-        // ==========================================
-        // 测试 2：差集 (Except)
-        // 找出：薪水大于 4000，但【排除】1 部门的员工
-        // linq2db 预期: SELECT ... EXCEPT SELECT ...
-        // ==========================================
+        // linq2db : SELECT ... EXCEPT SELECT ...
         var exceptResult = q2.Except(q1).ToList();
         
-        Assert.Equal(2, exceptResult.Count); // David (8000, 3) 和 Eve (5500, 2)
+        Assert.Equal(2, exceptResult.Count); // David (8000, 3) , Eve (5500, 2)
         Assert.DoesNotContain(exceptResult, e => e.DeptId == 1);
 
-        // ==========================================
-        // 测试 3：Let 关键字与派生计算
-        // 场景：计算年终奖（薪水 * 1.5），并筛选出年终奖大于 8000 的人
-        // linq2db 可能的生成结果：内联乘法，或者生成嵌套的 SELECT 子查询
-        // ==========================================
         var letQuery = from e in empQuery
                        let bonus = e.Salary * 1.5
                        where bonus > 8000
@@ -626,7 +618,6 @@ public class LinqProviderTests
 
         var letResult = letQuery.ToList();
 
-        // 只有 Alice (9000), David (12000), Eve (8250) 的年终奖 > 8000
         Assert.Equal(3, letResult.Count);
         Assert.Contains(letResult, x => x.Name == "Alice" && x.Bonus == 9000.0);
         Assert.Contains(letResult, x => x.Name == "David" && x.Bonus == 12000.0);
@@ -635,7 +626,6 @@ public class LinqProviderTests
     [Trait("Linq", "WindowFunctions")]
     public void Test_Polars_Linq_Window_Functions()
     {
-        LinqToDB.Common.Configuration.Sql.GenerateFinalAliases = true;
         var emps = new[]
         {
             new EmpSalaryDto("Alice", 1, 6000.0),
@@ -646,27 +636,22 @@ public class LinqProviderTests
         };
 
         using var dfEmps = DataFrame.From(emps);
-        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-        var empQuery = db.RegisterTable<EmpSalaryDto>(dfEmps);
+        var empQuery = dfEmps.AsQueryable<EmpSalaryDto>();
 
-        // ==========================================
-        // 测试：窗口函数 (Window Functions)
-        // 业务场景：计算每个人在自己部门内的薪水排名，以及该部门的总薪水
-        // ==========================================
         var query = from e in empQuery
                     select new
                     {
                         e.Name,
                         e.DeptId,
                         e.Salary,
-                        // 1. 排名窗口函数: RANK() OVER (PARTITION BY DeptId ORDER BY Salary DESC)
+                        // RANK() OVER (PARTITION BY DeptId ORDER BY Salary DESC)
                         DeptRank = LinqToDB.Sql.Ext.Rank()
                                          .Over()
                                          .PartitionBy(e.DeptId)
                                          .OrderByDesc(e.Salary)
                                          .ToValue(),
                                          
-                        // 2. 聚合窗口函数: SUM(Salary) OVER (PARTITION BY DeptId)
+                        // SUM(Salary) OVER (PARTITION BY DeptId)
                         DeptTotalSalary = LinqToDB.Sql.Ext.Sum(e.Salary)
                                                 .Over()
                                                 .PartitionBy(e.DeptId)
@@ -675,19 +660,37 @@ public class LinqProviderTests
 
         var results = query.ToList();
 
-        // Assert
+        // SELECT
+        //         e."Name" AS "Name",
+        //         e."DeptId" AS "DeptId",
+        //         e."Salary" AS "Salary",
+        //         RANK() OVER(PARTITION BY e."DeptId" ORDER BY e."Salary" DESC) AS "DeptRank",
+        //         SUM(e."Salary") OVER(PARTITION BY e."DeptId") AS "DeptTotalSalary"
+        // FROM
+        //         "EmpSalaryDto" e
+
+        //  shape: (5, 5)
+        // ┌─────────┬────────┬────────┬──────────┬─────────────────┐
+        // │ Name    ┆ DeptId ┆ Salary ┆ DeptRank ┆ DeptTotalSalary │
+        // │ ---     ┆ ---    ┆ ---    ┆ ---      ┆ ---             │
+        // │ str     ┆ i32    ┆ f64    ┆ u32      ┆ f64             │
+        // ╞═════════╪════════╪════════╪══════════╪═════════════════╡
+        // │ Alice   ┆ 1      ┆ 6000.0 ┆ 1        ┆ 10500.0         │
+        // │ Bob     ┆ 2      ┆ 4000.0 ┆ 2        ┆ 9500.0          │
+        // │ Charlie ┆ 1      ┆ 4500.0 ┆ 2        ┆ 10500.0         │
+        // │ David   ┆ 3      ┆ 8000.0 ┆ 1        ┆ 8000.0          │
+        // │ Eve     ┆ 2      ┆ 5500.0 ┆ 1        ┆ 9500.0          │
+        // └─────────┴────────┴────────┴──────────┴─────────────────┘
         Assert.Equal(5, results.Count);
 
-        // 验证 1 部门 (Alice: 6000, Charlie: 4500)
         var alice = results.First(r => r.Name == "Alice");
-        Assert.Equal(1, alice.DeptRank); // Alice 薪水最高，排名第 1
-        Assert.Equal(10500.0, alice.DeptTotalSalary); // 1部门总薪水 10500
+        Assert.Equal(1, alice.DeptRank); 
+        Assert.Equal(10500.0, alice.DeptTotalSalary); 
 
         var charlie = results.First(r => r.Name == "Charlie");
-        Assert.Equal(2, charlie.DeptRank); // Charlie 排名第 2
-        Assert.Equal(10500.0, charlie.DeptTotalSalary); // 窗口聚合，总薪水也是 10500
+        Assert.Equal(2, charlie.DeptRank); 
+        Assert.Equal(10500.0, charlie.DeptTotalSalary); 
 
-        // 验证 2 部门 (Eve: 5500, Bob: 4000)
         var eve = results.First(r => r.Name == "Eve");
         Assert.Equal(1, eve.DeptRank);
         Assert.Equal(9500.0, eve.DeptTotalSalary);
@@ -696,7 +699,6 @@ public class LinqProviderTests
         Assert.Equal(2, bob.DeptRank);
         Assert.Equal(9500.0, bob.DeptTotalSalary);
 
-        // 验证 3 部门 (David: 8000)
         var david = results.First(r => r.Name == "David");
         Assert.Equal(1, david.DeptRank);
         Assert.Equal(8000.0, david.DeptTotalSalary);
@@ -719,16 +721,36 @@ public class LinqProviderTests
         var empQuery = db.RegisterTable<EmpSalaryDto>(dfEmps);
 
         // ==========================================
-        // 测试 1：CASE WHEN (数据分箱/条件分支)
-        // 业务需求：按照薪水划分等级
-        // linq2db 预期: CASE WHEN e."Salary" >= 6000 THEN 'High' WHEN ... ELSE 'Low' END
+        // CASE WHEN 
         // ==========================================
-        var caseWhenQuery = empQuery.Select(e => new
+        var caseWhenQueryRaw = empQuery.Select(e => new
         {
             e.Name,
-            // 嵌套的三元运算符
             SalaryTier = e.Salary >= 6000 ? "High" : (e.Salary >= 4500 ? "Medium" : "Low")
-        }).ToList();
+        });
+        var caseWhenQuery = caseWhenQueryRaw.ToList();
+        // SELECT
+        //         e."Name" AS "Name",
+        //         CASE
+        //                 WHEN e."Salary" >= 6000 THEN 'High'
+        //                 WHEN e."Salary" >= 4500 THEN 'Medium'
+        //                 ELSE 'Low'
+        //         END AS "SalaryTier"
+        // FROM
+        //         "EmpSalaryDto" e
+
+        // shape: (5, 2)
+        // ┌─────────┬────────────┐
+        // │ Name    ┆ SalaryTier │
+        // │ ---     ┆ ---        │
+        // │ str     ┆ str        │
+        // ╞═════════╪════════════╡
+        // │ Alice   ┆ High       │
+        // │ Bob     ┆ Low        │
+        // │ Charlie ┆ Medium     │
+        // │ David   ┆ High       │
+        // │ Eve     ┆ Medium     │
+        // └─────────┴────────────┘
 
         Assert.Equal(5, caseWhenQuery.Count);
         Assert.Equal("High", caseWhenQuery.First(e => e.Name == "Alice").SalaryTier);   // 6000
@@ -738,21 +760,46 @@ public class LinqProviderTests
         Assert.Equal("Low", caseWhenQuery.First(e => e.Name == "Bob").SalaryTier);        // 4000
 
         // ==========================================
-        // 测试 2：CTE (Common Table Expression / WITH 语句)
-        // 业务需求：先圈出一批高薪人群作为 CTE，然后再和自己或其他表进行后续复杂查询
-        // linq2db 预期: WITH "HighEarners" AS (SELECT ... ) SELECT * FROM "HighEarners" c WHERE ...
+        // CTE 
         // ==========================================
         
-        // 1. 定义 CTE (此时不执行，只是声明)
         var cte = empQuery.Where(e => e.Salary > 5000).AsCte("HighEarners");
 
-        // 2. 基于 CTE 进行查询
-        var cteResult = (from c in cte
+        var cteQuery = from c in cte
                          where c.DeptId == 1 || c.DeptId == 3
-                         select c).ToList();
+                         select c;
+        var cteResult = cteQuery.ToList();
 
-        // 薪水 > 5000 的有 Alice(1,6000), David(3,8000), Eve(2,5500)
-        // 在这三人中，部门是 1 或 3 的只有 Alice, David
+        // WITH "HighEarners" ("DeptId", "Name", "Salary")
+        // AS
+        // (
+        //         SELECT
+        //                 e."DeptId",
+        //                 e."Name",
+        //                 e."Salary"
+        //         FROM
+        //                 "EmpSalaryDto" e
+        //         WHERE
+        //                 e."Salary" > 5000
+        // )
+        // SELECT
+        //         c_1."Name",
+        //         c_1."DeptId",
+        //         c_1."Salary"
+        // FROM
+        //         "HighEarners" c_1
+        // WHERE
+        //         c_1."DeptId" = 1 OR c_1."DeptId" = 3
+
+        // shape: (2, 3)
+        // ┌───────┬────────┬────────┐
+        // │ Name  ┆ DeptId ┆ Salary │
+        // │ ---   ┆ ---    ┆ ---    │
+        // │ str   ┆ i32    ┆ f64    │
+        // ╞═══════╪════════╪════════╡
+        // │ Alice ┆ 1      ┆ 6000.0 │
+        // │ David ┆ 3      ┆ 8000.0 │
+        // └───────┴────────┴────────┘
         Assert.Equal(2, cteResult.Count);
         Assert.Contains(cteResult, e => e.Name == "Alice");
         Assert.Contains(cteResult, e => e.Name == "David");
@@ -773,13 +820,10 @@ public class LinqProviderTests
         };
 
         using var dfOrders = DataFrame.From(orders);
-        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-        var orderQuery = db.RegisterTable<OrderDto>(dfOrders);
+        var orderQuery = dfOrders.AsQueryable<OrderDto>();
 
         // ==========================================
-        // 测试 1：多维分组 (Multi-key GroupBy)
-        // 业务需求：按年份和地区统计总营收
-        // linq2db 预期: GROUP BY EXTRACT(YEAR FROM o."OrderDate"), o."Region"
+        // Multi-key GroupBy
         // ==========================================
         var multiGroupQuery = from o in orderQuery
                               group o by new { o.OrderDate.Year, o.Region } into g
@@ -793,7 +837,34 @@ public class LinqProviderTests
 
         var multiGroupResult = multiGroupQuery.ToList();
 
-        // 预期结果：2023-North (250), 2023-South (450), 2024-North (300)
+        // SELECT
+        //         g_2."Year_1" AS "Year",
+        //         g_2."Region" AS "Region",
+        //         SUM(g_2."Revenue") AS "TotalRevenue"
+        // FROM
+        //         (
+        //                 SELECT
+        //                         Floor(Extract(year From g_1."OrderDate"))::Int as "Year_1",
+        //                         g_1."Region",
+        //                         g_1."Revenue"
+        //                 FROM
+        //                         "OrderDto" g_1
+        //         ) g_2
+        // GROUP BY
+        //         g_2."Year_1", g_2."Region" ORDER BY
+        //         g_2."Year_1",
+        //         g_2."Region"
+
+        // shape: (3, 3)
+        // ┌──────┬────────┬──────────────┐
+        // │ Year ┆ Region ┆ TotalRevenue │
+        // │ ---  ┆ ---    ┆ ---          │
+        // │ i32  ┆ str    ┆ f64          │
+        // ╞══════╪════════╪══════════════╡
+        // │ 2023 ┆ North  ┆ 250.0        │
+        // │ 2023 ┆ South  ┆ 450.0        │
+        // │ 2024 ┆ North  ┆ 300.0        │
+        // └──────┴────────┴──────────────┘
         Assert.Equal(3, multiGroupResult.Count);
         
         Assert.Equal(2023, multiGroupResult[0].Year);
@@ -805,18 +876,41 @@ public class LinqProviderTests
         Assert.Equal(450.0, multiGroupResult[1].TotalRevenue);
 
         // ==========================================
-        // 测试 2：时间序列筛选 (Date Functions)
-        // 业务需求：找出 2023 年 2 月的所有订单
+        // Date Functions
         // ==========================================
-        var febOrders = orderQuery
-            .Where(o => o.OrderDate.Year == 2023 && o.OrderDate.Month == 2)
-            .ToList();
+        var febOrdersQuery = orderQuery
+            .Where(o => o.OrderDate.Year == 2023 && o.OrderDate.Month == 2);
+        var febOrders = febOrdersQuery.ToList();
+        // SELECT
+        //         o."OrderId",
+        //         o."OrderDate",
+        //         o."Region",
+        //         o."Revenue"
+        // FROM
+        //         "OrderDto" o
+        // WHERE
+        //         Floor(Extract(year From o."OrderDate"))::Int = 2023 AND
+        //         Floor(Extract(month From o."OrderDate"))::Int = 2
+
+        // shape: (2, 4)
+        // ┌─────────┬─────────────────────┬────────┬─────────┐
+        // │ OrderId ┆ OrderDate           ┆ Region ┆ Revenue │
+        // │ ---     ┆ ---                 ┆ ---    ┆ ---     │
+        // │ i32     ┆ datetime[μs]        ┆ str    ┆ f64     │
+        // ╞═════════╪═════════════════════╪════════╪═════════╡
+        // │ 3       ┆ 2023-02-10 00:00:00 ┆ South  ┆ 200.0   │
+        // │ 5       ┆ 2023-02-25 00:00:00 ┆ South  ┆ 250.0   │
+        // └─────────┴─────────────────────┴────────┴─────────┘
 
         Assert.Equal(2, febOrders.Count); // OrderId 3 和 5
         Assert.Contains(febOrders, o => o.OrderId == 3);
         Assert.Contains(febOrders, o => o.OrderId == 5);
     }
-    public record NullableEmpDto(string? Name, int DeptId, double Salary);
+    public record NullableEmpDto(
+        [property: Column(CanBeNull = true)] string? Name, 
+        int DeptId, 
+        double Salary
+    );
 
     [Fact]
     [Trait("Linq", "SubqueryInAndFunctions")]
@@ -832,7 +926,7 @@ public class LinqProviderTests
         var emps = new[]
         {
             new NullableEmpDto("Alice", 1, 6000.0),
-            new NullableEmpDto(null, 2, 4000.0), // 故意塞一个 null 名字
+            new NullableEmpDto(null, 2, 4000.0), 
             new NullableEmpDto("Charlie", 1, 4500.0),
             new NullableEmpDto("David", 3, 8000.0)
         };
@@ -840,43 +934,77 @@ public class LinqProviderTests
         using var dfDepts = DataFrame.From(depts);
         using var dfEmps = DataFrame.From(emps);
 
-        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-        var deptQuery = db.RegisterTable<DeptDto>(dfDepts);
+        using var db = new PolarsDataContext(Sql(),true);
+        var deptQuery = dfDepts.AsQueryable<DeptDto>(db);
         var empQuery = db.RegisterTable<NullableEmpDto>(dfEmps);
 
         // ==========================================
-        // 测试 1：非相关子查询 (IN Subquery)
-        // 业务需求：找出有员工薪水大于 5000 的部门信息
-        // linq2db 预期: SELECT ... FROM departments d WHERE d."DeptId" IN (SELECT e."DeptId" FROM employees e WHERE e."Salary" > 5000)
+        // IN Subquery
         // ==========================================
         
-        // 1. 构建一个只查 DeptId 的内部查询
         var highPaidDeptIds = empQuery.Where(e => e.Salary > 5000).Select(e => e.DeptId);
         
-        // 2. 在外部查询中使用 .Contains() 传入这个内部查询
-        var richDepts = deptQuery.Where(d => highPaidDeptIds.Contains(d.DeptId)).ToList();
+        var richDeptsQuery = deptQuery.Where(d => highPaidDeptIds.Contains(d.DeptId));
+        var richDepts = richDeptsQuery.ToList();
+        // SELECT
+        //         d."DeptId",
+        //         d."DeptName"
+        // FROM
+        //         "DeptDto" d
+        // WHERE
+        //         d."DeptId" IN (
+        //                 SELECT
+        //                         e."DeptId"
+        //                 FROM
+        //                         "NullableEmpDto" e
+        //                 WHERE
+        //                         e."Salary" > 5000
+        //         )
 
-        Assert.Equal(2, richDepts.Count); // Engineering (Alice) 和 HR (David)
+        // shape: (2, 2)
+        // ┌────────┬─────────────┐
+        // │ DeptId ┆ DeptName    │
+        // │ ---    ┆ ---         │
+        // │ i32    ┆ str         │
+        // ╞════════╪═════════════╡
+        // │ 1      ┆ Engineering │
+        // │ 3      ┆ HR          │
+        // └────────┴─────────────┘
+
+        Assert.Equal(2, richDepts.Count); 
         Assert.Contains(richDepts, d => d.DeptName == "Engineering");
         Assert.Contains(richDepts, d => d.DeptName == "HR");
 
         // ==========================================
-        // 测试 2：空值合并运算符 (?? -> COALESCE)
-        // 业务需求：如果员工名字为 null，则显示 "Unknown"
-        // linq2db 预期: SELECT COALESCE(e."Name", 'Unknown') FROM employees e
+        // ?? -> COALESCE
         // ==========================================
         var coalesceQuery = empQuery.Select(e => new
         {
-            SafeName = e.Name ?? "Unknown"
-        }).ToList();
+            SafeName = LinqToDB.Sql.AsSql(e.Name ?? "Unknown")
+        });
+        var coalesceResult = coalesceQuery.ToList();
+        // SELECT
+        //         Coalesce(e."Name", 'Unknown') AS "SafeName"
+        // FROM
+        //         "NullableEmpDto" e
 
-        Assert.Equal(4, coalesceQuery.Count);
-        Assert.Contains(coalesceQuery, e => e.SafeName == "Unknown"); // 替补了原本是 null 的 Bob
+        // shape: (4, 1)
+        // ┌──────────┐
+        // │ SafeName │
+        // │ ---      │
+        // │ str      │
+        // ╞══════════╡
+        // │ Alice    │
+        // │ Unknown  │
+        // │ Charlie  │
+        // │ David    │
+        // └──────────┘
+
+        Assert.Equal(4, coalesceResult.Count);
+        Assert.Contains(coalesceResult, e => e.SafeName == "Unknown"); 
 
         // ==========================================
-        // 测试 3：字符串截取与拼接 (Substring / Concat)
-        // 业务需求：取名字的前 3 个字母（如果有的话）
-        // linq2db 预期: SUBSTRING(e."Name", 1, 3) 
+        // Substring / Concat
         // ==========================================
         var stringQuery = empQuery
             .Where(e => e.Name != null)
@@ -884,50 +1012,114 @@ public class LinqProviderTests
             {
                 e.Name,
                 ShortName = e.Name!.Substring(0, 3)
-            }).ToList();
+            });
+        var stringResult = stringQuery.ToList();
+        // SELECT
+        //         e."Name" AS "Name",
+        //         Substring(e."Name", 1, 3) AS "ShortName"
+        // FROM
+        //         "NullableEmpDto" e
+        // WHERE
+        //         e."Name" IS NOT NULL
 
-        Assert.Equal(3, stringQuery.Count);
-        Assert.Equal("Ali", stringQuery.First(e => e.Name == "Alice").ShortName);
-        Assert.Equal("Cha", stringQuery.First(e => e.Name == "Charlie").ShortName);
+        // shape: (3, 2)
+        // ┌─────────┬───────────┐
+        // │ Name    ┆ ShortName │
+        // │ ---     ┆ ---       │
+        // │ str     ┆ str       │
+        // ╞═════════╪═══════════╡
+        // │ Alice   ┆ Ali       │
+        // │ Charlie ┆ Cha       │
+        // │ David   ┆ Dav       │
+        // └─────────┴───────────┘
+
+        Assert.Equal(3, stringResult.Count);
+        Assert.Equal("Ali", stringResult.First(e => e.Name == "Alice").ShortName);
+        Assert.Equal("Cha", stringResult.First(e => e.Name == "Charlie").ShortName);
         // ==========================================
-        // 测试 4：字符串长度 (Length)
-        // 业务需求：找出名字长度大于 5 的员工
-        // linq2db 预期: LENGTH(e."Name") > 5 
+        // String Length
         // ==========================================
         var lengthQuery = empQuery
             .Where(e => e.Name != null && e.Name.Length > 5)
-            .Select(e => e.Name)
-            .ToList();
+            .Select(e => e.Name);
 
-        Assert.Single(lengthQuery);
-        Assert.Equal("Charlie", lengthQuery[0]); // Charlie 长度是 7
+        var lengthResult = lengthQuery.ToList();
+        // SELECT
+        //         e."Name"
+        // FROM
+        //         "NullableEmpDto" e
+        // WHERE
+        //         e."Name" IS NOT NULL AND Length(e."Name") > 5
+
+        // shape: (1, 1)
+        // ┌─────────┐
+        // │ Name    │
+        // │ ---     │
+        // │ str     │
+        // ╞═════════╡
+        // │ Charlie │
+        // └─────────┘
+
+        Assert.Single(lengthResult);
+        Assert.Equal("Charlie", lengthResult[0]); 
 
         // ==========================================
-        // 测试 5：大小写转换 (ToLower / ToUpper)
-        // 业务需求：将名字转为全大写
-        // linq2db 预期: UPPER(e."Name")
+        // ToLower
         // ==========================================
         var caseQuery = empQuery
             .Where(e => e.Name == "Alice")
-            .Select(e => e.Name!.ToUpper())
-            .ToList();
+            .Select(e => e.Name!.ToLower());
+        var caseResult = caseQuery.ToList();
+        // SELECT
+        //         Lower(e."Name") as c1
+        // FROM
+        //         "NullableEmpDto" e
+        // WHERE
+        //         e."Name" = 'Alice'
 
-        Assert.Equal("ALICE", caseQuery[0]);
+        // shape: (1, 1)
+        // ┌───────┐
+        // │ c1    │
+        // │ ---   │
+        // │ str   │
+        // ╞═══════╡
+        // │ alice │
+        // └───────┘
+
+        Assert.Equal("alice", caseResult[0]);
 
         // ==========================================
-        // 测试 6：前后缀与包含 (StartsWith / EndsWith / Contains)
-        // 业务需求：找以 D 开头，或者包含 'lic' 的名字
-        // linq2db 预期: e."Name" LIKE 'D%' OR e."Name" LIKE '%lic%'
+        // StartsWith / EndsWith / Contains
         // ==========================================
         var likeQuery = empQuery
             .Where(e => e.Name != null && (e.Name.StartsWith('D') || e.Name.Contains("lic")))
             .OrderBy(e => e.Name)
-            .Select(e => e.Name)
-            .ToList();
+            .Select(e => e.Name);
 
-        Assert.Equal(2, likeQuery.Count);
-        Assert.Equal("Alice", likeQuery[0]);
-        Assert.Equal("David", likeQuery[1]);
+        // SELECT
+        //         e."Name"
+        // FROM
+        //         "NullableEmpDto" e
+        // WHERE
+        //         e."Name" IS NOT NULL AND (e."Name" LIKE 'D%' OR e."Name" LIKE '%lic%')
+        // ORDER BY
+        //         e."Name"
+
+        // shape: (2, 1)
+        // ┌───────┐
+        // │ Name  │
+        // │ ---   │
+        // │ str   │
+        // ╞═══════╡
+        // │ Alice │
+        // │ David │
+        // └───────┘
+
+        var likeResult = likeQuery.ToList();
+
+        Assert.Equal(2, likeResult.Count);
+        Assert.Equal("Alice", likeResult[0]);
+        Assert.Equal("David", likeResult[1]);
     }
     public record SalesData(string Category, string ProductName, double Revenue, double Discount);
 
@@ -946,41 +1138,75 @@ public class LinqProviderTests
         var salesQuery =  DataFrame.From(sales).AsQueryable<SalesData>();
 
         // ==========================================
-        // 测试 1：字符串拼接 (+) 与 数学函数 (Math)
-        // linq2db 预期: CONCAT(s."Category", ' - ', s."ProductName")
-        // linq2db 预期: ROUND(ABS(s."Revenue") - s."Discount", 2)
+        // String CONCAT and Math
         // ==========================================
         var scalarQuery = salesQuery.Select(s => new
         {
-            // 字符串拼接
             FullName = s.Category + " - " + s.ProductName,
-            // 嵌套的数学计算
             NetRevenue = Math.Round(Math.Abs(s.Revenue) - s.Discount, 2)
-        }).ToList();
+        });
+        // SELECT
+        //         s."Category" || ' - ' || s."ProductName" AS "FullName",
+        //         Abs(s."Revenue") - s."Discount" AS "NetRevenue"
+        // FROM
+        //         "SalesData" s
 
-        Assert.Equal(4, scalarQuery.Count);
-        Assert.Contains(scalarQuery, s => s.FullName == "Tech - Laptop" && s.NetRevenue == 950.5);
-        Assert.Contains(scalarQuery, s => s.FullName == "Tech - Mouse" && s.NetRevenue == 20.0);
+        // shape: (4, 2)
+        // ┌────────────────┬────────────┐
+        // │ FullName       ┆ NetRevenue │
+        // │ ---            ┆ ---        │
+        // │ str            ┆ f64        │
+        // ╞════════════════╪════════════╡
+        // │ Tech - Laptop  ┆ 950.5      │
+        // │ Tech - Mouse   ┆ 20.0       │
+        // │ Office - Desk  ┆ 490.2      │
+        // │ Office - Chair ┆ 145.8      │
+        // └────────────────┴────────────┘
+        var scalarResults = scalarQuery.ToList();
+
+        Assert.Equal(4, scalarResults.Count);
+        Assert.Contains(scalarResults, s => s.FullName == "Tech - Laptop" && s.NetRevenue == 950.5);
+        Assert.Contains(scalarResults, s => s.FullName == "Tech - Mouse" && s.NetRevenue == 20.0);
 
         // ==========================================
-        // 测试 2：条件聚合 (Conditional Aggregation / Pivot)
-        // 业务需求：在一次查询中，同时算出总营收，以及 Tech 和 Office 分别的营收
-        // linq2db 预期: SUM(CASE WHEN s."Category" = 'Tech' THEN ABS(s."Revenue") ELSE 0 END)
+        // Conditional Aggregation / Pivot
         // ==========================================
         var aggQuery = salesQuery
-            .GroupBy(s => 1) // 假分组，为了聚合全表
+            .GroupBy(s => 1) 
             .Select(g => new
             {
                 Total = g.Sum(x => Math.Abs(x.Revenue)),
-                // 核心：在 Sum 内部使用三元运算符！
                 TechTotal = g.Sum(x => x.Category == "Tech" ? Math.Abs(x.Revenue) : 0),
                 OfficeTotal = g.Sum(x => x.Category == "Office" ? Math.Abs(x.Revenue) : 0)
-            }).ToList();
+            });
 
-        Assert.Single(aggQuery);
-        Assert.Equal(1671.5, aggQuery[0].Total); // 1000.5 + 20 + 500.2 + 150.8
-        Assert.Equal(1020.5, aggQuery[0].TechTotal);
-        Assert.Equal(651.0, aggQuery[0].OfficeTotal);
+        // SELECT
+        //         SUM(Abs(g_1."Revenue")) AS "Total",
+        //         SUM(CASE
+        //                 WHEN g_1."Category" = 'Tech' THEN Abs(g_1."Revenue")
+        //                 ELSE 0
+        //         END) AS "TechTotal",
+        //         SUM(CASE
+        //                 WHEN g_1."Category" = 'Office' THEN Abs(g_1."Revenue")
+        //                 ELSE 0
+        //         END) AS "OfficeTotal"
+        // FROM
+        //         "SalesData" g_1
+        // shape: (1, 3)
+        // ┌────────┬───────────┬─────────────┐
+        // │ Total  ┆ TechTotal ┆ OfficeTotal │
+        // │ ---    ┆ ---       ┆ ---         │
+        // │ f64    ┆ f64       ┆ f64         │
+        // ╞════════╪═══════════╪═════════════╡
+        // │ 1671.5 ┆ 1020.5    ┆ 651.0       │
+        // └────────┴───────────┴─────────────┘
+
+        var aggResult = aggQuery.ToList();
+
+        Assert.Single(aggResult);
+        Assert.Equal(1671.5, aggResult[0].Total); // 1000.5 + 20 + 500.2 + 150.8
+        Assert.Equal(1020.5, aggResult[0].TechTotal);
+        Assert.Equal(651.0, aggResult[0].OfficeTotal);
     }
     public record StockPrice(string Ticker, DateTime Date, double Price);
 
@@ -988,7 +1214,6 @@ public class LinqProviderTests
     [Trait("Linq", "LeadLagAndNestedList")]
     public void Test_Polars_Linq_LeadLag_And_NestedList()
     {
-        // 准备时间序列数据
         var stocks = new[]
         {
             new StockPrice("AAPL", new DateTime(2024, 1, 1), 150.0),
@@ -998,7 +1223,6 @@ public class LinqProviderTests
             new StockPrice("MSFT", new DateTime(2024, 1, 2), 305.0)
         };
 
-        // 准备嵌套测试数据
         var depts = new[] { new DeptDto { DeptId = 1, DeptName = "Tech" }, new DeptDto { DeptId = 2, DeptName = "Sales" } };
         var emps = new[] { new EmpDto { Name = "Alice", DeptId = 1 }, new EmpDto { Name = "Bob", DeptId = 1 }, new EmpDto { Name = "Charlie", DeptId = 2 } };
 
@@ -1012,9 +1236,7 @@ public class LinqProviderTests
         var empQuery = db.RegisterTable<EmpDto>(dfEmps);
 
         // ==========================================
-        // 测试 1：高级窗口函数 (Lag - 获取上一行的值)
-        // 业务需求：计算每只股票每天的涨跌幅差异
-        // linq2db 预期: LAG(s."Price") OVER(PARTITION BY s."Ticker" ORDER BY s."Date")
+        // Window Lag 
         // ==========================================
         var lagQuery = from s in stockQuery
                        select new
@@ -1022,7 +1244,6 @@ public class LinqProviderTests
                            s.Ticker,
                            s.Date,
                            s.Price,
-                           // Sql.Ext.Lag() 提取上一行的价格
                            PrevPrice = LinqToDB.Sql.Ext.Lag(s.Price)
                                               .Over()
                                               .PartitionBy(s.Ticker)
@@ -1033,45 +1254,77 @@ public class LinqProviderTests
         var lagResult = lagQuery.ToList();
 
         Assert.Equal(5, lagResult.Count);
-        
-        // AAPL 第一天没有上一行，PrevPrice 应该为空 (null 或 0，取决于底层映射)
+        // SELECT
+        //         s."Ticker" AS "Ticker",
+        //         s."Date" AS "Date",
+        //         s."Price" AS "Price",
+        //         LAG(s."Price") OVER(PARTITION BY s."Ticker" ORDER BY s."Date") AS "PrevPrice"
+        // FROM
+        //         "StockPrice" s
+        // shape: (5, 4)
+        // ┌────────┬─────────────────────┬───────┬───────────┐
+        // │ Ticker ┆ Date                ┆ Price ┆ PrevPrice │
+        // │ ---    ┆ ---                 ┆ ---   ┆ ---       │
+        // │ str    ┆ datetime[μs]        ┆ f64   ┆ f64       │
+        // ╞════════╪═════════════════════╪═══════╪═══════════╡
+        // │ AAPL   ┆ 2024-01-01 00:00:00 ┆ 150.0 ┆ null      │
+        // │ AAPL   ┆ 2024-01-02 00:00:00 ┆ 155.0 ┆ 150.0     │
+        // │ AAPL   ┆ 2024-01-03 00:00:00 ┆ 152.0 ┆ 155.0     │
+        // │ MSFT   ┆ 2024-01-01 00:00:00 ┆ 300.0 ┆ null      │
+        // │ MSFT   ┆ 2024-01-02 00:00:00 ┆ 305.0 ┆ 300.0     │
+        // └────────┴─────────────────────┴───────┴───────────┘
+
         var aaplDay2 = lagResult.First(s => s.Ticker == "AAPL" && s.Date.Day == 2);
         Assert.Equal(155.0, aaplDay2.Price);
-        Assert.Equal(150.0, aaplDay2.PrevPrice); // 成功拿到第一天的价格！
+        Assert.Equal(150.0, aaplDay2.PrevPrice); 
 
         // ==========================================
-        // 测试 2：层级投影平铺化 (STRING_AGG)
-        // 业务需求：返回每个部门，并且对象内部包含一个员工名字的拼接字符串
-        // linq2db 预期：LEFT JOIN + GROUP BY + ARRAY_TO_STRING(ARRAY_AGG(...))
+        // STRING_AGG
         // ==========================================
         var nestedQuery = from d in deptQuery
                           join e in empQuery on d.DeptId equals e.DeptId into empGroup
-                          from e in empGroup.DefaultIfEmpty() // 关键：展开为 LEFT JOIN
-                          group e by d.DeptName into g      // 按部门名称分组
+                          from e in empGroup.DefaultIfEmpty() 
+                          group e by d.DeptName into g      
                           select new
                           {
                               DeptName = g.Key,
                               Employees = g.ListAgg(x => x.Name)
                           };
+        // SELECT
+        //         g_1."DeptName" AS "DeptName",
+        //         ARRAY_TO_STRING(ARRAY_AGG(e."Name"), ', ') AS "Employees"
+        // FROM
+        //         "DeptDto" g_1
+        //                 LEFT JOIN "EmpDto" e ON g_1."DeptId" = e."DeptId"
+        // GROUP BY
+        //         g_1."DeptName" 
 
+        // shape: (2, 2)
+        // ┌──────────┬────────────┐
+        // │ DeptName ┆ Employees  │
+        // │ ---      ┆ ---        │
+        // │ str      ┆ str        │
+        // ╞══════════╪════════════╡
+        // │ Sales    ┆ Charlie    │
+        // │ Tech     ┆ Alice, Bob │
+        // └──────────┴────────────┘
         var nestedResult = nestedQuery.ToList();
 
         Assert.Equal(2, nestedResult.Count);
         
         var techDept = nestedResult.First(d => d.DeptName == "Tech");
-        // Tech 部门应该拼接了 Alice 和 Bob
+
         Assert.Contains("Alice", techDept.Employees);
         Assert.Contains("Bob", techDept.Employees);
 
         var salesDept = nestedResult.First(d => d.DeptName == "Sales");
-        // Sales 部门只有 Charlie
+
         Assert.Equal("Charlie", salesDept.Employees);
     }
     [Fact]
     [Trait("Linq", "UnifiedCRUD")]
     public void Test_Polars_Linq_Unified_CRUD_UX()
     {
-        // 1. 准备数据并注册到 Polars (标准流程)
         var emps = new[]
         {
             new EmployeeSalary { Name = "Alice", DeptId = 1, Salary = 5000.0 },
@@ -1082,19 +1335,17 @@ public class LinqProviderTests
         using var dfEmps = DataFrame.From(emps);
         using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
         
-        // 2. 极其优雅的上下文初始化
         var table = db.RegisterTable<EmployeeSalary>(dfEmps);
 
         // ==========================================
-        // 【R: 查询】 (完美支持复杂 LINQ)
+        // SELECT
         // ==========================================
         var richEmps = table.Where(e => e.Salary >= 5000).ToList();
         Assert.Single(richEmps);
         Assert.Equal("Alice", richEmps[0].Name);
 
         // ==========================================
-        // 【U: 更新】 (直接调用，再也不报 Provider 错误了！)
-        // 预期: Polars 抛出不支持 Update 的异常，但 SQL 会完美生成并送到 ExecuteNonQuery
+        // UPDATE (NOT SUPPORTED)
         // ==========================================
         try
         {
@@ -1108,9 +1359,8 @@ public class LinqProviderTests
         }
 
         // ==========================================
-        // 【D: 删除】 (Polars 官方隐藏特性)
+        // Delete
         // ==========================================
-        // 删掉 3 号部门的 Eve
         int deleted = table.Where(e => e.DeptId == 3).Delete();
         Assert.True(deleted >= 0);
     }
@@ -1119,7 +1369,6 @@ public class LinqProviderTests
     [Trait("Linq", "LazyIO")]
     public void Test_Polars_Linq_Lazy_Csv_Scan_And_Pushdown()
     {
-        // 1. 准备一个临时 CSV 文件
         var csvContent = @"name,age,salary
 Alice,25,50000
 Bob,30,60000
@@ -1142,26 +1391,17 @@ David,40,80000";
                               e.salary 
                           }).ToList();
 
-            // ====================================================================
-            // 5. 见证奇迹的时刻：触发 .ToList() 
-            // 链路：LINQ -> SQL -> Polars AST -> CsvReader (带列裁剪和谓词过滤)
-            // ====================================================================
-
-            // 6. 验证结果
             Assert.NotNull(results);
-            Assert.Equal(2, results.Count); // 只剩 Charlie 和 David
+            Assert.Equal(2, results.Count); 
 
-            // 验证 Charlie
             Assert.Equal("Charlie", results[0].name);
             Assert.Equal(70000.0, results[0].salary);
 
-            // 验证 David
             Assert.Equal("David", results[1].name);
             Assert.Equal(80000.0, results[1].salary);
         }
         finally
         {
-            // 清理文件
             if (File.Exists(fileName)) File.Delete(fileName);
         }
     }
@@ -1169,17 +1409,23 @@ David,40,80000";
     [Trait("Linq", "SeriesToList")]
     public void Test_Polars_Linq_Series_List()
     {
-        // 1. 生成一个纯数字的 Series (1 到 100)
         using var series = Series.From("my_numbers", Enumerable.Range(1, 100).ToArray());
         
-        // 3. 纯正的标量 LINQ 语法！
-        var results = series.AsQueryable<int>().Where(x => x > 90)
+        var query = series.AsQueryable<int>().Where(x => x > 90)
                            .OrderByDescending(x => x)
                            .Take(5)
-                           .Skip(1)
-                           .ToList();
+                           .Skip(1);
+        // SELECT
+        //         row_1.value as "Value_1"
+        // FROM
+        //         my_numbers row_1
+        // WHERE
+        //         row_1.value > 90
+        // ORDER BY
+        //         row_1.value DESC
+        // LIMIT 4 OFFSET 1 
 
-        // 验证
+        var results = query.ToList();
         Assert.Equal(4, results.Count);
         Assert.Equal(99, results[0]);
     }
@@ -1187,46 +1433,37 @@ David,40,80000";
     [Trait("Linq", "SeriesScalar")]
     public void Test_Polars_Linq_Series_Scalar()
     {
-        // 1. 生成一个纯数字的 Series (1 到 100)
         using var series = Series.From("my_numbers", Enumerable.Range(1, 100).ToArray());
         
-        // 3. 纯正的标量 LINQ 语法！
         var result = series.AsQueryable<int>().Where(x => x > 98)
                            .Sum();
-        // 验证
         Assert.Equal(199, result);
     }
     [Fact]
     [Trait("Linq", "SeriesScalarAsync")]
-    public async Task Test_Polars_Linq_Series_Scalar_Async() // 必须是 async Task
+    public async Task Test_Polars_Linq_Series_Scalar_Async() 
     {
-        // 1. 生成一个纯数字的 Series (1 到 100)
         using var series = Series.From("my_numbers", Enumerable.Range(1, 100).ToArray());
         
-        // 3. 纯正的异步标量 LINQ 语法！
-        // 加上 await，主线程瞬间被解放！底层 Rust 疯狂算加法！
         var result = await series.AsQueryable<int>()
                                  .Where(x => x > 98)
                                  .SumAsync()
                                  .ConfigureAwait(true);
                                  
-        // 验证
         Assert.Equal(199, result);
     }
     [Fact]
     [Trait("Linq", "ToSeries")]
     public void Test_Polars_Linq_Series()
     {
-        // 1. 生成一个纯数字的 Series (1 到 100)
         using var series = Series.From("my_numbers", Enumerable.Range(1, 100).ToArray());
         
-        // 3. 纯正的标量 LINQ 语法！
         var result = series.AsQueryable<int>().Where(x => x > 90)
                            .OrderByDescending(x => x)
                            .Take(5)
                            .Skip(1)
                            .ToSeries("New Series");
-        // 验证
+        
         Assert.Equal("my_numbers",series.Name);
         Assert.Equal("New Series",result.Name);
         Assert.Equal(4,result.Length);
@@ -1267,10 +1504,25 @@ David,40,80000";
                                        e.name, 
                                        TotalCompensation = e.salary + e.bonus 
                                    });
+            // SELECT
+            //         e.name AS "name",
+            //         e.salary::Float + e.bonus AS "TotalCompensation"
+            // FROM
+            //         employees e
+            // WHERE
+            //         e.age > 30 AND e.bonus >= 7000
+            // shape: (2, 2)
+            // ┌─────────┬───────────────────┐
+            // │ name    ┆ TotalCompensation │
+            // │ ---     ┆ ---               │
+            // │ str     ┆ f64               │
+            // ╞═════════╪═══════════════════╡
+            // │ Charlie ┆ 77000.0           │
+            // │ David   ┆ 88000.0           │
+            // └─────────┴───────────────────┘
 
             var results = query.ToList();
 
-            // 验证结果
             Assert.NotNull(results);
             Assert.Equal(2, results.Count);
 
@@ -1293,64 +1545,71 @@ David,40,80000";
 
         using var schema = PolarsSchema.From<StaffRecord>();
         string path = "/home/qinglei/Projects/Polars.NET/Polars.Integration.Tests/TestData/staffrecord.csv";
-        // --- 1. 底层 Native (IO 阶段) ---
+
         using var rawLf = LazyFrame.ScanCsv(path,schema:schema);
         
         var query = db.RegisterTable<StaffRecord>(rawLf)
-                      // --- 2. LINQ 阶段 (业务表达阶段) ---
+
                       .Where(e => e.salary > 5000)
                       .Select(e => new { e.name, e.salary });
         string plan1 = query.Explain(true);
         Console.WriteLine(plan1);
-        // --- 3. 截胡！回到 Native (后处理阶段) ---
-        // 注意：这行代码执行完，磁盘根本没有动！所有的计划全被缝合在一起了！
+        // Csv SCAN [/home/qinglei/Projects/Polars.NET/Polars.Integration.Tests/TestData/staffrecord.csv]
+        // PROJECT 2/3 COLUMNS
+        // SELECTION: [(col("salary")) > (5000)]
+
+
         using LazyFrame lfWithLinq = query.ToLazyFrame();
 
-        // 继续使用 Polars 原生 API 做一些 LINQ 很难表达的操作
-        // 比如求每一列的 null 数量，或者做 Rolling 窗口计算
         using var finalLf = lfWithLinq.WithColumns(Col("salary").Std().Alias("salary_std"));
         string plan2 = finalLf.Explain(true);
         Console.WriteLine(plan2);
-        // 4. 终极点火
+        // WITH_COLUMNS:
+        //  [col("salary").std().alias("salary_std")] 
+        //   Csv SCAN [/home/qinglei/Projects/Polars.NET/Polars.Integration.Tests/TestData/staffrecord.csv]
+        //   PROJECT 2/3 COLUMNS
+        //   SELECTION: [(col("salary")) > (5000)]
+
         using var df = finalLf.Collect();
-        // df.Show();       
+
+        df.Show();
+        // shape: (4, 3)
+        // ┌─────────┬────────┬──────────────┐
+        // │ name    ┆ salary ┆ salary_std   │
+        // │ ---     ┆ ---    ┆ ---          │
+        // │ str     ┆ i32    ┆ f64          │
+        // ╞═════════╪════════╪══════════════╡
+        // │ Alice   ┆ 50000  ┆ 12909.944487 │
+        // │ Bob     ┆ 60000  ┆ 12909.944487 │
+        // │ Charlie ┆ 70000  ┆ 12909.944487 │
+        // │ David   ┆ 80000  ┆ 12909.944487 │
+        // └─────────┴────────┴──────────────┘
+      
         Assert.True(df.Height > 0);
     }
     [Fact]
     [Trait("Linq", "SqlTranslator")]
     public void Test_PolarsSqlTranslator_Borrowing_Linq2db()
     {
-        // ==========================================
-        // 场景 A：单表达式翻译 (ToSql)
-        // ==========================================
         string snippet1 = PolarsExpr.ToSql<StaffRecord, int>(e => (int)Math.Pow(e.salary, 2));
-        
+        // Power(salary::Float, 2)
         Assert.Contains("Power(salary::Float, 2)", snippet1, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("t1.salary", snippet1); 
 
-        // ==========================================
-        // 场景 B：单列匿名类型 (ToSql)
-        // ==========================================
+        // Power(salary::Float, 2) AS "salary_sq"
         string snippet2 = PolarsExpr.ToSql<StaffRecord, object>(e => new { salary_sq = Math.Pow(e.salary, 2) });
         Assert.Contains("salary_sq", snippet2, StringComparison.OrdinalIgnoreCase);
-
-        // ==========================================
-        // 场景 C：多列联合计算！(ToSqls)
-        // ==========================================
+        // Power(salary::Float, 2) AS "salary_sq",salary * 2 AS "salary_dbl"
         string[] multiSnippets = PolarsExpr.ToSqls<StaffRecord, object>(e => new 
         { 
             salary_sq = Math.Pow(e.salary, 2),
             salary_dbl = e.salary * 2
         });
 
-        // 断言安全切分成功
         Assert.Equal(2, multiSnippets.Length);
         Assert.Contains("AS \"salary_sq\"", multiSnippets[0], StringComparison.OrdinalIgnoreCase);
         Assert.Contains("AS \"salary_dbl\"", multiSnippets[1], StringComparison.OrdinalIgnoreCase);
 
-        // ==========================================
-        // 终极点火：多列白嫖文本转化为原生 Expr 并执行！
-        // ==========================================
         using var df = DataFrame.FromColumns(new
         {
             salary = new[] { 10, 20, 30 }
@@ -1358,17 +1617,25 @@ David,40,80000";
 
         using var resultDf = df.Select(multiSnippets.Select(SqlExpr).ToArray());
         resultDf.Show();
+        // shape: (3, 2)
+        // ┌───────────┬────────────┐
+        // │ salary_sq ┆ salary_dbl │
+        // │ ---       ┆ ---        │
+        // │ f64       ┆ i32        │
+        // ╞═══════════╪════════════╡
+        // │ 100.0     ┆ 20         │
+        // │ 400.0     ┆ 40         │
+        // │ 900.0     ┆ 60         │
+        // └───────────┴────────────┘
         
         var sqArr = resultDf["salary_sq"].ToArray<double>();
-        var dblArr = resultDf["salary_dbl"].ToArray<int>(); // 注意：原列乘以2推断为int
+        var dblArr = resultDf["salary_dbl"].ToArray<int>(); 
         
         Assert.Equal(3, sqArr.Length);
         
-        // 验证平方结果
         Assert.Equal(100.0, sqArr[0]); 
         Assert.Equal(900.0, sqArr[2]); 
 
-        // 验证乘法结果
         Assert.Equal(20, dblArr[0]);
         Assert.Equal(60, dblArr[2]);
     }
@@ -1381,7 +1648,6 @@ David,40,80000";
     [Trait("Linq", "SyntaxSugar")]
     public void Test_Ultimate_StrongTyped_Select_Sugar()
     {
-        // 1. 准备极简的数据源
         using var df = DataFrame.FromColumns(new
         {
             salary = new[] { 10.0, 20.0, 30.0 }
@@ -1390,37 +1656,41 @@ David,40,80000";
         using var resultDf = df.Select(SqlExprs(
             PolarsExpr.ToSqls<SalaryRecord, object>(e => new 
             { 
-                salary_sq = Math.Pow(e.salary, 2),  // 复杂数学函数翻译
-                salary_dbl = e.salary * 2,          // 基础算术翻译
-                is_high = e.salary > 15             // 逻辑判断翻译 (生成布尔列)
+                salary_sq = Math.Pow(e.salary, 2), 
+                salary_dbl = e.salary * 2,          
+                is_high = e.salary > 15            
             })
         ));
 
-        // 打印出来欣赏一下底层的完美类型推断 (f64, f64, bool)
-        resultDf.Show();
+        // shape: (3, 3)
+        // ┌───────────┬────────────┬─────────┐
+        // │ salary_sq ┆ salary_dbl ┆ is_high │
+        // │ ---       ┆ ---        ┆ ---     │
+        // │ f64       ┆ f64        ┆ bool    │
+        // ╞═══════════╪════════════╪═════════╡
+        // │ 100.0     ┆ 20.0       ┆ false   │
+        // │ 400.0     ┆ 40.0       ┆ true    │
+        // │ 900.0     ┆ 60.0       ┆ true    │
+        // └───────────┴────────────┴─────────┘
 
-        // 3. 终极断言验证
         var sqArr = resultDf["salary_sq"].ToArray<double>();
-        var dblArr = resultDf["salary_dbl"].ToArray<double>(); // 浮点数乘法推断为 double
+        var dblArr = resultDf["salary_dbl"].ToArray<double>(); 
         var isHighArr = resultDf["is_high"].ToArray<bool>();
 
         Assert.Equal(3, sqArr.Length);
 
-        // 验证第一行 (salary = 10)
         Assert.Equal(100.0, sqArr[0]);
         Assert.Equal(20.0, dblArr[0]);
-        Assert.False(isHighArr[0]); // 10 不大于 15
+        Assert.False(isHighArr[0]); 
 
-        // 验证第三行 (salary = 30)
         Assert.Equal(900.0, sqArr[2]);
         Assert.Equal(60.0, dblArr[2]);
-        Assert.True(isHighArr[2]);  // 30 大于 15
+        Assert.True(isHighArr[2]);  
     }
     [Fact]
     [Trait("Linq", "Async")]
     public async Task Test_Polars_Linq_ToListAsync_Support()
     {
-        // 1. 准备内存数据
         var users = new[]
         {
             new SimpleUser { Id = 1, Name = "Alice" },
@@ -1429,20 +1699,11 @@ David,40,80000";
         };
 
         using var df = DataFrame.From(users);
-        using var ctx = new SqlContext();
-        using var db = new PolarsDataContext(ctx, ownsContext: true);
 
-        // 2. 注册表
-        var table = db.RegisterTable<SimpleUser>(df);
-
-        // 3. 见证奇迹的时刻：使用异步 LINQ 查询！
-        var query = table.Where(u => u.Id > 1).OrderByDescending(u => u.Id);
+        var query = df.AsQueryable<SimpleUser>().Where(u => u.Id > 1).OrderByDescending(u => u.Id);
         
-        // 调用底层的异步方法，这会触发 ExecuteDbDataReaderAsync
-        // 把 IQueryable 明确转成 IAsyncEnumerable，让微软的扩展方法接管
         var results = await query.AsAsyncEnumerable().ToListAsync();
 
-        // 4. 验证结果
         Assert.NotNull(results);
         Assert.Equal(2, results.Count);
         Assert.Equal("Charlie", results[0].Name);
@@ -1456,51 +1717,35 @@ David,40,80000";
     }
 
     [Fact]
-    [Trait("Linq", "Async_Stress")]
+    [Trait("Linq", "AsyncStress")]
     public async Task Test_Polars_Linq_High_Concurrency_Async_Stress()
     {
-        // ==============================================================
-        // 1. 制造“弹药”：10 万条测试数据
-        // ==============================================================
         int recordCount = 100_000;
         var mockData = Enumerable.Range(0, recordCount).Select(i => new TrafficRecord
         {
             Id = i,
-            Region = $"Region_{i % 50}", // 50 个不同区域
+            Region = $"Region_{i % 50}",
             Latency = Random.Shared.NextDouble() * 100.0
         }).ToArray();
 
-        // 构建核心只读 DataFrame，在并发中它是绝对线程安全的！
         using var df = DataFrame.From(mockData);
 
-        // ==============================================================
-        // 2. 定义并发 Worker（模拟单个 ASP.NET Core 请求的作用域）
-        // ==============================================================
         async Task<int> SimulateWebRequestAsync(int workerId)
         {
-            // 每次请求创建独立的沙箱上下文，绝不串号！
-            using var ctx = new SqlContext();
-            using var db = new PolarsDataContext(ctx);
+            using var db = new PolarsDataContext(Sql(),true);
             
             var table = db.RegisterTable<TrafficRecord>(df);
 
-            // 每个人查询不同的区域
             string targetRegion = $"Region_{workerId % 50}";
 
             var query = table.Where(t => t.Region == targetRegion && t.Latency > 10.0)
                              .OrderBy(t => t.Id);
 
-            // 【真正的异步触发点】
-            // 如果你的 ExecuteDbDataReaderAsync 完美把 FFI 扔给了 Task.Run，
-            // 这里的 await 会立刻释放 .NET 工作线程，绝不阻塞！
             var results = await query.AsAsyncEnumerable().ToListAsync();
             
             return results.Count;
         }
 
-        // ==============================================================
-        // 3. 点火！瞬间发射 100 个并发异步查询！
-        // ==============================================================
         int concurrencyLevel = 100;
         var tasks = new List<Task<int>>();
 
@@ -1509,30 +1754,23 @@ David,40,80000";
             tasks.Add(SimulateWebRequestAsync(i));
         }
 
-        // 挂起等待所有 Rust 引擎的底层运算异步完成
         var finalResults = await Task.WhenAll(tasks);
 
-        // ==============================================================
-        // 4. 终极断言：不死锁、不崩溃、数据完全一致！
-        // ==============================================================
         Assert.Equal(concurrencyLevel, finalResults.Length);
 
         foreach (var count in finalResults)
         {
-            // 10万条数据分 50 个区，每个区 2000 条。
-            // 加上 Latency > 10.0 的随机过滤，数量应该大于 0 且小于 2000
+
             Assert.True(count > 0 && count <= 2000);
         }
         
-        Console.WriteLine($"[Polars.NET] 成功扛住了 {concurrencyLevel} 个并发 LINQ 查询！");
+        Console.WriteLine($"[Polars.NET] Finished {concurrencyLevel} Concurrnet LINQ Queries");
     }
     [Fact]
-    [Trait("Linq", "Async_Stress_ToDataFrame")]
+    [Trait("Linq", "AsyncStressToDataFrame")]
     public async Task Test_Polars_Linq_High_Concurrency_ToDataFrameAsync_Stress()
     {
-        // ==============================================================
-        // 1. 制造弹药：10 万条测试数据
-        // ==============================================================
+
         int recordCount = 100_000;
         var mockData = Enumerable.Range(0, recordCount).Select(i => new
         {
@@ -1543,15 +1781,12 @@ David,40,80000";
 
         using var df = DataFrame.From(mockData);
 
-        // ==============================================================
-        // 2. 并发 Worker：直接返回原生的 DataFrame
-        // ==============================================================
+
         async Task<long> SimulateDataFrameQueryAsync(int workerId)
         {
             using var ctx = new SqlContext();
             using var db = new PolarsDataContext(ctx);
             
-            // 使用匿名类型的动态注册（假设你的 RegisterTable 支持）
             var table = db.RegisterTable(df, mockData);
 
             string targetRegion = $"Region_{workerId % 50}";
@@ -1560,14 +1795,10 @@ David,40,80000";
                              .OrderBy(t => t.Id);
 
             using DataFrame resultDf = await query.ToDataFrameAsync();
-            
-            // 拿到 df 后，可以直接无缝调用 Polars 原生 API
+
             return resultDf.Height; 
         }
 
-        // ==============================================================
-        // 3. 点火！瞬间发射 100 个并发计算任务！
-        // ==============================================================
         int concurrencyLevel = 1000;
         var tasks = new List<Task<long>>();
 
@@ -1576,21 +1807,16 @@ David,40,80000";
             tasks.Add(SimulateDataFrameQueryAsync(i));
         }
 
-        // 挂起等待 100 个底层的 LazyCollect 并发完成
         var finalHeights = await Task.WhenAll(tasks);
 
-        // ==============================================================
-        // 4. 断言验证
-        // ==============================================================
         Assert.Equal(concurrencyLevel, finalHeights.Length);
 
         foreach (var height in finalHeights)
         {
-            // 数据绝对不会串号，且长度符合逻辑预估
             Assert.True(height > 0 && height <= 2000);
         }
         
-        Console.WriteLine($"[Polars.NET] ToDataFrameAsync 成功扛住了 {concurrencyLevel} 个并发底层执行！");
+        Console.WriteLine($"[Polars.NET] ToDataFrameAsync Finished {concurrencyLevel} Concurrent Queries");
     }
     public class SalesRecord
     {
@@ -1603,9 +1829,6 @@ David,40,80000";
     [Trait("Linq", "MathDate")]
     public void Test_Polars_Linq_Math_Date_And_Aggregations()
     {
-        // ==========================================
-        // 1. 准备包含负数、小数和日期的测试数据
-        // ==========================================
         var sales = new[]
         {
             new SalesRecord { Id = 1, Category = "Tech", Revenue = -150.5, SaleDate = new DateTime(2023, 1, 15) },
@@ -1614,12 +1837,10 @@ David,40,80000";
         };
 
         using var dfSales = DataFrame.From(sales);
-        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-        var table = db.RegisterTable(dfSales, sales);
+        var table = dfSales.AsQueryable<SalesRecord>();
 
         // ==========================================
-        // 测试 1：数学函数 (Abs, Round, Ceiling)
-        // 预警：Math.Ceiling 极有可能生成 CEILING，但 Polars 官方只认 CEIL！
+        // Math
         // ==========================================
         var mathQuery = table
             .OrderBy(x => x.Id)
@@ -1628,25 +1849,40 @@ David,40,80000";
                 Absolute = Math.Abs(x.Revenue),
                 Rounded = Math.Round(x.Revenue),
                 Ceiled = Math.Ceiling(x.Revenue) 
-            }).ToList();
+            });
 
-        Assert.Equal(3, mathQuery.Count);
-        Assert.Equal(150.5, mathQuery[0].Absolute);
-        Assert.Equal(-150.0, mathQuery[0].Rounded); // -150.5 round 到偶数通常是 -150，视底层实现而定
-        Assert.Equal(201.0, mathQuery[1].Ceiled);   // 200.2 向上取整是 201
+        var mathResult = mathQuery.ToList();
+
+        Assert.Equal(3, mathResult.Count);
+        Assert.Equal(150.5, mathResult[0].Absolute);
+        Assert.Equal(-150.0, mathResult[0].Rounded); 
+        Assert.Equal(201.0, mathResult[1].Ceiled);   
 
         // ==========================================
-        // 测试 2：日期函数 (原生属性 vs 自定义扩展)
-        // 预警：原生 x.SaleDate.Year 可能会生成奇怪的函数，我们需要对比 PolarsSql.Year
+        // Date
         // ==========================================
         var dateQuery = table
             .Where(x => x.SaleDate.Year == 2023)
-            // 你也可以在这里试着加上 x.SaleDate.Year 看 linq2db 默认生成啥
-            .Select(x => x.Id)
-            .ToList();
+            .Select(x => x.Id);
+        var dateResult = dateQuery.ToList();
+        // SELECT
+        //         x."Id"
+        // FROM
+        //         "SalesRecord" x
+        // WHERE
+        //         Floor(Extract(year From x."SaleDate"))::Int = 2023
+        // shape: (2, 1)
+        // ┌─────┐
+        // │ Id  │
+        // │ --- │
+        // │ i32 │
+        // ╞═════╡
+        // │ 1   │
+        // │ 2   │
+        // └─────┘
 
-        Assert.Equal(2, dateQuery.Count); // 只有 Id 1 和 2 是 2023 年
-        Assert.Contains(1, dateQuery);
+        Assert.Equal(2, dateResult.Count); 
+        Assert.Contains(1, dateResult);
     }
     public class WindowStatsRecord
     {
@@ -1659,24 +1895,21 @@ David,40,80000";
     [Trait("Linq", "WindowAndStats")]
     public void Test_Polars_Linq_Window_And_Stats()
     {
-        // 准备数据：制造一些用于排名的同薪水数据 (Eve 和 Dave)
         var data = new[]
         {
             new WindowStatsRecord { DeptId = 1, EmpName = "Alice",   Salary = 5000 },
             new WindowStatsRecord { DeptId = 1, EmpName = "Bob",     Salary = 6000 },
             new WindowStatsRecord { DeptId = 1, EmpName = "Charlie", Salary = 7000 },
             new WindowStatsRecord { DeptId = 2, EmpName = "Dave",    Salary = 4000 },
-            new WindowStatsRecord { DeptId = 2, EmpName = "Eve",     Salary = 4000 }, // 薪水与 Dave 相同
+            new WindowStatsRecord { DeptId = 2, EmpName = "Eve",     Salary = 4000 }, 
             new WindowStatsRecord { DeptId = 2, EmpName = "Frank",   Salary = 8000 }
         };
 
         using var dfData = DataFrame.From(data);
-        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-        var table = db.RegisterTable<WindowStatsRecord>(dfData);
+        var table = dfData.AsQueryable<WindowStatsRecord>();
 
         // ==========================================
-        // 测试 1：高级统计聚合 (Median / StdDev)
-        // 验证我们手写的 [Sql.Function] 是否完美工作
+        // Stats
         // ==========================================
         var statsQuery = table
             .GroupBy(x => x.DeptId)
@@ -1686,20 +1919,18 @@ David,40,80000";
                 MedianSalary = g.Median(x => x.Salary),
                 StdDevSalary = g.StdDev(x => x.Salary)
             })
-            .OrderBy(x => x.DeptId)
-            .ToList();
-
-        Assert.Equal(2, statsQuery.Count);
+            .OrderBy(x => x.DeptId);
         
-        // Dept 1: 5000, 6000, 7000 -> 中位数 6000
-        Assert.Equal(1, statsQuery[0].DeptId);
-        Assert.Equal(6000.0, statsQuery[0].MedianSalary);
-        Assert.True(statsQuery[0].StdDevSalary > 0); // 标准差应为 1000
+        var statsResult = statsQuery.ToList();
+
+        Assert.Equal(2, statsResult.Count);
+        
+        Assert.Equal(1, statsResult[0].DeptId);
+        Assert.Equal(6000.0, statsResult[0].MedianSalary);
+        Assert.True(statsResult[0].StdDevSalary > 0); 
 
         // ==========================================
-        // 测试 2：极度硬核的窗口函数 (Window Functions)
-        // 需求：在每个部门内部，按薪水降序排名。验证 ROW_NUMBER 和 RANK
-        // linq2db 预期生成: ROW_NUMBER() OVER(PARTITION BY DeptId ORDER BY Salary DESC)
+        // Complex Window Functions
         // ==========================================
         var windowQuery = table
             .Select(x => new
@@ -1707,35 +1938,53 @@ David,40,80000";
                 x.DeptId,
                 x.EmpName,
                 x.Salary,
-                // 生成 ROW_NUMBER (绝对行号)
                 RowNum = LinqToDB.Sql.Ext.RowNumber().Over().PartitionBy(x.DeptId).OrderByDesc(x.Salary).ToValue(),
-                // 生成 RANK (并列排名)
                 Rank = LinqToDB.Sql.Ext.Rank().Over().PartitionBy(x.DeptId).OrderByDesc(x.Salary).ToValue()
             })
             .OrderBy(x => x.DeptId)
             .ThenByDescending(x => x.Salary)
-            .ThenBy(x => x.EmpName)
-            .ToList();
+            .ThenBy(x => x.EmpName);
+        var windowResult = windowQuery.ToList();
+        // SELECT
+        //         x."DeptId" AS "DeptId",
+        //         x."EmpName" AS "EmpName",
+        //         x."Salary" AS "Salary",
+        //         ROW_NUMBER() OVER(PARTITION BY x."DeptId" ORDER BY x."Salary" DESC) AS "RowNum",
+        //         RANK() OVER(PARTITION BY x."DeptId" ORDER BY x."Salary" DESC) AS "Rank"
+        // FROM
+        //         "WindowStatsRecord" x
+        // ORDER BY
+        //         x."DeptId",
+        //         x."Salary" DESC,
+        //         x."EmpName"
+        // shape: (6, 5)
+        // ┌────────┬─────────┬────────┬────────┬──────┐
+        // │ DeptId ┆ EmpName ┆ Salary ┆ RowNum ┆ Rank │
+        // │ ---    ┆ ---     ┆ ---    ┆ ---    ┆ ---  │
+        // │ i32    ┆ str     ┆ f64    ┆ u32    ┆ u32  │
+        // ╞════════╪═════════╪════════╪════════╪══════╡
+        // │ 1      ┆ Charlie ┆ 7000.0 ┆ 1      ┆ 1    │
+        // │ 1      ┆ Bob     ┆ 6000.0 ┆ 2      ┆ 2    │
+        // │ 1      ┆ Alice   ┆ 5000.0 ┆ 3      ┆ 3    │
+        // │ 2      ┆ Frank   ┆ 8000.0 ┆ 1      ┆ 1    │
+        // │ 2      ┆ Dave    ┆ 4000.0 ┆ 2      ┆ 2    │
+        // │ 2      ┆ Eve     ┆ 4000.0 ┆ 3      ┆ 2    │
+        // └────────┴─────────┴────────┴────────┴──────┘
+        Assert.Equal(6, windowResult.Count);
 
-        Assert.Equal(6, windowQuery.Count);
-
-        // 验证 Dept 1 排名
-        var charlie = windowQuery.First(x => x.EmpName == "Charlie");
+        var charlie = windowResult.First(x => x.EmpName == "Charlie");
         Assert.Equal(1, charlie.RowNum);
         Assert.Equal(1, charlie.Rank);
 
-        // 验证 Dept 2 排名 (Dave 和 Eve 薪水一样，RANK 应该并列，ROW_NUMBER 会递增)
-        var frank = windowQuery.First(x => x.EmpName == "Frank");
-        Assert.Equal(1, frank.Rank); // Frank 8000 第一名
+        var frank = windowResult.First(x => x.EmpName == "Frank");
+        Assert.Equal(1, frank.Rank); 
 
-        var dave = windowQuery.First(x => x.EmpName == "Dave");
-        var eve = windowQuery.First(x => x.EmpName == "Eve");
+        var dave = windowResult.First(x => x.EmpName == "Dave");
+        var eve = windowResult.First(x => x.EmpName == "Eve");
         
-        // Dave 和 Eve 都是 4000，RANK 必须并列第 2
         Assert.Equal(2, dave.Rank);
         Assert.Equal(2, eve.Rank);
         
-        // 但 RowNum 必须是不重复的连续序号
         Assert.True(dave.RowNum != eve.RowNum);
         Assert.True(dave.RowNum == 2 || dave.RowNum == 3);
     }
@@ -1749,7 +1998,6 @@ David,40,80000";
     [Trait("Linq", "DataScienceStats")]
     public void Test_Polars_Linq_Quantiles_And_Variance()
     {
-        // 准备一组偶数个的完美测试数据
         var data = new[]
         {
             new StatRecord { GroupId = 1, Value = 10.0 },
@@ -1759,46 +2007,52 @@ David,40,80000";
         };
 
         using var dfData = DataFrame.From(data);
-        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-        var table = db.RegisterTable(dfData, data);
+        var table = dfData.AsQueryable<StatRecord>();
 
         // ==========================================
-        // 核心测试：验证方差和两种分位数算法
-        // linq2db 预期生成: 
-        // VARIANCE(x.Value), QUANTILE_CONT(x.Value, 0.5), QUANTILE_DISC(x.Value, 0.5)
+        // Variance, Quantile
         // ==========================================
         var statsQuery = table
             .GroupBy(x => x.GroupId)
             .Select(g => new
             {
                 GroupId = g.Key,
-                // 1. 方差 (Variance)
                 Var = PolarsSql.Variance(g, x => x.Value),
-                // 2. 连续分位数 P50 (会插值)
                 Q50_Cont = PolarsSql.QuantileCont(g, x => x.Value, 0.5),
-                // 3. 离散分位数 P50 (不插值，必须是原始数据中的一个)
                 Q50_Disc = PolarsSql.QuantileDisc(g, x => x.Value, 0.5),
-                // 4. 高级 P99 测算
                 Q99_Cont = PolarsSql.QuantileCont(g, x => x.Value, 0.99)
-            })
-            .ToList();
+            });
+        var statsResult = statsQuery.ToList();
+        // SELECT
+        //         g_1."GroupId" AS "GroupId",
+        //         VARIANCE(g_1."Value") AS "Var",
+        //         QUANTILE_CONT(g_1."Value", 0.5) AS "Q50_Cont",
+        //         QUANTILE_DISC(g_1."Value", 0.5) AS "Q50_Disc",
+        //         QUANTILE_CONT(g_1."Value", 0.98999999999999999) AS "Q99_Cont"
+        // FROM
+        //         tmp_f7a9ea08e6bb4f2e9dfa946f06abcc68 g_1
+        // GROUP BY
+        //         g_1."GroupId" 
+        // shape: (1, 5)
+        // ┌─────────┬────────────┬──────────┬──────────┬──────────┐
+        // │ GroupId ┆ Var        ┆ Q50_Cont ┆ Q50_Disc ┆ Q99_Cont │
+        // │ ---     ┆ ---        ┆ ---      ┆ ---      ┆ ---      │
+        // │ i32     ┆ f64        ┆ f64      ┆ f64      ┆ f64      │
+        // ╞═════════╪════════════╪══════════╪══════════╪══════════╡
+        // │ 1       ┆ 166.666667 ┆ 25.0     ┆ 20.0     ┆ 39.7     │
+        // └─────────┴────────────┴──────────┴──────────┴──────────┘
+        Assert.Single(statsResult);
+        var result = statsResult[0];
 
-        Assert.Single(statsQuery);
-        var result = statsQuery[0];
-
-        // 验证方差
-        // {10, 20, 30, 40} 的均值是 25。
-        // 样本方差 (ddof=1) = ((15^2) + (5^2) + (5^2) + (15^2)) / 3 = (225+25+25+225)/3 = 500/3 ≈ 166.666...
+        // (ddof=1) = ((15^2) + (5^2) + (5^2) + (15^2)) / 3 = (225+25+25+225)/3 = 500/3 ≈ 166.666...
         Assert.Equal(166.6666, result.Var, precision: 3);
 
-        // 验证连续型分位数 (0.5 中位数) -> 线性插值，应该是 (20 + 30) / 2 = 25.0
+        // (20 + 30) / 2 = 25.0
         Assert.Equal(25.0, result.Q50_Cont);
 
-        // 验证离散型分位数 (0.5 中位数) -> 必须是实际值，一般 Polars 会取 lower (20) 或 nearest (视实现)
         Assert.True(result.Q50_Disc == 20.0 || result.Q50_Disc == 30.0, $"Actual Q50_Disc was {result.Q50_Disc}");
-        Assert.NotEqual(25.0, result.Q50_Disc); // 绝对不能是插值出来的 25！
+        Assert.NotEqual(25.0, result.Q50_Disc); 
 
-        // 验证 P99 -> 接近最大值 40.0
         Assert.True(result.Q99_Cont > 39.0);
     }
     public class BitwiseRecord
@@ -1812,26 +2066,18 @@ David,40,80000";
     [Trait("Linq", "Bitwise")]
     public void Test_Polars_Linq_Native_Bitwise_Operators()
     {
-        // 准备测试数据
-        // 5  的二进制: 0101
-        // 3  的二进制: 0011
-        // 12 的二进制: 1100
-        // 10 的二进制: 1010
+
+        // 5 : 0101
+        // 3 : 0011
+        // 12 : 1100
+        // 10 : 1010
         var data = new[]
         {
             new BitwiseRecord { Id = 1, A = 5,  B = 3 },
             new BitwiseRecord { Id = 2, A = 12, B = 10 }
         };
 
-        using var df = DataFrame.From(data);
-        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-        var table = db.RegisterTable(df, data);
-
-        // ==========================================
-        // 测试：C# 原生位运算符
-        // 预警：看看 linq2db 会生成符号还是函数，以及 Polars 认不认
-        // ==========================================
-        var firstQuery = table
+        var firstQuery = DataFrame.From(data).AsQueryable<BitwiseRecord>()
             .OrderBy(x => x.Id)
             .Select(x => new
             {
@@ -1843,36 +2089,61 @@ David,40,80000";
                 // Bitwise XOR
                 XorResult  = PolarsSql.BitXor(x.A, x.B),
                 // Bitwise NOT
-                // NotResult = PolarsSql.BitNot(x.A)
                 NotResult = ~x.A,       
-                // CountResult = PolarsSql.BitCount(x.A)
+                // Bitwise COUNT
+                CountResult = PolarsSql.BitCount(x.A)
             });
 
         var bitQuery = firstQuery.ToList();
-        // Console.WriteLine(firstQuery.ToSqlString());
+        // SELECT
+        //         x."Id" AS "Id",
+        //         x."A" & x."B" AS "AndResult",
+        //         x."A" | x."B" AS "OrResult",
+        //         BIT_XOR(x."A", x."B") AS "XorResult",
+        //         BIT_NOT(x."A") AS "NotResult",
+        //         BIT_COUNT(x."A") AS "CountResult"
+        // FROM
+        //         "BitwiseRecord" x
+        // ORDER BY
+        //         x."Id"
+        // shape: (2, 6)
+        // ┌─────┬───────────┬──────────┬───────────┬───────────┬─────────────┐
+        // │ Id  ┆ AndResult ┆ OrResult ┆ XorResult ┆ NotResult ┆ CountResult │
+        // │ --- ┆ ---       ┆ ---      ┆ ---       ┆ ---       ┆ ---         │
+        // │ i32 ┆ i32       ┆ i32      ┆ i32       ┆ i32       ┆ u32         │
+        // ╞═════╪═══════════╪══════════╪═══════════╪═══════════╪═════════════╡
+        // │ 1   ┆ 1         ┆ 7        ┆ 6         ┆ -6        ┆ 2           │
+        // │ 2   ┆ 8         ┆ 14       ┆ 6         ┆ -13       ┆ 2           │
+        // └─────┴───────────┴──────────┴───────────┴───────────┴─────────────┘
         Assert.Equal(2, bitQuery.Count);
 
-        // // 验证 5 和 3 
-        // // 5 & 3 = 1 (0001)
-        // // 5 | 3 = 7 (0111)
-        // // 5 ^ 3 = 6 (0110)
-        // // ~5    = -6 (按位取反，带符号)
+        // Verify 5 and 3
+
+        // 5 & 3 = 1 (0001)
+        // 5 | 3 = 7 (0111)
+        // 5 ^ 3 = 6 (0110)
+        // ~5    = -6
+        // Bitcount 5 = 2
         var row1 = bitQuery[0];
         Assert.Equal(1, row1.AndResult);
         Assert.Equal(7, row1.OrResult);
         Assert.Equal(6, row1.XorResult);
         Assert.Equal(~5, row1.NotResult); 
+        Assert.Equal(2,row1.CountResult);
 
-        // // 验证 12 和 10
-        // // 12 & 10 = 8 (1000)
-        // // 12 | 10 = 14 (1110)
-        // // 12 ^ 10 = 6 (0110)
-        // // ~12     = -13
+        // Verify 12 and 10
+
+        // 12 & 10 = 8 (1000)
+        // 12 | 10 = 14 (1110)
+        // 12 ^ 10 = 6 (0110)
+        // ~12     = -13
+        // Bitcount 12 = 2
         var row2 = bitQuery[1];
         Assert.Equal(8, row2.AndResult);
         Assert.Equal(14, row2.OrResult);
         Assert.Equal(6, row2.XorResult);
         Assert.Equal(~12, row2.NotResult);
+        Assert.Equal(2,row2.CountResult);
     }
     public class TemporalRecord
     {
@@ -1884,7 +2155,6 @@ David,40,80000";
     [Trait("Linq", "Temporal")]
     public void Test_Polars_Linq_Native_Temporal_Functions()
     {
-        // 准备测试数据
         var data = new[]
         {
             new TemporalRecord { Id = 1, EventTime = new DateTime(2024, 3, 15, 14, 30, 0) },
@@ -1892,104 +2162,127 @@ David,40,80000";
         };
 
         using var df = DataFrame.From(data);
-        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-        var table = db.RegisterTable(df, data);
+        var table = df.AsQueryable<TemporalRecord>();
 
-        // ==========================================
-        // 核心测试：C# 原生 DateTime 属性与方法
-        // ==========================================
         var timeQuery = table
             .OrderBy(x => x.Id)
             .Select(x => new
             {
                 x.Id,
-                // 测试 EXTRACT / DATE_PART
-                Year = x.EventTime.Year,
-                Month = x.EventTime.Month,
-                Day = x.EventTime.Day,
-                Hour = x.EventTime.Hour,
+                x.EventTime.Year,
+                x.EventTime.Month,
+                x.EventTime.Day,
+                x.EventTime.Hour,
                 
-                // 测试 STRFTIME 格式化
-                // 预警：.NET 的 "yyyy-MM-dd" 和 C 语言风格的 "%Y-%m-%d" 完全不一样！
-                FormattedDate = x.EventTime.ToString("yyyy-MM-dd")
-            })
-            .ToList();
+                FormattedDate = x.EventTime.ToPolarsString("%Y-%m-%d")
+            });
+        var timeResult = timeQuery.ToList();
+        // SELECT
+        //         x."Id",
+        //         Floor(Extract(year From x."EventTime"))::Int as "Year_1",
+        //         Floor(Extract(month From x."EventTime"))::Int as "Month_1",
+        //         Floor(Extract(day From x."EventTime"))::Int as "Day_1",
+        //         Floor(Extract(hour From x."EventTime"))::Int as "Hour_1",
+        //         strftime(x."EventTime", '%Y-%m-%d') as "FormattedDate"
+        // FROM
+        //         "TemporalRecord" x
+        // ORDER BY
+        //         x."Id"
+        // shape: (2, 6)
+        // ┌─────┬────────┬─────────┬───────┬────────┬───────────────┐
+        // │ Id  ┆ Year_1 ┆ Month_1 ┆ Day_1 ┆ Hour_1 ┆ FormattedDate │
+        // │ --- ┆ ---    ┆ ---     ┆ ---   ┆ ---    ┆ ---           │
+        // │ i32 ┆ i32    ┆ i32     ┆ i32   ┆ i32    ┆ str           │
+        // ╞═════╪════════╪═════════╪═══════╪════════╪═══════════════╡
+        // │ 1   ┆ 2024   ┆ 3       ┆ 15    ┆ 14     ┆ 2024-03-15    │
+        // │ 2   ┆ 2025   ┆ 12      ┆ 1     ┆ 9      ┆ 2025-12-01    │
+        // └─────┴────────┴─────────┴───────┴────────┴───────────────┘
 
-        Assert.Equal(2, timeQuery.Count);
+        Assert.Equal(2, timeResult.Count);
         
-        // 验证第一行解析结果
-        Assert.Equal(2024, timeQuery[0].Year);
-        Assert.Equal(3, timeQuery[0].Month);
-        Assert.Equal(15, timeQuery[0].Day);
-        Assert.Equal(14, timeQuery[0].Hour);
-        // 如果 FormattedDate 居然跑通了，我们可以打印出来看看是啥神仙操作
-        Assert.StartsWith("2024", timeQuery[0].FormattedDate);
+        Assert.Equal(2024, timeResult[0].Year);
+        Assert.Equal(3, timeResult[0].Month);
+        Assert.Equal(15, timeResult[0].Day);
+        Assert.Equal(14, timeResult[0].Hour);
+        Assert.StartsWith("2024", timeResult[0].FormattedDate);
     }
     public class StringNativeRecord
     {
         public int Id { get; set; }
         public string Text1 { get; set; } = "";
         public string Text2 { get; set; } = "";
+        public string TimeStr {get; set;} ="";
     }
 
     [Fact]
     [Trait("Linq", "String")]
     public void Test_Polars_Linq_Native_String_Functions()
     {
-        // 准备测试数据，故意加一些空格用来测试 Trim
         var data = new[]
         {
-            new StringNativeRecord { Id = 1, Text1 = "  Hello  ", Text2 = "World" },
-            new StringNativeRecord { Id = 2, Text1 = "Polars",    Text2 = "Data" }
+            new StringNativeRecord { Id = 1, Text1 = "  Hello  ", Text2 = "World", TimeStr = "2024-03-15 14:30:00" },
+            new StringNativeRecord { Id = 2, Text1 = "Polars",    Text2 = "Data",  TimeStr = "2025-12-01 09:15:45" }
         };
 
         using var df = DataFrame.From(data);
-        using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
-        var table = db.RegisterTable(df, data);
+        var table = df.AsQueryable<StringNativeRecord>();
 
-        // ==========================================
-        // 核心测试：C# 原生字符串方法大阅兵
-        // 看看 linq2db 会生成哪些 Polars 函数
-        // ==========================================
         var strQuery = table
             .OrderBy(x => x.Id)
             .Select(x => new
             {
                 x.Id,
-                // 测试 CONCAT (或 || 运算符)
                 ConcatStr = x.Text1 + " " + x.Text2,
                 
-                // 测试 LTRIM 和 RTRIM
                 LTrimStr = x.Text1.TrimStart(),
                 RTrimStr = x.Text1.TrimEnd(),
                 
-                // 测试 REPLACE
                 ReplaceStr = x.Text2.Replace("r", "x"),
                 
-                // 测试 STRPOS
-                // 究极预警：C# 的 IndexOf 是从 0 开始的！SQL 的 STRPOS 通常是从 1 开始的！
-                // linq2db 会极其聪明地在 SQL 里帮你自动减 1 吗？
-                PosStr = x.Text2.IndexOf('o') 
-            })
-            .ToList();
+                PosStr = x.Text2.IndexOf('o') ,
+                ParsedTime = x.TimeStr.ParsePolarsDate("%Y-%m-%d %H:%M:%S")
 
-        Assert.Equal(2, strQuery.Count);
+            });
         
-        // 验证第一行: "  Hello  ", "World"
-        var row1 = strQuery[0];
+        var strResult =strQuery.ToList();
+        // SELECT
+        //         x."Id" AS "Id",
+        //         x."Text1" || ' ' || x."Text2" AS "ConcatStr",
+        //         LTRIM(x."Text1") AS "LTrimStr",
+        //         RTRIM(x."Text1") AS "RTrimStr",
+        //         Replace(x."Text2", 'r', 'x') AS "ReplaceStr",
+        //         CAST(STRPOS(x."Text2", 'o') AS INT) - 1 AS "PosStr",
+        //         STRPTIME(x."TimeStr", '%Y-%m-%d %H:%M:%S') AS "ParsedTime"
+        // FROM
+        //         "StringNativeRecord" x
+        // ORDER BY
+        //         x."Id"
+        // shape: (2, 7)
+        // ┌─────┬─────────────────┬──────────┬──────────┬────────────┬────────┬─────────────────────┐
+        // │ Id  ┆ ConcatStr       ┆ LTrimStr ┆ RTrimStr ┆ ReplaceStr ┆ PosStr ┆ ParsedTime          │
+        // │ --- ┆ ---             ┆ ---      ┆ ---      ┆ ---        ┆ ---    ┆ ---                 │
+        // │ i32 ┆ str             ┆ str      ┆ str      ┆ str        ┆ i32    ┆ datetime[μs]        │
+        // ╞═════╪═════════════════╪══════════╪══════════╪════════════╪════════╪═════════════════════╡
+        // │ 1   ┆   Hello   World ┆ Hello    ┆   Hello  ┆ Woxld      ┆ 1      ┆ 2024-03-15 14:30:00 │
+        // │ 2   ┆ Polars Data     ┆ Polars   ┆ Polars   ┆ Data       ┆ -1     ┆ 2025-12-01 09:15:45 │
+        // └─────┴─────────────────┴──────────┴──────────┴────────────┴────────┴─────────────────────┘
+        Assert.Equal(2, strResult.Count);
+        
+        var row1 = strResult[0];
         Assert.Equal("  Hello   World", row1.ConcatStr);
         Assert.Equal("Hello  ", row1.LTrimStr);
         Assert.Equal("  Hello", row1.RTrimStr);
-        Assert.Equal("Woxld", row1.ReplaceStr); // World -> Woxld
-        Assert.Equal(1, row1.PosStr); // 'o' 在 "World" 的索引是 1 (W=0, o=1)
+        Assert.Equal("Woxld", row1.ReplaceStr); 
+        Assert.Equal(1, row1.PosStr); 
+        Assert.Equal(new DateTime(2024, 3, 15, 14, 30, 0), row1.ParsedTime);
 
-        // 验证第二行: "Polars", "Data"
-        var row2 = strQuery[1];
+        var row2 = strResult[1];
         Assert.Equal("Polars Data", row2.ConcatStr);
         Assert.Equal("Polars", row2.LTrimStr);
         Assert.Equal("Polars", row2.RTrimStr);
-        Assert.Equal("Data", row2.ReplaceStr); // 没有 'r'，保持不变
-        Assert.Equal(-1, row2.PosStr); // 找不到 'o'，C# 期望返回 -1！SQL 通常返回 0。看 linq2db 怎么填坑！
+        Assert.Equal("Data", row2.ReplaceStr); 
+        Assert.Equal(-1, row2.PosStr); 
+        Assert.Equal(new DateTime(2025, 12, 1, 9, 15, 45), row2.ParsedTime);
     }
     [Fact]
     [Trait("Linq", "ControlFlow")]
@@ -1998,7 +2291,6 @@ David,40,80000";
         using var ctx = new SqlContext();
         using var db = new PolarsDataContext(ctx);
 
-        // 构造一点假数据
         var mockData = new[] 
         { 
             new { Id = 1, Val1 = (int?)10, Val2 = (int?)20 },
@@ -2014,32 +2306,54 @@ David,40,80000";
             {
                 x.Id,
                 
-                // 1. COALESCE 测试：C# 的 ?? 运算符
-                CoalesceVal = x.Val1 ?? x.Val2 ?? 0,
+                CoalesceVal = LinqToDB.Sql.AsSql(x.Val1 ?? x.Val2 ?? 0),
                 
-                // 2. GREATEST 测试：C# 的 Math.Max
-                // 注意：如果 Val1 和 Val2 是可空类型，Math.Max 可能需要显式 .Value 或者强转
-                MaxVal = Math.Max(x.Val1 ?? 0, x.Val2 ?? 0),
+                MaxVal = LinqToDB.Sql.AsSql(Math.Max(x.Val1 ?? 0, x.Val2 ?? 0)),
                 
-                // 3. LEAST 测试：C# 的 Math.Min
-                MinVal = Math.Min(x.Val1 ?? 0, x.Val2 ?? 0),
-                
-                // 4. IF 测试：C# 的三元运算符
+                MinVal = LinqToDB.Sql.AsSql(Math.Min(x.Val1 ?? 0, x.Val2 ?? 0)),
+
                 IfStr = x.Val1 > 15 ? "Big" : "Small",
                 
-                // 5. NULLIF 测试：C# 的条件判断逻辑
-                // 如果两值相等返回 null，否则返回第一个值
                 NullIfVal = x.Val1 == x.Val2 ? null : x.Val1
-            })
-            .ToList(); // 触发底层的 ToSql 和 执行
+            });
 
-        // 如果能活着运行到这里，说明 Polars 完美消化了生成的 SQL！
-        Assert.Equal(3, query.Count);
+        var result = query.ToList();
+        // SELECT
+        //         x."Id" AS "Id",
+        //         Coalesce(x."Val1", x."Val2", 0) AS "CoalesceVal",
+        //         CASE
+        //                 WHEN Coalesce(x."Val1", 0) >= Coalesce(x."Val2", 0) THEN Coalesce(x."Val1", 0)
+        //                 ELSE Coalesce(x."Val2", 0)
+        //         END AS "MaxVal",
+        //         CASE
+        //                 WHEN Coalesce(x."Val1", 0) <= Coalesce(x."Val2", 0) THEN Coalesce(x."Val1", 0)
+        //                 ELSE Coalesce(x."Val2", 0)
+        //         END AS "MinVal",
+        //         CASE
+        //                 WHEN x."Val1" > 15 THEN 'Big'
+        //                 ELSE 'Small'
+        //         END AS "IfStr",
+        //         NULLIF(x."Val1", x."Val2") AS "NullIfVal"
+        // FROM
+        //         tmp_88d373fc60994f3daf6aad6456b65d30 x
+        // ORDER BY
+        //         x."Id"
+        // shape: (3, 6)
+        // ┌─────┬─────────────┬────────┬────────┬───────┬───────────┐
+        // │ Id  ┆ CoalesceVal ┆ MaxVal ┆ MinVal ┆ IfStr ┆ NullIfVal │
+        // │ --- ┆ ---         ┆ ---    ┆ ---    ┆ ---   ┆ ---       │
+        // │ i32 ┆ i32         ┆ i32    ┆ i32    ┆ str   ┆ i32       │
+        // ╞═════╪═════════════╪════════╪════════╪═══════╪═══════════╡
+        // │ 1   ┆ 10          ┆ 20     ┆ 10     ┆ Small ┆ 10        │
+        // │ 2   ┆ 30          ┆ 30     ┆ 0      ┆ Small ┆ null      │
+        // │ 3   ┆ 40          ┆ 40     ┆ 40     ┆ Big   ┆ null      │
+        // └─────┴─────────────┴────────┴────────┴───────┴───────────┘
+
+        Assert.Equal(3, result.Count);
         
-        // 可以稍微验证一下逻辑
-        Assert.Equal(30, query[1].CoalesceVal); // null ?? 30 = 30
-        Assert.Equal(20, query[0].MaxVal);      // Max(10, 20) = 20
-        Assert.Null(query[2].NullIfVal);        // 40 == 40 -> null        
+        Assert.Equal(30, result[1].CoalesceVal); // null ?? 30 = 30
+        Assert.Equal(20, result[0].MaxVal);      // Max(10, 20) = 20
+        Assert.Null(result[2].NullIfVal);        // 40 == 40 -> null        
     }
     [Fact]
     [Trait("Linq", "MathTrig")]
@@ -2048,7 +2362,6 @@ David,40,80000";
         using var ctx = new SqlContext();
         using var db = new PolarsDataContext(ctx);
 
-        // 构造安全范围内的测试数据，避免 Acos/Asin 溢出 (-1 <= V1 <= 1)
         var mockData = new[] 
         { 
             new { Id = 1, V1 = 0.5, V2 = 1.0 },
@@ -2063,25 +2376,45 @@ David,40,80000";
             .Select(x => new
             {
                 x.Id,
-                // 标准三角函数 (期望被翻译为 SIN, COS, TAN)
                 SinVal = Math.Sin(x.V1),
                 CosVal = Math.Cos(x.V1),
                 TanVal = Math.Tan(x.V1),
                 
-                // 反三角函数 (期望被翻译为 ASIN, ACOS, ATAN)
                 AsinVal = Math.Asin(x.V1),
                 AcosVal = Math.Acos(x.V1),
                 AtanVal = Math.Atan(x.V1),
                 
-                // 双参数反正切 (期望被翻译为 ATAN2)
-                Atan2Val = Math.Atan2(x.V1, x.V2)
-            })
-            .ToList();
 
-        Assert.Equal(3, query.Count);
+                Atan2Val = Math.Atan2(x.V1, x.V2)
+            });
+        var result = query.ToList();
+        // SELECT
+        //         x."Id" AS "Id",
+        //         Sin(x."V1") AS "SinVal",
+        //         Cos(x."V1") AS "CosVal",
+        //         Tan(x."V1") AS "TanVal",
+        //         Asin(x."V1") AS "AsinVal",
+        //         Acos(x."V1") AS "AcosVal",
+        //         Atan(x."V1") AS "AtanVal",
+        //         Atan2(x."V1", x."V2") AS "Atan2Val"
+        // FROM
+        //         tmp_d1ae0ee866264e84954a7f8bcff04e2e x
+        // ORDER BY
+        //         x."Id"
+        // shape: (3, 8)
+        // ┌─────┬───────────┬──────────┬───────────┬───────────┬──────────┬───────────┬───────────┐
+        // │ Id  ┆ SinVal    ┆ CosVal   ┆ TanVal    ┆ AsinVal   ┆ AcosVal  ┆ AtanVal   ┆ Atan2Val  │
+        // │ --- ┆ ---       ┆ ---      ┆ ---       ┆ ---       ┆ ---      ┆ ---       ┆ ---       │
+        // │ i32 ┆ f64       ┆ f64      ┆ f64       ┆ f64       ┆ f64      ┆ f64       ┆ f64       │
+        // ╞═════╪═══════════╪══════════╪═══════════╪═══════════╪══════════╪═══════════╪═══════════╡
+        // │ 1   ┆ 0.479426  ┆ 0.877583 ┆ 0.546302  ┆ 0.523599  ┆ 1.047198 ┆ 0.463648  ┆ 0.463648  │
+        // │ 2   ┆ 0.0       ┆ 1.0      ┆ 0.0       ┆ 0.0       ┆ 1.570796 ┆ 0.0       ┆ 3.141593  │
+        // │ 3   ┆ -0.841471 ┆ 0.540302 ┆ -1.557408 ┆ -1.570796 ┆ 3.141593 ┆ -0.785398 ┆ -1.107149 │
+        // └─────┴───────────┴──────────┴───────────┴───────────┴──────────┴───────────┴───────────┘
+
+        Assert.Equal(3, result.Count);
         
-        // 简单验证第一行的 Sin(0.5)
-        Assert.True(Math.Abs(query[0].SinVal - Math.Sin(0.5)) < 1e-6);
+        Assert.True(Math.Abs(result[0].SinVal - Math.Sin(0.5)) < 1e-6);
 
     }
     [Fact]
@@ -2109,33 +2442,53 @@ David,40,80000";
             {
                 x.Id,
                 
-                // 1. 度数与弧度转换
                 DegVal = PolarsSql.Degrees(x.Rad),
                 RadVal = PolarsSql.Radians(x.Deg),
                 
-                // 2. 基于角度的三角函数
                 SindVal = PolarsSql.Sind(x.Deg),
                 CosdVal = PolarsSql.Cosd(x.Deg),
                 TandVal = PolarsSql.Tand(x.Deg),
                 
-                // 3. 余切
                 CotVal = PolarsSql.Cot(x.Rad),
                 CotdVal = PolarsSql.Cotd(x.Deg),
                 
-                // 4. 基于角度的反三角函数 (输入必须在 [-1, 1])
                 AsindVal = PolarsSql.Asind(x.Ratio), 
                 AcosdVal = PolarsSql.Acosd(x.Ratio),
                 AtandVal = PolarsSql.Atand(x.Ratio),
                 
-                // 5. 双参数基于角度的反正切
                 Atan2dVal = PolarsSql.Atan2d(x.Y, x.X)
-            })
-            .ToList();
-
-        Assert.Equal(2, query.Count);
+            });
+        var result = query.ToList();
+        // SELECT
+        //         x."Id" AS "Id",
+        //         DEGREES(x."Rad") AS "DegVal",
+        //         RADIANS(x."Deg") AS "RadVal",
+        //         SIND(x."Deg") AS "SindVal",
+        //         COSD(x."Deg") AS "CosdVal",
+        //         TAND(x."Deg") AS "TandVal",
+        //         COT(x."Rad") AS "CotVal",
+        //         COTD(x."Deg") AS "CotdVal",
+        //         ASIND(x."Ratio") AS "AsindVal",
+        //         ACOSD(x."Ratio") AS "AcosdVal",
+        //         ATAND(x."Ratio") AS "AtandVal",
+        //         ATAN2D(x."Y", x."X") AS "Atan2dVal"
+        // FROM
+        //         tmp_256ffae51d3c4de297125531acac31f6 x
+        // ORDER BY
+        //         x."Id"
+        // shape: (2, 12)
+        // ┌─────┬───────────┬──────────┬─────────┬───┬──────────┬──────────┬───────────┬───────────┐
+        // │ Id  ┆ DegVal    ┆ RadVal   ┆ SindVal ┆ … ┆ AsindVal ┆ AcosdVal ┆ AtandVal  ┆ Atan2dVal │
+        // │ --- ┆ ---       ┆ ---      ┆ ---     ┆   ┆ ---      ┆ ---      ┆ ---       ┆ ---       │
+        // │ i32 ┆ f64       ┆ f64      ┆ f64     ┆   ┆ f64      ┆ f64      ┆ f64       ┆ f64       │
+        // ╞═════╪═══════════╪══════════╪═════════╪═══╪══════════╪══════════╪═══════════╪═══════════╡
+        // │ 1   ┆ 29.965693 ┆ 0.523599 ┆ 0.5     ┆ … ┆ 30.0     ┆ 60.0     ┆ 26.565051 ┆ 45.0      │
+        // │ 2   ┆ 89.954374 ┆ 1.570796 ┆ 1.0     ┆ … ┆ 90.0     ┆ 0.0      ┆ 45.0      ┆ -90.0     │
+        // └─────┴───────────┴──────────┴─────────┴───┴──────────┴──────────┴───────────┴───────────┘
         
-        // 简单验证第一行的 Sind(30度) 应该等于 0.5 (允许微小的浮点数误差)
-        Assert.True(Math.Abs(query[0].SindVal - 0.5) < 1e-6);
+        Assert.Equal(2, result.Count);
+        
+        Assert.True(Math.Abs(result[0].SindVal - 0.5) < 1e-6);
 
     }
     [Fact]
@@ -2158,41 +2511,64 @@ David,40,80000";
             {
                 x.Id,
                 
-                // 1. 基础运算
-                AbsVal = Math.Abs(x.V2 * -1),                    // ABS (原生支持完美，继续用)
-                ModVal = PolarsSql.Mod(x.IntVal, x.Divisor),     // 强制生成 MOD(a, b)，完美避开 LinqToDB 的迷之 decimal 强转
-                DivOpVal = x.IntVal / x.Divisor,                 // 原生整除 (/)
-                DivFuncVal = PolarsSql.Div(x.IntVal, x.Divisor), // 强制生成 DIV(a, b) 函数
-                
-                // 2. 取整与截断
-                CeilVal = PolarsSql.Ceil(x.V1 + 0.5),            // 强制生成 CEIL，避免 LinqToDB 翻成 CEILING
-                FloorVal = Math.Floor(x.V1 + 0.5),               // FLOOR (原生支持完美，继续用)
-                RoundVal = PolarsSql.Round(x.V1 + 0.54, 1),      // 拯救被 LinqToDB 彻底吃掉的 Math.Round
-                
-                // 3. 幂与根
-                PowVal = Math.Pow(x.V1, x.V2),              // 强制生成 POW，避免原生的 POWER
-                SqrtVal = Math.Sqrt(x.V1),                       // SQRT (原生支持完美)
-                CbrtVal = PolarsSql.Cbrt(x.V1),                  // 拯救被 LinqToDB 完全忽略的 Math.Cbrt
-                ExpVal = Math.Exp(x.V1),                         // EXP (原生支持完美)
-                
-                // 4. 对数家族
-                LnVal = Math.Log(x.V1),                          // LN (C# 的单参数 Log 会被完美翻译为 Ln，继续用)
-                Log10Val = PolarsSql.Log10(x.V1),                // 拯救被误翻为 Log(x) 的 Math.Log10
-                Log2Val = PolarsSql.Log2(x.V1),                  // 拯救被误翻为 Log(2, x) 的 Math.Log2
-                Log1pVal = PolarsSql.Log1p(x.V1),                // LOG1P (原生压根没有，走专属扩展)
+                AbsVal = Math.Abs(x.V2 * -1),                   
+                ModVal = PolarsSql.Mod(x.IntVal, x.Divisor),     
+                DivOpVal = x.IntVal / x.Divisor,                 
+                DivFuncVal = PolarsSql.Div(x.IntVal, x.Divisor),
 
-                // 5. 其他
-                SignVal = Math.Sign(x.V1 - 5.0),                 // SIGN (原生支持完美)
+                CeilVal = PolarsSql.Ceil(x.V1 + 0.5),          
+                FloorVal = Math.Floor(x.V1 + 0.5),               
+                RoundVal = PolarsSql.Round(x.V1 + 0.54, 1),     
                 
-                PiFunc = PolarsSql.Pi()                          // 强制翻译成优雅的 PI() 函数
+                PowVal = Math.Pow(x.V1, x.V2),              
+                SqrtVal = Math.Sqrt(x.V1),                      
+                CbrtVal = PolarsSql.Cbrt(x.V1),              
+                ExpVal = Math.Exp(x.V1),                       
+
+                LnVal = Math.Log(x.V1),                       
+                Log10Val = PolarsSql.Log10(x.V1),               
+                Log2Val = PolarsSql.Log2(x.V1),                 
+                Log1pVal = PolarsSql.Log1p(x.V1),               
+
+                SignVal = Math.Sign(x.V1 - 5.0),                
+                
+                PiFunc = PolarsSql.Pi()                         
             });
 
         var df = query.ToDataFrame();
-        Console.WriteLine(query.ToSqlString());
-        df.Show();
-        
+        // SELECT
+        //         x."Id" AS "Id",
+        //         Abs(x."V2" * -1) AS "AbsVal",
+        //         MOD(x."IntVal", x."Divisor") AS "ModVal",
+        //         x."IntVal" / x."Divisor" AS "DivOpVal",
+        //         DIV(x."IntVal"::BigInt, x."Divisor"::BigInt) AS "DivFuncVal",
+        //         CEIL((x."V1" + 0.5)) AS "CeilVal",
+        //         Floor(x."V1" + 0.5) AS "FloorVal",
+        //         ROUND((x."V1" + 0.54000000000000004), 1) AS "RoundVal",
+        //         Power(x."V1", x."V2") AS "PowVal",
+        //         Sqrt(x."V1") AS "SqrtVal",
+        //         CBRT(x."V1") AS "CbrtVal",
+        //         Exp(x."V1") AS "ExpVal",
+        //         Ln(x."V1") AS "LnVal",
+        //         LOG10(x."V1") AS "Log10Val",
+        //         LOG2(x."V1") AS "Log2Val",
+        //         LOG1P(x."V1") AS "Log1pVal",
+        //         Sign(x."V1" - 5) AS "SignVal",
+        //         PI() AS "PiFunc"
+        // FROM
+        //         tmp_1edac8e4c27e46488e4932c6d2ad1831 x
+        // ORDER BY
+        //         x."Id"
+        // shape: (1, 18)
+        // ┌─────┬────────┬────────┬──────────┬───┬─────────┬──────────┬─────────┬──────────┐
+        // │ Id  ┆ AbsVal ┆ ModVal ┆ DivOpVal ┆ … ┆ Log2Val ┆ Log1pVal ┆ SignVal ┆ PiFunc   │
+        // │ --- ┆ ---    ┆ ---    ┆ ---      ┆   ┆ ---     ┆ ---      ┆ ---     ┆ ---      │
+        // │ i32 ┆ f64    ┆ i32    ┆ i32      ┆   ┆ f64     ┆ f64      ┆ f64     ┆ f64      │
+        // ╞═════╪════════╪════════╪══════════╪═══╪═════════╪══════════╪═════════╪══════════╡
+        // │ 1   ┆ 3.0    ┆ 1      ┆ 3        ┆ … ┆ 1.0     ┆ 1.098612 ┆ -1.0    ┆ 3.141593 │
+        // └─────┴────────┴────────┴──────────┴───┴─────────┴──────────┴─────────┴──────────┘
         Assert.Equal(18L, df.Width);
-        // Assert.Single(query);
+
     }
     [Fact]
     [Trait("Linq", "ArrayFunctionsBatch1")]
@@ -2201,15 +2577,11 @@ David,40,80000";
         using var ctx = new SqlContext();
         using var db = new PolarsDataContext(ctx, ownsContext: true);
 
-        // ==========================================
-        // 1. 构造测试数据 (包含标量列和数组列)
-        // ==========================================
         using var df = DataFrame.FromColumns(new
         {
             Id = new[] { 1, 2, 3 },
             DeptId = new[] { 10, 10, 20 },
             Name = new[] { "Alice", "Bob", "Charlie" },
-            // 直接传递 string[][] 和 int[][]
             Tags = new[] 
             { 
                 new[] { "admin", "user" }, 
@@ -2229,66 +2601,94 @@ David,40,80000";
         };
         var table = db.RegisterTable(df,prototype);
 
-        // ==========================================
-        // 2. 测试标量数组函数 (LENGTH, CONTAINS, GET)
-        // ==========================================
         var scalarQuery = table
             .OrderBy(x => x.Id)
             .Select(x => new
             {
                 x.Id,
-                // ARRAY_LENGTH: 获取数组长度
                 TagsCount = PolarsSql.ArrayLength(x.Tags),
                 
-                // ARRAY_CONTAINS: 判断是否包含某个标签
                 IsAdmin = PolarsSql.ArrayContains(x.Tags, "admin"),
                 
-                // ARRAY_GET: 按索引取值 (注意：SQL 方言中的数组索引通常是 1-based)
                 FirstScore = PolarsSql.ArrayGet(x.Scores, 1) 
-            })
-            .ToList();
+            });
 
-        // 验证标量数组函数
-        Assert.Equal(3, scalarQuery.Count);
+        var scalarResult = scalarQuery.ToList();
+        Console.WriteLine(scalarQuery.ToSqlString());
+        scalarQuery.ToDataFrame().Show();
+        // SELECT
+        //         x."Id" AS "Id",
+        //         ARRAY_LENGTH(x."Tags") AS "TagsCount",
+        //         ARRAY_CONTAINS(x."Tags", 'admin') AS "IsAdmin",
+        //         ARRAY_GET(x."Scores", 1) AS "FirstScore"
+        // FROM
+        //         tmp_bd15bd83867a40689d26cbc29b1e66c4 x
+        // ORDER BY
+        //         x."Id"
+        // shape: (3, 4)
+        // ┌─────┬───────────┬─────────┬────────────┐
+        // │ Id  ┆ TagsCount ┆ IsAdmin ┆ FirstScore │
+        // │ --- ┆ ---       ┆ ---     ┆ ---        │
+        // │ i32 ┆ u32       ┆ bool    ┆ i32        │
+        // ╞═════╪═══════════╪═════════╪════════════╡
+        // │ 1   ┆ 2         ┆ true    ┆ 90         │
+        // │ 2   ┆ 1         ┆ false   ┆ 70         │
+        // │ 3   ┆ 2         ┆ false   ┆ 60         │
+        // └─────┴───────────┴─────────┴────────────┘
+        Assert.Equal(3, scalarResult.Count);
         
         // Alice
-        Assert.Equal(2, scalarQuery[0].TagsCount);
-        Assert.True(scalarQuery[0].IsAdmin);
-        Assert.Equal(90, scalarQuery[0].FirstScore);
+        Assert.Equal(2, scalarResult[0].TagsCount);
+        Assert.True(scalarResult[0].IsAdmin);
+        Assert.Equal(90, scalarResult[0].FirstScore);
 
         // Bob
-        Assert.Equal(1, scalarQuery[1].TagsCount);
-        Assert.False(scalarQuery[1].IsAdmin);
-        Assert.Equal(70, scalarQuery[1].FirstScore);
+        Assert.Equal(1, scalarResult[1].TagsCount);
+        Assert.False(scalarResult[1].IsAdmin);
+        Assert.Equal(70, scalarResult[1].FirstScore);
 
         // ==========================================
-        // 3. 测试聚合数组函数 (ARRAY_AGG)
+        // ARRAY_AGG
         // ==========================================
         var aggQuery = table
             .GroupBy(x => x.DeptId)
             .Select(g => new
             {
                 DeptId = g.Key,
-                // ARRAY_AGG: 把每个部门所有人的 Name 聚合成一个数组
-                // 注意这里利用了 C# 扩展方法的语法糖 g.ArrayAgg(...)
                 EmployeeNames = g.ArrayAgg(x => x.Name) 
             })
-            .OrderBy(x => x.DeptId)
-            .ToList();
+            .OrderBy(x => x.DeptId);
+        // SELECT
+        //         g_1."DeptId" AS "DeptId",
+        //         ARRAY_AGG(g_1."Name") AS "EmployeeNames"
+        // FROM
+        //         tmp_9351839e2563421f9110998373cab3b4 g_1
+        // GROUP BY
+        //         g_1."DeptId" ORDER BY
+        //         g_1."DeptId"
+        // shape: (2, 2)
+        // ┌────────┬──────────────────┐
+        // │ DeptId ┆ EmployeeNames    │
+        // │ ---    ┆ ---              │
+        // │ i32    ┆ list[str]        │
+        // ╞════════╪══════════════════╡
+        // │ 10     ┆ ["Alice", "Bob"] │
+        // │ 20     ┆ ["Charlie"]      │
+        // └────────┴──────────────────┘
+        var aggResult = aggQuery.ToList();
 
-        // 验证聚合函数
-        Assert.Equal(2, aggQuery.Count);
+        Assert.Equal(2, aggResult.Count);
         
         // Dept 10 (Alice, Bob)
-        Assert.Equal(10, aggQuery[0].DeptId);
-        var dept10Names = aggQuery[0].EmployeeNames.ToArray();
+        Assert.Equal(10, aggResult[0].DeptId);
+        var dept10Names = aggResult[0].EmployeeNames.ToArray();
         Assert.Equal(2, dept10Names.Length);
         Assert.Contains("Alice", dept10Names);
         Assert.Contains("Bob", dept10Names);
 
         // Dept 20 (Charlie)
-        Assert.Equal(20, aggQuery[1].DeptId);
-        var dept20Names = aggQuery[1].EmployeeNames.ToArray();
+        Assert.Equal(20, aggResult[1].DeptId);
+        var dept20Names = aggResult[1].EmployeeNames.ToArray();
         Assert.Single(dept20Names);
         Assert.Equal("Charlie", dept20Names[0]);
     }
@@ -2469,43 +2869,7 @@ David,40,80000";
         // Here is the polars way to do such query:
         // df.Show();
         var result = df.Explode("Details").Unnest("Details");
-        // df2.Show();
-        // var table = db.RegisterTable(df, orders);
 
-        // var query = df.AsQueryable(orders)
-        //     // 🌟 SelectMany 的第一个参数是 Explode (把 Details 列表炸成多行)
-        //     // 🌟 第二个参数是 Unnest 投影 (把炸开后的 struct 字段和原表的 OrderId 重新缝合)
-        //     .SelectMany(
-        //         x => x.Details, 
-        //         (x, item) => new 
-        //         {
-        //             x.OrderId,
-        //             item.Sku,   // 直接提取 Struct 的内部字段！
-        //             item.Qty
-        //         }
-        //     )
-        //     .OrderBy(x => x.OrderId)
-        //     .ToDataFrame();
-
-        // query.Show();
-
-        // // 3. 验证炸裂后的行数 (2+1 = 3行)
-        // Assert.Equal(3, query.Count);
-
-        // // 验证第一行 (OrderId 101 的第一个 SKU)
-        // Assert.Equal(101, query[0].OrderId);
-        // Assert.Equal("Apple", query[0].Item.Sku);
-        // Assert.Equal(5, query[0].Item.Qty);
-
-        // // 验证第二行 (OrderId 101 的第二个 SKU)
-        // Assert.Equal(101, query[1].OrderId);
-        // Assert.Equal("Banana", query[1].Item.Sku);
-        // Assert.Equal(2, query[1].Item.Qty);
-
-        // // 验证第三行 (OrderId 102)
-        // Assert.Equal(102, query[2].OrderId);
-        // Assert.Equal("Cherry", query[2].Item.Sku);
-        // Assert.Equal(10, query[2].Item.Qty);
     }
     public class JoinResult
     {
@@ -2521,7 +2885,7 @@ David,40,80000";
         {
             new DeptDto { DeptId = 1, DeptName = "Engineering" },
             new DeptDto { DeptId = 2, DeptName = "Sales" },
-            new DeptDto { DeptId = 3, DeptName = "HR" } // HR 没有员工
+            new DeptDto { DeptId = 3, DeptName = "HR" } 
         };
 
         var emps = new[]
@@ -2538,7 +2902,6 @@ David,40,80000";
         var deptQuery = db.RegisterTable<DeptDto>(dfDepts);
         var empQuery = db.RegisterTable<EmpDto>(dfEmps);
 
-        // Act: 🚀 使用 .NET 10 原生 LeftJoin！告别 DefaultIfEmpty 地狱！
         var query = deptQuery
             .LeftJoin(
                 empQuery,
@@ -2546,9 +2909,8 @@ David,40,80000";
                 e => e.DeptId,
                 (d, e) => new 
                 {
-                    d.DeptId, // 临时保留用于排序
-                    DeptName = d.DeptName,
-                    // e 可能是 null，使用 C# null 条件运算符极致优雅
+                    d.DeptId,
+                    d.DeptName,
                     EmployeeName = e != null ? e.Name : "NO_EMPLOYEE" 
                 })
             .OrderBy(x => x.DeptId)
@@ -2558,35 +2920,58 @@ David,40,80000";
                 DeptName = x.DeptName,
                 EmployeeName = x.EmployeeName
             });
-        Console.WriteLine(query.ToSqlString());
+
         var results = query.ToList();
+        // SELECT
+        //         x."DeptName",
+        //         x."EmployeeName"
+        // FROM
+        //         (
+        //                 SELECT
+        //                         d."DeptId",
+        //                         CASE
+        //                                 WHEN e."DeptId" IS NOT NULL THEN e."Name"
+        //                                 ELSE 'NO_EMPLOYEE'
+        //                         END as "EmployeeName",
+        //                         d."DeptName"
+        //                 FROM
+        //                         "DeptDto" d
+        //                                 LEFT JOIN "EmpDto" e ON d."DeptId" = e."DeptId"
+        //         ) x
+        // ORDER BY
+        //         x."DeptId",
+        //         x."EmployeeName"
+        // shape: (4, 2)
+        // ┌─────────────┬──────────────┐
+        // │ DeptName    ┆ EmployeeName │
+        // │ ---         ┆ ---          │
+        // │ str         ┆ str          │
+        // ╞═════════════╪══════════════╡
+        // │ Engineering ┆ Alice        │
+        // │ Engineering ┆ Charlie      │
+        // │ Sales       ┆ Bob          │
+        // │ HR          ┆ NO_EMPLOYEE  │
+        // └─────────────┴──────────────┘
 
         // Assert
         Assert.Equal(4, results.Count);
 
-        // 验证 Engineering (1)
         Assert.Equal("Engineering", results[0].DeptName);
         Assert.Equal("Alice", results[0].EmployeeName);
         Assert.Equal("Engineering", results[1].DeptName);
         Assert.Equal("Charlie", results[1].EmployeeName);
 
-        // 验证 Sales (2)
         Assert.Equal("Sales", results[2].DeptName);
         Assert.Equal("Bob", results[2].EmployeeName);
 
-        // 验证 HR (3) - Left Join 空值兜底
         Assert.Equal("HR", results[3].DeptName);
         Assert.Equal("NO_EMPLOYEE", results[3].EmployeeName);
     }
 
-    // ==========================================================
-    // 🌟 .NET 10 新语法测试：RightJoin
-    // ==========================================================
     [Fact]
     [Trait("Linq", "RightJoin")]
     public void Test_Polars_Linq_RightJoin_Net10()
     {
-        // Arrange (数据同上)
         var depts = new[]
         {
             new DeptDto { DeptId = 1, DeptName = "Engineering" },
@@ -2599,7 +2984,7 @@ David,40,80000";
             new EmpDto { Name = "Alice", DeptId = 1 },
             new EmpDto { Name = "Bob",   DeptId = 2 },
             new EmpDto { Name = "Charlie", DeptId = 1 },
-            new EmpDto { Name = "David", DeptId = 99 } // 🚨 注意：David 没有匹配的部门！
+            new EmpDto { Name = "David", DeptId = 99 } 
         };
 
         using var dfDepts = DataFrame.From(depts);
@@ -2609,9 +2994,6 @@ David,40,80000";
         var deptQuery = db.RegisterTable<DeptDto>(dfDepts);
         var empQuery = db.RegisterTable<EmpDto>(dfEmps);
 
-        // Act: 🚀 使用 .NET 10 原生 RightJoin！
-        // 把 emps 放左边，depts 放右边，执行 RightJoin，就等于 depts LeftJoin emps
-        // 这里的 d (Dept) 永远有值，但 e (Emp) 可能为 null (由于是以 dept 为基准的 RightJoin)
         var query = empQuery
             .RightJoin(
                 deptQuery,
@@ -2620,8 +3002,8 @@ David,40,80000";
                 (e, d) => new 
                 {
                     d.DeptId,
-                    DeptName = d.DeptName,
-                    // e 可能是 null，因为有些 Dept 没有员工 (比如 HR)
+                    d.DeptName,
+
                     EmployeeName = e != null ? e.Name : "NO_EMPLOYEE" 
                 })
             .OrderBy(x => x.DeptId)
@@ -2631,10 +3013,39 @@ David,40,80000";
                 DeptName = x.DeptName,
                 EmployeeName = x.EmployeeName
             });
-        // Console.WriteLine(query.ToSqlString());
-        var results = query.ToList();
 
-        // Assert: 结果应该与上面的 LeftJoin 完全一致，因为我们反转了表的位置和 Join 的方向
+        var results = query.ToList();
+        // SELECT
+        //         x."DeptName",
+        //         x."EmployeeName"
+        // FROM
+        //         (
+        //                 SELECT
+        //                         d."DeptId",
+        //                         CASE
+        //                                 WHEN e."DeptId" IS NOT NULL THEN e."Name"
+        //                                 ELSE 'NO_EMPLOYEE'
+        //                         END as "EmployeeName",
+        //                         d."DeptName"
+        //                 FROM
+        //                         "EmpDto" e
+        //                                 RIGHT JOIN "DeptDto" d ON e."DeptId" = d."DeptId"
+        //         ) x
+        // ORDER BY
+        //         x."DeptId",
+        //         x."EmployeeName"
+        // shape: (4, 2)
+        // ┌─────────────┬──────────────┐
+        // │ DeptName    ┆ EmployeeName │
+        // │ ---         ┆ ---          │
+        // │ str         ┆ str          │
+        // ╞═════════════╪══════════════╡
+        // │ Engineering ┆ Alice        │
+        // │ Engineering ┆ Charlie      │
+        // │ Sales       ┆ Bob          │
+        // │ HR          ┆ NO_EMPLOYEE  │
+        // └─────────────┴──────────────┘
+
         Assert.Equal(4, results.Count);
         Assert.Equal("HR", results[3].DeptName);
         Assert.Equal("NO_EMPLOYEE", results[3].EmployeeName);
@@ -2647,7 +3058,7 @@ David,40,80000";
     }
 
     [Fact]
-    [Trait("Linq", "CountBy_AggregateBy")]
+    [Trait("Linq", "CountByAggregateBy")]
     public void Test_Polars_Linq_New_Aggregations_Net10()
     {
         // Arrange
@@ -2665,14 +3076,28 @@ David,40,80000";
         using var db = new PolarsDataContext(new SqlContext(), ownsContext: true);
         var salesQuery = db.RegisterTable<SaleRecord>(df);
 
-        // ==========================================================
-        // 🌟 跑车 1号：CountBy (按类目统计订单数)
-        // 预期 SQL: SELECT Category, COUNT(*) FROM Sales GROUP BY Category
-        // ==========================================================
-        var countResult = salesQuery
-            .CountBy(x => x.Category) // 🔥 原生 CountBy！返回 KeyValuePair<string, int>
-            .OrderBy(x => x.Key)
-            .ToList();
+        var countQuery = salesQuery
+            .CountBy(x => x.Category)
+            .OrderBy(x => x.Key);
+        var countResult = countQuery.ToList();
+        // SELECT
+        //         g_1."Category" as "Key_1",
+        //         COUNT(*) as "Count_1"
+        // FROM
+        //         "SaleRecord" g_1
+        // GROUP BY
+        //         g_1."Category" ORDER BY
+        //         g_1."Category"
+        // shape: (3, 2)
+        // ┌─────────────┬─────────┐
+        // │ Key_1       ┆ Count_1 │
+        // │ ---         ┆ ---     │
+        // │ str         ┆ u32     │
+        // ╞═════════════╪═════════╡
+        // │ Books       ┆ 1       │
+        // │ Clothing    ┆ 3       │
+        // │ Electronics ┆ 2       │
+        // └─────────────┴─────────┘
 
         Assert.Equal(3, countResult.Count);
         
@@ -2686,20 +3111,33 @@ David,40,80000";
         Assert.Equal("Electronics", countResult[2].Key);
         Assert.Equal(2, countResult[2].Value);
 
-        // ==========================================================
-        // 🌟 经典跑车：GroupBy + Sum (按类目统计总销售额)
-        // 预期 SQL: SELECT Category, SUM(Amount) FROM Sales GROUP BY Category
-        // 这是所有 ORM 解析最完美、底层执行最快的绝对标准写法！
-        // ==========================================================
-        var sumResult = salesQuery
+        var sumQuery = salesQuery
             .GroupBy(x => x.Category)
             .Select(g => new 
             {
                 Key = g.Key, 
-                Value = g.Sum(x => x.Amount) // 🔥 经典的聚合投影，linq2db 100% 翻译为 SUM()
+                Value = g.Sum(x => x.Amount) 
             })
-            .OrderBy(x => x.Key)
-            .ToList();
+            .OrderBy(x => x.Key);
+        // SELECT
+        //         g_1."Category" AS "Key",
+        //         SUM(g_1."Amount") AS "Value"
+        // FROM
+        //         "SaleRecord" g_1
+        // GROUP BY
+        //         g_1."Category" ORDER BY
+        //         g_1."Category"
+        // shape: (3, 2)
+        // ┌─────────────┬────────┐
+        // │ Key         ┆ Value  │
+        // │ ---         ┆ ---    │
+        // │ str         ┆ f64    │
+        // ╞═════════════╪════════╡
+        // │ Books       ┆ 45.0   │
+        // │ Clothing    ┆ 400.0  │
+        // │ Electronics ┆ 2000.5 │
+        // └─────────────┴────────┘
+        var sumResult = sumQuery.ToList();
 
         Assert.Equal(3, sumResult.Count);
 
