@@ -835,7 +835,7 @@ type ``Complex Query Tests`` () =
         // 注意：Polars TopK 默认行为是 "Largest k elements"，所以不需要 descending=true
         let top2 = 
             lf.TopK(2, [pl.col "V"],reverse=false) // Descending=true 确保大的在前
-              .Collect()
+            |>  pl.collect
         
         // 验证: 应该是 5, 4 (顺序可能取决于具体的 TopK 算法，但数值集合是对的)
         // Polars TopK 通常返回有序结果
@@ -847,7 +847,7 @@ type ``Complex Query Tests`` () =
         // 取最小的 2 个 -> 1, 2
         let bot2 = 
             lf.BottomK(2, [pl.col "V"], reverse=false) // Ascending
-              .Collect()
+              |> pl.collect
         
         Assert.Equal(1, bot2.Cell<int>("V",0))
         Assert.Equal(2, bot2.Cell<int>("V",1))
