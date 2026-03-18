@@ -46,12 +46,11 @@ module QueryTests =
     [<Trait("Linq", "FSharpOptions")>]
     let ``Test Polars FSharp Option And ValueOption Accessor`` () =
         
-        // 1. 构造包含 None 和 ValueNone 的复杂数据
         let data = [|
             { Id = 1; Nickname = Some "Alice";   Score = ValueSome 100; LastLogin = ValueSome DateTime.Now }
-            { Id = 2; Nickname = None;           Score = ValueSome 80;  LastLogin = ValueSome DateTime.Now } // 无名氏
-            { Id = 3; Nickname = Some "Bob";     Score = ValueNone;     LastLogin = ValueSome DateTime.Now } // 没分数的 Bob
-            { Id = 4; Nickname = None;           Score = ValueNone;     LastLogin = ValueNone }              // 彻底的幽灵
+            { Id = 2; Nickname = None;           Score = ValueSome 80;  LastLogin = ValueSome DateTime.Now } 
+            { Id = 3; Nickname = Some "Bob";     Score = ValueNone;     LastLogin = ValueSome DateTime.Now } 
+            { Id = 4; Nickname = None;           Score = ValueNone;     LastLogin = ValueNone }              
         |]
 
         // 2. 触发你的 FSharpHelper.PackXXX 逻辑，极速装载进 Arrow 内存

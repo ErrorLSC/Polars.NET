@@ -3,7 +3,6 @@ namespace Polars.FSharp.Tests
 module UdfLogic =
     open Apache.Arrow
 
-    // 场景 A: 类型转换 (Int32 -> String)
     let intToString (arr: IArrowArray) : IArrowArray =
         match arr with
         | :? Int64Array as i64Arr ->
@@ -15,7 +14,6 @@ module UdfLogic =
                     builder.Append $"Value: {v}" |> ignore
             builder.Build() :> IArrowArray
 
-    // 为了兼容性保留 Int32
         | :? Int32Array as i32Arr ->
             let builder = new StringViewArray.Builder()
             for i in 0 .. i32Arr.Length - 1 do
@@ -158,6 +156,42 @@ type ``UDF Tests`` () =
         // Row 2: null -> (None) -> None
         Assert.True(col.IsNull 2)
     [<Fact>]
+    [<Trait("UDF","SeriesValueOption")>]
+    member _.``Series UDF: MapValueOption (Score to Risk Grade)`` () =
+        
+        let data = [
+            {| Score = ValueSome 95 |}    
+            {| Score = ValueSome 75 |}    
+            {| Score = ValueSome 30 |}    
+            {| Score = ValueSome 999 |}   
+            {| Score = ValueNone |} 
+        ]
+        
+        use df = DataFrame.ofRecords data
+        
+        let scoreSeries = df.Column "Score"
+
+        let calculateGrade (opt: int voption) =
+            match opt with
+            | ValueSome s when s >= 90 && s <= 100 -> ValueSome "S"
+            | ValueSome s when s >= 70 && s < 90   -> ValueSome "A"
+            | ValueSome s when s >= 0  && s < 70   -> ValueSome "B"
+            | _ -> ValueNone 
+
+        use gradeSeries = scoreSeries.MapValueOption(calculateGrade, DataType.String)
+        
+        use resultDf = df.WithColumn(pl.litSeries(gradeSeries).Alias "Grade")
+        
+        Assert.Equal(5L, resultDf.Rows)
+
+        Assert.Equal("S", resultDf.Cell<string>("Grade", 0))
+        Assert.Equal("A", resultDf.Cell<string>("Grade", 1))
+        Assert.Equal("B", resultDf.Cell<string>("Grade", 2))
+        
+        Assert.Null(resultDf.Cell<string>("Grade", 3))
+        
+        Assert.Null(resultDf.Cell<string>("Grade", 4))
+    [<Fact>]
     member _.``UDF: Decimal Map (Series Native)`` () =
         // 1. 准备数据: String ["10.50", "20.25", null]
         let data = ["10.50"; "20.25"; null]
@@ -173,14 +207,8 @@ type ``UDF Tests`` () =
         let logic (opt: decimal option) =
             opt |> Option.map (fun d -> d * 2m)
 
-        // 4. 直接在 Series 上执行 Map!
-        // 彻底告别 ToFrame -> withColumn -> Expr.Map 的绕路写法
-        // 这里利用了我们刚加的 Series.Map 泛型重载 (内部自动调用 Udf.mapOption)
         let res = sDec.MapOption(logic, DataType.Decimal(Some 10, Some 2))
 
-        // 5. 验证结果
-        // 咱们现在的 Series.GetValue 已经非常智能了，直接取值即可
-        
         // 10.50 * 2 = 21.00
         Assert.Equal(21.00m, res.GetValue<decimal> 0)
         
@@ -188,7 +216,6 @@ type ``UDF Tests`` () =
         Assert.Equal(40.50m, res.GetValue<decimal> 1)
         
         // null -> null
-        // 验证 Option 返回 None
         Assert.True(res.GetValue<decimal option>(2).IsNone)
     [<Fact>]
     member _.``Series: Map (Basic UDF)`` () =
@@ -198,14 +225,13 @@ type ``UDF Tests`` () =
         // Logic: x * 10
         let doubleFunc (x: int) = x * 10
         
-        // 1. 编译 UDF (类型推断: int -> int)
+        // int -> int
         let udf = Udf.map doubleFunc
 
-        // 2. Apply to Series
-        // 我们明确知道返回是 Int32
+        // Apply to Series
         let sRes = s.Map(udf, DataType.Int32)
 
-        // 3. Verify
+        // Verify
         Assert.Equal(10, sRes.GetValue<int> 0)
         Assert.Equal(30, sRes.GetValue<int> 2)
 
@@ -215,7 +241,6 @@ type ``UDF Tests`` () =
         let s = Series.create("vals", [Some 10; None; Some 30])
 
         // Logic: Some(x) -> Some(x + 1), None -> Some(-1)
-        // 这是一个只有 mapOption 才能做到的 "FillNull with Logic"
         let logic (opt: int option) =
             match opt with
             | Some x -> Some (x + 1)
@@ -233,10 +258,53 @@ type ``UDF Tests`` () =
         // Data: ["a", "b"]
         let s = Series.create("txt", ["a"; "b"])
 
-        // 直接传 lambda，享受 F# 的丝滑
-        // 逻辑: string -> string (加后缀)
-        // 注意：这里需要显式指明泛型参数，或者通过类型注解让编译器推断 'T 和 'U
-        // 因为 Series 本身不知道自己存的是 string，所以 'T 必须匹配物理类型
         let sRes = s.Map<string, string>((fun x -> x + "_suffix"), DataType.String)
         
         Assert.Equal("a_suffix", sRes.GetValue<string> 0)
+    [<Fact>]
+    [<Trait("UDF","ValueOption")>]
+    member _.``UDF: Map with ValueOption (String Parsing to Int)`` () =
+        let data = [
+            {| Code = ValueSome "EMP-1024" |}  
+            {| Code = ValueSome "EMP-0042" |}  
+            {| Code = ValueSome "ADMIN-1" |}   
+            {| Code = ValueSome "EMP-ERR" |}   
+            {| Code = ValueNone |}        
+        ]
+        
+        let lf = DataFrame.ofRecords(data).Lazy()
+
+        //  string voption -> int voption
+        let parseEmpId (opt: string voption) =
+            match opt with
+            | ValueSome s when s.StartsWith "EMP-" ->
+                match Int32.TryParse(s.Substring 4) with
+                | true, num -> ValueSome num
+                | _ -> ValueNone
+            | _ -> ValueNone
+
+        let df = 
+            lf 
+            |> pl.withColumnLazy (
+                pl.col "Code"
+                |> fun e -> e.Map(Udf.mapValueOption parseEmpId, DataType.Int32)
+                |> pl.alias "EmpId"
+            )
+            |> pl.collect
+        df.Show()
+        Assert.Equal(5L, df.Rows)
+
+        // Row 0: "EMP-1024" -> 1024
+        Assert.Equal(1024, df.Cell<int>("EmpId", 0))
+
+        // Row 1: "EMP-0042" -> 42
+        Assert.Equal(42, df.Cell<int>("EmpId", 1))
+
+        // Row 2: "ADMIN-1" -> ValueNone -> null
+        Assert.False(df.Cell<Nullable<int>>("EmpId", 2).HasValue)
+
+        // Row 3: "EMP-ERR" -> TryParse Fail -> ValueNone -> null
+        Assert.False(df.Cell<Nullable<int>>("EmpId", 3).HasValue)
+
+        // Row 4: null -> ValueNone -> null
+        Assert.False(df.Cell<Nullable<int>>("EmpId", 4).HasValue)

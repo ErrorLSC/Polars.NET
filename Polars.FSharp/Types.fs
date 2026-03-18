@@ -439,6 +439,13 @@ type Series(handle: SeriesHandle) =
     member this.MapOption<'T, 'U>(f: 'T option -> 'U option, returnType: DataType) =
         let udf = Udf.mapOption f
         this.Map(udf, returnType)
+    /// <summary>
+    /// Map values using an F# function that handles Value Options.
+    /// Automatically wraps it using Udf.mapValueOption.
+    /// </summary>
+    member this.MapValueOption<'T, 'U>(f: 'T voption -> 'U voption, returnType: DataType) =
+        let udf = Udf.mapValueOption f
+        this.Map(udf, returnType)
     // ==========================================
     // Math Operations (Forwarding to Expr)
     // ==========================================
