@@ -2614,8 +2614,7 @@ David,40,80000";
             });
 
         var scalarResult = scalarQuery.ToList();
-        Console.WriteLine(scalarQuery.ToSqlString());
-        scalarQuery.ToDataFrame().Show();
+
         // SELECT
         //         x."Id" AS "Id",
         //         ARRAY_LENGTH(x."Tags") AS "TagsCount",
@@ -2696,93 +2695,85 @@ David,40,80000";
     [Trait("Linq", "ArrayFunctionsBatch2")]
     public void Test_Polars_Linq_Array_Batch2()
     {
-        using var ctx = new SqlContext();
-        using var db = new PolarsDataContext(ctx, ownsContext: true);
-
-        // ==========================================
-        // 1. 构造测试数据 (包含字符串数组和数值数组)
-        // ==========================================
         using var df = DataFrame.FromColumns(new
         {
             Id = new[] { 1, 2 },
             Words = new[] 
             { 
-                new[] { "Hello", "World" }, 
+                ["Hello", "World"], 
                 new[] { "POLARS", "net" } 
             },
             Values = new[] 
             { 
-                new[] { 10, 20, 30 }, 
-                new[] { 5, 15 } 
+                [10, 20, 30],
+                new[] { 5, 15 }
             }
         });
 
-        // 原型：用于强类型推断
         var prototype = new[] 
         { 
             new { Id = 0, Words = new string[0], Values = new int[0] } 
         };
         
-        var table = db.RegisterTable(df, prototype);
+        var table = df.AsQueryable(prototype);
 
-        // ==========================================
-        // 2. 执行 Array 转换与聚合查询
-        // ==========================================
         var query = table
             .OrderBy(x => x.Id)
             .Select(x => new
             {
                 x.Id,
-                // 字符串数组操作
                 MinWord = PolarsSql.ArrayMin(x.Words),
                 MaxWord = PolarsSql.ArrayMax(x.Words),
                 
-                // 数值数组聚合
                 MeanVal = PolarsSql.ArrayMean(x.Values),
                 SumVal = PolarsSql.ArraySum(x.Values)
-            })
-            .ToList();
+            });
+        var result = query.ToList();
+        // SELECT
+        //         x."Id" AS "Id",
+        //         ARRAY_LOWER(x."Words") AS "MinWord",
+        //         ARRAY_UPPER(x."Words") AS "MaxWord",
+        //         ARRAY_MEAN(x."Values") AS "MeanVal",
+        //         ARRAY_SUM(x."Values") AS "SumVal"
+        // FROM
+        //         tmp_b1db87a032364f2d99ef1ab96a908a99 x
+        // ORDER BY
+        //         x."Id"
+        // shape: (2, 5)
+        // ┌─────┬─────────┬─────────┬─────────┬────────┐
+        // │ Id  ┆ MinWord ┆ MaxWord ┆ MeanVal ┆ SumVal │
+        // │ --- ┆ ---     ┆ ---     ┆ ---     ┆ ---    │
+        // │ i32 ┆ str     ┆ str     ┆ f64     ┆ i32    │
+        // ╞═════╪═════════╪═════════╪═════════╪════════╡
+        // │ 1   ┆ Hello   ┆ World   ┆ 20.0    ┆ 60     │
+        // │ 2   ┆ POLARS  ┆ net     ┆ 10.0    ┆ 20     │
+        // └─────┴─────────┴─────────┴─────────┴────────┘
+        Assert.Equal(2, result.Count);
 
-        // ==========================================
-        // 3. 验证结果
-        // ==========================================
-        Assert.Equal(2, query.Count);
+        Assert.Equal("Hello", result[0].MinWord); 
+        Assert.Equal("World", result[0].MaxWord);
+        Assert.Equal(20.0, result[0].MeanVal); 
+        Assert.Equal(60, result[0].SumVal);    
 
-        // --- Row 1 验证 ---
-        Assert.Equal("Hello", query[0].MinWord); 
-        Assert.Equal("World", query[0].MaxWord);
-        Assert.Equal(20.0, query[0].MeanVal); 
-        Assert.Equal(60, query[0].SumVal);    
-
-        // --- Row 2 验证 ---
-        Assert.Equal("POLARS", query[1].MinWord); 
-        Assert.Equal("net", query[1].MaxWord);
-        Assert.Equal(10.0, query[1].MeanVal); 
-        Assert.Equal(20, query[1].SumVal);
+        Assert.Equal("POLARS", result[1].MinWord); 
+        Assert.Equal("net", result[1].MaxWord);
+        Assert.Equal(10.0, result[1].MeanVal); 
+        Assert.Equal(20, result[1].SumVal);
     }
     [Fact]
     [Trait("Linq", "ArrayFunctionsBatch3")]
     public void Test_Polars_Linq_Array_Batch3()
     {
-        using var ctx = new SqlContext();
-        using var db = new PolarsDataContext(ctx, ownsContext: true);
-
-        // ==========================================
-        // 1. 构造测试数据 
-        // ==========================================
         var mockData = new[] 
         { 
-            // 故意构造有重复元素、无序的数组
             new { Id = 1, Tags = new[] { "apple", "banana", "apple" } },
             new { Id = 2, Tags = new[] { "dog", "cat" } }
         };
-
-        // 🌟 按照你的要求，用回最干净的 From，不再搞恶心的 prototype！
         using var df = DataFrame.From(mockData);
-        var table = db.RegisterTable(df, mockData);
+        var table = df.AsQueryable(mockData);
 
         // ==========================================
-        // 2. 测试: Reverse, Unique, ToString
+        // Array Reverse, Unique, ToString
         // ==========================================
         var query = table
             .OrderBy(x => x.Id)
@@ -2792,49 +2783,87 @@ David,40,80000";
                 Reversed = PolarsSql.ArrayReverse(x.Tags),
                 Unique = PolarsSql.ArrayUnique(x.Tags),
                 Joined = PolarsSql.ArrayToString(x.Tags, "-")
-            })
-            .ToList();
-
-        Assert.Equal(2, query.Count);
+            });
+        var result = query.ToList();
+        // SELECT
+        //         x."Id" AS "Id",
+        //         ARRAY_REVERSE(x."Tags") AS "Reversed",
+        //         ARRAY_UNIQUE(x."Tags") AS "Unique",
+        //         ARRAY_TO_STRING(x."Tags", '-') AS "Joined"
+        // FROM
+        //         tmp_351733abc7bb48ae85ffdf4fd975b0ea x
+        // ORDER BY
+        //         x."Id"
+        // shape: (2, 4)
+        // ┌─────┬──────────────────────────────┬─────────────────────┬────────────────────┐
+        // │ Id  ┆ Reversed                     ┆ Unique              ┆ Joined             │
+        // │ --- ┆ ---                          ┆ ---                 ┆ ---                │
+        // │ i32 ┆ list[str]                    ┆ list[str]           ┆ str                │
+        // ╞═════╪══════════════════════════════╪═════════════════════╪════════════════════╡
+        // │ 1   ┆ ["apple", "banana", "apple"] ┆ ["apple", "banana"] ┆ apple-banana-apple │
+        // │ 2   ┆ ["cat", "dog"]               ┆ ["dog", "cat"]      ┆ dog-cat            │
+        // └─────┴──────────────────────────────┴─────────────────────┴────────────────────┘
+        Assert.Equal(2, result.Count);
 
         // Row 1
-        Assert.Equal(new[] { "apple", "banana", "apple" }, query[0].Reversed); // [apple, banana, apple] 翻转还是自己，换个脑子测试
-        Assert.Equal("apple-banana-apple", query[0].Joined);
+        Assert.Equal("apple-banana-apple", result[0].Joined);
         
-        var uniqueTags = query[0].Unique;
-        Assert.Equal(2, uniqueTags.Length); // 必须去重成功
+        var uniqueTags = result[0].Unique;
+        Assert.Equal(2, uniqueTags.Length); 
         Assert.Contains("apple", uniqueTags);
         Assert.Contains("banana", uniqueTags);
 
         // Row 2
-        Assert.Equal(new[] { "cat", "dog" }, query[1].Reversed); // dog, cat -> cat, dog
-        Assert.Equal("dog-cat", query[1].Joined);
+        Assert.Equal(new[] { "cat", "dog" }, result[1].Reversed); // dog, cat -> cat, dog
+        Assert.Equal("dog-cat", result[1].Joined);
 
         // ==========================================
-        // 3. 压轴大戏测试: UNNEST 炸裂数组
+        // UNNEST
         // ==========================================
-        // Polars 最逆天的特性：UNNEST 会自动将当前行的其他列 (Id) 复制广播 (Broadcast)！
         var unnestQuery = table
             .Select(x => new
             {
                 x.Id,
-                SingleTag = PolarsSql.Unnest(x.Tags) // 炸裂！
+                SingleTag = PolarsSql.Unnest(x.Tags) 
             })
-            .OrderBy(x => x.Id).ThenBy(x => x.SingleTag)
-            .ToList();
+            .OrderBy(x => x.Id).ThenBy(x => x.SingleTag);
+        var unnestResult = unnestQuery.ToList();
+        // SELECT
+        //         t1."Id" AS "Id",
+        //         t1."SingleTag" AS "SingleTag"
+        // FROM
+        //         (
+        //                 SELECT
+        //                         x."Id",
+        //                         UNNEST(x."Tags") as "SingleTag"
+        //                 FROM
+        //                         tmp_0c6c4b69acca4a38a8a78eedc1ee8575 x
+        //         ) t1
+        // ORDER BY
+        //         t1."Id",
+        //         t1."SingleTag"
+        // shape: (5, 2)
+        // ┌─────┬───────────┐
+        // │ Id  ┆ SingleTag │
+        // │ --- ┆ ---       │
+        // │ i32 ┆ str       │
+        // ╞═════╪═══════════╡
+        // │ 1   ┆ apple     │
+        // │ 1   ┆ apple     │
+        // │ 1   ┆ banana    │
+        // │ 2   ┆ cat       │
+        // │ 2   ┆ dog       │
+        // └─────┴───────────┘
 
-        // 验证：2 行数据经过炸裂，变成了 3 + 2 = 5 行！
-        Assert.Equal(5, unnestQuery.Count);
+        Assert.Equal(5, unnestResult.Count);
 
-        // Id = 1 的炸裂结果
-        Assert.Equal(1, unnestQuery[0].Id); Assert.Equal("apple", unnestQuery[0].SingleTag);
-        Assert.Equal(1, unnestQuery[1].Id); Assert.Equal("apple", unnestQuery[1].SingleTag);
-        Assert.Equal(1, unnestQuery[2].Id); Assert.Equal("banana", unnestQuery[2].SingleTag);
+        Assert.Equal(1, unnestResult[0].Id); Assert.Equal("apple", unnestResult[0].SingleTag);
+        Assert.Equal(1, unnestResult[1].Id); Assert.Equal("apple", unnestResult[1].SingleTag);
+        Assert.Equal(1, unnestResult[2].Id); Assert.Equal("banana", unnestResult[2].SingleTag);
 
-        // Id = 2 的炸裂结果
-        Assert.Equal(2, unnestQuery[3].Id); Assert.Equal("cat", unnestQuery[3].SingleTag);
-        Assert.Equal(2, unnestQuery[4].Id); Assert.Equal("dog", unnestQuery[4].SingleTag);
-    }// 定义一个嵌套 POCO
+        Assert.Equal(2, unnestResult[3].Id); Assert.Equal("cat", unnestResult[3].SingleTag);
+        Assert.Equal(2, unnestResult[4].Id); Assert.Equal("dog", unnestResult[4].SingleTag);
+    }
     public class OrderDetail {
         public string Sku { get; set; } = "";
         public int Qty { get; set; }
@@ -2844,10 +2873,6 @@ David,40,80000";
     [Trait("Linq", "ArrayUnnestStruct")]
     public void Test_Polars_Linq_Unnest_StructArray()
     {
-        // using var ctx = new SqlContext();
-        // using var db = new PolarsDataContext(ctx, ownsContext: true);
-
-        // 1. 构造极其复杂的嵌套数据：每个订单包含一个明细数组
         var orders = new[]
         {
             new { 

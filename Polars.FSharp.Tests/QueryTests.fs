@@ -895,13 +895,12 @@ module QueryTests =
             query {
                 for e in empQuery do
                 select {|
-                    // 使用标准的 if 表达式，避免使用 F# 特有的 isNull
                     SafeName = if e.Name = null then "Unknown" else e.Name
                 |}
-            } |> Seq.toList
-
-        Assert.Equal(4, coalesceQuery.Length)
-        Assert.True(coalesceQuery |> Seq.exists (fun e -> e.SafeName = "Unknown")) // 替补了原本是 null 的 Bob
+            } 
+        let coalesceResult = coalesceQuery |> Seq.toList
+        Assert.Equal(4, coalesceResult.Length)
+        Assert.True(coalesceResult |> Seq.exists (fun e -> e.SafeName = "Unknown")) // 替补了原本是 null 的 Bob
 
         // ==========================================
         // 测试 3：字符串截取与拼接 (Substring)
