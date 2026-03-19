@@ -639,4 +639,13 @@ type SearchSortedSide =
         | Any -> PlSearchSortedSide.Any
         | Left -> PlSearchSortedSide.Left
         | Right -> PlSearchSortedSide.Right
+
+type CatalogTableType = 
+    | Managed
+    | External
+    member internal this.ToNative() =
+        match this with
+        | Managed -> PlCatalogTableType.Managed
+        | External -> PlCatalogTableType.External
+
     

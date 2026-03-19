@@ -285,6 +285,7 @@ public static class Delta
         {
             df = df.Unnest("operationParameters");
         }
+        
         if (df.ColumnNames.Contains("operationMetrics"))
         {
             df = df.Unnest("operationMetrics");
