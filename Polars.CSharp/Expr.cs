@@ -392,7 +392,7 @@ public class Expr : IDisposable
     /// <param name="left">The left expression.</param>
     /// <param name="right">The right expression.</param>
     /// <returns>A numeric expression representing the product.</returns>
-    /// /// <see cref="operator +(Expr, Expr)"/>
+    /// <see cref="operator +(Expr, Expr)"/>
     public static Expr operator *(Expr left, Expr right)
     {
         var l = left.CloneHandle();
@@ -409,7 +409,7 @@ public class Expr : IDisposable
     /// <param name="left">The left expression.</param>
     /// <param name="right">The right expression.</param>
     /// <returns>A numeric expression representing the quotient.</returns>
-    /// /// <see cref="operator +(Expr, Expr)"/>
+    /// <see cref="operator +(Expr, Expr)"/>
     public static Expr operator /(Expr left, Expr right)
     {
         var l = left.CloneHandle();
@@ -426,7 +426,7 @@ public class Expr : IDisposable
     /// <param name="left">The left expression.</param>
     /// <param name="right">The right expression.</param>
     /// <returns>A numeric expression representing the quotient.</returns>
-    /// /// <see cref="operator +(Expr, Expr)"/>
+    /// <see cref="operator +(Expr, Expr)"/>
     public static Expr operator %(Expr left, Expr right)
     {
         var l = left.CloneHandle();
@@ -495,11 +495,8 @@ public class Expr : IDisposable
     /// </code>
     /// </example>
     public static Expr operator <<(Expr left, int right)
-    {
-        var h = left.CloneHandle();
-        return new Expr(PolarsWrapper.BitLeftShift(h, right));
-    }
-
+        => new(PolarsWrapper.BitLeftShift(left.CloneHandle(), right));
+    
     /// <summary>
     /// Bitwise right shift operation.
     /// <para>
@@ -512,10 +509,7 @@ public class Expr : IDisposable
     /// <returns>A numeric expression with bits shifted right.</returns>
     /// <seealso cref="operator &lt;&lt;(Expr, int)"/>
     public static Expr operator >>(Expr left, int right)
-    {
-        var h = left.CloneHandle();
-        return new Expr(PolarsWrapper.BitRightShift(h, right));
-    }
+        =>new(PolarsWrapper.BitRightShift(left.CloneHandle(), right));
 
     // ==========================================
     // Logical Operators
@@ -585,10 +579,7 @@ public class Expr : IDisposable
     /// <param name="expr">The boolean expression to negate.</param>
     /// <returns>A boolean expression that evaluates to the opposite truth value.</returns>
     public static Expr operator !(Expr expr)
-    {
-        var e = expr.CloneHandle();
-        return new Expr(PolarsWrapper.Not(e));
-    }
+        => new(PolarsWrapper.Not(expr.CloneHandle()));
     /// <summary>
     /// Creates an expression representing the logical XOR operation.
     /// </summary>
@@ -1024,22 +1015,22 @@ public class Expr : IDisposable
     /// <summary>
     /// Create a boolean expression indicating whether the value is unique.
     /// </summary>
-    public Expr IsUnique() => new(PolarsWrapper.ExprIsUnique(Handle));
+    public Expr IsUnique() => new(PolarsWrapper.ExprIsUnique(CloneHandle()));
 
     /// <summary>
     /// Create a boolean expression indicating whether the value is duplicated.
     /// </summary>
-    public Expr IsDuplicated() => new(PolarsWrapper.ExprIsDuplicated(Handle));
+    public Expr IsDuplicated() => new(PolarsWrapper.ExprIsDuplicated(CloneHandle()));
 
     /// <summary>
     /// Get unique values.
     /// </summary>
-    public Expr Unique() => new(PolarsWrapper.ExprUnique(Handle));
+    public Expr Unique() => new(PolarsWrapper.ExprUnique(CloneHandle()));
 
     /// <summary>
     /// Get unique values, maintaining order.
     /// </summary>
-    public Expr UniqueStable() => new(PolarsWrapper.ExprUniqueStable(Handle));
+    public Expr UniqueStable() => new(PolarsWrapper.ExprUniqueStable(CloneHandle()));
     // ==========================================
     // Statistical Ops
     // ==========================================
