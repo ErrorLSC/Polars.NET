@@ -28,25 +28,14 @@ public static class DbToArrowStream
         }
 
         // 2. Initialize Builders
-        // var builders = new ColumnBuilder[fieldCount];
-        // for (int i = 0; i < fieldCount; i++)
-        // {
-        //     var field = schema.FieldsList[i];
-        //     var netType = reader.GetFieldType(i);
-            
-        //     builders[i] = ColumnBuilderFactory.Create(field, netType, batchSize);
-
-        // }
         bool isDbReader = reader is DbDataReader;
 
-        // 2. Initialize Builders
         var builders = new ColumnBuilder[fieldCount];
         for (int i = 0; i < fieldCount; i++)
         {
             var field = schema.FieldsList[i];
             var netType = reader.GetFieldType(i);
             
-            // 🌟 把底细全告诉 Factory
             builders[i] = ColumnBuilderFactory.Create(field, netType, isDbReader, batchSize);
         }
 
@@ -110,14 +99,12 @@ internal static class ColumnBuilderFactory
         // Primitives
         // =====================================
         
-        // 🚨 需要改造的“无原生接口支持”类型 (传入 netType 和 isDbReader 决定是否开启高速通道)
         if (typeId == ArrowTypeId.Int8) return new Int8ColumnBuilder(capacity, netType, isDbReader);
         if (typeId == ArrowTypeId.Int16) return new Int16ColumnBuilder(capacity, netType, isDbReader);
         if (typeId == ArrowTypeId.UInt16) return new UInt16ColumnBuilder(capacity, netType, isDbReader);
         if (typeId == ArrowTypeId.UInt32) return new UInt32ColumnBuilder(capacity, netType, isDbReader);
         if (typeId == ArrowTypeId.UInt64) return new UInt64ColumnBuilder(capacity, netType, isDbReader);
 
-        // ✅ IDataReader 原生自带的类型，无需修改，继续走老路
         if (typeId == ArrowTypeId.Int32) return new Int32ColumnBuilder(capacity);
         if (typeId == ArrowTypeId.Int64) return new Int64ColumnBuilder(capacity);
         if (typeId == ArrowTypeId.Double) return new DoubleColumnBuilder(capacity);
@@ -135,7 +122,6 @@ internal static class ColumnBuilderFactory
         // =====================================
         if (typeId == ArrowTypeId.Timestamp) return new TimestampColumnBuilder((TimestampType)field.DataType, capacity);
         
-        // 🚨 Date32 需要改造 (用于识别底层的 DateOnly 走极速通道)
         if (typeId == ArrowTypeId.Date32) return new Date32ColumnBuilder(capacity, netType, isDbReader);
         
         if (typeId == ArrowTypeId.Time64) return new Time64ColumnBuilder(capacity);
@@ -160,7 +146,6 @@ internal static class ColumnBuilderFactory
         // =====================================
         // Binary
         // =====================================
-        // 🚨 Binary 和 FixedSizeBinary 经常用来存 Guid，需要改造以开启 stackalloc 后门
         if (typeId == ArrowTypeId.Binary || 
             typeId == ArrowTypeId.LargeBinary || 
             typeId == ArrowTypeId.BinaryView) 
@@ -196,11 +181,10 @@ internal sealed class FixedSizeBinaryColumnBuilder : ColumnBuilder
     private readonly ConcreteFixedSizeBinaryBuilder _builder;
     private readonly int _byteWidth;
     
-    // 🌟 战术标记
     private readonly bool _isGuidFastPath;
     private readonly bool _isByteArrayFastPath;
 
-    public FixedSizeBinaryColumnBuilder(Apache.Arrow.Types.FixedSizeBinaryType type, int capacity, Type netType, bool isDbReader)
+    public FixedSizeBinaryColumnBuilder(FixedSizeBinaryType type, int capacity, Type netType, bool isDbReader)
     {
         _builder = new ConcreteFixedSizeBinaryBuilder(type);
         _builder.Reserve(capacity);
@@ -220,13 +204,10 @@ internal sealed class FixedSizeBinaryColumnBuilder : ColumnBuilder
             return;
         }
 
-        // 🚀 热路径：CPU 流水线畅通无阻，0次类型探测，0个异常捕获！
         if (_isGuidFastPath)
         {
-            // 👑 性能魔法：直接硬转 DbDataReader，极速提取 Guid
             Guid guid = ((DbDataReader)reader).GetGuid(ordinal);
             
-            // stackalloc：在线程栈上分配 16 字节，完全不惊动 GC
             Span<byte> guidBytes = stackalloc byte[16];
             guid.TryWriteBytes(guidBytes);
             
@@ -234,14 +215,12 @@ internal sealed class FixedSizeBinaryColumnBuilder : ColumnBuilder
             return;
         }
 
-        // 🚀 次热路径：直通定长 byte[]
         if (_isByteArrayFastPath)
         {
             _builder.Append(((DbDataReader)reader).GetFieldValue<byte[]>(ordinal));
             return;
         }
 
-        // 🛡️ 兜底路径：如果是其他千奇百怪的类型，交出去慢慢处理
         AddObject(reader.GetValue(ordinal));
     }
 
@@ -726,7 +705,6 @@ internal sealed class Date32ColumnBuilder : ColumnBuilder
 {
     private readonly Date32Array.Builder _builder = new();
     
-    // 🌟 战术标记：双轨并行
     private readonly bool _isDateOnlyFastPath;
     private readonly bool _isDateTimeFastPath;
 

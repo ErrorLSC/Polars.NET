@@ -10,7 +10,7 @@ open System.Collections.Generic
 let dllPath = "Polars.FSharp/bin/Release/net8.0/Polars.FSharp.dll"
 let xmlPath = "Polars.FSharp/bin/Release/net8.0/Polars.FSharp.xml"
 let outputDir = "docs/api/fsharp_generated"
-let targetTypes = ["pl"; "Series"; "DataFrame"; "Expr";"LazyFrame";"Delta";"Selector";"ColumnExpr";"LazyFrameDeltaExtensions";"DataFrameDeltaExtensions"] 
+let targetTypes = ["pl"; "Series"; "DataFrame"; "Expr";"LazyFrame";"Delta";"Selector";"ColumnExpr";"LazyFrameDeltaExtensions";"DataFrameDeltaExtensions";"UnityCatalog"] 
 // =========================================
 
 let binDir = Path.GetDirectoryName(Path.GetFullPath dllPath)
@@ -29,10 +29,10 @@ type DocMetadata = {
 }
 
 // ---------------------------------------------------------
-// 1. 基础清洗工具
+// Basic Repair
 // ---------------------------------------------------------
 
-// 基础清洗：移除 XML 标签，转义 Markdown 符号
+// Remove XML tags
 let cleanXmlText (raw: string) =
     if String.IsNullOrWhiteSpace(raw) then ""
     else
@@ -43,18 +43,16 @@ let cleanXmlText (raw: string) =
         |> fun s -> Regex.Replace(s, @"<para>(.*?)</para>", "\n\n$1\n\n")
         |> fun s -> Regex.Replace(s, @"<see cref=""(?:.*?\.)?([^""]+)""\s*/>", "`$1`")
         |> fun s -> Regex.Replace(s, @"<paramref name=""([^""]+)""\s*/>", "`$1`")
-        |> fun s -> Regex.Replace(s, @"<[^>]+>", "") // 暴力移除剩余标签
+        |> fun s -> Regex.Replace(s, @"<[^>]+>", "") 
         |> fun s -> s.Trim()
 
 // ---------------------------------------------------------
-// 2. 策略 A: 严格 XML 解析 (优先)
+// Strict XML Parse
 // ---------------------------------------------------------
 let sanitizeFragment (xmlSnippet: string) =
-    if String.IsNullOrEmpty(xmlSnippet) then ""
+    if String.IsNullOrEmpty xmlSnippet then ""
     else
-        // 修复 & 
         let s1 = Regex.Replace(xmlSnippet, @"&(?!(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)", "&amp;")
-        // 修复 < (白名单模式)
         let validTags = "summary|remarks|param|returns|example|exception|see|seealso|c|code|para|list|item|paramref|typeparam|typeparamref|value|root|member|inheritdoc"
         let pattern = sprintf @"<(?!(/?(%s)\b))" validTags
         Regex.Replace(s1, pattern, "&lt;", RegexOptions.IgnoreCase)
@@ -79,7 +77,7 @@ let rec xmlNodeToMarkdown (node: XNode) : string =
     | _ -> ""
 
 // ---------------------------------------------------------
-// 3. 策略 B: 暴力正则解析 (兜底)
+// Regex
 // ---------------------------------------------------------
 let regexExtract (tag: string) (xml: string) =
     let m = Regex.Match(xml, sprintf @"<%s>(.*?)</%s>" tag tag, RegexOptions.Singleline)
@@ -91,21 +89,19 @@ let regexExtractParams (xml: string) =
     for m in matches do
         let name = m.Groups.[1].Value
         let desc = cleanXmlText m.Groups.[2].Value
-        if not (dict.ContainsKey(name)) then dict.Add(name, desc)
+        if not (dict.ContainsKey name) then dict.Add(name, desc)
     dict
 
 // ---------------------------------------------------------
-// 4. 混合解析器入口
+// Mixed Parse Entry
 // ---------------------------------------------------------
 let tryParseMember (rawMemberXml: string) : option<string * DocMetadata> =
-    // 先尝试获取 ID，如果连 ID 都没有，那这个块也没救了
     let idMatch = Regex.Match(rawMemberXml, @"name=""([^""]+)""")
     if not idMatch.Success then None
     else
         let fullId = idMatch.Groups.[1].Value
         
         try
-            // --- 尝试 Plan A: 严格解析 ---
             let safeXml = sanitizeFragment rawMemberXml
             let el = XElement.Parse safeXml
             
@@ -132,9 +128,6 @@ let tryParseMember (rawMemberXml: string) : option<string * DocMetadata> =
             })
         
         with _ ->
-            // --- 触发 Plan B: 正则兜底 ---
-            // 只要报错，不管是格式错误还是非法字符，立刻切到 Plan B
-            // printfn "⚠️ Fallback to Regex for: %s" (fullId.Split('.') |> Array.last)
             
             let meta = {
                 Summary = regexExtract "summary" rawMemberXml
@@ -145,44 +138,40 @@ let tryParseMember (rawMemberXml: string) : option<string * DocMetadata> =
             }
             Some(fullId, meta)
 
-// ---------------------------------------------------------
-// 执行逻辑
-// ---------------------------------------------------------
-if Directory.Exists(outputDir) then Directory.Delete(outputDir, true)
-Directory.CreateDirectory(outputDir) |> ignore
+if Directory.Exists outputDir then Directory.Delete(outputDir, true)
+Directory.CreateDirectory outputDir |> ignore
 
-if not (File.Exists(xmlPath)) then
-    printfn "❌ XML File not found: %s" xmlPath
+if not (File.Exists xmlPath) then
+    printfn "XML File not found: %s" xmlPath
     exit 1
 
-printfn "🔍 Parsing XML (Hybrid Mode)..."
-let rawFileContent = File.ReadAllText(xmlPath)
+printfn "Parsing XML (Hybrid Mode)..."
+let rawFileContent = File.ReadAllText xmlPath
 let memberRegex = Regex(@"<member name=""([^""]+)"">.*?</member>", RegexOptions.Singleline)
-let matches = memberRegex.Matches(rawFileContent)
+let matches = memberRegex.Matches rawFileContent
 
 let xmlLookup = new Dictionary<string, ResizeArray<string * DocMetadata>>()
 let mutable strictCount = 0
 let mutable fallbackCount = 0
 
 for m in matches do
-    // 这里的 tryParseMember 现在内部做了容错，几乎总会返回 Some
     match tryParseMember m.Value with
     | Some (fullId, meta) ->
-        let noParams = match fullId.IndexOf('(') with | -1 -> fullId | i -> fullId.Substring(0, i)
+        let noParams = match fullId.IndexOf '(' with | -1 -> fullId | i -> fullId.Substring(0, i)
         let noGeneric = Regex.Replace(noParams, @"``\d+", "")
-        let methodName = noGeneric.Split('.') |> Array.last |> fun s -> s.ToLowerInvariant()
+        let methodName = noGeneric.Split '.' |> Array.last |> fun s -> s.ToLowerInvariant()
 
-        if not (xmlLookup.ContainsKey(methodName)) then
+        if not (xmlLookup.ContainsKey methodName) then
             xmlLookup.Add(methodName, new ResizeArray<string * DocMetadata>())
         xmlLookup.[methodName].Add((fullId, meta))
         strictCount <- strictCount + 1
     | None -> 
         fallbackCount <- fallbackCount + 1
 
-printfn "✅ Indexed %d methods." strictCount
+printfn "Indexed %d methods." strictCount
 
 let loadAssembly (path: string) =
-    try Assembly.LoadFrom(path)
+    try Assembly.LoadFrom path
     with ex -> printfn "Warning: %s" ex.Message; null
 
 let assembly = loadAssembly dllPath
@@ -220,7 +209,7 @@ let rec formatType (t: Type) =
         cleanName t.Name
 
 let cleanForTable (raw: string) =
-    if String.IsNullOrWhiteSpace(raw) then "-"
+    if String.IsNullOrWhiteSpace raw then "-"
     else
         raw.Replace("|", "&#124;")
            .Replace("\n", "<br>")
@@ -230,14 +219,14 @@ let generateDocForType (typeName: string) =
     try
         let typeInfo = assembly.GetTypes() |> Seq.tryFind (fun t -> t.Name = typeName)
         match typeInfo with
-        | None -> printfn "⚠️ Type '%s' not found in assembly" typeName
+        | None -> printfn "Type '%s' not found in assembly" typeName
         | Some t ->
-            printfn "📝 Generating docs for: %s" typeName
+            printfn "Generating docs for: %s" typeName
             let sb = System.Text.StringBuilder()
-            sb.AppendLine("---") |> ignore
+            sb.AppendLine "---" |> ignore
             sb.AppendLine(sprintf "uid: Polars.FSharp.%s" typeName) |> ignore
             sb.AppendLine(sprintf "title: %s" typeName) |> ignore
-            sb.AppendLine("---") |> ignore
+            sb.AppendLine "---" |> ignore
             sb.AppendLine() |> ignore
             sb.AppendLine(sprintf "# %s" typeName) |> ignore
             sb.AppendLine(sprintf "Namespace: `%s`" t.Namespace) |> ignore
@@ -246,7 +235,7 @@ let generateDocForType (typeName: string) =
             let methods = 
                 t.GetMethods(BindingFlags.Public ||| BindingFlags.Static ||| BindingFlags.Instance)
                 |> Seq.filter (fun m -> 
-                    not (m.Name.StartsWith("get_") || m.Name.StartsWith("set_")) &&
+                    not (m.Name.StartsWith "get_" || m.Name.StartsWith "set_") &&
                     m.DeclaringType.Name = typeName)
                 |> Seq.sortBy (fun m -> m.Name)
 
@@ -268,11 +257,11 @@ let generateDocForType (typeName: string) =
                     | None -> if candidates.Count > 0 then doc <- snd candidates.[0]
 
                 sb.AppendLine() |> ignore
-                sb.AppendLine(doc.Summary) |> ignore
+                sb.AppendLine doc.Summary |> ignore
                 sb.AppendLine() |> ignore
 
                 // Signature
-                sb.AppendLine("```fsharp") |> ignore
+                sb.AppendLine "```fsharp" |> ignore
                 let paramsInfo = m.GetParameters()
                 let paramsStr = 
                     try
@@ -284,7 +273,7 @@ let generateDocForType (typeName: string) =
                 let prefix = if m.IsStatic then "" else "(instance) "
                 sb.AppendLine(sprintf "// Signature:") |> ignore
                 sb.AppendLine(sprintf "%s%s -> %s" prefix paramsStr returnType) |> ignore
-                sb.AppendLine("```") |> ignore
+                sb.AppendLine "```" |> ignore
 
                 // Parameters
                 if paramsInfo.Length > 0 then
@@ -296,7 +285,7 @@ let generateDocForType (typeName: string) =
                     for p in paramsInfo do
                         let pName = p.Name
                         let rawType = formatType p.ParameterType
-                        let rawDesc = if doc.Params.ContainsKey(pName) then doc.Params.[pName] else "-"
+                        let rawDesc = if doc.Params.ContainsKey pName then doc.Params.[pName] else "-"
                         let tableDesc = cleanForTable rawDesc
                         sb.AppendLine(sprintf "| `%s` | `%s` | %s |" pName rawType tableDesc) |> ignore
                 
@@ -304,25 +293,25 @@ let generateDocForType (typeName: string) =
                     sb.AppendLine() |> ignore
                     sb.AppendLine "**Returns**" |> ignore
                     sb.AppendLine() |> ignore
-                    sb.AppendLine(doc.Returns) |> ignore
+                    sb.AppendLine doc.Returns |> ignore
 
-                if not (String.IsNullOrWhiteSpace(doc.Example)) then
+                if not (String.IsNullOrWhiteSpace doc.Example) then
                     sb.AppendLine() |> ignore
-                    sb.AppendLine("**Example**") |> ignore
+                    sb.AppendLine "**Example**" |> ignore
                     sb.AppendLine() |> ignore
-                    sb.AppendLine(doc.Example) |> ignore
+                    sb.AppendLine doc.Example |> ignore
 
-                if not (String.IsNullOrWhiteSpace(doc.Remarks)) then
+                if not (String.IsNullOrWhiteSpace doc.Remarks) then
                     sb.AppendLine() |> ignore
-                    sb.AppendLine("> [!NOTE]") |> ignore
+                    sb.AppendLine "> [!NOTE]" |> ignore
                     sb.AppendLine("> " + doc.Remarks.Replace("\n", "\n> ")) |> ignore
 
                 sb.AppendLine() |> ignore
-                sb.AppendLine("---") |> ignore
+                sb.AppendLine "---" |> ignore
 
             File.WriteAllText(Path.Combine(outputDir, sprintf "%s.md" typeName), sb.ToString())
     with ex ->
-        printfn "❌ Error processing %s: %s" typeName ex.Message
+        printfn "Error processing %s: %s" typeName ex.Message
 
 for t in targetTypes do
     generateDocForType t
@@ -333,4 +322,4 @@ for t in targetTypes do
     sbToc.AppendLine(sprintf "  href: %s.md" t) |> ignore
 File.WriteAllText(Path.Combine(outputDir, "toc.yml"), sbToc.ToString())
 
-printfn "🎉 Done! Hybrid parsing generated docs for ALL methods."
+printfn "Done! Hybrid parsing generated docs for ALL methods."

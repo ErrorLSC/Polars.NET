@@ -38,9 +38,7 @@ public class SelectorTests
     [Fact]
     public void Test_Selector_Operation()
     {
-        // Selector 不仅能筛选，还能直接由 Expr 的能力
-        // 比如：选取除了 Id 以外的所有列，并把它们都乘以 2 (假设都是数值)
-        
+      
         var df = DataFrame.FromColumns(new 
         {
             Id = new[] { 1, 2 },
@@ -51,22 +49,17 @@ public class SelectorTests
         // select (All - "Id") * 2
         var result = df.Select(
             (Selectors.All().Exclude("Id") * 2).Name.Suffix("_Scaled") 
-            // 注意：Polars 里的 Selector 运算通常会保持原名，
-            // 或者变成 struct，这里简单测试 broadcast 乘法
         );
 
-        // 验证
         Assert.Equal(20, result[0, "Val1_Scaled"]); // 10 * 2
         Assert.Equal(200, result[0, "Val2_Scaled"]); // 100 * 2
         
-        // Id 列不应该参与计算 (也不在结果里，因为我们没选它)
         Assert.Throws<ArgumentException>(() => result["Id"]);
     }
     
     [Fact]
     public void Test_Selector_Full_Capabilities()
     {
-        // 1. 准备宽表 (模拟复杂 ETL 场景)
         var df = DataFrame.FromColumns(new 
         {
             Id = new[] { 1, 2 },
@@ -78,12 +71,11 @@ public class SelectorTests
             Timestamp = new[] { DateTime.Now, DateTime.Now }
         });
 
-        // 2. 复杂选择逻辑
-        // 目标：
-        // A. 选取所有 Price 开头的列，转为整数 (乘以 100)
-        // B. 选取所有 Qty 结尾的列
-        // C. 排除 Id 和 Meta_Info
-        // D. 选中 Datetime 列
+        // Target：
+        // A. Choose all columns name start with Price then convert to int
+        // B. Choose all columns name end with 2024
+        // C. Exclude Id and Meta_Info
+        // D. Choose Datetime Column
         
         var result = df.Select(
             // A. StartsWith + Math
@@ -96,19 +88,14 @@ public class SelectorTests
             Selectors.Datetime()
         );
 
-        // 3. 验证结果
         Assert.Equal(4, result.Width); 
-        // 预期列: Price_US_Cents, Price_EU_Cents, Qty_2024, Timestamp
 
-        // 验证列名
         Assert.Contains("Price_US_Cents", result.ColumnNames);
         Assert.Contains("Qty_2024", result.ColumnNames);
         Assert.Contains("Timestamp", result.ColumnNames);
         
-        // 验证排除 (Id 不应该在里面)
         Assert.DoesNotContain("Id", result.ColumnNames);
 
-        // 验证计算
         Assert.Equal(1050.0, result[0, "Price_US_Cents"]); // 10.5 * 100
     }
 
@@ -123,8 +110,6 @@ public class SelectorTests
             Str2 = new[] { "b" }
         });
 
-        // 逻辑: (所有数字) - (Num1)
-        // 应该只剩 Num2
         var sel = Selectors.Numeric() - Selectors.Matches("^Num1$");
         
         var result = df.Select(sel);

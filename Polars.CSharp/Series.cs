@@ -799,7 +799,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <returns>A new <see cref="Series"/> with the order reversed.</returns>
     public Series Reverse() => ApplyExpr(Polars.Col(Name).Reverse());
     /// <summary>
-    /// Convert Series to Arrow Array
+    /// Convert Series to Array
     /// </summary>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>

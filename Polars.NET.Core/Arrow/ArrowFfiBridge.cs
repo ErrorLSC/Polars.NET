@@ -72,8 +72,6 @@ public static class ArrowFfiBridge
         }
         catch
         {
-            // if (cArray != null) cArray->release = null;
-            // if (cSchema != null) cSchema->release = null;
             CArrowArray.Free(cArray);
             CArrowSchema.Free(cSchema);
             throw;
@@ -194,9 +192,4 @@ public static class ArrowStreamingExtensions
 
     private static RecordBatch BuildBatchFromBuffer<T>(List<T> buffer)
         => ArrowFfiBridge.BuildRecordBatch(buffer);
-
-    // public static IArrowArrayStream ToArrowArrayStream(this IEnumerable<RecordBatch> batches)
-    // {
-    //     return new EnumerableArrowStream(batches);
-    // }
 }

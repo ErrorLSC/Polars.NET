@@ -16,8 +16,6 @@ public static class ArrowTypeResolver
     {
         var fields = new List<Field>();
         
-        // Console.WriteLine($"[Resolver] Generating Schema for {reader.FieldCount} fields...");
-
         for (int i = 0; i < reader.FieldCount; i++)
         {
             var name = reader.GetName(i);
