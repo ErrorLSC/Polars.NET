@@ -1,6 +1,6 @@
+#pragma warning disable CS1573
 using System.Text;
 using System.Text.Json;
-using Apache.Arrow;
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
@@ -19,30 +19,17 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
     private bool _isDisposed;
 
     /// <summary>
-    /// Scan Catalog Table
+    /// Scans a table managed by Unity Catalog into a <see cref="LazyFrame"/>.
+    /// This method performs a two-step resolution: 
+    /// 1. It fetches the physical storage location and dynamic credentials from Unity Catalog.
+    /// 2. It initializes a Polars scan on the underlying Delta files using the resolved credentials.
     /// </summary>
-    /// <param name="catalogName"></param>
-    /// <param name="schemaName"></param>
-    /// <param name="tableName"></param>
-    /// <param name="version"></param>
-    /// <param name="datetime"></param>
-    /// <param name="nRows"></param>
-    /// <param name="parallel"></param>
-    /// <param name="lowMemory"></param>
-    /// <param name="useStatistics"></param>
-    /// <param name="glob"></param>
-    /// <param name="rechunk"></param>
-    /// <param name="cache"></param>
-    /// <param name="rowIndexName"></param>
-    /// <param name="rowIndexOffset"></param>
-    /// <param name="includePathColumn"></param>
-    /// <param name="schema"></param>
-    /// <param name="hivePartitioning"></param>
-    /// <param name="hivePartitionSchema"></param>
-    /// <param name="tryParseHiveDates"></param>
-    /// <param name="cloudOptions"></param>
-    /// <returns></returns>
-    /// <exception cref="ArgumentException"></exception>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table to scan.</param>
+    /// <inheritdoc cref="LazyFrame.ScanDelta"/>
+    /// <returns>A <see cref="LazyFrame"/> for lazy execution of the catalog table scan.</returns>
+    /// <exception cref="ArgumentException">Thrown when both <paramref name="version"/> and <paramref name="datetime"/> are provided.</exception>
     public LazyFrame ScanCatalogTable(
         string catalogName,
         string schemaName,
@@ -109,29 +96,13 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         return new LazyFrame(h);
     }
     /// <summary>
-    /// 
+    /// Sink the LazyFrame to a Unity Catalog managed Delta Lake table with partition discovery.
     /// </summary>
-    /// <param name="catalogName"></param>
-    /// <param name="schemaName"></param>
-    /// <param name="tableName"></param>
-    /// <param name="lf"></param>
-    /// <param name="partitionBy"></param>
-    /// <param name="mode"></param>
-    /// <param name="canEvolve"></param>
-    /// <param name="includeKeys"></param>
-    /// <param name="keysPreGrouped"></param>
-    /// <param name="maxRowsPerFile"></param>
-    /// <param name="approxBytesPerFile"></param>
-    /// <param name="compression"></param>
-    /// <param name="compressionLevel"></param>
-    /// <param name="statistics"></param>
-    /// <param name="rowGroupSize"></param>
-    /// <param name="dataPageSize"></param>
-    /// <param name="compatLevel"></param>
-    /// <param name="maintainOrder"></param>
-    /// <param name="syncOnClose"></param>
-    /// <param name="mkdir"></param>
-    /// <param name="cloudOptions"></param>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table to sink.</param>
+    /// <param name="lf">The LazyFrame ready to be sinked.</param>
+    /// <inheritdoc cref="LazyFrame.SinkDelta(string, Selector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)"/>
     public void SinkCatalogTable(
         string catalogName,
         string schemaName,
@@ -199,14 +170,21 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         );
     }
     /// <summary>
-    /// 
+    /// Creates a new table registration within the Unity Catalog.
     /// </summary>
-    /// <param name="catalogName"></param>
-    /// <param name="schemaName"></param>
-    /// <param name="tableName"></param>
-    /// <param name="polarsSchema"></param>
-    /// <param name="tableType"></param>
-    /// <param name="storageLocation"></param>
+    /// <param name="catalogName">The name of the catalog where the table will be created.</param>
+    /// <param name="schemaName">The name of the schema (database) within the catalog.</param>
+    /// <param name="tableName">The name of the table to be created.</param>
+    /// <param name="polarsSchema">The structural definition of the table columns and data types via <see cref="PolarsSchema"/>.</param>
+    /// <param name="tableType">
+    /// The management type of the table. 
+    /// <see cref="CatalogTableType.Managed"/>: Unity Catalog manages both metadata and physical data.
+    /// <see cref="CatalogTableType.External"/>: Unity Catalog manages metadata, but data resides at a specific <paramref name="storageLocation"/>.
+    /// </param>
+    /// <param name="storageLocation">
+    /// The physical URI for the table data (e.g., s3://my-bucket/path/). 
+    /// Required if <paramref name="tableType"/> is set to External; typically null for Managed tables.
+    /// </param>
     public void CreateCatalogTable(
         string catalogName,
         string schemaName,
@@ -224,11 +202,13 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         tableType.ToNative(),
         storageLocation);
     /// <summary>
-    /// 
+    /// Deletes (drops) a table from the Unity Catalog. 
+    /// For Managed tables, this typically removes both the metadata and the underlying physical data. 
+    /// For External tables, only the metadata registration is removed, leaving the physical data intact in your cloud storage.
     /// </summary>
-    /// <param name="catalogName"></param>
-    /// <param name="schemaName"></param>
-    /// <param name="tableName"></param>
+    /// <param name="catalogName">The name of the catalog containing the table.</param>
+    /// <param name="schemaName">The name of the schema (database) containing the table.</param>
+    /// <param name="tableName">The name of the table to be deleted.</param>
     public void DeleteCatalogTable(
         string catalogName,
         string schemaName,
@@ -240,13 +220,16 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             schemaName,
             tableName);
     /// <summary>
-    /// 
+    /// Deletes records from a Unity Catalog table that match the specified predicate.
+    /// This operation is ACID-compliant and leverages the underlying Delta Lake protocol. 
+    /// If Deletion Vectors (DVs) are enabled on the table, it performs a metadata-only delete; 
+    /// otherwise, it performs a physical rewrite of the affected data files.
     /// </summary>
-    /// <param name="catalogName"></param>
-    /// <param name="schemaName"></param>
-    /// <param name="tableName"></param>
-    /// <param name="predicate"></param>
-    /// <param name="cloudOptions"></param>
+    /// <param name="catalogName">The name of the catalog containing the table.</param>
+    /// <param name="schemaName">The name of the schema (database) containing the table.</param>
+    /// <param name="tableName">The name of the table from which records will be removed.</param>
+    /// <param name="predicate">A boolean <see cref="Expr"/> defining the condition for rows to be deleted.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations including storage credentials and retry policies for concurrent conflicts.</param>
     public void DeleteCatalogRecords(
         string catalogName,
         string schemaName,
@@ -275,8 +258,21 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         );
     }
     /// <summary>
-    /// Starts building a Merge (Upsert) operation for a Unity Catalog table.
+    /// Initializes a MERGE (Upsert) operation against a Unity Catalog table using a <see cref="LazyFrame"/> as the data source.
+    /// This method provides an ACID-compliant way to perform atomic updates, inserts, or deletes by joining the source data with the target table.
     /// </summary>
+    /// <remarks>
+    /// This is a builder pattern. No data is modified until <c>.Execute()</c> is called on the resulting <see cref="DeltaMergeBuilder"/>.
+    /// The operation performs a join between the source and target based on the <paramref name="mergeKeys"/>.
+    /// </remarks>
+    /// <param name="catalogName">The Unity Catalog name (e.g., "main").</param>
+    /// <param name="schemaName">The schema/database name within the catalog.</param>
+    /// <param name="tableName">The target Delta table name registered in the catalog.</param>
+    /// <param name="sourceData">A <see cref="LazyFrame"/> containing the data to be merged into the target table.</param>
+    /// <param name="mergeKeys">An array of column names used as join keys to match source rows with target rows.</param>
+    /// <param name="canEvolve">If true, enables Schema Evolution, allowing the target table's schema to be updated if the source contains new columns.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations (S3/Azure/GCS) including dynamic credentials resolved via Unity Catalog.</param>
+    /// <returns>A <see cref="DeltaMergeBuilder"/> used to configure "WhenMatched" and "WhenNotMatched" clauses.</returns>
     public DeltaMergeBuilder MergeCatalogRecords(
         string catalogName,
         string schemaName,
@@ -298,8 +294,20 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         );
     }
     /// <summary>
-    /// Starts building a Merge (Upsert) operation for a Unity Catalog table.
+    /// Initializes a MERGE (Upsert) operation against a Unity Catalog table using an in-memory <see cref="DataFrame"/>.
+    /// The <paramref name="sourceData"/> is automatically converted to a <see cref="LazyFrame"/> to leverage Polars' query optimization.
     /// </summary>
+    /// <remarks>
+    /// This is a builder pattern. No data is modified until <c>.Execute()</c> is called on the resulting <see cref="DeltaMergeBuilder"/>.
+    /// </remarks>
+    /// <param name="catalogName">The Unity Catalog name (e.g., "main").</param>
+    /// <param name="schemaName">The schema/database name within the catalog.</param>
+    /// <param name="tableName">The target Delta table name registered in the catalog.</param>
+    /// <param name="sourceData">A <see cref="DataFrame"/> containing the data to be merged.</param>
+    /// <param name="mergeKeys">An array of column names used as join keys to match source rows with target rows.</param>
+    /// <param name="canEvolve">If true, enables Schema Evolution to handle new columns in the source data.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations and credentials.</param>
+    /// <returns>A <see cref="DeltaMergeBuilder"/> used to configure "WhenMatched" and "WhenNotMatched" clauses.</returns>
     public DeltaMergeBuilder MergeCatalogRecords(
         string catalogName,
         string schemaName,
@@ -321,16 +329,34 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         );
     }
     /// <summary>
-    /// Optimizes the layout of the Delta table by compacting small files (bin-packing) and optionally applying Z-Order clustering.
-    /// <para>
-    /// This operation significantly improves read performance by reducing the number of files and co-locating related data.
-    /// </para>
-    /// <para>
-    /// Note: If Deletion Vectors (DV) are enabled on the table, any soft-deleted rows tracked by the vectors 
-    /// will be physically removed (materialized) from the newly compacted Parquet files, effectively clearing 
-    /// the deletion vectors for the optimized partitions.
-    /// </para>
+    /// Optimizes the storage layout of a Unity Catalog Delta table by compacting small files and optionally applying Z-Order clustering.
+    /// This operation significantly improves read performance by reducing file-open overhead and enabling efficient data skipping.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Compaction:</b> Groups small Parquet files into larger ones based on the <paramref name="targetSizeMb"/>.
+    /// </para>
+    /// <para>
+    /// <b>Z-Ordering:</b> If <paramref name="zOrderColumns"/> are provided, the data is rearranged into multidimensional clusters. 
+    /// This co-locates related information, allowing the engine to skip entire files during queries that filter on these columns.
+    /// </para>
+    /// <para>
+    /// <b>Deletion Vector (DV) Materialization:</b> If the table uses DVs, this operation physically removes any soft-deleted rows 
+    /// tracked by the vectors. The newly written files will be "clean," and their associated deletion vectors will be removed.
+    /// </para>
+    /// </remarks>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table to optimize.</param>
+    /// <param name="targetSizeMb">The target size for the compacted Parquet files in Megabytes. Default is 128 MB.</param>
+    /// <param name="partitionFilters">
+    /// Optional filters to limit the optimization to specific partitions (e.g., <c>{"date": "2024-01-01"}</c>). 
+    /// If null, the entire table is processed.
+    /// </param>
+    /// <param name="zOrderColumns">An optional collection of column names to use for Z-Order clustering.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations, including storage credentials and retry logic for concurrent commits.</param>
+    /// <returns>The total number of files that were successfully compacted/optimized during the operation.</returns>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="targetSizeMb"/> is less than or equal to 0.</exception>
     public long OptimizeCatalogTable(
         string catalogName,
         string schemaName,
@@ -340,11 +366,9 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         IEnumerable<string>? zOrderColumns = null,
         CloudOptions? cloudOptions = null)
     {
-        // 1. Validation
         if (targetSizeMb <= 0)
             throw new ArgumentException("Target size must be greater than 0 MB.", nameof(targetSizeMb));
 
-        // 2. Prepare Parameters
         // Serialize partition filters to JSON string for the Rust backend
         string? filterJson = null;
         if (partitionFilters != null && partitionFilters.Count > 0)
@@ -359,13 +383,9 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             zOrderColsArr = null;
         }
 
-        // 3. Parse Cloud Options
-        // Unlike Restore, Optimize needs all cloud retry/timeout settings passed down
         var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = 
             CloudOptions.ParseCloudOptions(cloudOptions);
 
-        // 4. Call Wrapper
-        // The wrapper returns ulong (nuint), we cast to long for API consistency
         ulong result = PolarsWrapper.CatalogOptimize(
             Handle,
             catalogName, 
@@ -387,18 +407,38 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         return (long)result;
     }
     /// <summary>
-    /// 
+    /// Physically deletes data files that are no longer referenced by the Delta table and are older than the specified retention threshold.
+    /// This operation helps reduce storage costs and ensures compliance by removing historical data that is no longer needed.
     /// </summary>
-    /// <param name="catalogName"></param>
-    /// <param name="schemaName"></param>
-    /// <param name="tableName"></param>
-    /// <param name="retentionHours"></param>
-    /// <param name="enforceRetention"></param>
-    /// <param name="dryRun"></param>
-    /// <param name="vacuumModeFull"></param>
-    /// <param name="cloudOptions"></param>
-    /// <returns></returns>
-    /// <exception cref="ArgumentException"></exception>
+    /// <remarks>
+    /// <para>
+    /// <b>Warning:</b> This is a destructive operation. Once files are vacuumed, you can no longer "Time Travel" to versions 
+    /// that relied on those files.
+    /// </para>
+    /// <para>
+    /// <b>Retention Period:</b> By default, Delta Lake prevents deleting files younger than 168 hours (7 days) to protect 
+    /// active readers and concurrent transactions.
+    /// </para>
+    /// </remarks>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table to vacuum.</param>
+    /// <param name="retentionHours">
+    /// The number of hours to retain historical files. Files modified within this window will not be deleted. 
+    /// If null, the table's default retention setting is used.
+    /// </param>
+    /// <param name="enforceRetention">
+    /// If true, the operation will fail if <paramref name="retentionHours"/> is less than the table's minimum retention 
+    /// (usually 168h). Set to false only for emergency cleanup, at the risk of corrupting active readers.
+    /// </param>
+    /// <param name="dryRun">If true, the method returns the number of files that *would* be deleted without actually removing them.</param>
+    /// <param name="vacuumModeFull">
+    /// If true, performs a full scan of the object store to find unreferenced files. 
+    /// If false (Lite mode), uses the Delta log to identify files to be removed.
+    /// </param>
+    /// <param name="cloudOptions">Cloud-specific configurations and credentials resolved via Unity Catalog.</param>
+    /// <returns>The total number of physical files deleted from storage (or identified for deletion if <paramref name="dryRun"/> is true).</returns>
+    /// <exception cref="ArgumentException">Thrown when <paramref name="retentionHours"/> is a negative value.</exception>
     public long DeltaVacuum(
         string catalogName,
         string schemaName,
@@ -427,18 +467,44 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         );
     }
     /// <summary>
-    /// 
+    /// Restores a Unity Catalog Delta table to a previous state based on a version number or a timestamp.
+    /// This operation is atomic and ACID-compliant.
     /// </summary>
-    /// <param name="catalogName"></param>
-    /// <param name="schemaName"></param>
-    /// <param name="tableName"></param>
-    /// <param name="version"></param>
-    /// <param name="timestamp"></param>
-    /// <param name="ignoreMissingFiles"></param>
-    /// <param name="protocolDowngradeAllowed"></param>
-    /// <param name="cloudOptions"></param>
-    /// <returns></returns>
-    /// <exception cref="ArgumentException"></exception>
+    /// <remarks>
+    /// <para>
+    /// <b>How it works:</b> Instead of physically deleting newer data, Restore creates a new commit in the transaction log 
+    /// that reverts the table's metadata and file references to the target state. 
+    /// </para>
+    /// <para>
+    /// <b>Safety:</b> This operation will fail if any required data files have been physically removed (e.g., by a <c>Vacuum</c> operation) 
+    /// unless <paramref name="ignoreMissingFiles"/> is set to true.
+    /// </para>
+    /// </remarks>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table to restore.</param>
+    /// <param name="version">
+    /// The specific Delta table version to restore to. 
+    /// Mutually exclusive with <paramref name="timestamp"/>.
+    /// </param>
+    /// <param name="timestamp">
+    /// The specific <see cref="DateTime"/> to restore the table state to. 
+    /// Mutually exclusive with <paramref name="version"/>.
+    /// </param>
+    /// <param name="ignoreMissingFiles">
+    /// If true, allows the restore to proceed even if some underlying data files are missing from storage. 
+    /// Use with caution as this may result in a partial restoration.
+    /// </param>
+    /// <param name="protocolDowngradeAllowed">
+    /// If true, allows the table to be restored to a version that requires a lower protocol reader/writer version 
+    /// than the current one.
+    /// </param>
+    /// <param name="cloudOptions">Cloud-specific configurations and credentials resolved via Unity Catalog.</param>
+    /// <returns>The new version number of the table after the restore operation is committed.</returns>
+    /// <exception cref="ArgumentException">
+    /// Thrown when both <paramref name="version"/> and <paramref name="timestamp"/> are provided, 
+    /// or when neither is provided.
+    /// </exception>
     public long DeltaRestore(
         string catalogName,
         string schemaName,
@@ -449,14 +515,14 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         bool protocolDowngradeAllowed = false,
         CloudOptions? cloudOptions = null)
     {
-        // 1. Validation: Version and Timestamp are mutually exclusive
+        // Validation: Version and Timestamp are mutually exclusive
         if (version.HasValue && timestamp.HasValue)
             throw new ArgumentException("Cannot specify both 'version' and 'timestamp' for Restore.");
 
         if (!version.HasValue && !timestamp.HasValue)
             throw new ArgumentException("Must specify either 'version' or 'timestamp' for Restore.");
 
-        // 2. Prepare Parameters
+        // Prepare Parameters
         // Rust uses -1 to indicate "not set"
         long targetVer = version ?? -1;
         long targetTs = -1;
@@ -468,11 +534,8 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             targetTs = new DateTimeOffset(utcTime).ToUnixTimeMilliseconds();
         }
 
-        // 3. Parse Cloud Options
-        // We only need keys/values for the Delta Lake object store
         var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 
-        // 4. Call Wrapper
         return PolarsWrapper.CatalogRestore(
             Handle,
             catalogName, 
@@ -487,14 +550,29 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         );
     }
     /// <summary>
-    /// 
+    /// Retrieves the commit history (audit trail) for a Unity Catalog Delta table as a <see cref="DataFrame"/>.
+    /// This includes metadata about who performed what operation, when it occurred, and what parameters were used.
     /// </summary>
-    /// <param name="catalogName"></param>
-    /// <param name="schemaName"></param>
-    /// <param name="tableName"></param>
-    /// <param name="limit"></param>
-    /// <param name="cloudOptions"></param>
-    /// <returns></returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Data Processing:</b> The raw JSON history from the Delta log is automatically processed:
+    /// <list type="bullet">
+    /// <item><description>Timestamps are cast to UTC <see cref="DataType.Datetime"/>.</description></item>
+    /// <item><description>Complex fields like <c>operationMetrics</c> and <c>operationParameters</c> are unnested into flat columns.</description></item>
+    /// <item><description>Columns are reordered to place essential information (version, timestamp, operation) at the beginning.</description></item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// <b>Note on Versioning:</b> For standard DML operations, the version column might be null in the raw log; 
+    /// rows are sorted by version or timestamp in descending order (latest first) by default.
+    /// </para>
+    /// </remarks>
+    /// <param name="catalogName">The name of the catalog (e.g., "main").</param>
+    /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
+    /// <param name="tableName">The name of the table to audit.</param>
+    /// <param name="limit">The maximum number of history commits to retrieve. If 0, retrieves all available history.</param>
+    /// <param name="cloudOptions">Cloud-specific configurations and credentials resolved via Unity Catalog.</param>
+    /// <returns>A <see cref="DataFrame"/> containing the flattened and formatted history of the table.</returns>
     public DataFrame DeltaHistory(
         string catalogName,
         string schemaName,
@@ -597,9 +675,9 @@ public static partial class Polars
 public static class UnityCatalogExtensions
 {
     /// <summary>
-    /// 将 LazyFrame 作为数据流，极其丝滑地写入 Unity Catalog 数据湖屋。
-    /// （注意：底层会立即触发 Polars Streaming 引擎执行计算并落盘）
+    /// Sinks the <see cref="LazyFrame"/> to a Unity Catalog table.
     /// </summary>
+    /// <inheritdoc cref="UnityCatalog.SinkCatalogTable(string, string, string, LazyFrame, Selector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)"/>
     public static void SinkCatalogTable(
         this LazyFrame lf,
         UnityCatalog catalog,
@@ -624,7 +702,6 @@ public static class UnityCatalogExtensions
         bool mkdir = false,
         CloudOptions? cloudOptions = null)
     {
-        // 直接路由给 Catalog 对象去执行真实逻辑
         catalog.SinkCatalogTable(
             catalogName, schemaName, tableName, lf,
             partitionBy, mode, canEvolve, includeKeys, keysPreGrouped,
@@ -635,9 +712,9 @@ public static class UnityCatalogExtensions
     }
 
     /// <summary>
-    /// 将物理 DataFrame 写入 Unity Catalog 数据湖屋。
-    /// 自动处理鉴权、路径发现以及分区策略推断！
+    /// Writes the <see cref="DataFrame"/> into a Unity Catalog table by converting it to a <see cref="LazyFrame"/>.
     /// </summary>
+    /// <inheritdoc cref="UnityCatalog.SinkCatalogTable(string, string, string, LazyFrame, Selector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)"/>
     public static void WriteCatalogTable(
         this DataFrame df,
         UnityCatalog catalog,
@@ -662,7 +739,6 @@ public static class UnityCatalogExtensions
         bool mkdir = false,
         CloudOptions? cloudOptions = null)
     {
-        // DataFrame 转为 LazyFrame 后再走一遍 Sink 流
         catalog.SinkCatalogTable(
             catalogName, schemaName, tableName, df.Lazy(),
             partitionBy, mode, canEvolve, includeKeys, keysPreGrouped,
@@ -671,4 +747,48 @@ public static class UnityCatalogExtensions
             maintainOrder, syncOnClose, mkdir, cloudOptions
         );
     }
+    /// <summary>
+    /// Starts building a Merge (Upsert) operation using this <see cref="LazyFrame"/> as the source.
+    /// </summary>
+    /// <inheritdoc cref="UnityCatalog.MergeCatalogRecords(string, string, string, LazyFrame, string[], bool, CloudOptions?)"/>
+    public static DeltaMergeBuilder MergeCatalogRecords(
+        this LazyFrame sourceData,
+        UnityCatalog catalog,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        string[] mergeKeys,
+        bool canEvolve = false,
+        CloudOptions? cloudOptions = null)
+    => catalog.MergeCatalogRecords(
+        catalogName, 
+        schemaName, 
+        tableName, 
+        sourceData,
+        mergeKeys, 
+        canEvolve, 
+        cloudOptions
+    );
+    /// <summary>
+    /// Starts building a Merge (Upsert) operation using this <see cref="DataFrame"/> as the source.
+    /// </summary>
+    /// <inheritdoc cref="UnityCatalog.MergeCatalogRecords(string, string, string, DataFrame, string[], bool, CloudOptions?)"/>
+    public static DeltaMergeBuilder MergeCatalogRecords(
+        this DataFrame sourceData,
+        UnityCatalog catalog,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        string[] mergeKeys,
+        bool canEvolve = false,
+        CloudOptions? cloudOptions = null)
+    => catalog.MergeCatalogRecords(
+        catalogName, 
+        schemaName, 
+        tableName, 
+        sourceData,
+        mergeKeys, 
+        canEvolve, 
+        cloudOptions
+    );
 }

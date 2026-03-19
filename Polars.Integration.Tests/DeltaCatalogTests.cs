@@ -4,11 +4,10 @@ using WireMock.ResponseBuilders;
 using Polars.CSharp;
 using static Polars.CSharp.Polars;
 using Polars.Integration.Tests.Fixtures;
-using Polars.NET.Core; // 假设你的 Polars.NET 命名空间
+using Polars.NET.Core; 
 
 namespace Polars.Integration.Tests;
 
-// [Collection("MinioCollection")] // 假设你已经配置了 CollectionFixture
 public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, IClassFixture<MinioFixture>
 {
     private WireMockServer _catalogMockServer = null!;
@@ -481,7 +480,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             Assert.Equal(rowsPerWorker, workerRowCount);
         }
 
-        Console.WriteLine("Catalog Concurrent Write Stress Test Passed Perfectly! 🚀");
+        Console.WriteLine("Catalog Concurrent Write Stress Test Passed Perfectly! ");
     }
     [Fact]
     [Trait("Catalog", "Roundtrip")]
@@ -898,7 +897,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
                     Team = Enumerable.Repeat($"Merger_{workerId}", 10).ToArray() 
                 });
 
-                uc.MergeCatalogRecords(catalog, schema, table, dfMerge, ["Id"], cloudOptions: cloudOptions)
+                dfMerge.MergeCatalogRecords(uc,catalog, schema, table, ["Id"], cloudOptions: cloudOptions)
                   .WhenMatchedUpdate()
                   .WhenNotMatchedInsert()
                   .Execute();
@@ -1080,7 +1079,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
                     Value = Enumerable.Repeat(99.9, 10).ToArray() 
                 });
 
-                uc.MergeCatalogRecords(catalog, schema, table, dfMerge, ["Id"], cloudOptions: cloudOptions)
+                dfMerge.MergeCatalogRecords(uc,catalog, schema, table, ["Id"], cloudOptions: cloudOptions)
                   .WhenMatchedUpdate()
                   .WhenNotMatchedInsert()
                   .Execute();
@@ -1308,7 +1307,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             Value = new[] { 99.0, 99.0, 99.0, 100.0, 100.0 }
         }))
         {
-            uc.MergeCatalogRecords(catalog, schema, table, dfMerge, ["Id"], cloudOptions: cloudOptions)
+            dfMerge.MergeCatalogRecords(uc,catalog, schema, table, ["Id"], cloudOptions: cloudOptions)
               .WhenMatchedUpdate() // 触发目标表旧数据的 Delete (写 DV)
               .WhenNotMatchedInsert() // 触发新数据写入 (写新 Parquet)
               .Execute();
@@ -1494,12 +1493,6 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         // 1.5 开启 DV
         Delta.AddFeature(s3StorageLocation, DeltaTableFeatures.DeletionVectors,allowProtocolIncrease: true, cloudOptions: cloudOptions);
-        // Delta.AddFeature(s3StorageLocation, DeltaTableFeatures.ChangeDataFeed, allowProtocolIncrease: true, cloudOptions: cloudOptions);
-        // var properties = new Dictionary<string, string>
-        // {
-        //     { "delta.enableChangeDataFeed", "true" }
-        // };
-        // Delta.SetTableProperties(s3StorageLocation, properties,true,cloudOptions:cloudOptions);
 
         static async Task ExecuteWithChaosAsync(string workerName, Action action)
         {

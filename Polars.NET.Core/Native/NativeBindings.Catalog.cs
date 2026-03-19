@@ -5,10 +5,10 @@ namespace Polars.NET.Core.Native;
 internal partial class NativeBindings
 {
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial CatalogHandle pl_catalog_unity_new(string workspaceUrl, string bearerToken);
+    public static partial CatalogHandle pl_catalog_unity_new(string workspaceUrl, string bearerToken);
 
     [LibraryImport(LibName)]
-    internal static partial void pl_catalog_unity_free(IntPtr ptr);
+    public static partial void pl_catalog_unity_free(IntPtr ptr);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_scan_catalog_table(
