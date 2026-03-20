@@ -17,7 +17,6 @@ public class LinqProviderTests
         public double Sales { get; set; }
     }
 
-    // 专门用于 Select 投影的 DTO
     public class PersonDto
     {
         public string Name { get; set; } = string.Empty;

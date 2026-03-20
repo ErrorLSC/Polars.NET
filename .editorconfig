@@ -1,4 +1,0 @@
-[*.cs]
-
-# SYSLIB1092: “LibraryImportAttribute”的使用未遵循建议。
-dotnet_diagnostic.SYSLIB1092.severity = none

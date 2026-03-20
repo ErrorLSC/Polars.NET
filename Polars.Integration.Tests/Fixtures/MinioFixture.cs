@@ -7,7 +7,6 @@ public class MinioFixture : IAsyncLifetime
 {
     private readonly MinioContainer _minioContainer;
 
-    // 固定凭证，方便调试
     public string AccessKey => "admin";
     public string SecretKey => "password";
     public string BucketName => "polars-test";
@@ -21,19 +20,16 @@ public class MinioFixture : IAsyncLifetime
             .Build();
     }
 
-    // 获取 Polars 需要的 Endpoint (例如 http://127.0.0.1:54321)
     public string Endpoint => _minioContainer.GetConnectionString();
 
     public async Task InitializeAsync()
     {
-        // 1. 启动容器
         await _minioContainer.StartAsync();
 
-        // 2. 初始化 Bucket (Polars Sink 不会自动创建 Bucket)
         var s3Config = new AmazonS3Config
         {
             ServiceURL = Endpoint,
-            ForcePathStyle = true, // MinIO 必须开启这个
+            ForcePathStyle = true, 
             UseHttp = true
         };
 
@@ -45,7 +41,6 @@ public class MinioFixture : IAsyncLifetime
         }
         catch (Exception ex)
         {
-            // 如果 bucket 已存在或者其他问题，打印出来方便调试
             Console.WriteLine($"Error creating bucket: {ex.Message}");
             throw;
         }
