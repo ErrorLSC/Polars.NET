@@ -285,6 +285,11 @@ public static class Delta
         {
             df = df.Unnest("operationParameters");
         }
+        
+        if (df.ColumnNames.Contains("operationMetrics"))
+        {
+            df = df.Unnest("operationMetrics");
+        }
 
         if (df.ColumnNames.Contains("version"))
         {
@@ -445,6 +450,89 @@ public static class Delta
             cloudValues
         );
     }
+    /// <summary>
+    /// Reads the Change Data Feed (CDC) stream for a Delta table between the specified versions.
+    /// The table must have 'delta.enableChangeDataFeed' set to 'true'.
+    /// </summary>
+    /// <param name="path">The URI or local path of the Delta table.</param>
+    /// <param name="startVersion">The starting version (inclusive).</param>
+    /// <param name="endVersion">The ending version (inclusive).</param>
+    /// <param name="cloudOptions">Optional cloud storage credentials and retry policies.</param>
+    /// <returns>A LazyFrame containing the change data stream.</returns>
+    public static LazyFrame ReadChangeDataFeed(
+        string path, 
+        long startVersion, 
+        long endVersion, 
+        CloudOptions? cloudOptions = null)
+    {
+        if (startVersion > endVersion)
+        {
+            throw new ArgumentException("startVersion cannot be greater than endVersion.");
+        }
+
+        var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = 
+            CloudOptions.ParseCloudOptions(cloudOptions);
+
+        var handle = PolarsWrapper.DeltaReadCdc(
+            path,
+            startVersion,
+            endVersion,
+            provider.ToNative(),
+            retries, 
+            timeout, 
+            initBackoff, 
+            maxBackoff, 
+            cacheTtl, 
+            keys, 
+            values
+        );
+
+        return new LazyFrame(handle);
+    }
+    /// <summary>
+    /// Reads the Change Data Feed (CDC) stream for a Delta table between the specified datetimes.
+    /// The table must have 'delta.enableChangeDataFeed' set to 'true'.
+    /// </summary>
+    /// <param name="path">The URI or local path of the Delta table.</param>
+    /// <param name="startTimestamp">The starting datetime (inclusive).</param>
+    /// <param name="endTimestamp">Optional. The ending datetime (inclusive). Defaults to DateTime.UtcNow if null.</param>
+    /// <param name="cloudOptions">Optional cloud storage credentials and retry policies.</param>
+    /// <returns>A LazyFrame containing the change data stream filtered by the exact milliseconds.</returns>
+    public static LazyFrame ReadChangeDataFeed(
+        string path, 
+        DateTime startTimestamp, 
+        DateTime? endTimestamp = null, 
+        CloudOptions? cloudOptions = null)
+    {
+        DateTime actualEnd = endTimestamp ?? DateTime.UtcNow;
+
+        if (startTimestamp > actualEnd)
+        {
+            throw new ArgumentException("startTimestamp cannot be greater than endTimestamp.");
+        }
+
+        long startMs = new DateTimeOffset(startTimestamp.ToUniversalTime()).ToUnixTimeMilliseconds();
+        long endMs = new DateTimeOffset(actualEnd.ToUniversalTime()).ToUnixTimeMilliseconds();
+
+        var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = 
+            CloudOptions.ParseCloudOptions(cloudOptions);
+
+        var handle = PolarsWrapper.DeltaReadCdcByTime(
+            path,
+            startMs,
+            endMs,
+            provider.ToNative(),
+            retries, 
+            timeout, 
+            initBackoff, 
+            maxBackoff, 
+            cacheTtl, 
+            keys, 
+            values
+        );
+
+        return new LazyFrame(handle);
+    }
 }
 
 /// <summary>
@@ -455,14 +543,23 @@ public static class Delta
 public class DeltaMergeBuilder
 {
     private readonly LazyFrame _sourceLf;
-    private readonly string _path;
+    // --- Physical Path ---
+    private readonly string? _path;
+    // --- Catalog  ---
+    private readonly UnityCatalog? _catalog;
+    private readonly string? _catalogName;
+    private readonly string? _schemaName;
+    private readonly string? _tableName;
     private readonly string[] _mergeKeys;
     private readonly bool _canEvolve;
     private readonly CloudOptions? _cloudOptions;
 
     // Use a List to strictly preserve the exact order of method calls
-    private readonly List<(MergeActionType ActionType, Expr Condition)> _actions = new();
+    private readonly List<(MergeActionType ActionType, Expr Condition)> _actions = [];
 
+    /// <summary>
+    /// Physical Path Merge Builder
+    /// </summary>
     internal DeltaMergeBuilder(
         LazyFrame sourceLf, 
         string path, 
@@ -472,6 +569,29 @@ public class DeltaMergeBuilder
     {
         _sourceLf = sourceLf;
         _path = path;
+        _mergeKeys = mergeKeys;
+        _canEvolve = canEvolve;
+        _cloudOptions = cloudOptions;
+    }
+
+    /// <summary>
+    /// Unity Catalog Merge Builder
+    /// </summary>
+    internal DeltaMergeBuilder(
+        LazyFrame sourceLf, 
+        UnityCatalog catalog,
+        string catalogName,
+        string schemaName,
+        string tableName,
+        string[] mergeKeys, 
+        bool canEvolve = false, 
+        CloudOptions? cloudOptions = null)
+    {
+        _sourceLf = sourceLf;
+        _catalog = catalog;
+        _catalogName = catalogName;
+        _schemaName = schemaName;
+        _tableName = tableName;
         _mergeKeys = mergeKeys;
         _canEvolve = canEvolve;
         _cloudOptions = cloudOptions;
@@ -541,22 +661,34 @@ public class DeltaMergeBuilder
         var (provider, retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values) = 
             CloudOptions.ParseCloudOptions(_cloudOptions);
 
-        // Assume PolarsWrapper.DeltaMergeOrdered is the wrapper method you defined earlier
-        PolarsWrapper.DeltaMergeOrdered(
-            _sourceLf.CloneHandle(), // Clone LazyFrame handle to pass ownership
-            _path,
-            _mergeKeys,
-            actionTypes,
-            actionExprs,
-            _canEvolve,
-            provider.ToNative(),
-            retries,
-            timeout,
-            initBackoff,
-            maxBackoff,
-            cacheTtl,
-            keys,
-            values
-        );
+        if (_catalog != null)
+        {
+            PolarsWrapper.CatalogMergeOrdered(
+                _catalog.Handle,
+                _catalogName!,
+                _schemaName!,
+                _tableName!,
+                _sourceLf.CloneHandle(),
+                _mergeKeys,
+                actionTypes,
+                actionExprs,
+                _canEvolve,
+                provider.ToNative(),
+                retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values
+            );
+        }
+        else
+        {
+            PolarsWrapper.DeltaMergeOrdered(
+                _sourceLf.CloneHandle(), 
+                _path!,
+                _mergeKeys,
+                actionTypes,
+                actionExprs,
+                _canEvolve,
+                provider.ToNative(),
+                retries, timeout, initBackoff, maxBackoff, cacheTtl, keys, values
+            );
+        }
     }
 }

@@ -135,7 +135,6 @@ public static partial class ArrayHelper
     //     // 3. Detect Int128 Internal Layout (High/Low Swap Check)
     //     try
     //     {
-    //         // 构造一个只在低 64 位有值的数
     //         Int128 val = 1; 
             
     //         unsafe

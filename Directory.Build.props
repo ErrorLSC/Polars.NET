@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <Version>0.3.1</Version>
+    <Version>0.4.0</Version>
     <Authors>ErrorLSC</Authors>
     <RepositoryUrl>https://github.com/ErrorLSC/Polars.NET</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

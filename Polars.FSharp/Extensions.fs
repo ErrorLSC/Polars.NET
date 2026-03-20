@@ -98,3 +98,193 @@ type DataFrameDeltaExtensions =
         let keysArr = mergeKeys |> Seq.toArray
         let evolve = defaultArg canEvolve false
         new DeltaMergeBuilder(this.Lazy(), path, keysArr, evolve, cloudOptions)
+
+[<AutoOpen>]
+module InterfaceUnwrapperExtensions =
+    open Polars.NET.Core
+    open System
+
+    type IPolarsDataFrame with
+        
+        /// <summary>
+        /// Unwrap IPolarsDataFrame as DataFrame 
+        /// </summary>
+        member this.AsDataFrame() : DataFrame =
+            match this with
+            | :? DataFrame as df -> df
+            | _ -> raise (InvalidCastException "Not Standard Polars DataFrame")
+
+    type IPolarsLazyFrame with
+
+        /// <summary>
+        /// Unwrap IPolarsLazyFrame as LazyFrame 
+        /// </summary>
+        member this.AsLazyFrame() : LazyFrame =
+            match this with
+            | :? LazyFrame as lf -> lf
+            | _ -> raise (InvalidCastException "Not Standard Polars LazyFrame")
+
+    type IPolarsSeries with
+        member this.AsSeries() : Series = 
+            match this with
+            | :? Series as ips -> ips
+            | _ -> raise (InvalidCastException "Not Standard Polars Series")
+    let asDataFrame (idf: IPolarsDataFrame) : DataFrame = 
+        idf.AsDataFrame()
+
+    let asLazyFrame (ilf: IPolarsLazyFrame) : LazyFrame =
+        ilf.AsLazyFrame()
+    
+    let asSeries (ips: IPolarsSeries) : Series =
+        ips.AsSeries()
+
+[<AutoOpen>]
+module UnityCatalogExtensions =
+
+    type LazyFrame with
+        /// <summary>
+        /// Starts building a Merge (Upsert) operation using this <see cref="LazyFrame"/> as the source.
+        /// </summary>
+        member this.MergeCatalogRecords(
+            catalog: UnityCatalog,
+            catalogName: string,
+            schemaName: string,
+            tableName: string,
+            mergeKeys: string array,
+            ?canEvolve: bool,
+            ?cloudOptions: CloudOptions) =
+            
+            catalog.MergeCatalogRecords(
+                catalogName, 
+                schemaName, 
+                tableName, 
+                this, 
+                mergeKeys, 
+                ?canEvolve = canEvolve, 
+                ?cloudOptions = cloudOptions
+            )
+
+    type DataFrame with
+        /// <summary>
+        /// Starts building a Merge (Upsert) operation using this <see cref="DataFrame"/> as the source.
+        /// </summary>
+        member this.MergeCatalogRecords(
+            catalog: UnityCatalog,
+            catalogName: string,
+            schemaName: string,
+            tableName: string,
+            mergeKeys: string array,
+            ?canEvolve: bool,
+            ?cloudOptions: CloudOptions) =
+            
+            catalog.MergeCatalogRecords(
+                catalogName, 
+                schemaName, 
+                tableName, 
+                this, 
+                mergeKeys, 
+                ?canEvolve = canEvolve, 
+                ?cloudOptions = cloudOptions
+            )
+
+    type LazyFrame with
+        /// <summary>
+        /// Sinks the <see cref="LazyFrame"/> to a Unity Catalog table.
+        /// </summary>
+        member this.SinkCatalogTable(
+            catalog: UnityCatalog,
+            catalogName: string,
+            schemaName: string,
+            tableName: string,
+            ?partitionBy: Selector,
+            ?mode: DeltaSaveMode,
+            ?canEvolve: bool,
+            ?includeKeys: bool,
+            ?keysPreGrouped: bool,
+            ?maxRowsPerFile: int,
+            ?approxBytesPerFile: int64,
+            ?compression: ParquetCompression,
+            ?compressionLevel: int,
+            ?statistics: bool,
+            ?rowGroupSize: uint32,
+            ?dataPageSize: uint32,
+            ?compatLevel: int,
+            ?maintainOrder: bool,
+            ?syncOnClose: SyncOnClose,
+            ?mkdir: bool,
+            ?cloudOptions: CloudOptions) =
+            
+            catalog.SinkCatalogTable(
+                catalogName, 
+                schemaName, 
+                tableName, 
+                this,
+                ?partitionBy = partitionBy,
+                ?mode = mode,
+                ?canEvolve = canEvolve,
+                ?includeKeys = includeKeys,
+                ?keysPreGrouped = keysPreGrouped,
+                ?maxRowsPerFile = maxRowsPerFile,
+                ?approxBytesPerFile = approxBytesPerFile,
+                ?compression = compression,
+                ?compressionLevel = compressionLevel,
+                ?statistics = statistics,
+                ?rowGroupSize = rowGroupSize,
+                ?dataPageSize = dataPageSize,
+                ?compatLevel = compatLevel,
+                ?maintainOrder = maintainOrder,
+                ?syncOnClose = syncOnClose,
+                ?mkdir = mkdir,
+                ?cloudOptions = cloudOptions
+            )
+
+    type DataFrame with
+        /// <summary>
+        /// Writes the <see cref="DataFrame"/> into a Unity Catalog table by converting it to a <see cref="LazyFrame"/>.
+        /// </summary>
+        member this.WriteCatalogTable(
+            catalog: UnityCatalog,
+            catalogName: string,
+            schemaName: string,
+            tableName: string,
+            ?partitionBy: Selector,
+            ?mode: DeltaSaveMode,
+            ?canEvolve: bool,
+            ?includeKeys: bool,
+            ?keysPreGrouped: bool,
+            ?maxRowsPerFile: int,
+            ?approxBytesPerFile: int64,
+            ?compression: ParquetCompression,
+            ?compressionLevel: int,
+            ?statistics: bool,
+            ?rowGroupSize: uint32,
+            ?dataPageSize: uint32,
+            ?compatLevel: int,
+            ?maintainOrder: bool,
+            ?syncOnClose: SyncOnClose,
+            ?mkdir: bool,
+            ?cloudOptions: CloudOptions) =
+            
+            catalog.SinkCatalogTable(
+                catalogName, 
+                schemaName, 
+                tableName, 
+                this.Lazy(),
+                ?partitionBy = partitionBy,
+                ?mode = mode,
+                ?canEvolve = canEvolve,
+                ?includeKeys = includeKeys,
+                ?keysPreGrouped = keysPreGrouped,
+                ?maxRowsPerFile = maxRowsPerFile,
+                ?approxBytesPerFile = approxBytesPerFile,
+                ?compression = compression,
+                ?compressionLevel = compressionLevel,
+                ?statistics = statistics,
+                ?rowGroupSize = rowGroupSize,
+                ?dataPageSize = dataPageSize,
+                ?compatLevel = compatLevel,
+                ?maintainOrder = maintainOrder,
+                ?syncOnClose = syncOnClose,
+                ?mkdir = mkdir,
+                ?cloudOptions = cloudOptions
+            )

@@ -163,6 +163,15 @@ module pl =
     let count() = new Expr(PolarsWrapper.Len())
     /// Alias for count
     let len = count
+    /// <summary> Create a Polars Expr from a SQL string. </summary>
+    /// <param name="sql">The SQL expression string.</param>
+    /// <returns>A Polars Expr representing the SQL logic.</returns>
+    /// <exception cref="T:System.ArgumentException">Thrown when the provided SQL string is null or whitespace.</exception>
+    let sqlExpr(sql:string) = Expr.SqlExpr sql
+    /// <summary> Create an array of Polars Exprs from a collection of SQL strings. </summary>
+    /// <param name="sqls">The collection of SQL expression strings.</param>
+    /// <returns>An array of Polars Expr objects.</returns>
+    let sqlExprs(sqls: seq<string>) = Expr.SqlExprs sqls
     /// <summary> Alias an expression with a new name. </summary>
     let alias (name: string) (expr: Expr) = expr.Alias name
     /// <summary> Collect LazyFrame into DataFrame (Eager execution). </summary>
@@ -455,6 +464,13 @@ module pl =
                 
             return new DataFrame(dfHandle)
         }
+    /// --- Config ---
+    let setEnvVar (key:string) (value:string) = 
+        PolarsWrapper.SetEnvVar(key,value)
+    let setEnvVarPrefixKey suffix value =
+        setEnvVar ("POLARS_" + suffix) value
+    let setEnvVarAll vars =
+        vars |> Seq.iter (fun (k, v) -> PolarsWrapper.SetEnvVar(k, v))
     // ==========================================
     // Column Selectors (pl.cs)
     // ==========================================

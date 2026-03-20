@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace Polars.NET.Core.Native;
 
-unsafe internal partial class NativeBindings
+internal partial class NativeBindings
 {
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_io_delta_vacuum(
@@ -85,9 +85,7 @@ unsafe internal partial class NativeBindings
         string[]? values,
         nuint cloud_len
     );
-    // ==========================================
-    // Delta Lake
-    // ==========================================
+
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_scan_delta(
         string path,
@@ -177,7 +175,7 @@ unsafe internal partial class NativeBindings
         nuint cloud_len
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial void pl_io_delta_merge(
+    public static partial void pl_io_delta_merge(
         LazyFrameHandle source_lf,
         string path,
         string[] merge_key,
@@ -205,14 +203,13 @@ unsafe internal partial class NativeBindings
         string[] merge_key,
         nuint merge_key_len,
 
-        // --- [NEW] 动态动作序列的平行数组 ---
-        PlMergeActionType[] action_types,       // 对应 Rust: *const u8 (传枚举值 0,1,2,3)
-        IntPtr[] action_exprs,     // 对应 Rust: *const *mut ExprContext (传 ExprHandle.DangerousGetHandle())
-        nuint actions_count,       // 对应 Rust: usize
+        PlMergeActionType[] action_types,    
+        IntPtr[] action_exprs,    
+        nuint actions_count,      
 
         [MarshalAs(UnmanagedType.U1)] bool can_evolve,
         
-        // --- Cloud Options (保持不变) ---
+        // --- Cloud Options ---
         PlCloudProvider cloud_provider,
         UIntPtr cloud_retries,
         ulong cloud_retry_timeout_ms,
@@ -222,5 +219,41 @@ unsafe internal partial class NativeBindings
         string[]? cloud_keys,
         string[]? cloud_values,
         nuint cloud_len
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_io_delta_read_cdc(
+        string table_path_ptr,
+        long start_version,
+        long end_version,
+        // Cloud Options
+        PlCloudProvider cloud_provider,
+        nuint cloud_retries,
+        ulong cloud_retry_timeout_ms,
+        ulong cloud_retry_init_backoff_ms,
+        ulong cloud_retry_max_backoff_ms,
+        ulong cloud_cache_ttl,
+        string[]? cloud_keys,
+        string[]? cloud_values,
+        nuint cloud_len,
+        // Output
+        out LazyFrameHandle out_lf_ptr
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_io_delta_read_cdc_by_time(
+        string table_path_ptr,
+        long start_timestamp_ms,
+        long end_timestamp_ms,
+        // Cloud Options
+        PlCloudProvider cloud_provider,
+        nuint cloud_retries,
+        ulong cloud_retry_timeout_ms,
+        ulong cloud_retry_init_backoff_ms,
+        ulong cloud_retry_max_backoff_ms,
+        ulong cloud_cache_ttl,
+        string[]? cloud_keys,
+        string[]? cloud_values,
+        nuint cloud_len,
+        // Output
+        out LazyFrameHandle out_lf_ptr
     );
 }

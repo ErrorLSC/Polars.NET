@@ -83,7 +83,7 @@ public static class ArrowConverter
             var method = typeof(ArrowConverter)
                 .GetMethod(nameof(BuildListArray), BindingFlags.Public | BindingFlags.Static)!
                 .MakeGenericMethod(elemType);
-            return (IArrowArray)method.Invoke(null, new object[] { data })!;
+            return (IArrowArray)method.Invoke(null, [data])!;
         }
 
         // =====================================================================
@@ -95,7 +95,7 @@ public static class ArrowConverter
             var method = typeof(ArrowConverter)
                     .GetMethod(nameof(BuildListArray), BindingFlags.Public | BindingFlags.Static)!
                     .MakeGenericMethod(elemType);
-                return (IArrowArray)method.Invoke(null, new object[] { data })!;
+                return (IArrowArray)method.Invoke(null, [data])!;
         }
 
         // 3. Unwrap F# Option type
@@ -140,7 +140,9 @@ public static class ArrowConverter
         if (checkType == typeof(DateTime)) return BuildTimestamp(data.Cast<DateTime?>());
         if (checkType == typeof(DateTimeOffset)) return BuildDateTimeOffset(data.Cast<DateTimeOffset?>());
         if (checkType == typeof(TimeSpan)) return BuildDuration(data.Cast<TimeSpan?>());
-        // if (checkType == typeof(Half)) return BuildFloat16(data.Cast<Half?>());
+        if (checkType == typeof(Guid)) return BuildGuid(data.Cast<Guid?>());
+        if (checkType == typeof(byte[])) return BuildBinary(data.Cast<byte[]?>());
+        if (checkType == typeof(Half)) return BuildFloat16(data.Cast<Half?>());
         var elementType = ArrowTypeResolver.GetEnumerableElementType(type);
         if (elementType != null)
         {
@@ -148,7 +150,7 @@ public static class ArrowConverter
                 .GetMethod(nameof(BuildListArray), BindingFlags.Public | BindingFlags.Static)!
                 .MakeGenericMethod(elementType);
 
-            return (IArrowArray)method.Invoke(null, new[]{data})!;
+            return (IArrowArray)method.Invoke(null, [data])!;
         }
         // 5. Struct / Class / Object
         if (type.IsClass || type.IsValueType)
@@ -486,6 +488,35 @@ public static class ArrowConverter
         }
         return b.Build();
     }
+    private static BinaryViewArray BuildGuid(IEnumerable<Guid?> data)
+    {
+        var b = new BinaryViewArray.Builder();
+        Span<byte> guidBytes = stackalloc byte[16];
+        foreach (var v in data)
+        {
+            if (v.HasValue)
+            {
+                v.Value.TryWriteBytes(guidBytes);
+                b.Append(guidBytes);
+            }
+            else
+            {
+                b.AppendNull();
+            }
+        }
+        return b.Build();
+    }
+
+    private static BinaryViewArray BuildBinary(IEnumerable<byte[]?> data)
+    {
+        var b = new BinaryViewArray.Builder();
+        foreach (var v in data)
+        {
+            if (v != null) b.Append(v);
+            else b.AppendNull();
+        }
+        return b.Build();
+    }
 
     public static Schema GetSchemaFromType<T>()
     {
@@ -551,7 +582,7 @@ public static class ArrowConverter
     }
     private static object? GetDefault(Type t) => t.IsValueType ? Activator.CreateInstance(t) : null;
 
-  /// <summary>
+    /// <summary>
     /// Slice IEnumerable<RecordBatch> to chuncks and convert it to ArrowBatchs
     /// </summary>
     public static IEnumerable<RecordBatch> ToArrowBatches<T>(IEnumerable<T> data, int batchSize)

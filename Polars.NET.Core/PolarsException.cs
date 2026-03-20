@@ -4,7 +4,6 @@ using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
 
-
 [Serializable]
 public class PolarsException : Exception
 {
@@ -14,7 +13,7 @@ public class PolarsException : Exception
 internal static class ErrorHelper
 {
     // =========================================================================
-    // 1Handle Check
+    // 1. Handle Check
     // =========================================================================
     public static T Check<T>(T handle) where T : PolarsHandle
     {
@@ -65,6 +64,18 @@ internal static class ErrorHelper
         { 
             NativeBindings.pl_free_string(ptr); 
         }
+    }
+    // =========================================================================
+    // 4. Status Code Check (for C ABI int returns)
+    // =========================================================================
+    public static void CheckStatus(int statusCode)
+    {
+        if (statusCode == 0)
+        {
+            return;
+        }
+
+        ThrowRustError();
     }
 
     // =========================================================================

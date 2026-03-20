@@ -1,6 +1,7 @@
 #pragma warning disable CS1591
 #pragma warning disable CS1573
 using Apache.Arrow;
+using Microsoft.FSharp.Core;
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
 
@@ -213,6 +214,109 @@ public class Expr : IDisposable
         new(PolarsWrapper.Neq(left.CloneHandle(), MakeLit(right).Handle));
     public static Expr operator !=(object left, Expr right) =>
         new(PolarsWrapper.Neq(MakeLit(left).Handle, right.CloneHandle()));
+
+    // ==========================================
+    // Sort
+    // ==========================================
+    /// <summary>
+    /// Sort the expression.
+    /// </summary>
+    /// <param name="descending">If true, sort in descending order. Default is false.</param>
+    /// <param name="nullsLast">Whether to place null values last. Default is false.</param>
+    /// <param name="multithreaded">If true, sort in multiple threads. Default is true.</param>
+    /// <param name="maintainOrder">If true, maintain the order of equal elements. Default is false.</param>
+    /// <param name="limit">Limit the sort output (for optimization purposes).</param>
+    public Expr Sort(
+        bool descending = false,
+        bool nullsLast = false,
+        bool multithreaded = true,
+        bool maintainOrder = false,
+        uint? limit = null)
+    {
+        return new Expr(PolarsWrapper.Sort(
+            CloneHandle(), 
+            descending, 
+            nullsLast, 
+            multithreaded, 
+            maintainOrder, 
+            limit
+        ));
+    }
+    // ==========================================
+    // Indexing & Searching (Arg / Index / Search)
+    // ==========================================
+    /// <summary>
+    /// Get a single value by index. Returns a scalar.
+    /// </summary>
+    /// <param name="index">The index expression.</param>
+    /// <param name="nullOnOutOfBounds">If true, returns Null when the index is out of bounds instead of raising an error.</param>
+    public Expr Get(Expr index, bool nullOnOutOfBounds = false)
+        => new(PolarsWrapper.Get(CloneHandle(), index.CloneHandle(), nullOnOutOfBounds));
+    /// <summary>
+    /// Get a single value by index. Returns a scalar.
+    /// </summary>
+    /// <param name="index">The index number.</param>
+    /// <param name="nullOnOutOfBounds">If true, returns Null when the index is out of bounds instead of raising an error.</param>
+    public Expr Get(ulong index, bool nullOnOutOfBounds = false)
+        => new(PolarsWrapper.Get(CloneHandle(), Polars.Lit(index).Handle, nullOnOutOfBounds));
+    /// <summary>
+    /// Gather values by an index expression.
+    /// </summary>
+    public Expr Gather(Expr indices)
+        => new(PolarsWrapper.Gather(CloneHandle(), indices.CloneHandle()));
+
+    /// <summary>
+    /// LINQ-like alias for Gather.
+    /// </summary>
+    public Expr Take(Expr indices) => Gather(indices);
+
+    /// <summary>
+    /// Take every nth value starting from an offset.
+    /// </summary>
+    public Expr GatherEvery(ulong n, ulong offset = 0)
+       => new(PolarsWrapper.GatherEvery(CloneHandle(), (nuint)n, (nuint)offset));
+    /// <summary>
+    /// Get the index of the unique values.
+    /// </summary>
+    public Expr ArgUnique() 
+        => new(PolarsWrapper.ArgUnique(CloneHandle()));
+
+    /// <summary>
+    /// Get the index of the maximum value.
+    /// </summary>
+    public Expr ArgMax() 
+        => new(PolarsWrapper.ArgMax(CloneHandle()));
+
+    /// <summary>
+    /// Get the index of the minimum value.
+    /// </summary>
+    public Expr ArgMin() 
+        => new(PolarsWrapper.ArgMin(CloneHandle()));
+
+    /// <summary>
+    /// Get the index values that would sort this expression.
+    /// </summary>
+    /// <param name="descending">If true, sort in descending order. Default is false.</param>
+    /// <param name="nullsLast">If true, place null values last. Default is false.</param>
+    public Expr ArgSort(bool descending = false, bool nullsLast = false)
+        => new(PolarsWrapper.ArgSort(CloneHandle(), descending, nullsLast));
+
+    /// <summary>
+    /// Find the index of the first occurrence of a specific value.
+    /// </summary>
+    /// <param name="element">The element expression to search for.</param>
+    public Expr IndexOf(Expr element) 
+        => new(PolarsWrapper.IndexOf(CloneHandle(), element.CloneHandle()));
+
+    /// <summary>
+    /// Find indices where elements should be inserted to maintain order (Binary Search).
+    /// </summary>
+    /// <param name="element">The element expression to insert/search.</param>
+    /// <param name="side">The insertion side (Any, Left, Right). Default is Any.</param>
+    /// <param name="descending">Whether the target column is sorted in descending order. Default is false.</param>
+    public Expr SearchSorted(Expr element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
+        => new(PolarsWrapper.SearchSorted(CloneHandle(), element.CloneHandle(), side.ToNative(), descending));
+
     // ==========================================
     // Arithmetic Operators
     // ==========================================
@@ -288,7 +392,7 @@ public class Expr : IDisposable
     /// <param name="left">The left expression.</param>
     /// <param name="right">The right expression.</param>
     /// <returns>A numeric expression representing the product.</returns>
-    /// /// <see cref="operator +(Expr, Expr)"/>
+    /// <see cref="operator +(Expr, Expr)"/>
     public static Expr operator *(Expr left, Expr right)
     {
         var l = left.CloneHandle();
@@ -305,7 +409,7 @@ public class Expr : IDisposable
     /// <param name="left">The left expression.</param>
     /// <param name="right">The right expression.</param>
     /// <returns>A numeric expression representing the quotient.</returns>
-    /// /// <see cref="operator +(Expr, Expr)"/>
+    /// <see cref="operator +(Expr, Expr)"/>
     public static Expr operator /(Expr left, Expr right)
     {
         var l = left.CloneHandle();
@@ -322,7 +426,7 @@ public class Expr : IDisposable
     /// <param name="left">The left expression.</param>
     /// <param name="right">The right expression.</param>
     /// <returns>A numeric expression representing the quotient.</returns>
-    /// /// <see cref="operator +(Expr, Expr)"/>
+    /// <see cref="operator +(Expr, Expr)"/>
     public static Expr operator %(Expr left, Expr right)
     {
         var l = left.CloneHandle();
@@ -391,11 +495,8 @@ public class Expr : IDisposable
     /// </code>
     /// </example>
     public static Expr operator <<(Expr left, int right)
-    {
-        var h = left.CloneHandle();
-        return new Expr(PolarsWrapper.BitLeftShift(h, right));
-    }
-
+        => new(PolarsWrapper.BitLeftShift(left.CloneHandle(), right));
+    
     /// <summary>
     /// Bitwise right shift operation.
     /// <para>
@@ -408,10 +509,7 @@ public class Expr : IDisposable
     /// <returns>A numeric expression with bits shifted right.</returns>
     /// <seealso cref="operator &lt;&lt;(Expr, int)"/>
     public static Expr operator >>(Expr left, int right)
-    {
-        var h = left.CloneHandle();
-        return new Expr(PolarsWrapper.BitRightShift(h, right));
-    }
+        =>new(PolarsWrapper.BitRightShift(left.CloneHandle(), right));
 
     // ==========================================
     // Logical Operators
@@ -481,10 +579,7 @@ public class Expr : IDisposable
     /// <param name="expr">The boolean expression to negate.</param>
     /// <returns>A boolean expression that evaluates to the opposite truth value.</returns>
     public static Expr operator !(Expr expr)
-    {
-        var e = expr.CloneHandle();
-        return new Expr(PolarsWrapper.Not(e));
-    }
+        => new(PolarsWrapper.Not(expr.CloneHandle()));
     /// <summary>
     /// Creates an expression representing the logical XOR operation.
     /// </summary>
@@ -502,6 +597,14 @@ public class Expr : IDisposable
 
     public static Expr operator ^(bool left, Expr right)
         => new(PolarsWrapper.Xor(MakeLit(left).Handle, right.CloneHandle()));
+
+    /// <inheritdoc cref="Polars.SqlExpr(string)"/>
+    public static Expr SqlExpr(string sql)
+        =>Polars.SqlExpr(sql);
+
+    /// <inheritdoc cref="Polars.SqlExprs"/>
+    public static Expr[] SqlExprs(IEnumerable<string> sqls) 
+            => [.. sqls.Select(SqlExpr)];
     // ---------------------------------------------------
     // Methods
     // ---------------------------------------------------
@@ -912,22 +1015,22 @@ public class Expr : IDisposable
     /// <summary>
     /// Create a boolean expression indicating whether the value is unique.
     /// </summary>
-    public Expr IsUnique() => new(PolarsWrapper.ExprIsUnique(Handle));
+    public Expr IsUnique() => new(PolarsWrapper.ExprIsUnique(CloneHandle()));
 
     /// <summary>
     /// Create a boolean expression indicating whether the value is duplicated.
     /// </summary>
-    public Expr IsDuplicated() => new(PolarsWrapper.ExprIsDuplicated(Handle));
+    public Expr IsDuplicated() => new(PolarsWrapper.ExprIsDuplicated(CloneHandle()));
 
     /// <summary>
     /// Get unique values.
     /// </summary>
-    public Expr Unique() => new(PolarsWrapper.ExprUnique(Handle));
+    public Expr Unique() => new(PolarsWrapper.ExprUnique(CloneHandle()));
 
     /// <summary>
     /// Get unique values, maintaining order.
     /// </summary>
-    public Expr UniqueStable() => new(PolarsWrapper.ExprUniqueStable(Handle));
+    public Expr UniqueStable() => new(PolarsWrapper.ExprUniqueStable(CloneHandle()));
     // ==========================================
     // Statistical Ops
     // ==========================================
@@ -2083,6 +2186,7 @@ public class Expr : IDisposable
     public void Dispose()
     {
         Handle?.Dispose();
+        GC.SuppressFinalize(this); 
     }
 
     /// <summary>

@@ -11,15 +11,18 @@ using System.Text;
 using Apache.Arrow.Types;
 using System.Reflection;
 using Polars.NET.Core.Helpers;
-using System.ComponentModel;
-using System.Runtime.CompilerServices;
+using Apache.Arrow.Ipc;
+using Apache.Arrow.Adbc;
+using System.Data.Common;
+using System.Threading.Channels;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Polars.CSharp;
 
 /// <summary>
 /// DataFrame represents a 2-dimensional labeled data structure similar to a table or spreadsheet.
 /// </summary>
-public class DataFrame : IDisposable,IEnumerable<Series>
+public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
 {
     internal DataFrameHandle Handle { get; }
 
@@ -34,7 +37,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
 
     /// <summary>
     /// Gets the Schema of the DataFrame.
-    /// Returns a disposable PolarsSchema object (Zero-Copy wrapper).
+    /// Returns a disposable PolarsSchema object.
     /// </summary>
     public PolarsSchema Schema
     {
@@ -44,7 +47,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
             return new PolarsSchema(handle);
         }
     }
-
+    IPolarsSchema IPolarsDataFrame.Schema => Schema;
     /// <summary>
     /// Prints the schema to the console.
     /// </summary>
@@ -106,6 +109,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
         int? nRows = null,
         int? inferSchemaLength = null,
         PolarsSchema? schema = null,
+        PolarsSchema? dtypeOverride = null,
         CsvEncoding encoding = CsvEncoding.UTF8,
         string[]? nullValues = null,
         bool missingIsNull = true,
@@ -119,6 +123,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
         var lf = LazyFrame.ScanCsv(
             path: path,
             schema: schema,
+            dtypeOverride:dtypeOverride,
             hasHeader: hasHeader,
             separator: separator,
             quoteChar: quoteChar,
@@ -162,7 +167,8 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     /// <param name="skipRows">Number of rows to skip from the start. Defaults to 0.</param>
     /// <param name="nRows">Stop reading after n rows. If null, read all.</param>
     /// <param name="inferSchemaLength">Number of rows to scan for schema inference. If null, use Polars default (100).</param>
-    /// <param name="schema">Provide a schema to ignore schema inference.</param>
+    /// <param name="schema">Optional PolarsSchema to specify all column names and types.</param>
+    /// <param name="dtypeOverride">Optional PolarsSchema to specify column types or overwrite inference.</param>
     /// <param name="encoding">Encoding of the CSV file. Defaults to Utf8.</param>
     /// <param name="nullValues">List of strings to consider as null values.</param>
     /// <param name="missingIsNull">Treat missing fields as null. Defaults to true.</param>
@@ -185,6 +191,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
         int? nRows = null,
         int? inferSchemaLength = null,
         PolarsSchema? schema = null,
+        PolarsSchema? dtypeOverride = null,
         CsvEncoding encoding = CsvEncoding.UTF8,
         string[]? nullValues = null,
         bool missingIsNull = true,
@@ -198,6 +205,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
         var lf = LazyFrame.ScanCsv(
             buffer,
             schema: schema,
+            dtypeOverride:dtypeOverride,
             hasHeader: hasHeader,
             separator: separator,
             quoteChar: quoteChar,
@@ -240,7 +248,8 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     /// <param name="skipRows">Number of rows to skip from the start. Defaults to 0.</param>
     /// <param name="nRows">Stop reading after n rows. If null, read all.</param>
     /// <param name="inferSchemaLength">Number of rows to scan for schema inference. If null, use Polars default (100).</param>
-    /// <param name="schema">Provide a schema to ignore schema inference.</param>
+    /// <param name="schema">Optional PolarsSchema to specify all column names and types.</param>
+    /// <param name="dtypeOverride">Optional PolarsSchema to specify column types or overwrite inference.</param>
     /// <param name="encoding">Encoding of the CSV file. Defaults to Utf8.</param>
     /// <param name="nullValues">List of strings to consider as null values.</param>
     /// <param name="missingIsNull">Treat missing fields as null. Defaults to true.</param>
@@ -263,6 +272,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
         int? nRows = null,
         int? inferSchemaLength = null,
         PolarsSchema? schema = null,
+        PolarsSchema? dtypeOverride = null, 
         CsvEncoding encoding = CsvEncoding.UTF8,
         string[]? nullValues = null,
         bool missingIsNull = true,
@@ -278,6 +288,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
         var lf = LazyFrame.ScanCsv(
             ms.ToArray(),
             schema: schema,
+            dtypeOverride:dtypeOverride,
             hasHeader: hasHeader,
             separator: separator,
             quoteChar: quoteChar,
@@ -936,10 +947,10 @@ public class DataFrame : IDisposable,IEnumerable<Series>
                 colsToSelect.Add(rowIndexName);
             }
 
-            lf = lf.Select(Selector.Cols(colsToSelect.ToArray()));
+            lf = lf.Select(Selector.Cols([.. colsToSelect]));
         }
 
-        return await lf.CollectAsync();
+        return await lf.CollectAsync(useStreaming: true);
     }
     /// <summary>
     /// Read a Parquet file asynchronously.
@@ -998,10 +1009,10 @@ public class DataFrame : IDisposable,IEnumerable<Series>
                 colsToSelect.Add(includePathColumn);
             }
 
-            lf = lf.Select(Selector.Cols(colsToSelect.ToArray()));
+            lf = lf.Select(Selector.Cols([.. colsToSelect]));
         }
 
-        return await lf.CollectAsync();
+        return await lf.CollectAsync(useStreaming:true);
     }
     /// <summary>
     /// Read an Avro file into a DataFrame.
@@ -1059,7 +1070,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     /// <summary>
     /// Read a delta table into a new DataFrame
     /// </summary>
-    /// <inheritdoc cref="LazyFrame.ScanDelta"/>
+    /// <inheritdoc cref="LazyFrame.ScanDelta(string, long?, string?, ulong?, ParallelStrategy, bool, bool, bool, bool, bool, string?, uint, string?, PolarsSchema?, bool, PolarsSchema?, bool, CloudOptions?)"/>
     public static DataFrame ReadDelta(
         string path,
         long? version = null,
@@ -1147,17 +1158,18 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     public static DataFrame ReadDatabase(IDataReader reader, int batchSize = 50_000)
     {
         // Get Schema 
-         var schema = reader.GetArrowSchema();
+        var schema = reader.GetArrowSchema();
 
-        // Get ArrowStream
-        var batchEnumerable = reader.ToArrowBatches(batchSize);
+        var batchEnumerable = reader.ToArrowBatches(batchSize).Prefetch();
 
         var handle = ArrowStreamInterop.ImportEager(batchEnumerable, schema);
+        
         if (handle.IsInvalid)
         {
-            var emptyBatch = new RecordBatch(schema, System.Array.Empty<IArrowArray>(), 0);
+            var emptyBatch = new RecordBatch(schema, [], 0);
             return new DataFrame(ArrowFfiBridge.ImportDataFrame(emptyBatch));
         }
+        
         return new DataFrame(handle);
     }
     // ==========================================
@@ -1177,7 +1189,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     public long Width => PolarsWrapper.DataFrameWidth(Handle);  
     /// <summary>
     /// Return DataFrame Shape(Len,Width)
-    /// </summary>
+    /// </summary>  
     public (long Len, long Width) Shape => (Len,Width);
     /// <summary>
     /// Return DataFrame Columns' Name
@@ -1729,7 +1741,40 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     /// Rename a column.
     /// </summary>
     public DataFrame Rename(string oldName, string newName) => new(PolarsWrapper.Rename(Handle, oldName, newName));
+    /// <summary>
+    /// Rename a list of columns.
+    /// </summary>
+    public DataFrame Rename(string[] oldNames, string[] newNames) => new(PolarsWrapper.Rename(Handle, oldNames, newNames));
+    /// <summary>
+    /// Rename columns using a dictionary mapping old names to new names.
+    /// </summary>
+    public DataFrame Rename(IReadOnlyDictionary<string, string> mapping)
+    {
+        var oldNames = mapping.Keys.ToArray();
+        var newNames = mapping.Values.ToArray();
+        return Rename(oldNames, newNames);
+    }
+    /// <summary>
+    /// Rename columns using a list of (OldName, NewName) tuples.
+    /// </summary>
+    /// <example>
+    /// df.Rename(("old1", "new1"), ("old2", "new2"));
+    /// </example>
+    public DataFrame Rename(params (string OldName, string NewName)[] renames)
+    {
+        if (renames == null || renames.Length == 0) return this;
 
+        var oldNames = new string[renames.Length];
+        var newNames = new string[renames.Length];
+
+        for (int i = 0; i < renames.Length; i++)
+        {
+            oldNames[i] = renames[i].OldName;
+            newNames[i] = renames[i].NewName;
+        }
+
+        return Rename(oldNames, newNames);
+    }
     /// <summary>
     /// Drop rows containing null values.
     /// </summary>
@@ -2246,9 +2291,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     /// </code>
     /// </example>
     public static DataFrame Concat(IEnumerable<DataFrame> dfs)
-    {
-        return ConcatInternal(dfs, PlConcatType.Vertical, true);
-    }
+        =>ConcatInternal(dfs, PlConcatType.Vertical, true);
     /// <summary>
     /// Horizontal concatenation of DataFrames.
     /// </summary>
@@ -3388,6 +3431,48 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     public void ExportBatches(Action<RecordBatch> onBatchReceived)
         => PolarsWrapper.ExportBatches(Handle, onBatchReceived);
     /// <summary>
+    /// Export DataFrame As DbDataReader (Zero-Copy Enabled)
+    /// </summary>    
+    public DbDataReader AsDataReader(int bufferSize = 5, Dictionary<string, Type>? typeOverrides = null)
+    {
+        var channel = Channel.CreateBounded<RecordBatch>(new BoundedChannelOptions(bufferSize)
+        {
+            FullMode = BoundedChannelFullMode.Wait,
+            SingleWriter = true, 
+            SingleReader = true  
+        });
+
+        var cts = new CancellationTokenSource();
+
+        var producerTask = Task.Run(async () => 
+        {
+            try
+            {
+                ExportBatches(batch => 
+                {
+                    channel.Writer.WriteAsync(batch, cts.Token).AsTask().Wait(cts.Token);
+                });
+                
+                channel.Writer.Complete();
+            }
+            catch (OperationCanceledException)
+            {
+
+                channel.Writer.Complete();
+            }
+            catch (Exception ex)
+            {
+                channel.Writer.Complete(ex);
+            }
+        });
+
+        var stream = channel.Reader.ReadAllAsync(cts.Token).ToBlockingEnumerable(cts.Token);
+        
+        var innerReader = new ArrowToDbStream(stream, typeOverrides);
+
+        return new PolarsDataReader(innerReader, cts, producerTask); 
+    }
+    /// <summary>
     /// Common Write Interface:Transform DataFrame to IDataReader
     /// </summary>
     public void WriteTo( Action<IDataReader> writerAction, int bufferSize = 5,Dictionary<string, Type>? typeOverrides = null)
@@ -3510,7 +3595,26 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     /// <summary>
     /// Dispose the DataFrame and release resources.
     /// </summary>
-    public void Dispose() => Handle?.Dispose();
+    private readonly List<IDisposable> _backingResources = [];
+
+    internal void HoldResource(IDisposable resource)
+    {
+        if (resource != null) _backingResources.Add(resource);
+    }
+    /// <summary>
+    /// Dispose the DataFrame and release resources.
+    /// </summary>
+    public void Dispose()
+    {
+        if (!Handle.IsInvalid) Handle.Dispose();
+
+        foreach (var res in _backingResources)
+        {
+            res.Dispose();
+        }
+        _backingResources.Clear();
+        GC.SuppressFinalize(this); 
+    }
     // ==========================================
     // Object Mapping (From Records)
     // ==========================================
@@ -3556,7 +3660,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     /// */
     /// </code>
     /// </example>
-   public static DataFrame From<T>(IEnumerable<T> data)
+    public static DataFrame From<T>(IEnumerable<T> data)
     {
         if (data == null) return new DataFrame();
         Type type = typeof(T);
@@ -3575,6 +3679,9 @@ public class DataFrame : IDisposable,IEnumerable<Series>
         // =========================================================
         return FromPocoManual(data, type);
     }
+    /// <inheritdoc cref="From"/>
+    public static DataFrame FromRows<T>(IEnumerable<T> data)
+        => From(data);
     
     private static DataFrame FromPocoManual<T>(IEnumerable<T> data, Type type)
     {
@@ -3628,6 +3735,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     ///     Val = new[] { 1.0, 2.0 } 
     /// });
     /// </example>
+    [RequiresUnreferencedCode("Uses reflection and dynamic to extract properties from anonymous types.")]
     public static DataFrame FromColumns(object columns)
     {
         ArgumentNullException.ThrowIfNull(columns);
@@ -3646,7 +3754,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
         return FromColumns(cols);
     }
     /// <summary>
-    /// [AOT Safe] Create DataFrame from explicitly named columns.
+    /// Create DataFrame from explicitly named columns.
     /// No reflection used. Best performance.
     /// </summary>
     public static DataFrame FromColumns(params (string Name, object Data)[] columns)
@@ -3680,7 +3788,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
             }
         }
 
-        return new DataFrame(seriesList.ToArray());
+        return new DataFrame([.. seriesList]);
     }
     // =========================================================
     // Internal Column Buffers
@@ -3695,14 +3803,9 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     /// Strong Type Column Buffer 
     /// </summary>
     /// <typeparam name="TCol">Column Type(Example: int, string, DateTime?)</typeparam>
-    private sealed class ColumnBuffer<TCol> : IColumnBuffer
+    private sealed class ColumnBuffer<TCol>(int capacity) : IColumnBuffer
     {
-        private readonly List<TCol?> _data; 
-
-        public ColumnBuffer(int capacity)
-        {
-            _data = new List<TCol?>(capacity);
-        }
+        private readonly List<TCol?> _data = new(capacity);
 
         public void Add(object? val)
         {
@@ -3737,7 +3840,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     {
         if (series == null || series.Length == 0)
         {
-            Handle = PolarsWrapper.DataFrameNew(System.Array.Empty<SeriesHandle>());
+            Handle = PolarsWrapper.DataFrameNew([]);
             return;
         }
 
@@ -3771,15 +3874,29 @@ public class DataFrame : IDisposable,IEnumerable<Series>
     /// </summary>
     /// <param name="series">The series to combine.</param>
     public static DataFrame FromSeries(IEnumerable<Series> series)
-        => new(series.ToArray());
+        => new([.. series]);
     /// <summary>
-    /// [High Performance] Stream data into Polars using Arrow C Stream Interface.
+    /// Stream C# objects into Polars.
+    /// </summary>
+    public static DataFrame FromEnumerable<T>(IEnumerable<T> data, int batchSize = 100_000, Schema? providedSchema = null)
+    {
+        var schema = providedSchema ?? ArrowConverter.GetSchemaFromType<T>();
+        var stream = data.ToArrowBatches(batchSize);
+
+        var handle = ArrowStreamInterop.ImportEager(stream, schema); 
+
+        if (handle.IsInvalid) return From(Enumerable.Empty<T>());
+        return new DataFrame(handle);
+    }
+    /// <summary>
+    /// Stream data into Polars using Arrow C Stream Interface.
     /// This method supports datasets larger than available RAM by streaming chunks directly to Polars.
     /// </summary>
     /// <param name="data">Source data collection</param>
     /// <param name="batchSize">Rows per chunk (default 100,000)</param>
     /// <param name="providedSchema">Stream schema provided by user</param>
-    public static DataFrame FromArrowStream<T>(IEnumerable<T> data, int batchSize = 100_000,Apache.Arrow.Schema? providedSchema = null)
+    [Obsolete("Renamed to FromEnumerable")]
+    public static DataFrame FromArrowStream<T>(IEnumerable<T> data, int batchSize = 100_000,Schema? providedSchema = null)
     {
         var schema = providedSchema ?? ArrowConverter.GetSchemaFromType<T>();
         var stream = data.ToArrowBatches(batchSize);
@@ -3793,7 +3910,121 @@ public class DataFrame : IDisposable,IEnumerable<Series>
 
         return new DataFrame(handle);
     }
-    
+
+    /// <summary>   
+    /// Safely consume any foreign Arrow C Stream (Strict mode).
+    /// Adapts physical memory layouts (e.g., Utf8View) automatically.
+    /// </summary>
+    public static DataFrame FromArrowStream(IArrowArrayStream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+
+        var handle = ArrowStreamInterop.ImportForeignStream(stream);
+        
+        var df = new DataFrame(handle);
+        df.HoldResource(stream); 
+        return df;
+    }
+    /// <summary>
+    /// Export DataFrame to Arrow C Stream
+    /// </summary>
+    /// <returns>Standard IArrowArrayStream</returns>
+    public IArrowArrayStream ToArrowStream()
+        => ArrowStreamInterop.ExportToStream(Handle);
+    /// <summary>
+    /// Generate DataFrame from ADBC query results
+    /// </summary>
+    /// <param name="statement"></param>
+    /// <returns></returns>
+    /// <exception cref="InvalidOperationException"></exception>
+    public static DataFrame ReadAdbc(AdbcStatement statement)
+    {
+        ArgumentNullException.ThrowIfNull(statement);
+
+        var result = statement.ExecuteQuery();
+
+        if (result.Stream == null)
+        {
+            throw new InvalidOperationException("ADBC query executed, but returned a null Arrow stream.");
+        }
+
+        return FromArrowStream(result.Stream);
+    }
+    /// <summary>
+    /// Executes a SQL query directly against an ADBC connection and reads the result into a zero-copy Polars DataFrame.
+    /// Pure syntactic sugar: automatically manages the creation and disposal of the underlying AdbcStatement.
+    /// </summary>
+    /// <param name="connection">The active ADBC connection (e.g., DuckDB, SQLite).</param>
+    /// <param name="sqlQuery">The SQL query string to execute.</param>
+    /// <returns>A fully materialized Polars DataFrame containing the query results.</returns>
+    public static DataFrame ReadAdbc(AdbcConnection connection, string sqlQuery)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        if (string.IsNullOrWhiteSpace(sqlQuery))
+            throw new ArgumentException("SQL query cannot be null or whitespace.", nameof(sqlQuery));
+
+        // Since Polars synchronously materializes the entire stream during FromArrowStream,
+        // it is perfectly safe to dispose the statement immediately after the read completes.
+        using AdbcStatement statement = connection.CreateStatement();
+        statement.SqlQuery = sqlQuery;
+
+        // Route to the core execution method
+        return ReadAdbc(statement);
+    }
+    /// <summary>
+    /// Zero-copy bulk ingest of the current DataFrame into an ADBC database (e.g., DuckDB, SQLite).
+    /// </summary>
+    /// <param name="statement">An AdbcStatement configured with ingest options (e.g., target table).</param>
+    /// <returns>The UpdateResult containing the number of rows affected.</returns>
+    public UpdateResult WriteToAdbc(AdbcStatement statement)
+    {
+        ArgumentNullException.ThrowIfNull(statement);
+
+        try
+        {
+            // Delegate all unsafe pointer handling, FFI bindings, and execution to the Core layer.
+            // This ensures no raw pointers leak into the managed high-level API.
+            return AdbcInterop.ExecuteIngest(statement, Handle);
+        }
+        finally
+        {
+            // Crucial: Pin the DataFrame to prevent the Garbage Collector from 
+            // reclaiming the underlying Rust memory while the ADBC C++ engine is actively pulling data.
+            GC.KeepAlive(this);
+        }
+    }
+    /// <summary>
+    /// Zero-copy bulk ingest of the current DataFrame into an ADBC database table.
+    /// Pure syntactic sugar: automatically manages the creation, configuration, and disposal of the underlying AdbcStatement.
+    /// </summary>
+    /// <param name="connection">The active ADBC connection (e.g., DuckDB, SQLite).</param>
+    /// <param name="tableName">The name of the target table to ingest data into.</param>
+    /// <param name="ingestMode">The ingestion mode (e.g., "adbc.ingest.mode.create" or "adbc.ingest.mode.append"). Defaults to create.</param>
+    /// <returns>The UpdateResult containing the number of rows affected.</returns>
+    public UpdateResult WriteToAdbc(AdbcConnection connection, string tableName,AdbcIngestMode ingestMode = AdbcIngestMode.Create)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        if (string.IsNullOrWhiteSpace(tableName))
+            throw new ArgumentException("Target table name cannot be null or whitespace.", nameof(tableName));
+
+        // Let the framework handle the Statement lifecycle
+        using AdbcStatement statement = connection.CreateStatement();
+        
+        // Configure ADBC bulk ingest options automatically
+        statement.SetOption("adbc.ingest.target_table", tableName);
+        
+        string modeString = ingestMode switch
+        {
+            AdbcIngestMode.Create  => "adbc.ingest.mode.create",
+            AdbcIngestMode.Append  => "adbc.ingest.mode.append",
+            AdbcIngestMode.Replace => "adbc.ingest.mode.replace",
+            _ => throw new ArgumentOutOfRangeException(nameof(ingestMode), $"Unsupported ingest mode: {ingestMode}")
+        };
+
+        statement.SetOption("adbc.ingest.mode", modeString);
+
+        return WriteToAdbc(statement);
+    }
     // ==========================================
     // Object Mapping (To Records)
     // ==========================================
@@ -3860,6 +4091,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>
         var h = PolarsWrapper.DataFrameGetColumnAt(Handle, index);
         return new Series(h);
     }
+    IPolarsSeries IPolarsDataFrame.Column(int index) => Column(index);
     /// <summary>
     /// Get all columns as a list of Series.
     /// Order is guaranteed to match the physical column order.

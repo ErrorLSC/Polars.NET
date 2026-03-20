@@ -26,7 +26,7 @@ public static partial class ArrayHelper
     );
     
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static unsafe (int[] values, byte[]? validity) UnzipInt32SIMD(int?[] data, int defaultValue)
+    private static unsafe (int[] values, byte[]? validity) UnzipInt32SIMD(ReadOnlySpan<int?> data, int defaultValue)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<int>(len);

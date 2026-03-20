@@ -103,3 +103,35 @@ macro_rules! ffi_try_void {
         }
     }};
 }
+
+#[macro_export]
+macro_rules! ffi_try_c_int {
+    ($body:expr) => {{
+        use std::panic::{catch_unwind, AssertUnwindSafe};
+        use crate::error::set_error;
+        
+        let closure = || -> PolarsResult<_> { $body };
+        let result = catch_unwind(AssertUnwindSafe(closure));
+
+        match result {
+            Ok(inner_result) => match inner_result {
+                Ok(val) => val, 
+                Err(e) => {
+                    set_error(e.to_string());
+                    1 
+                }
+            },
+            Err(e) => {
+                let msg = if let Some(s) = e.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = e.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "Unknown Rust Panic".to_string()
+                };
+                set_error(msg);
+                1 
+            }
+        }
+    }};
+}

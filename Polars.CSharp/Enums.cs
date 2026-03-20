@@ -440,6 +440,38 @@ public enum MergeActionType : byte
     NotMatchedBySourceDelete = 3
 }
 
+/// <summary>
+/// Specifies the behavior when bulk ingesting a DataFrame into an ADBC database table.
+/// </summary>
+public enum AdbcIngestMode
+{
+    /// <summary>
+    /// Creates a new table and inserts the data. 
+    /// Fails if the target table already exists. (Default behavior)
+    /// </summary>
+    Create,
+
+    /// <summary>
+    /// Appends the data to an existing table. 
+    /// Fails if the target table does not exist, or if the DataFrame schema doesn't match.
+    /// </summary>
+    Append,
+
+    /// <summary>
+    /// Drops the target table if it already exists, creates a new one, and inserts the data.
+    /// Extremely useful for overriding temporary/staging tables.
+    /// </summary>
+    Replace
+}
+
+public enum CatalogTableType : byte
+{
+    Managed = 0,
+    External = 1
+}
+
+public enum SearchSortedSide : byte { Any = 0, Left = 1, Right = 2 }
+
 internal static class EnumExtensions
 {
     public static CoreEnums.PlDataType ToNative(this DataTypeKind kind) => kind switch
@@ -728,6 +760,19 @@ internal static class EnumExtensions
         MergeActionType.NotMatchedInsert => CoreEnums.PlMergeActionType.NotMatchedInsert,
         MergeActionType.NotMatchedBySourceDelete => CoreEnums.PlMergeActionType.NotMatchedBySourceDelete,
         _ => throw new ArgumentOutOfRangeException(nameof(condition), condition, null)
+    };
+    internal static CoreEnums.PlCatalogTableType ToNative(this CatalogTableType tableType) => tableType switch
+    {
+        CatalogTableType.External => CoreEnums.PlCatalogTableType.External,
+        CatalogTableType.Managed => CoreEnums.PlCatalogTableType.Managed,
+        _ => throw new ArgumentOutOfRangeException(nameof(tableType), tableType, null)
+    };
+    internal static CoreEnums.PlSearchSortedSide ToNative(this SearchSortedSide side) => side switch
+    {
+        SearchSortedSide.Any => CoreEnums.PlSearchSortedSide.Any,
+        SearchSortedSide.Left => CoreEnums.PlSearchSortedSide.Left,
+        SearchSortedSide.Right => CoreEnums.PlSearchSortedSide.Right,
+        _ => throw new ArgumentOutOfRangeException(nameof(side), side, null)
     };
 }
 

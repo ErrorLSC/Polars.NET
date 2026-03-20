@@ -116,9 +116,6 @@ public static partial class PolarsWrapper
         nuint zOrderLen = (nuint)(zOrderCols?.Length ?? 0);
         nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
 
-        nuint optimizedFilesCount;
-
-        // 3. 调用 Native Binding
         NativeBindings.pl_io_delta_optimize(
             path,
             targetSizeMb,
@@ -134,7 +131,7 @@ public static partial class PolarsWrapper
             cloudKeys,
             cloudValues,
             cloudLen,
-            out optimizedFilesCount
+            out nuint optimizedFilesCount
         );
 
         ErrorHelper.CheckVoid();
@@ -189,7 +186,7 @@ public static partial class PolarsWrapper
 
         ErrorHelper.CheckVoid();
     }
-        // ---------------------------------------------------------
+    // ---------------------------------------------------------
     // DeltaLake
     // ---------------------------------------------------------
     public unsafe static LazyFrameHandle ScanDelta(
@@ -267,7 +264,6 @@ public static partial class PolarsWrapper
 
         return ErrorHelper.Check(h);
     }
-
     public static void SinkDelta(
         LazyFrameHandle lf,
         string path,
@@ -306,8 +302,8 @@ public static partial class PolarsWrapper
         string[]? cloudValues
     )
     {
-        nuint rgs = rowGroupSize > 0 ? (nuint)rowGroupSize : 0;
-        nuint dps = dataPageSize > 0 ? (nuint)dataPageSize : 0;
+        nuint rgs = rowGroupSize > 0 ? rowGroupSize : 0;
+        nuint dps = dataPageSize > 0 ? dataPageSize : 0;
         
         int safeCompatLevel = compatLevel;
         if (safeCompatLevel < -1) safeCompatLevel = -1;
@@ -520,5 +516,74 @@ public static partial class PolarsWrapper
         sourceLf.TransferOwnership();
 
         ErrorHelper.CheckVoid();
+    }
+    public static LazyFrameHandle DeltaReadCdc(
+        string path,
+        long startVersion,
+        long endVersion,
+        // Cloud Options
+        PlCloudProvider cloudProvider,
+        nuint cloudRetries,
+        ulong cloudRetryTimeoutMs,
+        ulong cloudRetryInitBackoffMs,
+        ulong cloudRetryMaxBackoffMs,
+        ulong cloudCacheTtl,
+        string[]? cloudKeys,
+        string[]? cloudValues
+    )
+    {
+        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+
+        NativeBindings.pl_io_delta_read_cdc(
+            path,
+            startVersion,
+            endVersion,
+            cloudProvider,
+            cloudRetries,
+            cloudRetryTimeoutMs,
+            cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs,
+            cloudCacheTtl,
+            cloudKeys,
+            cloudValues,
+            cloudLen,
+            out LazyFrameHandle outLfPtr
+        );
+
+        return outLfPtr;
+    }
+    public static LazyFrameHandle DeltaReadCdcByTime(
+        string path,
+        long startTimestampMs,
+        long endTimestampMs,
+        PlCloudProvider cloudProvider,
+        nuint cloudRetries,
+        ulong cloudRetryTimeoutMs,
+        ulong cloudRetryInitBackoffMs,
+        ulong cloudRetryMaxBackoffMs,
+        ulong cloudCacheTtl,
+        string[]? cloudKeys,
+        string[]? cloudValues
+    )
+    {
+        nuint cloudLen = (nuint)(cloudKeys?.Length ?? 0);
+
+        NativeBindings.pl_io_delta_read_cdc_by_time(
+            path,
+            startTimestampMs,
+            endTimestampMs,
+            cloudProvider,
+            cloudRetries,
+            cloudRetryTimeoutMs,
+            cloudRetryInitBackoffMs,
+            cloudRetryMaxBackoffMs,
+            cloudCacheTtl,
+            cloudKeys,
+            cloudValues,
+            cloudLen,
+            out LazyFrameHandle outLfPtr
+        );
+
+        return outLfPtr;
     }
 }

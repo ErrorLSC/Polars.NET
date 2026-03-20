@@ -17,7 +17,7 @@ module Display =
     /// </summary>
     let toHtml (df: DataFrame) =
         let rowsToShow = 10
-        let totalRows = df.Height // 1. 改为 Height
+        let totalRows = df.Height
         let n = Math.Min(int64 rowsToShow, totalRows)
         
 
@@ -52,11 +52,10 @@ module Display =
         // --- Table Head  ---
         sb.Append "<thead><tr>" |> ignore
         for name in colNames do
-            // 通过索引器获取 Polars 类型 (e.g. "Int64", "Utf8")
             let dtype = pSchema.[name] 
             sb.AppendFormat("<th>{0}<span class='pl-type'>{1}</span></th>", 
                 System.Net.WebUtility.HtmlEncode name, 
-                dtype.ToString()) |> ignore // 这里的 ToString 是 DataType DU 的实现
+                dtype.ToString()) |> ignore 
         sb.Append "</tr></thead>" |> ignore
 
         // --- Table Body  ---

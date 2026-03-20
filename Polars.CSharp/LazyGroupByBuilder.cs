@@ -5,7 +5,7 @@ namespace Polars.CSharp;
 /// Intermediate builder for LazyGroupBy operations.
 /// Holds the LazyFrame handle (ownership transferred to this builder) and grouping keys.
 /// </summary>
-public class LazyGroupBy : IDisposable
+public sealed class LazyGroupBy : IDisposable
 {
     private readonly LazyFrameHandle _lfHandle;
     
@@ -65,7 +65,10 @@ public class LazyGroupBy : IDisposable
             }
 
             _disposed = true;
+            
         }
+        
+        GC.SuppressFinalize(this);
     }
 }
 

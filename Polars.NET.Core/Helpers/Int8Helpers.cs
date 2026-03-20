@@ -12,14 +12,14 @@ public static partial class ArrayHelper
     // =================================================================================
     private static readonly Vector256<byte> Int8ShuffleMask = Vector256.Create(
         // --- Output 0-15: 16 Values  1, 3, 5...) ---
-        (byte)1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31,
+        1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31,
         
         // --- Output 16-31: 16 Bools  0, 2, 4...) ---
         (byte)0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30
     );
        // [Stride 2] Int8 / Byte
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static unsafe (byte[] values, byte[]? validity) UnzipInt8SIMD(byte?[] data, byte defaultValue)
+    private static unsafe (byte[] values, byte[]? validity) UnzipInt8SIMD(ReadOnlySpan<byte?> data, byte defaultValue)
     {
         int len = data.Length;
         // 1. Allocate Values (Uninitialized)

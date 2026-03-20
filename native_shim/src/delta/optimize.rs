@@ -2,6 +2,7 @@ use std::{collections::HashMap, ffi::c_char, time::{SystemTime, UNIX_EPOCH}};
 use futures::StreamExt;
 use polars::prelude::*;
 use polars_buffer::Buffer;
+use rand::RngExt;
 use url::Url;
 use deltalake::{DeltaTable, PartitionFilter, PartitionValue, Path, kernel::scalars::ScalarExt};
 use deltalake::kernel::{Action, Add, Remove, transaction::CommitBuilder};
@@ -16,7 +17,7 @@ use crate::utils::ptr_to_str;
 // 0. Context Definition
 // =========================================================
 
-struct OptimizeContext {
+pub struct OptimizeContext {
     pub table_url: Url,
     pub target_size_bytes: i64,
     pub partition_filters: Option<HashMap<String, String>>,// Optional filter
@@ -379,9 +380,8 @@ async fn phase_3_commit_optimize(
     bin: &OptimizeBin,
     staging_dir: &str,
     write_id: Uuid,
-) -> PolarsResult<()> {
+) -> Result<(), deltalake::errors::DeltaTableError> {
     
-    // 1. Promote Staging Files
     let partition_cols: Vec<String> = bin.partition_values.keys().cloned().collect();
     
     let new_add_actions = phase_process_staging(
@@ -389,16 +389,14 @@ async fn phase_3_commit_optimize(
         staging_dir, 
         &partition_cols, 
         write_id
-    ).await?;
+    ).await.map_err(|e| deltalake::errors::DeltaTableError::Generic(e.to_string()))?;
 
-    // If no new data, clear and return
     if new_add_actions.is_empty() {
         let object_store = table.object_store();
         let _ = object_store.delete(&Path::from(staging_dir)).await;
         return Ok(());
     }
 
-    // 2. Construct Remove Actions (Source files)
     let remove_actions: Vec<Action> = bin.files.iter().map(|f| {
         Action::Remove(Remove {
             path: f.path.clone(),
@@ -412,203 +410,171 @@ async fn phase_3_commit_optimize(
         })
     }).collect();
 
-    // 3. Combine Actions
     let mut actions = Vec::with_capacity(new_add_actions.len() + remove_actions.len());
     actions.extend(remove_actions);
     actions.extend(new_add_actions);
 
-    // 4. Commit
     let operation = DeltaOperation::Optimize {
         target_size: 0, 
         predicate: None,
     };
 
-    let commit_res = CommitBuilder::default()
+    let _commit_res = CommitBuilder::default()
         .with_actions(actions)
+        .with_app_metadata(crate::delta::utils::get_polars_net_metadata())
         .with_max_retries(0)
         .build(
-            Some(table.snapshot().map_err(|e| PolarsError::ComputeError(format!("{}", e).into()))?), 
+            Some(table.snapshot()?), 
             table.log_store().clone(),
             operation
         )
-        .await;
+        .await?; 
 
-    // 5. Cleanup Staging
     let object_store = table.object_store();
     let _ = object_store.delete(&Path::from(staging_dir)).await;
-
-    commit_res.map_err(|e| PolarsError::ComputeError(format!("Optimize Commit failed: {}", e).into()))?;
 
     Ok(())
 }
 
-// =========================================================
-// Main Entry (Retry Loop & FFI)
-// =========================================================
+pub(crate) fn optimize_delta_internal(
+    ctx: OptimizeContext,
+    delta_storage_options: std::collections::HashMap<String, String>,
+    cloud_args: RawCloudArgs,
+) -> PolarsResult<usize> {
+    let rt = get_runtime();
+    let mut total_optimized_files = 0;
+
+    let max_attempts = std::env::var("POLARS_DELTA_MAX_RETRIES")
+        .unwrap_or_else(|_| "5".to_string())
+        .parse::<u32>()
+        .unwrap_or(5);
+
+    let (mut table, _polars_schema) = rt.block_on(async {
+        let t = DeltaTable::try_from_url_with_storage_options(
+            ctx.table_url.clone(), 
+            delta_storage_options.clone()
+        )
+        .await.map_err(|e| PolarsError::ComputeError(format!("Delta load error: {}", e).into()))?;
+        
+        let s = get_polars_schema_from_delta(&t)?;
+        Ok::<_, PolarsError>((t, s))
+    })?;
+
+    let mut attempt = 0;
+   
+    loop {
+        attempt += 1;
+        
+        if attempt > 1 {
+            println!("[Delta-RS] Conflict detected (Optimize). Reloading table state...");
+            rt.block_on(async {
+                table.update_state().await
+                    .map_err(|e| PolarsError::ComputeError(format!("Reload table failed: {}", e).into()))
+            })?;
+        }
+
+        let bins = rt.block_on(phase_1_plan_bins(&ctx, &table))?;
+        
+        if bins.is_empty() {
+            break; 
+        }
+
+        let mut loop_success = true;
+
+        for bin in bins {
+            let (staging_dir, write_id) = phase_2_execute_rewrite(&ctx, &table, &bin, &cloud_args)?;
+            let staging_dir_fail_safe = staging_dir.clone();
+
+            let commit_res = rt.block_on(
+                phase_3_commit_optimize(&mut table, &bin, &staging_dir, write_id)
+            );
+
+            match commit_res {
+                Ok(_) => {
+                    total_optimized_files += bin.files.len();
+                    rt.block_on(async { table.update_state().await })
+                        .map_err(|e| PolarsError::ComputeError(format!("Reload table failed: {}", e).into()))?;
+                },
+                Err(deltalake::errors::DeltaTableError::CommitValidation { .. }) 
+                // | Err(deltalake::errors::DeltaTableError::Generic{ .. })
+                | Err(deltalake::errors::DeltaTableError::VersionAlreadyExists(_)) 
+                | Err(deltalake::errors::DeltaTableError::Transaction { .. }) => {
+
+                    rt.block_on(async {
+                        let os = table.object_store();
+                        let _ = os.delete(&Path::from(staging_dir_fail_safe.as_str())).await;
+                    });
+
+                    loop_success = false;
+                    break; 
+                },
+                Err(e) => return Err(PolarsError::ComputeError(format!("Optimize Commit failed: {}", e).into())),
+            }
+        }
+
+        if loop_success {
+            break; 
+        }
+
+        if attempt >= max_attempts {
+            return Err(PolarsError::ComputeError(format!("Max retry attempts ({}) reached for Optimize OCC conflict", max_attempts).into()));
+        }
+        
+        let base_sleep = 50_u64.saturating_mul(2_u64.pow(attempt - 1));
+        let capped_sleep = std::cmp::min(base_sleep, 2000);
+        
+        let mut rng = rand::rng();
+        let jitter_millis = rng.random_range((capped_sleep / 2)..=(capped_sleep * 3 / 2));
+
+        println!("[Delta-RS] Optimize OCC Conflict! Backoff for {}ms (Attempt {}/{})", jitter_millis, attempt, max_attempts);
+
+        std::thread::sleep(std::time::Duration::from_millis(jitter_millis));
+    }
+
+    Ok(total_optimized_files)
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_io_delta_optimize(
     target_path_ptr: *const c_char,
     target_size_mb: i64,
     filter_json_ptr: *const c_char,
-    // Z-Order Params
     z_order_cols_ptr: *const *const c_char,
     z_order_len: usize,
-    // --- Cloud Args ---
-    cloud_provider: u8,
-    cloud_retries: usize,
-    cloud_retry_timeout_ms: u64,      
-    cloud_retry_init_backoff_ms: u64, 
-    cloud_retry_max_backoff_ms: u64, 
-    cloud_cache_ttl: u64,
-    cloud_keys: *const *const c_char,
-    cloud_values: *const *const c_char,
-    cloud_len: usize,
-
-    // --- Output ---
+    cloud_provider: u8, cloud_retries: usize, cloud_retry_timeout_ms: u64, cloud_retry_init_backoff_ms: u64, cloud_retry_max_backoff_ms: u64, cloud_cache_ttl: u64, cloud_keys: *const *const c_char, cloud_values: *const *const c_char, cloud_len: usize,
     out_num_files_optimized: *mut usize,
 ) {
     ffi_try_void!({
-        // 1. Setup Context
         let path_str = ptr_to_str(target_path_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
         let table_url = parse_table_url(path_str)?;
         let delta_storage_options = build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
+        
         let partition_filters = if !filter_json_ptr.is_null() {
             let json_str = ptr_to_str(filter_json_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
-            if json_str.trim().is_empty() {
-                None
-            } else {
-                // Parse to Key-Value Map
-                // Example: {"date": "2024-01-01", "region": "us"}
+            if json_str.trim().is_empty() { None } else {
                 let map: HashMap<String, String> = serde_json::from_str(json_str)
                     .map_err(|e| PolarsError::ComputeError(format!("Invalid filter JSON: {}", e).into()))?;
                 Some(map)
             }
-        } else {
-            None
-        };
+        } else { None };
+        
         let z_order_columns = if z_order_len > 0 && !z_order_cols_ptr.is_null() {
-            unsafe {Some(ptr_to_vec_string(z_order_cols_ptr, z_order_len))}
-        } else {
-            None
-        };
+            unsafe { Some(ptr_to_vec_string(z_order_cols_ptr, z_order_len)) }
+        } else { None };
 
         let ctx = OptimizeContext {
-            table_url: table_url.clone(),
+            table_url,
             target_size_bytes: target_size_mb * 1024 * 1024,
-            partition_filters:partition_filters, 
+            partition_filters, 
             z_order_columns,
         };
 
+        let cloud_args = RawCloudArgs { provider: cloud_provider, retries: cloud_retries, retry_timeout_ms: cloud_retry_timeout_ms, retry_init_backoff_ms: cloud_retry_init_backoff_ms, retry_max_backoff_ms: cloud_retry_max_backoff_ms, cache_ttl: cloud_cache_ttl, keys: cloud_keys, values: cloud_values, len: cloud_len };
 
-        let cloud_args = RawCloudArgs {
-            provider: cloud_provider,
-            retries: cloud_retries,
-            retry_timeout_ms: cloud_retry_timeout_ms,
-            retry_init_backoff_ms: cloud_retry_init_backoff_ms,
-            retry_max_backoff_ms: cloud_retry_max_backoff_ms,
-            cache_ttl: cloud_cache_ttl,
-            keys: cloud_keys,
-            values: cloud_values,
-            len: cloud_len,
-        };
-
-        let rt = get_runtime();
-        let mut total_optimized_files = 0;
-
-        // 2. Initial Load
-        let (mut table, _polars_schema) = rt.block_on(async {
-            let t = DeltaTable::try_from_url_with_storage_options(
-                table_url.clone(), 
-                delta_storage_options.clone()
-            )
-            .await.map_err(|e| PolarsError::ComputeError(format!("Delta load error: {}", e).into()))?;
-            
-            let s = get_polars_schema_from_delta(&t)?;
-            Ok::<_, PolarsError>((t, s))
-        })?;
-
-        // =========================================================================
-        // THE GRAND RETRY LOOP
-        // =========================================================================
-        let mut attempt = 0;
-       
-        loop {
-            attempt += 1;
-            
-            // Reload table if retrying
-            if attempt > 1 {
-                println!("[Delta-RS] Conflict detected (Optimize). Retry attempt {}...", attempt);
-                rt.block_on(async {
-                    table.update_state().await
-                        .map_err(|e| PolarsError::ComputeError(format!("Reload table failed: {}", e).into()))
-                })?;
-            }
-
-            // Phase 1: Plan
-            let bins = rt.block_on(phase_1_plan_bins(&ctx, &table))?;
-            
-            if bins.is_empty() {
-                break; // No more files to optimize
-            }
-
-            // Phase 2 & 3: Execute & Commit per Bin
-            let mut loop_success = true;
-
-            for bin in bins {
-                // Execute Rewrite
-                let (staging_dir, write_id) = phase_2_execute_rewrite(&ctx, &table,&bin, &cloud_args)?;
-                let staging_dir_fail_safe = staging_dir.clone();
-
-                // Commit
-                let commit_res = rt.block_on(
-                    phase_3_commit_optimize(&mut table, &bin, &staging_dir, write_id)
-                );
-
-                match commit_res {
-                    Ok(_) => {
-                        total_optimized_files += bin.files.len();
-                        // Update table state
-                        rt.block_on(async {
-                            table.update_state().await
-                        }).map_err(|e| PolarsError::ComputeError(format!("Reload table failed: {}", e).into()))?;
-                    },
-                    Err(e) => {
-                        // Handle Conflict
-                        let err_msg = format!("{:?}", e);
-                        let is_conflict = err_msg.contains("Transaction") || err_msg.contains("Conflict");
-                        
-                        // Cleanup Staging (if not cleaned inside)
-                        rt.block_on(async {
-                            let os = table.object_store();
-                            let _ = os.delete(&Path::from(staging_dir_fail_safe)).await;
-                        });
-
-                        if is_conflict {
-                            loop_success = false;
-                            break; // Break inner loop, trigger outer loop retry logic
-                        } else {
-                            return Err(e); // Fatal error
-                        }
-                    }
-                }
-            }
-
-            if loop_success {
-                break; // All bins processed successfully
-            }
-
-            // Retry Backoff
-            if attempt >= 5 {
-                 return Err(PolarsError::ComputeError("Max retries exceeded for optimization".into()));
-            }
-            
-            let backoff = std::cmp::min(100 * 2_u64.pow(attempt - 1), 2000);
-            std::thread::sleep(std::time::Duration::from_millis(backoff));
-        }
+        let total_optimized = optimize_delta_internal(ctx, delta_storage_options, cloud_args)?;
 
         if !out_num_files_optimized.is_null() {
-            unsafe { *out_num_files_optimized = total_optimized_files; }
+            unsafe { *out_num_files_optimized = total_optimized; }
         }
 
         Ok(())

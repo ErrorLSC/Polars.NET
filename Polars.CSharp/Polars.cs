@@ -1,5 +1,4 @@
 #pragma warning disable CS1591
-using System.Text;
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
 namespace Polars.CSharp;
@@ -7,7 +6,7 @@ namespace Polars.CSharp;
 /// <summary>
 /// Polars Static Helpers
 /// </summary>
-public static class Polars
+public static partial class Polars
 {
     /// <summary>
     /// Column Expr (name: string)
@@ -221,12 +220,32 @@ public static class Polars
         return new Expr(PolarsWrapper.AsStruct(handles));
     }
     // ==========================================
-    // SQL Context
+    // SQL
     // ==========================================
     /// <summary>
     /// Create a new SQL Context.
     /// </summary>
     public static SqlContext Sql() => new();
+    /// <summary>
+    /// Create a Polars Expr from a SQL string.
+    /// </summary>
+    /// <param name="sql">The SQL expression string.</param>
+    /// <returns>A Polars Expr representing the SQL logic.</returns>
+    /// <exception cref="ArgumentException">Thrown when the provided SQL string is null, empty, or consists only of white-space characters.</exception>
+    public static Expr SqlExpr(string sql)
+    {
+        if (string.IsNullOrWhiteSpace(sql))
+            throw new ArgumentException("SQL expression can not be null", nameof(sql));
+
+        return new Expr(PolarsWrapper.SqlExpr(sql));
+    }
+    /// <summary>
+    /// Create an array of Polars Exprs from a collection of SQL strings.
+    /// </summary>
+    /// <param name="sqls">The collection of SQL expression strings.</param>
+    /// <returns>An array of Polars Expr objects.</returns>
+    public static Expr[] SqlExprs(IEnumerable<string> sqls) 
+            => [.. sqls.Select(SqlExpr)];
 
     // ==========================================
     // Temporal
@@ -261,7 +280,44 @@ public static class Polars
     /// </example>
     public static Expr CombineDateAndTime(Expr date, Expr time, TimeUnit tu = TimeUnit.Microseconds)
         => date.Dt.Combine(time, tu);
-
-
 }
 
+public static class InterfaceUnwrapperExtensions
+{
+    /// <summary>
+    /// Unwrap IPolarsDataFrame as DataFrame 
+    /// </summary>
+    public static DataFrame AsDataFrame(this IPolarsDataFrame idf)
+    {
+        if (idf is DataFrame df)
+            return df;
+        
+        throw new InvalidCastException("Not Standard Polars DataFrame");
+    }
+    /// <summary>
+    /// Unwrap IPolarsLazyFrame as LazyFrame 
+    /// </summary>
+    /// <param name="ilf">A IPolarsLazyFrame</param>
+    /// <returns></returns>
+    /// <exception cref="InvalidCastException"></exception>
+    public static LazyFrame AsLazyFrame(this IPolarsLazyFrame ilf)
+    {
+        if (ilf is LazyFrame lf)
+            return lf;
+        
+        throw new InvalidCastException("Not Standard Polars LazyFrame");
+    }
+    /// <summary>
+    /// Unwrap IPolarsLazyFrame as LazyFrame 
+    /// </summary>
+    /// <param name="iS">A IPolarsSeries</param>
+    /// <returns></returns>
+    /// <exception cref="InvalidCastException"></exception>
+    public static Series AsSeries(this IPolarsSeries iS)
+    {
+        if (iS is Series s)
+            return s;
+        
+        throw new InvalidCastException("Not Standard Polars Series");
+    }
+}

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Apache.Arrow.C;
 
 namespace Polars.NET.Core.Native;
 
@@ -7,7 +8,8 @@ unsafe internal partial class NativeBindings
     // --- DataType ---
     [LibraryImport(LibName)]
     public static partial void pl_datatype_free(IntPtr ptr);
-
+    [LibraryImport(LibName)]
+    public static partial void pl_datatype_export_arrow_schema(DataTypeHandle dataTypePtr,CArrowSchema* outSchema);
     [LibraryImport(LibName)]
     public static partial DataTypeHandle pl_datatype_new_primitive(int code);
 

@@ -1,17 +1,13 @@
 using Apache.Arrow;
 using Polars.NET.Core;
-using static Polars.CSharp.Polars; // 方便使用 Col, Lit
+using static Polars.CSharp.Polars; 
 
 namespace Polars.CSharp.Tests;
 
-// 1. 复刻 F# 的 UdfLogic 模块
 public static class UdfLogic
 {
-    // 场景 A: 类型转换 (Int32/64 -> StringView)
-    // 完全手动操作 Arrow，不依赖 UdfUtils
     public static IArrowArray IntToString(IArrowArray arr)
     {
-        // F# match arr with | :? Int64Array ...
         if (arr is Int64Array i64Arr)
         {
             var builder = new StringViewArray.Builder();
@@ -51,7 +47,6 @@ public static class UdfLogic
         throw new ArgumentException($"Expected Int32Array or Int64Array, but got: {arr.GetType().Name}");
     }
 
-    // 场景 B: 必定报错
     public static IArrowArray AlwaysFail(IArrowArray arr)
     {
         throw new Exception("Boom! C# UDF Exploded!");
@@ -69,14 +64,12 @@ public static class UdfLogic
                 }
                 else 
                 {
-                    // 简单的数值计算
                     double val = i64Arr.GetValue(i).Value;
                     builder.Append(val / 2.0);
                 }
             }
             return builder.Build();
         }
-        // 为了兼容性处理 Int32
         if (arr is Int32Array i32Arr)
         {
             var builder = new DoubleArray.Builder();
@@ -92,14 +85,11 @@ public static class UdfLogic
     }
 }
 
-// 2. 复刻 F# 的测试类
 public class UdfTests
 {
     [Fact]
     public void Map_UDF_Memory_Data_Test()
     {
-        // 1. 纯内存构造数据 (0..4, 共5行)
-        // 使用 FromArrow 构造，绝对干净
         int rowCount = 5;
         var builder = new Int64Array.Builder();
         for (int i = 0; i < rowCount; i++) builder.Append(i * 10); // 0, 10, 20, 30, 40
@@ -111,21 +101,15 @@ public class UdfTests
                 .Build()
         );
 
-        Assert.Equal(5, df.Height); // 确保源头是 5
+        Assert.Equal(5, df.Height);
 
-        // 2. 转为 Lazy
-        // using var lf = df.Lazy();
-
-        // 3. 构造 UDF (Int64 -> Double)
         Func<IArrowArray, IArrowArray> udf = UdfLogic.IntToDouble;
 
-        // 4. 执行
         using var res = df.Select(
             Col("num").Map(udf, DataType.Float64).Alias("res")
         );
-        // 5. 验证
-        // res.Show(); // 可以打开看看
-        Assert.Equal(5, res.Height); // 应该是 5
+
+        Assert.Equal(5, res.Height);
 
         Assert.NotNull(res.Column("res"));
         Assert.Equal(5, res.Column("res").Length);
@@ -135,26 +119,19 @@ public class UdfTests
     [Fact]
     public void Test_UDF_Map_Stable()
     {
-        // 1. 准备数据 (5行)
-        
         using var csv = new DisposableFile("num\n15\n25\n" +
                                           "35\n45\n55\n",".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
-        Assert.Equal(5, df.Height); // 确保数据是 5 行
+        Assert.Equal(5, df.Height); 
 
-        // 2. 构造 UDF (Int64 -> Int64)
-        // 使用 Lambda，UdfUtils 会处理
+        // UDF (Int64 -> Int64)
         var udf = Col("num").Map<long, long>(x => x * 2, DataType.Int64).Alias("res");
 
-        // 3. 执行
         using var res = df.Select(
             Col("num"),
             udf
         );
-        // 看看是不是 3 行
-
-        // 4. 验证
-        Assert.Equal(5, res.Height); // 关键断言：行数不能丢
+        Assert.Equal(5, res.Height); 
         
         Assert.Equal(30, res.Column("res").GetValue<long>(0));
         Assert.Equal(50, res.Column("res").GetValue<long>(1));
@@ -163,41 +140,31 @@ public class UdfTests
     [Fact]
     public void Map_UDF_Can_Change_Data_Type_Int_To_String()
     {
-        // 1. 准备数据
-        // F#: use csv = new TempCsv "num\n100\n200"
         using var csv = new DisposableFile("num\n100\n200\n",".csv");
         using var lf = LazyFrame.ScanCsv(csv.Path);
 
-        // 2. 构造 C# 委托
-        // F#: let udf = Func<IArrowArray, IArrowArray>(UdfLogic.intToString)
         Func<IArrowArray, IArrowArray> udf = UdfLogic.IntToString;
 
-        // 3. 执行 Polars 查询
         using var df = lf.Select(
             Col("num")
             .Map(udf, DataType.String) 
             .Alias("desc")
         ).Collect();
         df.Show();
-        // 4. 验证结果
-        // F# let strCol = arrowBatch.Column "desc" :?> StringViewArray
-        // 我们用 helper 或者直接 cast
         
         Assert.NotNull(df.Column("desc"));
-        Assert.Equal("Value: 100", df.Column("desc").GetValue<string>(0)); // 使用之前修好的 GetStringValue
+        Assert.Equal("Value: 100", df.Column("desc").GetValue<string>(0)); 
         Assert.Equal("Value: 200", df.Column("desc").GetValue<string>(1));
     }
 
     [Fact]
     public void Map_UDF_Error_Is_Propagated_To_CSharp()
     {
-        // 1. 准备数据
         using var csv = new DisposableFile("num\n1",".csv");
         using var lf = LazyFrame.ScanCsv(csv.Path);
 
         Func<IArrowArray, IArrowArray> udf = UdfLogic.AlwaysFail;
 
-        // 2. 断言会抛出异常
         var ex = Assert.Throws<PolarsException>(() => 
         {
             lf.Select(
@@ -205,27 +172,20 @@ public class UdfTests
             ).Collect();
         });
 
-        // 3. 验证异常信息
         Assert.Contains("Boom! C# UDF Exploded!", ex.Message);
-        // Assert.Contains("C# UDF Failed", ex.Message); // 取决于 Native 层是否加了前缀
     }
     [Fact]
     public void Test_UDF_HighLevel_Numeric()
     {
-        // 场景 1: 简单的数值计算 (Int64 -> Int64)
-        // 用户不需要知道 IArrowArray，只需要写 Lambda
-        
         using var csv = new DisposableFile("num\n10\n20\n30\n",".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
-        // 定义逻辑: x * 2
         var doubleExpr = Col("num")
             .Map<long, long>(x => x * 2, DataType.Int64)
             .Alias("doubled");
 
         using var res = df.Select(Col("num"), doubleExpr);
         
-        // 验证
         Assert.Equal(20, res.Column("doubled").GetValue<long>(0)); // 10 * 2
         Assert.Equal(60, res.Column("doubled").GetValue<long>(2)); // 30 * 2
     }
@@ -233,20 +193,16 @@ public class UdfTests
     [Fact]
     public void Test_UDF_HighLevel_String_Manipulation()
     {
-        // 场景 2: 字符串处理 (String -> String)
-        // 模拟业务逻辑：给名字加前缀
-        
         using var csv = new DisposableFile("name\nAlice\nBob\n",".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
-        // 定义逻辑: "Hello, {name}!"
+        // UDF: "Hello, {name}!"
         var greetExpr = Col("name")
             .Map<string, string>(name => $"Hello, {name}!", DataType.String)
             .Alias("greeting");
 
         using var res = df.Select(Col("name"), greetExpr);
         
-        // 验证
         Assert.Equal("Hello, Alice!", res.Column("greeting").GetValue<string>(0));
         Assert.Equal("Hello, Bob!", res.Column("greeting").GetValue<string>(1));
     }
@@ -254,54 +210,45 @@ public class UdfTests
     [Fact]
     public void Test_UDF_HighLevel_Type_Conversion()
     {
-        // 场景 3: 跨类型转换 (Int64 -> String)
-        // 这是最常用的场景之一，比如格式化数字
+        // UDF Int64 -> String
         
         using var csv = new DisposableFile("id\n1001\n1002\n",".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
-        // 定义逻辑: 将 ID 格式化为 "Order-#ID"
-        // 输入是 long, 输出是 string
         var formatExpr = Col("id")
             .Map<long, string>(id => $"Order-{id}", DataType.String)
             .Alias("order_id");
 
         using var res = df.Select(Col("id"), formatExpr);
         
-        // 验证     
         Assert.Equal("Order-1001", res.Column("order_id").GetValue<string>(0));
         Assert.Equal("Order-1002", res.Column("order_id").GetValue<string>(1));
     }
     [Fact]
     public void Test_UDF_Nullable_Output()
     {
-        // 构造数据: 10, 0, 20
-        // 我们想把 0 变成 Null
         using var csv = new DisposableFile("num\n10\n0\n20\n",".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
-        // 逻辑: 如果是 0 返回 null (C# null)，否则返回原值
-        // 关键点：泛型参数是 <long, long?>
+        // 0 -> null (C# null)
         var cleanExpr = Col("num")
             .Map<long, long?>(x => x == 0 ? null : x, DataType.Int64)
             .Alias("cleaned");
 
         using var res = df.Select(Col("num"), cleanExpr);
         
-        // 验证
         Assert.Equal(10, res.Column("cleaned").GetValue<long>(0));
-        Assert.Null(res.Column("cleaned").GetValue<long?>(1)); // 0 变成了 Null
+        Assert.Null(res.Column("cleaned").GetValue<long?>(1)); // 0 -> Null
         Assert.Equal(20, res.Column("cleaned").GetValue<long>(2));
     }
     [Fact]
     public void Test_UDF_Nullable_Input()
     {
-        // 数据: 10, null
-        using var csv = new DisposableFile("num\n10\n\n",".csv"); // 第二行是空
+        using var csv = new DisposableFile("num\n10\n\n",".csv"); 
         using var df = DataFrame.ReadCsv(csv.Path);
 
-        // 逻辑: 输入 int? -> 输出 string
-        // 如果输入是 null，返回 "FoundNull"，否则返回 "Value:{x}"
+        // int? -> string
+        // null -> "FoundNull" or "Value:{x}"
         var checkNullExpr = Col("num")
             .Map<long?, string>(x => x.HasValue ? $"Value:{x}" : "FoundNull", DataType.String)
             .Alias("status");
@@ -309,43 +256,36 @@ public class UdfTests
         using var res = df.Select(Col("num"), checkNullExpr);
         
         Assert.Equal("Value:10", res.Column("status").GetValue<string>(0));
-        Assert.Equal("FoundNull", res.Column("status").GetValue<string>(1)); // 成功捕获了 Null 输入！
+        Assert.Equal("FoundNull", res.Column("status").GetValue<string>(1)); 
     }
     [Fact]
     public void Test_GroupBy_Agg_With_HighLevel_Lambda()
     {
-        // 1. 准备数据
         using var df = DataFrame.FromSeries(
             new Series("key", ["A", "A", "B", "B"]),
-            new Series("val", [1L, 2L, 3L, 4L]) // 用 long 以防万一
+            new Series("val", [1L, 2L, 3L, 4L]) 
         );
 
-        // 2. 定义高层 Lambda
-        // 逻辑：输入是一个数组 (long[])，输出是最大值 + 10 (long)
-        // 这里的 TIn 是 long[]，因为我们用了 Implode()
-        Func<long[], long> myGroupLogic = (nums) => 
+        static long myGroupLogic(long[] nums)
         {
-            // 这里的 nums 就是 A组的 [1, 2] 或者 B组的 [3, 4]
             if (nums == null || nums.Length == 0) return 0;
             return nums.Max() + 10;
-        };
+        }
 
-        // 3. 执行 GroupBy Agg
-        // 关键组合拳：.Implode().Map(...)
+        // GroupBy Agg
         var res = df.GroupBy("key")
                     .Agg(
                         Col("val")
-                        .Implode() // <--- 关键！把该组数据打包成一个 array 传给 UDF
-                        .Map(myGroupLogic, DataType.Int64) 
+                        .Implode() 
+                        .Map((Func<long[], long>)myGroupLogic, DataType.Int64) 
                         .Alias("custom_agg")
                     )
                     .Sort("key");
 
-        // 4. 验证
-        // A组: [1, 2] -> Max 2 -> +10 = 12
+        // A: [1, 2] -> Max 2 -> +10 = 12
         Assert.Equal(12, res["custom_agg"].GetValue<long>(0));
         
-        // B组: [3, 4] -> Max 4 -> +10 = 14
+        // B: [3, 4] -> Max 4 -> +10 = 14
         Assert.Equal(14, res["custom_agg"].GetValue<long>(1));
     }
 }

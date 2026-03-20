@@ -63,3 +63,32 @@ module Udf =
 
             buffer.BuildArray()
         )
+
+    // ==========================================
+    // 3. ValueOption Map (T voption -> U voption)
+    // ==========================================
+    let mapValueOption (f: 'T voption -> 'U voption) : Func<IArrowArray, IArrowArray> =
+        Func<IArrowArray, IArrowArray>(fun inputArray ->
+            let len = inputArray.Length
+            
+            // 1. Reader
+            let rawGetter = ArrowReader.CreateAccessor(inputArray, typeof<'T>)
+            
+            // 2. Writer 
+            let buffer = ColumnBufferFactory.Create(typeof<'U>, len)
+
+            for i in 0 .. len - 1 do
+                let rawVal = rawGetter.Invoke i
+                
+                let inputVOpt = 
+                    if isNull rawVal then ValueNone 
+                    else ValueSome (unbox<'T> rawVal)
+                
+                let outputVOpt = f inputVOpt
+                
+                match outputVOpt with
+                | ValueSome v -> buffer.Add v
+                | ValueNone -> buffer.Add null
+
+            buffer.BuildArray()
+        )

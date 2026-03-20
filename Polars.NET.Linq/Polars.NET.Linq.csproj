@@ -1,0 +1,36 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+
+    <GenerateDocumentationFile>true</GenerateDocumentationFile> 
+
+    <PackageId>Polars.NET.Linq</PackageId> 
+    <Authors>ErrorLSC</Authors>
+    <Description>LINQ Translation Engine for Polars.NET and Polars.FSharp. Write strong-typed C#/F# queries and execute them at native speed</Description>
+    <PackageTags>polars;dataframe;data-analysis;linq;ast</PackageTags>
+    <RepositoryUrl>https://github.com/ErrorLSC/Polars.NET</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Apache.Arrow.Adbc" Version="0.22.0" />
+    <PackageReference Include="linq2db" Version="6.2.0" />
+    <PackageReference Include="Npgsql" Version="10.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Polars.NET.Core\Polars.NET.Core.csproj" />
+    <ProjectReference Include="..\Polars.CSharp\Polars.CSharp.csproj" />
+    <ProjectReference Include="..\Polars.FSharp\Polars.FSharp.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

@@ -6,12 +6,12 @@ namespace Polars.NET.Core.Helpers;
 public static partial class ArrayHelper
 {
     /// <summary>
-    /// [ILP Optimized] DateTimeOffset[] -> UTC Microseconds (long[])
+    /// [ILP Optimized] ReadOnlySpan<DateTimeOffset> -> UTC Microseconds (long[])
     /// Calc (UtcTicks - Epoch) / 10
     /// Unified to UTC。
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static long[] UnzipDateTimeOffsetToUs(DateTimeOffset[] data)
+    public static long[] UnzipDateTimeOffsetToUs(ReadOnlySpan<DateTimeOffset> data)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<long>(len);
@@ -20,7 +20,7 @@ public static partial class ArrayHelper
 
         // Pointer Ops
         // DateTimeOffset is a struct contains (DateTime DateTime, short OffsetMinutes)
-        ref DateTimeOffset srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        ref DateTimeOffset srcRef = ref MemoryMarshal.GetReference(data);
         ref long dstRef = ref MemoryMarshal.GetArrayDataReference(values);
 
         int i = 0;
@@ -46,8 +46,12 @@ public static partial class ArrayHelper
 
         return values;
     }
+    /// <summary>
+    /// ReadOnlySpan<DateTimeOffset?> -> (Microseconds[], Validity[])
+    /// Extracts UtcTicks and calculates microseconds since Unix epoch.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static (long[] values, byte[]? validity) UnzipDateTimeOffsetToUs(DateTimeOffset?[] data)
+    public static (long[] values, byte[]? validity) UnzipDateTimeOffsetToUs(ReadOnlySpan<DateTimeOffset?> data)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<long>(len);
@@ -57,7 +61,7 @@ public static partial class ArrayHelper
 
         long epoch = 621355968000000000;
 
-        ref DateTimeOffset? srcRef = ref MemoryMarshal.GetArrayDataReference(data);
+        ref DateTimeOffset? srcRef = ref MemoryMarshal.GetReference(data);
         ref long dstRef = ref MemoryMarshal.GetArrayDataReference(values);
 
         for (int i = 0; i < len; i++)

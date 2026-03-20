@@ -3,7 +3,7 @@ namespace Polars.CSharp;
 /// <summary>
 /// Configuration options for Cloud IO (S3, Azure, GCP, etc).
 /// </summary>
-public class CloudOptions
+public sealed class CloudOptions
 {
     /// <summary>
     /// The cloud provider to use.

@@ -3,7 +3,7 @@ use polars_buffer::Buffer;
 use std::os::raw::c_char;
 use crate::pl_io::parquet::parquet_utils::build_scan_args;
 use crate::types::{ LazyFrameContext, SchemaContext};
-use crate::utils::{  ptr_to_str};
+use crate::utils::ptr_to_str;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_scan_parquet(
@@ -81,11 +81,9 @@ pub extern "C" fn pl_scan_parquet_memory(
     try_parse_hive_dates: bool
 ) -> *mut LazyFrameContext {
     ffi_try!({
-
         let slice = unsafe { std::slice::from_raw_parts(buffer_ptr, buffer_len) };
         let buffer = Buffer::from(slice.to_vec()); 
         let sources = ScanSources::Buffers(Arc::new([buffer]));
-
 
         let args = build_scan_args(
             n_rows, 

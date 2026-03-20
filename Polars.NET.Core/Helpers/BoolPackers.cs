@@ -7,7 +7,7 @@ namespace Polars.NET.Core.Helpers;
 public static class BoolPacker
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    public static unsafe byte[] Pack(bool[] data)
+    public static unsafe byte[] Pack(ReadOnlySpan<bool> data)
     {
         int len = data.Length;
         int byteLen = (len + 7) >> 3;
@@ -104,7 +104,7 @@ public static class BoolPacker
     /// Fixed: Uses ref byte for validity array to ensure GC safety.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    public static unsafe (byte[] values, byte[]? validity) PackNullable(bool?[] data)
+    public static unsafe (byte[] values, byte[]? validity) PackNullable(ReadOnlySpan<bool?> data)
     {
         int len = data.Length;
         int byteLen = (len + 7) >> 3;

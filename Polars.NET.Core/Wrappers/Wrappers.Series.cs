@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.C;
@@ -9,382 +10,792 @@ namespace Polars.NET.Core;
 public static partial class PolarsWrapper
 {
     // --- Constructors ---
-    public static SeriesHandle SeriesNew(string name, sbyte[] data, byte[]? validity) => 
-        ErrorHelper.Check(NativeBindings.pl_series_new_i8(name, data, validity, (UIntPtr)data.Length));
-    public static SeriesHandle SeriesNew(string name, byte[] data, byte[]? validity) => 
-        ErrorHelper.Check(NativeBindings.pl_series_new_u8(name, data, validity, (UIntPtr)data.Length));
-    public static SeriesHandle SeriesNew(string name, short[] data, byte[]? validity) => 
-        ErrorHelper.Check(NativeBindings.pl_series_new_i16(name, data, validity, (UIntPtr)data.Length));
-    public static SeriesHandle SeriesNew(string name, ushort[] data, byte[]? validity) => 
-        ErrorHelper.Check(NativeBindings.pl_series_new_u16(name, data, validity, (UIntPtr)data.Length));
-    public static SeriesHandle SeriesNew(string name, int[] data, byte[]? validity) => 
-        ErrorHelper.Check(NativeBindings.pl_series_new_i32(name, data, validity, (UIntPtr)data.Length));
-    public static SeriesHandle SeriesNew(string name, uint[] data, byte[]? validity) => 
-        ErrorHelper.Check(NativeBindings.pl_series_new_u32(name, data, validity, (UIntPtr)data.Length));
-    public static SeriesHandle SeriesNew(string name, long[] data, byte[]? validity) => 
-        ErrorHelper.Check(NativeBindings.pl_series_new_i64(name, data, validity, (UIntPtr)data.Length));
-    public static SeriesHandle SeriesNew(string name, ulong[] data, byte[]? validity) => 
-        ErrorHelper.Check(NativeBindings.pl_series_new_u64(name, data, validity, (UIntPtr)data.Length));
-    public static SeriesHandle SeriesNew(string name, Int128[] data, byte[]? validity) => 
-        ErrorHelper.Check(NativeBindings.pl_series_new_i128(name, data, validity, (UIntPtr)data.Length));
-    public static SeriesHandle SeriesNew(string name, UInt128[] data, byte[]? validity) => 
-        ErrorHelper.Check(NativeBindings.pl_series_new_u128(name, data, validity, (UIntPtr)data.Length));
-    public static SeriesHandle SeriesNew(string name, Half[] data, byte[]? validity) => 
-        ErrorHelper.Check(NativeBindings.pl_series_new_f16(name, data, validity, (UIntPtr)data.Length));
-    public static SeriesHandle SeriesNew(string name, float[] data, byte[]? validity) => 
-        ErrorHelper.Check(NativeBindings.pl_series_new_f32(name, data, validity, (UIntPtr)data.Length));
-    public static SeriesHandle SeriesNew(string name, double[] data, byte[]? validity) => 
-        ErrorHelper.Check(NativeBindings.pl_series_new_f64(name, data, validity, (UIntPtr)data.Length));
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, ReadOnlySpan<sbyte> data, ReadOnlySpan<byte> validity = default)
+    {
+        ref sbyte dataRef = ref MemoryMarshal.GetReference(data);
         
-    public static SeriesHandle SeriesNew(string name, byte[] valuesBitmask, byte[]? validityBitmask, UIntPtr length)
-        => ErrorHelper.Check(NativeBindings.pl_series_new_bool(name, valuesBitmask, validityBitmask, length));
+        ref byte validRef = ref Unsafe.NullRef<byte>();
 
-    public static SeriesHandle SeriesNew(string name, string?[] data)
-    {
-        return ErrorHelper.Check(
-            NativeBindings.pl_series_new_str(name, data, (UIntPtr)data.Length)
-        );
-    }
-    /// <summary>
-    /// [SIMD High Performance] Create String Series using Arrow Layout (Values + Offsets).
-    /// </summary>
-    public unsafe static SeriesHandle SeriesNewStringSimd(string name, string?[] data)
-    {
-        // 0. Blank data edge case
-        if (data.Length == 0)
+        if (!validity.IsEmpty)
         {
-            byte dummyByte = 0;
-            long dummyOff = 0;
+            validRef = ref MemoryMarshal.GetReference(validity);
+        }
+
+        return ErrorHelper.Check(NativeBindings.pl_series_new_i8(
+            name, 
+            ref dataRef, 
+            ref validRef, 
+            (UIntPtr)data.Length));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, sbyte[] data, byte[]? validity = null)
+    {
+        return SeriesNew(
+            name, 
+            new ReadOnlySpan<sbyte>(data), 
+            validity == null ? default : new ReadOnlySpan<byte>(validity));
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, ReadOnlySpan<byte> data, ReadOnlySpan<byte> validity = default)
+    {
+        ref byte dataRef = ref MemoryMarshal.GetReference(data);
+        
+        ref byte validRef = ref Unsafe.NullRef<byte>();
+
+        if (!validity.IsEmpty)
+        {
+            validRef = ref MemoryMarshal.GetReference(validity);
+        }
+
+        return ErrorHelper.Check(NativeBindings.pl_series_new_u8(
+            name, 
+            ref dataRef, 
+            ref validRef, 
+            (UIntPtr)data.Length));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, byte[] data, byte[]? validity = null)
+    {
+        return SeriesNew(
+            name, 
+            new ReadOnlySpan<byte>(data), 
+            validity == null ? default : new ReadOnlySpan<byte>(validity));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, ReadOnlySpan<short> data, ReadOnlySpan<byte> validity = default)
+    {
+        ref short dataRef = ref MemoryMarshal.GetReference(data);
+        
+        ref byte validRef = ref Unsafe.NullRef<byte>();
+
+        if (!validity.IsEmpty)
+        {
+            validRef = ref MemoryMarshal.GetReference(validity);
+        }
+
+        return ErrorHelper.Check(NativeBindings.pl_series_new_i16(
+            name, 
+            ref dataRef, 
+            ref validRef, 
+            (UIntPtr)data.Length));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, short[] data, byte[]? validity = null)
+    {
+        return SeriesNew(
+            name, 
+            new ReadOnlySpan<short>(data), 
+            validity == null ? default : new ReadOnlySpan<byte>(validity));
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, ReadOnlySpan<ushort> data, ReadOnlySpan<byte> validity = default)
+    {
+        ref ushort dataRef = ref MemoryMarshal.GetReference(data);
+        
+        ref byte validRef = ref Unsafe.NullRef<byte>();
+
+        if (!validity.IsEmpty)
+        {
+            validRef = ref MemoryMarshal.GetReference(validity);
+        }
+
+        return ErrorHelper.Check(NativeBindings.pl_series_new_u16(
+            name, 
+            ref dataRef, 
+            ref validRef, 
+            (UIntPtr)data.Length));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, ushort[] data, byte[]? validity = null)
+    {
+        return SeriesNew(
+            name, 
+            new ReadOnlySpan<ushort>(data), 
+            validity == null ? default : new ReadOnlySpan<byte>(validity));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, ReadOnlySpan<int> data, ReadOnlySpan<byte> validity = default)
+    {
+        ref int dataRef = ref MemoryMarshal.GetReference(data);
+        
+        ref byte validRef = ref Unsafe.NullRef<byte>();
+
+        if (!validity.IsEmpty)
+        {
+            validRef = ref MemoryMarshal.GetReference(validity);
+        }
+
+        return ErrorHelper.Check(NativeBindings.pl_series_new_i32(
+            name, 
+            ref dataRef, 
+            ref validRef, 
+            (UIntPtr)data.Length));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, int[] data, byte[]? validity = null)
+    {
+        return SeriesNew(
+            name, 
+            new ReadOnlySpan<int>(data), 
+            validity == null ? default : new ReadOnlySpan<byte>(validity));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, ReadOnlySpan<uint> data, ReadOnlySpan<byte> validity = default)
+    {
+        ref uint dataRef = ref MemoryMarshal.GetReference(data);
+        
+        ref byte validRef = ref Unsafe.NullRef<byte>();
+
+        if (!validity.IsEmpty)
+        {
+            validRef = ref MemoryMarshal.GetReference(validity);
+        }
+
+        return ErrorHelper.Check(NativeBindings.pl_series_new_u32(
+            name, 
+            ref dataRef, 
+            ref validRef, 
+            (UIntPtr)data.Length));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, uint[] data, byte[]? validity = null)
+    {
+        return SeriesNew(
+            name, 
+            new ReadOnlySpan<uint>(data), 
+            validity == null ? default : new ReadOnlySpan<byte>(validity));
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, ReadOnlySpan<long> data, ReadOnlySpan<byte> validity = default)
+    {
+        ref long dataRef = ref MemoryMarshal.GetReference(data);
+        
+        ref byte validRef = ref Unsafe.NullRef<byte>();
+
+        if (!validity.IsEmpty)
+        {
+            validRef = ref MemoryMarshal.GetReference(validity);
+        }
+
+        return ErrorHelper.Check(NativeBindings.pl_series_new_i64(
+            name, 
+            ref dataRef, 
+            ref validRef, 
+            (UIntPtr)data.Length));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, long[] data, byte[]? validity = null)
+    {
+        return SeriesNew(
+            name, 
+            new ReadOnlySpan<long>(data), 
+            validity == null ? default : new ReadOnlySpan<byte>(validity));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, ReadOnlySpan<ulong> data, ReadOnlySpan<byte> validity = default)
+    {
+        ref ulong dataRef = ref MemoryMarshal.GetReference(data);
+        
+        ref byte validRef = ref Unsafe.NullRef<byte>();
+
+        if (!validity.IsEmpty)
+        {
+            validRef = ref MemoryMarshal.GetReference(validity);
+        }
+
+        return ErrorHelper.Check(NativeBindings.pl_series_new_u64(
+            name, 
+            ref dataRef, 
+            ref validRef, 
+            (UIntPtr)data.Length));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, ulong[] data, byte[]? validity = null)
+    {
+        return SeriesNew(
+            name, 
+            new ReadOnlySpan<ulong>(data), 
+            validity == null ? default : new ReadOnlySpan<byte>(validity));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, ReadOnlySpan<Int128> data, ReadOnlySpan<byte> validity = default)
+    {
+        ref Int128 dataRef = ref MemoryMarshal.GetReference(data);
+        
+        ref byte validRef = ref Unsafe.NullRef<byte>();
+
+        if (!validity.IsEmpty)
+        {
+            validRef = ref MemoryMarshal.GetReference(validity);
+        }
+
+        return ErrorHelper.Check(NativeBindings.pl_series_new_i128(
+            name, 
+            ref dataRef, 
+            ref validRef, 
+            (UIntPtr)data.Length));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, Int128[] data, byte[]? validity = null)
+    {
+        return SeriesNew(
+            name, 
+            new ReadOnlySpan<Int128>(data), 
+            validity == null ? default : new ReadOnlySpan<byte>(validity));
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, ReadOnlySpan<UInt128> data, ReadOnlySpan<byte> validity = default)
+    {
+        ref UInt128 dataRef = ref MemoryMarshal.GetReference(data);
+        
+        ref byte validRef = ref Unsafe.NullRef<byte>();
+
+        if (!validity.IsEmpty)
+        {
+            validRef = ref MemoryMarshal.GetReference(validity);
+        }
+
+        return ErrorHelper.Check(NativeBindings.pl_series_new_u128(
+            name, 
+            ref dataRef, 
+            ref validRef, 
+            (UIntPtr)data.Length));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, UInt128[] data, byte[]? validity = null)
+    {
+        return SeriesNew(
+            name, 
+            new ReadOnlySpan<UInt128>(data), 
+            validity == null ? default : new ReadOnlySpan<byte>(validity));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, ReadOnlySpan<Half> data, ReadOnlySpan<byte> validity = default)
+    {
+        ref Half dataRef = ref MemoryMarshal.GetReference(data);
+        
+        ref byte validRef = ref Unsafe.NullRef<byte>();
+
+        if (!validity.IsEmpty)
+        {
+            validRef = ref MemoryMarshal.GetReference(validity);
+        }
+
+        return ErrorHelper.Check(NativeBindings.pl_series_new_f16(
+            name, 
+            ref dataRef, 
+            ref validRef, 
+            (UIntPtr)data.Length));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, Half[] data, byte[]? validity = null)
+    {
+        return SeriesNew(
+            name, 
+            new ReadOnlySpan<Half>(data), 
+            validity == null ? default : new ReadOnlySpan<byte>(validity));
+    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, ReadOnlySpan<float> data, ReadOnlySpan<byte> validity = default)
+    {
+        ref float dataRef = ref MemoryMarshal.GetReference(data);
+        
+        ref byte validRef = ref Unsafe.NullRef<byte>();
+
+        if (!validity.IsEmpty)
+        {
+            validRef = ref MemoryMarshal.GetReference(validity);
+        }
+
+        return ErrorHelper.Check(NativeBindings.pl_series_new_f32(
+            name, 
+            ref dataRef, 
+            ref validRef, 
+            (UIntPtr)data.Length));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, float[] data, byte[]? validity = null)
+    {
+        return SeriesNew(
+            name, 
+            new ReadOnlySpan<float>(data), 
+            validity == null ? default : new ReadOnlySpan<byte>(validity));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, ReadOnlySpan<double> data, ReadOnlySpan<byte> validity = default)
+    {
+        ref double dataRef = ref MemoryMarshal.GetReference(data);
+        
+        ref byte validRef = ref Unsafe.NullRef<byte>();
+
+        if (!validity.IsEmpty)
+        {
+            validRef = ref MemoryMarshal.GetReference(validity);
+        }
+
+        return ErrorHelper.Check(NativeBindings.pl_series_new_f64(
+            name, 
+            ref dataRef, 
+            ref validRef, 
+            (UIntPtr)data.Length));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(string name, double[] data, byte[]? validity = null)
+    {
+        return SeriesNew(
+            name, 
+            new ReadOnlySpan<double>(data), 
+            validity == null ? default : new ReadOnlySpan<byte>(validity));
+    }
+        
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(
+        string name, 
+        ReadOnlySpan<byte> valuesBitmask, 
+        ReadOnlySpan<byte> validityBitmask, 
+        UIntPtr length)
+    {
+        ref byte valuesRef = ref valuesBitmask.IsEmpty 
+            ? ref Unsafe.NullRef<byte>() 
+            : ref MemoryMarshal.GetReference(valuesBitmask);
+
+        ref byte validRef = ref Unsafe.NullRef<byte>();
+        if (!validityBitmask.IsEmpty)
+        {
+            validRef = ref MemoryMarshal.GetReference(validityBitmask);
+        }
+
+        return ErrorHelper.Check(NativeBindings.pl_series_new_bool(
+            name, 
+            ref valuesRef, 
+            ref validRef, 
+            length));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNew(
+        string name, 
+        byte[] valuesBitmask, 
+        byte[]? validityBitmask, 
+        UIntPtr length)
+    {
+        return SeriesNew(
+            name, 
+            new ReadOnlySpan<byte>(valuesBitmask), 
+            validityBitmask == null ? default : new ReadOnlySpan<byte>(validityBitmask),
+            length);
+    }
+
+    /// <summary>
+    /// Create String Series using Arrow StringView (German Strings Layout).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public static SeriesHandle SeriesNewStringSimd(string name, ReadOnlySpan<string?> data)
+    {
+        // Blank data edge case
+        if (data.IsEmpty)
+        {
             return ErrorHelper.Check(
                 NativeBindings.pl_series_new_str_simd(
                     name, 
-                    ref dummyByte, UIntPtr.Zero, 
-                    ref dummyOff, IntPtr.Zero, UIntPtr.Zero
+                    ref Unsafe.NullRef<byte>(),            // Null Pointer
+                    0,    
+                    ref Unsafe.NullRef<ArrowStringView>(), // Null Pointer
+                    ref Unsafe.NullRef<byte>(),            // Null Pointer
+                    0     
                 )
             );
         }
 
-        // SIMD Packer
-        var (values, offsets, validity) = StringPacker.Pack(data);
+        // SIMD Packer (StringView Edition)
+        var (views, dataBuffer, validity) = StringPacker.PackStringView(data);
 
-        // Prepare ptrs for Rust
-        // validity may be null，so we need to fix to get pointer (null [] -> null ptr)
-        fixed (byte* pValid = validity)
-        {
-            
-            ref byte pValsRef = ref MemoryMarshal.GetArrayDataReference(values);
-            ref long pOffsRef = ref MemoryMarshal.GetArrayDataReference(offsets);
+        // Prepare Ref
+        
+        // DataBuffer might be null (All inlined)
+        ref byte pData = ref dataBuffer == null || dataBuffer.Length == 0 
+            ? ref Unsafe.NullRef<byte>() 
+            : ref MemoryMarshal.GetArrayDataReference(dataBuffer);
 
-            return ErrorHelper.Check(
-                NativeBindings.pl_series_new_str_simd(
-                    name,
-                    ref pValsRef,
-                    (UIntPtr)values.Length,
-                    ref pOffsRef,
-                    (IntPtr)pValid,
-                    (UIntPtr)data.Length
-                )
-            );
-        }
+        // Views array
+        ref ArrowStringView pViews = ref views == null || views.Length == 0
+            ? ref Unsafe.NullRef<ArrowStringView>()
+            : ref MemoryMarshal.GetArrayDataReference(views);
+
+        // Validity bitmap
+        ref byte pValid = ref validity == null || validity.Length == 0
+            ? ref Unsafe.NullRef<byte>()
+            : ref MemoryMarshal.GetArrayDataReference(validity);
+
+        // Send to Rust
+        return ErrorHelper.Check(
+            NativeBindings.pl_series_new_str_simd(
+                name,
+                ref pData,
+                (nuint)(dataBuffer?.Length ?? 0),
+                ref pViews,
+                ref pValid,
+                (nuint)data.Length
+            )
+        );
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNewStringSimd(string name, string?[] data)
+        => SeriesNewStringSimd(name, new ReadOnlySpan<string?>(data));
+    
     /// <summary>
-    /// [SIMD] Create DateTime Series from pre-calculated Microseconds.
+    /// Create DateTime Series from pre-calculated Microseconds.
     /// </summary>
     /// <param name="name">Series Name</param>
     /// <param name="values">Physical values (Microseconds from 1970-01-01)</param>
     /// <param name="validity">Null bitmap (can be null)</param>
     /// <param name="timeZone">"Asia/Shanghai", "UTC" or null (Naive)</param>
-    public unsafe static SeriesHandle SeriesNewDatetime(
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public static SeriesHandle SeriesNewDatetime(
+        string name, 
+        ReadOnlySpan<long> values, 
+        ReadOnlySpan<byte> validity = default, 
+        string? timeZone = null)
+    {
+        // Get Values Ref
+        ref long pValsRef = ref values.IsEmpty
+            ? ref Unsafe.NullRef<long>()
+            : ref MemoryMarshal.GetReference(values);
+
+        // Get Validity Ref
+        ref byte pValidRef = ref Unsafe.NullRef<byte>();
+        if (!validity.IsEmpty)
+        {
+            pValidRef = ref MemoryMarshal.GetReference(validity);
+        }
+
+        return ErrorHelper.Check(
+            NativeBindings.pl_series_new_datetime(
+                name, 
+                ref pValsRef, 
+                ref pValidRef, 
+                (UIntPtr)values.Length,
+                PlTimeUnit.Microseconds,
+                timeZone
+            )
+        );
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNewDatetime(
         string name, 
         long[] values, 
         byte[]? validity, 
         string? timeZone = null)
     {
-        // 0. Deal blank array
-        if (values.Length == 0)
-        {
-            long dummy = 0;
-            return ErrorHelper.Check(
-                NativeBindings.pl_series_new_datetime(
-                    name, 
-                    ref dummy, 
-                    IntPtr.Zero, 
-                    UIntPtr.Zero, 
-                    PlTimeUnit.Microseconds, // unit=us
-                    timeZone
-                )
-            );
-        }
-
-        // Get ref
-        ref long pValsRef = ref MemoryMarshal.GetArrayDataReference(values);
-
-        // Fix Validity
-        fixed (byte* pValid = validity)
-        {
-            return ErrorHelper.Check(
-                NativeBindings.pl_series_new_datetime(
-                    name, 
-                    ref pValsRef, 
-                    (IntPtr)pValid, 
-                    (UIntPtr)values.Length,
-                    PlTimeUnit.Microseconds,
-                    timeZone
-                )
-            );
-        }
+        return SeriesNewDatetime(
+            name, 
+            new ReadOnlySpan<long>(values), 
+            validity == null ? default : new ReadOnlySpan<byte>(validity), 
+            timeZone
+        );
     }
-    public unsafe static SeriesHandle SeriesNewDate(string name, int[] values, byte[]? validity)
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public static SeriesHandle SeriesNewDate(string name, ReadOnlySpan<int> values, ReadOnlySpan<byte> validity = default)
     {
-         if (values.Length == 0) 
-         {
-             int dummy = 0;
-             return ErrorHelper.Check(NativeBindings.pl_series_new_date(name, ref dummy, IntPtr.Zero, UIntPtr.Zero));
-         }
+        ref int pValsRef = ref values.IsEmpty
+            ? ref Unsafe.NullRef<int>()
+            : ref MemoryMarshal.GetReference(values);
 
-         ref int pVals = ref MemoryMarshal.GetArrayDataReference(values);
-         fixed (byte* pValid = validity)
-         {
-             return ErrorHelper.Check(
-                 NativeBindings.pl_series_new_date(name, ref pVals, (IntPtr)pValid, (UIntPtr)values.Length)
-             );
-         }
+        ref byte pValidRef = ref Unsafe.NullRef<byte>();
+        if (!validity.IsEmpty)
+        {
+            pValidRef = ref MemoryMarshal.GetReference(validity);
+        }
+
+        return ErrorHelper.Check(
+            NativeBindings.pl_series_new_date(name, ref pValsRef, ref pValidRef, (UIntPtr)values.Length)
+        );
     }
-    public unsafe static SeriesHandle SeriesNewTime(string name, long[] values, byte[]? validity)
-    {
-        if (values.Length == 0)
-        {
-            long dummy = 0;
-            return ErrorHelper.Check(NativeBindings.pl_series_new_time(name, ref dummy, IntPtr.Zero, UIntPtr.Zero));
-        }
 
-        ref long pVals = ref MemoryMarshal.GetArrayDataReference(values);
-        fixed (byte* pValid = validity)
-        {
-            return ErrorHelper.Check(
-                NativeBindings.pl_series_new_time(name, ref pVals, (IntPtr)pValid, (UIntPtr)values.Length)
-            );
-        }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNewDate(string name, int[] values, byte[]? validity = null)
+    {
+        return SeriesNewDate(
+            name, 
+            new ReadOnlySpan<int>(values), 
+            validity == null ? default : new ReadOnlySpan<byte>(validity)
+        );
     }
-    public unsafe static SeriesHandle SeriesNewDuration(string name, long[] values, byte[]? validity)
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public static SeriesHandle SeriesNewTime(string name, ReadOnlySpan<long> values, ReadOnlySpan<byte> validity = default)
     {
-        if (values.Length == 0)
+        // 1. Get Values Ref
+        ref long pValsRef = ref values.IsEmpty
+            ? ref Unsafe.NullRef<long>()
+            : ref MemoryMarshal.GetReference(values);
+
+        // 2. Get Validity Ref
+        ref byte pValidRef = ref Unsafe.NullRef<byte>();
+        if (!validity.IsEmpty)
         {
-            long dummy = 0;
-            // Unit = 1 (Microseconds)
-            return ErrorHelper.Check(NativeBindings.pl_series_new_duration(name, ref dummy, IntPtr.Zero, UIntPtr.Zero, PlTimeUnit.Microseconds));
+            pValidRef = ref MemoryMarshal.GetReference(validity);
         }
 
-        ref long pVals = ref MemoryMarshal.GetArrayDataReference(values);
-        fixed (byte* pValid = validity)
-        {
-            // Unit = 1 (Microseconds)
-            return ErrorHelper.Check(
-                NativeBindings.pl_series_new_duration(name, ref pVals, (IntPtr)pValid, (UIntPtr)values.Length, PlTimeUnit.Microseconds)
-            );
-        }
+        return ErrorHelper.Check(
+            NativeBindings.pl_series_new_time(name, ref pValsRef, ref pValidRef, (UIntPtr)values.Length)
+        );
     }
-    public unsafe static SeriesHandle SeriesNewDecimal(string name, Int128[] values, byte[]? validity, int scale)
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNewTime(string name, long[] values, byte[]? validity = null)
     {
-        if (values.Length == 0)
+        return SeriesNewTime(
+            name, 
+            new ReadOnlySpan<long>(values), 
+            validity == null ? default : new ReadOnlySpan<byte>(validity)
+        );
+    }
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public static SeriesHandle SeriesNewDuration(string name, ReadOnlySpan<long> values, ReadOnlySpan<byte> validity = default)
+    {
+        ref long pValsRef = ref values.IsEmpty
+            ? ref Unsafe.NullRef<long>()
+            : ref MemoryMarshal.GetReference(values);
+
+        ref byte pValidRef = ref Unsafe.NullRef<byte>();
+        if (!validity.IsEmpty)
         {
-            Int128 dummy = 0;
-            return ErrorHelper.Check(NativeBindings.pl_series_new_decimal(name, ref dummy, IntPtr.Zero, UIntPtr.Zero, UIntPtr.Zero, (UIntPtr)scale));
+            pValidRef = ref MemoryMarshal.GetReference(validity);
         }
 
-        ref Int128 pVals = ref MemoryMarshal.GetArrayDataReference(values);
-        fixed (byte* pValid = validity)
+        return ErrorHelper.Check(
+            NativeBindings.pl_series_new_duration(
+                name, 
+                ref pValsRef, 
+                ref pValidRef, 
+                (UIntPtr)values.Length, 
+                PlTimeUnit.Microseconds
+            )
+        );
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNewDuration(string name, long[] values, byte[]? validity = null)
+    {
+        return SeriesNewDuration(
+            name, 
+            new ReadOnlySpan<long>(values), 
+            validity == null ? default : new ReadOnlySpan<byte>(validity)
+        );
+    }
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public static SeriesHandle SeriesNewDecimal(string name, ReadOnlySpan<Int128> values, ReadOnlySpan<byte> validity, int scale)
+    {
+        ref Int128 pValsRef = ref values.IsEmpty
+            ? ref Unsafe.NullRef<Int128>()
+            : ref MemoryMarshal.GetReference(values);
+
+        ref byte pValidRef = ref Unsafe.NullRef<byte>();
+        if (!validity.IsEmpty)
         {
-            return ErrorHelper.Check(
-                NativeBindings.pl_series_new_decimal(
-                    name, 
-                    ref pVals, 
-                    (IntPtr)pValid, 
-                    (UIntPtr)values.Length, 
-                    UIntPtr.Zero, // Precision=0 (Auto)
-                    (UIntPtr)scale
-                )
-            );
+            pValidRef = ref MemoryMarshal.GetReference(validity);
         }
+
+        return ErrorHelper.Check(
+            NativeBindings.pl_series_new_decimal(
+                name, 
+                ref pValsRef, 
+                ref pValidRef, 
+                (UIntPtr)values.Length, 
+                UIntPtr.Zero, // Precision=0 (Auto)
+                (UIntPtr)scale
+            )
+        );
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNewDecimal(string name, Int128[] values, byte[]? validity, int scale)
+    {
+        return SeriesNewDecimal(
+            name, 
+            new ReadOnlySpan<Int128>(values), 
+            validity == null ? default : new ReadOnlySpan<byte>(validity),
+            scale
+        );
     }
     // =================================================================
     // FixedSizeList (2D Array) Wrapper
     // =================================================================
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public static SeriesHandle SeriesNewFixedArray<T>(string name, ReadOnlySpan<T> flatData, int width, ReadOnlySpan<byte> validity = default) 
+        where T : unmanaged
+    {
+        int flatLen = flatData.Length;
+        int height = flatLen / width;
+        
+        UIntPtr uFlatLen = (UIntPtr)flatLen;
+        UIntPtr uHeight = (UIntPtr)height;
+        UIntPtr uWidth = (UIntPtr)width;
+
+        // get data ref
+        ref T pDataRef = ref flatData.IsEmpty ? ref Unsafe.NullRef<T>() : ref MemoryMarshal.GetReference(flatData);
+        
+        // get Validity ref
+        ref byte pValidRef = ref validity.IsEmpty ? ref Unsafe.NullRef<byte>() : ref MemoryMarshal.GetReference(validity);
+        if (typeof(T) == typeof(sbyte))
+        {
+            return ErrorHelper.Check(NativeBindings.pl_series_new_array_i8(
+                name, ref Unsafe.As<T, sbyte>(ref pDataRef), uFlatLen, ref pValidRef, uHeight, uWidth));
+        }
+        else if (typeof(T) == typeof(byte))
+        {
+            return ErrorHelper.Check(NativeBindings.pl_series_new_array_u8(
+                name, ref Unsafe.As<T, byte>(ref pDataRef), uFlatLen, ref pValidRef, uHeight, uWidth));
+        }
+        else if (typeof(T) == typeof(short))
+        {
+            return ErrorHelper.Check(NativeBindings.pl_series_new_array_i16(
+                name, ref Unsafe.As<T, short>(ref pDataRef), uFlatLen, ref pValidRef, uHeight, uWidth));
+        }
+        else if (typeof(T) == typeof(ushort))
+        {
+            return ErrorHelper.Check(NativeBindings.pl_series_new_array_u16(
+                name, ref Unsafe.As<T, ushort>(ref pDataRef), uFlatLen, ref pValidRef, uHeight, uWidth));
+        }
+        else if(typeof(T) == typeof(int))
+        {
+            return ErrorHelper.Check(NativeBindings.pl_series_new_array_i32(
+                name, ref Unsafe.As<T, int>(ref pDataRef), uFlatLen, ref pValidRef, uHeight, uWidth));
+        }
+        else if(typeof(T) == typeof(uint))
+        {
+            return ErrorHelper.Check(NativeBindings.pl_series_new_array_u32(
+                name, ref Unsafe.As<T, uint>(ref pDataRef), uFlatLen, ref pValidRef, uHeight, uWidth));
+        }
+        else if (typeof(T) == typeof(long))
+        {
+            return ErrorHelper.Check(NativeBindings.pl_series_new_array_i64(
+                name, ref Unsafe.As<T, long>(ref pDataRef), uFlatLen, ref pValidRef, uHeight, uWidth));
+        }
+        else if (typeof(T) == typeof(ulong))
+        {
+            return ErrorHelper.Check(NativeBindings.pl_series_new_array_u64(
+                name, ref Unsafe.As<T, ulong>(ref pDataRef), uFlatLen, ref pValidRef, uHeight, uWidth));
+        }
+        else if (typeof(T) == typeof(Int128))
+        {
+            return ErrorHelper.Check(NativeBindings.pl_series_new_array_i128(
+                name, ref Unsafe.As<T, Int128>(ref pDataRef), uFlatLen, ref pValidRef, uHeight, uWidth));
+        }
+        else if (typeof(T) == typeof(UInt128))
+        {
+            return ErrorHelper.Check(NativeBindings.pl_series_new_array_u128(
+                name, ref Unsafe.As<T, UInt128>(ref pDataRef), uFlatLen, ref pValidRef, uHeight, uWidth));
+        }
+        else if (typeof(T) == typeof(Half))
+        {
+            return ErrorHelper.Check(NativeBindings.pl_series_new_array_f16(
+                name, ref Unsafe.As<T, Half>(ref pDataRef), uFlatLen, ref pValidRef, uHeight, uWidth));
+        }
+        else if (typeof(T) == typeof(float))
+        {
+            return ErrorHelper.Check(NativeBindings.pl_series_new_array_f32(
+                name, ref Unsafe.As<T, float>(ref pDataRef), uFlatLen, ref pValidRef, uHeight, uWidth));
+        }
+        else if (typeof(T) == typeof(double))
+        {
+            return ErrorHelper.Check(NativeBindings.pl_series_new_array_f64(
+                name, ref Unsafe.As<T, double>(ref pDataRef), uFlatLen, ref pValidRef, uHeight, uWidth));
+        }
+        else if (typeof(T) == typeof(decimal))
+        {
+            unsafe
+            {
+                fixed (T* ptr = &pDataRef)
+                {
+                    decimal* pDec = (decimal*)ptr;
+                    var (int128Values, scale) = DecimalPacker.Pack(pDec, flatLen);
+                    
+                    ref Int128 pValsRef = ref MemoryMarshal.GetArrayDataReference(int128Values);
+                    
+                    return ErrorHelper.Check(NativeBindings.pl_series_new_array_decimal(
+                        name, ref pValsRef, uFlatLen, ref pValidRef, uHeight, uWidth, (UIntPtr)scale));
+                }
+            }
+        }
+        else
+        {
+            throw new NotSupportedException($"Type '{typeof(T).Name}' is not supported for FixedSizeList Series.");
+        }
+    }
 
     /// <summary>
     /// Create Fixed Size Series (Zero-Copy from C# 2D Array).
     /// </summary>
-    /// <typeparam name="T">Unmanaged Type (int, double, etc.)</typeparam>
-    /// <param name="name">Series Name</param>
-    /// <param name="data">C# MultiDimension Array (T[,])</param>
-    /// <returns>SeriesHandle</returns>
-    /// <exception cref="NotSupportedException">When T is not primitive type</exception>
-    public static unsafe SeriesHandle SeriesNewFixedArray<T>(string name, T[,] data) 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNewFixedArray<T>(string name, T[,] data) 
         where T : unmanaged
     {
-        // Get Dimension Data
-        // GetLength(0) = Parent Length
-        // GetLength(1) = Fixed Width
-        int height = data.GetLength(0);
         int width = data.GetLength(1);
-        UIntPtr flatLen = (UIntPtr)data.Length;
-        UIntPtr uHeight = (UIntPtr)height;
-        UIntPtr uWidth = (UIntPtr)width;
-
-        // Pin Array Memory
-        fixed (T* pData = data)
-        {
-            // Type Distribution
-
-            if (typeof(T) == typeof(int))
-            {
-                return ErrorHelper.Check(
-                    NativeBindings.pl_series_new_array_i32(name, (int*)pData, flatLen, IntPtr.Zero, uHeight, uWidth)
-                );
-            }
-            else if (typeof(T) == typeof(long))
-            {
-                return ErrorHelper.Check(
-                    NativeBindings.pl_series_new_array_i64(name, (long*)pData, flatLen, IntPtr.Zero, uHeight, uWidth)
-                );
-            }
-            else if (typeof(T) == typeof(double))
-            {
-                return ErrorHelper.Check(
-                    NativeBindings.pl_series_new_array_f64(name, (double*)pData, flatLen, IntPtr.Zero, uHeight, uWidth)
-                );
-            }
-            else if (typeof(T) == typeof(float))
-            {
-                return ErrorHelper.Check(
-                    NativeBindings.pl_series_new_array_f32(name, (float*)pData, flatLen, IntPtr.Zero, uHeight, uWidth)
-                );
-            }
-            else if (typeof(T) == typeof(byte))
-            {
-                return ErrorHelper.Check(
-                    NativeBindings.pl_series_new_array_u8(name, (byte*)pData, flatLen, IntPtr.Zero, uHeight, uWidth)
-                );
-            }
-            else if (typeof(T) == typeof(sbyte))
-            {
-                return ErrorHelper.Check(
-                    NativeBindings.pl_series_new_array_i8(name, (sbyte*)pData, flatLen, IntPtr.Zero, uHeight, uWidth)
-                );
-            }
-            else if (typeof(T) == typeof(short))
-            {
-                return ErrorHelper.Check(
-                    NativeBindings.pl_series_new_array_i16(name, (short*)pData, flatLen, IntPtr.Zero, uHeight, uWidth)
-                );
-            }
-            else if (typeof(T) == typeof(ushort))
-            {
-                return ErrorHelper.Check(
-                    NativeBindings.pl_series_new_array_u16(name, (ushort*)pData, flatLen, IntPtr.Zero, uHeight, uWidth)
-                );
-            }
-            else if (typeof(T) == typeof(uint))
-            {
-                return ErrorHelper.Check(
-                    NativeBindings.pl_series_new_array_u32(name, (uint*)pData, flatLen, IntPtr.Zero, uHeight, uWidth)
-                );
-            }
-            else if (typeof(T) == typeof(ulong))
-            {
-                return ErrorHelper.Check(
-                    NativeBindings.pl_series_new_array_u64(name, (ulong*)pData, flatLen, IntPtr.Zero, uHeight, uWidth)
-                );
-            }
-            else if (typeof(T) == typeof(decimal))
-            {
-                // T is decimal, so pData is actually decimal*
-                decimal* pDec = (decimal*)pData;
-
-                // Call Packer to convert decimal[] layout to Int128[] layout + Auto Scale
-                // Note: Ensure DecimalPacker has Pack(decimal* src, int len) overload
-                // If not, use the logic provided in previous turns.
-                var (int128Values, scale) = DecimalPacker.Pack(pDec, (int)flatLen);
-
-                // Pin the converted Int128 values
-                fixed (Int128* pVals = int128Values)
-                {
-                    return ErrorHelper.Check(
-                        NativeBindings.pl_series_new_array_decimal(
-                            name,
-                            pVals,
-                            (UIntPtr)flatLen,
-                            IntPtr.Zero, // Dense Array = No Validity Bitmap
-                            (UIntPtr)height,
-                            (UIntPtr)width,
-                            (UIntPtr)scale
-                        )
-                    );
-                }
-            }
-            else if (typeof(T) == typeof(Int128))
-            {
-                Int128* pRaw = (Int128*)pData;
-
-                // // Check whether mem layout need Swap
-                // if (ArrayHelper.Int128NeedsSwap)
-                // {
-                //     // Need Swap：Alloc new array -> Swap Copy -> transfer new ptr
-                //     Int128[] swapped = Int128Packer.PackDense(pRaw, (int)flatLen);
-                //     fixed (Int128* pSwapped = swapped)
-                //     {
-                //         return ErrorHelper.Check(
-                //             NativeBindings.pl_series_new_array_i128(name, pSwapped, flatLen, IntPtr.Zero, uHeight, uWidth)
-                //         );
-                //     }
-                // }
-                // else
-                // {
-                //     // Zero-Copy
-                return ErrorHelper.Check(
-                    NativeBindings.pl_series_new_array_i128(name, pRaw, flatLen, IntPtr.Zero, uHeight, uWidth)
-                    );
-                // }
-            }
-            else if (typeof(T) == typeof(UInt128))
-            {
-                UInt128* pRaw = (UInt128*)pData;
-                //  if (ArrayHelper.Int128NeedsSwap)
-                //  {
-                //     UInt128[] swapped = Int128Packer.PackDense(pRaw, (int)flatLen);
-                //     fixed (UInt128* pSwapped = swapped)
-                //     {
-                //         return ErrorHelper.Check(
-                //             NativeBindings.pl_series_new_array_u128(name, pSwapped, flatLen, IntPtr.Zero, uHeight, uWidth)
-                //         );
-                //     }
-                //  }
-                //  else
-                //  {
-                    return ErrorHelper.Check(
-                        NativeBindings.pl_series_new_array_u128(name, pRaw, flatLen, IntPtr.Zero, uHeight, uWidth)
-                    );
-                //  }
-            }
-            else
-            {
-                throw new NotSupportedException($"Type '{typeof(T).Name}' is not supported for FixedSizeList Series.");
-            }
-        }
-    }
-    public static SeriesHandle SeriesNewStruct(string name, SeriesHandle[] handles)
-    {
-        // Borrow Semantics
-        using var handlesLock = new SafeHandleLock<SeriesHandle>(handles);
         
-        var newSeriesPtr = NativeBindings.pl_series_new_struct(
-            name, 
-            handlesLock.Pointers, 
-            (nuint)handlesLock.Pointers.Length
-        );
+        if (data.Length == 0)
+        {
+            return SeriesNewFixedArray(name, ReadOnlySpan<T>.Empty, width);
+        }
 
-        return ErrorHelper.Check(newSeriesPtr);
+        ref T firstElement = ref Unsafe.As<byte, T>(ref MemoryMarshal.GetArrayDataReference(data));
+
+        ReadOnlySpan<T> flatSpan = MemoryMarshal.CreateReadOnlySpan(ref firstElement, data.Length);
+
+        return SeriesNewFixedArray(name, flatSpan, width);
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public static SeriesHandle SeriesNewStruct(string name, ReadOnlySpan<SeriesHandle> handles)
+    {
+        int len = handles.Length;
+        if (len == 0)
+        {
+            return ErrorHelper.Check(
+                NativeBindings.pl_series_new_struct(name, ref Unsafe.NullRef<IntPtr>(), 0)
+            );
+        }
+
+        Span<IntPtr> pointers = len <= 128 ? stackalloc IntPtr[len] : new IntPtr[len];
+        Span<bool> locks = len <= 128 ? stackalloc bool[len] : new bool[len];
+
+        using var handlesLock = new SafeHandleSpanLock<SeriesHandle>(handles, pointers, locks);
+
+        return ErrorHelper.Check(
+            NativeBindings.pl_series_new_struct(
+                name, 
+                ref MemoryMarshal.GetReference(pointers), 
+                (nuint)len
+            )
+        );
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static SeriesHandle SeriesNewStruct(string name, SeriesHandle[] handles)
+        => SeriesNewStruct(name, new ReadOnlySpan<SeriesHandle>(handles));
     public static SeriesHandle CloneSeries(SeriesHandle handle)
         => ErrorHelper.Check(NativeBindings.pl_series_clone(handle));
     // --- Properties ---

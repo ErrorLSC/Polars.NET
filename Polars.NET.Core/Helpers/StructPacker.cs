@@ -1,47 +1,82 @@
+using System.Linq.Expressions;
 using System.Reflection;
 
-namespace Polars.NET.Core.Helpers; 
+namespace Polars.NET.Core.Helpers;
 
 public static class StructPacker
 {
-    public static SeriesHandle Pack<T>(string name, T[] rows)
+    private static class PackerCache<T>
     {
-        Type type = typeof(T);
-        PropertyInfo[] props = type.GetProperties();
-        
-        var fieldHandles = new List<SeriesHandle>();
+        public static readonly Func<T[], SeriesHandle>[] ColumnPackers;
 
-        try 
+        static PackerCache()
         {
-            foreach (var prop in props)
+            var props = typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            ColumnPackers = new Func<T[], SeriesHandle>[props.Length];
+
+            for (int i = 0; i < props.Length; i++)
             {
-                // Pivot (Row -> Col)
-                Array columnData = ExtractColumnData(rows, prop);
+                var prop = props[i];
+                var method = typeof(StructPacker).GetMethod(nameof(BuildColumnPacker), BindingFlags.NonPublic | BindingFlags.Static)!;
+                var genericMethod = method.MakeGenericMethod(typeof(T), prop.PropertyType);
                 
-                // Generate Series Handle
-                SeriesHandle h = SeriesFactory.Create(prop.Name, columnData);
-                fieldHandles.Add(h);
+                ColumnPackers[i] = (Func<T[], SeriesHandle>)genericMethod.Invoke(null, [prop])!;
             }
-
-            // Construct Struct Series
-            return PolarsWrapper.SeriesNewStruct(name, fieldHandles.ToArray());
-        }
-        finally
-        {
-            // Dispose Handles
-            foreach (var h in fieldHandles) h.Dispose();
         }
     }
 
-    // Row[] -> Col[]
-    private static Array ExtractColumnData<T>(T[] rows, PropertyInfo prop)
+    public static SeriesHandle Pack<T>(string name, T[] rows)
     {
-        var count = rows.Length;
-        Array arr = Array.CreateInstance(prop.PropertyType, count);
-        for (int i = 0; i < count; i++)
+        var packers = PackerCache<T>.ColumnPackers;
+        var fieldHandles = new SeriesHandle[packers.Length];
+
+        try
         {
-            arr.SetValue(prop.GetValue(rows[i]), i);
+            for (int i = 0; i < packers.Length; i++)
+            {
+                fieldHandles[i] = packers[i](rows);
+            }
+
+            // Construct Struct Series
+            return PolarsWrapper.SeriesNewStruct(name, fieldHandles);
         }
-        return arr;
+        finally
+        {
+            // Dispose Handles to prevent unmanaged memory leaks in Rust
+            foreach (var h in fieldHandles)
+            {
+                h?.Dispose();
+            }
+        }
+    }
+
+    private static Func<T[], SeriesHandle> BuildColumnPacker<T, TProp>(PropertyInfo prop)
+    {
+        Func<T, TProp> getter = CreateGetter<T, TProp>(prop);
+        string propName = prop.Name;
+
+        return rows =>
+        {
+            int count = rows.Length;
+            TProp[] columnData = new TProp[count];
+            
+            for (int i = 0; i < count; i++)
+            {
+                columnData[i] = getter(rows[i]);
+            }
+
+            return SeriesFactory.Create(propName, columnData);
+        };
+    }
+
+    // Helper to build Expression Tree getter
+    private static Func<T, TProp> CreateGetter<T, TProp>(PropertyInfo propInfo)
+    {
+        var instanceParam = Expression.Parameter(typeof(T), "instance");
+        var propertyAccess = Expression.Property(instanceParam, propInfo);
+        var lambda = Expression.Lambda<Func<T, TProp>>(propertyAccess, instanceParam);
+        
+        // Compile into a high-performance delegate
+        return lambda.Compile();
     }
 }

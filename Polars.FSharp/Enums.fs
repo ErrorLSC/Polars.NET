@@ -1,6 +1,8 @@
 namespace Polars.FSharp
 
 open Polars.NET.Core
+open Polars.NET.Core.Arrow
+open System
 
 type TimeUnit = 
     | Nanoseconds
@@ -237,6 +239,16 @@ and DataType =
             PolarsWrapper.NewArrayType (innerHandle,width)
 
         | Unknown -> PolarsWrapper.NewPrimitiveType 0
+        
+    interface IDisposable with
+        member this.Dispose() = 
+            ()
+
+    interface IPolarsDataType with
+        member this.GetArrowType (): Apache.Arrow.Types.IArrowType = 
+            use handle = this.CreateHandle()
+            
+            ArrowFfiBridge.ImportDataType handle
         
 /// <summary>
 /// Represents the type of join operation to perform.
@@ -598,3 +610,42 @@ type MergeActionType =
         | NotMatchedInsert -> PlMergeActionType.NotMatchedInsert
         | NotMatchedBySourceDelete -> PlMergeActionType.NotMatchedBySourceDelete
 
+/// <summary>
+/// Specifies the behavior when bulk ingesting a DataFrame into an ADBC database table.
+/// </summary>
+type AdbcIngestMode =
+    /// <summary>
+    /// Creates a new table and inserts the data. 
+    /// Fails if the target table already exists. (Default behavior)
+    /// </summary>
+    | Create
+    /// <summary>
+    /// Appends the data to an existing table. 
+    /// Fails if the target table does not exist, or if the DataFrame schema doesn't match.
+    /// </summary>
+    | Append
+    /// <summary>
+    /// Drops the target table if it already exists, creates a new one, and inserts the data.
+    /// Extremely useful for overriding temporary/staging tables.
+    /// </summary>
+    | Replace
+
+type SearchSortedSide =
+    | Any 
+    | Left  
+    | Right
+    member internal this.ToNative() =
+        match this with
+        | Any -> PlSearchSortedSide.Any
+        | Left -> PlSearchSortedSide.Left
+        | Right -> PlSearchSortedSide.Right
+
+type CatalogTableType = 
+    | Managed
+    | External
+    member internal this.ToNative() =
+        match this with
+        | Managed -> PlCatalogTableType.Managed
+        | External -> PlCatalogTableType.External
+
+    

@@ -1,18 +1,14 @@
-using System.Threading.Tasks;
 using Testcontainers.MsSql;
-using Xunit;
-using Microsoft.Data.SqlClient; // 需要安装 System.Data.SqlClient 或 Microsoft.Data.SqlClient 包
+using Microsoft.Data.SqlClient; 
 
 namespace Polars.Integration.Tests.Fixtures
 {
-    // 实现 IAsyncLifetime 接口，xUnit 会自动处理 StartAsync (测试前) 和 DisposeAsync (测试后)
     public class MsSqlFixture : IAsyncLifetime
     {
         private readonly MsSqlContainer _msSqlContainer;
 
         public MsSqlFixture()
         {
-            // 构建一个 SQL Server 2022 容器
             _msSqlContainer = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest")
             .Build();
         }
@@ -21,17 +17,13 @@ namespace Polars.Integration.Tests.Fixtures
 
         public async Task InitializeAsync()
         {
-            // 1. 启动容器
             await _msSqlContainer.StartAsync();
 
-            // 2. 初始化数据 (Seeding)
-            // 既然是集成测试，我们通常需要预先建表塞数据，方便后续 polars.read_sql 测试
             await InitializeDatabaseDataAsync();
         }
 
         public Task DisposeAsync()
         {
-            // xUnit 结束时会自动销毁容器，无需手动 docker rm
             return _msSqlContainer.DisposeAsync().AsTask();
         }
 

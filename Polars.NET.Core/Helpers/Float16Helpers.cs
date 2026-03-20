@@ -11,8 +11,8 @@ public static partial class ArrayHelper
     // =================================================================================
     private static readonly Vector256<byte> HalfShuffleMask = Vector256.Create(
         // Low 128: 8 Values (8 * 2 bytes) -> Extracts the 'Half' value
-        (byte)2, 3,  (byte)6, 7,  (byte)10, 11, (byte)14, 15, 
-        (byte)18, 19, (byte)22, 23, (byte)26, 27, (byte)30, 31,
+        2, 3, 6, 7, 10, 11, 14, 15,
+        18, 19, 22, 23, 26, 27, 30, 31,
         // High 128: 8 Bools (Offset 0) -> Extracts the 'HasValue' bool
         0, 4, 8, 12, 16, 20, 24, 28,
         // Padding
@@ -20,7 +20,7 @@ public static partial class ArrayHelper
     );
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static unsafe (Half[] values, byte[]? validity) UnzipHalfSIMD(Half?[] data, Half defaultValue)
+    private static unsafe (Half[] values, byte[]? validity) UnzipHalfSIMD(ReadOnlySpan<Half?> data, Half defaultValue)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<Half>(len);
@@ -33,11 +33,10 @@ public static partial class ArrayHelper
             ref byte validRef = ref Unsafe.NullRef<byte>();
             int i = 0;
 
-            // --- SIMD 部分 ---
             if (Vector256.IsHardwareAccelerated && len >= 8)
             {
                 int limit = len - 8;
-                Vector256<byte> mask = HalfShuffleMask; // 需确保此变量已定义
+                Vector256<byte> mask = HalfShuffleMask; 
 
                 for (; i <= limit; i += 8)
                 {
@@ -48,7 +47,6 @@ public static partial class ArrayHelper
                     Vector128<byte> upper = shuffled.GetUpper();
                     ulong boolsChunk = upper.AsUInt64().GetElement(0);
 
-                    // 如果这一组含有 null
                     if (boolsChunk != 0x0101010101010101UL)
                     {
                         if (validity == null)
@@ -56,8 +54,6 @@ public static partial class ArrayHelper
                             validity = new byte[byteLen];
                             validRef = ref MemoryMarshal.GetArrayDataReference(validity);
                             
-                            // 回填之前的全为 1 的字节
-                            // SIMD 步进为8，所以这里 i 肯定是8的倍数，无需处理 partial byte
                             int bytesToFill = i >> 3;
                             if (bytesToFill > 0) Unsafe.InitBlock(ref validRef, 0xFF, (uint)bytesToFill);
                         }
@@ -80,7 +76,6 @@ public static partial class ArrayHelper
 
                         Unsafe.Add(ref validRef, i >> 3) = (byte)packedByte;
 
-                        // 填充默认值
                         if (packedByte != 0xFF) 
                         {
                             if ((packedByte & 1) == 0) pDstVal[i] = defaultValue;
@@ -96,10 +91,9 @@ public static partial class ArrayHelper
                 }
             }
 
-            // --- 标量处理剩余部分 (SCALAR LOOP) ---
+            // SCALAR LOOP
             if (i < len)
             {
-                // 场景 1：目前还没有 null，尝试快速路径
                 if (validity == null)
                 {
                     for (; i < len; i++)
@@ -111,33 +105,26 @@ public static partial class ArrayHelper
                         }
                         else
                         {
-                            // 发现第一个 null，初始化 validity 并跳转到处理 null 的逻辑
                             validity = new byte[byteLen];
                             validRef = ref MemoryMarshal.GetArrayDataReference(validity);
 
-                            // 1. 回填之前的完整字节 (全1)
                             int fullBytes = i >> 3;
                             if (fullBytes > 0) 
                                 Unsafe.InitBlock(ref validRef, 0xFF, (uint)fullBytes);
                             
-                            // 2. [重要修复] 回填当前字节的前半部分
-                            // 例如 i=10 (二进制 1010)，remainder=2。需要设置 bit 0 和 bit 1 为 1。
-                            // (1 << 2) - 1 = 3 (二进制 11)
                             int remainder = i & 7;
                             if (remainder > 0)
                                 Unsafe.Add(ref validRef, fullBytes) = (byte)((1 << remainder) - 1);
                             
-                            goto HasNulls; // 现在可以跳到了
+                            goto HasNulls; 
                         }
                     }
-                    // 循环结束都没遇到 null
+
                     return (values, null);
                 }
 
-                // 场景 2：已经存在 null，或者刚刚创建了 validity 数组
                 HasNulls:
                 
-                // 确保 validRef 是有效的 (如果是刚刚 goto 过来，需要刷新引用)
                 if (Unsafe.IsNullRef(ref validRef) && validity != null) 
                     validRef = ref MemoryMarshal.GetArrayDataReference(validity);
 
@@ -147,13 +134,11 @@ public static partial class ArrayHelper
                     if (val.HasValue)
                     {
                         pDstVal[i] = val.GetValueOrDefault();
-                        // 设置位图：找到对应的字节，通过或运算(|)设置位
                         Unsafe.Add(ref validRef, i >> 3) |= (byte)(1 << (i & 7));
                     }
                     else
                     {
                         pDstVal[i] = defaultValue;
-                        // 位图默认为 0，无需操作
                     }
                 }
             }

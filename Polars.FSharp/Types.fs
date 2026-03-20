@@ -14,6 +14,11 @@ open System.Collections
 open System.Reflection
 open System.Text
 open System.IO
+open System.Threading
+open Apache.Arrow.Adbc
+open Apache.Arrow.Ipc
+open System.Data.Common
+open System.Threading.Channels
 /// --- Series ---
 /// <summary>
 /// An eager Series holding a single column of data.
@@ -21,6 +26,19 @@ open System.IO
 type Series(handle: SeriesHandle) =
 
     interface IDisposable with member _.Dispose() = handle.Dispose()
+
+    interface IPolarsSeries with
+        member this.ToFrame() = 
+            this.ToFrame() :> IPolarsDataFrame
+            
+        member this.DataType = 
+            this.DataType :> IPolarsDataType
+            
+        member this.Name
+            with get () = 
+                this.Name 
+            and set (value: string) = 
+                this.Rename value |> ignore
     member _.Handle = handle
     member _.Name = PolarsWrapper.SeriesName handle
     member _.Length = PolarsWrapper.SeriesLen handle
@@ -150,7 +168,85 @@ type Series(handle: SeriesHandle) =
         use typeHandle = PolarsWrapper.GetSeriesDataType handle
         
         DataType.FromHandle typeHandle
-        
+    // ==========================================
+    // Indexing & Searching (Forwarded to Expr)
+    // ==========================================
+
+    /// <summary>
+    /// Get a single value by index. Returns a scalar.
+    /// </summary>
+    /// <param name="index">The index expression.</param>
+    /// <param name="nullOnOutOfBounds">If true, returns Null when the index is out of bounds instead of raising an error.</param>
+    member this.Get(index: Expr, ?nullOnOutOfBounds: bool) =
+        this.ApplyExpr(Expr.Col(this.Name).Get(index, ?nullOnOutOfBounds = nullOnOutOfBounds))
+
+    /// <summary>
+    /// Get a single value by index. Returns a scalar.
+    /// </summary>
+    /// <param name="index">The index number.</param>
+    /// <param name="nullOnOutOfBounds">If true, returns Null when the index is out of bounds instead of raising an error.</param>
+    member this.Get(index: uint64, ?nullOnOutOfBounds: bool) =
+        this.ApplyExpr(Expr.Col(this.Name).Get(index, ?nullOnOutOfBounds = nullOnOutOfBounds))
+
+    /// <summary>
+    /// Gather values by an index expression.
+    /// </summary>
+    member this.Gather(indices: Expr) =
+        this.ApplyExpr(Expr.Col(this.Name).Gather indices)
+
+    /// <summary>
+    /// LINQ-like alias for Gather.
+    /// </summary>
+    member this.Take(indices: Expr) = 
+        this.ApplyExpr(Expr.Col(this.Name).Take indices)
+
+    /// <summary>
+    /// Take every nth value starting from an offset.
+    /// </summary>
+    member this.GatherEvery(n: uint64, ?offset: uint64) =
+        this.ApplyExpr(Expr.Col(this.Name).GatherEvery(n, ?offset = offset))
+
+    /// <summary>
+    /// Get the index of the unique values.
+    /// </summary>
+    member this.ArgUnique() =
+        this.ApplyExpr(Expr.Col(this.Name).ArgUnique())
+
+    /// <summary>
+    /// Get the index of the maximum value.
+    /// </summary>
+    member this.ArgMax() =
+        this.ApplyExpr(Expr.Col(this.Name).ArgMax())
+
+    /// <summary>
+    /// Get the index of the minimum value.
+    /// </summary>
+    member this.ArgMin() =
+        this.ApplyExpr(Expr.Col(this.Name).ArgMin())
+
+    /// <summary>
+    /// Get the index values that would sort this expression.
+    /// </summary>
+    /// <param name="descending">If true, sort in descending order. Default is false.</param>
+    /// <param name="nullsLast">If true, place null values last. Default is false.</param>
+    member this.ArgSort(?descending: bool, ?nullsLast: bool) =
+        this.ApplyExpr(Expr.Col(this.Name).ArgSort(?descending = descending, ?nullsLast = nullsLast))
+
+    /// <summary>
+    /// Find the index of the first occurrence of a specific value.
+    /// </summary>
+    /// <param name="element">The element expression to search for.</param>
+    member this.IndexOf(element: Expr) =
+        this.ApplyExpr(Expr.Col(this.Name).IndexOf element)
+
+    /// <summary>
+    /// Find indices where elements should be inserted to maintain order (Binary Search).
+    /// </summary>
+    /// <param name="element">The element expression to insert/search.</param>
+    /// <param name="side">The insertion side (Any, Left, Right). Default is Any.</param>
+    /// <param name="descending">Whether the target column is sorted in descending order. Default is false.</param>
+    member this.SearchSorted(element: Expr, ?side: SearchSortedSide, ?descending: bool) =
+        this.ApplyExpr(Expr.Col(this.Name).SearchSorted(element, ?side = side, ?descending = descending))
     // ==========================================
     // Missing Data Handling (FillNull & FillNan)
     // ==========================================
@@ -342,6 +438,13 @@ type Series(handle: SeriesHandle) =
     /// </summary>
     member this.MapOption<'T, 'U>(f: 'T option -> 'U option, returnType: DataType) =
         let udf = Udf.mapOption f
+        this.Map(udf, returnType)
+    /// <summary>
+    /// Map values using an F# function that handles Value Options.
+    /// Automatically wraps it using Udf.mapValueOption.
+    /// </summary>
+    member this.MapValueOption<'T, 'U>(f: 'T voption -> 'U voption, returnType: DataType) =
+        let udf = Udf.mapValueOption f
         this.Map(udf, returnType)
     // ==========================================
     // Math Operations (Forwarding to Expr)
@@ -1585,17 +1688,40 @@ type Series(handle: SeriesHandle) =
     // Static Constructors
     // ==========================================
     /// <summary>
-    /// Create a Series from any sequence (Array, List, Seq).
     /// Supports:
     /// - Primitives ('T)
     /// - Option types ('T option)
     /// - ValueOption types ('T voption)
+    /// Create a Series directly from a ReadOnlySpan.
+    /// No memory allocation, pure FFI zero-copy!
+    /// </summary>
+    static member create(name: string, data: ReadOnlySpan<'T>) =
+        let handle = SeriesFactory.CreateSpan(name, data)
+        new Series(handle)
+
+    /// <summary>
+    /// Create a Series directly from a Span.
+    /// </summary>
+    static member create(name: string, data: Span<'T>) =
+        let roSpan = Span<'T>.op_Implicit data
+        
+        let handle = SeriesFactory.CreateSpan(name, roSpan)
+        new Series(handle)
+
+    /// <summary>
+    /// Create a Series from array
+    /// </summary>
+    static member create(name: string, data: 'T[]) =
+        let handle = SeriesFactory.CreateSpan(name, ReadOnlySpan<'T> data)
+        new Series(handle)
+
+    /// <summary>
+    /// Create a Series from any sequence (List, Seq, etc.).
+    /// This will allocate memory via Seq.toArray.
     /// </summary>
     static member create(name: string, data: seq<'T>) =
-
         let arr = Seq.toArray data
-        
-        let handle = SeriesFactory.Create(name, arr)
+        let handle = SeriesFactory.CreateSpan(name, ReadOnlySpan<'T>(arr))
         new Series(handle)
     
     // -------------------------------------------------------------------------
@@ -2468,11 +2594,28 @@ and SeriesStructNameSpace(parent: Series) =
 /// </para>
 /// </summary>
 and DataFrame(handle: DataFrameHandle) =
-    interface IDisposable with
-        member _.Dispose() = handle.Dispose()
+    let backingResources = ResizeArray<IDisposable>()
     member this.Clone() = new DataFrame(PolarsWrapper.CloneDataFrame handle)
     member internal this.CloneHandle() = PolarsWrapper.CloneDataFrame handle
     member _.Handle = handle
+    
+    member internal this.HoldResource(resource: IDisposable) =
+        if not (isNull resource) then
+            backingResources.Add resource
+
+    member this.Dispose() =
+        if not this.Handle.IsInvalid then 
+            this.Handle.Dispose()
+
+        for res in backingResources do
+            res.Dispose()
+            
+        backingResources.Clear()
+        GC.SuppressFinalize this
+
+    interface IDisposable with
+        member this.Dispose() = 
+            this.Dispose()
     /// <summary> Create a DataFrame from a list of Series. </summary>
     static member create(series: Series list) : DataFrame =
         let handles = 
@@ -2512,6 +2655,7 @@ and DataFrame(handle: DataFrameHandle) =
         ?nRows: uint64,
         ?inferSchemaLength: uint64,
         ?schema: PolarsSchema,
+        ?dtypeOverride:PolarsSchema,
         ?encoding: CsvEncoding,
         ?nullValues: seq<string>,
         ?missingIsNull: bool,
@@ -2526,6 +2670,7 @@ and DataFrame(handle: DataFrameHandle) =
         let mutable lf = LazyFrame.ScanCsv(
             path,
             ?schema = schema,
+            ?dtypeOverride = dtypeOverride,
             ?hasHeader = hasHeader,
             ?separator = separator,
             ?quoteChar = quoteChar,
@@ -2578,6 +2723,7 @@ and DataFrame(handle: DataFrameHandle) =
         ?nRows: uint64,
         ?inferSchemaLength: uint64,
         ?schema: PolarsSchema,
+        ?dtypeOverride:PolarsSchema,
         ?encoding: CsvEncoding,
         ?nullValues: seq<string>,
         ?missingIsNull: bool,
@@ -2591,6 +2737,7 @@ and DataFrame(handle: DataFrameHandle) =
         let mutable lf = LazyFrame.ScanCsv(
             buffer,
             ?schema = schema,
+            ?dtypeOverride = dtypeOverride,
             ?hasHeader = hasHeader,
             ?separator = separator,
             ?quoteChar = quoteChar,
@@ -2746,7 +2893,7 @@ and DataFrame(handle: DataFrameHandle) =
 
         let size = defaultArg batchSize 50_000
         
-        let batchStream = reader.ToArrowBatches size
+        let batchStream = reader.ToArrowBatches(size).Prefetch()
         
         let handle = ArrowStreamInterop.ImportEager(batchStream,schema)
         
@@ -2758,7 +2905,29 @@ and DataFrame(handle: DataFrameHandle) =
             new DataFrame(safeHandle)
         else
             new DataFrame(handle)
+    /// <summary>
+    /// Stream F# sequences (or C# enumerables) into Polars.
+    /// </summary>
+    /// <param name="data">The input sequence of objects.</param>
+    /// <param name="batchSize">Optional batch size for Arrow chunks. Defaults to 100,000.</param>
+    /// <param name="providedSchema">Optional Arrow Schema. Inferred via reflection if not provided.</param>
+    static member ReadSeq<'T>(data: seq<'T>, ?batchSize: int, ?providedSchema: Schema) : DataFrame =
 
+        if isNull data then 
+            invalidArg "data" "Data sequence cannot be null."
+
+        let actualBatchSize = defaultArg batchSize 100_000
+
+        let schema = 
+            match providedSchema with
+            | Some s -> s
+            | None -> ArrowConverter.GetSchemaFromType<'T>()
+
+        let stream = data.ToArrowBatches actualBatchSize
+
+        let handle = ArrowStreamInterop.ImportEager(stream, schema)
+
+        new DataFrame(handle)
     // ---------------------------------------------------------
     // Read Parquet (File / Cloud / Glob)
     // ---------------------------------------------------------
@@ -3916,6 +4085,99 @@ and DataFrame(handle: DataFrameHandle) =
         let pComp = defaultArg compression AvroCompression.Uncompressed
         let pName = defaultArg name ""
         PolarsWrapper.WriteAvroToMemory(this.Handle, pComp.ToNative(), pName)
+    // ---- ADBC ----
+    static member FromArrowStream(stream:IArrowArrayStream) =
+    
+        ArgumentNullException.ThrowIfNull stream
+
+        let handle = ArrowStreamInterop.ImportForeignStream stream;
+        
+        let df = new DataFrame(handle)
+        df.HoldResource(stream); 
+        df
+    
+    /// <summary>
+    /// Generate DataFrame from ADBC query results
+    /// </summary>
+    /// <param name="statement"></param>
+    /// <exception cref="InvalidOperationException"></exception>
+    static member ReadAdbc(statement: AdbcStatement) : DataFrame =
+        ArgumentNullException.ThrowIfNull statement
+
+        let result = statement.ExecuteQuery()
+
+        if isNull result.Stream then
+            raise (InvalidOperationException "ADBC query executed, but returned a null Arrow stream.")
+            
+        DataFrame.FromArrowStream result.Stream
+
+
+    /// <summary>
+    /// Executes a SQL query directly against an ADBC connection and reads the result into a zero-copy Polars DataFrame.
+    /// Pure syntactic sugar: automatically manages the creation and disposal of the underlying AdbcStatement.
+    /// </summary>
+    /// <param name="connection">The active ADBC connection (e.g., DuckDB, SQLite).</param>
+    /// <param name="sqlQuery">The SQL query string to execute.</param>
+    static member ReadAdbc(connection: AdbcConnection, sqlQuery: string) : DataFrame =
+        ArgumentNullException.ThrowIfNull connection
+        
+        if String.IsNullOrWhiteSpace sqlQuery then
+            invalidArg "sqlQuery" "SQL query cannot be null or whitespace."
+
+        use statement = connection.CreateStatement()
+        
+        statement.SqlQuery <- sqlQuery
+
+        DataFrame.ReadAdbc statement
+    /// <summary>
+    /// Zero-copy bulk ingest of the current DataFrame into an ADBC database (e.g., DuckDB, SQLite).
+    /// </summary>
+    /// <param name="statement">An AdbcStatement configured with ingest options (e.g., target table).</param>
+    /// <returns>The UpdateResult containing the number of rows affected.</returns>
+    member this.WriteToAdbc(statement: AdbcStatement) : UpdateResult =
+        ArgumentNullException.ThrowIfNull statement
+
+        try
+            // Delegate all unsafe pointer handling, FFI bindings, and execution to the Core layer.
+            // This ensures no raw pointers leak into the managed high-level API.
+            AdbcInterop.ExecuteIngest(statement, this.Handle)
+        finally
+            // Crucial: Pin the DataFrame to prevent the Garbage Collector from 
+            // reclaiming the underlying Rust memory while the ADBC C++ engine is actively pulling data.
+            GC.KeepAlive this
+
+    /// <summary>
+    /// Zero-copy bulk ingest of the current DataFrame into an ADBC database table.
+    /// Pure syntactic sugar: automatically manages the creation, configuration, and disposal of the underlying AdbcStatement.
+    /// </summary>
+    /// <param name="connection">The active ADBC connection (e.g., DuckDB, SQLite).</param>
+    /// <param name="tableName">The name of the target table to ingest data into.</param>
+    /// <param name="ingestMode">The ingestion mode. Defaults to Create.</param>
+    /// <returns>The UpdateResult containing the number of rows affected.</returns>
+    member this.WriteToAdbc(connection: AdbcConnection, tableName: string, ?ingestMode: AdbcIngestMode) : UpdateResult =
+        ArgumentNullException.ThrowIfNull(connection)
+        
+        if String.IsNullOrWhiteSpace tableName then
+            invalidArg "tableName" "Target table name cannot be null or whitespace."
+
+        let mode = defaultArg ingestMode AdbcIngestMode.Create
+
+        // Let the framework handle the Statement lifecycle
+        use statement = connection.CreateStatement()
+        
+        // Configure ADBC bulk ingest options automatically
+        statement.SetOption("adbc.ingest.target_table", tableName)
+        
+        let modeString = 
+            match mode with
+            | AdbcIngestMode.Create  -> "adbc.ingest.mode.create"
+            | AdbcIngestMode.Append  -> "adbc.ingest.mode.append"
+            | AdbcIngestMode.Replace -> "adbc.ingest.mode.replace"
+
+        statement.SetOption("adbc.ingest.mode", modeString)
+
+        // Route to the core execution method
+        this.WriteToAdbc statement
     /// <summary>
     /// Write the DataFrame to a Delta Lake table with partition discovery.
     /// <para>
@@ -4855,6 +5117,42 @@ and DataFrame(handle: DataFrameHandle) =
 
         rowData
 
+    /// <summary>
+    /// Export DataFrame As DbDataReader (Zero-Copy Enabled)
+    /// </summary>
+    member this.AsDataReader(?bufferSize: int, ?typeOverrides: Dictionary<string, Type>) : DbDataReader =
+
+        let bufferSize = defaultArg bufferSize 5
+        let overrides = defaultArg typeOverrides null
+
+        let options = BoundedChannelOptions(bufferSize, 
+            FullMode = BoundedChannelFullMode.Wait,
+            SingleWriter = true,
+            SingleReader = true
+        )
+
+        let channel = Channel.CreateBounded<RecordBatch> options
+        let cts = new CancellationTokenSource()
+
+        let producerTask = Task.Run(fun () ->
+            try
+                this.ExportBatches(fun batch ->
+                    channel.Writer.WriteAsync(batch, cts.Token).AsTask().Wait cts.Token
+                )
+                channel.Writer.Complete()
+            with
+            | :? OperationCanceledException -> 
+                channel.Writer.Complete()
+            | ex -> 
+                channel.Writer.Complete ex
+        )
+
+        let stream = channel.Reader.ReadAllAsync(cts.Token).ToBlockingEnumerable cts.Token
+        
+        let innerReader = new ArrowToDbStream(stream, overrides)
+
+        new PolarsDataReader(innerReader, cts, producerTask) :> DbDataReader
+
     // ==========================================
     // IEnumerable<Series> Support
     // ==========================================
@@ -4870,6 +5168,22 @@ and DataFrame(handle: DataFrameHandle) =
     interface IEnumerable with
         member this.GetEnumerator() : IEnumerator =
             (this :> IEnumerable<Series>).GetEnumerator() :> IEnumerator
+    
+    interface IPolarsDataFrame with
+        
+        member this.Height = 
+            int64 this.Height 
+            
+        member this.Schema = 
+            this.Schema :> IPolarsSchema
+        member this.Show (): unit = 
+            this.Show()    
+        member this.ToArrow() = 
+            this.ToArrow()
+        member this.WriteToAdbc(statement:AdbcStatement) = 
+            this.WriteToAdbc statement
+        member this.Column(index:int) = 
+            this.Column index
 /// <summary>
 /// A LazyFrame represents a logical plan of operations that will be optimized and executed only when collected.
 /// <para>
@@ -4885,12 +5199,44 @@ and LazyFrame(handle: LazyFrameHandle) =
 
     interface IDisposable with
         member x.Dispose() = x.Dispose()
+
+    interface IPolarsLazyFrame with
+        
+        member this.Collect(useStreaming: bool) = 
+            this.Collect useStreaming :> IPolarsDataFrame
+            
+        member this.Schema = 
+            this.Schema :> IPolarsSchema
+            
+        member this.Explain(optimized: bool) = 
+            this.Explain optimized
+        member this.CollectAsync(useStreaming: bool, cancellationToken: CancellationToken) =
+            task {
+                let! df = this.CollectAsync(useStreaming, cancellationToken)
+                
+                return df :> IPolarsDataFrame
+            }
     member internal this.CloneHandle() = PolarsWrapper.LazyClone handle
     /// <summary> Execute the plan and return a DataFrame. </summary>
     member this.Collect(?streaming:bool) = 
         let stream = defaultArg streaming false
         let dfHandle = PolarsWrapper.LazyCollect(handle,stream)
         new DataFrame(dfHandle)
+    member this.CollectAsync
+        (
+            ?useStreaming: bool, 
+            ?cancellationToken: CancellationToken
+        ) : Task<DataFrame> =
+        let us = defaultArg useStreaming false
+        let cct = defaultArg cancellationToken CancellationToken.None
+        
+        task {
+            cct.ThrowIfCancellationRequested()
+
+            let! dfHandle = PolarsWrapper.LazyCollectAsync(handle, us,cct)
+            
+            return new DataFrame(dfHandle)
+        }
     /// <summary> Execute the plan using the streaming engine. </summary>
     member _.CollectStreaming() =
         let dfHandle = PolarsWrapper.CollectStreaming handle
@@ -4933,6 +5279,7 @@ and LazyFrame(handle: LazyFrameHandle) =
     static member ScanCsv(
         path: string,
         ?schema: PolarsSchema,
+        ?dtypeOverride:PolarsSchema,
         ?hasHeader: bool,
         ?separator: char,
         ?quoteChar: char,
@@ -4964,6 +5311,7 @@ and LazyFrame(handle: LazyFrameHandle) =
     ) : LazyFrame =
         
         let schemaHandle = match schema with Some s -> s.Handle | None -> null
+        let dtypeOverrideHandle = match dtypeOverride with Some s -> s.Handle | None -> null
         let pHasHdr = defaultArg hasHeader true
         let pSep = defaultArg separator ','
         let pQuote = match quoteChar with Some c -> System.Nullable c | None -> System.Nullable '"'
@@ -4998,6 +5346,7 @@ and LazyFrame(handle: LazyFrameHandle) =
         let h = PolarsWrapper.ScanCsv(
             path,
             schemaHandle,
+            dtypeOverrideHandle,
             pHasHdr,
             pSep,
             pQuote,
@@ -5039,6 +5388,7 @@ and LazyFrame(handle: LazyFrameHandle) =
     static member ScanCsv(
         buffer: byte[],
         ?schema: PolarsSchema,
+        ?dtypeOverride:PolarsSchema,
         ?hasHeader: bool,
         ?separator: char,
         ?quoteChar: char,
@@ -5069,6 +5419,7 @@ and LazyFrame(handle: LazyFrameHandle) =
     ) : LazyFrame =
         
         let schemaHandle = match schema with Some s -> s.Handle | None -> null
+        let dtypeOverrideHandle = match dtypeOverride with Some s -> s.Handle | None -> null
         let pHasHdr = defaultArg hasHeader true
         let pSep = defaultArg separator ','
         let pQuote = match quoteChar with Some c -> System.Nullable c | None -> System.Nullable '"'
@@ -5100,6 +5451,7 @@ and LazyFrame(handle: LazyFrameHandle) =
         let h = PolarsWrapper.ScanCsv(
             buffer,
             schemaHandle,
+            dtypeOverrideHandle,
             pHasHdr,
             pSep,
             pQuote,
@@ -5815,7 +6167,7 @@ and LazyFrame(handle: LazyFrameHandle) =
                     seq {
                         let mutable hasYielded = false
                         
-                        let batches = ArrowConverter.ToArrowBatches(data, size)
+                        let batches = ArrowConverter.ToArrowBatches(data, size).Prefetch()
 
                         for batch in batches do
                             hasYielded <- true
@@ -5870,7 +6222,7 @@ and LazyFrame(handle: LazyFrameHandle) =
             let factory = Func<IEnumerable<RecordBatch>>(fun () ->
                 seq {
                     use reader = readerFactory()
-                    let batches = DbToArrowStream.ToArrowBatches(reader, size)
+                    let batches = DbToArrowStream.ToArrowBatches(reader, size).Prefetch()
                     
                     for batch in batches do
                         yield batch
@@ -5882,21 +6234,19 @@ and LazyFrame(handle: LazyFrameHandle) =
             new LazyFrame(handle)
 
     /// <summary>
-    /// [Lazy][Buffered] Scan a database DataReader directly.
-    /// <para>Writes to disk IMMEDIATELY because IDataReader is forward-only.</para>
+    /// [Lazy][Streaming] Scan a database DataReader directly.
+    /// <para>Upgraded to pure memory Streaming Mode using Arrow C-Data FFI!</para>
     /// </summary>
     static member scanDb(reader: IDataReader, ?batchSize: int) : LazyFrame =
         let size = defaultArg batchSize 50_000
+        let schema = reader.GetArrowSchema()
         
-        let scope = new IpcStreamService.TempIpcScopeReader(reader, size)
-        let handle = LazyFrame.ScanIpc(scope.FilePath).Handle
+        let stream = reader.ToArrowBatches(size).Prefetch() 
         
-        // Inline ScopedLazyFrame
-        { new LazyFrame(handle) with
-            member this.Dispose() =
-                base.Dispose()
-                scope.Dispose()
-        }
+        let factory = Func<IEnumerable<RecordBatch>>(fun () -> stream)
+        let handle = ArrowStreamInterop.ScanStream(factory, schema)
+        
+        new LazyFrame(handle)
     /// <summary>
     /// Execute the LazyFrame and sink the result to a CSV file.
     /// <para>
@@ -7625,14 +7975,22 @@ and PolarsSchema (handle: SchemaHandle) =
 
     /// <summary> Create schema from field definitions </summary>
     new (fields: seq<string * DataType>) =
-        new PolarsSchema(PolarsSchema.CreateHandleFromFields(fields))
+        new PolarsSchema(PolarsSchema.CreateHandleFromFields fields)
+    /// <summary>
+    /// Create a Schema directly from a .NET type (e.g., a record or class).
+    /// </summary>
+    /// <typeparam name="T">The record or class type.</typeparam>
+    /// <returns>A PolarsSchema mapped from the type's properties.</returns>
+    static member FromRecord<'T>() =
+        let handle = PolarsWrapper.NewSchemaFromType(typeof<'T>)
+        new PolarsSchema(handle)
 
     static member ofMap (m: Map<string, DataType>) = new PolarsSchema(m |> Map.toSeq)
     static member ofList (fields: (string * DataType) list) = new PolarsSchema(fields)
 
     // --- Inspection API (Alignment with C#) ---
 
-    member this.Len() = PolarsWrapper.GetSchemaLen(this.Handle)
+    member this.Len() = PolarsWrapper.GetSchemaLen this.Handle
 
     /// <summary> Get column name and type at specific index </summary>
     member private this.GetFieldAt(index: uint64) =
@@ -7709,18 +8067,56 @@ and PolarsSchema (handle: SchemaHandle) =
             if not (isNull (box this.Handle)) && not this.Handle.IsInvalid then
                 this.Handle.Dispose()
 
+    interface IPolarsSchema with
+        member this.Length = 
+            int (this.Len())
+            
+        member this.ColumnNames = 
+            List<string> this.Names
+            
+        member this.Item
+            with get (name: string) = 
+                this.[name] :> IPolarsDataType
+        member this.ToDictionary() =
+            let dict = Dictionary<string, IPolarsDataType>()
+            for kvp in this.ToDictionary() do
+                dict.[kvp.Key] <- kvp.Value :> IPolarsDataType
+            dict
+
 /// <summary>
 /// SQL Context for executing SQL queries on registered LazyFrames.
 /// </summary>
-type SqlContext() =
+type SqlContext() as this =
     let handle = PolarsWrapper.SqlContextNew()
     
     interface IDisposable with
         member _.Dispose() = handle.Dispose()
+    
+    interface IPolarsSqlContext with
+        member _.Register(tableName: string, df: IPolarsDataFrame) =
+            this.Register(tableName, df :?> DataFrame)
+
+        member _.Register(tableName: string, lf: IPolarsLazyFrame) =
+            this.Register(tableName, lf :?> LazyFrame)
+
+        member _.Execute(sql: string) =
+            this.Execute sql :> IPolarsLazyFrame
 
     /// <summary> Register a LazyFrame as a table for SQL querying. </summary>
     member _.Register(name: string, lf: LazyFrame) =
         PolarsWrapper.SqlRegister(handle, name, lf.CloneHandle())
+
+    /// <summary> Register a DataFrame as a table for SQL querying. </summary>
+    member _.Register(name: string, df: DataFrame) =
+        let lf = df.Lazy()
+        PolarsWrapper.SqlRegister(handle, name, lf.Handle)
+
+    member _.UnRegister(name: string) = 
+        PolarsWrapper.SqlUnRegister(handle,name)
+
+    /// <summary> Get the names of all registered tables, in sorted order. </summary>
+    member _.GetTables() =
+        PolarsWrapper.SqlGetTables(handle)
 
     /// <summary> Execute a SQL query and return a LazyFrame. </summary>
     member _.Execute(query: string) =

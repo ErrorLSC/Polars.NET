@@ -3,6 +3,7 @@ using Polars.NET.Core;
 using Apache.Arrow;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Helpers;
+using System.Runtime.CompilerServices;
 
 namespace Polars.CSharp;
 
@@ -13,7 +14,7 @@ namespace Polars.CSharp;
 /// Operations on Series are generally performed immediately.
 /// </para>
 /// </summary>
-public partial class Series : IDisposable
+public partial class Series : IDisposable,IPolarsSeries
 {
     internal SeriesHandle Handle { get; }
 
@@ -129,9 +130,9 @@ public partial class Series : IDisposable
             return new DataType(handle);
         }
     }
-    
+    IPolarsDataType IPolarsSeries.DataType => DataType;
     // ==========================================
-    // Scalar Accessors (Native Speed ⚡)
+    // Scalar Accessors (Native Speed)
     // ==========================================
 
     /// <summary>
@@ -385,6 +386,54 @@ public partial class Series : IDisposable
 
     /// <summary>Rounds down to the nearest integer.</summary>
     public Series Floor() => ApplyExpr(Polars.Col(Name).Floor());
+
+    // ==========================================
+    // Indexing & Searching (Forwarded to Expr)
+    // ==========================================
+
+    /// <inheritdoc cref="Expr.Get(Expr, bool)"/>
+    public Series Get(Expr index, bool nullOnOutOfBounds = false)
+        => ApplyExpr(Polars.Col(Name).Get(index, nullOnOutOfBounds));
+
+    /// <inheritdoc cref="Expr.Get(ulong, bool)"/>
+    public Series Get(ulong index, bool nullOnOutOfBounds = false)
+        => ApplyExpr(Polars.Col(Name).Get(index, nullOnOutOfBounds));
+
+    /// <inheritdoc cref="Expr.Gather(Expr)"/>
+    public Series Gather(Expr indices)
+        => ApplyExpr(Polars.Col(Name).Gather(indices));
+
+    /// <inheritdoc cref="Expr.Take(Expr)"/>
+    public Series Take(Expr indices)
+        => ApplyExpr(Polars.Col(Name).Take(indices));
+
+    /// <inheritdoc cref="Expr.GatherEvery(ulong, ulong)"/>
+    public Series GatherEvery(ulong n, ulong offset = 0)
+        => ApplyExpr(Polars.Col(Name).GatherEvery(n, offset));
+
+    /// <inheritdoc cref="Expr.ArgUnique()"/>
+    public Series ArgUnique()
+        => ApplyExpr(Polars.Col(Name).ArgUnique());
+
+    /// <inheritdoc cref="Expr.ArgMax()"/>
+    public Series ArgMax()
+        => ApplyExpr(Polars.Col(Name).ArgMax());
+
+    /// <inheritdoc cref="Expr.ArgMin()"/>
+    public Series ArgMin()
+        => ApplyExpr(Polars.Col(Name).ArgMin());
+
+    /// <inheritdoc cref="Expr.ArgSort(bool, bool)"/>
+    public Series ArgSort(bool descending = false, bool nullsLast = false)
+        => ApplyExpr(Polars.Col(Name).ArgSort(descending, nullsLast));
+
+    /// <inheritdoc cref="Expr.IndexOf(Expr)"/>
+    public Series IndexOf(Expr element)
+        => ApplyExpr(Polars.Col(Name).IndexOf(element));
+
+    /// <inheritdoc cref="Expr.SearchSorted(Expr, SearchSortedSide, bool)"/>
+    public Series SearchSorted(Expr element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
+        => ApplyExpr(Polars.Col(Name).SearchSorted(element, side, descending));
     
     // ==========================================
     // Bitwise Operators (<<, >>)
@@ -636,56 +685,54 @@ public partial class Series : IDisposable
     // Constructors
     // ==========================================
 
-   // 1. Signed Integers
-    public Series(string name, sbyte[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, sbyte?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, short[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, short?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, int[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, int?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, long[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, long?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, Int128[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, Int128?[] data) => Handle = SeriesFactory.Create(name, data);
+    // 1. Signed Integers
+    public Series(string name,ReadOnlySpan<sbyte> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<sbyte?> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<short> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<short?> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<int> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<int?> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<long> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<long?> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<Int128> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<Int128?> data) => Handle = SeriesFactory.CreateSpan(name, data);
 
     // 2. Unsigned Integers
-    public Series(string name, byte[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, byte?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, ushort[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, ushort?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, uint[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, uint?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, ulong[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, ulong?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, UInt128[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, UInt128?[] data) => Handle = SeriesFactory.Create(name, data);
-
+    public Series(string name,ReadOnlySpan<byte> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<byte?> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<ushort> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<ushort?> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<uint> data) => Handle = SeriesFactory.CreateSpan(name, data);
+    public Series(string name,ReadOnlySpan<uint?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<ulong> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<ulong?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<UInt128> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<UInt128?> data) => Handle = SeriesFactory.CreateSpan(name, data);
     // 3. Floating Point
-    public Series(string name, Half[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, Half?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, float[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, float?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, double[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, double?[] data) => Handle = SeriesFactory.Create(name, data);
+    public Series(string name,ReadOnlySpan<Half> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<Half?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<float> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<float?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<double> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<double?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
 
     // 4. Bool, String, Decimal
-    public Series(string name, bool[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, bool?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, string?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, decimal[] data ) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, decimal?[] data) => Handle = SeriesFactory.Create(name, data);
-
+    public Series(string name,ReadOnlySpan<bool> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<bool?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<string?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<decimal> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<decimal?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
     // 5. Temporal
-    public Series(string name, DateTime[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, DateTime?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, DateTimeOffset[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, DateTimeOffset?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, DateOnly[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, DateOnly?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, TimeOnly[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, TimeOnly?[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, TimeSpan[] data) => Handle = SeriesFactory.Create(name, data);
-    public Series(string name, TimeSpan?[] data) => Handle = SeriesFactory.Create(name, data);
+    public Series(string name,ReadOnlySpan<DateTime> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<DateTime?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<DateTimeOffset> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<DateTimeOffset?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<DateOnly> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<DateOnly?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<TimeOnly> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<TimeOnly?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<TimeSpan> data) => Handle = SeriesFactory.CreateSpan(name, data);    
+    public Series(string name,ReadOnlySpan<TimeSpan?> data) => Handle = SeriesFactory.CreateSpan(name, data);    
 
     // 6. Fixed Size Arrays (2D)
     public Series(string name, sbyte[,] data) => Handle = SeriesFactory.Create(name, data);
@@ -752,7 +799,7 @@ public partial class Series : IDisposable
     /// <returns>A new <see cref="Series"/> with the order reversed.</returns>
     public Series Reverse() => ApplyExpr(Polars.Col(Name).Reverse());
     /// <summary>
-    /// Convert Series to Arrow Array
+    /// Convert Series to Array
     /// </summary>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
@@ -1071,6 +1118,7 @@ public partial class Series : IDisposable
     /// Count the number of unique values in this Series.
     /// </summary>
     public ulong NUnique => PolarsWrapper.SeriesNUnique(Handle);
+
     /// <summary>
     /// Get the unique elements of this Series.
     /// </summary>
@@ -1587,19 +1635,60 @@ public partial class Series : IDisposable
     {
         var handle = SeriesFactory.CreateGenericType(name, data);
 
-        // var arrowArray = ArrowConverter.Build(data);
-        // var handle = ArrowFfiBridge.ImportSeries(name, arrowArray);
         return new Series(handle);
     }
+    /// <summary>
+    /// Create Series from array
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Series From<T>(string name, T[] data)
+    {
+        var handle = SeriesFactory.CreateSpan(name, new ReadOnlySpan<T>(data));
+        
+        if (handle != null)
+        {
+            return new Series(handle);
+        }
+
+        return new Series(SeriesFactory.Create(name, data));
+    }
+    /// <summary>
+    /// Create Series from 2D matrix
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Series From<T>(string name, T[,] data)
+        => new(SeriesFactory.Create(name,data));
+    /// <summary>
+    /// Create Series from ReadOnlySpan
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Series FromSpan<T>(string name, ReadOnlySpan<T> data)
+        => new(SeriesFactory.CreateSpan(name, data));
+
+    /// <summary>
+    /// Create Series from Span
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Series FromSpan<T>(string name, Span<T> data)
+        => new(SeriesFactory.CreateSpan(name, (ReadOnlySpan<T>)data));
+
     /// <summary>
     /// Convert this single Series into a DataFrame.
     /// </summary>
     public DataFrame ToFrame()
         => new(PolarsWrapper.SeriesToFrame(Handle));
+    IPolarsDataFrame IPolarsSeries.ToFrame()
+    {
+        return ToFrame();
+    }
     /// <summary>
     /// Dispose the underlying SeriesHandle.
     /// </summary>
-    public void Dispose() => Handle.Dispose();
+    public void Dispose()
+    {
+        Handle?.Dispose();
+        GC.SuppressFinalize(this); 
+    }
 }
 
 /// <summary>

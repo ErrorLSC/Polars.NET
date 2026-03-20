@@ -18,37 +18,6 @@ public static partial class PolarsWrapper
         }
         return ptrs;
     }
-    /// <summary>
-    /// Wrap single string Marshaling (with return value)
-    /// </summary>
-    private static T UseUtf8String<T>(string str, Func<IntPtr, T> action)
-    {
-        IntPtr ptr = Marshal.StringToCoTaskMemUTF8(str);
-        try
-        {
-            return action(ptr);
-        }
-        finally
-        {
-            Marshal.FreeCoTaskMem(ptr);
-        }
-    }
-
-    /// <summary>
-    /// Wrap single string Marshaling (with void return)
-    /// </summary>
-    private static void UseUtf8String(string str, Action<IntPtr> action)
-    {
-        IntPtr ptr = Marshal.StringToCoTaskMemUTF8(str);
-        try
-        {
-            action(ptr);
-        }
-        finally
-        {
-            Marshal.FreeCoTaskMem(ptr);
-        }
-    }
 
     private static R UseUtf8StringArray<R>(string[]? strings, Func<IntPtr[], R> action)
     {
@@ -145,6 +114,53 @@ public static partial class PolarsWrapper
                     _handles[i].DangerousRelease();
                     _locks[i] = false; 
                 }
+            }
+        }
+    }
+}
+
+internal readonly ref struct SafeHandleSpanLock<T> where T : SafeHandle
+{
+    private readonly ReadOnlySpan<T> _handles;
+    private readonly Span<bool> _locks;
+
+    public SafeHandleSpanLock(ReadOnlySpan<T> handles, Span<IntPtr> pointers, Span<bool> locks)
+    {
+        _handles = handles;
+        _locks = locks;
+        locks.Clear(); 
+
+        bool success = false;
+        try
+        {
+            for (int i = 0; i < handles.Length; i++)
+            {
+                handles[i].DangerousAddRef(ref locks[i]);
+                
+                if (locks[i])
+                {
+                    pointers[i] = handles[i].DangerousGetHandle();
+                }
+            }
+            success = true;
+        }
+        finally
+        {
+            if (!success)
+            {
+                Dispose();
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        for (int i = 0; i < _handles.Length; i++)
+        {
+            if (_locks[i])
+            {
+                _handles[i].DangerousRelease();
+                _locks[i] = false;
             }
         }
     }

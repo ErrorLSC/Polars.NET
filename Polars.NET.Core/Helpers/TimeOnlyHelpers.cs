@@ -1,3 +1,4 @@
+using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
@@ -6,15 +7,22 @@ namespace Polars.NET.Core.Helpers;
 
 public static partial class ArrayHelper
 {
+    /// <summary>
+    /// Unzips a ReadOnlySpan of TimeOnly to Nanoseconds using SIMD.
+    /// Memory Layout: TimeOnly is an 8-byte struct wrapping a long (Ticks).
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static unsafe long[] UnzipTimeOnlyToNs(TimeOnly[] data)
+    public static unsafe long[] UnzipTimeOnlyToNs(ReadOnlySpan<TimeOnly> data)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<long>(len);
         
         long multiplier = 100;
 
-        fixed (TimeOnly* pSrc = data)
+        // Get ref to the first element
+        ref TimeOnly srcRef = ref MemoryMarshal.GetReference(data);
+
+        fixed (TimeOnly* pSrc = &srcRef)
         fixed (long* pDst = values)
         {
             long* pRawSrc = (long*)pSrc;
@@ -61,13 +69,14 @@ public static partial class ArrayHelper
         }
         return values;
     }
+
     /// <summary>
-    /// [Scalar Extreme] TimeOnly?[] -> (Int64[], Validity)
+    /// [Scalar Extreme] ReadOnlySpan<TimeOnly?> -> (Int64[], Validity)
     /// Layout: 16 Bytes [Bool(1), Pad(7), Ticks(8)]
     /// Logic: Ticks * 100 -> Nanoseconds
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static unsafe (long[] values, byte[]? validity) UnzipTimeOnlyToNs(TimeOnly?[] data)
+    public static unsafe (long[] values, byte[]? validity) UnzipTimeOnlyToNs(ReadOnlySpan<TimeOnly?> data)
     {
         int len = data.Length;
         var values = GC.AllocateUninitializedArray<long>(len);
@@ -75,14 +84,15 @@ public static partial class ArrayHelper
         byte[]? validity = null;
         ref byte validRef = ref Unsafe.NullRef<byte>();
 
-        // 常量：Ticks (100ns) -> ns
+        // Ticks (100ns) -> ns
         long multiplier = 100;
 
-        fixed (TimeOnly?* pSrc = data)
+        ref TimeOnly? srcRef = ref MemoryMarshal.GetReference(data);
+
+        fixed (TimeOnly?* pSrc = &srcRef)
         fixed (long* pDst = values)
         {
-            // 强转为 long*，方便按 8 字节步进
-            // 每个 Item 占 16 字节，即 2 个 long
+            // To long*
             // Offset 0: Header (Bool)
             // Offset 1: Value (Ticks)
             long* pRawSrc = (long*)pSrc;
@@ -91,7 +101,7 @@ public static partial class ArrayHelper
             int limit = len - 4;
 
             // =========================================================
-            // Unroll 4 (每次处理 64 字节 = 1 Cache Line)
+            // Unroll 4
             // =========================================================
             for (; i <= limit; i += 4)
             {

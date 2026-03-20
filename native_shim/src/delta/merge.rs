@@ -4,20 +4,18 @@ use chrono::{DateTime, NaiveDate};
 use futures::StreamExt;
 use polars::prelude::{file_provider::HivePathProvider, *};
 use polars_buffer::Buffer;
+use rand::RngExt;
 use roaring::RoaringBitmap;
 use url::Url;
 use deltalake::{DeltaTable, Path, table::state::DeltaTableState};
-use deltalake::kernel::{Action, Add, Remove, scalars::ScalarExt, transaction::CommitBuilder};
+use deltalake::kernel::{Action, Add, Remove, scalars::ScalarExt};
 use deltalake::parquet::arrow::async_reader::{AsyncFileReader, ParquetObjectReader};
 use deltalake::protocol::{DeltaOperation};
 use uuid::Uuid;
 
-use crate::{delta::{delete::{create_dv_descriptor, write_dv_file}, deletion_vector::{apply_deletion_vector, read_deletion_vector}, utils::*}, pl_io::parquet::parquet_utils::build_parquet_write_options};
+use crate::{delta::{delete::{create_dv_descriptor, write_dv_file}, deletion_vector::{read_deletion_vector}, utils::*}, pl_io::parquet::parquet_utils::build_parquet_write_options, types::{ExprContext, LazyFrameContext}};
 use crate::pl_io::io_utils::{build_cloud_options, build_unified_sink_args};
-use crate::types::{ExprContext, LazyFrameContext};
-use crate::utils::{ptr_to_str, ptr_to_vec_string};
 
-const MAX_FULL_JOB_RETRIES: usize = 5;
 const MAX_PRUNING_CANDIDATES: usize = 100_000;
 
 // -------------------------------------------------------------------------
@@ -479,20 +477,28 @@ pub(crate) fn phase_validation(
 }
 
 pub(crate) fn construct_target_lf(
-    table_url: &url::Url,       // <--- 提取解耦: table_url
-    strategy: MergeStrategy,
-    table: &DeltaTable, 
-    remove_actions: &[Add], 
+    table_url: &url::Url,       
+    strategy: crate::delta::merge::MergeStrategy,
+    table: &deltalake::DeltaTable, 
+    remove_actions: &[deltalake::kernel::Add], 
     target_schema: &Schema,
-    cloud_args: &RawCloudArgs,
+    cloud_args: &crate::delta::utils::RawCloudArgs,
 ) -> PolarsResult<LazyFrame> {
     
+    let is_mor = strategy == crate::delta::merge::MergeStrategy::MergeOnRead;
+
     if remove_actions.is_empty() {
-        return Ok(DataFrame::empty_with_schema(target_schema).lazy());
+        if is_mor {
+            let mut final_schema = target_schema.clone();
+            final_schema.with_column(PlSmallStr::from_static("__file_path"), DataType::String.into());
+            final_schema.with_column(PlSmallStr::from_static("__row_index"), DataType::UInt32.into());
+            return Ok(DataFrame::empty_with_schema(&final_schema).lazy());
+        } else {
+            return Ok(DataFrame::empty_with_schema(target_schema).lazy());
+        }
     }
 
     let root_trimmed = table_url.as_str().trim_end_matches('/');
-    let is_mor = strategy == MergeStrategy::MergeOnRead;
     
     let make_scan_args = || unsafe {
         let mut args = ScanArgsParquet::default();
@@ -530,9 +536,9 @@ pub(crate) fn construct_target_lf(
     // =========================================================
     // MoR Mode: MUST scan iteratively to guarantee row_index = 0 per file
     // =========================================================
-    let rt = get_runtime();
+    let rt = crate::delta::utils::get_runtime();
     let object_store = table.object_store();
-    let table_root = Path::from(root_trimmed);
+    let table_root = deltalake::Path::from(root_trimmed);
 
     let lfs = rt.block_on(async {
         let mut processed = Vec::with_capacity(remove_actions.len());
@@ -548,8 +554,13 @@ pub(crate) fn construct_target_lf(
 
             // Read and Apply DV if exists
             if let Some(dv) = &r.deletion_vector {
-                let bitmap = read_deletion_vector(object_store.clone(), dv, &table_root).await?;
-                lf = apply_deletion_vector(lf, bitmap)?;
+                let bitmap = crate::delta::deletion_vector::read_deletion_vector(object_store.clone(), dv, &table_root).await?;
+                
+                let indices: Vec<u32> = bitmap.into_iter().collect();
+                if !indices.is_empty() {
+                    let mask = col("__row_index").is_in(lit(Series::new(PlSmallStr::from_static(""), indices)).implode(),false).not();
+                    lf = lf.filter(mask);
+                }
             }
             processed.push(lf);
         }
@@ -883,9 +894,7 @@ pub(crate) fn phase_planning_mor(
     Ok((new_data_lf, tombstones_lf))
 }
 
-
-
-/// Phase 4: Execution 
+// Phase 4: Execution 
 pub(crate) fn phase_execution(
     table_url: &url::Url,
     processed_lf: LazyFrame,
@@ -1046,7 +1055,6 @@ pub(crate) async fn phase_execution_dv(
 }
 
 
-
 /// Phase 5-A: Process Staging Files
 /// Scan Staging, read Stats, move file, generate Add Actions
 pub async fn phase_process_staging(
@@ -1149,11 +1157,9 @@ pub async fn phase_process_staging(
     Ok(add_actions)
 }
 
-/// Phase 5-B: Commit Transaction
 pub(crate) async fn phase_commit(
     table: &mut DeltaTable,
     mut actions: Vec<Action>, 
-    staging_dir_name: &str,
     source_schema: &Schema,   
     target_schema: &Schema,
     merge_keys: &[String],
@@ -1161,7 +1167,7 @@ pub(crate) async fn phase_commit(
     matched_preds: Vec<deltalake::protocol::MergePredicate>,
     not_matched_preds: Vec<deltalake::protocol::MergePredicate>,
     not_matched_by_source_preds: Vec<deltalake::protocol::MergePredicate>,
-) -> PolarsResult<()> {
+) -> Result<(), deltalake::errors::DeltaTableError> {
 
     // =========================================================
     // 1. Schema Evolution (Metadata Action)
@@ -1179,36 +1185,39 @@ pub(crate) async fn phase_commit(
     }
 
     if has_schema_change {
-        // Convert to Delta Schema
-        let new_delta_schema = convert_to_delta_schema(&new_pl_schema)?;
+        // Convert to Delta Schema and PolarsError to DeltaTableError::Generic
+        let new_delta_schema = crate::delta::utils::convert_to_delta_schema(&new_pl_schema)
+            .map_err(|e| deltalake::errors::DeltaTableError::Generic(e.to_string()))?;
         
-        let current_snapshot = table.snapshot().map_err(|e| PolarsError::ComputeError(format!("Snapshot error: {}", e).into()))?;
+        let current_snapshot = table.snapshot()?;
         let current_delta_schema = current_snapshot.schema();
 
         if current_delta_schema.as_ref() != &new_delta_schema {
             if !can_evolve {
-                return Err(PolarsError::SchemaMismatch("Schema mismatch detected. Pass 'can_evolve=true'.".into()));
+                return Err(deltalake::errors::DeltaTableError::SchemaMismatch {
+                    msg: "Schema mismatch detected. Pass 'can_evolve=true'.".into()
+                });
             }
             
             // Current Metadata => JSON Value
             let current_metadata = current_snapshot.metadata();
             let mut meta_json = serde_json::to_value(current_metadata)
-                .map_err(|e| PolarsError::ComputeError(format!("Failed to serialize metadata: {}", e).into()))?;
+                .map_err(|e| deltalake::errors::DeltaTableError::Generic(format!("Failed to serialize metadata: {}", e)))?;
 
             // New Schema => String
             let new_schema_string = serde_json::to_string(&new_delta_schema)
-                .map_err(|e| PolarsError::ComputeError(format!("Failed to serialize new schema: {}", e).into()))?;
+                .map_err(|e| deltalake::errors::DeltaTableError::Generic(format!("Failed to serialize new schema: {}", e)))?;
 
             // Replace "schemaString" field in JSON
             if let Some(obj) = meta_json.as_object_mut() {
                 obj.insert("schemaString".to_string(), serde_json::Value::String(new_schema_string));
             } else {
-                return Err(PolarsError::ComputeError("Metadata is not a JSON object".into()));
+                return Err(deltalake::errors::DeltaTableError::Generic("Metadata is not a JSON object".into()));
             }
 
             // Convert to Metadata Action
             let new_metadata_action: deltalake::kernel::Metadata = serde_json::from_value(meta_json)
-                .map_err(|e| PolarsError::ComputeError(format!("Failed to deserialize modified metadata: {}", e).into()))?;
+                .map_err(|e| deltalake::errors::DeltaTableError::Generic(format!("Failed to deserialize modified metadata: {}", e)))?;
 
             // Inject Actions List
             actions.insert(0, Action::Metadata(new_metadata_action));
@@ -1234,28 +1243,178 @@ pub(crate) async fn phase_commit(
     };
 
     // =========================================================
-    // 3. Strict Commit (No Internal Retry)
+    // Strict Commit 
     // =========================================================
     
-    let commit_res = CommitBuilder::default()
+    let _commit_res = deltalake::kernel::transaction::CommitBuilder::default()
         .with_actions(actions)
-        .with_max_retries(0) // NO internal retry
+        .with_app_metadata(crate::delta::utils::get_polars_net_metadata())
         .build(
-            Some(table.snapshot().map_err(|e| PolarsError::ComputeError(format!("{}", e).into()))?), 
+            Some(table.snapshot()?), 
             table.log_store().clone(),
             operation
         )
-        .await;
+        .await?;
 
-    commit_res.map_err(|e| PolarsError::ComputeError(format!("Commit failed (Strict Mode): {}", e).into()))?;
+    Ok(())
+}
 
-    // =========================================================
-    // 4. Cleanup
-    // =========================================================
-    let object_store = table.object_store();
-    let staging_path = Path::from(staging_dir_name);
-    let _ = object_store.delete(&staging_path).await;
+pub(crate) fn merge_delta_internal_custom(
+    mut source_lf: LazyFrame,
+    table_url: url::Url,
+    merge_keys: Vec<String>,
+    cond_update: Option<Expr>,
+    cond_delete: Option<Expr>,
+    cond_insert: Option<Expr>,
+    cond_src_delete: Option<Expr>,
+    can_evolve: bool,
+    delta_storage_options: std::collections::HashMap<String, String>,
+    cloud_args: RawCloudArgs,
+) -> PolarsResult<()> {
+    let rt = crate::delta::utils::get_runtime();
+
+    let max_attempts = std::env::var("POLARS_DELTA_MAX_RETRIES")
+        .unwrap_or_else(|_| "5".to_string())
+        .parse::<u32>()
+        .unwrap_or(5);
+
+    let (mut table, partition_cols, mut target_schema) = rt.block_on(
+        crate::delta::merge::phase_1_load_table(table_url.clone(), delta_storage_options)
+    )?;
     
+    let snapshot = table.snapshot().map_err(|e| PolarsError::ComputeError(format!("Snapshot error: {}", e).into()))?;
+    let strategy = crate::delta::merge::MergeStrategy::determine(snapshot, false);
+
+    let ctx = crate::delta::merge::MergeContext {
+        table_url, merge_keys, can_evolve, strategy,
+        cond_update, cond_delete, cond_insert, cond_src_delete,
+    };
+
+    let mut source_lf_clone = source_lf.clone();
+    crate::delta::merge::phase_validation(&ctx.merge_keys, ctx.can_evolve, &mut source_lf_clone, &target_schema)?;
+
+    for attempt in 1..=max_attempts {
+        if attempt > 1 {
+            rt.block_on(async {
+                table.update_state().await.map_err(|e| PolarsError::ComputeError(e.to_string().into()))
+            })?;
+            let polars_schema = crate::delta::utils::get_polars_schema_from_delta(&table)?;
+            target_schema = polars_schema.into();
+        }
+
+        let (src_parts, key_bounds, cands) = crate::delta::merge::phase_1_analyze_source(
+            &ctx.merge_keys, &source_lf, &target_schema, &partition_cols
+        )?;
+        let candidate_files = rt.block_on(
+            crate::delta::merge::phase_1_scan_and_prune(&table, &partition_cols, src_parts, key_bounds, cands, ctx.merge_keys.first())
+        )?;
+
+        let target_lf = crate::delta::merge::construct_target_lf(
+            &ctx.table_url, ctx.strategy, &table, &candidate_files, &target_schema, &cloud_args
+        )?;
+
+        let (new_data_lf, tombstones_lf_opt) = match ctx.strategy {
+            crate::delta::merge::MergeStrategy::CopyOnWrite => {
+                let processed = phase_planning(&ctx, target_lf, source_lf.clone(), &target_schema)?;
+                (processed, None)
+            },
+            crate::delta::merge::MergeStrategy::MergeOnRead => {
+                let (new_data, tombstones) = phase_planning_mor(&ctx, target_lf, source_lf.clone(), &target_schema)?;
+                (new_data, Some(tombstones))
+            }
+        };
+
+        let (staging_dir, write_id) = crate::delta::merge::phase_execution(&ctx.table_url, new_data_lf, &partition_cols, &cloud_args)?;
+        let staging_dir_for_commit = staging_dir.clone();
+
+        let tombstones_df_opt = match tombstones_lf_opt {
+            Some(lf) => {
+                let df = lf.group_by([col("__file_path")]).agg([col("__row_index")]).collect_with_engine(Engine::Streaming)?;
+                if df.height() > 0 { Some(df) } else { None }
+            },
+            None => None,
+        };
+
+        let commit_result = rt.block_on(async {
+            let mut final_actions = crate::delta::merge::phase_process_staging(&table, &staging_dir, &partition_cols, write_id).await
+                .map_err(|e| deltalake::errors::DeltaTableError::Generic(e.to_string()))?;
+
+            match ctx.strategy {
+                crate::delta::merge::MergeStrategy::CopyOnWrite => {
+                    for add in &candidate_files {
+                        let remove = deltalake::kernel::Remove {
+                            path: add.path.clone(),
+                            deletion_timestamp: Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64),
+                            data_change: true,
+                            extended_file_metadata: Some(true),
+                            partition_values: Some(add.partition_values.clone()),
+                            size: Some(add.size),
+                            deletion_vector: add.deletion_vector.clone(),
+                            ..Default::default()
+                        };
+                        final_actions.push(deltalake::kernel::Action::Remove(remove));
+                    }
+                },
+                crate::delta::merge::MergeStrategy::MergeOnRead => {
+                    if let Some(t_df) = tombstones_df_opt {
+                        let dv_actions = crate::delta::merge::phase_execution_dv(&ctx.table_url, &table, t_df, &candidate_files).await
+                            .map_err(|e| deltalake::errors::DeltaTableError::Generic(e.to_string()))?;
+                        final_actions.extend(dv_actions);
+                    }
+                }
+            }
+
+            if !final_actions.is_empty() {
+                let src_schema = source_lf.collect_schema().unwrap();
+                let mut matched_preds = Vec::new();
+                let mut not_matched_preds = Vec::new();           
+                let mut not_matched_by_source_preds = Vec::new(); 
+                
+                if ctx.cond_delete.is_some() { matched_preds.push(deltalake::protocol::MergePredicate { predicate: Some("matched_delete_condition".into()), action_type: "DELETE".into() }); }
+                if ctx.cond_update.is_some() { matched_preds.push(deltalake::protocol::MergePredicate { predicate: Some("custom_update_condition".into()), action_type: "UPDATE".into() }); } 
+                else { matched_preds.push(deltalake::protocol::MergePredicate { predicate: None, action_type: "UPDATE".into() }); }
+                if ctx.cond_insert.is_some() { not_matched_preds.push(deltalake::protocol::MergePredicate { predicate: Some("not_matched_insert_condition".into()), action_type: "INSERT".into() }); } 
+                else { not_matched_preds.push(deltalake::protocol::MergePredicate { predicate: None, action_type: "INSERT".into() }); }
+                if ctx.cond_src_delete.is_some() { not_matched_by_source_preds.push(deltalake::protocol::MergePredicate { predicate: Some("not_matched_by_source_delete_condition".into()), action_type: "DELETE".into() }); }
+
+                crate::delta::merge::phase_commit(
+                    &mut table, final_actions, &src_schema, &target_schema,
+                    &ctx.merge_keys, ctx.can_evolve,
+                    matched_preds, not_matched_preds, not_matched_by_source_preds
+                ).await?;
+            }
+            Ok::<(), deltalake::errors::DeltaTableError>(())
+        });
+
+        match commit_result {
+            Ok(_) => return Ok(()),
+            Err(deltalake::errors::DeltaTableError::CommitValidation { .. }) 
+            | Err(deltalake::errors::DeltaTableError::VersionAlreadyExists(_)) 
+            | Err(deltalake::errors::DeltaTableError::Transaction { .. }) => {
+                if attempt < max_attempts {
+                    rt.block_on(async {
+                        let object_store = table.object_store();
+                        let _ = object_store.delete(&deltalake::Path::from(staging_dir_for_commit.as_str())).await;
+                    });
+                    
+                    let base_sleep = 50_u64.saturating_mul(2_u64.pow(attempt - 1));
+                    let capped_sleep = std::cmp::min(base_sleep, 1000);
+                    
+                    let mut rng = rand::rng();
+                    let jitter_millis = rng.random_range((capped_sleep / 2)..=(capped_sleep * 3 / 2));
+
+                    println!("[Delta-RS] Merge OCC Conflict! Backoff for {}ms (Attempt {}/{})", jitter_millis, attempt, max_attempts);
+
+                    std::thread::sleep(std::time::Duration::from_millis(jitter_millis));
+                    continue; 
+                } else {
+                    return Err(PolarsError::ComputeError(format!("Max retry attempts ({}) reached for Merge OCC conflict", max_attempts).into()));
+                }
+            },
+            Err(e) => return Err(PolarsError::ComputeError(format!("Merge Commit failed: {}", e).into())),
+        }
+    } 
+
     Ok(())
 }
 
@@ -1266,294 +1425,34 @@ pub extern "C" fn pl_io_delta_merge(
     merge_keys_ptr: *const *const c_char,
     merge_keys_len: usize,
     
-    // --- Merge Conditions (Expr) ---
-    matched_update_cond: *mut ExprContext,        // WHEN MATCHED AND cond THEN UPDATE
-    matched_delete_cond: *mut ExprContext,        // WHEN MATCHED AND cond THEN DELETE
-    not_matched_insert_cond: *mut ExprContext,    // WHEN NOT MATCHED AND cond THEN INSERT
-    not_matched_by_source_delete_cond: *mut ExprContext, // WHEN NOT MATCHED BY SOURCE AND cond THEN DELETE
+    matched_update_cond: *mut ExprContext,        
+    matched_delete_cond: *mut ExprContext,        
+    not_matched_insert_cond: *mut ExprContext,    
+    not_matched_by_source_delete_cond: *mut ExprContext, 
 
-    // --- Schema Evolution Switch ---
     can_evolve: bool, 
-    // --- Cloud Args ---
-    cloud_provider: u8,
-    cloud_retries: usize,
-    cloud_retry_timeout_ms: u64,      
-    cloud_retry_init_backoff_ms: u64, 
-    cloud_retry_max_backoff_ms: u64, 
-    cloud_cache_ttl: u64,
-    cloud_keys: *const *const c_char,
-    cloud_values: *const *const c_char,
-    cloud_len: usize
+    cloud_provider: u8, cloud_retries: usize, cloud_retry_timeout_ms: u64, cloud_retry_init_backoff_ms: u64, cloud_retry_max_backoff_ms: u64, cloud_cache_ttl: u64, cloud_keys: *const *const c_char, cloud_values: *const *const c_char, cloud_len: usize
 ) {
     ffi_try_void!({
-        // -------------------------------------------------------------------------
-        // Step 0: Unpack Arguments & Initialize Context
-        // -------------------------------------------------------------------------
-        
-        // 1. Parse Basic Args
-        let path_str = ptr_to_str(target_path_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
-        let merge_keys = unsafe { ptr_to_vec_string(merge_keys_ptr, merge_keys_len) };
-        let table_url = parse_table_url(path_str)?;
-        if merge_keys.is_empty() {
-             return Err(PolarsError::ComputeError("Merge keys cannot be empty".into()));
-        }
-
-        // 2. Consume Source LazyFrame
+        let path_str = crate::utils::ptr_to_str(target_path_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+        let table_url = crate::delta::utils::parse_table_url(path_str)?;
+        let merge_keys = unsafe { crate::utils::ptr_to_vec_string(merge_keys_ptr, merge_keys_len) };
         let source_lf_ctx = unsafe { Box::from_raw(source_lf_ptr) };
-        let mut source_lf = source_lf_ctx.inner; 
 
-        // 3. Consume Conditions (Handle Defaults for Upsert Logic)
-        let cond_update = if !matched_update_cond.is_null() { 
-            Some(unsafe { *Box::from_raw(matched_update_cond) }.inner)
-        } else { 
-            None 
-        };
+        let cond_update = if !matched_update_cond.is_null() { Some(unsafe { *Box::from_raw(matched_update_cond) }.inner) } else { None };
+        let cond_delete = if !matched_delete_cond.is_null() { Some(unsafe { *Box::from_raw(matched_delete_cond) }.inner) } else { None };
+        let cond_insert = if !not_matched_insert_cond.is_null() { Some(unsafe { *Box::from_raw(not_matched_insert_cond) }.inner) } else { None };
+        let cond_src_delete = if !not_matched_by_source_delete_cond.is_null() { Some(unsafe { *Box::from_raw(not_matched_by_source_delete_cond) }.inner) } else { None };
 
-        let cond_delete = if !matched_delete_cond.is_null() { 
-            Some(unsafe { *Box::from_raw(matched_delete_cond) }.inner)
-        } else { 
-            None 
-        };
+        let delta_storage_options = crate::delta::utils::build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
+        let cloud_args = RawCloudArgs { provider: cloud_provider, retries: cloud_retries, retry_timeout_ms: cloud_retry_timeout_ms, retry_init_backoff_ms: cloud_retry_init_backoff_ms, retry_max_backoff_ms: cloud_retry_max_backoff_ms, cache_ttl: cloud_cache_ttl, keys: cloud_keys, values: cloud_values, len: cloud_len };
 
-        let cond_insert = if !not_matched_insert_cond.is_null() { 
-            Some(unsafe { *Box::from_raw(not_matched_insert_cond) }.inner)
-        } else { 
-            None
-        };
-
-        let cond_src_delete = if !not_matched_by_source_delete_cond.is_null() { 
-            Some(unsafe { *Box::from_raw(not_matched_by_source_delete_cond) }.inner)
-        } else { 
-            None
-        };
-
-        // 4. Build Cloud Options Map (For Delta-RS)
-        let delta_storage_options = build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
-
-        // 6. Pack Raw Cloud Args (For Polars Scan/Sink later)
-        let cloud_args = RawCloudArgs {
-            provider: cloud_provider,
-            retries: cloud_retries,
-            retry_timeout_ms: cloud_retry_timeout_ms,
-            retry_init_backoff_ms: cloud_retry_init_backoff_ms,
-            retry_max_backoff_ms: cloud_retry_max_backoff_ms,
-            cache_ttl: cloud_cache_ttl,
-            keys: cloud_keys,
-            values: cloud_values,
-            len: cloud_len,
-        };
-
-        let rt = get_runtime();
-
-        // =========================================================
-        // Phase 1: Pruning (Async Context 1)
-        // =========================================================
-        let (mut table, partition_cols, mut target_schema) = rt.block_on(
-            phase_1_load_table(table_url.clone(), delta_storage_options.clone())
+        merge_delta_internal_custom(
+            source_lf_ctx.inner, table_url, merge_keys, 
+            cond_update, cond_delete, cond_insert, cond_src_delete, 
+            can_evolve, delta_storage_options, cloud_args
         )?;
         
-        // [NEW] Determine Strategy
-        let snapshot = table.snapshot().map_err(|e| PolarsError::ComputeError(format!("Snapshot error: {}", e).into()))?;
-        let strategy = MergeStrategy::determine(snapshot, false);
-
-        // 5. Pack Context
-        let ctx = MergeContext {
-            table_url,
-            merge_keys,
-            // storage_options: delta_storage_options,
-            can_evolve,
-            strategy,
-            cond_update,
-            cond_delete,
-            cond_insert,
-            cond_src_delete,
-        };
-
-        let (source_partitions, key_bounds, candidates) = phase_1_analyze_source(
-            &ctx.merge_keys, 
-            &source_lf, 
-            &target_schema, 
-            &partition_cols
-        )?;
-        // =========================================================================
-        // THE GRAND RETRY LOOP
-        // =========================================================================
-        let mut attempt = 0;
-        
-        loop {
-            attempt += 1;
-            
-            // Reload table status if attempted
-                if attempt > 1 {
-                println!("[Delta-RS] Conflict detected. Starting Full Retry attempt {}/{}...", attempt, MAX_FULL_JOB_RETRIES);
-                
-                rt.block_on(async {
-                    table.update_state().await
-                        .map_err(|e| PolarsError::ComputeError(format!("Reload table failed: {}", e).into()))
-                })?;
-                
-                // Update Target Schema
-                let polars_schema = get_polars_schema_from_delta(&table)?;
-                target_schema = polars_schema.into();
-            }
-
-            // ---------------------------------------------------------------------
-            // Phase 1-C: Scan & Prune
-            // ---------------------------------------------------------------------
-            let candidate_files = rt.block_on(
-                phase_1_scan_and_prune(
-                    &table, 
-                    &partition_cols, 
-                    source_partitions.clone(), 
-                    key_bounds.clone(), 
-                    candidates.clone(),
-                    ctx.merge_keys.get(0)
-                )
-            )?;
-
-            // ---------------------------------------------------------------------
-            // Phase 2, 3: Validation & Planning (Polars)
-            // ---------------------------------------------------------------------
-            // Clone source_lf_plan
-            let mut current_source_lf = source_lf.clone(); 
-            
-            phase_validation(&ctx.merge_keys, ctx.can_evolve, &mut current_source_lf, &target_schema)?;
-
-            let target_lf = construct_target_lf(&ctx.table_url,ctx.strategy,&table ,&candidate_files, &target_schema, &cloud_args)?;
-            
-            // let processed_lf = phase_planning(&ctx, target_lf, current_source_lf, &target_schema)?;
-            let (new_data_lf, tombstones_lf_opt) = match ctx.strategy {
-                MergeStrategy::CopyOnWrite => {
-                    let processed = phase_planning(&ctx, target_lf, current_source_lf, &target_schema)?;
-                    (processed, None)
-                },
-                MergeStrategy::MergeOnRead => {
-                    let (new_data, tombstones) = phase_planning_mor(&ctx, target_lf, current_source_lf, &target_schema)?;
-                    (new_data, Some(tombstones))
-                }
-            };
-
-            // ---------------------------------------------------------------------
-            // Phase 4: Execution (IO - Write NEW Staging Files)
-            // ---------------------------------------------------------------------
-            let (staging_dir, write_id) = phase_execution(&ctx.table_url, new_data_lf, &partition_cols, &cloud_args)?;
-
-            let staging_dir_for_commit = staging_dir.clone();
-
-            // Calculate Tombstone DataFrame here in sync environment
-            let tombstones_df_opt = match tombstones_lf_opt {
-                Some(lf) => {
-                    let df = lf
-                        .group_by([col("__file_path")])
-                        .agg([col("__row_index")])
-                        .collect_with_engine(Engine::Streaming)?;
-                    
-                    if df.height() > 0 { Some(df) } else { None }
-                },
-                None => None,
-            };
-            // ---------------------------------------------------------------------
-            // Phase 5: Commit (Try to finalize)
-            // ---------------------------------------------------------------------
-
-            let commit_result = rt.block_on(async {
-                
-                // Parse Staging Files to get Add(New Data) Actions
-                let mut final_actions = phase_process_staging(&table, &staging_dir, &partition_cols, write_id).await?;
-
-                // Handle old files
-                match ctx.strategy {
-                    MergeStrategy::CopyOnWrite => {
-                        // CoW：Remove old files
-                        for add in &candidate_files {
-                            let remove = Remove {
-                                path: add.path.clone(),
-                                deletion_timestamp: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64),
-                                data_change: true,
-                                extended_file_metadata: Some(true),
-                                partition_values: Some(add.partition_values.clone()),
-                                size: Some(add.size),
-                                deletion_vector: add.deletion_vector.clone(),
-                                ..Default::default()
-                            };
-                            final_actions.push(Action::Remove(remove));
-                        }
-                    },
-                    MergeStrategy::MergeOnRead => {
-                        // MoR：Generate DV then build Remove/Add Actions
-                        if let Some(t_df) = tombstones_df_opt {
-                            let dv_actions = phase_execution_dv(&ctx.table_url, &table, t_df, &candidate_files).await?;
-                            final_actions.extend(dv_actions);
-                        }
-                    }
-                }
-                    
-                if !final_actions.is_empty() {
-                    let src_schema = source_lf.collect_schema().unwrap();
-                    let mut matched_preds = Vec::new();
-                        let mut not_matched_preds = Vec::new();           
-                        let mut not_matched_by_source_preds = Vec::new(); 
-                        
-                        if ctx.cond_delete.is_some() { matched_preds.push(deltalake::protocol::MergePredicate { predicate: Some("matched_delete_condition".into()), action_type: "DELETE".into() }); }
-                        if ctx.cond_update.is_some() { matched_preds.push(deltalake::protocol::MergePredicate { predicate: Some("custom_update_condition".into()), action_type: "UPDATE".into() }); } 
-                        else { matched_preds.push(deltalake::protocol::MergePredicate { predicate: None, action_type: "UPDATE".into() }); }
-                        if ctx.cond_insert.is_some() { not_matched_preds.push(deltalake::protocol::MergePredicate { predicate: Some("not_matched_insert_condition".into()), action_type: "INSERT".into() }); } 
-                        else { not_matched_preds.push(deltalake::protocol::MergePredicate { predicate: None, action_type: "INSERT".into() }); }
-                        if ctx.cond_src_delete.is_some() { not_matched_by_source_preds.push(deltalake::protocol::MergePredicate { predicate: Some("not_matched_by_source_delete_condition".into()), action_type: "DELETE".into() }); }
-
-                        phase_commit(
-                            &mut table, final_actions, &staging_dir, &src_schema, &target_schema,
-                            &ctx.merge_keys, ctx.can_evolve,
-                            matched_preds, not_matched_preds, not_matched_by_source_preds
-                        ).await?;
-                } else {
-                     let object_store = table.object_store();
-                     let _ = object_store.delete(&Path::from(staging_dir)).await;
-                }
-                Ok::<(), PolarsError>(())
-            });
-
-            // ---------------------------------------------------------------------
-            // Error Handling & Retry Decision
-            // ---------------------------------------------------------------------
-            match commit_result {
-                Ok(_) => {
-                    break;
-                },
-                Err(e) => {
-                    let err_msg = format!("{:?}", e);
-                    
-                    let is_conflict = err_msg.contains("Transaction") || 
-                                      err_msg.contains("Conflict") || 
-                                      err_msg.contains("VersionMismatch"); 
-
-                    if is_conflict && attempt < MAX_FULL_JOB_RETRIES {
-                        rt.block_on(async {
-                            let object_store = table.object_store();
-                            let _ = object_store.delete(&Path::from(staging_dir_for_commit)).await;
-                        });
-                        
-                        let base_sleep = 50_u64.saturating_mul(2_u64.pow((attempt - 1) as u32));
-                        
-                        // Set cap as 1000ms
-                        let capped_sleep = std::cmp::min(base_sleep, 1000);
-                        
-                        // Full Jitter
-                        let mut rng = rand::rng();
-                        let jitter_millis = rand::Rng::random_range(&mut rng, (capped_sleep/2)..=(capped_sleep*3/2));
-
-                        println!("[Delta-RS] Conflict! Backoff for {}ms (Attempt {})", jitter_millis, attempt);
-
-                        std::thread::sleep(std::time::Duration::from_millis(jitter_millis));
-                        
-                        continue; 
-                    } else {
-                        return Err(e);
-                    }
-                }
-            }
-        } // End Loop
-
-        Ok(())
+        Ok(()) 
     })
 }

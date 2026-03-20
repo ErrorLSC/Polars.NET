@@ -32,6 +32,7 @@
     <Compile Include="Display.fs" />
     <Compile Include="Delta.fs" />
     <Compile Include="Extensions.fs" />
+    <Compile Include="Config.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -44,8 +45,9 @@
 
   <ItemGroup>
     <PackageReference Include="Apache.Arrow" Version="22.1.0" />
+    <PackageReference Include="Apache.Arrow.Adbc" Version="0.22.0" />
     <PackageReference Include="Microsoft.DotNet.Interactive.Formatting" Version="1.0.0-beta.*" />
-    <PackageReference Include="FSharp.Core" Version="10.0.102" />
+    <PackageReference Include="FSharp.Core" Version="10.0.104" />
   </ItemGroup>
 
 </Project>

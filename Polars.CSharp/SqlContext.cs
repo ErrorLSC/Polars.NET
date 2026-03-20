@@ -21,7 +21,7 @@ namespace Polars.CSharp;
 /// var result = ctx.Execute("SELECT * FROM df WHERE val > 10").Collect();
 /// </code>
 /// </example>
-public class SqlContext : IDisposable
+public class SqlContext : IDisposable,IPolarsSqlContext
 {
     internal SqlContextHandle Handle { get; }
     /// <summary>
@@ -54,6 +54,23 @@ public class SqlContext : IDisposable
         Register(tableName, lf);
     }
 
+    void IPolarsSqlContext.Register(string tableName,IPolarsDataFrame df)
+    {
+        Register(tableName,(DataFrame)df);
+    }
+    void IPolarsSqlContext.Register(string tableName,IPolarsLazyFrame lf)
+    {
+        Register(tableName,(LazyFrame)lf);
+    }
+
+    /// <summary>
+    /// UnRegister a LazyFrame as a table.
+    /// </summary>
+    public void UnRegister(string tableName)
+    {
+        PolarsWrapper.SqlUnRegister(Handle,tableName);
+    }
+
     /// <summary>
     /// Execute a SQL query.
     /// </summary>
@@ -64,11 +81,24 @@ public class SqlContext : IDisposable
         var lfHandle = PolarsWrapper.SqlExecute(Handle, query);
         return new LazyFrame(lfHandle);
     }
+    IPolarsLazyFrame IPolarsSqlContext.Execute(string query)
+    {
+        return Execute(query);
+    }
+    /// <summary>
+    /// Get the names of all registered tables, in sorted order.
+    /// </summary>
+    /// <returns>An array of registered table names.</returns>
+    public string[] GetTables()
+    {
+        return PolarsWrapper.SqlGetTables(Handle);
+    }
     /// <summary>
     /// Dispose the SQL Context and release resources.
     /// </summary>
     public void Dispose()
     {
-        Handle.Dispose();
+        Handle?.Dispose();
+        GC.SuppressFinalize(this); 
     }
 }

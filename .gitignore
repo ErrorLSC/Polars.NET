@@ -5,6 +5,7 @@
 # --- .NET (C# & F#) ---
 **/bin/
 **/obj/
+**/temp_adbc/
 .vs/
 .vscode/
 *.user

@@ -1,98 +1,168 @@
+cpufeatures v0.2.17
+├── blake3 v1.8.3
+│   ├── polars-io v0.53.0
+│   │   ├── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
+│   │   ├── polars v0.53.0
+│   │   │   └── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
+│   │   ├── polars-expr v0.53.0
+│   │   │   ├── polars-lazy v0.53.0
+│   │   │   │   ├── polars v0.53.0 (*)
+│   │   │   │   └── polars-sql v0.53.0
+│   │   │   │       └── polars v0.53.0 (*)
+│   │   │   ├── polars-mem-engine v0.53.0
+│   │   │   │   ├── polars-lazy v0.53.0 (*)
+│   │   │   │   └── polars-stream v0.53.0
+│   │   │   │       └── polars-lazy v0.53.0 (*)
+│   │   │   └── polars-stream v0.53.0 (*)
+│   │   ├── polars-lazy v0.53.0 (*)
+│   │   ├── polars-mem-engine v0.53.0 (*)
+│   │   ├── polars-plan v0.53.0
+│   │   │   ├── polars-expr v0.53.0 (*)
+│   │   │   ├── polars-lazy v0.53.0 (*)
+│   │   │   ├── polars-mem-engine v0.53.0 (*)
+│   │   │   ├── polars-sql v0.53.0 (*)
+│   │   │   └── polars-stream v0.53.0 (*)
+│   │   └── polars-stream v0.53.0 (*)
+│   └── polars-plan v0.53.0 (*)
+├── sha1 v0.10.6
+│   └── aws-config v1.8.15
+│       └── deltalake-aws v0.14.0
+│           └── deltalake v0.31.1
+│               └── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
+└── sha2 v0.10.9
+    └── aws-sigv4 v1.4.2
+        └── aws-runtime v1.7.2
+            ├── aws-config v1.8.15 (*)
+            ├── aws-sdk-dynamodb v1.109.0
+            │   └── deltalake-aws v0.14.0 (*)
+            ├── aws-sdk-sso v1.97.0
+            │   └── aws-config v1.8.15 (*)
+            ├── aws-sdk-ssooidc v1.99.0
+            │   └── aws-config v1.8.15 (*)
+            └── aws-sdk-sts v1.101.0
+                ├── aws-config v1.8.15 (*)
+                └── deltalake-aws v0.14.0 (*)
+    [build-dependencies]
+    └── polars-plan v0.53.0 (*)
+
+cpufeatures v0.3.0
+└── chacha20 v0.10.0
+    └── rand v0.10.0
+        ├── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
+        └── uuid v1.22.0
+            ├── aws-runtime v1.7.2 (*)
+            ├── delta_kernel v0.19.2
+            │   ├── deltalake v0.31.1 (*)
+            │   └── deltalake-core v0.31.1
+            │       ├── deltalake v0.31.1 (*)
+            │       ├── deltalake-aws v0.14.0 (*)
+            │       ├── deltalake-azure v0.14.0
+            │       │   └── deltalake v0.31.1 (*)
+            │       └── deltalake-gcp v0.15.0
+            │           └── deltalake v0.31.1 (*)
+            ├── deltalake-aws v0.14.0 (*)
+            ├── deltalake-core v0.31.1 (*)
+            ├── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
+            ├── polars-core v0.53.0
+            │   ├── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
+            │   ├── polars v0.53.0 (*)
+            │   ├── polars-expr v0.53.0 (*)
+            │   ├── polars-io v0.53.0 (*)
+            │   ├── polars-lazy v0.53.0 (*)
+            │   ├── polars-mem-engine v0.53.0 (*)
+            │   ├── polars-ops v0.53.0
+            │   │   ├── polars v0.53.0 (*)
+            │   │   ├── polars-expr v0.53.0 (*)
+            │   │   ├── polars-lazy v0.53.0 (*)
+            │   │   ├── polars-mem-engine v0.53.0 (*)
+            │   │   ├── polars-plan v0.53.0 (*)
+            │   │   ├── polars-sql v0.53.0 (*)
+            │   │   ├── polars-stream v0.53.0 (*)
+            │   │   └── polars-time v0.53.0
+            │   │       ├── polars v0.53.0 (*)
+            │   │       ├── polars-expr v0.53.0 (*)
+            │   │       ├── polars-io v0.53.0 (*)
+            │   │       ├── polars-lazy v0.53.0 (*)
+            │   │       ├── polars-mem-engine v0.53.0 (*)
+            │   │       ├── polars-plan v0.53.0 (*)
+            │   │       ├── polars-sql v0.53.0 (*)
+            │   │       └── polars-stream v0.53.0 (*)
+            │   ├── polars-plan v0.53.0 (*)
+            │   ├── polars-sql v0.53.0 (*)
+            │   ├── polars-stream v0.53.0 (*)
+            │   └── polars-time v0.53.0 (*)
+            ├── polars-dtype v0.53.0
+            │   ├── polars-core v0.53.0 (*)
+            │   └── polars-row v0.53.0
+            │       ├── polars-core v0.53.0 (*)
+            │       └── polars-expr v0.53.0 (*)
+            └── polars-utils v0.53.0
+                ├── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
+                ├── polars v0.53.0 (*)
+                ├── polars-arrow v0.53.0
+                │   ├── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
+                │   ├── polars v0.53.0 (*)
+                │   ├── polars-compute v0.53.0
+                │   │   ├── polars v0.53.0 (*)
+                │   │   ├── polars-core v0.53.0 (*)
+                │   │   ├── polars-expr v0.53.0 (*)
+                │   │   ├── polars-io v0.53.0 (*)
+                │   │   ├── polars-json v0.53.0
+                │   │   │   ├── polars-expr v0.53.0 (*)
+                │   │   │   ├── polars-io v0.53.0 (*)
+                │   │   │   ├── polars-lazy v0.53.0 (*)
+                │   │   │   ├── polars-mem-engine v0.53.0 (*)
+                │   │   │   ├── polars-ops v0.53.0 (*)
+                │   │   │   ├── polars-plan v0.53.0 (*)
+                │   │   │   └── polars-stream v0.53.0 (*)
+                │   │   ├── polars-lazy v0.53.0 (*)
+                │   │   ├── polars-ops v0.53.0 (*)
+                │   │   ├── polars-parquet v0.53.0
+                │   │   │   ├── polars v0.53.0 (*)
+                │   │   │   ├── polars-io v0.53.0 (*)
+                │   │   │   ├── polars-plan v0.53.0 (*)
+                │   │   │   └── polars-stream v0.53.0 (*)
+                │   │   ├── polars-plan v0.53.0 (*)
+                │   │   ├── polars-row v0.53.0 (*)
+                │   │   ├── polars-stream v0.53.0 (*)
+                │   │   └── polars-time v0.53.0 (*)
+                │   ├── polars-core v0.53.0 (*)
+                │   ├── polars-dtype v0.53.0 (*)
+                │   ├── polars-expr v0.53.0 (*)
+                │   ├── polars-io v0.53.0 (*)
+                │   ├── polars-json v0.53.0 (*)
+                │   ├── polars-lazy v0.53.0 (*)
+                │   ├── polars-mem-engine v0.53.0 (*)
+                │   ├── polars-ops v0.53.0 (*)
+                │   ├── polars-parquet v0.53.0 (*)
+                │   ├── polars-plan v0.53.0 (*)
+                │   ├── polars-row v0.53.0 (*)
+                │   ├── polars-stream v0.53.0 (*)
+                │   └── polars-time v0.53.0 (*)
+                ├── polars-compute v0.53.0 (*)
+                ├── polars-core v0.53.0 (*)
+                ├── polars-dtype v0.53.0 (*)
+                ├── polars-expr v0.53.0 (*)
+                ├── polars-io v0.53.0 (*)
+                ├── polars-json v0.53.0 (*)
+                ├── polars-lazy v0.53.0 (*)
+                ├── polars-mem-engine v0.53.0 (*)
+                ├── polars-ops v0.53.0 (*)
+                ├── polars-parquet v0.53.0 (*)
+                ├── polars-plan v0.53.0 (*)
+                ├── polars-row v0.53.0 (*)
+                ├── polars-schema v0.53.0
+                │   ├── polars-arrow v0.53.0 (*)
+                │   ├── polars-core v0.53.0 (*)
+                │   ├── polars-io v0.53.0 (*)
+                │   └── polars-ops v0.53.0 (*)
+                ├── polars-sql v0.53.0 (*)
+                ├── polars-stream v0.53.0 (*)
+                └── polars-time v0.53.0 (*)
+
 crc v2.1.0
 └── avro-schema v0.3.0
-    ├── polars-arrow v0.53.0
-    │   ├── native_shim v0.3.0 (/home/qinglei/Projects/Polars.NET/native_shim)
-    │   ├── polars v0.53.0
-    │   │   └── native_shim v0.3.0 (/home/qinglei/Projects/Polars.NET/native_shim)
-    │   ├── polars-compute v0.53.0
-    │   │   ├── polars v0.53.0 (*)
-    │   │   ├── polars-core v0.53.0
-    │   │   │   ├── native_shim v0.3.0 (/home/qinglei/Projects/Polars.NET/native_shim)
-    │   │   │   ├── polars v0.53.0 (*)
-    │   │   │   ├── polars-expr v0.53.0
-    │   │   │   │   ├── polars-lazy v0.53.0
-    │   │   │   │   │   ├── polars v0.53.0 (*)
-    │   │   │   │   │   └── polars-sql v0.53.0
-    │   │   │   │   │       └── polars v0.53.0 (*)
-    │   │   │   │   ├── polars-mem-engine v0.53.0
-    │   │   │   │   │   ├── polars-lazy v0.53.0 (*)
-    │   │   │   │   │   └── polars-stream v0.53.0
-    │   │   │   │   │       └── polars-lazy v0.53.0 (*)
-    │   │   │   │   └── polars-stream v0.53.0 (*)
-    │   │   │   ├── polars-io v0.53.0
-    │   │   │   │   ├── native_shim v0.3.0 (/home/qinglei/Projects/Polars.NET/native_shim)
-    │   │   │   │   ├── polars v0.53.0 (*)
-    │   │   │   │   ├── polars-expr v0.53.0 (*)
-    │   │   │   │   ├── polars-lazy v0.53.0 (*)
-    │   │   │   │   ├── polars-mem-engine v0.53.0 (*)
-    │   │   │   │   ├── polars-plan v0.53.0
-    │   │   │   │   │   ├── polars-expr v0.53.0 (*)
-    │   │   │   │   │   ├── polars-lazy v0.53.0 (*)
-    │   │   │   │   │   ├── polars-mem-engine v0.53.0 (*)
-    │   │   │   │   │   ├── polars-sql v0.53.0 (*)
-    │   │   │   │   │   └── polars-stream v0.53.0 (*)
-    │   │   │   │   └── polars-stream v0.53.0 (*)
-    │   │   │   ├── polars-lazy v0.53.0 (*)
-    │   │   │   ├── polars-mem-engine v0.53.0 (*)
-    │   │   │   ├── polars-ops v0.53.0
-    │   │   │   │   ├── polars v0.53.0 (*)
-    │   │   │   │   ├── polars-expr v0.53.0 (*)
-    │   │   │   │   ├── polars-lazy v0.53.0 (*)
-    │   │   │   │   ├── polars-mem-engine v0.53.0 (*)
-    │   │   │   │   ├── polars-plan v0.53.0 (*)
-    │   │   │   │   ├── polars-sql v0.53.0 (*)
-    │   │   │   │   ├── polars-stream v0.53.0 (*)
-    │   │   │   │   └── polars-time v0.53.0
-    │   │   │   │       ├── polars v0.53.0 (*)
-    │   │   │   │       ├── polars-expr v0.53.0 (*)
-    │   │   │   │       ├── polars-io v0.53.0 (*)
-    │   │   │   │       ├── polars-lazy v0.53.0 (*)
-    │   │   │   │       ├── polars-mem-engine v0.53.0 (*)
-    │   │   │   │       ├── polars-plan v0.53.0 (*)
-    │   │   │   │       ├── polars-sql v0.53.0 (*)
-    │   │   │   │       └── polars-stream v0.53.0 (*)
-    │   │   │   ├── polars-plan v0.53.0 (*)
-    │   │   │   ├── polars-sql v0.53.0 (*)
-    │   │   │   ├── polars-stream v0.53.0 (*)
-    │   │   │   └── polars-time v0.53.0 (*)
-    │   │   ├── polars-expr v0.53.0 (*)
-    │   │   ├── polars-io v0.53.0 (*)
-    │   │   ├── polars-json v0.53.0
-    │   │   │   ├── polars-expr v0.53.0 (*)
-    │   │   │   ├── polars-io v0.53.0 (*)
-    │   │   │   ├── polars-lazy v0.53.0 (*)
-    │   │   │   ├── polars-mem-engine v0.53.0 (*)
-    │   │   │   ├── polars-ops v0.53.0 (*)
-    │   │   │   ├── polars-plan v0.53.0 (*)
-    │   │   │   └── polars-stream v0.53.0 (*)
-    │   │   ├── polars-lazy v0.53.0 (*)
-    │   │   ├── polars-ops v0.53.0 (*)
-    │   │   ├── polars-parquet v0.53.0
-    │   │   │   ├── polars v0.53.0 (*)
-    │   │   │   ├── polars-io v0.53.0 (*)
-    │   │   │   ├── polars-plan v0.53.0 (*)
-    │   │   │   └── polars-stream v0.53.0 (*)
-    │   │   ├── polars-plan v0.53.0 (*)
-    │   │   ├── polars-row v0.53.0
-    │   │   │   ├── polars-core v0.53.0 (*)
-    │   │   │   └── polars-expr v0.53.0 (*)
-    │   │   ├── polars-stream v0.53.0 (*)
-    │   │   └── polars-time v0.53.0 (*)
-    │   ├── polars-core v0.53.0 (*)
-    │   ├── polars-dtype v0.53.0
-    │   │   ├── polars-core v0.53.0 (*)
-    │   │   └── polars-row v0.53.0 (*)
-    │   ├── polars-expr v0.53.0 (*)
-    │   ├── polars-io v0.53.0 (*)
-    │   ├── polars-json v0.53.0 (*)
-    │   ├── polars-lazy v0.53.0 (*)
-    │   ├── polars-mem-engine v0.53.0 (*)
-    │   ├── polars-ops v0.53.0 (*)
-    │   ├── polars-parquet v0.53.0 (*)
-    │   ├── polars-plan v0.53.0 (*)
-    │   ├── polars-row v0.53.0 (*)
-    │   ├── polars-stream v0.53.0 (*)
-    │   └── polars-time v0.53.0 (*)
+    ├── polars-arrow v0.53.0 (*)
     └── polars-error v0.53.0
         ├── polars v0.53.0 (*)
         ├── polars-arrow v0.53.0 (*)
@@ -106,47 +176,14 @@ crc v2.1.0
         ├── polars-parquet v0.53.0 (*)
         ├── polars-plan v0.53.0 (*)
         ├── polars-row v0.53.0 (*)
-        ├── polars-schema v0.53.0
-        │   ├── polars-arrow v0.53.0 (*)
-        │   ├── polars-core v0.53.0 (*)
-        │   ├── polars-io v0.53.0 (*)
-        │   └── polars-ops v0.53.0 (*)
+        ├── polars-schema v0.53.0 (*)
         ├── polars-sql v0.53.0 (*)
         ├── polars-stream v0.53.0 (*)
         ├── polars-time v0.53.0 (*)
-        └── polars-utils v0.53.0
-            ├── native_shim v0.3.0 (/home/qinglei/Projects/Polars.NET/native_shim)
-            ├── polars v0.53.0 (*)
-            ├── polars-arrow v0.53.0 (*)
-            ├── polars-compute v0.53.0 (*)
-            ├── polars-core v0.53.0 (*)
-            ├── polars-dtype v0.53.0 (*)
-            ├── polars-expr v0.53.0 (*)
-            ├── polars-io v0.53.0 (*)
-            ├── polars-json v0.53.0 (*)
-            ├── polars-lazy v0.53.0 (*)
-            ├── polars-mem-engine v0.53.0 (*)
-            ├── polars-ops v0.53.0 (*)
-            ├── polars-parquet v0.53.0 (*)
-            ├── polars-plan v0.53.0 (*)
-            ├── polars-row v0.53.0 (*)
-            ├── polars-schema v0.53.0 (*)
-            ├── polars-sql v0.53.0 (*)
-            ├── polars-stream v0.53.0 (*)
-            └── polars-time v0.53.0 (*)
+        └── polars-utils v0.53.0 (*)
 
 crc v3.4.0
-└── delta_kernel v0.19.2
-    ├── deltalake v0.31.0
-    │   └── native_shim v0.3.0 (/home/qinglei/Projects/Polars.NET/native_shim)
-    └── deltalake-core v0.31.0
-        ├── deltalake v0.31.0 (*)
-        ├── deltalake-aws v0.14.0
-        │   └── deltalake v0.31.0 (*)
-        ├── deltalake-azure v0.14.0
-        │   └── deltalake v0.31.0 (*)
-        └── deltalake-gcp v0.15.0
-            └── deltalake v0.31.0 (*)
+└── delta_kernel v0.19.2 (*)
 
 crc-catalog v1.1.1
 └── crc v2.1.0 (*)
@@ -166,34 +203,34 @@ foldhash v0.2.0
 │   ├── arrow-array v57.3.0
 │   │   ├── arrow v57.3.0
 │   │   │   ├── delta_kernel v0.19.2 (*)
-│   │   │   └── deltalake-core v0.31.0 (*)
+│   │   │   └── deltalake-core v0.31.1 (*)
 │   │   ├── arrow-arith v57.3.0
 │   │   │   ├── arrow v57.3.0 (*)
-│   │   │   └── deltalake-core v0.31.0 (*)
+│   │   │   └── deltalake-core v0.31.1 (*)
 │   │   ├── arrow-cast v57.3.0
 │   │   │   ├── arrow v57.3.0 (*)
 │   │   │   ├── arrow-csv v57.3.0
 │   │   │   │   └── arrow v57.3.0 (*)
 │   │   │   ├── arrow-json v57.3.0
 │   │   │   │   ├── arrow v57.3.0 (*)
-│   │   │   │   └── deltalake-core v0.31.0 (*)
-│   │   │   ├── deltalake-core v0.31.0 (*)
+│   │   │   │   └── deltalake-core v0.31.1 (*)
+│   │   │   ├── deltalake-core v0.31.1 (*)
 │   │   │   └── parquet v57.3.0
 │   │   │       ├── delta_kernel v0.19.2 (*)
-│   │   │       └── deltalake-core v0.31.0 (*)
+│   │   │       └── deltalake-core v0.31.1 (*)
 │   │   ├── arrow-csv v57.3.0 (*)
 │   │   ├── arrow-ipc v57.3.0
 │   │   │   ├── arrow v57.3.0 (*)
-│   │   │   ├── deltalake-core v0.31.0 (*)
+│   │   │   ├── deltalake-core v0.31.1 (*)
 │   │   │   └── parquet v57.3.0 (*)
 │   │   ├── arrow-json v57.3.0 (*)
 │   │   ├── arrow-ord v57.3.0
 │   │   │   ├── arrow v57.3.0 (*)
 │   │   │   ├── arrow-cast v57.3.0 (*)
-│   │   │   └── deltalake-core v0.31.0 (*)
+│   │   │   └── deltalake-core v0.31.1 (*)
 │   │   ├── arrow-row v57.3.0
 │   │   │   ├── arrow v57.3.0 (*)
-│   │   │   └── deltalake-core v0.31.0 (*)
+│   │   │   └── deltalake-core v0.31.1 (*)
 │   │   ├── arrow-select v57.3.0
 │   │   │   ├── arrow v57.3.0 (*)
 │   │   │   ├── arrow-cast v57.3.0 (*)
@@ -201,10 +238,10 @@ foldhash v0.2.0
 │   │   │   ├── arrow-ord v57.3.0 (*)
 │   │   │   ├── arrow-string v57.3.0
 │   │   │   │   └── arrow v57.3.0 (*)
-│   │   │   ├── deltalake-core v0.31.0 (*)
+│   │   │   ├── deltalake-core v0.31.1 (*)
 │   │   │   └── parquet v57.3.0 (*)
 │   │   ├── arrow-string v57.3.0 (*)
-│   │   ├── deltalake-core v0.31.0 (*)
+│   │   ├── deltalake-core v0.31.1 (*)
 │   │   └── parquet v57.3.0 (*)
 │   ├── halfbrown v0.4.0
 │   │   ├── simd-json v0.17.0
@@ -215,38 +252,27 @@ foldhash v0.2.0
 │   ├── indexmap v2.13.0
 │   │   ├── arrow-json v57.3.0 (*)
 │   │   ├── delta_kernel v0.19.2 (*)
-│   │   ├── deltalake-core v0.31.0 (*)
+│   │   ├── deltalake-core v0.31.1 (*)
 │   │   ├── h2 v0.4.13
-│   │   │   ├── aws-smithy-http-client v1.1.11
-│   │   │   │   └── aws-smithy-runtime v1.10.2
-│   │   │   │       ├── aws-config v1.8.14
-│   │   │   │       │   └── deltalake-aws v0.14.0 (*)
-│   │   │   │       ├── aws-runtime v1.7.1
-│   │   │   │       │   ├── aws-config v1.8.14 (*)
-│   │   │   │       │   ├── aws-sdk-dynamodb v1.107.0
-│   │   │   │       │   │   └── deltalake-aws v0.14.0 (*)
-│   │   │   │       │   ├── aws-sdk-sso v1.95.0
-│   │   │   │       │   │   └── aws-config v1.8.14 (*)
-│   │   │   │       │   ├── aws-sdk-ssooidc v1.97.0
-│   │   │   │       │   │   └── aws-config v1.8.14 (*)
-│   │   │   │       │   └── aws-sdk-sts v1.99.0
-│   │   │   │       │       ├── aws-config v1.8.14 (*)
-│   │   │   │       │       └── deltalake-aws v0.14.0 (*)
-│   │   │   │       ├── aws-sdk-dynamodb v1.107.0 (*)
-│   │   │   │       ├── aws-sdk-sso v1.95.0 (*)
-│   │   │   │       ├── aws-sdk-ssooidc v1.97.0 (*)
-│   │   │   │       └── aws-sdk-sts v1.99.0 (*)
+│   │   │   ├── aws-smithy-http-client v1.1.12
+│   │   │   │   └── aws-smithy-runtime v1.10.3
+│   │   │   │       ├── aws-config v1.8.15 (*)
+│   │   │   │       ├── aws-runtime v1.7.2 (*)
+│   │   │   │       ├── aws-sdk-dynamodb v1.109.0 (*)
+│   │   │   │       ├── aws-sdk-sso v1.97.0 (*)
+│   │   │   │       ├── aws-sdk-ssooidc v1.99.0 (*)
+│   │   │   │       └── aws-sdk-sts v1.101.0 (*)
 │   │   │   ├── hyper v1.8.1
-│   │   │   │   ├── aws-smithy-http-client v1.1.11 (*)
+│   │   │   │   ├── aws-smithy-http-client v1.1.12 (*)
 │   │   │   │   ├── hyper-rustls v0.27.7
-│   │   │   │   │   ├── aws-smithy-http-client v1.1.11 (*)
+│   │   │   │   │   ├── aws-smithy-http-client v1.1.12 (*)
 │   │   │   │   │   └── reqwest v0.12.28
 │   │   │   │   │       ├── delta_kernel v0.19.2 (*)
 │   │   │   │   │       ├── object_store v0.12.5
 │   │   │   │   │       │   ├── delta_kernel v0.19.2 (*)
 │   │   │   │   │       │   ├── deltalake-aws v0.14.0 (*)
 │   │   │   │   │       │   ├── deltalake-azure v0.14.0 (*)
-│   │   │   │   │       │   ├── deltalake-core v0.31.0 (*)
+│   │   │   │   │       │   ├── deltalake-core v0.31.1 (*)
 │   │   │   │   │       │   ├── deltalake-gcp v0.15.0 (*)
 │   │   │   │   │       │   └── parquet v57.3.0 (*)
 │   │   │   │   │       ├── object_store v0.13.1
@@ -254,7 +280,7 @@ foldhash v0.2.0
 │   │   │   │   │       │   └── polars-io v0.53.0 (*)
 │   │   │   │   │       └── polars-io v0.53.0 (*)
 │   │   │   │   ├── hyper-util v0.1.20
-│   │   │   │   │   ├── aws-smithy-http-client v1.1.11 (*)
+│   │   │   │   │   ├── aws-smithy-http-client v1.1.12 (*)
 │   │   │   │   │   ├── hyper-rustls v0.27.7 (*)
 │   │   │   │   │   └── reqwest v0.12.28 (*)
 │   │   │   │   ├── object_store v0.12.5 (*)
@@ -270,10 +296,10 @@ foldhash v0.2.0
 │   │   │   ├── arrow-json v57.3.0 (*)
 │   │   │   ├── avro-schema v0.3.0 (*)
 │   │   │   ├── delta_kernel v0.19.2 (*)
-│   │   │   ├── deltalake-core v0.31.0 (*)
+│   │   │   ├── deltalake-core v0.31.1 (*)
 │   │   │   ├── jsonpath_lib_polars_vendor v0.0.1
 │   │   │   │   └── polars-ops v0.53.0 (*)
-│   │   │   ├── native_shim v0.3.0 (/home/qinglei/Projects/Polars.NET/native_shim)
+│   │   │   ├── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
 │   │   │   ├── object_store v0.12.5 (*)
 │   │   │   ├── object_store v0.13.1 (*)
 │   │   │   ├── polars-core v0.53.0 (*)
@@ -284,12 +310,12 @@ foldhash v0.2.0
 │   │   │   ├── reqwest v0.12.28 (*)
 │   │   │   ├── simd-json v0.17.0 (*)
 │   │   │   └── validator v0.19.0
-│   │   │       └── deltalake-core v0.31.0 (*)
+│   │   │       └── deltalake-core v0.31.1 (*)
 │   │   └── zip v7.2.0
-│   │       ├── calamine v0.33.0
-│   │       │   └── native_shim v0.3.0 (/home/qinglei/Projects/Polars.NET/native_shim)
-│   │       └── rust_xlsxwriter v0.93.0
-│   │           └── native_shim v0.3.0 (/home/qinglei/Projects/Polars.NET/native_shim)
+│   │       ├── calamine v0.34.0
+│   │       │   └── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
+│   │       └── rust_xlsxwriter v0.94.0
+│   │           └── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
 │   ├── parquet v57.3.0 (*)
 │   ├── polars-arrow v0.53.0 (*)
 │   ├── polars-compute v0.53.0 (*)
@@ -307,19 +333,18 @@ foldhash v0.2.0
 getrandom v0.2.17
 ├── rand_core v0.6.4
 │   ├── rand v0.8.5
-│   │   └── deltalake-core v0.31.0 (*)
+│   │   └── deltalake-core v0.31.1 (*)
 │   └── rand_chacha v0.3.1
 │       └── rand v0.8.5 (*)
 └── ring v0.17.14
-    ├── aws-config v1.8.14 (*)
     ├── object_store v0.12.5 (*)
     ├── object_store v0.13.1 (*)
     ├── rustls v0.23.37
-    │   ├── aws-smithy-http-client v1.1.11 (*)
+    │   ├── aws-smithy-http-client v1.1.12 (*)
     │   ├── hyper-rustls v0.27.7 (*)
     │   ├── reqwest v0.12.28 (*)
     │   └── tokio-rustls v0.26.4
-    │       ├── aws-smithy-http-client v1.1.11 (*)
+    │       ├── aws-smithy-http-client v1.1.12 (*)
     │       ├── hyper-rustls v0.27.7 (*)
     │       └── reqwest v0.12.28 (*)
     └── rustls-webpki v0.103.9
@@ -334,7 +359,6 @@ getrandom v0.3.4
 ├── polars-core v0.53.0 (*)
 └── rand_core v0.9.5
     ├── rand v0.9.2
-    │   ├── native_shim v0.3.0 (/home/qinglei/Projects/Polars.NET/native_shim)
     │   ├── object_store v0.12.5 (*)
     │   ├── object_store v0.13.1 (*)
     │   ├── polars-compute v0.53.0 (*)
@@ -343,132 +367,123 @@ getrandom v0.3.4
     │   ├── polars-ops v0.53.0 (*)
     │   ├── polars-stream v0.53.0 (*)
     │   ├── polars-utils v0.53.0 (*)
-    │   ├── rand_distr v0.5.1
-    │   │   ├── polars-core v0.53.0 (*)
-    │   │   └── polars-ops v0.53.0 (*)
-    │   └── uuid v1.21.0
-    │       ├── aws-runtime v1.7.1 (*)
-    │       ├── delta_kernel v0.19.2 (*)
-    │       ├── deltalake-aws v0.14.0 (*)
-    │       ├── deltalake-core v0.31.0 (*)
-    │       ├── native_shim v0.3.0 (/home/qinglei/Projects/Polars.NET/native_shim)
+    │   └── rand_distr v0.5.1
     │       ├── polars-core v0.53.0 (*)
-    │       ├── polars-dtype v0.53.0 (*)
-    │       └── polars-utils v0.53.0 (*)
+    │       └── polars-ops v0.53.0 (*)
     └── rand_chacha v0.9.0
         └── rand v0.9.2 (*)
 
-getrandom v0.4.1
-└── uuid v1.21.0 (*)
+getrandom v0.4.2
+├── rand v0.10.0 (*)
+└── uuid v1.22.0 (*)
 
 hashbrown v0.14.5
 └── dashmap v6.1.0
-    └── deltalake-core v0.31.0 (*)
+    └── deltalake-core v0.31.1 (*)
 
 hashbrown v0.15.5 (*)
 
 hashbrown v0.16.1 (*)
 
 http v0.2.12
-├── aws-sdk-dynamodb v1.107.0 (*)
-├── aws-sdk-sso v1.95.0 (*)
-├── aws-sdk-ssooidc v1.97.0 (*)
-├── aws-sdk-sts v1.99.0 (*)
-├── aws-sigv4 v1.4.1
-│   └── aws-runtime v1.7.1 (*)
-├── aws-smithy-runtime v1.10.2 (*)
-├── aws-smithy-runtime-api v1.11.5
-│   ├── aws-config v1.8.14 (*)
-│   ├── aws-credential-types v1.2.13
-│   │   ├── aws-config v1.8.14 (*)
-│   │   ├── aws-runtime v1.7.1 (*)
-│   │   ├── aws-sdk-dynamodb v1.107.0 (*)
-│   │   ├── aws-sdk-sso v1.95.0 (*)
-│   │   ├── aws-sdk-ssooidc v1.97.0 (*)
-│   │   ├── aws-sdk-sts v1.99.0 (*)
-│   │   ├── aws-sigv4 v1.4.1 (*)
-│   │   ├── aws-types v1.3.13
-│   │   │   ├── aws-config v1.8.14 (*)
-│   │   │   ├── aws-runtime v1.7.1 (*)
-│   │   │   ├── aws-sdk-dynamodb v1.107.0 (*)
-│   │   │   ├── aws-sdk-sso v1.95.0 (*)
-│   │   │   ├── aws-sdk-ssooidc v1.97.0 (*)
-│   │   │   └── aws-sdk-sts v1.99.0 (*)
+├── aws-sdk-dynamodb v1.109.0 (*)
+├── aws-sdk-sso v1.97.0 (*)
+├── aws-sdk-ssooidc v1.99.0 (*)
+├── aws-sdk-sts v1.101.0 (*)
+├── aws-sigv4 v1.4.2 (*)
+├── aws-smithy-runtime v1.10.3 (*)
+├── aws-smithy-runtime-api v1.11.6
+│   ├── aws-config v1.8.15 (*)
+│   ├── aws-credential-types v1.2.14
+│   │   ├── aws-config v1.8.15 (*)
+│   │   ├── aws-runtime v1.7.2 (*)
+│   │   ├── aws-sdk-dynamodb v1.109.0 (*)
+│   │   ├── aws-sdk-sso v1.97.0 (*)
+│   │   ├── aws-sdk-ssooidc v1.99.0 (*)
+│   │   ├── aws-sdk-sts v1.101.0 (*)
+│   │   ├── aws-sigv4 v1.4.2 (*)
+│   │   ├── aws-types v1.3.14
+│   │   │   ├── aws-config v1.8.15 (*)
+│   │   │   ├── aws-runtime v1.7.2 (*)
+│   │   │   ├── aws-sdk-dynamodb v1.109.0 (*)
+│   │   │   ├── aws-sdk-sso v1.97.0 (*)
+│   │   │   ├── aws-sdk-ssooidc v1.99.0 (*)
+│   │   │   └── aws-sdk-sts v1.101.0 (*)
 │   │   └── deltalake-aws v0.14.0 (*)
-│   ├── aws-runtime v1.7.1 (*)
-│   ├── aws-sdk-dynamodb v1.107.0 (*)
-│   ├── aws-sdk-sso v1.95.0 (*)
-│   ├── aws-sdk-ssooidc v1.97.0 (*)
-│   ├── aws-sdk-sts v1.99.0 (*)
-│   ├── aws-sigv4 v1.4.1 (*)
-│   ├── aws-smithy-http v0.63.5
-│   │   ├── aws-config v1.8.14 (*)
-│   │   ├── aws-runtime v1.7.1 (*)
-│   │   ├── aws-sdk-dynamodb v1.107.0 (*)
-│   │   ├── aws-sdk-sso v1.95.0 (*)
-│   │   ├── aws-sdk-ssooidc v1.97.0 (*)
-│   │   ├── aws-sdk-sts v1.99.0 (*)
-│   │   ├── aws-sigv4 v1.4.1 (*)
-│   │   └── aws-smithy-runtime v1.10.2 (*)
-│   ├── aws-smithy-http-client v1.1.11 (*)
-│   ├── aws-smithy-observability v0.2.5
-│   │   ├── aws-sdk-dynamodb v1.107.0 (*)
-│   │   ├── aws-sdk-sso v1.95.0 (*)
-│   │   ├── aws-sdk-ssooidc v1.97.0 (*)
-│   │   ├── aws-sdk-sts v1.99.0 (*)
-│   │   └── aws-smithy-runtime v1.10.2 (*)
-│   ├── aws-smithy-runtime v1.10.2 (*)
-│   ├── aws-types v1.3.13 (*)
+│   ├── aws-runtime v1.7.2 (*)
+│   ├── aws-sdk-dynamodb v1.109.0 (*)
+│   ├── aws-sdk-sso v1.97.0 (*)
+│   ├── aws-sdk-ssooidc v1.99.0 (*)
+│   ├── aws-sdk-sts v1.101.0 (*)
+│   ├── aws-sigv4 v1.4.2 (*)
+│   ├── aws-smithy-http v0.63.6
+│   │   ├── aws-config v1.8.15 (*)
+│   │   ├── aws-runtime v1.7.2 (*)
+│   │   ├── aws-sdk-dynamodb v1.109.0 (*)
+│   │   ├── aws-sdk-sso v1.97.0 (*)
+│   │   ├── aws-sdk-ssooidc v1.99.0 (*)
+│   │   ├── aws-sdk-sts v1.101.0 (*)
+│   │   ├── aws-sigv4 v1.4.2 (*)
+│   │   └── aws-smithy-runtime v1.10.3 (*)
+│   ├── aws-smithy-http-client v1.1.12 (*)
+│   ├── aws-smithy-observability v0.2.6
+│   │   ├── aws-sdk-dynamodb v1.109.0 (*)
+│   │   ├── aws-sdk-sso v1.97.0 (*)
+│   │   ├── aws-sdk-ssooidc v1.99.0 (*)
+│   │   ├── aws-sdk-sts v1.101.0 (*)
+│   │   └── aws-smithy-runtime v1.10.3 (*)
+│   ├── aws-smithy-runtime v1.10.3 (*)
+│   ├── aws-types v1.3.14 (*)
 │   └── deltalake-aws v0.14.0 (*)
-├── aws-smithy-types v1.4.5
-│   ├── aws-config v1.8.14 (*)
-│   ├── aws-credential-types v1.2.13 (*)
-│   ├── aws-runtime v1.7.1 (*)
-│   ├── aws-sdk-dynamodb v1.107.0 (*)
-│   ├── aws-sdk-sso v1.95.0 (*)
-│   ├── aws-sdk-ssooidc v1.97.0 (*)
-│   ├── aws-sdk-sts v1.99.0 (*)
-│   ├── aws-sigv4 v1.4.1 (*)
-│   ├── aws-smithy-http v0.63.5 (*)
-│   ├── aws-smithy-http-client v1.1.11 (*)
-│   ├── aws-smithy-json v0.62.4
-│   │   ├── aws-config v1.8.14 (*)
-│   │   ├── aws-sdk-dynamodb v1.107.0 (*)
-│   │   ├── aws-sdk-sso v1.95.0 (*)
-│   │   ├── aws-sdk-ssooidc v1.97.0 (*)
-│   │   └── aws-sdk-sts v1.99.0 (*)
-│   ├── aws-smithy-query v0.60.14
-│   │   └── aws-sdk-sts v1.99.0 (*)
-│   ├── aws-smithy-runtime v1.10.2 (*)
-│   ├── aws-smithy-runtime-api v1.11.5 (*)
-│   └── aws-types v1.3.13 (*)
+├── aws-smithy-types v1.4.7
+│   ├── aws-config v1.8.15 (*)
+│   ├── aws-credential-types v1.2.14 (*)
+│   ├── aws-runtime v1.7.2 (*)
+│   ├── aws-sdk-dynamodb v1.109.0 (*)
+│   ├── aws-sdk-sso v1.97.0 (*)
+│   ├── aws-sdk-ssooidc v1.99.0 (*)
+│   ├── aws-sdk-sts v1.101.0 (*)
+│   ├── aws-sigv4 v1.4.2 (*)
+│   ├── aws-smithy-http v0.63.6 (*)
+│   ├── aws-smithy-http-client v1.1.12 (*)
+│   ├── aws-smithy-json v0.62.5
+│   │   ├── aws-config v1.8.15 (*)
+│   │   ├── aws-sdk-dynamodb v1.109.0 (*)
+│   │   ├── aws-sdk-sso v1.97.0 (*)
+│   │   ├── aws-sdk-ssooidc v1.99.0 (*)
+│   │   └── aws-sdk-sts v1.101.0 (*)
+│   ├── aws-smithy-query v0.60.15
+│   │   └── aws-sdk-sts v1.101.0 (*)
+│   ├── aws-smithy-runtime v1.10.3 (*)
+│   ├── aws-smithy-runtime-api v1.11.6 (*)
+│   └── aws-types v1.3.14 (*)
 └── http-body v0.4.6
-    ├── aws-smithy-runtime v1.10.2 (*)
-    └── aws-smithy-types v1.4.5 (*)
+    ├── aws-smithy-runtime v1.10.3 (*)
+    └── aws-smithy-types v1.4.7 (*)
 
 http v1.4.0
-├── aws-config v1.8.14 (*)
-├── aws-runtime v1.7.1 (*)
-├── aws-sdk-dynamodb v1.107.0 (*)
-├── aws-sdk-sso v1.95.0 (*)
-├── aws-sdk-ssooidc v1.97.0 (*)
-├── aws-sdk-sts v1.99.0 (*)
-├── aws-sigv4 v1.4.1 (*)
-├── aws-smithy-http v0.63.5 (*)
-├── aws-smithy-http-client v1.1.11 (*)
-├── aws-smithy-runtime v1.10.2 (*)
-├── aws-smithy-runtime-api v1.11.5 (*)
-├── aws-smithy-types v1.4.5 (*)
+├── aws-config v1.8.15 (*)
+├── aws-runtime v1.7.2 (*)
+├── aws-sdk-dynamodb v1.109.0 (*)
+├── aws-sdk-sso v1.97.0 (*)
+├── aws-sdk-ssooidc v1.99.0 (*)
+├── aws-sdk-sts v1.101.0 (*)
+├── aws-sigv4 v1.4.2 (*)
+├── aws-smithy-http v0.63.6 (*)
+├── aws-smithy-http-client v1.1.12 (*)
+├── aws-smithy-runtime v1.10.3 (*)
+├── aws-smithy-runtime-api v1.11.6 (*)
+├── aws-smithy-types v1.4.7 (*)
 ├── h2 v0.4.13 (*)
 ├── http-body v1.0.1
-│   ├── aws-runtime v1.7.1 (*)
-│   ├── aws-smithy-http v0.63.5 (*)
-│   ├── aws-smithy-runtime v1.10.2 (*)
-│   ├── aws-smithy-types v1.4.5 (*)
+│   ├── aws-runtime v1.7.2 (*)
+│   ├── aws-smithy-http v0.63.6 (*)
+│   ├── aws-smithy-runtime v1.10.3 (*)
+│   ├── aws-smithy-types v1.4.7 (*)
 │   ├── http-body-util v0.1.3
-│   │   ├── aws-smithy-http v0.63.5 (*)
-│   │   ├── aws-smithy-runtime v1.10.2 (*)
-│   │   ├── aws-smithy-types v1.4.5 (*)
+│   │   ├── aws-smithy-http v0.63.6 (*)
+│   │   ├── aws-smithy-runtime v1.10.3 (*)
+│   │   ├── aws-smithy-types v1.4.7 (*)
 │   │   ├── object_store v0.12.5 (*)
 │   │   ├── object_store v0.13.1 (*)
 │   │   └── reqwest v0.12.28 (*)
@@ -496,7 +511,7 @@ memchr v2.8.0
 │   │   ├── arrow-csv v57.3.0 (*)
 │   │   ├── arrow-string v57.3.0 (*)
 │   │   ├── deltalake-aws v0.14.0 (*)
-│   │   ├── deltalake-core v0.31.0 (*)
+│   │   ├── deltalake-core v0.31.1 (*)
 │   │   ├── polars-core v0.53.0 (*)
 │   │   ├── polars-error v0.53.0 (*)
 │   │   ├── polars-expr v0.53.0 (*)
@@ -517,25 +532,25 @@ memchr v2.8.0
 │   └── csv v1.4.0
 │       └── arrow-csv v57.3.0 (*)
 ├── futures-util v0.3.32
-│   ├── aws-smithy-async v1.2.13
-│   │   ├── aws-config v1.8.14 (*)
-│   │   ├── aws-credential-types v1.2.13 (*)
-│   │   ├── aws-runtime v1.7.1 (*)
-│   │   ├── aws-sdk-dynamodb v1.107.0 (*)
-│   │   ├── aws-sdk-sso v1.95.0 (*)
-│   │   ├── aws-sdk-ssooidc v1.97.0 (*)
-│   │   ├── aws-sdk-sts v1.99.0 (*)
-│   │   ├── aws-smithy-http-client v1.1.11 (*)
-│   │   ├── aws-smithy-runtime v1.10.2 (*)
-│   │   ├── aws-smithy-runtime-api v1.11.5 (*)
-│   │   └── aws-types v1.3.13 (*)
-│   ├── aws-smithy-http v0.63.5 (*)
+│   ├── aws-smithy-async v1.2.14
+│   │   ├── aws-config v1.8.15 (*)
+│   │   ├── aws-credential-types v1.2.14 (*)
+│   │   ├── aws-runtime v1.7.2 (*)
+│   │   ├── aws-sdk-dynamodb v1.109.0 (*)
+│   │   ├── aws-sdk-sso v1.97.0 (*)
+│   │   ├── aws-sdk-ssooidc v1.99.0 (*)
+│   │   ├── aws-sdk-sts v1.101.0 (*)
+│   │   ├── aws-smithy-http-client v1.1.12 (*)
+│   │   ├── aws-smithy-runtime v1.10.3 (*)
+│   │   ├── aws-smithy-runtime-api v1.11.6 (*)
+│   │   └── aws-types v1.3.14 (*)
+│   ├── aws-smithy-http v0.63.6 (*)
 │   ├── futures v0.3.32
 │   │   ├── delta_kernel v0.19.2 (*)
 │   │   ├── deltalake-aws v0.14.0 (*)
-│   │   ├── deltalake-core v0.31.0 (*)
+│   │   ├── deltalake-core v0.31.1 (*)
 │   │   ├── deltalake-gcp v0.15.0 (*)
-│   │   ├── native_shim v0.3.0 (/home/qinglei/Projects/Polars.NET/native_shim)
+│   │   ├── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
 │   │   ├── object_store v0.12.5 (*)
 │   │   ├── object_store v0.13.1 (*)
 │   │   ├── parquet v57.3.0 (*)
@@ -551,7 +566,7 @@ memchr v2.8.0
 │   ├── hyper-util v0.1.20 (*)
 │   ├── reqwest v0.12.28 (*)
 │   ├── tower v0.5.3
-│   │   ├── aws-smithy-http-client v1.1.11 (*)
+│   │   ├── aws-smithy-http-client v1.1.12 (*)
 │   │   ├── reqwest v0.12.28 (*)
 │   │   └── tower-http v0.6.8 (*)
 │   └── tower-http v0.6.8 (*)
@@ -560,9 +575,10 @@ memchr v2.8.0
 ├── polars-ops v0.53.0 (*)
 ├── polars-stream v0.53.0 (*)
 ├── quick-xml v0.38.4
-│   ├── calamine v0.33.0 (*)
 │   ├── object_store v0.12.5 (*)
 │   └── object_store v0.13.1 (*)
+├── quick-xml v0.39.2
+│   └── calamine v0.34.0 (*)
 ├── regex v1.12.3 (*)
 ├── regex-automata v0.4.14 (*)
 ├── serde_json v1.0.149 (*)
@@ -581,7 +597,7 @@ memchr v2.8.0
                 │   ├── polars-plan v0.53.0 (*)
                 │   ├── polars-stream v0.53.0 (*)
                 │   ├── sqlparser v0.59.0
-                │   │   └── deltalake-core v0.31.0 (*)
+                │   │   └── deltalake-core v0.31.1 (*)
                 │   └── sqlparser v0.60.0
                 │       └── polars-sql v0.53.0 (*)
                 └── serde_stacker v0.1.14
@@ -591,9 +607,15 @@ object_store v0.12.5 (*)
 
 object_store v0.13.1 (*)
 
+quick-xml v0.38.4 (*)
+
+quick-xml v0.39.2 (*)
+
 rand v0.8.5 (*)
 
 rand v0.9.2 (*)
+
+rand v0.10.0 (*)
 
 rand_chacha v0.3.1 (*)
 
@@ -602,6 +624,11 @@ rand_chacha v0.9.0 (*)
 rand_core v0.6.4 (*)
 
 rand_core v0.9.5 (*)
+
+rand_core v0.10.0
+├── chacha20 v0.10.0 (*)
+├── getrandom v0.4.2 (*)
+└── rand v0.10.0 (*)
 
 sqlparser v0.59.0 (*)
 

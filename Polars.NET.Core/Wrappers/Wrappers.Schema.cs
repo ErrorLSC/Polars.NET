@@ -1,4 +1,7 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
+using Apache.Arrow.Types;
+using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
@@ -10,7 +13,7 @@ public static partial class PolarsWrapper
     /// </summary>
     public static SchemaHandle SchemaCreate()
     {
-        return NewSchema(Array.Empty<string>(), Array.Empty<DataTypeHandle>());
+        return NewSchema([], []);
     }
 
     /// <summary>
@@ -63,5 +66,93 @@ public static partial class PolarsWrapper
         );
 
         ErrorHelper.CheckVoid(); 
+    }
+    /// <summary>
+    /// Create a SchemaHandle directly from a .NET Type by leveraging Apache Arrow Type resolution.
+    /// </summary>
+    public static SchemaHandle NewSchemaFromType(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
+        Type type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+
+        var members = ArrowTypeResolver.GetReadableMembers(type);
+        
+        var names = new string[members.Length];
+        var typeHandles = new DataTypeHandle[members.Length];
+
+        for (int i = 0; i < members.Length; i++)
+        {
+            var member = members[i];
+            names[i] = member.Name;
+            
+            var memberType = ArrowTypeResolver.GetMemberType(member);
+            var arrowType = ArrowTypeResolver.GetArrowTypeFromNetType(memberType);
+            
+            typeHandles[i] = MapArrowToDataTypeHandle(arrowType);
+        }
+
+        return NewSchema(names, typeHandles);
+    }
+
+    /// <summary>
+    /// Maps an Apache Arrow IArrowType directly to a native Polars DataTypeHandle.
+    /// </summary>
+    private static DataTypeHandle MapArrowToDataTypeHandle(IArrowType arrowType)
+    {
+        return arrowType switch
+        {
+            BooleanType => NewPrimitiveType((int)PlDataType.Boolean),
+            Int8Type => NewPrimitiveType((int)PlDataType.Int8),
+            Int16Type => NewPrimitiveType((int)PlDataType.Int16),
+            Int32Type => NewPrimitiveType((int)PlDataType.Int32),
+            Int64Type => NewPrimitiveType((int)PlDataType.Int64),
+            UInt8Type => NewPrimitiveType((int)PlDataType.UInt8),
+            UInt16Type => NewPrimitiveType((int)PlDataType.UInt16),
+            UInt32Type => NewPrimitiveType((int)PlDataType.UInt32),
+            UInt64Type => NewPrimitiveType((int)PlDataType.UInt64),
+            HalfFloatType => NewPrimitiveType((int)PlDataType.Float16),
+            FloatType => NewPrimitiveType((int)PlDataType.Float32),
+            DoubleType => NewPrimitiveType((int)PlDataType.Float64),
+            Decimal128Type d128 => NewDecimalType(d128.Precision, d128.Scale),
+            Decimal256Type d256 => NewDecimalType(d256.Precision, d256.Scale),
+            // String & Binary
+            StringType or StringViewType or LargeStringType => NewPrimitiveType((int)PlDataType.String),
+            BinaryType or BinaryViewType or LargeBinaryType or FixedSizeBinaryType => NewPrimitiveType((int)PlDataType.Binary),
+            
+            
+            // Date & Time
+            Date32Type or Date64Type => NewPrimitiveType((int)PlDataType.Date),
+            Time32Type or Time64Type => NewPrimitiveType((int)PlDataType.Time),
+            
+            TimestampType ts => NewDateTimeType(
+                (byte)(ts.Unit switch
+                {
+                    TimeUnit.Nanosecond => 0,   // ns
+                    TimeUnit.Microsecond => 1,  // us
+                    TimeUnit.Millisecond => 2,  // ms
+                    _ => 1
+                }), ts.Timezone),
+                
+            DurationType dur => NewDurationType(
+                (byte)(dur.Unit switch
+                {
+                    TimeUnit.Nanosecond => 0,
+                    TimeUnit.Microsecond => 1,
+                    TimeUnit.Millisecond => 2,
+                    _ => 1
+                })),
+                
+            ListType list => NewListType(MapArrowToDataTypeHandle(list.ValueDataType)),
+            LargeListType lList => NewListType(MapArrowToDataTypeHandle(lList.ValueDataType)),
+            FixedSizeListType fList => NewArrayType(MapArrowToDataTypeHandle(fList.ValueDataType), (uint)fList.ListSize),
+            
+            StructType str => NewStructType(
+                [.. str.Fields.Select(f => f.Name)],
+                [.. str.Fields.Select(f => MapArrowToDataTypeHandle(f.DataType))]),
+                
+            NullType => NewPrimitiveType((int)PlDataType.Null),
+            _ => NewPrimitiveType((int)PlDataType.Unknown)
+        };
     }
 }

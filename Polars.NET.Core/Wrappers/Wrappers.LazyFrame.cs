@@ -404,10 +404,11 @@ public static partial class PolarsWrapper
         lf.TransferOwnership();
         return ErrorHelper.Check(df);
     }
-    public static Task<DataFrameHandle> LazyCollectAsync(LazyFrameHandle handle,bool useStreaming)
-    {        
-        return Task.Run(() => LazyCollect(handle,useStreaming));
-    }
+    public static Task<DataFrameHandle> LazyCollectAsync(
+        LazyFrameHandle handle, 
+        bool useStreaming, 
+        CancellationToken cancellationToken) 
+            => Task.Run(() => LazyCollect(handle, useStreaming), cancellationToken);
     // --- Clone Ops ---
     public static LazyFrameHandle LazyClone(LazyFrameHandle lf)
         => ErrorHelper.Check(NativeBindings.pl_lazy_clone(lf));

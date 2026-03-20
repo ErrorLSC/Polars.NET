@@ -15,7 +15,7 @@ namespace Polars.CSharp;
 /// Until the query is executed, operations are just recorded in a query plan.
 /// Once executed, the data is materialized in memory.
 /// </summary>
-public class LazyFrame : IDisposable
+public class LazyFrame : IDisposable,IPolarsLazyFrame
 {
     internal LazyFrameHandle Handle { get; }
 
@@ -35,7 +35,8 @@ public class LazyFrame : IDisposable
     /// </para>
     /// </summary>
     /// <param name="path">Path to the CSV file.</param>
-    /// <param name="schema">Optional PolarsSchema to specify column types or overwrite inference.</param>
+    /// <param name="schema">Optional PolarsSchema to specify all column names and types.</param>
+    /// <param name="dtypeOverride">Optional PolarsSchema to specify column types or overwrite inference.</param>
     /// <param name="hasHeader">Whether the CSV file has a header row. Defaults to true.</param>
     /// <param name="separator">The character used as a field separator. Defaults to ','.</param>
     /// <param name="quoteChar">The character used for quoting fields. Defaults to '"'. Set to '\0' to disable quoting.</param>
@@ -68,6 +69,7 @@ public class LazyFrame : IDisposable
     public static LazyFrame ScanCsv(
         string path,
         PolarsSchema? schema = null,
+        PolarsSchema? dtypeOverride = null,
         bool hasHeader = true,
         char separator = ',',
         char? quoteChar = '"',           
@@ -103,6 +105,7 @@ public class LazyFrame : IDisposable
         var handle = PolarsWrapper.ScanCsv(
             path,
             schema?.Handle,
+            dtypeOverride?.Handle,
             hasHeader,
             separator,
             quoteChar,
@@ -150,7 +153,8 @@ public class LazyFrame : IDisposable
     /// </para>
     /// </summary>
     /// <param name="buffer">The byte array containing CSV data.</param>
-    /// <param name="schema">Optional PolarsSchema to specify column types or overwrite inference.</param>
+    /// <param name="schema">Optional PolarsSchema to specify all column names and types.</param>
+    /// <param name="dtypeOverride">Optional PolarsSchema to specify column types or overwrite inference.</param>
     /// <param name="hasHeader">Whether the CSV data has a header row. Defaults to true.</param>
     /// <param name="separator">The character used as a field separator. Defaults to ','.</param>
     /// <param name="quoteChar">The character used for quoting fields. Defaults to '"'. Set to '\0' to disable.</param>
@@ -182,6 +186,7 @@ public class LazyFrame : IDisposable
     public static LazyFrame ScanCsv(
         byte[] buffer,
         PolarsSchema? schema = null,
+        PolarsSchema? dtypeOverride = null,
         bool hasHeader = true,
         char separator = ',',
         char? quoteChar = '"',          
@@ -213,6 +218,7 @@ public class LazyFrame : IDisposable
         var handle = PolarsWrapper.ScanCsv(
             buffer,
             schema?.Handle,
+            dtypeOverride?.Handle,
             hasHeader,
             separator,
             quoteChar,
@@ -696,7 +702,7 @@ public class LazyFrame : IDisposable
         {
             bool hasYielded = false;
 
-            foreach (var batch in data.ToArrowBatches(batchSize))
+            foreach (var batch in data.ToArrowBatches(batchSize).Prefetch())
             {
                 hasYielded = true;
                 yield return batch;
@@ -720,16 +726,16 @@ public class LazyFrame : IDisposable
     /// Scan RecordBatch Stream
     /// If schema is provied, first batch won't be consumed for getting schema.
     /// </summary>
-    public static LazyFrame ScanRecordBatches(IEnumerable<RecordBatch> stream, Apache.Arrow.Schema schema)
-        {
-            if (schema == null) throw new ArgumentNullException(nameof(schema));
+    public static LazyFrame ScanRecordBatches(IEnumerable<RecordBatch> stream, Schema schema)
+    {
+        if (schema == null) throw new ArgumentNullException(nameof(schema));
 
-            var handle = ArrowStreamInterop.ScanStream(
-                () => EnsureStreamSafety(stream),
-                schema
-            );
-            return new LazyFrame(handle);
-        }
+        var handle = ArrowStreamInterop.ScanStream(
+            () => EnsureStreamSafety(stream),
+            schema
+        );
+        return new LazyFrame(handle);
+    }
     /// <summary>
     /// Scan Database to LazyFrame
     /// </summary>
@@ -740,7 +746,7 @@ public class LazyFrame : IDisposable
     {
         var schema = reader.GetArrowSchema();
         
-        var stream = reader.ToArrowBatches(batchSize);
+        var stream = reader.ToArrowBatches(batchSize).Prefetch();
 
         return ScanRecordBatches(stream, schema);
     }
@@ -802,28 +808,33 @@ public class LazyFrame : IDisposable
     /// </code>
     /// </example>
     public static LazyFrame ScanDatabase(Func<IDataReader> readerFactory, int batchSize = 50_000)
+    {
+        Schema schema;
+        // Probe schema
+        using (var probe = readerFactory())
         {
-            Apache.Arrow.Schema schema;
-            // Probe schema
-            using (var probe = readerFactory())
-            {
-                schema = probe.GetArrowSchema();
-            }
-
-            // Replayable stream
-            IEnumerable<RecordBatch> StreamFactory()
-            {
-                using var reader = readerFactory();
-                foreach (var batch in reader.ToArrowBatches(batchSize))
-                    yield return batch;
-            }
-
-            var handle = ArrowStreamInterop.ScanStream(
-                () => EnsureStreamSafety(StreamFactory()),
-                schema
-            );
-            return new LazyFrame(handle);
+            schema = probe.GetArrowSchema();
         }
+
+        // Replayable stream
+        IEnumerable<RecordBatch> StreamFactory()
+        {
+            using var reader = readerFactory();
+            // Get stream
+            var stream = reader.ToArrowBatches(batchSize);
+            
+            stream = stream.Prefetch();
+
+            foreach (var batch in stream) 
+                yield return batch;
+        }
+
+        var handle = ArrowStreamInterop.ScanStream(
+            () => EnsureStreamSafety(StreamFactory()),
+            schema
+        );
+        return new LazyFrame(handle);
+    }
     /// <summary>
     /// A LazyFrame with resource scope which needs to be disposed.
     /// </summary>
@@ -860,6 +871,7 @@ public class LazyFrame : IDisposable
         
         return new ScopedLazyFrame(handle, scope);
     }
+
     /// -----------------------------------
     /// Delta Lake
     /// -----------------------------------
@@ -932,6 +944,7 @@ public class LazyFrame : IDisposable
 
         return new LazyFrame(h);
     }
+   
     /// <summary>
     /// Sink the LazyFrame to a Delta Lake table with partition discovery.
     /// <para>
@@ -1208,7 +1221,7 @@ public class LazyFrame : IDisposable
             return new PolarsSchema(handle);
         }
     }
-
+    IPolarsSchema IPolarsLazyFrame.Schema => this.Schema;
     /// <summary>
     /// Prints the schema to the console.
     /// </summary>
@@ -2329,6 +2342,11 @@ public class LazyFrame : IDisposable
     public DataFrame Collect(bool useStreaming=false)
         => new(PolarsWrapper.LazyCollect(Handle,useStreaming));
 
+    IPolarsDataFrame IPolarsLazyFrame.Collect(bool useStreaming)
+    {
+        return this.Collect(useStreaming);
+    }
+
     /// <summary>
     /// Execute the query plan using the streaming engine.
     /// </summary>
@@ -2337,11 +2355,18 @@ public class LazyFrame : IDisposable
     /// <summary>
     /// Execute the query plan asynchronously and return a DataFrame.
     /// </summary>
-    public async Task<DataFrame> CollectAsync(bool useStreaming=false)
+    public async Task<DataFrame> CollectAsync(bool useStreaming = false, CancellationToken cancellationToken = default)
     {
-        var dfHandle = await PolarsWrapper.LazyCollectAsync(Handle,useStreaming);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var dfHandle = await PolarsWrapper.LazyCollectAsync(Handle, useStreaming, cancellationToken)
+                                          .ConfigureAwait(false);
+
         return new DataFrame(dfHandle);
     }
+
+    async Task<IPolarsDataFrame> IPolarsLazyFrame.CollectAsync(bool useStreaming, CancellationToken cancellationToken)
+        => await CollectAsync(useStreaming, cancellationToken).ConfigureAwait(false);
     // ==========================================
     // Output Sink (IO)
     // ==========================================
@@ -3147,5 +3172,9 @@ public class LazyFrame : IDisposable
     /// <summary>
     /// Dispose the LazyFrame and release native resources.
     /// </summary>
-    public void Dispose() => Handle?.Dispose();
+    public void Dispose()
+    {
+        Handle?.Dispose();
+        GC.SuppressFinalize(this); 
+    }
 }
