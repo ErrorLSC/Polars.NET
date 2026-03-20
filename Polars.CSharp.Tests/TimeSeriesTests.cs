@@ -14,8 +14,8 @@ public class TimeSeriesTests
 
         var df = DataFrame.FromColumns(new {Time =dates,Val =values}); 
 
-        // Group 1 [10:00, 10:30): 包含 10:00(0), 10:10(1), 10:20(2) -> Sum = 3
-        // Group 2 [10:30, 11:00): 包含 10:30(3), 10:40(4), 10:50(5) -> Sum = 12
+        // Group 1 [10:00, 10:30): 10:00(0), 10:10(1), 10:20(2) -> Sum = 3
+        // Group 2 [10:30, 11:00): 10:30(3), 10:40(4), 10:50(5) -> Sum = 12
         var q = df.Lazy()
             .GroupByDynamic(
                 indexColumn: "Time",
@@ -53,11 +53,11 @@ public class TimeSeriesTests
         var res = df
             .GroupByDynamic(
                 indexColumn: "Time",
-                every: TimeSpan.FromMinutes(5),  // 步长 5m
-                period: TimeSpan.FromMinutes(10),// 窗口 10m (会有重叠)
-                label: Label.Right,              // 标签打在右边
-                includeBoundaries: true,         // 输出边界列
-                closedWindow: ClosedWindow.Left  // 左闭
+                every: TimeSpan.FromMinutes(5),  
+                period: TimeSpan.FromMinutes(10),
+                label: Label.Right,             
+                includeBoundaries: true,         
+                closedWindow: ClosedWindow.Left  
             )
             .Agg(
                 Col("Val").Count().Alias("Count")

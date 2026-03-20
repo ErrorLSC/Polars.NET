@@ -1025,7 +1025,6 @@ module QueryTests =
         Assert.Equal(20.0, dblArr.[0])
         Assert.False(isHighArr.[0])
 
-        // 验证第三行 (salary = 30)
         Assert.Equal(900.0, sqArr.[2])
         Assert.Equal(60.0, dblArr.[2])
         Assert.True(isHighArr.[2])

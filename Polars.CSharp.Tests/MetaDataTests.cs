@@ -5,16 +5,16 @@ public class MetadataTests
     [Fact]
     public void Test_Series_DataTypeName()
     {
-        // 1. Int64
+        // Int64
         using var sInt = new Series("a", new long[] { 1, 2 });
         Assert.Equal("i64", sInt.DataTypeName);
 
-        // 2. Decimal 
+        // Decimal 
         using var sDec = new Series("b", [1.5m, 2.345m]); 
         Assert.Contains("decimal", sDec.DataTypeName); 
         Assert.Contains("3", sDec.DataTypeName); 
 
-        // 3. String
+        // String
         using var sStr = new Series("c", ["x", "y"]);
         Assert.True(sStr.DataTypeName == "str" || sStr.DataTypeName == "String");
     }

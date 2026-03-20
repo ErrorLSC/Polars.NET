@@ -686,7 +686,7 @@ TooShort,1990-05-20,1.60";
         );
 
         var delivery1 = (DateOnly)res1["Delivery"][0];
-        Assert.Equal(new DateOnly(2024, 1, 9), delivery1); // 周二
+        Assert.Equal(new DateOnly(2024, 1, 9), delivery1); 
 
         // Friday -> (Skip Saturday, Sunday) -> (Skip Monday as Holiday) -> Tuesday(+1) -> Wednesday(+2)
         var holidays = new[] { new DateOnly(2024, 1, 8) };
@@ -1612,7 +1612,7 @@ TooShort,1990-05-20,1.60";
         
         // Nullable Double Check
         Assert.Equal(1.1, res.GetValue<double?>(0, "f"));
-        Assert.Null(res.GetValue<double?>(1, "f")); // 验证 null 传递成功
+        Assert.Null(res.GetValue<double?>(1, "f"));
         
         // Bool Check
         Assert.False(res.GetValue<bool>(1, "b"));
