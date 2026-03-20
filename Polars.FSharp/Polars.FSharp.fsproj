@@ -32,6 +32,7 @@
     <Compile Include="Display.fs" />
     <Compile Include="Delta.fs" />
     <Compile Include="Extensions.fs" />
+    <Compile Include="Config.fs" />
   </ItemGroup>
 
   <ItemGroup>

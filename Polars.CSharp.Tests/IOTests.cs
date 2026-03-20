@@ -990,7 +990,6 @@ public class CsvSchemaTests
         {
             Console.WriteLine($"[Test] Created temp CSV at: {filePath}");
 
-
             using var explicitSchema = new PolarsSchema()
                 .Add("id", DataType.Int32)
                 .Add("name", DataType.String)
@@ -1261,7 +1260,7 @@ ID;ProductName;Weight;ReleaseDate
         Assert.Equal(5, dfFull.Height);
         Assert.Equal(2, dfFull.Width);
         Assert.Equal("Alice", dfFull.GetValue<string>(0, "name"));
-        Assert.Null(dfFull.GetValue<string>(2, "name")); // 验证 Null 保留
+        Assert.Null(dfFull.GetValue<string>(2, "name")); 
 
         using var dfPartialByName = DataFrame.ReadAvro(
             buffer,

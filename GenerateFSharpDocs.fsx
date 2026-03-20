@@ -6,11 +6,11 @@ open System.Xml.Linq
 open System.Text.RegularExpressions
 open System.Collections.Generic
 
-// ================= 配置区 =================
-let dllPath = "Polars.FSharp/bin/Release/net8.0/Polars.FSharp.dll"
-let xmlPath = "Polars.FSharp/bin/Release/net8.0/Polars.FSharp.xml"
+// ================= Set Up =================
+let dllPath = "Polars.FSharp/bin/debug/net8.0/Polars.FSharp.dll"
+let xmlPath = "Polars.FSharp/bin/debug/net8.0/Polars.FSharp.xml"
 let outputDir = "docs/api/fsharp_generated"
-let targetTypes = ["pl"; "Series"; "DataFrame"; "Expr";"LazyFrame";"Delta";"Selector";"ColumnExpr";"LazyFrameDeltaExtensions";"DataFrameDeltaExtensions";"UnityCatalog"] 
+let targetTypes = ["pl"; "Series"; "DataFrame"; "Expr";"LazyFrame";"Delta";"Selector";"ColumnExpr";"LazyFrameDeltaExtensions";"DataFrameDeltaExtensions";"UnityCatalog";"Config"] 
 // =========================================
 
 let binDir = Path.GetDirectoryName(Path.GetFullPath dllPath)
@@ -34,7 +34,7 @@ type DocMetadata = {
 
 // Remove XML tags
 let cleanXmlText (raw: string) =
-    if String.IsNullOrWhiteSpace(raw) then ""
+    if String.IsNullOrWhiteSpace raw then ""
     else
         raw
         |> fun s -> Regex.Replace(s, @"\s+", " ") 

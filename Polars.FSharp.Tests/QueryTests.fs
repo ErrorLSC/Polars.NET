@@ -177,11 +177,8 @@ module QueryTests =
         |]
 
         use dfEmps = DataFrame.ofRecords emps
-
-        use ctx = new SqlContext()
-        use db = new PolarsDataContext(ctx)
         
-        let empQuery = db.RegisterTable<EmployeeSalary>(dfEmps)
+        let empQuery = dfEmps.AsQueryable<EmployeeSalary>()
 
         let queryable = 
             query {
@@ -295,7 +292,7 @@ module QueryTests =
 
                     EmployeeName = if box e = null then "NO_EMPLOYEE" else e.Name
                 |}
-            }
+            } 
 
         let results = queryable.ToList()
 

@@ -1134,7 +1134,7 @@ public class LinqProviderTests
             new SalesData("Office", "Chair", 150.8, 5.0)
         };
 
-        var salesQuery =  DataFrame.From(sales).AsQueryable<SalesData>();
+        var salesQuery = DataFrame.From(sales).AsQueryable<SalesData>();
 
         // ==========================================
         // String CONCAT and Math
@@ -1540,15 +1540,12 @@ David,40,80000";
     [Trait("Linq","Sandwich")]
     public void Test_Polars_Double_Hybrid_Sandwich()
     {
-        using var db = new PolarsDataContext(Sql(),true);
-
         using var schema = PolarsSchema.From<StaffRecord>();
         string path = "/home/qinglei/Projects/Polars.NET/Polars.Integration.Tests/TestData/staffrecord.csv";
 
         using var rawLf = LazyFrame.ScanCsv(path,schema:schema);
         
-        var query = db.RegisterTable<StaffRecord>(rawLf)
-
+        var query = rawLf.AsQueryable<StaffRecord>()
                       .Where(e => e.salary > 5000)
                       .Select(e => new { e.name, e.salary });
         string plan1 = query.Explain(true);

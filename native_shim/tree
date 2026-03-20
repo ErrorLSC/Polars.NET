@@ -1,9 +1,9 @@
 cpufeatures v0.2.17
 ├── blake3 v1.8.3
 │   ├── polars-io v0.53.0
-│   │   ├── native_shim v0.3.1 (/home/qinglei/Projects/Polars.NET/native_shim)
+│   │   ├── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
 │   │   ├── polars v0.53.0
-│   │   │   └── native_shim v0.3.1 (/home/qinglei/Projects/Polars.NET/native_shim)
+│   │   │   └── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
 │   │   ├── polars-expr v0.53.0
 │   │   │   ├── polars-lazy v0.53.0
 │   │   │   │   ├── polars v0.53.0 (*)
@@ -28,18 +28,18 @@ cpufeatures v0.2.17
 │   └── aws-config v1.8.15
 │       └── deltalake-aws v0.14.0
 │           └── deltalake v0.31.1
-│               └── native_shim v0.3.1 (/home/qinglei/Projects/Polars.NET/native_shim)
+│               └── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
 └── sha2 v0.10.9
     └── aws-sigv4 v1.4.2
         └── aws-runtime v1.7.2
             ├── aws-config v1.8.15 (*)
-            ├── aws-sdk-dynamodb v1.108.0
+            ├── aws-sdk-dynamodb v1.109.0
             │   └── deltalake-aws v0.14.0 (*)
-            ├── aws-sdk-sso v1.96.0
+            ├── aws-sdk-sso v1.97.0
             │   └── aws-config v1.8.15 (*)
-            ├── aws-sdk-ssooidc v1.98.0
+            ├── aws-sdk-ssooidc v1.99.0
             │   └── aws-config v1.8.15 (*)
-            └── aws-sdk-sts v1.100.0
+            └── aws-sdk-sts v1.101.0
                 ├── aws-config v1.8.15 (*)
                 └── deltalake-aws v0.14.0 (*)
     [build-dependencies]
@@ -48,7 +48,7 @@ cpufeatures v0.2.17
 cpufeatures v0.3.0
 └── chacha20 v0.10.0
     └── rand v0.10.0
-        ├── native_shim v0.3.1 (/home/qinglei/Projects/Polars.NET/native_shim)
+        ├── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
         └── uuid v1.22.0
             ├── aws-runtime v1.7.2 (*)
             ├── delta_kernel v0.19.2
@@ -62,9 +62,9 @@ cpufeatures v0.3.0
             │           └── deltalake v0.31.1 (*)
             ├── deltalake-aws v0.14.0 (*)
             ├── deltalake-core v0.31.1 (*)
-            ├── native_shim v0.3.1 (/home/qinglei/Projects/Polars.NET/native_shim)
+            ├── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
             ├── polars-core v0.53.0
-            │   ├── native_shim v0.3.1 (/home/qinglei/Projects/Polars.NET/native_shim)
+            │   ├── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
             │   ├── polars v0.53.0 (*)
             │   ├── polars-expr v0.53.0 (*)
             │   ├── polars-io v0.53.0 (*)
@@ -97,10 +97,10 @@ cpufeatures v0.3.0
             │       ├── polars-core v0.53.0 (*)
             │       └── polars-expr v0.53.0 (*)
             └── polars-utils v0.53.0
-                ├── native_shim v0.3.1 (/home/qinglei/Projects/Polars.NET/native_shim)
+                ├── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
                 ├── polars v0.53.0 (*)
                 ├── polars-arrow v0.53.0
-                │   ├── native_shim v0.3.1 (/home/qinglei/Projects/Polars.NET/native_shim)
+                │   ├── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
                 │   ├── polars v0.53.0 (*)
                 │   ├── polars-compute v0.53.0
                 │   │   ├── polars v0.53.0 (*)
@@ -258,10 +258,10 @@ foldhash v0.2.0
 │   │   │   │   └── aws-smithy-runtime v1.10.3
 │   │   │   │       ├── aws-config v1.8.15 (*)
 │   │   │   │       ├── aws-runtime v1.7.2 (*)
-│   │   │   │       ├── aws-sdk-dynamodb v1.108.0 (*)
-│   │   │   │       ├── aws-sdk-sso v1.96.0 (*)
-│   │   │   │       ├── aws-sdk-ssooidc v1.98.0 (*)
-│   │   │   │       └── aws-sdk-sts v1.100.0 (*)
+│   │   │   │       ├── aws-sdk-dynamodb v1.109.0 (*)
+│   │   │   │       ├── aws-sdk-sso v1.97.0 (*)
+│   │   │   │       ├── aws-sdk-ssooidc v1.99.0 (*)
+│   │   │   │       └── aws-sdk-sts v1.101.0 (*)
 │   │   │   ├── hyper v1.8.1
 │   │   │   │   ├── aws-smithy-http-client v1.1.12 (*)
 │   │   │   │   ├── hyper-rustls v0.27.7
@@ -299,7 +299,7 @@ foldhash v0.2.0
 │   │   │   ├── deltalake-core v0.31.1 (*)
 │   │   │   ├── jsonpath_lib_polars_vendor v0.0.1
 │   │   │   │   └── polars-ops v0.53.0 (*)
-│   │   │   ├── native_shim v0.3.1 (/home/qinglei/Projects/Polars.NET/native_shim)
+│   │   │   ├── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
 │   │   │   ├── object_store v0.12.5 (*)
 │   │   │   ├── object_store v0.13.1 (*)
 │   │   │   ├── polars-core v0.53.0 (*)
@@ -313,9 +313,9 @@ foldhash v0.2.0
 │   │   │       └── deltalake-core v0.31.1 (*)
 │   │   └── zip v7.2.0
 │   │       ├── calamine v0.34.0
-│   │       │   └── native_shim v0.3.1 (/home/qinglei/Projects/Polars.NET/native_shim)
+│   │       │   └── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
 │   │       └── rust_xlsxwriter v0.94.0
-│   │           └── native_shim v0.3.1 (/home/qinglei/Projects/Polars.NET/native_shim)
+│   │           └── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
 │   ├── parquet v57.3.0 (*)
 │   ├── polars-arrow v0.53.0 (*)
 │   ├── polars-compute v0.53.0 (*)
@@ -386,10 +386,10 @@ hashbrown v0.15.5 (*)
 hashbrown v0.16.1 (*)
 
 http v0.2.12
-├── aws-sdk-dynamodb v1.108.0 (*)
-├── aws-sdk-sso v1.96.0 (*)
-├── aws-sdk-ssooidc v1.98.0 (*)
-├── aws-sdk-sts v1.100.0 (*)
+├── aws-sdk-dynamodb v1.109.0 (*)
+├── aws-sdk-sso v1.97.0 (*)
+├── aws-sdk-ssooidc v1.99.0 (*)
+├── aws-sdk-sts v1.101.0 (*)
 ├── aws-sigv4 v1.4.2 (*)
 ├── aws-smithy-runtime v1.10.3 (*)
 ├── aws-smithy-runtime-api v1.11.6
@@ -397,93 +397,93 @@ http v0.2.12
 │   ├── aws-credential-types v1.2.14
 │   │   ├── aws-config v1.8.15 (*)
 │   │   ├── aws-runtime v1.7.2 (*)
-│   │   ├── aws-sdk-dynamodb v1.108.0 (*)
-│   │   ├── aws-sdk-sso v1.96.0 (*)
-│   │   ├── aws-sdk-ssooidc v1.98.0 (*)
-│   │   ├── aws-sdk-sts v1.100.0 (*)
+│   │   ├── aws-sdk-dynamodb v1.109.0 (*)
+│   │   ├── aws-sdk-sso v1.97.0 (*)
+│   │   ├── aws-sdk-ssooidc v1.99.0 (*)
+│   │   ├── aws-sdk-sts v1.101.0 (*)
 │   │   ├── aws-sigv4 v1.4.2 (*)
 │   │   ├── aws-types v1.3.14
 │   │   │   ├── aws-config v1.8.15 (*)
 │   │   │   ├── aws-runtime v1.7.2 (*)
-│   │   │   ├── aws-sdk-dynamodb v1.108.0 (*)
-│   │   │   ├── aws-sdk-sso v1.96.0 (*)
-│   │   │   ├── aws-sdk-ssooidc v1.98.0 (*)
-│   │   │   └── aws-sdk-sts v1.100.0 (*)
+│   │   │   ├── aws-sdk-dynamodb v1.109.0 (*)
+│   │   │   ├── aws-sdk-sso v1.97.0 (*)
+│   │   │   ├── aws-sdk-ssooidc v1.99.0 (*)
+│   │   │   └── aws-sdk-sts v1.101.0 (*)
 │   │   └── deltalake-aws v0.14.0 (*)
 │   ├── aws-runtime v1.7.2 (*)
-│   ├── aws-sdk-dynamodb v1.108.0 (*)
-│   ├── aws-sdk-sso v1.96.0 (*)
-│   ├── aws-sdk-ssooidc v1.98.0 (*)
-│   ├── aws-sdk-sts v1.100.0 (*)
+│   ├── aws-sdk-dynamodb v1.109.0 (*)
+│   ├── aws-sdk-sso v1.97.0 (*)
+│   ├── aws-sdk-ssooidc v1.99.0 (*)
+│   ├── aws-sdk-sts v1.101.0 (*)
 │   ├── aws-sigv4 v1.4.2 (*)
 │   ├── aws-smithy-http v0.63.6
 │   │   ├── aws-config v1.8.15 (*)
 │   │   ├── aws-runtime v1.7.2 (*)
-│   │   ├── aws-sdk-dynamodb v1.108.0 (*)
-│   │   ├── aws-sdk-sso v1.96.0 (*)
-│   │   ├── aws-sdk-ssooidc v1.98.0 (*)
-│   │   ├── aws-sdk-sts v1.100.0 (*)
+│   │   ├── aws-sdk-dynamodb v1.109.0 (*)
+│   │   ├── aws-sdk-sso v1.97.0 (*)
+│   │   ├── aws-sdk-ssooidc v1.99.0 (*)
+│   │   ├── aws-sdk-sts v1.101.0 (*)
 │   │   ├── aws-sigv4 v1.4.2 (*)
 │   │   └── aws-smithy-runtime v1.10.3 (*)
 │   ├── aws-smithy-http-client v1.1.12 (*)
 │   ├── aws-smithy-observability v0.2.6
-│   │   ├── aws-sdk-dynamodb v1.108.0 (*)
-│   │   ├── aws-sdk-sso v1.96.0 (*)
-│   │   ├── aws-sdk-ssooidc v1.98.0 (*)
-│   │   ├── aws-sdk-sts v1.100.0 (*)
+│   │   ├── aws-sdk-dynamodb v1.109.0 (*)
+│   │   ├── aws-sdk-sso v1.97.0 (*)
+│   │   ├── aws-sdk-ssooidc v1.99.0 (*)
+│   │   ├── aws-sdk-sts v1.101.0 (*)
 │   │   └── aws-smithy-runtime v1.10.3 (*)
 │   ├── aws-smithy-runtime v1.10.3 (*)
 │   ├── aws-types v1.3.14 (*)
 │   └── deltalake-aws v0.14.0 (*)
-├── aws-smithy-types v1.4.6
+├── aws-smithy-types v1.4.7
 │   ├── aws-config v1.8.15 (*)
 │   ├── aws-credential-types v1.2.14 (*)
 │   ├── aws-runtime v1.7.2 (*)
-│   ├── aws-sdk-dynamodb v1.108.0 (*)
-│   ├── aws-sdk-sso v1.96.0 (*)
-│   ├── aws-sdk-ssooidc v1.98.0 (*)
-│   ├── aws-sdk-sts v1.100.0 (*)
+│   ├── aws-sdk-dynamodb v1.109.0 (*)
+│   ├── aws-sdk-sso v1.97.0 (*)
+│   ├── aws-sdk-ssooidc v1.99.0 (*)
+│   ├── aws-sdk-sts v1.101.0 (*)
 │   ├── aws-sigv4 v1.4.2 (*)
 │   ├── aws-smithy-http v0.63.6 (*)
 │   ├── aws-smithy-http-client v1.1.12 (*)
 │   ├── aws-smithy-json v0.62.5
 │   │   ├── aws-config v1.8.15 (*)
-│   │   ├── aws-sdk-dynamodb v1.108.0 (*)
-│   │   ├── aws-sdk-sso v1.96.0 (*)
-│   │   ├── aws-sdk-ssooidc v1.98.0 (*)
-│   │   └── aws-sdk-sts v1.100.0 (*)
+│   │   ├── aws-sdk-dynamodb v1.109.0 (*)
+│   │   ├── aws-sdk-sso v1.97.0 (*)
+│   │   ├── aws-sdk-ssooidc v1.99.0 (*)
+│   │   └── aws-sdk-sts v1.101.0 (*)
 │   ├── aws-smithy-query v0.60.15
-│   │   └── aws-sdk-sts v1.100.0 (*)
+│   │   └── aws-sdk-sts v1.101.0 (*)
 │   ├── aws-smithy-runtime v1.10.3 (*)
 │   ├── aws-smithy-runtime-api v1.11.6 (*)
 │   └── aws-types v1.3.14 (*)
 └── http-body v0.4.6
     ├── aws-smithy-runtime v1.10.3 (*)
-    └── aws-smithy-types v1.4.6 (*)
+    └── aws-smithy-types v1.4.7 (*)
 
 http v1.4.0
 ├── aws-config v1.8.15 (*)
 ├── aws-runtime v1.7.2 (*)
-├── aws-sdk-dynamodb v1.108.0 (*)
-├── aws-sdk-sso v1.96.0 (*)
-├── aws-sdk-ssooidc v1.98.0 (*)
-├── aws-sdk-sts v1.100.0 (*)
+├── aws-sdk-dynamodb v1.109.0 (*)
+├── aws-sdk-sso v1.97.0 (*)
+├── aws-sdk-ssooidc v1.99.0 (*)
+├── aws-sdk-sts v1.101.0 (*)
 ├── aws-sigv4 v1.4.2 (*)
 ├── aws-smithy-http v0.63.6 (*)
 ├── aws-smithy-http-client v1.1.12 (*)
 ├── aws-smithy-runtime v1.10.3 (*)
 ├── aws-smithy-runtime-api v1.11.6 (*)
-├── aws-smithy-types v1.4.6 (*)
+├── aws-smithy-types v1.4.7 (*)
 ├── h2 v0.4.13 (*)
 ├── http-body v1.0.1
 │   ├── aws-runtime v1.7.2 (*)
 │   ├── aws-smithy-http v0.63.6 (*)
 │   ├── aws-smithy-runtime v1.10.3 (*)
-│   ├── aws-smithy-types v1.4.6 (*)
+│   ├── aws-smithy-types v1.4.7 (*)
 │   ├── http-body-util v0.1.3
 │   │   ├── aws-smithy-http v0.63.6 (*)
 │   │   ├── aws-smithy-runtime v1.10.3 (*)
-│   │   ├── aws-smithy-types v1.4.6 (*)
+│   │   ├── aws-smithy-types v1.4.7 (*)
 │   │   ├── object_store v0.12.5 (*)
 │   │   ├── object_store v0.13.1 (*)
 │   │   └── reqwest v0.12.28 (*)
@@ -536,10 +536,10 @@ memchr v2.8.0
 │   │   ├── aws-config v1.8.15 (*)
 │   │   ├── aws-credential-types v1.2.14 (*)
 │   │   ├── aws-runtime v1.7.2 (*)
-│   │   ├── aws-sdk-dynamodb v1.108.0 (*)
-│   │   ├── aws-sdk-sso v1.96.0 (*)
-│   │   ├── aws-sdk-ssooidc v1.98.0 (*)
-│   │   ├── aws-sdk-sts v1.100.0 (*)
+│   │   ├── aws-sdk-dynamodb v1.109.0 (*)
+│   │   ├── aws-sdk-sso v1.97.0 (*)
+│   │   ├── aws-sdk-ssooidc v1.99.0 (*)
+│   │   ├── aws-sdk-sts v1.101.0 (*)
 │   │   ├── aws-smithy-http-client v1.1.12 (*)
 │   │   ├── aws-smithy-runtime v1.10.3 (*)
 │   │   ├── aws-smithy-runtime-api v1.11.6 (*)
@@ -550,7 +550,7 @@ memchr v2.8.0
 │   │   ├── deltalake-aws v0.14.0 (*)
 │   │   ├── deltalake-core v0.31.1 (*)
 │   │   ├── deltalake-gcp v0.15.0 (*)
-│   │   ├── native_shim v0.3.1 (/home/qinglei/Projects/Polars.NET/native_shim)
+│   │   ├── native_shim v0.4.0 (/home/qinglei/Projects/Polars.NET/native_shim)
 │   │   ├── object_store v0.12.5 (*)
 │   │   ├── object_store v0.13.1 (*)
 │   │   ├── parquet v57.3.0 (*)

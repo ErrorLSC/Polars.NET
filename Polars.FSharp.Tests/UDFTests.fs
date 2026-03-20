@@ -265,7 +265,18 @@ type ``UDF Tests`` () =
                 |> pl.alias "EmpId"
             )
             |> pl.collect
-        df.Show()
+        // shape: (5, 2)
+        // ┌──────────┬───────┐
+        // │ Code     ┆ EmpId │
+        // │ ---      ┆ ---   │
+        // │ str      ┆ i32   │
+        // ╞══════════╪═══════╡
+        // │ EMP-1024 ┆ 1024  │
+        // │ EMP-0042 ┆ 42    │
+        // │ ADMIN-1  ┆ null  │
+        // │ EMP-ERR  ┆ null  │
+        // │ null     ┆ null  │
+        // └──────────┴───────┘
         Assert.Equal(5L, df.Rows)
 
         // Row 0: "EMP-1024" -> 1024
