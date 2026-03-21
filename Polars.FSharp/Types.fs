@@ -19,6 +19,7 @@ open Apache.Arrow.Adbc
 open Apache.Arrow.Ipc
 open System.Data.Common
 open System.Threading.Channels
+open Polars.NET.Core.Tensor
 /// --- Series ---
 /// <summary>
 /// An eager Series holding a single column of data.
@@ -2282,6 +2283,33 @@ type Series(handle: SeriesHandle) =
     member this.ToArray<'T>() =
         let col = this.ToArrow()
         ArrowReader.ReadColumn<'T> col
+    /// <summary>
+    /// Generate zero-copy ReadOnlySpan from a numeric Series.
+    /// </summary>
+    member this.ToReadOnlySpan<'T when 'T : unmanaged and 'T : struct and 'T :> ValueType and 'T : (new: unit -> 'T)>() : ReadOnlySpan<'T> =
+        
+        let checkDataType () =
+            let dataType = this.DataType
+            match dataType with
+            | DataType.String | DataType.Categorical ->
+                raise (InvalidOperationException(
+                    $"Cannot create Tensor/Span from a {dataType} Series. \
+                    Machine learning models and Spans require numeric inputs. \
+                    Please use Polars string manipulation (.Str) or categorical \
+                    casting to encode your strings into numbers first."
+                ))
+            | _ -> ()
+            
+        checkDataType ()
+
+        PolarsTensor.AsReadOnlySpan<'T> this.Handle
+    /// <summary>
+    /// Generate a zero-copy 2D representation (TensorSpan) from a List or Array Series.
+    /// Perfectly suited for extracting Embeddings or Image matrices.
+    /// </summary>
+    /// <typeparam name="T">Unmanaged Type Only</typeparam>
+    member this.As2DTensorSpan<'T when 'T : unmanaged and 'T : struct and 'T :> ValueType and 'T : (new: unit -> 'T)>() =  
+        PolarsTensor.As2DTensorSpan<'T> this.Handle
     member this.Show() =
         this.ToFrame().Show()
 and SeriesDtNameSpace(parent: Series) =

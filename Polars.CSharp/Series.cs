@@ -4,6 +4,9 @@ using Apache.Arrow;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Helpers;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using Polars.NET.Core.Tensor;
+using Apache.Arrow.Types;
 
 namespace Polars.CSharp;
 
@@ -798,16 +801,6 @@ public partial class Series : IDisposable,IPolarsSeries
     /// </summary>
     /// <returns>A new <see cref="Series"/> with the order reversed.</returns>
     public Series Reverse() => ApplyExpr(Polars.Col(Name).Reverse());
-    /// <summary>
-    /// Convert Series to Array
-    /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <returns></returns>
-    public T[] ToArray<T>()
-    {  
-        var col = this.ToArrow();
-        return ArrowReader.ReadColumn<T>(col);
-    }
     // ==========================================
     // Null Checks & Boolean Masks
     // ==========================================
@@ -1254,10 +1247,45 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Low-level entry point: Create Series from existing Arrow Array.
     /// </summary>
     public static Series FromArrow(string name, IArrowArray arrowArray)
+        => new(ArrowFfiBridge.ImportSeries(name, arrowArray));
+    /// <summary>
+    /// Generate zero-copy ReadOnlySpan from a numeric Series.
+    /// </summary>
+    /// <typeparam name="T">Unmanaged Type Only (e.g., int, float, double)</typeparam>
+    /// <returns>A continuous span over the underlying memory.</returns>
+    /// <exception cref="InvalidOperationException">Thrown if the Series is not a numeric type or contains nulls.</exception>
+    public ReadOnlySpan<T> AsReadOnlySpan<T>() where T : unmanaged
     {
-        var handle = ArrowFfiBridge.ImportSeries(name, arrowArray);
-        return new Series(handle);
+        if (DataType == DataType.String || 
+            DataType == DataType.Categorical)
+        {
+            throw new InvalidOperationException(
+                $"Cannot create Tensor/Span from a {DataType} Series. " +
+                "Machine learning models and Spans require numeric inputs. " +
+                "Please use Polars string manipulation (.Str) or categorical casting to encode your strings into numbers first."
+            );
+        }
+
+        return PolarsTensor.AsReadOnlySpan<T>(Handle);
     }
+    /// <summary>
+    /// Convert Series to Array
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public T[] ToArray<T>()
+    {  
+        var col = this.ToArrow();
+        return ArrowReader.ReadColumn<T>(col);
+    }
+    /// <summary>
+    /// Generate a zero-copy 2D representation (TensorSpan) from a List or Array Series.
+    /// Perfectly suited for extracting Embeddings or Image matrices.
+    /// </summary>
+    /// <typeparam name="T">Unmanaged Type Only</typeparam>
+    public TensorSpan2D<T> As2DTensorSpan<T>() where T : unmanaged
+        => PolarsTensor.As2DTensorSpan<T>(Handle); 
+    
     // ==========================================
     // Window & Rolling
     // ==========================================
@@ -1664,7 +1692,6 @@ public partial class Series : IDisposable,IPolarsSeries
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static Series FromSpan<T>(string name, ReadOnlySpan<T> data)
         => new(SeriesFactory.CreateSpan(name, data));
-
     /// <summary>
     /// Create Series from Span
     /// </summary>

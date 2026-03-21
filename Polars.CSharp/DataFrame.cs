@@ -3585,7 +3585,76 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     // ==========================================
     // Interop
     // ==========================================
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="columnNames"></param>
+    /// <returns></returns>
+    /// <exception cref="InvalidOperationException"></exception>
+    public T[] ToTensor<T>(params string[] columnNames) where T : unmanaged
+    {
+        Series[] targetColumns;
+        if (columnNames == null || columnNames.Length == 0)
+        {
+            targetColumns = this.GetColumns();
+        }
+        else
+        {
+            targetColumns = new Series[columnNames.Length];
+            for (int i = 0; i < columnNames.Length; i++)
+            {
+                targetColumns[i] = this.Column(columnNames[i]); 
+            }
+        }
 
+        if (targetColumns.Length == 0) return [];
+
+        int cols = targetColumns.Length;
+        int rows = (int)this.Height; 
+
+        T[] tensorData = new T[rows * cols];
+        Span<T> destSpan = tensorData.AsSpan();
+
+        try
+        {
+            for (int c = 0; c < cols; c++)
+            {
+                var col = targetColumns[c];
+
+                IArrowType arrowType = col.DataType.GetArrowType(); 
+                Type actualNetType = ArrowTypeResolver.GetNetTypeFromArrowType(arrowType);
+
+                if (actualNetType != typeof(T))
+                {
+                    throw new InvalidOperationException(
+                        $"Type mismatch on column '{col.Name}'. Expected {typeof(T).Name}, " +
+                        $"but got {actualNetType.Name} (Polars: {col.DataType}). " +
+                        "Please explicitly cast your columns using Col().Cast() before calling ToTensor."
+                    );
+                }
+
+                ReadOnlySpan<T> span = col.AsReadOnlySpan<T>();
+
+                for (int r = 0; r < rows; r++)
+                {
+                    destSpan[r * cols + c] = span[r];
+                }
+            }
+
+            return tensorData;
+        }
+        finally
+        {
+            for (int i = 0; i < cols; i++)
+            {
+                targetColumns[i]?.Dispose();
+            }
+        }
+    }
+    // ==========================================
+    // LifeCycle
+    // ==========================================
     /// <summary>
     /// Clone the DataFrame
     /// </summary>
@@ -3615,6 +3684,7 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
         _backingResources.Clear();
         GC.SuppressFinalize(this); 
     }
+    
     // ==========================================
     // Object Mapping (From Records)
     // ==========================================

@@ -1099,4 +1099,119 @@ public class SeriesTests
         var result = interpolated.GetValue<double>(1);
         Assert.Equal(25.0, result);
     }
+    [Fact]
+    [Trait("Series","ReadOnlySpanInt")]
+    public void AsReadOnlySpan_ValidInt32Series_ReturnsCorrectSpan()
+    {
+
+        int[] expectedData = [10, 20, 30, 40, 50];
+
+        var series = Series.From("test_int", expectedData); 
+
+        ReadOnlySpan<int> span = series.AsReadOnlySpan<int>();
+
+        Assert.Equal(expectedData.Length, span.Length);
+
+        Assert.True(span.SequenceEqual(expectedData));
+    }
+
+    [Fact]
+    [Trait("Series","ReadOnlySpanDouble")]
+    public void AsReadOnlySpan_ValidFloat64Series_ReturnsCorrectSpan()
+    {
+        double[] expectedData = [1.1, 2.2, 3.3];
+        var series = Series.From("test_float", expectedData);
+
+        ReadOnlySpan<double> span = series.AsReadOnlySpan<double>();
+
+        Assert.True(span.SequenceEqual(expectedData));
+    }
+
+    [Fact]
+    [Trait("Series","ReadOnlySpanNull")]
+    public void AsReadOnlySpan_SeriesWithNulls_ThrowsInvalidOperationException()
+    {
+        int?[] dataWithNulls = [1, 2, null, 4];
+        var series = Series.From("test_nulls", dataWithNulls);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => 
+        {
+            series.AsReadOnlySpan<int>();
+        });
+
+        Assert.Contains("null values", exception.Message);
+        Assert.Contains("contiguous, non-null data", exception.Message);
+    }
+
+    [Fact]
+    [Trait("Series","ReadOnlySpanString")]
+    public void AsReadOnlySpan_StringSeries_ThrowsInvalidOperationException()
+    {
+        string[] stringData = ["apple", "banana", "cherry"];
+        var series = Series.From("test_strings", stringData);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => 
+        {
+            series.AsReadOnlySpan<byte>(); 
+        });
+        Assert.Contains("numeric inputs", exception.Message);
+        Assert.Contains("encode your strings into numbers", exception.Message);
+    }
+    [Fact]
+    [Trait("Series", "As2DTensorSpan")]
+    public void As2DTensorSpan_Valid2DArray_ReturnsCorrectShapeAndData()
+    {
+        float[,] matrixData = new float[,] 
+        {
+            { 1.1f, 1.2f },
+            { 2.1f, 2.2f },
+            { 3.1f, 3.2f }
+        };
+        
+        using var series = Series.From("embedding", matrixData);
+
+        var (dataSpan, rows, cols) = series.As2DTensorSpan<float>();
+
+        Assert.Equal(3, rows);
+        Assert.Equal(2, cols);
+        Assert.Equal(6, dataSpan.Length);
+        
+        float[] expectedFlat = [1.1f, 1.2f, 2.1f, 2.2f, 3.1f, 3.2f];
+        Assert.True(dataSpan.SequenceEqual(expectedFlat));
+    }
+
+    [Fact]
+    [Trait("Series", "As2DTensorSpanInvalid1D")]
+    public void As2DTensorSpan_1DSeries_ThrowsInvalidOperationException()
+    {
+        using var series = Series.From("1d_data", [1, 2, 3]);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => 
+        {
+            var tensor = series.As2DTensorSpan<int>();
+        });
+
+        Assert.Contains("Cannot extract 2D Tensor", exception.Message);
+    }
+
+    [Fact]
+    [Trait("Series", "As2DTensorSpanJagged")]
+    public void As2DTensorSpan_JaggedList_ThrowsInvalidOperationException()
+    {
+        int[][] jaggedData =
+        [
+            [1, 2],       
+            [3, 4, 5]     
+        ];
+        
+        using var series = Series.From("jagged", jaggedData);
+
+        // Act & Assert
+        var exception = Assert.Throws<InvalidOperationException>(() => 
+        {
+            var tensor = series.As2DTensorSpan<int>();
+        });
+
+        Assert.Contains("Cannot extract 2D Tensor", exception.Message);
+    }
 }

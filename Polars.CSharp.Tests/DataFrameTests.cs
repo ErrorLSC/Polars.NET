@@ -793,4 +793,78 @@ B,5";
         Assert.Equal(4, vStacked["a"][3]);
         Assert.Equal(40, vStacked["b"][3]);
     }
+    [Fact]
+    [Trait("DataFrame","ToTensor")]
+    public void ToTensor_AllColumnsMatch_ConvertsToRowMajorFlatArray()
+    {
+        var s1 = Series.From("feature1", [1.1f, 2.1f, 3.1f]);
+        var s2 = Series.From("feature2", [1.2f, 2.2f, 3.2f]);
+        
+        using var df = new DataFrame(s1, s2);
+
+        float[] tensorData = df.ToTensor<float>();
+
+        Assert.Equal(6, tensorData.Length);
+
+        float[] expected = 
+        [ 
+            1.1f, 1.2f, 
+            2.1f, 2.2f, 
+            3.1f, 3.2f  
+        ];
+
+        Assert.True(tensorData.AsSpan().SequenceEqual(expected));
+    }
+
+    [Fact]
+    [Trait("DataFrame","ToTensorSelected")]
+    public void ToTensor_SelectedColumns_OnlyConvertsSpecifiedColumns()
+    {
+        var s1 = Series.From("id", [1, 2]); 
+        var s2 = Series.From("feature1", [0.1f, 0.2f]);
+        var s3 = Series.From("feature2", [0.9f, 0.8f]);
+        
+        using var df = new DataFrame(s1, s2, s3);
+
+        float[] tensorData = df.ToTensor<float>("feature1", "feature2");
+
+        Assert.Equal(4, tensorData.Length);
+        float[] expected = [0.1f, 0.9f, 0.2f, 0.8f];
+        Assert.True(tensorData.AsSpan().SequenceEqual(expected));
+    }
+    [Fact]
+    [Trait("DataFrame","ToTensorException")]
+    public void ToTensor_TypeMismatch_ThrowsInvalidOperationException()
+    {
+        var s1 = Series.From("age", [25, 30]);
+        var s2 = Series.From("salary", [5000.5f, 6000.5f]);
+        
+        using var df = new DataFrame(s1, s2);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => 
+        {
+            df.ToTensor<float>();
+        });
+
+        Assert.Contains("Type mismatch on column 'age'", exception.Message);
+        Assert.Contains("Expected Single, but got Int32", exception.Message);
+        Assert.Contains("Col().Cast()", exception.Message);
+    }
+
+    [Fact]
+    [Trait("DataFrame","ToTensorEmpty")]
+    public void ToTensor_EmptyColumnList_ReturnsEmptyArray()
+    {
+        using var emptyDf = new DataFrame(); 
+        float[] emptyTensor = emptyDf.ToTensor<float>();
+        
+        Assert.Empty(emptyTensor);
+
+        var s1 = Series.From("age_float", [25f, 30f]);
+        using var df = new DataFrame(s1);
+        
+        float[] tensorData = df.ToTensor<float>([]);
+
+        Assert.Equal(2, tensorData.Length);
+    }
 }
