@@ -18,8 +18,6 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
     private RecordBatch? _currentBatch;
     private long _position = -1;       
     private int _batchRowIndex = -1;
-
-    // 🌟 极致优化：状态缓存
     private readonly bool[] _activeColumns;
     private readonly int[] _neededOriginalIndices;
     private readonly IArrowArray[] _currentArrays;
@@ -31,7 +29,6 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
     public override long Position => _position;
     public override long Batch => 0; 
 
-    // 🌟 你提到的优化：严格根据所需的列返回 active 状态
     public override bool IsColumnActive(DataViewSchema.Column column) 
         => _activeColumns[column.Index];
 
@@ -59,16 +56,13 @@ public override bool MoveNext()
         {
             if (_batchEnumerator.MoveNext())
             {
-                _currentBatch?.Dispose(); // 释放上一个
+                _currentBatch?.Dispose(); 
                 _currentBatch = _batchEnumerator.Current;
                 _batchRowIndex = 0;
 
-                // 🌟 核心优化：一次性将裁减后的 Batch Arrays 拍平映射！
-                // 这样在 getter 里就不需要去查 name，直接 O(1) 数组寻址！
                 for (int i = 0; i < _neededOriginalIndices.Length; i++)
                 {
                     int originalIdx = _neededOriginalIndices[i];
-                    // Rust 导出的流严格按照我们传给它的 indices 顺序返回列
                     _currentArrays[originalIdx] = _currentBatch.Column(i); 
                 }
                 
@@ -103,7 +97,6 @@ public override bool MoveNext()
         }
         else
         {
-            // 如果没传，说明全选
             for (int i = 0; i < schema.Count; i++)
             {
                 _activeColumns[i] = true;
@@ -119,8 +112,7 @@ public override bool MoveNext()
     // ==========================================
     public override ValueGetter<TValue> GetGetter<TValue>(DataViewSchema.Column column)
     {
-        // string colName = column.Name;
-        var type = typeof(TValue);
+        Type type = typeof(TValue);
         int colIndex = column.Index;
 
         // ------------------------------------------

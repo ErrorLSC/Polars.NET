@@ -7,7 +7,7 @@ using Polars.NET.Core.Arrow;
 
 namespace Polars.NET.ML.DataView;
 
-public static class DataViewToPolarsExtensions
+internal static class DataViewToPolarsExtensions
 {
     /// <summary>
     /// Convert IDataView to Polars DataFrame

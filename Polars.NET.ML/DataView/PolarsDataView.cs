@@ -22,14 +22,18 @@ public sealed class PolarsDataView(IPolarsDataFrame df, bool enableMacroShuffle 
     private readonly DataViewSchema _schema = BuildSchema(df);
     private readonly long _rowCount = df.Height;
 
+    /// <inheritdoc/>
     public bool CanShuffle { get; } = enableMacroShuffle;
 
+    /// <inheritdoc/>
     public DataViewSchema Schema => _schema;
+    /// <inheritdoc/>
     public long? GetRowCount() => _rowCount;
 
     // ==========================================
     // Cursor Factory
     // ==========================================
+    /// <inheritdoc/>
     public DataViewRowCursor GetRowCursor(IEnumerable<DataViewSchema.Column> columnsNeeded, Random? rand = null)
     {
         int[] indices = columnsNeeded?.Select(c => c.Index).ToArray() ?? [];
@@ -43,6 +47,7 @@ public sealed class PolarsDataView(IPolarsDataFrame df, bool enableMacroShuffle 
         return new PolarsRowCursor(_schema, batches,columnsNeeded);
     }
 
+    /// <inheritdoc/>
     public DataViewRowCursor[] GetRowCursorSet(IEnumerable<DataViewSchema.Column> columnsNeeded, int n, Random? rand = null)
         => [GetRowCursor(columnsNeeded, rand)];
 
