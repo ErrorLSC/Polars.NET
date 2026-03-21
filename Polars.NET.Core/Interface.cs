@@ -1,5 +1,6 @@
 using Apache.Arrow;
 using Apache.Arrow.Adbc;
+using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 
 namespace Polars.NET.Core;
@@ -12,6 +13,7 @@ public interface IPolarsDataFrame : IDisposable
     IPolarsSchema Schema{get;}
     UpdateResult WriteToAdbc(AdbcStatement statement);
     IPolarsSeries Column(int index);
+    IArrowArrayStream ToArrowStream(ReadOnlySpan<int> columnIndices = default,ulong? seed = null);
 
 }
 

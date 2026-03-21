@@ -5180,6 +5180,34 @@ and DataFrame(handle: DataFrameHandle) =
         let innerReader = new ArrowToDbStream(stream, overrides)
 
         new PolarsDataReader(innerReader, cts, producerTask) :> DbDataReader
+    /// <summary>
+    /// Export DataFrame to Arrow C Data Interface Stream.
+    /// Supports zero-copy and lazy chunked reading.
+    /// </summary>
+    /// <param name="seed">Optional seed for Native Global Shuffle.</param>
+    /// <returns>Standard IArrowArrayStream</returns>
+    member this.ToArrowStream(?seed: uint64) : IArrowArrayStream = 
+        let nullableSeed = Option.toNullable seed
+        ArrowStreamInterop.ExportToStream(this.Handle, ReadOnlySpan<int>.Empty, nullableSeed)
+
+    /// <summary>
+    /// Export DataFrame to Arrow C Data Interface Stream with Column Pruning.
+    /// </summary>
+    /// <param name="columnIndices">Column indices to prune the export (Projection Pushdown).</param>
+    /// <param name="seed">Optional seed for Native Global Shuffle.</param>
+    member this.ToArrowStream(columnIndices: ReadOnlySpan<int>, ?seed: uint64) : IArrowArrayStream = 
+        let nullableSeed = Option.toNullable seed
+        ArrowStreamInterop.ExportToStream(this.Handle, columnIndices, nullableSeed)
+
+    /// <summary>
+    /// Export DataFrame to Arrow C Data Interface Stream with Column Pruning (Array friendly).
+    /// </summary>
+    /// <param name="columnIndices">Column indices array to prune the export (Projection Pushdown).</param>
+    /// <param name="seed">Optional seed for Native Global Shuffle.</param>
+    member this.ToArrowStream(columnIndices: int array, ?seed: uint64) : IArrowArrayStream = 
+        let span = if isNull columnIndices then ReadOnlySpan<int>.Empty else ReadOnlySpan<int>(columnIndices)
+        let nullableSeed = Option.toNullable seed
+        ArrowStreamInterop.ExportToStream(this.Handle, span, nullableSeed)
 
     // ==========================================
     // IEnumerable<Series> Support
@@ -5189,7 +5217,7 @@ and DataFrame(handle: DataFrameHandle) =
             let seq = seq {
                 let w = this.Columns.Length
                 for i in 0 .. w - 1 do
-                    yield this.Column(i)
+                    yield this.Column i
             }
             seq.GetEnumerator()
 
@@ -5204,7 +5232,7 @@ and DataFrame(handle: DataFrameHandle) =
             
         member this.Schema = 
             this.Schema :> IPolarsSchema
-        member this.Show (): unit = 
+        member this.Show(): unit = 
             this.Show()    
         member this.ToArrow() = 
             this.ToArrow()
@@ -5212,6 +5240,8 @@ and DataFrame(handle: DataFrameHandle) =
             this.WriteToAdbc statement
         member this.Column(index:int) = 
             this.Column index
+        member this.ToArrowStream(columnIndices: ReadOnlySpan<int>, seed: Nullable<uint64>) =
+            ArrowStreamInterop.ExportToStream(this.Handle, columnIndices, seed)
 /// <summary>
 /// A LazyFrame represents a logical plan of operations that will be optimized and executed only when collected.
 /// <para>

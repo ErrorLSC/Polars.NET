@@ -1697,7 +1697,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static Series FromSpan<T>(string name, Span<T> data)
-        => new(SeriesFactory.CreateSpan(name, (ReadOnlySpan<T>)data));
+        => new(SeriesFactory.CreateSpan(name, data));
 
     /// <summary>
     /// Convert this single Series into a DataFrame.

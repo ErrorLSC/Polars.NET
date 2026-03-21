@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Microsoft.ML;
@@ -8,30 +10,33 @@ namespace Polars.NET.ML.DataView;
 /// <summary>
 /// A high-performance RowCursor that streams Apache Arrow RecordBatches directly into ML.NET.
 /// </summary>
-internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordBatch> batches) : DataViewRowCursor
+internal sealed class PolarsRowCursor : DataViewRowCursor
 {
-    private readonly IEnumerator<RecordBatch> _batchEnumerator = batches.GetEnumerator();
+    private readonly DataViewSchema _schema;
+    private readonly IEnumerator<RecordBatch> _batchEnumerator;
     
     private RecordBatch? _currentBatch;
     private long _position = -1;       
     private int _batchRowIndex = -1;
 
+    // 🌟 极致优化：状态缓存
+    private readonly bool[] _activeColumns;
+    private readonly int[] _neededOriginalIndices;
+    private readonly IArrowArray[] _currentArrays;
+
     // ==========================================
     // Metadata & State Properties
     // ==========================================
-    public override DataViewSchema Schema => schema;
+    public override DataViewSchema Schema => _schema;
     public override long Position => _position;
     public override long Batch => 0; 
-    /// <summary>
-    /// ML.NET requires a unique RowId for tracking and shuffling.
-    /// </summary>
-    public override ValueGetter<DataViewRowId> GetIdGetter()
-    {
-        return (ref DataViewRowId id) => 
-        {
-            id = new DataViewRowId((ulong)_position, 0); 
-        };
-    }
+
+    // 🌟 你提到的优化：严格根据所需的列返回 active 状态
+    public override bool IsColumnActive(DataViewSchema.Column column) 
+        => _activeColumns[column.Index];
+
+    public override ValueGetter<DataViewRowId> GetIdGetter() => 
+        (ref DataViewRowId id) => id = new DataViewRowId((ulong)_position, 0);
 
     // ==========================================
     // Iteration Logic
@@ -45,7 +50,7 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
         }
     }
 
-    public override bool MoveNext()
+public override bool MoveNext()
     {
         _position++;
         _batchRowIndex++;
@@ -54,8 +59,19 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
         {
             if (_batchEnumerator.MoveNext())
             {
+                _currentBatch?.Dispose(); // 释放上一个
                 _currentBatch = _batchEnumerator.Current;
                 _batchRowIndex = 0;
+
+                // 🌟 核心优化：一次性将裁减后的 Batch Arrays 拍平映射！
+                // 这样在 getter 里就不需要去查 name，直接 O(1) 数组寻址！
+                for (int i = 0; i < _neededOriginalIndices.Length; i++)
+                {
+                    int originalIdx = _neededOriginalIndices[i];
+                    // Rust 导出的流严格按照我们传给它的 indices 顺序返回列
+                    _currentArrays[originalIdx] = _currentBatch.Column(i); 
+                }
+                
                 return true;
             }
             return false;
@@ -64,13 +80,48 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
         return true;
     }
 
+    public PolarsRowCursor(
+        DataViewSchema schema, 
+        IEnumerable<RecordBatch> batches, 
+        IEnumerable<DataViewSchema.Column>? columnsNeeded)
+    {
+        _schema = schema;
+        _batchEnumerator = batches.GetEnumerator();
+        
+        _activeColumns = new bool[schema.Count];
+        _currentArrays = new IArrowArray[schema.Count];
+        
+        var neededList = new List<int>();
+
+        if (columnsNeeded != null)
+        {
+            foreach (var col in columnsNeeded)
+            {
+                _activeColumns[col.Index] = true;
+                neededList.Add(col.Index);
+            }
+        }
+        else
+        {
+            // 如果没传，说明全选
+            for (int i = 0; i < schema.Count; i++)
+            {
+                _activeColumns[i] = true;
+                neededList.Add(i);
+            }
+        }
+        
+        _neededOriginalIndices = [.. neededList];
+    }
+
     // ==========================================
     // Value Extraction
     // ==========================================
     public override ValueGetter<TValue> GetGetter<TValue>(DataViewSchema.Column column)
     {
-        int colIndex = column.Index;
+        // string colName = column.Name;
         var type = typeof(TValue);
+        int colIndex = column.Index;
 
         // ------------------------------------------
         // Integers
@@ -79,7 +130,7 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
         {
             void getter(ref sbyte value)
             {
-                var array = (Int8Array)_currentBatch!.Column(colIndex);
+                var array = (Int8Array)_currentArrays[colIndex];
 
                 if (array.IsNull(_batchRowIndex))
                 {
@@ -87,7 +138,8 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
                 }
                 else
                 {
-                    value = array.Values[_batchRowIndex];
+                    ref sbyte r = ref MemoryMarshal.GetReference(array.Values);
+                    value = Unsafe.Add(ref r, _batchRowIndex);
                 }
             }
             return (ValueGetter<TValue>)(object)(ValueGetter<sbyte>)getter;
@@ -97,7 +149,7 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
         {
             void getter(ref short value)
             {
-                var array = (Int16Array)_currentBatch!.Column(colIndex);
+                var array = (Int16Array)_currentArrays[colIndex];
 
                 if (array.IsNull(_batchRowIndex))
                 {
@@ -105,7 +157,8 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
                 }
                 else
                 {
-                    value = array.Values[_batchRowIndex];
+                    ref short r = ref MemoryMarshal.GetReference(array.Values);
+                    value = Unsafe.Add(ref r, _batchRowIndex);
                 }
             }
             return (ValueGetter<TValue>)(object)(ValueGetter<short>)getter;
@@ -115,7 +168,7 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
         {
             void getter(ref int value)
             {
-                var array = (Int32Array)_currentBatch!.Column(colIndex);
+                var array = (Int32Array)_currentArrays[colIndex];
 
                 if (array.IsNull(_batchRowIndex))
                 {
@@ -123,7 +176,8 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
                 }
                 else
                 {
-                    value = array.Values[_batchRowIndex];
+                    ref int r = ref MemoryMarshal.GetReference(array.Values);
+                    value = Unsafe.Add(ref r, _batchRowIndex);
                 }
             }
             return (ValueGetter<TValue>)(object)(ValueGetter<int>)getter;
@@ -133,7 +187,7 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
         {
             void getter(ref long value)
             {
-                var array = (Int64Array)_currentBatch!.Column(colIndex);
+                var array = (Int64Array)_currentArrays[colIndex];
 
                 if (array.IsNull(_batchRowIndex))
                 {
@@ -141,7 +195,8 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
                 }
                 else
                 {
-                    value = array.Values[_batchRowIndex];
+                    ref long r = ref MemoryMarshal.GetReference(array.Values);
+                    value = Unsafe.Add(ref r, _batchRowIndex);
                 }
             }
             return (ValueGetter<TValue>)(object)(ValueGetter<long>)getter;
@@ -153,7 +208,7 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
         {
             void getter(ref byte value)
             {
-                var array = (UInt8Array)_currentBatch!.Column(colIndex);
+                var array = (UInt8Array)_currentArrays[colIndex];
 
                 if (array.IsNull(_batchRowIndex))
                 {
@@ -161,7 +216,8 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
                 }
                 else
                 {
-                    value = array.Values[_batchRowIndex];
+                    ref byte r = ref MemoryMarshal.GetReference(array.Values);
+                    value = Unsafe.Add(ref r, _batchRowIndex);
                 }
             }
             return (ValueGetter<TValue>)(object)(ValueGetter<byte>)getter;
@@ -171,7 +227,7 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
         {
             void getter(ref ushort value)
             {
-                var array = (UInt16Array)_currentBatch!.Column(colIndex);
+                var array = (UInt16Array)_currentArrays[colIndex];
 
                 if (array.IsNull(_batchRowIndex))
                 {
@@ -179,7 +235,8 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
                 }
                 else
                 {
-                    value = array.Values[_batchRowIndex];
+                    ref ushort r = ref MemoryMarshal.GetReference(array.Values);
+                    value = Unsafe.Add(ref r, _batchRowIndex);
                 }
             }
             return (ValueGetter<TValue>)(object)(ValueGetter<ushort>)getter;
@@ -189,7 +246,7 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
         {
             void getter(ref uint value)
             {
-                var array = (UInt32Array)_currentBatch!.Column(colIndex);
+                var array = (UInt32Array)_currentArrays[colIndex];
 
                 if (array.IsNull(_batchRowIndex))
                 {
@@ -197,7 +254,8 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
                 }
                 else
                 {
-                    value = array.Values[_batchRowIndex];
+                    ref uint r = ref MemoryMarshal.GetReference(array.Values);
+                    value = Unsafe.Add(ref r, _batchRowIndex);
                 }
             }
             return (ValueGetter<TValue>)(object)(ValueGetter<uint>)getter;
@@ -207,7 +265,7 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
         {
             void getter(ref ulong value)
             {
-                var array = (UInt64Array)_currentBatch!.Column(colIndex);
+                var array = (UInt64Array)_currentArrays[colIndex];
 
                 if (array.IsNull(_batchRowIndex))
                 {
@@ -215,11 +273,13 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
                 }
                 else
                 {
-                    value = array.Values[_batchRowIndex];
+                    ref ulong r = ref MemoryMarshal.GetReference(array.Values);
+                    value = Unsafe.Add(ref r, _batchRowIndex);
                 }
             }
             return (ValueGetter<TValue>)(object)(ValueGetter<ulong>)getter;
         }
+
         // ------------------------------------------
         // Floats
         // ------------------------------------------
@@ -227,7 +287,7 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
         {
             void getter(ref Half value)
             {
-                var array = (HalfFloatArray)_currentBatch!.Column(colIndex);
+                var array = (HalfFloatArray)_currentArrays[colIndex];
 
                 if (array.IsNull(_batchRowIndex))
                 {
@@ -235,7 +295,8 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
                 }
                 else
                 {
-                    value = array.Values[_batchRowIndex];
+                    ref Half r = ref MemoryMarshal.GetReference(array.Values);
+                    value = Unsafe.Add(ref r, _batchRowIndex);
                 }
             }
             return (ValueGetter<TValue>)(object)(ValueGetter<Half>)getter;
@@ -245,7 +306,7 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
         {
             void getter(ref float value)
             {
-                var array = (FloatArray)_currentBatch!.Column(colIndex);
+                var array = (FloatArray)_currentArrays[colIndex];
 
                 if (array.IsNull(_batchRowIndex))
                 {
@@ -253,17 +314,18 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
                 }
                 else
                 {
-                    value = array.Values[_batchRowIndex];
+                    ref float r = ref MemoryMarshal.GetReference(array.Values);
+                    value = Unsafe.Add(ref r, _batchRowIndex);
                 }
             }
             return (ValueGetter<TValue>)(object)(ValueGetter<float>)getter;
-        }
-        
+        }        
+
         if (type == typeof(double))
         {
             void getter(ref double value)
             {
-                var array = (DoubleArray)_currentBatch!.Column(colIndex);
+                var array = (DoubleArray)_currentArrays[colIndex];
 
                 if (array.IsNull(_batchRowIndex))
                 {
@@ -271,11 +333,12 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
                 }
                 else
                 {
-                    value = array.Values[_batchRowIndex];
+                    ref double r = ref MemoryMarshal.GetReference(array.Values);
+                    value = Unsafe.Add(ref r, _batchRowIndex);
                 }
             }
             return (ValueGetter<TValue>)(object)(ValueGetter<double>)getter;
-        }
+        }        
         // ------------------------------------------
         // Boolean
         // ------------------------------------------
@@ -283,7 +346,7 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
         {
             void getter(ref bool value)
             {
-                var array = (BooleanArray)_currentBatch!.Column(colIndex);
+                var array = (BooleanArray)_currentArrays[colIndex];
 
                 if (array.IsNull(_batchRowIndex))
                 {
@@ -291,23 +354,30 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
                 }
                 else
                 {
-                    value = array.GetValue(_batchRowIndex).GetValueOrDefault();
+                    ref byte r = ref MemoryMarshal.GetReference(array.ValueBuffer.Span);
+                    
+                    int absoluteIndex = _batchRowIndex + array.Offset;
+                    
+                    int byteOffset = absoluteIndex >> 3; // absoluteIndex / 8
+                    int bitOffset  = absoluteIndex & 7;  // absoluteIndex % 8
+
+                    byte b = Unsafe.Add(ref r, byteOffset);
+                    
+                    value = (b & (1 << bitOffset)) != 0;
                 }
             }
             return (ValueGetter<TValue>)(object)(ValueGetter<bool>)getter;
         }
-
         // ----------------------------------------------------------------
         // String (Polars StringViewArray -> ML.NET ReadOnlyMemory<char>)
         // ----------------------------------------------------------------
         if (type == typeof(ReadOnlyMemory<char>))
         {
-
             char[] charBuffer = new char[256];
 
             void getter(ref ReadOnlyMemory<char> value)
             {
-                var array = (StringViewArray)_currentBatch!.Column(colIndex);
+                var array = (StringViewArray)_currentArrays[colIndex];
 
                 if (array.IsNull(_batchRowIndex))
                 {
@@ -315,7 +385,6 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
                 }
                 else
                 {
-                    // Get UTF-8 ReadOnlySpan<byte>
                     ReadOnlySpan<byte> utf8Bytes = array.GetBytes(_batchRowIndex);
 
                     if (utf8Bytes.IsEmpty)
@@ -324,8 +393,10 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
                         return;
                     }
 
-                    // Check Char Buffer Length
+                    // GetMaxCharCount is O(1) 
                     int maxCharCount = System.Text.Encoding.UTF8.GetMaxCharCount(utf8Bytes.Length);
+                    
+                    // Amortized O(1)
                     if (charBuffer.Length < maxCharCount)
                     {
                         int newSize = Math.Max(charBuffer.Length * 2, maxCharCount);
@@ -339,16 +410,18 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
             }
             return (ValueGetter<TValue>)(object)(ValueGetter<ReadOnlyMemory<char>>)getter;
         }
-
         // ------------------------------------------
         // DateTime
         // ------------------------------------------
 
         if (type == typeof(DateTime))
         {
+            const long UnixEpochTicks = 621355968000000000L; 
+            const long TicksPerDay = 864000000000L;
+
             void getter(ref DateTime value)
             {
-                var columnArray = _currentBatch!.Column(colIndex);
+                var columnArray = _currentArrays[colIndex];
 
                 if (columnArray.IsNull(_batchRowIndex))
                 {
@@ -358,15 +431,32 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
 
                 if (columnArray is TimestampArray tsArray)
                 {
-                    value = tsArray.GetTimestamp(_batchRowIndex)?.UtcDateTime ?? default;
+                    ref long r = ref MemoryMarshal.GetReference(tsArray.Values);
+                    long val = Unsafe.Add(ref r, _batchRowIndex);
+                    
+                    var unit = ((TimestampType)tsArray.Data.DataType).Unit;
+                    long ticks = unit switch {
+                        TimeUnit.Nanosecond => val / 100,
+                        TimeUnit.Microsecond => val * 10,
+                        TimeUnit.Millisecond => val * 10_000,
+                        TimeUnit.Second => val * 10_000_000,
+                        _ => val
+                    };
+                    value = new DateTime(UnixEpochTicks + ticks);
                 }
                 else if (columnArray is Date32Array d32Array)
                 {
-                    value = d32Array.GetDateTime(_batchRowIndex) ?? default;
+                    ref int r = ref MemoryMarshal.GetReference(d32Array.Values);
+                    int val = Unsafe.Add(ref r, _batchRowIndex);
+                    
+                    value = new DateTime(UnixEpochTicks + val * TicksPerDay);
                 }
                 else if (columnArray is Date64Array d64Array)
                 {
-                    value = d64Array.GetDateTime(_batchRowIndex) ?? default;
+                    ref long r = ref MemoryMarshal.GetReference(d64Array.Values);
+                    long val = Unsafe.Add(ref r, _batchRowIndex);
+                    
+                    value = new DateTime(UnixEpochTicks + val * 10_000L);
                 }
                 else
                 {
@@ -376,11 +466,14 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
             return (ValueGetter<TValue>)(object)(ValueGetter<DateTime>)getter;
         }
 
+        // ------------------------------------------
+        // TimeSpan
+        // ------------------------------------------
         if (type == typeof(TimeSpan))
         {
             void getter(ref TimeSpan value)
             {
-                var columnArray = _currentBatch!.Column(colIndex);
+                var columnArray = _currentArrays[colIndex];
 
                 if (columnArray.IsNull(_batchRowIndex))
                 {
@@ -390,9 +483,10 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
 
                 if (columnArray is DurationArray durArray)
                 {
-                    long val = durArray.Values[_batchRowIndex];
-                    var unit = ((DurationType)durArray.Data.DataType).Unit;
+                    ref long r = ref MemoryMarshal.GetReference(durArray.Values);
+                    long val = Unsafe.Add(ref r, _batchRowIndex);
                     
+                    var unit = ((DurationType)durArray.Data.DataType).Unit;
                     long ticks = unit switch {
                         TimeUnit.Nanosecond => val / 100,
                         TimeUnit.Microsecond => val * 10,
@@ -404,9 +498,10 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
                 }
                 else if (columnArray is Time64Array t64Array)
                 {
-                    long val = t64Array.Values[_batchRowIndex];
-                    var unit = ((Time64Type)t64Array.Data.DataType).Unit;
+                    ref long r = ref MemoryMarshal.GetReference(t64Array.Values);
+                    long val = Unsafe.Add(ref r, _batchRowIndex);
                     
+                    var unit = ((Time64Type)t64Array.Data.DataType).Unit;
                     long ticks = unit switch {
                         TimeUnit.Nanosecond => val / 100,
                         TimeUnit.Microsecond => val * 10,
@@ -416,9 +511,10 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
                 }
                 else if (columnArray is Time32Array t32Array)
                 {
-                    long val = t32Array.Values[_batchRowIndex];
-                    var unit = ((Time32Type)t32Array.Data.DataType).Unit;
+                    ref int r = ref MemoryMarshal.GetReference(t32Array.Values);
+                    int val = Unsafe.Add(ref r, _batchRowIndex);
                     
+                    var unit = ((Time32Type)t32Array.Data.DataType).Unit;
                     long ticks = unit switch {
                         TimeUnit.Millisecond => val * 10_000,
                         TimeUnit.Second => val * 10_000_000,
@@ -475,7 +571,7 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
         SpanExtractor<TPrimitive> getValuesSpan)
         where TPrimitive : unmanaged
     {
-        var columnArray = _currentBatch!.Column(colIndex);
+        var columnArray = _currentArrays[colIndex];
 
         if (columnArray.IsNull(_batchRowIndex))
         {
@@ -488,15 +584,20 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
 
         if (columnArray is FixedSizeListArray fsList)
         {
+            // Dense Tensor
             length = ((FixedSizeListType)fsList.Data.DataType).ListSize;
             ReadOnlySpan<TPrimitive> allValues = getValuesSpan(fsList.Values); 
+            
             int offset = _batchRowIndex * length;
             span = allValues.Slice(offset, length);
         }
         else if (columnArray is ListArray list)
         {
-            int offset = list.ValueOffsets[_batchRowIndex];
-            length = list.ValueOffsets[_batchRowIndex + 1] - offset;
+            ref int offsetsRef = ref MemoryMarshal.GetReference(list.ValueOffsets);
+            
+            int offset = Unsafe.Add(ref offsetsRef, _batchRowIndex);
+            length = Unsafe.Add(ref offsetsRef, _batchRowIndex + 1) - offset;
+
             ReadOnlySpan<TPrimitive> allValues = getValuesSpan(list.Values);
             span = allValues.Slice(offset, length);
         }
@@ -507,9 +608,4 @@ internal sealed class PolarsRowCursor(DataViewSchema schema, IEnumerable<RecordB
     }
 
     private delegate ReadOnlySpan<T> SpanExtractor<T>(IArrowArray array) where T : unmanaged;
-
-    /// <summary>
-    /// ML.NET API checking if a column is active
-    /// </summary>
-    public override bool IsColumnActive(DataViewSchema.Column column) => true;
 }

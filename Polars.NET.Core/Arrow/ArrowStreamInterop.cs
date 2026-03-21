@@ -389,30 +389,77 @@ public static unsafe class ArrowStreamInterop
     /// <summary>
     /// Export Polars DataFrame to C# IArrowArrayStream
     /// </summary>
-    public static IArrowArrayStream ExportToStream(DataFrameHandle dfHandle) 
+    public static IArrowArrayStream ExportToStream(
+        DataFrameHandle dfHandle, 
+        ReadOnlySpan<int> columnIndices = default, 
+        ulong? seed = null) 
     {
         var cStream = Apache.Arrow.C.CArrowArrayStream.Create();
+        int result;
 
-        int result = NativeBindings.pl_dataframe_export_to_stream(dfHandle, cStream);
+        if (seed.HasValue)
+        {
+            ulong seedValue = seed.Value;
+            result = NativeBindings.pl_dataframe_export_to_stream(
+                dfHandle, 
+                (Apache.Arrow.C.CArrowArrayStream*)cStream, 
+                columnIndices, 
+                (nuint)columnIndices.Length,
+                &seedValue); 
+        }
+        else
+        {
+            result = NativeBindings.pl_dataframe_export_to_stream(
+                dfHandle, 
+                (Apache.Arrow.C.CArrowArrayStream*)cStream, 
+                columnIndices, 
+                (nuint)columnIndices.Length,
+                null); // 
+        }
+
         ErrorHelper.CheckStatus(result);
 
         var managedStream = Apache.Arrow.C.CArrowArrayStreamImporter.ImportArrayStream(cStream);
-
+        
         return new SafePolarsExportStream(managedStream, (IntPtr)cStream);
     }
+
     /// <summary>
     /// Export Polars DataFrame to Native CArrowArrayStream 
     /// </summary>
-    public static IntPtr ExportToNativeCStream(DataFrameHandle dfHandle)
+    public static IntPtr ExportToNativeCStream(
+        DataFrameHandle dfHandle, 
+        ReadOnlySpan<int> columnIndices = default,
+        ulong? seed = null)
     {
         var cStream = Apache.Arrow.C.CArrowArrayStream.Create();
+        int result;
         
-        int result = NativeBindings.pl_dataframe_export_to_stream(dfHandle,cStream);
-        ErrorHelper.CheckStatus(result);
+        if (seed.HasValue)
+        {
+            ulong seedValue = seed.Value;
+            result = NativeBindings.pl_dataframe_export_to_stream(
+                dfHandle, 
+                (Apache.Arrow.C.CArrowArrayStream*)cStream, 
+                columnIndices, 
+                (nuint)columnIndices.Length, 
+                &seedValue);
+        }
+        else
+        {
+            result = NativeBindings.pl_dataframe_export_to_stream(
+                dfHandle, 
+                (Apache.Arrow.C.CArrowArrayStream*)cStream, 
+                columnIndices, 
+                (nuint)columnIndices.Length, 
+                null);
+        }
+
         if (result != 0)
         {
-            Apache.Arrow.C.CArrowArrayStream.Free(cStream);
-            throw new Exception("Rust FFI failed to export the stream.");
+            Apache.Arrow.C.CArrowArrayStream.Free((Apache.Arrow.C.CArrowArrayStream*)cStream);
+            ErrorHelper.CheckStatus(result);
+            throw new Exception("Rust FFI failed to export the stream."); 
         }
         
         return (IntPtr)cStream;
@@ -548,6 +595,38 @@ internal sealed class SafePolarsExportStream(IArrowArrayStream nativeStream, Int
             {
                 unsafe { Apache.Arrow.C.CArrowArrayStream.Free((Apache.Arrow.C.CArrowArrayStream*)cStream); }
             }
+        }
+    }
+}
+
+public sealed class ArrowStreamEnumerable(IArrowArrayStream stream) : IEnumerable<RecordBatch>
+{
+    public IEnumerator<RecordBatch> GetEnumerator() => new ArrowStreamEnumerator(stream);
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+
+    private sealed class ArrowStreamEnumerator(IArrowArrayStream stream) : IEnumerator<RecordBatch>
+    {
+        private RecordBatch? _current;
+
+        public RecordBatch Current => _current!;
+        
+        object System.Collections.IEnumerator.Current => _current!;
+
+        public bool MoveNext()
+        {
+            _current?.Dispose();
+            
+            _current = stream.ReadNextRecordBatchAsync().AsTask().GetAwaiter().GetResult();
+            
+            return _current != null;
+        }
+
+        public void Reset() => throw new NotSupportedException("Arrow streams are forward-only.");
+
+        public void Dispose()
+        {
+            _current?.Dispose();
+            stream.Dispose(); 
         }
     }
 }

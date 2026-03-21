@@ -3996,11 +3996,15 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
         return df;
     }
     /// <summary>
-    /// Export DataFrame to Arrow C Stream
+    /// Export DataFrame to Arrow C Data Interface Stream.
+    /// Supports zero-copy and lazy chunked reading.
     /// </summary>
+    /// <param name="columnIndices">Optional column indices to prune the export (Projection Pushdown).</param>
+    /// <param name="seed">Optional random seed to shuffle chunks.</param>
     /// <returns>Standard IArrowArrayStream</returns>
-    public IArrowArrayStream ToArrowStream()
-        => ArrowStreamInterop.ExportToStream(Handle);
+    public IArrowArrayStream ToArrowStream(ReadOnlySpan<int> columnIndices = default, ulong? seed = null)
+        => ArrowStreamInterop.ExportToStream(Handle, columnIndices, seed);
+    
     /// <summary>
     /// Generate DataFrame from ADBC query results
     /// </summary>

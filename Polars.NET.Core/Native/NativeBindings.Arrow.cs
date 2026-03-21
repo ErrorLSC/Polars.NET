@@ -42,7 +42,10 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial int pl_dataframe_export_to_stream(
         DataFrameHandle df_ptr, 
-        Apache.Arrow.C.CArrowArrayStream* out_stream
+        Apache.Arrow.C.CArrowArrayStream* out_stream,
+        ReadOnlySpan<int> colIndices, 
+        nuint numCols,     
+        ulong* shuffleSeed  
     );
     [LibraryImport(LibName)]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
