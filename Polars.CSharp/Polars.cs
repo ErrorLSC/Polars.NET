@@ -208,6 +208,47 @@ public static partial class Polars
         return new Expr(PolarsWrapper.ConcatList(handles));
     }
     // ==========================================
+    // Array Operations
+    // ==========================================
+    /// <summary>
+    /// Concat multiple array expressions into a single array expression.
+    /// </summary>
+    public static Expr ConcatArray(params Expr[] exprs)
+    {
+        var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
+        return new Expr(PolarsWrapper.ConcatArray(handles));
+    }
+    // ==========================================
+    // String Operations
+    // ==========================================
+    /// <summary>
+    /// Concat multiple string expressions into a single string expression.
+    /// </summary>
+    public static Expr ConcatString(string separator=",",bool ignoreNulls=false,params Expr[] exprs)
+    {
+        var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
+        return new Expr(PolarsWrapper.ConcatString(handles,separator,ignoreNulls));
+    }
+    /// <summary>
+    /// Format multiple string expressions into a single formated string expression.
+    /// </summary>
+    public static Expr FormatString(string format,params Expr[] exprs)
+    {
+        var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
+        return new Expr(PolarsWrapper.FormatString(format,handles));
+    }
+    // ==========================================
+    // Concat Exprs
+    // ==========================================
+    /// <summary>
+    /// Concat multiple expressions into a single expression.
+    /// </summary>
+    public static Expr ConcatExpr(bool rechunk=false,params Expr[] exprs)
+    {
+        var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
+        return new Expr(PolarsWrapper.ConcatExprs(handles,rechunk));
+    }
+    // ==========================================
     // Struct Operations
     // ==========================================
 

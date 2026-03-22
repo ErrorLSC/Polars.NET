@@ -3130,6 +3130,23 @@ public class ArrayOps
         var h = PolarsWrapper.CloneExpr(_expr.Handle);
         return new Expr(PolarsWrapper.ArrayUnique(h, stable));
     }
+    /// <summary>
+    /// Concat this Array expression with other Array expressions.
+    /// </summary>
+    /// <param name="others">Other list expressions to append.</param>
+    public Expr Concat(params Expr[] others)
+    {
+        var allExprs = new ExprHandle[others.Length + 1];
+
+        allExprs[0] = PolarsWrapper.CloneExpr(_expr.Handle);
+
+        for (int i = 0; i < others.Length; i++)
+        {
+            allExprs[i + 1] = PolarsWrapper.CloneExpr(others[i].Handle);
+        }
+
+        return new Expr(PolarsWrapper.ConcatArray(allExprs));
+    }
 }
 
 // ==========================================

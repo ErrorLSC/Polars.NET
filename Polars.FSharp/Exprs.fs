@@ -1831,6 +1831,46 @@ and Expr(handle: ExprHandle) =
     /// <returns>A new Expr representing the dynamic rolling quantile.</returns>
     member this.RollingQuantileBy(quantile:float,method:QuantileMethod,windowSize: TimeSpan, by: Expr,?closed: ClosedWindow, ?minPeriod: int) =
         this.RollingQuantileBy(quantile,method,DurationFormatter.ToPolarsString windowSize,by,?closed=closed,?minPeriod=minPeriod)
+    /// <summary>
+    /// Concat multiple string expressions into a single string expression.
+    /// </summary>
+    static member ConcatString(exprs: seq<Expr>,?separator: string, ?ignoreNulls: bool) =
+        let sep = defaultArg separator ","
+        let ignNulls = defaultArg ignoreNulls false
+        
+        let handles = 
+            exprs 
+            |> Seq.map (fun e -> PolarsWrapper.CloneExpr e.Handle)
+            |> Seq.toArray
+            
+        new Expr(PolarsWrapper.ConcatString(handles, sep, ignNulls))
+
+    /// <summary>
+    /// Format multiple string expressions into a single formated string expression.
+    /// </summary>
+    static member FormatString(format: string, exprs: seq<Expr>) =
+        let handles = 
+            exprs 
+            |> Seq.map (fun e -> PolarsWrapper.CloneExpr(e.Handle))
+            |> Seq.toArray
+            
+        new Expr(PolarsWrapper.FormatString(format, handles))
+
+    // ==========================================
+    // Concat Exprs
+    // ==========================================
+    
+    /// <summary>
+    /// Concat multiple expressions into a single expression.
+    /// </summary>
+    static member ConcatExpr(exprs: seq<Expr>,?rechunk: bool) =
+        let rchk = defaultArg rechunk false
+        let handles = 
+            exprs 
+            |> Seq.map (fun e -> PolarsWrapper.CloneExpr(e.Handle))
+            |> Seq.toArray
+            
+        new Expr(PolarsWrapper.ConcatExprs(handles, rchk))
 
 // --- Namespace Helpers ---
 

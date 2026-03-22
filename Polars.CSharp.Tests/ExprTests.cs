@@ -478,7 +478,7 @@ TooShort,1990-05-20,1.60";
         
         using var df = DataFrame.FromColumns(new 
         {
-            dummy = new[] { 1 } 
+            dummy = new[] { 1 }
         }).Select(
             Lit(3).Implode().List.Concat(LitNull().Implode()).List.Concat(Lit(1).Implode())
             .Alias("list_col")
@@ -2194,5 +2194,114 @@ TooShort,1990-05-20,1.60";
 
         Assert.Equal(1u, (uint)res["search_20_left"][0]!);
         Assert.Equal(3u, (uint)res["search_20_right"][0]!);
+    }
+    [Fact]
+    [Trait("Expr", "StringManipulation")]
+    public void Test_Expr_ConcatString_And_FormatString()
+    {
+        // 准备带有 Null 的字符串数据，测试 ignoreNulls 逻辑
+        using var df = DataFrame.FromColumns(new
+        {
+            WordA = new string[] { "apple", "banana", null, "hello" },
+            WordB = new string[] { "pie", null, "split", "world" }
+        });
+        // shape: (4, 2)
+        // ┌────────┬───────┐
+        // │ WordA  ┆ WordB │
+        // │ ---    ┆ ---   │
+        // │ str    ┆ str   │
+        // ╞════════╪═══════╡
+        // │ apple  ┆ pie   │
+        // │ banana ┆ null  │
+        // │ null   ┆ split │
+        // │ hello  ┆ world │
+        // └────────┴───────┘
+
+        using var res = df.Select(
+            // --- ConcatString (Strict: any null makes result null) ---
+            Polars.ConcatString("-", false, Col("WordA"), Col("WordB")).Alias("concat_strict"),
+            
+            // --- ConcatString (Ignore Nulls: skips nulls seamlessly) ---
+            Polars.ConcatString("-", true, Col("WordA"), Col("WordB")).Alias("concat_ignore"),
+            
+            // --- FormatString (Template formatting) ---
+            Polars.FormatString("[{}] + [{}] = ❤️", Col("WordA"), Col("WordB")).Alias("format_str")
+        );
+
+        // shape: (4, 3)
+        // ┌───────────────┬───────────────┬────────────────────────┐
+        // │ concat_strict ┆ concat_ignore ┆ format_str             │
+        // │ ---           ┆ ---           ┆ ---                    │
+        // │ str           ┆ str           ┆ str                    │
+        // ╞═══════════════╪═══════════════╪════════════════════════╡
+        // │ apple-pie     ┆ apple-pie     ┆ [apple] + [pie] = ❤️   │
+        // │ null          ┆ banana        ┆ null                   │
+        // │ null          ┆ split         ┆ null                   │
+        // │ hello-world   ┆ hello-world   ┆ [hello] + [world] = ❤️ │
+        // └───────────────┴───────────────┴────────────────────────┘
+
+        // Row 0: Full data
+        Assert.Equal("apple-pie", (string)res["concat_strict"][0]!);
+        Assert.Equal("apple-pie", (string)res["concat_ignore"][0]!);
+        Assert.Equal("[apple] + [pie] = ❤️", (string)res["format_str"][0]!);
+
+        // Row 1: WordB is null
+        Assert.Null(res["concat_strict"][1]);
+        Assert.Equal("banana", (string)res["concat_ignore"][1]!); // ignoreNulls skipped WordB
+        Assert.Null(res["format_str"][1]);
+
+        // Row 2: WordA is null
+        Assert.Null(res["concat_strict"][2]);
+        Assert.Equal("split", (string)res["concat_ignore"][2]!); // ignoreNulls skipped WordA
+        Assert.Null(res["format_str"][2]);
+        
+        // Row 3: Normal strings
+        Assert.Equal("hello-world", (string)res["concat_strict"][3]!);
+        Assert.Equal("[hello] + [world] = ❤️", (string)res["format_str"][3]!);
+    }
+
+    [Fact]
+    [Trait("Expr", "ConcatExpr")]
+    public void Test_Expr_ConcatExpr()
+    {
+        using var df = DataFrame.FromColumns(new
+        {
+            Col1 = new int[] { 10, 20 },
+            Col2 = new int[] { 30, 40 }
+        });
+        // shape: (2, 2)
+        // ┌──────┬──────┐
+        // │ Col1 ┆ Col2 │
+        // │ ---  ┆ ---  │
+        // │ i32  ┆ i32  │
+        // ╞══════╪══════╡
+        // │ 10   ┆ 30   │
+        // │ 20   ┆ 40   │
+        // └──────┴──────┘
+
+        // ConcatExpr appends expressions/series vertically.
+        // It will combine Col1 and Col2 into a single column of length 4.
+        using var res = df.Select(
+            ConcatExpr(rechunk: true, Col("Col1"), Col("Col2")).Alias("vertical_concat")
+        );
+
+        // shape: (4, 1)
+        // ┌─────────────────┐
+        // │ vertical_concat │
+        // │ ---             │
+        // │ i32             │
+        // ╞═════════════════╡
+        // │ 10              │
+        // │ 20              │
+        // │ 30              │
+        // │ 40              │
+        // └─────────────────┘
+
+        Assert.Equal(4L, res.Height);
+        
+        Assert.Equal(10, (int)res["vertical_concat"][0]!);
+        Assert.Equal(20, (int)res["vertical_concat"][1]!);
+        Assert.Equal(30, (int)res["vertical_concat"][2]!);
+        Assert.Equal(40, (int)res["vertical_concat"][3]!);
     }
 }

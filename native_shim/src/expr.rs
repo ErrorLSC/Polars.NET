@@ -717,6 +717,35 @@ pub extern "C" fn pl_expr_bit_shr(expr_ptr: *mut ExprContext, n: i32) -> *mut Ex
 // ==========================================
 // String Operations 
 // ==========================================
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_format_str(
+    format_ptr: *const c_char,
+    exprs_ptr: *const *mut ExprContext,
+    exprs_len: usize
+) -> *mut ExprContext {
+    ffi_try!({
+        let format_template = if format_ptr.is_null() {
+            ""
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(format_ptr) }
+                .to_str()
+                .map_err(|e| PolarsError::ComputeError(format!("Invalid UTF-8 in format string: {}", e).into()))?
+        };
+
+        let mut exprs = Vec::with_capacity(exprs_len);
+        let ptr_slice = unsafe { std::slice::from_raw_parts(exprs_ptr, exprs_len) };
+        for &ptr in ptr_slice {
+            let expr_ctx = unsafe { Box::from_raw(ptr) };
+            exprs.push(expr_ctx.inner);
+        }
+
+        let new_expr = format_str(format_template, exprs)?;
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_str_contains(
     expr_ptr: *mut ExprContext, 
@@ -1424,6 +1453,29 @@ pub extern "C" fn pl_expr_list_len(expr_ptr: *mut ExprContext) -> *mut ExprConte
     })
 }
 
+// ==========================================
+// Concat Ops 
+// ==========================================
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_concat_array(
+    exprs_ptr: *const *mut ExprContext,
+    exprs_len: usize
+) -> *mut ExprContext {
+    ffi_try!({
+        let mut exprs = Vec::with_capacity(exprs_len);
+        let ptr_slice = unsafe { std::slice::from_raw_parts(exprs_ptr, exprs_len) };
+        for &ptr in ptr_slice {
+            let expr_ctx = unsafe { Box::from_raw(ptr) };
+            exprs.push(expr_ctx.inner);
+        }
+
+        let new_expr = concat_arr(exprs)?;
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_concat_list(
     exprs_ptr: *const *mut ExprContext,
@@ -1437,7 +1489,56 @@ pub extern "C" fn pl_concat_list(
             exprs.push(expr_ctx.inner);
         }
 
-        let new_expr = concat_list(exprs).expect("concat_list failed");
+        let new_expr = concat_list(exprs)?;
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_concat_str(
+    exprs_ptr: *const *mut ExprContext,
+    exprs_len: usize,
+    separator_ptr: *const c_char,
+    ignore_nulls: bool
+) -> *mut ExprContext {
+    ffi_try!({
+        let separator = if separator_ptr.is_null() {
+            ""
+        } else {
+            unsafe { CStr::from_ptr(separator_ptr) }
+                .to_str()
+                .map_err(|e| PolarsError::ComputeError(format!("Invalid UTF-8 in separator: {}", e).into()))?
+        };
+
+        let mut exprs = Vec::with_capacity(exprs_len);
+        let ptr_slice = unsafe { std::slice::from_raw_parts(exprs_ptr, exprs_len) };
+        for &ptr in ptr_slice {
+            let expr_ctx = unsafe { Box::from_raw(ptr) };
+            exprs.push(expr_ctx.inner);
+        }
+
+        let new_expr = concat_str(exprs, separator, ignore_nulls);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_concat_expr(
+    exprs_ptr: *const *mut ExprContext,
+    exprs_len: usize,
+    rechunk: bool
+) -> *mut ExprContext {
+    ffi_try!({
+        let mut exprs = Vec::with_capacity(exprs_len);
+        let ptr_slice = unsafe { std::slice::from_raw_parts(exprs_ptr, exprs_len) };
+        for &ptr in ptr_slice {
+            let expr_ctx = unsafe { Box::from_raw(ptr) };
+            exprs.push(expr_ctx.inner);
+        }
+
+        let new_expr = concat_expr(exprs, rechunk)?;
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })

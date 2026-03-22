@@ -244,6 +244,17 @@ module pl =
             |> Seq.toArray
 
         new Expr(PolarsWrapper.ConcatList exprHandles)
+    /// <summary>
+    /// Combine multiple expressions horizontally into an array element.
+    /// </summary>
+    let concatArray (columns: seq<#IColumnExpr>) =
+        let exprHandles = 
+            columns
+            |> Seq.collect (fun x -> x.ToExprs()) 
+            |> Seq.map (fun e -> e.CloneHandle())
+            |> Seq.toArray
+
+        new Expr(PolarsWrapper.ConcatArray exprHandles)
     /// <summary> Get the first n rows of the DataFrame. </summary>
     let head (n: int) (df: DataFrame) : DataFrame =
         df.Head n

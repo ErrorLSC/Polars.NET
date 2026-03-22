@@ -22,6 +22,8 @@ unsafe internal partial class NativeBindings
     string key, 
     string value);
     [LibraryImport(LibName)] public static partial void pl_expr_free(IntPtr ptr);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_concat_expr(IntPtr[] exprs,UIntPtr exprLen, [MarshalAs(UnmanagedType.U1)] bool rechunk);
     // String Free
     [LibraryImport(LibName)] public static partial void pl_free_string(IntPtr ptr);
     [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] 
@@ -278,6 +280,10 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] 
     public static partial ExprHandle pl_expr_cast(ExprHandle expr, DataTypeHandle dtype, [MarshalAs(UnmanagedType.U1)] bool strict);
     // String Ops
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_concat_str(IntPtr[] exprs,nuint exprLen, string separator, [MarshalAs(UnmanagedType.U1)] bool ignoreNulls);
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_format_str(string format,IntPtr[] exprs,UIntPtr exprLen);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_contains(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string pat);
 
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_to_uppercase(ExprHandle expr);
@@ -355,10 +361,11 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] bool maintain_order
     );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_contains(ExprHandle expr, ExprHandle item, [MarshalAs(UnmanagedType.U1)] bool nulls_equal);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_concat_list(IntPtr[] exprs,UIntPtr exprLen);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_concat_list(IntPtr[] exprs,nuint exprLen);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_list_reverse(ExprHandle expr);
     // Array Ops
+    [LibraryImport(LibName)] public static partial ExprHandle pl_concat_array(IntPtr[] exprs,nuint exprLen);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_array_max(ExprHandle expr);
     [LibraryImport(LibName)]

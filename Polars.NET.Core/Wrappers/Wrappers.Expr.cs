@@ -401,6 +401,21 @@ public static partial class PolarsWrapper
         return ErrorHelper.Check(h);
     }
     // String Ops
+    public static ExprHandle ConcatString(ExprHandle[] exprs,string separator, bool ignoreNulls)
+    {
+        var ptrs = HandlesToPtrs(exprs); 
+        return ErrorHelper.Check(NativeBindings.pl_concat_str(
+            ptrs,(UIntPtr)exprs.Length,
+            separator,ignoreNulls            
+        ));
+    }
+    public static ExprHandle FormatString(string format,ExprHandle[] exprs)
+    {
+        var ptrs = HandlesToPtrs(exprs); 
+        return ErrorHelper.Check(NativeBindings.pl_format_str(
+            format,ptrs,(UIntPtr)exprs.Length         
+        ));
+    }
     public static ExprHandle StrContains(ExprHandle e, string pat) 
     {
         var h = NativeBindings.pl_expr_str_contains(e, pat);
@@ -711,6 +726,14 @@ public static partial class PolarsWrapper
     }
     public static ExprHandle ListReverse(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_reverse, e);
     // --- Array ---
+    public static ExprHandle ConcatArray(ExprHandle[] exprs)
+    {
+        var ptrs = HandlesToPtrs(exprs); 
+        return ErrorHelper.Check(NativeBindings.pl_concat_array(
+            ptrs,
+            (UIntPtr)exprs.Length
+        ));
+    }
     public static ExprHandle ArraySum(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_array_sum, e);
     public static ExprHandle ArrayMin(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_array_min, e);
     public static ExprHandle ArrayMax(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_array_max, e);
@@ -1024,5 +1047,13 @@ public static partial class PolarsWrapper
         expr.TransferOwnership();
         element.TransferOwnership();
         return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ConcatExprs(ExprHandle[] exprs,bool rechunk)
+    {
+        var ptrs = HandlesToPtrs(exprs); 
+        return ErrorHelper.Check(NativeBindings.pl_concat_expr(
+            ptrs,(UIntPtr)exprs.Length,
+            rechunk           
+        ));
     }
 }

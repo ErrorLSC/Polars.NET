@@ -286,10 +286,16 @@ public class DataViewConversionTests
         Assert.Equal(150, df.Height);
         
         // sepal length (cm), sepal width (cm), petal length (cm), petal width (cm)
-        string[] featureCols = ["SepalLengthCm", "SepalWidthCm", "PetalLengthCm", "PetalWidthCm"];
-
         // Polars Data Cleaning
-        var exprs = featureCols.Select(name => Col(name).Cast(DataType.Float32)).ToArray();
+        var exprs = new[]
+        {
+            ConcatArray(
+                Col("SepalLengthCm").Cast(DataType.Float32),
+                Col("SepalWidthCm").Cast(DataType.Float32),
+                Col("PetalLengthCm").Cast(DataType.Float32),
+                Col("PetalWidthCm").Cast(DataType.Float32)
+            ).Alias("Features")
+        };
         
         using var cleanDf = df.WithColumns(exprs);
         cleanDf.Show();
@@ -304,11 +310,7 @@ public class DataViewConversionTests
         // ML.NET Pipeline
         // ==========================================
         // Form VBuffer<float> tensor
-        var pipeline = mlContext.Transforms.Concatenate("Features", 
-                featureCols[0], featureCols[1], featureCols[2], featureCols[3])
-            // K-Means for 3 categories
-            .Append(mlContext.Clustering.Trainers.KMeans("Features", numberOfClusters: 3));
-
+        var pipeline = mlContext.Clustering.Trainers.KMeans("Features", numberOfClusters: 3);
         var model = pipeline.Fit(dataView);
 
         // ==========================================
