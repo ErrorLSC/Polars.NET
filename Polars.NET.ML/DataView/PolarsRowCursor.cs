@@ -47,7 +47,7 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
         }
     }
 
-public override bool MoveNext()
+    public override bool MoveNext()
     {
         _position++;
         _batchRowIndex++;

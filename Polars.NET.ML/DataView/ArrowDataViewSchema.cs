@@ -13,6 +13,7 @@ internal static class ArrowDataViewMapper
     /// </summary>
     public static DataViewType GetDataViewType(IArrowType arrowType)
     {
+        
         return arrowType switch
         {
             // ==========================================
@@ -61,9 +62,63 @@ internal static class ArrowDataViewMapper
                 
                 _ => throw new NotSupportedException($"Dictionary index type '{dict.IndexType.Name}' is not supported as ML.NET KeyDataViewType.")
             },
+
+            MapType => throw new NotSupportedException(
+                "Dynamic Map types cannot be directly consumed by ML.NET pipelines. Please unnest, explode, or convert to Struct/List features using Polars before creating the IDataView."),
+            Decimal128Type or Decimal256Type => throw new NotSupportedException(
+                "ML.NET trainers operate on float/double. Please cast your Decimal column to Float64 in Polars (e.g., df.Select(Col(\"Price\").Cast(DataType.Float64))) before exporting to IDataView."),
             
             _ => throw new NotSupportedException(
                 $"Arrow type '{arrowType.Name}' is currently not supported in ML.NET DataView mapping.")
+        };
+    }
+    /// <summary>
+    /// Recursively resolves an ML.NET DataViewType into an Arrow Type.
+    /// </summary>
+    public static IArrowType GetArrowType(DataViewType dataViewType)
+    {
+        return dataViewType switch
+        {
+            // ==========================================
+            // Primitives
+            // ==========================================
+            NumberDataViewType n when n == NumberDataViewType.Single => FloatType.Default,
+            NumberDataViewType n when n == NumberDataViewType.Double => DoubleType.Default,
+            NumberDataViewType n when n == NumberDataViewType.SByte => Int8Type.Default,
+            NumberDataViewType n when n == NumberDataViewType.Int16 => Int16Type.Default,
+            NumberDataViewType n when n == NumberDataViewType.Int32 => Int32Type.Default,
+            NumberDataViewType n when n == NumberDataViewType.Int64 => Int64Type.Default,
+            NumberDataViewType n when n == NumberDataViewType.Byte => UInt8Type.Default,
+            NumberDataViewType n when n == NumberDataViewType.UInt16 => UInt16Type.Default,
+            NumberDataViewType n when n == NumberDataViewType.UInt32 => UInt32Type.Default,
+            NumberDataViewType n when n == NumberDataViewType.UInt64 => UInt64Type.Default,
+
+            // ==========================================
+            // Text and Bool
+            // ==========================================
+            TextDataViewType => StringViewType.Default,
+            BooleanDataViewType => BooleanType.Default,
+
+            // ==========================================
+            // Time
+            // ==========================================
+            DateTimeDataViewType => new TimestampType(TimeUnit.Microsecond, timezone: null as string),
+            TimeSpanDataViewType => DurationType.FromTimeUnit(TimeUnit.Microsecond),
+
+            // ==========================================
+            // Tensors / Vectors
+            // ==========================================
+            VectorDataViewType v when v.ItemType == NumberDataViewType.Single 
+                => new FixedSizeListType(FloatType.Default, v.Size),
+                
+            VectorDataViewType v when v.ItemType == NumberDataViewType.Int32 
+                => new FixedSizeListType(Int32Type.Default, v.Size),
+
+            // ==========================================
+            // Fallback
+            // ==========================================
+            _ => throw new NotSupportedException(
+                $"ML.NET DataViewType '{dataViewType.RawType.Name}' is not supported in Arrow mapping.")
         };
     }
 }
