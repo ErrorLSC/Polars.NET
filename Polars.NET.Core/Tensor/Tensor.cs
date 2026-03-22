@@ -1,32 +1,9 @@
+using System.Numerics.Tensors;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 
 namespace Polars.NET.Core.Tensor;
-
-/// <summary>
-/// A zero-copy 2D representation of underlying contiguous memory.
-/// </summary>
-public readonly ref struct TensorSpan2D<T> where T : unmanaged
-{
-    public readonly ReadOnlySpan<T> Data;
-    public readonly int Rows;
-    public readonly int Cols;
-
-    public TensorSpan2D(ReadOnlySpan<T> data, int rows, int cols)
-    {
-        Data = data;
-        Rows = rows;
-        Cols = cols;
-    }
-    
-    public void Deconstruct(out ReadOnlySpan<T> data, out int rows, out int cols)
-    {
-        data = Data;
-        rows = Rows;
-        cols = Cols;
-    }
-}
 
 public static class PolarsTensor
 {
@@ -56,7 +33,7 @@ public static class PolarsTensor
     /// <summary>
     /// Zero-copy extract 2D Tensor memory via Arrow.
     /// </summary>
-    public static TensorSpan2D<T> As2DTensorSpan<T>(this SeriesHandle handle) where T : unmanaged
+    public static ReadOnlyTensorSpan<T> AsTensorSpan<T>(this SeriesHandle handle) where T : unmanaged
     {
         IArrowArray arrowArray = PolarsWrapper.SeriesToArrow(handle);
         
@@ -107,6 +84,32 @@ public static class PolarsTensor
 
         ReadOnlySpan<T> finalSpan = typedSpan.Slice(valuesArray.Data.Offset, valuesArray.Length);
 
-        return new TensorSpan2D<T>(finalSpan, rows, cols);
+
+        ReadOnlySpan<nint> dimensions = [rows, cols];
+        return new ReadOnlyTensorSpan<T>(finalSpan, dimensions);
+    }
+    /// <summary>
+    /// Zero-copy extract Arrow memory and reshape it into a standard .NET TensorSpan.
+    /// </summary>
+    /// <param name="shape">The desired dimensions. Total elements must match the underlying Span.</param>
+    public static ReadOnlyTensorSpan<T> AsTensorSpan<T>(this SeriesHandle handle, ReadOnlySpan<nint> shape) 
+        where T : unmanaged
+    {
+        ReadOnlySpan<T> flatSpan = handle.AsReadOnlySpan<T>();
+
+        nint requiredElements = 1;
+        foreach (nint dim in shape)
+        {
+            requiredElements *= dim;
+        }
+
+        if (requiredElements != flatSpan.Length)
+        {
+            throw new ArgumentException(
+                $"Shape mismatch! The underlying memory has {flatSpan.Length} elements, " +
+                $"but the requested shape {string.Join("x", shape.ToArray())} requires {requiredElements} elements.");
+        }
+
+        return new ReadOnlyTensorSpan<T>(flatSpan, shape);
     }
 }

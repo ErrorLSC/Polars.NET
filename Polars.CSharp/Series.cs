@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Polars.NET.Core.Tensor;
 using Apache.Arrow.Types;
+using System.Numerics.Tensors;
 
 namespace Polars.CSharp;
 
@@ -1279,12 +1280,27 @@ public partial class Series : IDisposable,IPolarsSeries
         return ArrowReader.ReadColumn<T>(col);
     }
     /// <summary>
-    /// Generate a zero-copy 2D representation (TensorSpan) from a List or Array Series.
-    /// Perfectly suited for extracting Embeddings or Image matrices.
+    /// Generates a zero-copy Tensor representation from the Series.
+    /// Automatically infers the shape: 
+    /// - 1D [Rows] for flat numeric columns.
+    /// - 2D [Rows, ListSize] for List/Array columns (Perfect for Embeddings or Feature Matrices).
+    /// </summary>
+    /// <typeparam name="T">Unmanaged Type Only (e.g., float, int)</typeparam>
+    /// <returns>A ReadOnlyTensorSpan representing the underlying Arrow memory.</returns>
+    /// <exception cref="InvalidOperationException">Thrown if the Series contains nulls or is not numeric.</exception>
+    public ReadOnlyTensorSpan<T> AsTensorSpan<T>() where T : unmanaged
+        => PolarsTensor.AsTensorSpan<T>(Handle);
+    
+    /// <summary>
+    /// Generates a zero-copy N-Dimensional Tensor representation from the Series.
+    /// Allows explicit reshaping of the underlying memory (e.g., for 3D/4D image matrices).
     /// </summary>
     /// <typeparam name="T">Unmanaged Type Only</typeparam>
-    public TensorSpan2D<T> As2DTensorSpan<T>() where T : unmanaged
-        => PolarsTensor.As2DTensorSpan<T>(Handle); 
+    /// <param name="shape">The desired dimensions. Total elements must match the underlying memory.</param>
+    /// <returns>A reshaped ReadOnlyTensorSpan representing the underlying Arrow memory.</returns>
+    /// <exception cref="ArgumentException">Thrown if the shape's total elements do not match the Series data.</exception>
+    public ReadOnlyTensorSpan<T> AsTensorSpan<T>(ReadOnlySpan<nint> shape) where T : unmanaged
+        => PolarsTensor.AsTensorSpan<T>(Handle, shape);
     
     // ==========================================
     // Window & Rolling
@@ -1692,12 +1708,12 @@ public partial class Series : IDisposable,IPolarsSeries
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static Series FromSpan<T>(string name, ReadOnlySpan<T> data)
         => new(SeriesFactory.CreateSpan(name, data));
-    /// <summary>
-    /// Create Series from Span
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static Series FromSpan<T>(string name, Span<T> data)
-        => new(SeriesFactory.CreateSpan(name, data));
+    // /// <summary>
+    // /// Create Series from Span
+    // /// </summary>
+    // [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    // public static Series FromSpan<T>(string name, Span<T> data)
+    //     => new(SeriesFactory.CreateSpan(name, data));
 
     /// <summary>
     /// Convert this single Series into a DataFrame.

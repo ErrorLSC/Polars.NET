@@ -1158,7 +1158,7 @@ public class SeriesTests
         Assert.Contains("encode your strings into numbers", exception.Message);
     }
     [Fact]
-    [Trait("Series", "As2DTensorSpan")]
+    [Trait("Series", "AsTensorSpan")]
     public void As2DTensorSpan_Valid2DArray_ReturnsCorrectShapeAndData()
     {
         float[,] matrixData = new float[,] 
@@ -1170,32 +1170,41 @@ public class SeriesTests
         
         using var series = Series.From("embedding", matrixData);
 
-        var (dataSpan, rows, cols) = series.As2DTensorSpan<float>();
+        var tensor = series.AsTensorSpan<float>();
 
-        Assert.Equal(3, rows);
-        Assert.Equal(2, cols);
-        Assert.Equal(6, dataSpan.Length);
+        Assert.Equal(2, tensor.Rank); 
+        
+        // tensor.Lengths is ReadOnlySpan<nint>
+        Assert.Equal(3, tensor.Lengths[0]); // Rows
+        Assert.Equal(2, tensor.Lengths[1]); // Cols
+        
+        // Check FlattenedLength
+        Assert.Equal(6, tensor.FlattenedLength); 
         
         float[] expectedFlat = [1.1f, 1.2f, 2.1f, 2.2f, 3.1f, 3.2f];
+
+        Span<float> dataSpan = new float[6];
+        tensor.FlattenTo(dataSpan);
+        
         Assert.True(dataSpan.SequenceEqual(expectedFlat));
     }
 
     [Fact]
-    [Trait("Series", "As2DTensorSpanInvalid1D")]
+    [Trait("Series", "AsTensorSpanInvalid1D")]
     public void As2DTensorSpan_1DSeries_ThrowsInvalidOperationException()
     {
         using var series = Series.From("1d_data", [1, 2, 3]);
 
         var exception = Assert.Throws<InvalidOperationException>(() => 
         {
-            var tensor = series.As2DTensorSpan<int>();
+            var tensor = series.AsTensorSpan<int>();
         });
 
         Assert.Contains("Cannot extract 2D Tensor", exception.Message);
     }
 
     [Fact]
-    [Trait("Series", "As2DTensorSpanJagged")]
+    [Trait("Series", "AsTensorSpanJagged")]
     public void As2DTensorSpan_JaggedList_ThrowsInvalidOperationException()
     {
         int[][] jaggedData =
@@ -1209,9 +1218,34 @@ public class SeriesTests
         // Act & Assert
         var exception = Assert.Throws<InvalidOperationException>(() => 
         {
-            var tensor = series.As2DTensorSpan<int>();
+            var tensor = series.AsTensorSpan<int>();
         });
 
         Assert.Contains("Cannot extract 2D Tensor", exception.Message);
+    }
+    [Fact]
+    [Trait("Series", "AsTensorSpanHighDim")]
+    public void AsTensorSpan_With4DShape_ReturnsCorrectHighDimensionalTensor()
+    {
+        float[] flatPixelData = [.. Enumerable.Range(1, 24).Select(i => (float)i)];
+
+        using var series = Series.From("image_batch", flatPixelData);
+
+        ReadOnlySpan<nint> shape4D = [2, 3, 2, 2];
+
+        var tensor = series.AsTensorSpan<float>(shape4D);
+
+        Assert.Equal(4, tensor.Rank); // 4D Tensor
+        Assert.Equal(2, tensor.Lengths[0]); // Batch:2
+        Assert.Equal(3, tensor.Lengths[1]); // Channels (3 : R, G, B)
+        Assert.Equal(2, tensor.Lengths[2]); // Height (2)
+        Assert.Equal(2, tensor.Lengths[3]); // Width (2)
+        Assert.Equal(24, tensor.FlattenedLength); 
+
+        Assert.Equal(1.0f, tensor[0, 0, 0, 0]);
+
+        Assert.Equal(5.0f, tensor[0, 1, 0, 0]);
+
+        Assert.Equal(24.0f, tensor[1, 2, 1, 1]);
     }
 }

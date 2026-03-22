@@ -52,6 +52,7 @@
     <PackageReference Include="Apache.Arrow.Adbc" Version="0.22.0" />
     <PackageReference Include="Microsoft.DotNet.Interactive.Formatting" Version="1.0.0-beta.*" />
     <PackageReference Include="FSharp.Core" Version="10.0.104" />
+    <PackageReference Include="System.Numerics.Tensors" Version="10.0.5" />
   </ItemGroup>
 
 </Project>

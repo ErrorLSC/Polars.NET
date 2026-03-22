@@ -2304,12 +2304,26 @@ type Series(handle: SeriesHandle) =
 
         PolarsTensor.AsReadOnlySpan<'T> this.Handle
     /// <summary>
-    /// Generate a zero-copy 2D representation (TensorSpan) from a List or Array Series.
-    /// Perfectly suited for extracting Embeddings or Image matrices.
+    /// Generates a zero-copy Tensor representation from the Series.
+    /// Automatically infers the shape: 
+    /// - 1D [Rows] for flat numeric columns.
+    /// - 2D [Rows, ListSize] for List/Array columns (Perfect for Embeddings or Feature Matrices).
+    /// </summary>
+    /// <typeparam name="T">Unmanaged Type Only (e.g., float, int)</typeparam>
+    /// <returns>A ReadOnlyTensorSpan representing the underlying Arrow memory.</returns>
+    /// <exception cref="InvalidOperationException">Thrown if the Series contains nulls or is not numeric.</exception>
+    member this.AsTensorSpan<'T when 'T : unmanaged and 'T : struct and 'T :> ValueType and 'T : (new: unit -> 'T)>() =  
+        PolarsTensor.AsTensorSpan<'T> this.Handle
+    /// <summary>
+    /// Generates a zero-copy N-Dimensional Tensor representation from the Series.
+    /// Allows explicit reshaping of the underlying memory (e.g., for 3D/4D image matrices).
     /// </summary>
     /// <typeparam name="T">Unmanaged Type Only</typeparam>
-    member this.As2DTensorSpan<'T when 'T : unmanaged and 'T : struct and 'T :> ValueType and 'T : (new: unit -> 'T)>() =  
-        PolarsTensor.As2DTensorSpan<'T> this.Handle
+    /// <param name="shape">The desired dimensions. Total elements must match the underlying memory.</param>
+    /// <returns>A reshaped ReadOnlyTensorSpan representing the underlying Arrow memory.</returns>
+    /// <exception cref="ArgumentException">Thrown if the shape's total elements do not match the Series data.</exception>
+    member this.AsTensorSpan<'T when 'T : unmanaged and 'T : struct and 'T :> ValueType and 'T : (new: unit -> 'T)>(shape:ReadOnlySpan<nativeint>) =
+        PolarsTensor.AsTensorSpan<'T>(this.Handle, shape);
     member this.Show() =
         this.ToFrame().Show()
 and SeriesDtNameSpace(parent: Series) =
