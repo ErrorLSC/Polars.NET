@@ -363,9 +363,11 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
         // ----------------------------------------------------------------
         // String (Polars StringViewArray -> ML.NET ReadOnlyMemory<char>)
         // ----------------------------------------------------------------
+
         if (type == typeof(ReadOnlyMemory<char>))
         {
-            char[] charBuffer = new char[256];
+            char[] _arena = new char[65536];
+            int _arenaOffset = 0;
 
             void getter(ref ReadOnlyMemory<char> value)
             {
@@ -374,32 +376,36 @@ internal sealed class PolarsRowCursor : DataViewRowCursor
                 if (array.IsNull(_batchRowIndex))
                 {
                     value = default;
+                    return;
                 }
-                else
+
+                ReadOnlySpan<byte> utf8Bytes = array.GetBytes(_batchRowIndex);
+
+                if (utf8Bytes.IsEmpty)
                 {
-                    ReadOnlySpan<byte> utf8Bytes = array.GetBytes(_batchRowIndex);
-
-                    if (utf8Bytes.IsEmpty)
-                    {
-                        value = ReadOnlyMemory<char>.Empty;
-                        return;
-                    }
-
-                    // GetMaxCharCount is O(1) 
-                    int maxCharCount = System.Text.Encoding.UTF8.GetMaxCharCount(utf8Bytes.Length);
-                    
-                    // Amortized O(1)
-                    if (charBuffer.Length < maxCharCount)
-                    {
-                        int newSize = Math.Max(charBuffer.Length * 2, maxCharCount);
-                        charBuffer = new char[newSize];
-                    }
-
-                    int actualCharCount = System.Text.Encoding.UTF8.GetChars(utf8Bytes, charBuffer);
-
-                    value = new ReadOnlyMemory<char>(charBuffer, 0, actualCharCount);
+                    value = ReadOnlyMemory<char>.Empty;
+                    return;
                 }
+
+                int maxChars = System.Text.Encoding.UTF8.GetMaxCharCount(utf8Bytes.Length);
+
+                if (_arenaOffset + maxChars > _arena.Length)
+                {
+                    int nextSize = Math.Max(65536, maxChars);
+                    _arena = new char[nextSize];
+                    _arenaOffset = 0;
+                }
+
+                int actualChars = System.Text.Encoding.UTF8.GetChars(
+                    utf8Bytes, 
+                    _arena.AsSpan(_arenaOffset) 
+                );
+
+                value = new ReadOnlyMemory<char>(_arena, _arenaOffset, actualChars);
+                
+                _arenaOffset += actualChars;
             }
+
             return (ValueGetter<TValue>)(object)(ValueGetter<ReadOnlyMemory<char>>)getter;
         }
         // ------------------------------------------

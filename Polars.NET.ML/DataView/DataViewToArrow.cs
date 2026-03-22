@@ -29,22 +29,25 @@ public static class DataViewToArrow
     /// </summary>
     public static (IEnumerable<RecordBatch>, Schema) ToArrowBatches(this IDataView dataView, int batchSize = 64_000)
     {
+        long? rowCount = dataView.GetRowCount();
         var arrowSchema = BuildArrowSchema(dataView.Schema);
 
-        var batches = PumpLazily(dataView, arrowSchema, batchSize);
+        var batches = PumpLazily(dataView, arrowSchema, batchSize, rowCount);
 
         return (batches, arrowSchema);  
     }
     private static IEnumerable<RecordBatch> PumpLazily(
         IDataView dataView, 
         Schema arrowSchema, 
-        int batchSize)
+        int batchSize,
+        long? rowCount
+        )
     {
         using var cursor = dataView.GetRowCursor(dataView.Schema);
         
-        var pumpers = CreatePumpers(cursor, dataView.Schema).ToArray();
+        var pumpers = CreatePumpers(cursor, dataView.Schema,rowCount,batchSize).ToArray();
 
-        int rowCount = 0;
+        int currentBatchCount = 0;
         while (cursor.MoveNext())
         {
             for (int i = 0; i < pumpers.Length; i++)
@@ -52,18 +55,18 @@ public static class DataViewToArrow
                 pumpers[i].Pump();
             }
 
-            rowCount++;
+            currentBatchCount++;
 
-            if (rowCount >= batchSize)
+            if (currentBatchCount >= batchSize)
             {
-                yield return BuildBatch(arrowSchema, pumpers, rowCount);
-                rowCount = 0;
+                yield return BuildBatch(arrowSchema, pumpers, currentBatchCount);
+                currentBatchCount = 0;
             }
         }
 
-        if (rowCount > 0)
+        if (currentBatchCount > 0)
         {
-            yield return BuildBatch(arrowSchema, pumpers, rowCount);
+            yield return BuildBatch(arrowSchema, pumpers, currentBatchCount);
         }
     }
     private static RecordBatch BuildBatch(Schema schema, IColumnPumper[] pumpers, int length)
@@ -73,7 +76,9 @@ public static class DataViewToArrow
         {
             arrays[i] = pumpers[i].BuildArrayAndClear();
         }
-        return new RecordBatch(schema, arrays, length);
+        
+        var batch = new RecordBatch(schema, arrays, length);
+        return batch;
     }
     private static Schema BuildArrowSchema(DataViewSchema schema)
     {
@@ -92,7 +97,7 @@ public static class DataViewToArrow
     }
 
     // --- Pumper Factory ---
-    private static IEnumerable<IColumnPumper> CreatePumpers(DataViewRowCursor cursor, DataViewSchema schema)
+    private static IEnumerable<IColumnPumper> CreatePumpers(DataViewRowCursor cursor, DataViewSchema schema,long? rowCount,int batchSize)
     {
         foreach (var col in schema)
         {
@@ -114,12 +119,23 @@ public static class DataViewToArrow
                 continue;
             }
 
+            if (col.Type is KeyDataViewType keyType)
+            {
+                if (keyType.RawType == typeof(uint) || keyType.RawType == typeof(byte)) 
+                {
+                    // 🌟 4. 把 rowCount 传给分类转字符串抽水机
+                    yield return new KeyToStringPumper(cursor, col, rowCount,batchSize);
+                }
+                else throw new NotSupportedException($"KeyDataViewType with RawType '{keyType.RawType.Name}' is not supported.");
+                continue;
+            }
+
             if (rawType == typeof(float)) yield return new FloatPumper(cursor, col);
             else if (rawType == typeof(double)) yield return new DoublePumper(cursor, col);
             else if (rawType == typeof(int)) yield return new Int32Pumper(cursor, col);
             else if (rawType == typeof(long)) yield return new Int64Pumper(cursor, col);
             else if (rawType == typeof(bool)) yield return new BooleanPumper(cursor, col);
-            else if (rawType == typeof(ReadOnlyMemory<char>)) yield return new StringPumper(cursor, col);
+            else if (rawType == typeof(ReadOnlyMemory<char>)) yield return new StringPumper(cursor, col, rowCount,batchSize);
             else if (rawType == typeof(DateTime)) yield return new DateTimePumper(cursor, col);
             else if (rawType == typeof(TimeSpan)) yield return new TimeSpanPumper(cursor, col);
             
@@ -393,10 +409,20 @@ internal sealed class BooleanPumper(DataViewRowCursor cursor, DataViewSchema.Col
 // ==========================================================
 // String Pumper
 // ==========================================================
-internal sealed class StringPumper(DataViewRowCursor cursor, DataViewSchema.Column col) : IColumnPumper
+internal sealed class StringPumper(DataViewRowCursor cursor, DataViewSchema.Column col,long? rowCount,int batchSize) : IColumnPumper
 {
     private readonly ValueGetter<ReadOnlyMemory<char>> _getter = cursor.GetGetter<ReadOnlyMemory<char>>(col);
-    private readonly StringViewArray.Builder _builder = new();
+    private readonly StringViewArray.Builder _builder = CreateAndReserveBuilder(rowCount, batchSize);
+    
+    private static StringViewArray.Builder CreateAndReserveBuilder(long? rowCount, int batchSize)
+    {
+        var builder = new StringViewArray.Builder();
+        if (rowCount.HasValue && rowCount.Value > 0)
+        {
+            builder.Reserve((int)Math.Min(rowCount.Value, batchSize));
+        }
+        return builder;
+    }
     private ReadOnlyMemory<char> _val;
 
     public void Pump()
@@ -438,7 +464,13 @@ internal sealed class StringPumper(DataViewRowCursor cursor, DataViewSchema.Colu
     public IArrowArray BuildArrayAndClear()
     {
         var arr = _builder.Build();
-        _builder.Clear();
+        _builder.Clear(); 
+        
+        if (rowCount.HasValue && rowCount.Value > 0)
+        {
+            _builder.Reserve((int)Math.Min(rowCount.Value, batchSize));
+        }
+        
         return arr;
     }
 }
@@ -692,5 +724,75 @@ internal sealed class VarLenInt32VectorPumper : IColumnPumper
             [valuesArray.Data]
         );
         return new LargeListArray(data); 
+    }
+}
+
+// ==========================================================
+// Categorical (Dictionary) Pumpers
+// ==========================================================
+
+internal sealed class KeyToStringPumper(DataViewRowCursor cursor, DataViewSchema.Column col,long? rowCount, int batchSize) : IColumnPumper
+{
+    private readonly ValueGetter<uint> _getter = cursor.GetGetter<uint>(col);
+    
+    private readonly string[] _dictMap = ExtractDictionaryToArray(col);
+    private uint _val;
+    private readonly StringViewArray.Builder _builder = CreateAndReserveBuilder(rowCount, batchSize);
+    
+    private static StringViewArray.Builder CreateAndReserveBuilder(long? rowCount, int batchSize)
+    {
+        var builder = new StringViewArray.Builder();
+        if (rowCount.HasValue && rowCount.Value > 0)
+        {
+            builder.Reserve((int)Math.Min(rowCount.Value, batchSize));
+        }
+        return builder;
+    }
+    public void Pump()
+    {
+        _getter(ref _val);
+        
+        if (_val == 0 || _val > _dictMap.Length) 
+        {
+            _builder.AppendNull();
+        }
+        else 
+        {
+            _builder.Append(_dictMap[_val - 1]);
+        }
+    }
+
+    public IArrowArray BuildArrayAndClear()
+    {
+        var array = _builder.Build();
+        _builder.Clear();
+        if (rowCount.HasValue && rowCount.Value > 0)
+        {
+            _builder.Reserve((int)Math.Min(rowCount.Value, batchSize));
+        }
+        return array;
+    }
+
+    private static string[] ExtractDictionaryToArray(DataViewSchema.Column col)
+    {
+        var list = new List<string>();
+        var keyValuesCol = col.Annotations.Schema.GetColumnOrNull("KeyValues");
+        
+        if (keyValuesCol.HasValue)
+        {
+            VBuffer<ReadOnlyMemory<char>> keys = default;
+            col.Annotations.GetValue("KeyValues", ref keys);
+            foreach (var key in keys.DenseValues()) list.Add(key.ToString());
+        }
+        else if (col.Type is KeyDataViewType keyType && keyType.Count > 0)
+        {
+            for (ulong i = 0; i < keyType.Count; i++) list.Add($"Cluster_{i + 1}");
+        }
+        else
+        {
+            list.Add("Unknown");
+        }
+        
+        return [.. list];
     }
 }

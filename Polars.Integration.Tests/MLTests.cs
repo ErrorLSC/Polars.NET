@@ -92,6 +92,7 @@ public class DataViewConversionTests
     public void DataView_Bidirectional_ShouldNotTriggerGarbageCollection()
     {
         int rowCount = 500_000;
+        string testString = "Zero-Allocation-GC-Probe-Test"; 
         
         int[] ids = new int[rowCount];
         float[] scores = new float[rowCount];
@@ -101,7 +102,7 @@ public class DataViewConversionTests
         Array.Fill(ids, 42);
         Array.Fill(scores, 3.14159f);
         Array.Fill(flags, true);
-        Array.Fill(names, "Zero-Allocation-GC-Probe-Test");
+        Array.Fill(names, testString);
 
         var originalDf = DataFrame.FromSeries(
             Series.From("Id", ids),
@@ -112,37 +113,54 @@ public class DataViewConversionTests
 
         var dataView = originalDf.AsDataView();
 
-        // ==========================================
-        // Warm-up
-        // ==========================================
-        RunCursorHotLoop(dataView, assertZeroAlloc: false);
+        RunCursorHotLoop(dataView);
         using (var tempDf = dataView.ToDataFrame(batchSize: 64_000)) { }
 
         GC.Collect(2, GCCollectionMode.Forced, blocking: true);
         GC.WaitForPendingFinalizers();
         GC.Collect();
 
-        // ==========================================
-        // Polars -> ML.NET
-        // ==========================================
-        RunCursorHotLoop(dataView, assertZeroAlloc: true);
+        int initialGen0 = GC.CollectionCount(0);
 
         // ==========================================
-        // ML.NET -> Polars
+        // Polars -> ML.NET (Read Path)
         // ==========================================
-        int beforeGen0Pump = GC.CollectionCount(0);
+        long beforeGo = GC.GetAllocatedBytesForCurrentThread();
+        RunCursorHotLoop(dataView);
+        long allocGo = GC.GetAllocatedBytesForCurrentThread() - beforeGo;
 
+        // ==========================================
+        // .NET -> Polars (Write Path)
+        // ==========================================
+        long beforeReturn = GC.GetAllocatedBytesForCurrentThread();
         using var finalDf = dataView.ToDataFrame(batchSize: 64_000);
+        long allocReturn = GC.GetAllocatedBytesForCurrentThread() - beforeReturn;
 
-        int afterGen0Pump = GC.CollectionCount(0);
-        int gen0Collections = afterGen0Pump - beforeGen0Pump;
+        int finalGen0 = GC.CollectionCount(0);
+        int gen0Collections = finalGen0 - initialGen0;
 
-        Assert.True(gen0Collections < 10, 
-            $"Gen 0 GC {gen0Collections} times. Memory Leak detected.");
+        Console.WriteLine($"[Go Path] Allocated: {allocGo:N0} bytes");
+        Console.WriteLine($"[Return Path] Allocated: {allocReturn:N0} bytes");
+        Console.WriteLine($"[Total Round-Trip] Allocated: {allocGo + allocReturn:N0} bytes");
+        Console.WriteLine($"[Gen 0 GCs] {gen0Collections}");
+
+        long expectedArenaBytes = rowCount * testString.Length * 2;
+        
+        long expectedArrowBytes = (rowCount * 4) + (rowCount * testString.Length); 
+
+        Assert.True(allocGo <= expectedArenaBytes + 1_000_000, 
+            $"Go path allocated {allocGo} bytes, exceeding physical bounds!");
+
+        Assert.True(allocReturn <= expectedArrowBytes + 80_000_000, 
+            $"Return path allocated {allocReturn} bytes, exceeding physical bounds!");
+
+        Assert.True(gen0Collections <= 5, 
+            $"Gen 0 GC triggered {gen0Collections} times. Memory Leak (Object Fragmentation) detected!");
+            
         Assert.Equal(rowCount, finalDf.Height);
     }
 
-    private static void RunCursorHotLoop(IDataView dataView, bool assertZeroAlloc)
+    private static void RunCursorHotLoop(IDataView dataView)
     {
         using var cursor = dataView.GetRowCursor(dataView.Schema);
         
@@ -156,23 +174,12 @@ public class DataViewConversionTests
         bool flag = false;
         ReadOnlyMemory<char> name = default;
 
-        long startBytes = GC.GetAllocatedBytesForCurrentThread();
-
         while (cursor.MoveNext())
         {
             idGetter(ref id);
             scoreGetter(ref score);
             flagGetter(ref flag);
             nameGetter(ref name);
-        }
-
-        long endBytes = GC.GetAllocatedBytesForCurrentThread();
-        long allocatedBytesInHotLoop = endBytes - startBytes;
-
-        if (assertZeroAlloc)
-        {
-            Assert.True(allocatedBytesInHotLoop < 5000, 
-                $"Hot Path allocated {allocatedBytesInHotLoop} bytes,memory leak detected");
         }
     }
     [Fact]
@@ -312,7 +319,6 @@ public class DataViewConversionTests
         // Form VBuffer<float> tensor
         var pipeline = mlContext.Clustering.Trainers.KMeans("Features", numberOfClusters: 3);
         var model = pipeline.Fit(dataView);
-
         // ==========================================
         // ML.NET Transform and Read Back
         // ==========================================

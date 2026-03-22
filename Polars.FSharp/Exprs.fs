@@ -1867,7 +1867,7 @@ and Expr(handle: ExprHandle) =
         let rchk = defaultArg rechunk false
         let handles = 
             exprs 
-            |> Seq.map (fun e -> PolarsWrapper.CloneExpr(e.Handle))
+            |> Seq.map (fun e -> PolarsWrapper.CloneExpr e.Handle)
             |> Seq.toArray
             
         new Expr(PolarsWrapper.ConcatExprs(handles, rchk))

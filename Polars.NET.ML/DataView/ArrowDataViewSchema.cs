@@ -121,12 +121,8 @@ internal static class ArrowDataViewMapper
 
             // ==========================================
             // Categorical (Key Types)
-            // ML.NET uses KeyDataViewType for labels and categories.
             // ==========================================
-            KeyDataViewType k when k.RawType == typeof(byte) => UInt8Type.Default,
-            KeyDataViewType k when k.RawType == typeof(ushort) => UInt16Type.Default,
-            KeyDataViewType k when k.RawType == typeof(uint) => UInt32Type.Default,
-            KeyDataViewType k when k.RawType == typeof(ulong) => UInt64Type.Default,
+            KeyDataViewType k => StringViewType.Default,
 
             // ==========================================
             // Fallback
