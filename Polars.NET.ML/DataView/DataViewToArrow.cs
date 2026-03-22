@@ -100,8 +100,16 @@ public static class DataViewToArrow
 
             if (col.Type is VectorDataViewType vecType)
             {
-                if (vecType.ItemType == NumberDataViewType.Single) yield return new FloatVectorPumper(cursor, col, vecType.Size);
-                else if (vecType.ItemType == NumberDataViewType.Int32) yield return new Int32VectorPumper(cursor, col, vecType.Size);
+                if (vecType.ItemType == NumberDataViewType.Single) 
+                {
+                    if (vecType.Size > 0) yield return new FloatVectorPumper(cursor, col, vecType.Size);
+                    else yield return new VarLenFloatVectorPumper(cursor, col);
+                }
+                else if (vecType.ItemType == NumberDataViewType.Int32) 
+                {
+                    if (vecType.Size > 0) yield return new Int32VectorPumper(cursor, col, vecType.Size);
+                    else yield return new VarLenInt32VectorPumper(cursor, col);
+                }
                 else throw new NotSupportedException($"Vector of type '{vecType.ItemType.RawType.Name}' is not supported.");
                 continue;
             }
@@ -566,5 +574,123 @@ internal sealed class Int32VectorPumper(DataViewRowCursor cursor, DataViewSchema
             length, 
             flatArray, 
             ArrowBuffer.Empty); 
+    }
+}
+
+// ==========================================================
+// Variable-Length Tensor Pumpers (LargeListArray)
+// ==========================================================
+
+internal sealed class VarLenFloatVectorPumper : IColumnPumper
+{
+    private readonly ValueGetter<VBuffer<float>> _getter;
+    private readonly FloatArray.Builder _valueBuilder = new();
+    
+    private readonly ArrowBuffer.Builder<long> _offsetsBuilder = new();
+    private readonly LargeListType _arrowType = new(FloatType.Default);
+    
+    private VBuffer<float> _val;
+    private long _currentOffset = 0L; 
+
+    public VarLenFloatVectorPumper(DataViewRowCursor cursor, DataViewSchema.Column col) 
+    { 
+        _getter = cursor.GetGetter<VBuffer<float>>(col);
+        _offsetsBuilder.Append(0L); 
+    }
+
+    public void Pump()
+    {
+        _getter(ref _val);
+        int len = _val.Length; 
+
+        if (len > 0)
+        {
+            var rented = System.Buffers.ArrayPool<float>.Shared.Rent(len);
+            Span<float> span = rented.AsSpan(0, len);
+            _val.CopyTo(span);
+            _valueBuilder.Append(span);
+            System.Buffers.ArrayPool<float>.Shared.Return(rented);
+        }
+
+        _currentOffset += len;
+        _offsetsBuilder.Append(_currentOffset);
+    }
+
+    public IArrowArray BuildArrayAndClear()
+    {
+        var valuesArray = _valueBuilder.Build();
+        var offsetsBuffer = _offsetsBuilder.Build();
+        
+        _valueBuilder.Clear();
+        _offsetsBuilder.Clear();
+
+        int length = (offsetsBuffer.Length / sizeof(long)) - 1; 
+
+        _currentOffset = 0L;
+        _offsetsBuilder.Append(0L);
+
+        var data = new ArrayData(
+            _arrowType, length, 0, 0,
+            [ArrowBuffer.Empty, offsetsBuffer], 
+            [valuesArray.Data]                  
+        );
+        return new LargeListArray(data); 
+    }
+}
+
+internal sealed class VarLenInt32VectorPumper : IColumnPumper
+{
+    private readonly ValueGetter<VBuffer<int>> _getter;
+    private readonly Int32Array.Builder _valueBuilder = new();
+    
+    private readonly ArrowBuffer.Builder<long> _offsetsBuilder = new();
+    private readonly LargeListType _arrowType = new(Int32Type.Default);
+    
+    private VBuffer<int> _val;
+    private long _currentOffset = 0L;
+
+    public VarLenInt32VectorPumper(DataViewRowCursor cursor, DataViewSchema.Column col) 
+    { 
+        _getter = cursor.GetGetter<VBuffer<int>>(col);
+        _offsetsBuilder.Append(0L);
+    }
+
+    public void Pump()
+    {
+        _getter(ref _val);
+        int len = _val.Length;
+
+        if (len > 0)
+        {
+            var rented = System.Buffers.ArrayPool<int>.Shared.Rent(len);
+            Span<int> span = rented.AsSpan(0, len);
+            _val.CopyTo(span);
+            _valueBuilder.Append(span);
+            System.Buffers.ArrayPool<int>.Shared.Return(rented);
+        }
+
+        _currentOffset += len;
+        _offsetsBuilder.Append(_currentOffset);
+    }
+
+    public IArrowArray BuildArrayAndClear()
+    {
+        var valuesArray = _valueBuilder.Build();
+        var offsetsBuffer = _offsetsBuilder.Build();
+        
+        _valueBuilder.Clear();
+        _offsetsBuilder.Clear();
+
+        int length = (offsetsBuffer.Length / sizeof(long)) - 1; 
+        
+        _currentOffset = 0L;
+        _offsetsBuilder.Append(0L);
+
+        var data = new ArrayData(
+            _arrowType, length, 0, 0,
+            [ArrowBuffer.Empty, offsetsBuffer], 
+            [valuesArray.Data]
+        );
+        return new LargeListArray(data); 
     }
 }

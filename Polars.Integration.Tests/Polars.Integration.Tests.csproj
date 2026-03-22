@@ -16,6 +16,7 @@
     <PackageReference Include="DuckDB.NET.Data.Full" Version="1.4.4" />
     <PackageReference Include="Google.Cloud.Storage.V1" Version="4.14.0" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.4" />
+    <PackageReference Include="Microsoft.ML" Version="5.0.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="Minio" Version="7.0.0" />
     <PackageReference Include="Testcontainers" Version="4.10.0" />
@@ -35,6 +36,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Polars.CSharp\Polars.CSharp.csproj" />
     <ProjectReference Include="..\Polars.NET.Linq\Polars.NET.Linq.csproj" />
+    <ProjectReference Include="..\Polars.NET.ML\Polars.NET.ML.csproj" />
   </ItemGroup>
 
 </Project>

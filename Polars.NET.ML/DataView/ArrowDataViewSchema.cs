@@ -46,7 +46,7 @@ internal static class ArrowDataViewMapper
                 itemType: (PrimitiveDataViewType)GetDataViewType(fsList.ValueDataType), 
                 size: fsList.ListSize),
                 
-            ListType list => new VectorDataViewType(
+            LargeListType list => new VectorDataViewType(
                 itemType: (PrimitiveDataViewType)GetDataViewType(list.ValueDataType), 
                 size: 0),
 
@@ -108,11 +108,25 @@ internal static class ArrowDataViewMapper
             // ==========================================
             // Tensors / Vectors
             // ==========================================
-            VectorDataViewType v when v.ItemType == NumberDataViewType.Single 
-                => new FixedSizeListType(FloatType.Default, v.Size),
+
+            VectorDataViewType v when v.ItemType == NumberDataViewType.Single =>
+                v.Size > 0 
+                    ? new FixedSizeListType(FloatType.Default, v.Size) 
+                    : new LargeListType(FloatType.Default), 
                 
-            VectorDataViewType v when v.ItemType == NumberDataViewType.Int32 
-                => new FixedSizeListType(Int32Type.Default, v.Size),
+            VectorDataViewType v when v.ItemType == NumberDataViewType.Int32 =>
+                v.Size > 0 
+                    ? new FixedSizeListType(Int32Type.Default, v.Size) 
+                    : new LargeListType(Int32Type.Default), 
+
+            // ==========================================
+            // Categorical (Key Types)
+            // ML.NET uses KeyDataViewType for labels and categories.
+            // ==========================================
+            KeyDataViewType k when k.RawType == typeof(byte) => UInt8Type.Default,
+            KeyDataViewType k when k.RawType == typeof(ushort) => UInt16Type.Default,
+            KeyDataViewType k when k.RawType == typeof(uint) => UInt32Type.Default,
+            KeyDataViewType k when k.RawType == typeof(ulong) => UInt64Type.Default,
 
             // ==========================================
             // Fallback
