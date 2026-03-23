@@ -2324,6 +2324,22 @@ type Series(handle: SeriesHandle) =
     /// <exception cref="ArgumentException">Thrown if the shape's total elements do not match the Series data.</exception>
     member this.AsTensorSpan<'T when 'T : unmanaged and 'T : struct and 'T :> ValueType and 'T : (new: unit -> 'T)>(shape:ReadOnlySpan<nativeint>) =
         PolarsTensor.AsTensorSpan<'T>(this.Handle, shape);
+    /// <summary>
+    /// Generates a zero-copy, transposed 2D Tensor representation from a List or Array Series.
+    /// By manipulating memory strides, it returns an (N x M) view of an (M x N) matrix without moving bytes.
+    /// </summary>
+    /// <remarks>
+    /// This is useful when bridging with external Machine Learning libraries 
+    /// (like ONNX or native C++ math backends) that expect Column-Major order or specifically require a transposed matrix.
+    /// </remarks>
+    /// <typeparam name="T">Unmanaged Type Only (e.g., float, double, int).</typeparam>
+    /// <returns>A transposed <see cref="ReadOnlyTensorSpan{T}"/> pointing to the original Arrow memory.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown if the Series is not a 2D List/Array, contains null values, or if the generic type <typeparamref name="T"/> 
+    /// does not match the underlying physical Arrow memory type.
+    /// </exception>
+    member this.AsTransposedTensorSpan<'T when 'T : unmanaged and 'T : struct and 'T :> ValueType and 'T : (new: unit -> 'T)>() = 
+        PolarsTensor.AsTransposedTensorSpan<'T> this.Handle
     member this.Show() =
         this.ToFrame().Show()
 and SeriesDtNameSpace(parent: Series) =

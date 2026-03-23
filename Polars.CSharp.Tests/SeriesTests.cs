@@ -1248,4 +1248,48 @@ public class SeriesTests
 
         Assert.Equal(24.0f, tensor[1, 2, 1, 1]);
     }
+    [Fact]
+    [Trait("Series", "AsTransposedTensorSpan")]
+    public void AsTransposedTensorSpan_Valid2DArray_ReturnsZeroCopyTransposedView()
+    {
+        // [ 1.1, 1.2 ]
+        // [ 2.1, 2.2 ]
+        // [ 3.1, 3.2 ]
+        float[,] matrixData = new float[,] 
+        {
+            { 1.1f, 1.2f },
+            { 2.1f, 2.2f },
+            { 3.1f, 3.2f }
+        };
+        
+        using var series = Series.From("embedding", matrixData);
+
+        var transposedTensor = series.AsTransposedTensorSpan<float>();
+
+        Assert.Equal(2, transposedTensor.Rank);
+        Assert.Equal(2, transposedTensor.Lengths[0]); 
+        Assert.Equal(3, transposedTensor.Lengths[1]); 
+        Assert.Equal(6, transposedTensor.FlattenedLength);
+
+        // [ 1.1, 2.1, 3.1 ]
+        // [ 1.2, 2.2, 3.2 ]
+        
+        Assert.Equal(1.1f, transposedTensor[0, 0]);
+        Assert.Equal(2.1f, transposedTensor[0, 1]); 
+        Assert.Equal(3.1f, transposedTensor[0, 2]); 
+        
+        Assert.Equal(1.2f, transposedTensor[1, 0]); 
+        Assert.Equal(2.2f, transposedTensor[1, 1]);
+        Assert.Equal(3.2f, transposedTensor[1, 2]);
+
+        float[] expectedSequentialRead = [1.1f, 2.1f, 3.1f, 1.2f, 2.2f, 3.2f];
+        
+        int i = 0;
+        foreach (float val in transposedTensor)
+        {
+            Assert.Equal(expectedSequentialRead[i], val);
+            i++;
+        }
+    }
+
 }
