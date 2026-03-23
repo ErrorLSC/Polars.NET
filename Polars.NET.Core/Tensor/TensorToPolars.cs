@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Numerics.Tensors;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -11,23 +12,31 @@ public static partial class ArrowTensorInterop
 {
     public static SeriesHandle ImportTensor<T>(string name, ReadOnlyTensorSpan<T> tensor) where T : unmanaged
     {
-        // =========================================================
-        // Materialization
-        // =========================================================
         int totalElements = (int)tensor.FlattenedLength;
-        T[] flatArray = new T[totalElements]; 
-        tensor.FlattenTo(flatArray); 
-
-        // =========================================================
-        // Build Level 0 Arrow
-        // =========================================================
-        IArrowType baseArrowType = ArrowTypeResolver.GetArrowTypeFromNetType(typeof(T));
         int byteLength = totalElements * Unsafe.SizeOf<T>();
-        
-        ArrowBuffer dataBuffer = new ArrowBuffer.Builder<byte>(byteLength)
-                                    .Append(MemoryMarshal.AsBytes<T>(flatArray))
-                                    .Build();
 
+        T[] pooledArray = ArrayPool<T>.Shared.Rent(totalElements);
+        
+        ArrowBuffer dataBuffer;
+        
+        try
+        {
+            Span<T> flatSpan = pooledArray.AsSpan(0, totalElements);
+            
+            tensor.FlattenTo(flatSpan);
+
+            // memcpy
+            dataBuffer = new ArrowBuffer.Builder<byte>(byteLength)
+                            .Append(MemoryMarshal.AsBytes(flatSpan))
+                            .Build();
+        }
+        finally
+        {
+            ArrayPool<T>.Shared.Return(pooledArray);
+        }
+
+        IArrowType baseArrowType = ArrowTypeResolver.GetArrowTypeFromNetType(typeof(T));
+        
         ArrayData currentData = new(
             dataType: baseArrowType,
             length: totalElements,
@@ -36,9 +45,6 @@ public static partial class ArrowTensorInterop
             buffers: [ArrowBuffer.Empty, dataBuffer] 
         );
 
-        // =========================================================
-        // Dynamic N-Dimensional Wrapping
-        // =========================================================
         int currentLength = totalElements;
 
         for (int i = tensor.Rank - 1; i > 0; i--)
@@ -50,7 +56,6 @@ public static partial class ArrowTensorInterop
                 new Field("item", currentData.DataType, nullable: false), 
                 listSize);
 
-            // Wrap here
             currentData = new ArrayData(
                 dataType: listType,
                 length: currentLength,
@@ -62,7 +67,6 @@ public static partial class ArrowTensorInterop
         }
 
         IArrowArray finalArray = ArrowArrayFactory.BuildArray(currentData);
-        
         return ArrowFfiBridge.ImportSeries(name, finalArray);
     }
 
