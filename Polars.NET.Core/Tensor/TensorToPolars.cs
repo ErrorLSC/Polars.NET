@@ -23,9 +23,10 @@ public static partial class ArrowTensorInterop
         {
             Span<T> flatSpan = pooledArray.AsSpan(0, totalElements);
             
+            // memcpy 1
             tensor.FlattenTo(flatSpan);
 
-            // memcpy
+            // memcpy 2
             dataBuffer = new ArrowBuffer.Builder<byte>(byteLength)
                             .Append(MemoryMarshal.AsBytes(flatSpan))
                             .Build();
