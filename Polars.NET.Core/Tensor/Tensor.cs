@@ -2,6 +2,7 @@ using System.Numerics.Tensors;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Polars.NET.Core.Arrow;
 
 namespace Polars.NET.Core.Tensor;
 
@@ -10,6 +11,8 @@ public static class PolarsTensor
    public static ReadOnlySpan<T> AsReadOnlySpan<T>(this SeriesHandle handle) where T : unmanaged
     {
         IArrowArray arrowArray = PolarsWrapper.SeriesToArrow(handle);
+
+        EnsureTypeMatch<T>(arrowArray.Data.DataType);
 
         if (arrowArray.NullCount > 0)
         {
@@ -68,6 +71,8 @@ public static class PolarsTensor
                 "Underlying Series memory must be a List or FixedSizeList layout.");
         }
 
+        EnsureTypeMatch<T>(valuesArray.Data.DataType);
+
         if (valuesArray.NullCount > 0)
         {
             throw new InvalidOperationException("The inner values of the list contain nulls. Tensors require dense, non-null data.");
@@ -111,5 +116,16 @@ public static class PolarsTensor
         }
 
         return new ReadOnlyTensorSpan<T>(flatSpan, shape);
+    }
+    private static void EnsureTypeMatch<T>(IArrowType arrowType) where T : unmanaged
+    {
+        Type expectedNetType = ArrowTypeResolver.GetNetTypeFromArrowType(arrowType);
+
+        if (typeof(T) != expectedNetType)
+        {
+            throw new InvalidOperationException(
+                $"Type mismatch! The underlying Arrow type is '{arrowType.Name}', which maps to .NET type '{expectedNetType.Name}'. " +
+                $"Cannot safely cast it to requested Tensor type '{typeof(T).Name}'.");
+        }
     }
 }
