@@ -1,5 +1,6 @@
 #nullable enable
 
+using System.Numerics.Tensors;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using static Polars.CSharp.Polars;
@@ -1139,8 +1140,7 @@ public class SeriesTests
             series.AsReadOnlySpan<int>();
         });
 
-        Assert.Contains("null values", exception.Message);
-        Assert.Contains("contiguous, non-null data", exception.Message);
+        Assert.Contains("Cannot extract Tensor memory", exception.Message);
     }
 
     [Fact]
@@ -1188,21 +1188,6 @@ public class SeriesTests
         
         Assert.True(dataSpan.SequenceEqual(expectedFlat));
     }
-
-    [Fact]
-    [Trait("Series", "AsTensorSpanInvalid1D")]
-    public void As2DTensorSpan_1DSeries_ThrowsInvalidOperationException()
-    {
-        using var series = Series.From("1d_data", [1, 2, 3]);
-
-        var exception = Assert.Throws<InvalidOperationException>(() => 
-        {
-            var tensor = series.AsTensorSpan<int>();
-        });
-
-        Assert.Contains("Cannot extract 2D Tensor", exception.Message);
-    }
-
     [Fact]
     [Trait("Series", "AsTensorSpanJagged")]
     public void As2DTensorSpan_JaggedList_ThrowsInvalidOperationException()
@@ -1221,7 +1206,23 @@ public class SeriesTests
             var tensor = series.AsTensorSpan<int>();
         });
 
-        Assert.Contains("Cannot extract 2D Tensor", exception.Message);
+        Assert.Contains("Type mismatch!", exception.Message);
+    }
+    [Fact]
+    [Trait("Series", "AsTensorSpan1D")]
+    public void AsTensorSpan_1DSeries_PromotesToColumnVector()
+    {
+        using var series = Series.From("1d_data", [1, 2, 3]);
+
+        var tensor = series.AsTensorSpan<int>();
+
+        Assert.Equal(2, tensor.Rank);
+        Assert.Equal(3, tensor.Lengths[0]); // Rows
+        Assert.Equal(1, tensor.Lengths[1]); // Cols
+        
+        Assert.Equal(1, tensor[0, 0]);
+        Assert.Equal(2, tensor[1, 0]);
+        Assert.Equal(3, tensor[2, 0]);
     }
     [Fact]
     [Trait("Series", "AsTensorSpanHighDim")]
@@ -1290,6 +1291,74 @@ public class SeriesTests
             Assert.Equal(expectedSequentialRead[i], val);
             i++;
         }
+    }
+    [Fact]
+    [Trait("Series", "FromTensor1D")]
+    public void FromTensor_1D_CreatesFlatSeries()
+    {
+        float[] expectedData = [1.1f, 2.2f, 3.3f, 4.4f];
+        var tensor = new ReadOnlyTensorSpan<float>(expectedData);
+
+        // Tensor -> Polars
+        using var series = Series.FromTensor("scores", tensor);
+
+        Assert.Equal(4, series.Length); 
+        
+        // Polars -> Tensor
+        var readBackSpan = series.AsReadOnlySpan<float>();
+        Assert.True(readBackSpan.SequenceEqual(expectedData));
+    }
+
+    [Fact]
+    [Trait("Series", "FromTensor2D")]
+    public void FromTensor_2D_CreatesFixedSizeList()
+    {
+        // 3 x 2
+        float[,] matrix = new float[,]
+        {
+            { 1.1f, 1.2f },
+            { 2.1f, 2.2f },
+            { 3.1f, 3.2f }
+        };
+        var tensor = new ReadOnlyTensorSpan<float>(matrix);
+
+        // Tensor -> Polars
+        using var series = Series.FromTensor("embeddings", tensor);
+
+        // Assert
+        Assert.Equal(3, series.Length); 
+
+        // Polars -> Tensor
+        var readBackTensor = series.AsTensorSpan<float>();
+        
+        Assert.Equal(2, readBackTensor.Rank);
+        Assert.Equal(3, readBackTensor.Lengths[0]);
+        Assert.Equal(2, readBackTensor.Lengths[1]);
+        
+        Assert.Equal(3.2f, readBackTensor[2, 1]); 
+    }
+
+    [Fact]
+    [Trait("Series", "FromTensor3D")]
+    public void FromTensor_3D_CreatesNestedFixedSizeList()
+    {
+        // [Batch=2, Height=2, Width=2] 
+        float[] flatData = [.. Enumerable.Range(1, 8).Select(i => (float)i)];
+        ReadOnlySpan<nint> shape3D = [2, 2, 2];
+        var tensor = new ReadOnlyTensorSpan<float>(flatData, shape3D);
+
+        using var series = Series.FromTensor("image_batch", tensor);
+
+        Assert.Equal(2, series.Length);
+
+        var readBackTensor = series.AsTensorSpan<float>(shape3D);
+
+        Assert.Equal(3, readBackTensor.Rank);
+        Assert.Equal(2, readBackTensor.Lengths[0]);
+        Assert.Equal(2, readBackTensor.Lengths[1]);
+        Assert.Equal(2, readBackTensor.Lengths[2]);
+
+        Assert.Equal(8.0f, readBackTensor[1, 1, 1]);
     }
 
 }

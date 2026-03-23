@@ -1265,7 +1265,7 @@ public partial class Series : IDisposable,IPolarsSeries
             );
         }
 
-        return PolarsTensor.AsReadOnlySpan<T>(Handle);
+        return ArrowTensorInterop.AsReadOnlySpan<T>(Handle);
     }
     /// <summary>
     /// Convert Series to Array
@@ -1285,7 +1285,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <returns>A ReadOnlyTensorSpan representing the underlying Arrow memory.</returns>
     /// <exception cref="InvalidOperationException">Thrown if the Series contains nulls or is not numeric.</exception>
     public ReadOnlyTensorSpan<T> AsTensorSpan<T>() where T : unmanaged
-        => PolarsTensor.AsTensorSpan<T>(Handle);
+        => ArrowTensorInterop.AsTensorSpan<T>(Handle);
     
     /// <summary>
     /// Generates a zero-copy N-Dimensional Tensor representation from the Series.
@@ -1296,7 +1296,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <returns>A reshaped ReadOnlyTensorSpan representing the underlying Arrow memory.</returns>
     /// <exception cref="ArgumentException">Thrown if the shape's total elements do not match the Series data.</exception>
     public ReadOnlyTensorSpan<T> AsTensorSpan<T>(ReadOnlySpan<nint> shape) where T : unmanaged
-        => PolarsTensor.AsTensorSpan<T>(Handle, shape);
+        => ArrowTensorInterop.AsTensorSpan<T>(Handle, shape);
 
     /// <summary>
     /// Generates a zero-copy, transposed 2D Tensor representation from a List or Array Series.
@@ -1313,8 +1313,27 @@ public partial class Series : IDisposable,IPolarsSeries
     /// does not match the underlying physical Arrow memory type.
     /// </exception>
     public ReadOnlyTensorSpan<T> AsTransposedTensorSpan<T>() where T : unmanaged
-        => PolarsTensor.AsTransposedTensorSpan<T>(Handle);
-    
+        => ArrowTensorInterop.AsTransposedTensorSpan<T>(Handle);
+    /// <summary>
+    /// Converts an N-Dimensional .NET Tensor into a Polars Series.
+    /// Automatically infers the rank and dynamically wraps the data into Polars native types:
+    /// - 1D Tensors map to flat primitive columns (e.g., Float32, Int32).
+    /// - N-D Tensors map to nested Array columns (e.g., Array[f32, (H, W)]).
+    /// </summary>
+    /// <typeparam name="T">The unmanaged primitive type of the tensor (e.g., float, int).</typeparam>
+    /// <param name="name">The column name for the newly created Series.</param>
+    /// <param name="tensor">The source TensorSpan. Supports sliced and transposed views safely.</param>
+    /// <returns>A new Polars Series instance encapsulating the tensor data.</returns>
+    /// <remarks>
+    /// For memory safety against non-contiguous tensor views (like transpositions), 
+    /// this method performs a memory materialization (Flatten) before mapping to Arrow's C Data Interface. 
+    /// </remarks>
+    public static Series FromTensor<T>(string name, ReadOnlyTensorSpan<T> tensor) where T : unmanaged
+    {
+        SeriesHandle handle = ArrowTensorInterop.ImportTensor(name, tensor);
+        return new Series(handle);
+    }
+   
     // ==========================================
     // Window & Rolling
     // ==========================================
