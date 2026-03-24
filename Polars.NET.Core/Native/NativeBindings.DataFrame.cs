@@ -130,14 +130,6 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] bool sortColumns,
         string? separator       // separator_ptr
     );
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
-    public static partial DataFrameHandle pl_unpivot(
-        DataFrameHandle df,
-        SelectorHandle index, 
-        SelectorHandle? on, // Nullable
-        string? varName,
-        string? valName
-    );
     // Stack Ops
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_hstack(

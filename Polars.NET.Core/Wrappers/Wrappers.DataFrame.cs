@@ -187,15 +187,6 @@ public static partial class PolarsWrapper
 
         return ErrorHelper.Check(handle);
     }
-
-    // Unpivot (Eager)
-    public static DataFrameHandle Unpivot(DataFrameHandle df, SelectorHandle index, SelectorHandle? on, string? variableName, string? valueName)
-    {
-        var h = NativeBindings.pl_unpivot(df,index,on,variableName,valueName);
-        index.TransferOwnership();
-        on?.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
     public static DataFrameHandle Concat(
         DataFrameHandle[] handles, 
         PlConcatType how, 

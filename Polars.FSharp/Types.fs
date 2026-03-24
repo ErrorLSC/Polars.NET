@@ -4981,12 +4981,12 @@ and DataFrame(handle: DataFrameHandle) =
     /// <param name="variableName">Name for the variable column (default: "variable")</param>
     /// <param name="valueName">Name for the value column (default: "value")</param>
     member this.Unpivot (index: Selector,on: Selector,variableName: string option,valueName: string option) : DataFrame =
-        let hIndex = index.CloneHandle()
-        let hOn = on.CloneHandle()
-        let varN = Option.toObj variableName
-        let valN = Option.toObj valueName
-        
-        new DataFrame(PolarsWrapper.Unpivot(this.Handle, hIndex, hOn, varN, valN))
+        // let hIndex = index.CloneHandle()
+        // let hOn = on.CloneHandle()
+        // let varN = Option.toObj variableName
+        // let valN = Option.toObj valueName
+        this.Lazy().Unpivot(index,on,variableName,valueName).Collect()
+        // new DataFrame(PolarsWrapper.Unpivot(this.Handle, hIndex, hOn, varN, valN))
 
     /// <summary> 
     /// Unpivot (Melt) overload for simple string lists.

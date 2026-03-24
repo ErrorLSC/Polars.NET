@@ -559,43 +559,6 @@ pub extern "C" fn pl_dataframe_pivot(
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
     })
 }
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_unpivot(
-    df_ptr: *mut DataFrameContext,
-    index_selector: *mut SelectorContext,
-    on_selector: *mut SelectorContext,
-    variable_name_ptr: *const c_char,
-    value_name_ptr: *const c_char
-) -> *mut DataFrameContext {
-    ffi_try!({
-        let ctx = unsafe { &*df_ptr };
-        let index_ctx = unsafe { Box::from_raw(index_selector) };
-        let on = if on_selector.is_null() {
-            None
-        } else {
-            let on_ctx = unsafe { Box::from_raw(on_selector) };
-            Some(on_ctx.inner)
-        };
-
-        let variable_name = if variable_name_ptr.is_null() { None } else { Some(PlSmallStr::from_str(ptr_to_str(variable_name_ptr).unwrap())) };
-        let value_name = if value_name_ptr.is_null() { None } else { Some(PlSmallStr::from_str(ptr_to_str(value_name_ptr).unwrap())) };
-
-        let args = UnpivotArgsDSL {
-            index: index_ctx.inner,
-            on: on,
-            variable_name,
-            value_name,
-        };
-
-        let res_df = ctx.df.clone()
-            .lazy()
-            .unpivot(args)
-            .collect()?;
-
-        Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
-    })
-}
 // ==========================================
 // Concat
 // ==========================================

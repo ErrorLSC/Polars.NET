@@ -2679,9 +2679,11 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     /// <returns></returns>
     public DataFrame Unpivot(Selector index, Selector? on, string variableName = "variable", string valueName = "value")
     {
-        var indexClone = index.CloneHandle();
-        var onClone = on?.CloneHandle();
-        return new DataFrame(PolarsWrapper.Unpivot(Handle, indexClone, onClone, variableName, valueName));
+        // var indexClone = index.CloneHandle();
+        // var onClone = on?.CloneHandle();
+        // return new DataFrame(PolarsWrapper.Unpivot(Handle, indexClone, onClone, variableName, valueName));
+        var lf = Lazy().Unpivot(index,on,variableName,valueName);
+        return lf.Collect();
     }
     /// <summary>
     /// Alias for <see cref="Unpivot(string[], string[], string, string)"/>. Melts the DataFrame from wide to long format.
