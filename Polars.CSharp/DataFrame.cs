@@ -1297,8 +1297,8 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     /// </example>
     public DataFrame Select(params Expr[] exprs)
     {
-        var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
-        return new DataFrame(PolarsWrapper.Select(Handle, handles));
+        var lf = Lazy().Select(exprs);
+        return lf.Collect();
     }
     /// <summary>
     /// Select columns by name (convenience overload).
@@ -1353,9 +1353,8 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     /// </example>
     public DataFrame Filter(Expr expr)
     {
-        var h = PolarsWrapper.CloneExpr(expr.Handle);
-
-        return new DataFrame(PolarsWrapper.Filter(Handle, h));
+        var lf = Lazy().Filter(expr);
+        return lf.Collect();
     }
     /// <summary>
     /// Add new columns to the DataFrame or replace existing ones using expressions.
@@ -1397,9 +1396,8 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     /// </example>
     public DataFrame WithColumns(params Expr[] exprs)
     {
-        var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
-
-        return new DataFrame(PolarsWrapper.WithColumns(Handle, handles));
+        var lf = this.Lazy().WithColumns(exprs);
+        return lf.Collect();
     }
     /// <summary>
     /// Sort the DataFrame by a single column.

@@ -131,22 +131,6 @@ public static partial class PolarsWrapper
         ulong* sPtr = seed.HasValue ? &sVal : null;
         return ErrorHelper.Check(NativeBindings.pl_dataframe_sample_frac(df, frac, replacement, shuffle, sPtr));
     }
-    public static DataFrameHandle Filter(DataFrameHandle df, ExprHandle expr)
-    {
-        var h = NativeBindings.pl_filter(df, expr);
-        expr.TransferOwnership(); 
-        return ErrorHelper.Check(h);
-    }
-    public static DataFrameHandle WithColumns(DataFrameHandle df, ExprHandle[] exprs)
-    {
-        var raw = HandlesToPtrs(exprs);
-        return ErrorHelper.Check(NativeBindings.pl_with_columns(df, raw, (UIntPtr)raw.Length));
-    }
-    public static DataFrameHandle Select(DataFrameHandle df, ExprHandle[] exprs)
-    {
-        var rawExprs = HandlesToPtrs(exprs);
-        return ErrorHelper.Check(NativeBindings.pl_select(df, rawExprs, (UIntPtr)rawExprs.Length));
-    }
     public static DataFrameHandle Unnest(DataFrameHandle df, string[] columns,string? separator)
         => ErrorHelper.Check(NativeBindings.pl_dataframe_unnest(df, columns, (UIntPtr)columns.Length,separator));
     // Pivot (Eager)

@@ -4,10 +4,10 @@ use std::ffi::CStr;
 use std::{ffi::CString, os::raw::c_char};
 use crate::types::*;
 use polars::functions::{concat_df_horizontal,concat_df_diagonal};
-use crate::utils::{consume_exprs_array, parse_keep_strategy, ptr_to_str};
+use crate::utils::{parse_keep_strategy, ptr_to_str};
 
 // ==========================================
-// 0. Memory Safety
+// Memory Safety
 // ==========================================
 
 #[unsafe(no_mangle)]
@@ -19,66 +19,6 @@ pub extern "C" fn pl_dataframe_free(ptr: *mut DataFrameContext) {
         Ok(())
     })
 }
-
-// ==========================================
-// Macro Define
-// ==========================================
-
-/// Mode A: DataFrame -> Single Expr -> DataFrame
-macro_rules! gen_eager_op_single {
-    ($func_name:ident, $method:ident) => {
-        #[unsafe(no_mangle)]
-        pub extern "C" fn $func_name(
-            df_ptr: *mut DataFrameContext, 
-            expr_ptr: *mut ExprContext
-        ) -> *mut DataFrameContext {
-            ffi_try!({
-                let ctx = unsafe { &mut *df_ptr };
-                let expr_ctx = unsafe { Box::from_raw(expr_ptr) };
-                
-                // Ops: clone -> lazy -> op -> collect
-                let res_df = ctx.df.clone().lazy()
-                    .$method(expr_ctx.inner)
-                    .collect()?;
-
-                Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
-            })
-        }
-    };
-}
-
-/// Mode B: DataFrame -> Expr array -> DataFrame
-macro_rules! gen_eager_op_vec {
-    ($func_name:ident, $method:ident) => {
-        #[unsafe(no_mangle)]
-        pub extern "C" fn $func_name(
-            df_ptr: *mut DataFrameContext, 
-            exprs_ptr: *const *mut ExprContext, 
-            len: usize
-        ) -> *mut DataFrameContext {
-            ffi_try!({
-                let ctx = unsafe { &mut *df_ptr };
-                let exprs = unsafe { consume_exprs_array(exprs_ptr, len) };
-                
-                let res_df = ctx.df.clone().lazy()
-                    .$method(exprs)
-                    .collect()?;
-
-                Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
-            })
-        }
-    };
-}
-
-// ==========================================
-// Macro Apply
-// ==========================================
-
-gen_eager_op_single!(pl_filter, filter);
-
-gen_eager_op_vec!(pl_select, select);
-gen_eager_op_vec!(pl_with_columns, with_columns);
-
 // ==========================================
 // Slice
 // ==========================================

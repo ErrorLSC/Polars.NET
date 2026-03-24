@@ -382,13 +382,11 @@ module pl =
     /// <summary> Select columns from LazyFrame. </summary>
     let selectLazy (exprs: Expr list) (lf: LazyFrame) : LazyFrame =
         lf.Select exprs
-
     /// <summary> Sort (Order By) the LazyFrame. </summary>
     let sortLazy (expr: Expr) (desc: bool) (lf: LazyFrame) : LazyFrame =
         lf.Sort (expr,desc)
     /// <summary> Alias for sortLazy </summary>
     let orderByLazy (expr: Expr) (desc: bool) (lf: LazyFrame) = sortLazy expr desc lf
-
     /// <summary> Limit the number of rows in the LazyFrame. </summary>
     let limit (n: uint) (lf: LazyFrame) : LazyFrame =
         lf.Limit n
@@ -458,6 +456,7 @@ module pl =
         let f = ifFalse.CloneHandle()
         
         new Expr(PolarsWrapper.IfElse(p, t, f))
+
 
     // --- Async Execution ---
 

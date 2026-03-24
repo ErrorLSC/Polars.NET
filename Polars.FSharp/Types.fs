@@ -4543,10 +4543,8 @@ and DataFrame(handle: DataFrameHandle) =
     // Eager Ops
     // ==========================================
     /// <summary> Add or replace columns using expressions. </summary>
-    member this.WithColumns (exprs:Expr list) : DataFrame =
-        let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        let h = PolarsWrapper.WithColumns(this.Handle,handles)
-        new DataFrame(h)
+    member this.WithColumns (exprs:seq<Expr>) : DataFrame =
+        this.Lazy().WithColumns(exprs).Collect()
     /// <summary> Add or replace columns using generic column expressions (Expr or Selectors). </summary>
     member this.WithColumns (columns:seq<#IColumnExpr>) =
         let exprs = 
@@ -4557,14 +4555,11 @@ and DataFrame(handle: DataFrameHandle) =
         this.WithColumns exprs
     /// <summary> Add a single column. </summary>
     member this.WithColumn (expr: Expr) : DataFrame =
-        let handle = expr.CloneHandle()
-        let h = PolarsWrapper.WithColumns(this.Handle,[| handle |])
-        new DataFrame(h)
+        this.WithColumns [|expr|]
     /// <summary> Select columns using expressions. </summary>
-    member this.Select(exprs: Expr list) : DataFrame =
-        let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        let h = PolarsWrapper.Select(this.Handle, handles)
-        new DataFrame(h)
+    member this.Select(exprs: seq<Expr>) : DataFrame =
+        let lf = this.Lazy().Select exprs
+        lf.Collect()
 
     /// <summary> Select columns using generic column expressions (Expr or Selectors). </summary>
     member this.Select(columns: seq<#IColumnExpr>) =
@@ -4583,8 +4578,7 @@ and DataFrame(handle: DataFrameHandle) =
 
     /// <summary> Filter rows based on a boolean expression (predicate). </summary>
     member this.Filter (expr: Expr) : DataFrame = 
-        let h = PolarsWrapper.Filter(this.Handle,expr.CloneHandle())
-        new DataFrame(h)
+        this.Lazy().Filter(expr).Collect()
     /// <summary>
     /// Sort the DataFrame.
     /// </summary>
@@ -5106,9 +5100,8 @@ and DataFrame(handle: DataFrameHandle) =
         if nullableVal.HasValue then Some nullableVal.Value else None
     member this.String(colName: string, rowIndex: int) = PolarsWrapper.GetString(handle, colName, int64 rowIndex) |> Option.ofObj
     member this.StringList(colName: string, rowIndex: int) : string list option =
-        use colHandle = PolarsWrapper.Select(handle, [| PolarsWrapper.Col colName |])
-        use tempDf = new DataFrame(colHandle)
-        use arrowBatch = tempDf.ToArrow()
+        use colDf = this.Select(Expr.Col colName)
+        use arrowBatch = colDf.ToArrow()
         
         let col = arrowBatch.Column colName
         
@@ -7525,9 +7518,9 @@ and LazyFrame(handle: LazyFrameHandle) =
         let h = PolarsWrapper.LazyFilter(lfClone, exprClone)
         new LazyFrame(h)
     
-    member this.Select (exprs: Expr list) : LazyFrame =
+    member this.Select (exprs: seq<Expr>) : LazyFrame =
         let lfClone = this.CloneHandle()
-        let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        let handles = exprs |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
         
         let h = PolarsWrapper.LazySelect(lfClone, handles)
         new LazyFrame(h)
@@ -7699,9 +7692,9 @@ and LazyFrame(handle: LazyFrameHandle) =
     /// Add or replace multiple columns in the LazyFrame.
     /// </summary>
     /// <param name="exprs">List of expressions defining the new columns.</param>
-    member this.WithColumns (exprs: Expr list) : LazyFrame =
+    member this.WithColumns (exprs: seq<Expr>) : LazyFrame =
         let lfClone = this.CloneHandle()
-        let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        let handles = exprs |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
         let h = PolarsWrapper.LazyWithColumns(lfClone, handles)
         new LazyFrame(h)
     /// <summary>
