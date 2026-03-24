@@ -147,39 +147,6 @@ public static partial class PolarsWrapper
         var rawExprs = HandlesToPtrs(exprs);
         return ErrorHelper.Check(NativeBindings.pl_select(df, rawExprs, (UIntPtr)rawExprs.Length));
     }
-    public static DataFrameHandle DataFrameSort(
-        DataFrameHandle df, 
-        ExprHandle[] exprs, 
-        bool[] descending,
-        bool[] nullsLast,
-        bool maintainOrder)
-    {
-        if ((descending.Length != 1 && descending.Length != exprs.Length) ||
-            (nullsLast.Length != 1 && nullsLast.Length != exprs.Length))
-        {
-                throw new ArgumentException("Sort options length mismatch.");
-        }
-
-        var exprPtrs = HandlesToPtrs(exprs);
-
-        unsafe
-        {
-            fixed (bool* descPtr = descending)
-            fixed (bool* nullsPtr = nullsLast)
-            {
-                return ErrorHelper.Check(NativeBindings.pl_dataframe_sort(
-                    df,
-                    exprPtrs,
-                    (UIntPtr)exprs.Length,
-                    descPtr,
-                    (UIntPtr)descending.Length,
-                    nullsPtr,
-                    (UIntPtr)nullsLast.Length,
-                    maintainOrder
-                ));
-            }
-        }
-    }
     public static DataFrameHandle Explode(DataFrameHandle df, SelectorHandle selector, bool emptyAsNull,bool keepNulls)
     {
        var h = NativeBindings.pl_dataframe_explode(df,selector, emptyAsNull,keepNulls);

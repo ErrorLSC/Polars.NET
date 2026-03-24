@@ -102,17 +102,6 @@ unsafe internal partial class NativeBindings
     public static partial DataFrameHandle pl_select(DataFrameHandle df, IntPtr[] exprs, UIntPtr len);
     [LibraryImport(LibName)] 
     public static partial DataFrameHandle pl_dataframe_slice(DataFrameHandle df, long offset, UIntPtr length);
-    [LibraryImport(LibName)]
-    public static partial DataFrameHandle pl_dataframe_sort(
-        DataFrameHandle df,
-        IntPtr[] exprs,
-        UIntPtr exprLen,
-        bool* descending, 
-        UIntPtr descendingLen,
-        bool* nullsLast,
-        UIntPtr nullsLastLen,
-        [MarshalAs(UnmanagedType.U1)] bool maintainOrder
-    );
     [LibraryImport(LibName)] 
     public static partial DataFrameHandle pl_dataframe_explode(
         DataFrameHandle df, 

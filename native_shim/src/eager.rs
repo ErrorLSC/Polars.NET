@@ -97,57 +97,6 @@ pub extern "C" fn pl_dataframe_slice(
     })
 }
 // ==========================================
-// Sort
-// ==========================================
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_dataframe_sort(
-    df_ptr: *mut DataFrameContext,
-    expr_ptrs: *const *mut ExprContext, 
-    expr_len: usize,
-    descending_ptr: *const bool,        
-    descending_len: usize,
-    nulls_last_ptr: *const bool,        
-    nulls_last_len: usize,
-    maintain_order: bool                
-) -> *mut DataFrameContext {
-    ffi_try!({
-        let ctx = unsafe { &*df_ptr };
-        
-        let mut exprs = Vec::with_capacity(expr_len);
-        let ptr_slice = unsafe { std::slice::from_raw_parts(expr_ptrs, expr_len) };
-        for &ptr in ptr_slice {
-            let expr_ctx = unsafe { Box::from_raw(ptr) };
-            exprs.push(expr_ctx.inner);
-        }
-
-        let desc_slice = unsafe { std::slice::from_raw_parts(descending_ptr, descending_len) };
-        let descending = if descending_len == 1 && expr_len > 1 {
-            vec![desc_slice[0]; expr_len]
-        } else {
-            desc_slice.to_vec()
-        };
-
-        let nulls_slice = unsafe { std::slice::from_raw_parts(nulls_last_ptr, nulls_last_len) };
-        let nulls_last = if nulls_last_len == 1 && expr_len > 1 {
-            vec![nulls_slice[0]; expr_len]
-        } else {
-            nulls_slice.to_vec()
-        };
-
-        let options = SortMultipleOptions::default()
-            .with_order_descending_multi(descending)
-            .with_nulls_last_multi(nulls_last)
-            .with_maintain_order(maintain_order);
-
-        let res_df = ctx.df.clone()
-            .lazy()
-            .sort_by_exprs(exprs, options)
-            .collect()?;
-
-        Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
-    })
-}
-// ==========================================
 // DataFrame Ops
 // ==========================================
 
