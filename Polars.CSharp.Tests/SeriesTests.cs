@@ -1390,7 +1390,7 @@ public class SeriesTests
         
         using var series = Series.From("ffi_matrix", matrix);
 
-        var (ptr, shape) = series.AsUnmanagedTensor<float>();
+        var (ptr, shape) = series.AsDangerousUnmanagedTensor<float>();
 
         Assert.Equal(2, shape.Length);
         Assert.Equal(2L, shape[0]); 

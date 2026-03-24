@@ -35,8 +35,20 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <param name="newName"></param>
     public void Rename(string newName)
     {
-        this.Name = newName;
+        Name = newName;
     }
+
+    /// <summary>
+    /// Reallocates the Series to ensure that all its underlying memory is physically contiguous.
+    /// </summary>
+    /// <remarks>
+    /// Polars Operations like Appending or Filtering can create fragmented memory chunks. 
+    /// Calling Rechunk() merges these chunks into a single contiguous Arrow array. 
+    /// This is CRITICAL before zero-copy extracting native pointers for Tensors or FFI.
+    /// </remarks>
+    /// <returns>A new Series instance backed by contiguous memory.</returns>
+    public Series Rechunk()
+        => new(PolarsWrapper.SeriesRechunk(Handle));
 
     /// <summary>
     /// Date Ops
@@ -111,6 +123,15 @@ public partial class Series : IDisposable,IPolarsSeries
     // ==========================================
     // Metadata
     // ==========================================
+    /// <summary>
+    /// Gets the number of underlying Arrow memory chunks.
+    /// </summary>
+    public int ChunkCount => (int)PolarsWrapper.SeriesChunkLengths(Handle);
+
+    /// <summary>
+    /// Determines if the Series memory is physically contiguous (i.e., consists of a single chunk).
+    /// </summary>
+    public bool IsContiguous => ChunkCount == 1;
 
     /// <summary>
     /// Get the string representation of the Series data type (e.g. "i64", "str", "datetime(μs)").
@@ -1357,8 +1378,18 @@ public partial class Series : IDisposable,IPolarsSeries
     /// </remarks>
     /// <typeparam name="T">The unmanaged primitive type.</typeparam>
     /// <returns>A tuple containing the raw <see cref="IntPtr"/> to the first element, and a <c>long[]</c> representing the tensor shape.</returns>
-    public (IntPtr DataPointer, long[] Shape) AsUnmanagedTensor<T>() where T : unmanaged
-        => ArrowTensorInterop.GetNativePointers<T>(Handle);
+    public (IntPtr DataPointer, long[] Shape) AsDangerousUnmanagedTensor<T>() where T : unmanaged
+    {
+        if (!this.IsContiguous)
+        {
+            throw new InvalidOperationException(
+                $"Cannot extract a contiguous native pointer because the Series is fragmented into {this.ChunkCount} chunks. " +
+                "You MUST call .Rechunk() on this Series to merge the memory before exporting it to an unmanaged Tensor."
+            );
+        }
+        return ArrowTensorInterop.GetNativePointers<T>(Handle);
+    }
+     
     /// <summary>
     /// Converts an N-Dimensional .NET Tensor into a Polars Series.
     /// Automatically infers the rank and dynamically wraps the data into Polars native types:

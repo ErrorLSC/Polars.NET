@@ -589,6 +589,25 @@ pub extern "C" fn pl_series_clone(ptr: *mut SeriesContext) -> *mut SeriesContext
         Ok(Box::into_raw(Box::new(SeriesContext { series: new_series })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_rechunk(ptr: *mut SeriesContext) -> *mut SeriesContext {
+    ffi_try!({
+        let ctx = unsafe { &*ptr };
+
+        let contiguous_series = ctx.series.rechunk();
+        
+        Ok(Box::into_raw(Box::new(SeriesContext {
+            series: contiguous_series,
+        })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_chunk_lengths(ptr: *mut SeriesContext) -> usize {
+    let ctx = unsafe { &*ptr };
+    ctx.series.chunks().len()
+}
 // ==========================================
 // Methods
 // ==========================================

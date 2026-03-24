@@ -9,6 +9,10 @@ unsafe internal partial class NativeBindings
     // --- Series Lifecycle ---
     [LibraryImport(LibName)]
     public static partial void pl_series_free(IntPtr ptr);
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_rechunk(SeriesHandle handle);
+    [LibraryImport(LibName)]
+    public static partial nuint pl_series_chunk_lengths(SeriesHandle handle);
     // --- Series Getters ---
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)]

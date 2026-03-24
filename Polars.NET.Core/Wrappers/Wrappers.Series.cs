@@ -9,6 +9,11 @@ namespace Polars.NET.Core;
 
 public static partial class PolarsWrapper
 {
+    // --- chunks ---
+    public static SeriesHandle SeriesRechunk(SeriesHandle handle)
+        => NativeBindings.pl_series_rechunk(handle);
+    public static nuint SeriesChunkLengths(SeriesHandle handle)
+        => NativeBindings.pl_series_chunk_lengths(handle);
     // --- Constructors ---
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SeriesHandle SeriesNew(string name, ReadOnlySpan<sbyte> data, ReadOnlySpan<byte> validity = default)

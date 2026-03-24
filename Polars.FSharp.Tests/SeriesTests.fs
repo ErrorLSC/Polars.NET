@@ -843,7 +843,7 @@ type ``Series Tests`` () =
         
         use series = Series.ofArray2D("ffi_matrix", matrix)
 
-        let struct (ptr, shape) = series.AsUnmanagedTensor<float32>()
+        let struct (ptr, shape) = series.AsDangerousUnmanagedTensor<float32>()
 
         Assert.Equal(2, shape.Length)
         Assert.Equal(2L, shape.[0]) 
