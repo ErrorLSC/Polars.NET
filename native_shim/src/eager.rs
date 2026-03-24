@@ -5,7 +5,7 @@ use std::{ffi::CString, os::raw::c_char};
 use crate::types::*;
 use polars::lazy::dsl::UnpivotArgsDSL;
 use polars::functions::{concat_df_horizontal,concat_df_diagonal};
-use crate::utils::{consume_exprs_array, map_coalesce, map_join_side, map_jointype, map_maintain_order, map_validation, parse_keep_strategy, ptr_to_str};
+use crate::utils::{consume_exprs_array, parse_keep_strategy, ptr_to_str};
 
 // ==========================================
 // 0. Memory Safety
@@ -94,81 +94,6 @@ pub extern "C" fn pl_dataframe_slice(
         let result_df = df.slice(offset, length);
 
         Ok(Box::into_raw(Box::new(result_df)))
-    })
-}
-
-// ==========================================
-// Join
-// ==========================================
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_join(
-    left_ptr: *mut DataFrameContext,
-    right_ptr: *mut DataFrameContext,
-    left_on_ptr: *const *mut ExprContext, left_on_len: usize,
-    right_on_ptr: *const *mut ExprContext, right_on_len: usize,
-    how_code: u8,
-    suffix_ptr: *const c_char,
-    validation_code: u8,
-    coalesce_code: u8,
-    maintain_order_code: u8,
-    join_side_code: u8,
-    nulls_equal: bool,
-    slice_offset_ptr: *const i64, // Nullable pointer for Slice Offset
-    slice_len: usize              // Slice Length
-) -> *mut DataFrameContext {
-    ffi_try!({
-        let left_ctx = unsafe { &*left_ptr };
-        let right_ctx = unsafe { &*right_ptr };
-
-        let how = map_jointype(how_code);
-
-        let left_on = unsafe { consume_exprs_array(left_on_ptr, left_on_len) };
-        let right_on = unsafe { consume_exprs_array(right_on_ptr, right_on_len) };
-
-        // 1. Map Suffix
-        let suffix = if suffix_ptr.is_null() {
-            None
-        } else {
-            let s_str = ptr_to_str(suffix_ptr)
-                .map_err(|e| PolarsError::ComputeError(format!("Invalid suffix string: {}", e).into()))?;
-            Some(PlSmallStr::from_str(s_str))
-        };
-
-        // 2. Map Enums
-        let validation = map_validation(validation_code);
-        let coalesce = map_coalesce(coalesce_code);
-        let maintain_order = map_maintain_order(maintain_order_code);
-        let build_side = if join_side_code == 0 {
-            None
-        } else {
-            Some(map_join_side(join_side_code))
-        };
-
-        // 3. Map Slice (Option<(i64, usize)>)
-        let slice = if slice_offset_ptr.is_null() {
-            None
-        } else {
-            Some((unsafe { *slice_offset_ptr }, slice_len))
-        };
-
-        // 4. Construct JoinArgs
-        let args = JoinArgs {
-            how,
-            validation,
-            suffix,
-            slice,
-            nulls_equal,
-            coalesce,
-            maintain_order,
-            build_side
-        };
-        
-        let res_df = left_ctx.df.clone().lazy()
-            .join(right_ctx.df.clone().lazy(), left_on, right_on, args)
-            .collect()?;
-
-        Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
     })
 }
 // ==========================================

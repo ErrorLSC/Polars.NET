@@ -102,23 +102,6 @@ unsafe internal partial class NativeBindings
     public static partial DataFrameHandle pl_select(DataFrameHandle df, IntPtr[] exprs, UIntPtr len);
     [LibraryImport(LibName)] 
     public static partial DataFrameHandle pl_dataframe_slice(DataFrameHandle df, long offset, UIntPtr length);
-    // Join
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial DataFrameHandle pl_join(
-        DataFrameHandle left,
-        DataFrameHandle right,
-        IntPtr[] leftOn, UIntPtr leftLen,
-        IntPtr[] rightOn, UIntPtr rightLen,
-        PlJoinType how,
-        string? suffix,
-        PlJoinValidation validation,
-        PlJoinCoalesce coalesce,
-        PlJoinMaintainOrder maintainOrder,
-        PlJoinSide joinSide,
-        [MarshalAs(UnmanagedType.U1)] bool nullsEqual,
-        IntPtr sliceOffset,
-        UIntPtr sliceLen
-    );
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_dataframe_sort(
         DataFrameHandle df,

@@ -147,47 +147,6 @@ public static partial class PolarsWrapper
         var rawExprs = HandlesToPtrs(exprs);
         return ErrorHelper.Check(NativeBindings.pl_select(df, rawExprs, (UIntPtr)rawExprs.Length));
     }
-
-    public static DataFrameHandle Join(
-        DataFrameHandle left, 
-        DataFrameHandle right, 
-        ExprHandle[] leftOn, 
-        ExprHandle[] rightOn, 
-        PlJoinType how,
-        string? suffix,
-        PlJoinValidation validation,
-        PlJoinCoalesce coalesce,
-        PlJoinMaintainOrder maintainOrder,
-        PlJoinSide joinSide,
-        bool nullsEqual,
-        long? sliceOffset,
-        ulong sliceLen)
-    {
-        var lPtrs = HandlesToPtrs(leftOn);
-        var rPtrs = HandlesToPtrs(rightOn);
-
-        unsafe 
-        {
-            long offsetVal = sliceOffset.GetValueOrDefault();
-            IntPtr offsetPtr = sliceOffset.HasValue ? (IntPtr)(&offsetVal) : IntPtr.Zero;
-
-            return ErrorHelper.Check(NativeBindings.pl_join(
-                left, 
-                right, 
-                lPtrs, (UIntPtr)lPtrs.Length, 
-                rPtrs, (UIntPtr)rPtrs.Length, 
-                how,
-                suffix,         
-                validation,
-                coalesce,
-                maintainOrder,
-                joinSide,
-                nullsEqual,
-                offsetPtr,      
-                (UIntPtr)sliceLen
-            ));
-        }
-    }
     public static DataFrameHandle DataFrameSort(
         DataFrameHandle df, 
         ExprHandle[] exprs, 

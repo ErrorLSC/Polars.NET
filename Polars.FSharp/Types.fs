@@ -4654,8 +4654,8 @@ and DataFrame(handle: DataFrameHandle) =
                       ?sliceOffset: int64,
                       ?sliceLen: uint64) : DataFrame =
         
-        let lHandles = leftOn |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
-        let rHandles = rightOn |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
+        // let lHandles = leftOn |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
+        // let rHandles = rightOn |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
         
         // Handle Defaults
         let suff = defaultArg suffix null // Pass null to let Rust use default ("_right")
@@ -4669,22 +4669,21 @@ and DataFrame(handle: DataFrameHandle) =
         let so = Option.toNullable sliceOffset
         let sl = defaultArg sliceLen 0UL
 
-        let h = PolarsWrapper.Join(
-            this.Handle, 
-            other.Handle, 
-            lHandles, 
-            rHandles, 
-            how.ToNative(),
+        let lf = this.Lazy().Join(
+            other.Lazy(), 
+            leftOn, 
+            rightOn, 
+            how,
             suff,
-            valid.ToNative(),
-            coal.ToNative(),
-            mo.ToNative(),
-            js.ToNative(),
+            valid,
+            coal,
+            mo,
+            js,
             ne,
-            so,
-            sl
+            ?sliceOffset=sliceOffset,
+            ?sliceLen=sliceLen
         )
-        new DataFrame(h)
+        lf.Collect()
     member internal this.JoinAsOfInternal(other: DataFrame, 
                          leftOn: Expr, 
                          rightOn: Expr, 

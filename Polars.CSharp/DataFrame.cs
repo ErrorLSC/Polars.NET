@@ -1869,28 +1869,22 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
         long? sliceOffset = null,
         ulong sliceLen = 0)
     {
-        // 1. Clone Expression Handles
-        var lHandles = leftOn.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
-        var rHandles = rightOn.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
-
-        // 2. Call Wrapper with all arguments
-        var dfHandle = PolarsWrapper.Join(
-            Handle, 
-            other.Handle, 
-            lHandles, 
-            rHandles, 
-            how.ToNative(),
+        var lf = Lazy().Join(
+            other.Lazy(),
+            leftOn,
+            rightOn,
+            how,
             suffix,
-            validation.ToNative(),
-            coalesce.ToNative(),
-            maintainOrder.ToNative(),
-            joinSide.ToNative(),
+            validation,
+            coalesce,
+            maintainOrder,
+            joinSide,
             nullsEqual,
             sliceOffset,
             sliceLen
         );
 
-        return new DataFrame(dfHandle);
+        return lf.Collect();
     }
     /// <summary>
     /// Join with another DataFrame using column names.
