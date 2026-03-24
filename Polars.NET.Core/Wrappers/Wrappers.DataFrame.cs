@@ -147,12 +147,6 @@ public static partial class PolarsWrapper
         var rawExprs = HandlesToPtrs(exprs);
         return ErrorHelper.Check(NativeBindings.pl_select(df, rawExprs, (UIntPtr)rawExprs.Length));
     }
-    public static DataFrameHandle Explode(DataFrameHandle df, SelectorHandle selector, bool emptyAsNull,bool keepNulls)
-    {
-       var h = NativeBindings.pl_dataframe_explode(df,selector, emptyAsNull,keepNulls);
-       selector.TransferOwnership();
-       return ErrorHelper.Check(h);
-    } 
     public static DataFrameHandle Unnest(DataFrameHandle df, string[] columns,string? separator)
         => ErrorHelper.Check(NativeBindings.pl_dataframe_unnest(df, columns, (UIntPtr)columns.Length,separator));
     // Pivot (Eager)

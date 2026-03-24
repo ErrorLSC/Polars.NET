@@ -1639,11 +1639,11 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     /// If <c>true</c>, <c>null</c> values in the column are preserved as <c>null</c> in the result. 
     /// If <c>false</c>, rows with <c>null</c> values are removed.
     /// </param>
-        /// <returns></returns>
+    /// <returns></returns>
     public DataFrame Explode(Selector selector,bool emptyAsNull=true, bool keepNulls=true)
     {
-        var sh = selector.CloneHandle();
-        return new DataFrame(PolarsWrapper.Explode(Handle, sh,emptyAsNull,keepNulls));
+        var lf = Lazy().Explode(selector,emptyAsNull,keepNulls);
+        return lf.Collect();
     }
     /// <summary>
     /// Decompose a struct column into multiple columns.
@@ -2679,9 +2679,6 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
     /// <returns></returns>
     public DataFrame Unpivot(Selector index, Selector? on, string variableName = "variable", string valueName = "value")
     {
-        // var indexClone = index.CloneHandle();
-        // var onClone = on?.CloneHandle();
-        // return new DataFrame(PolarsWrapper.Unpivot(Handle, indexClone, onClone, variableName, valueName));
         var lf = Lazy().Unpivot(index,on,variableName,valueName);
         return lf.Collect();
     }

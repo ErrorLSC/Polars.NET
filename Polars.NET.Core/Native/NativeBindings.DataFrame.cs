@@ -103,12 +103,6 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] 
     public static partial DataFrameHandle pl_dataframe_slice(DataFrameHandle df, long offset, UIntPtr length);
     [LibraryImport(LibName)] 
-    public static partial DataFrameHandle pl_dataframe_explode(
-        DataFrameHandle df, 
-        SelectorHandle selector,
-        [MarshalAs(UnmanagedType.U1)] bool emptyAsNull,
-        [MarshalAs(UnmanagedType.U1)] bool keepNulls);
-    [LibraryImport(LibName)] 
     public static partial DataFrameHandle pl_dataframe_concat(
         IntPtr[] dfs, 
         UIntPtr len,

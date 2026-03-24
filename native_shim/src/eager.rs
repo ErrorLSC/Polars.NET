@@ -3,7 +3,6 @@ use polars_core::utils::concat_df;
 use std::ffi::CStr;
 use std::{ffi::CString, os::raw::c_char};
 use crate::types::*;
-use polars::lazy::dsl::UnpivotArgsDSL;
 use polars::functions::{concat_df_horizontal,concat_df_diagonal};
 use crate::utils::{consume_exprs_array, parse_keep_strategy, ptr_to_str};
 
@@ -432,33 +431,6 @@ pub extern "C" fn pl_tail(df_ptr: *mut DataFrameContext, n: usize) -> *mut DataF
     ffi_try!({
         let ctx = unsafe { &*df_ptr };
         let res_df = ctx.df.tail(Some(n));
-        Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
-    })
-}
-// ==========================================
-// Explode
-// ==========================================
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_dataframe_explode(
-    df_ptr: *mut DataFrameContext,
-    selector_ptr: *mut SelectorContext,
-    empty_as_null: bool,
-    keep_nulls: bool,
-) -> *mut DataFrameContext {
-    ffi_try!({
-        let ctx = unsafe { &*df_ptr };
-        let selector_ctx = unsafe { Box::from_raw(selector_ptr) };
-
-        let options = ExplodeOptions {
-            empty_as_null,
-            keep_nulls,
-        };
-
-        let res_df = ctx.df.clone()
-            .lazy()
-            .explode(selector_ctx.inner, options)
-            .collect()?;
-
         Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
     })
 }

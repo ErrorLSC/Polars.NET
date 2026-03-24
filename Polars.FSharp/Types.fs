@@ -4841,11 +4841,7 @@ and DataFrame(handle: DataFrameHandle) =
     /// Explode list columns to rows using a Selector.
     /// </summary>
     member this.Explode(selector: Selector,?emptyAsNull:bool,?keepNulls:bool) : DataFrame =
-        let sh = selector.CloneHandle()
-        let ean = defaultArg emptyAsNull true
-        let kn = defaultArg keepNulls true
-        let h = PolarsWrapper.Explode(this.Handle, sh,ean,kn)
-        new DataFrame(h)
+        this.Lazy().Explode(selector,?emptyAsNull=emptyAsNull,?keepNulls=keepNulls).Collect()
 
     /// <summary> 
     /// Explode list columns to rows using column names.
@@ -4981,12 +4977,7 @@ and DataFrame(handle: DataFrameHandle) =
     /// <param name="variableName">Name for the variable column (default: "variable")</param>
     /// <param name="valueName">Name for the value column (default: "value")</param>
     member this.Unpivot (index: Selector,on: Selector,variableName: string option,valueName: string option) : DataFrame =
-        // let hIndex = index.CloneHandle()
-        // let hOn = on.CloneHandle()
-        // let varN = Option.toObj variableName
-        // let valN = Option.toObj valueName
         this.Lazy().Unpivot(index,on,variableName,valueName).Collect()
-        // new DataFrame(PolarsWrapper.Unpivot(this.Handle, hIndex, hOn, varN, valN))
 
     /// <summary> 
     /// Unpivot (Melt) overload for simple string lists.
