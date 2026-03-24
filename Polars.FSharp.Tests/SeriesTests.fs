@@ -4,6 +4,7 @@ open Xunit
 open Polars.FSharp
 open Apache.Arrow
 open System
+open System.Numerics.Tensors
 
 type ``Series Tests`` () =
     let count = 100_000 
@@ -692,3 +693,103 @@ type ``Series Tests`` () =
         Assert.Throws<OverflowException>(fun () -> 
             Series.ofArray2D("overflow_test", data) |> ignore
         )
+
+    [<Fact>]
+    [<Trait("Series", "ToReadOnlySpan")>]
+    member _.``ToReadOnlySpan - Valid 1D Numeric Series - Returns ZeroCopy Span`` () =
+
+        use series = Series.create("float_features", [| 1.5f; 2.5f; 3.5f; 4.5f |])
+
+        let span = series.ToReadOnlySpan<float32>()
+
+        Assert.Equal(4, span.Length)
+        Assert.Equal(1.5f, span.[0])
+        Assert.Equal(2.5f, span.[1])
+        Assert.Equal(3.5f, span.[2])
+        Assert.Equal(4.5f, span.[3])
+
+    [<Fact>]
+    [<Trait("Series", "ToReadOnlySpanException")>]
+    member _.``ToReadOnlySpan - String Series - Throws FSharp Layer Exception`` () =
+
+        use series = Series.create("string_tags", [| "hello"; "polars"; "fsharp" |])
+
+        let ex = Assert.Throws<InvalidOperationException>(fun () -> 
+            let _ = series.ToReadOnlySpan<int>()
+            ()
+        )
+        Assert.Contains("Cannot create Tensor/Span from a String Series", ex.Message)
+        Assert.Contains("Machine learning models and Spans require numeric inputs", ex.Message)
+
+    [<Fact>]
+    [<Trait("Series", "TensorSpanNull")>]
+    member _.``ToReadOnlySpan - Nullable Numeric Series - Throws Core Layer Exception`` () =
+        let dataWithNull = [| Some 1; None; Some 2 |]
+        use series = Series.create("dirty_data", dataWithNull)
+
+        let ex = Assert.Throws<InvalidOperationException>(fun () -> 
+
+            let _ = series.ToReadOnlySpan<int>()
+            ()
+        )
+        Assert.Contains("Cannot extract Tensor memory: contains null values.", ex.Message)
+    [<Fact>]
+    [<Trait("Series", "AsTensorSpan")>]
+    member _.``AsTensorSpan - 1D Series - Promotes To Column Vector`` () =
+
+        let data = [| 10; 20; 30 |]
+        use series = Series.create("1d_features", data)
+
+        let tensor = series.AsTensorSpan<int>()
+
+        Assert.Equal(2, tensor.Rank)
+        
+        Assert.Equal(3, int tensor.Lengths.[0]) 
+        Assert.Equal(1, int tensor.Lengths.[1]) 
+        
+        Assert.Equal(10, tensor.Item(ReadOnlySpan<nativeint> [| 0n; 0n |]))
+        Assert.Equal(20, tensor.Item(ReadOnlySpan<nativeint> [| 1n; 0n |]))
+        Assert.Equal(30, tensor.Item(ReadOnlySpan<nativeint> [| 2n; 0n |]))
+
+
+    [<Fact>]
+    [<Trait("Series", "AsTransposedTensorSpan")>]
+    member _.``AsTransposedTensorSpan - 2D Series - Returns Transposed View`` () =
+        let matrix = array2D [
+            [ 1.1f; 1.2f ]
+            [ 2.1f; 2.2f ]
+            [ 3.1f; 3.2f ]
+        ]
+        use series = Series.ofArray2D("embeddings", matrix)
+
+        let transposed = series.AsTransposedTensorSpan<float32>()
+
+        Assert.Equal(2, transposed.Rank)
+        Assert.Equal(2, int transposed.Lengths.[0])
+        Assert.Equal(3, int transposed.Lengths.[1])
+
+        Assert.Equal(2.1f, transposed.Item(ReadOnlySpan<nativeint> [| 0n; 1n |]))
+        Assert.Equal(1.2f, transposed.Item(ReadOnlySpan<nativeint> [| 1n; 0n |]))
+
+
+    [<Fact>]
+    [<Trait("Series", "AsTensorSpan3D")>]
+    member _.``FromTensor and AsTensorSpan - 3D Shape - Closed Loop`` () =
+        let flatData = [| 1.0f .. 8.0f |]
+
+        let shapeArray = [| 2n; 2n; 2n |] 
+        let shapeSpan = ReadOnlySpan<nativeint> shapeArray
+        
+        let tensorIn = ReadOnlyTensorSpan<float32>(flatData, shapeSpan)
+
+        use series = Series.FromTensor("image_batch", tensorIn)
+        Assert.Equal(2L, series.Length) 
+
+        let tensorOut = series.AsTensorSpan<float32> shapeSpan
+
+        Assert.Equal(3, tensorOut.Rank)
+        Assert.Equal(2, int tensorOut.Lengths.[0])
+        Assert.Equal(2, int tensorOut.Lengths.[1])
+        Assert.Equal(2, int tensorOut.Lengths.[2])
+
+        Assert.Equal(8.0f, tensorOut.Item(ReadOnlySpan<nativeint> [| 1n; 1n; 1n |]))
