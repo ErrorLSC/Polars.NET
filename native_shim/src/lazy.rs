@@ -267,16 +267,24 @@ pub extern "C" fn pl_lazyframe_bottom_k(
 pub extern "C" fn pl_lazy_groupby_agg(
     lf_ptr: *mut LazyFrameContext,
     keys_ptr: *const *mut ExprContext, keys_len: usize,
-    aggs_ptr: *const *mut ExprContext, aggs_len: usize
+    aggs_ptr: *const *mut ExprContext, aggs_len: usize,
+    having_ptr: *mut ExprContext
 ) -> *mut LazyFrameContext {
     ffi_try!({
         let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
         let keys = unsafe { consume_exprs_array(keys_ptr, keys_len) };
         let aggs = unsafe { consume_exprs_array(aggs_ptr, aggs_len) };
 
-        let new_lf = lf_ctx.inner.group_by_stable(keys).agg(aggs);
+        let mut group_by = lf_ctx.inner.group_by_stable(keys);
+
+        if !having_ptr.is_null() {
+            let having_expr = unsafe { Box::from_raw(having_ptr).inner };
+            group_by = group_by.having(having_expr);
+        }
         
-        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
+        let res_lf = group_by.agg(aggs);
+
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner:res_lf })))
     })
 }
 

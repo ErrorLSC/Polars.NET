@@ -10,6 +10,8 @@ public sealed class LazyGroupBy : IDisposable
     private readonly LazyFrameHandle _lfHandle;
     
     private readonly ExprHandle[] _ownedKeyHandles; 
+
+
     
     private bool _disposed;
 
@@ -27,9 +29,39 @@ public sealed class LazyGroupBy : IDisposable
     /// <summary>
     /// Apply aggregations to the group.
     /// </summary>
+    // public LazyFrame Agg(params Expr[] aggs)
+    // {
+    //     ObjectDisposedException.ThrowIf(_disposed,nameof(LazyGroupBy));
+
+    //     var aggHandles = new ExprHandle[aggs.Length];
+    //     for (int i = 0; i < aggs.Length; i++)
+    //     {
+    //         aggHandles[i] = PolarsWrapper.CloneExpr(aggs[i].Handle);
+    //     }
+
+    //     var keysForRust = new ExprHandle[_ownedKeyHandles.Length];
+    //     for(int i=0; i<_ownedKeyHandles.Length; i++)
+    //     {
+    //         keysForRust[i] = PolarsWrapper.CloneExpr(_ownedKeyHandles[i]);
+    //     }
+        
+    //     var resHandle = PolarsWrapper.LazyGroupByAgg(_lfHandle, keysForRust, aggHandles);
+        
+    //     return new LazyFrame(resHandle);
+    // }
+    public LazyGroupBy Having(Expr predicate)
+    {
+        _havingExpr = predicate;
+        return this; // 链式调用
+    }
+    private Expr? _havingExpr = null;
+
+    /// <summary>
+    /// Apply aggregations to the group.
+    /// </summary>
     public LazyFrame Agg(params Expr[] aggs)
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(LazyGroupBy));
+        ObjectDisposedException.ThrowIf(_disposed, nameof(LazyGroupBy));
 
         var aggHandles = new ExprHandle[aggs.Length];
         for (int i = 0; i < aggs.Length; i++)
@@ -43,7 +75,15 @@ public sealed class LazyGroupBy : IDisposable
             keysForRust[i] = PolarsWrapper.CloneExpr(_ownedKeyHandles[i]);
         }
         
-        var resHandle = PolarsWrapper.LazyGroupByAgg(_lfHandle, keysForRust, aggHandles);
+        // 🌟 核心适配 3：为 Having 表达式克隆独立的底层句柄
+        ExprHandle? havingHandle = null;
+        if (_havingExpr is not null)
+        {
+            havingHandle = PolarsWrapper.CloneExpr(_havingExpr.Handle);
+        }
+        
+        // 🌟 把 havingHandle 传给底层 (注意方法签名的参数对应)
+        var resHandle = PolarsWrapper.LazyGroupByAgg(_lfHandle, keysForRust, aggHandles, havingHandle);
         
         return new LazyFrame(resHandle);
     }

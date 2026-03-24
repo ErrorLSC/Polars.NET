@@ -8,24 +8,40 @@ public class GroupByBuilder
 {
     private readonly DataFrame _df;
     private readonly Expr[] _by;
+    
+    private Expr? _havingExpr = null;
 
     internal GroupByBuilder(DataFrame df, Expr[] by)
     {
         _df = df;
         _by = by;
     }
+
     /// <summary>
-    /// Aggregate with specified expressions
+    /// Filter groups with a predicate after aggregation.
     /// </summary>
-    /// <param name="aggs"></param>
-    /// <returns></returns>
+    public GroupByBuilder Having(Expr predicate)
+    {
+        _havingExpr = predicate;
+        return this; // 链式调用
+    }
+
+    /// <summary>
+    /// Aggregate with specified expressions.
+    /// Under the hood, this routes through the Lazy engine to maximize performance and optimizations.
+    /// </summary>
+    /// <param name="aggs">Aggregation expressions</param>
+    /// <returns>A new aggregated DataFrame</returns>
     public DataFrame Agg(params Expr[] aggs)
     {
-        var byHandles = _by.Select(b => PolarsWrapper.CloneExpr(b.Handle)).ToArray();
-        var aggHandles = aggs.Select(a => PolarsWrapper.CloneExpr(a.Handle)).ToArray();
+        var lazyGrouped = _df.Lazy().GroupBy(_by);
 
-        var h = PolarsWrapper.GroupByAgg(_df.Handle, byHandles, aggHandles);
-        return new DataFrame(h);
+        if (_havingExpr is not null)
+        {
+            lazyGrouped = lazyGrouped.Having(_havingExpr);
+        }
+
+        return lazyGrouped.Agg(aggs).Collect();
     }
 }
 

@@ -165,15 +165,16 @@ public static partial class PolarsWrapper
         lf.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static LazyFrameHandle LazyGroupByAgg(LazyFrameHandle lf, ExprHandle[] keys, ExprHandle[] aggs)
+    public static LazyFrameHandle LazyGroupByAgg(LazyFrameHandle lf, ExprHandle[] keys, ExprHandle[] aggs,ExprHandle? havingExpr)
     {
         var keyPtrs = HandlesToPtrs(keys);
         var aggPtrs = HandlesToPtrs(aggs);
+        IntPtr havingExprPtr = havingExpr?.TransferOwnership() ?? IntPtr.Zero;
         
         var h = NativeBindings.pl_lazy_groupby_agg(
             lf, 
             keyPtrs, (UIntPtr)keyPtrs.Length, 
-            aggPtrs, (UIntPtr)aggPtrs.Length
+            aggPtrs, (UIntPtr)aggPtrs.Length,havingExprPtr
         );
         
         lf.TransferOwnership();

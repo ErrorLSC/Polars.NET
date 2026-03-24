@@ -148,32 +148,32 @@ David,40,80000";
         Assert.Equal(0, bobCheck.Height);
     }
     [Fact]
-    public void Test_LazyFrame_GroupBy_Agg()
+    [Trait("LazyFrame","GroupBy")]
+    public void Test_LazyFrame_GroupBy_Having_Agg()
     {
-        var csvContent = @"dept,salary
-IT,100
-IT,200
-HR,150
-HR,50";
-        using var scoresCsv = new DisposableFile(csvContent,".csv");
+        string[] depts = ["IT", "IT", "HR", "HR", "Sales", "Sales"];
+        long[] salaries = [100, 200, 150, 50, 20, 30]; 
 
+        using var df = DataFrame.FromColumns(
+            Series.From("dept", depts),
+            Series.From("salary", salaries)
+        );
 
-        using var lf = LazyFrame.ScanCsv(scoresCsv.Path);
-
-        // GroupBy dept, Agg Sum(salary)
-        using var groupedlf = lf
+        using var groupedlf = df.Lazy()
             .GroupBy("dept")
+            .Having(Col("salary").Sum() > 100) 
             .Agg(Col("salary").Sum().Alias("total_salary"))
             .Sort("total_salary", descending: true); 
-        var grouped = groupedlf.Collect();
+            
+        using var grouped = groupedlf.Collect();
         
         Assert.Equal(2, grouped.Height);
-    
+
         Assert.Equal("IT", grouped.Column("dept").GetValue<string>(0));
-        Assert.Equal(300, grouped.Column("total_salary").GetValue<long>(0));
+        Assert.Equal(300L, grouped.Column("total_salary").GetValue<long>(0));
         
         Assert.Equal("HR", grouped.Column("dept").GetValue<string>(1));
-        Assert.Equal(200, grouped.Column("total_salary").GetValue<long>(1));
+        Assert.Equal(200L, grouped.Column("total_salary").GetValue<long>(1));
     }
     [Fact]
     public void Test_Lazy_Unpivot_With_Explain()

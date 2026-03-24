@@ -37,25 +37,36 @@ type ``Complex Query Tests`` () =
         Assert.Equal(1L, df.Rows)
 
     [<Fact>]
-    member _.``GroupBy Queries`` () =
-        use csv = new TempCsv "name,birthdate,weight,height\nBen Brown,1985-02-15,72.5,1.77\nQinglei,2025-11-25,70.0,1.80\nZhang,2025-10-31,55,1.75"
-        let lf = LazyFrame.ScanCsv(csv.Path,tryParseDates=true)
+    [<Trait("LazyFrame","GroupBy")>]
+    member _.``GroupBy Queries With Having`` () =
+        let names = [| "Ben"; "Alice"; "Qinglei"; "Zhang" |]
+        let dates = [| 
+            DateTime(1985, 2, 15)  // 1980s (1)
+            DateTime(1992, 8, 20)  // 1990s (1)
+            DateTime(2025, 11, 25) // 2020s (2)
+            DateTime(2025, 10, 31)
+        |]
+        
+        use df = DataFrame.create([|
+            Series.create("name", names)
+            Series.create("birthdate", dates)
+        |])
+        
+        let lf = df.Lazy()
 
-        let res = 
-            lf 
-            |> pl.groupByLazy
-                [(pl.col "birthdate").Dt.Year() / pl.lit 10 * pl.lit 10 |> pl.alias "decade" ]
-                [ pl.count().Alias "cnt"] 
-            |> pl.sortLazy (pl.col "decade") false
-            |> pl.collect
+        let keys = [ pl.col("birthdate").Dt.Year() / pl.lit 10 * pl.lit 10 |> pl.alias "decade" ]
+        let aggs = [ pl.count().Alias "cnt" ]
+        let havingCond = pl.count() .> pl.lit 1
+        
+        use res = 
+            lf.GroupBy(keys, aggs,havingCond)
+              .Sort("decade")
+              .Collect()
 
-        // Row 0: 1980 -> 2
-        Assert.Equal(1980L, res.Int("decade", 0).Value)
-        Assert.Equal(1L, int64 (res.Int("cnt", 0).Value)) 
-
-        // Row 1: 1990 -> 1
-        Assert.Equal(2020L, res.Int("decade", 1).Value)
-        Assert.Equal(2L, int64 (res.Int("cnt", 1).Value))
+        Assert.Equal(1L, res.Height) 
+        
+        Assert.Equal(2020L, int64 (res.Int("decade", 0).Value))
+        Assert.Equal(2L, int64 (res.Int("cnt", 0).Value))
 
     [<Fact>]
     member _.``Complex Transformation (Selector Exclude)`` () =

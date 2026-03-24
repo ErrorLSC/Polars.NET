@@ -3941,6 +3941,14 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
         => new(series);
     /// <summary>
     /// Create a DataFrame from a collection of Series.
+    /// <para>
+    /// This is the syntax sugar for FromSeries().
+    /// </para>
+    /// </summary>
+    public static DataFrame FromColumns(params Series[] series)
+        => new(series);
+    /// <summary>
+    /// Create a DataFrame from a collection of Series.
     /// </summary>
     /// <param name="series">The series to combine.</param>
     public static DataFrame FromSeries(IEnumerable<Series> series)

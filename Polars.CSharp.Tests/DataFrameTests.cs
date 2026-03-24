@@ -35,38 +35,30 @@ public class DataFrameTests
     }
     
     [Fact]
+    [Trait("DataFrame","GroupBy")]
     public void Test_GroupBy_Agg()
     {
-        var csvContent = @"dept,salary
-IT,100
-IT,200
-HR,150
-HR,50";
-        var fileName = "groupby_test.csv";
-        File.WriteAllText(fileName, csvContent);
+        string[] depts = ["IT", "IT", "HR", "HR", "Sales", "Sales"];
+        long[] salaries = [100, 200, 150, 50, 20, 30]; 
 
-        try
-        {
-            using var df = DataFrame.ReadCsv(fileName);
+        using var df = DataFrame.FromColumns(
+            Series.From("dept", depts),
+            Series.From("salary", salaries)
+        );
 
-            // GroupBy dept, Agg Sum(salary)
-            using var grouped = df
-                .GroupBy("dept")
-                .Agg(Col("salary").Sum().Alias("total_salary"))
-                .Sort("total_salary", descending: true); 
+        using var grouped = df
+            .GroupBy("dept")
+            .Having(Col("salary").Sum() > 100) 
+            .Agg(Col("salary").Sum().Alias("total_salary"))
+            .Sort("total_salary", descending: true); 
+        
+        Assert.Equal(2, grouped.Height);
 
-            Assert.Equal(2, grouped.Height);
-            
-            Assert.Equal("IT", grouped.GetValue<string>(0, "dept"));
-            Assert.Equal(300, grouped.GetValue<long>(0, "total_salary"));
-            
-            Assert.Equal("HR", grouped.GetValue<string>(1, "dept"));
-            Assert.Equal(200, grouped.GetValue<long>(1, "total_salary"));
-        }
-        finally
-        {
-            if (File.Exists(fileName)) File.Delete(fileName);
-        }
+        Assert.Equal("IT", grouped.Column("dept").GetValue<string>(0));
+        Assert.Equal(300L, grouped.Column("total_salary").GetValue<long>(0));
+        
+        Assert.Equal("HR", grouped.Column("dept").GetValue<string>(1));
+        Assert.Equal(200L, grouped.Column("total_salary").GetValue<long>(1));
     }
     [Fact]
     public void Test_GroupBy_Advanced_Aggregations()

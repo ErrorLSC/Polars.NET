@@ -97,32 +97,6 @@ pub extern "C" fn pl_dataframe_slice(
     })
 }
 
-
-// ==========================================
-// GroupBy
-// ==========================================
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_groupby_agg(
-    df_ptr: *mut DataFrameContext,
-    by_ptr: *const *mut ExprContext, by_len: usize,
-    agg_ptr: *const *mut ExprContext, agg_len: usize
-) -> *mut DataFrameContext {
-    ffi_try!({
-        let ctx = unsafe { &mut *df_ptr };
-        
-        let by_exprs = unsafe { consume_exprs_array(by_ptr, by_len) };
-        let agg_exprs = unsafe { consume_exprs_array(agg_ptr, agg_len) };
-
-        let res_df = ctx.df.clone().lazy()
-            .group_by_stable(by_exprs)
-            .agg(agg_exprs)
-            .collect()?;
-
-        Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
-    })
-}
-
 // ==========================================
 // Join
 // ==========================================

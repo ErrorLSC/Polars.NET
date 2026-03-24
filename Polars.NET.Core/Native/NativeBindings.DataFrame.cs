@@ -102,12 +102,6 @@ unsafe internal partial class NativeBindings
     public static partial DataFrameHandle pl_select(DataFrameHandle df, IntPtr[] exprs, UIntPtr len);
     [LibraryImport(LibName)] 
     public static partial DataFrameHandle pl_dataframe_slice(DataFrameHandle df, long offset, UIntPtr length);
-    [LibraryImport(LibName)]
-    public static partial DataFrameHandle pl_groupby_agg(
-        DataFrameHandle df, 
-        IntPtr[] byExprs, UIntPtr byLen,
-        IntPtr[] aggExprs, UIntPtr aggLen
-    );
     // Join
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial DataFrameHandle pl_join(

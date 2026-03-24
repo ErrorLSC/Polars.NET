@@ -229,17 +229,6 @@ public static partial class PolarsWrapper
     } 
     public static DataFrameHandle Unnest(DataFrameHandle df, string[] columns,string? separator)
         => ErrorHelper.Check(NativeBindings.pl_dataframe_unnest(df, columns, (UIntPtr)columns.Length,separator));
-    // GroupBy
-    public static DataFrameHandle GroupByAgg(DataFrameHandle df, ExprHandle[] by, ExprHandle[] agg)
-    {
-        var rawBy = HandlesToPtrs(by);
-        var rawAgg = HandlesToPtrs(agg);
-        return ErrorHelper.Check(NativeBindings.pl_groupby_agg(
-            df, 
-            rawBy, (UIntPtr)rawBy.Length,
-            rawAgg, (UIntPtr)rawAgg.Length
-        ));
-    }
     // Pivot (Eager)
     public static DataFrameHandle Pivot(
         DataFrameHandle df, 

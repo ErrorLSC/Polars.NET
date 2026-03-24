@@ -4631,20 +4631,18 @@ and DataFrame(handle: DataFrameHandle) =
     member this.Orderby (expr: Expr,desc :bool) : DataFrame =
         this.Sort(expr,desc)
     /// <summary> Group by keys and apply aggregate expressions. </summary>
-    member this.GroupBy (keys: Expr list,aggs: Expr list) : DataFrame =
-        let kHandles = keys |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        let aHandles = aggs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        let h = PolarsWrapper.GroupByAgg(this.Handle, kHandles, aHandles)
-        new DataFrame(h)
+    member this.GroupBy (keys: seq<Expr>,aggs: seq<Expr>, ?having: Expr) : DataFrame =
+        this.Lazy().GroupBy(keys, aggs,?having=having).Collect()
+
     /// <summary> Group by keys and apply aggregations (Supports Selectors). </summary>
-    member this.GroupBy(keys: seq<#IColumnExpr>, aggs: seq<#IColumnExpr>) =
-        let kExprs = keys |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toList
-        let aExprs = aggs |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toList
-        this.GroupBy (kExprs, aExprs)
+    member this.GroupBy(keys: seq<#IColumnExpr>, aggs: seq<#IColumnExpr>,?having: Expr) =
+        let kExprs = keys |> Seq.collect (fun x -> x.ToExprs())
+        let aExprs = aggs |> Seq.collect (fun x -> x.ToExprs())
+        this.GroupBy (kExprs, aExprs,?having=having)
     /// <summary> Join with another DataFrame. </summary>
     member this.Join (other: DataFrame,
-                      leftOn: Expr list,
-                      rightOn: Expr list,
+                      leftOn: seq<Expr>,
+                      rightOn: seq<Expr>,
                       how: JoinType,
                       // --- New Optional Parameters ---
                       ?suffix: string,
@@ -4656,8 +4654,8 @@ and DataFrame(handle: DataFrameHandle) =
                       ?sliceOffset: int64,
                       ?sliceLen: uint64) : DataFrame =
         
-        let lHandles = leftOn |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        let rHandles = rightOn |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+        let lHandles = leftOn |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
+        let rHandles = rightOn |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
         
         // Handle Defaults
         let suff = defaultArg suffix null // Pass null to let Rust use default ("_right")
@@ -7710,23 +7708,34 @@ and LazyFrame(handle: LazyFrameHandle) =
         
         this.WithColumns exprs
     /// <summary>
-    /// Group by keys and apply aggregate expressions.
+    /// Group by keys and apply aggregate expressions, optionally filtering groups.
     /// </summary>
     /// <param name="keys">Grouping keys.</param>
     /// <param name="aggs">Aggregation expressions to apply per group.</param>
-    member this.GroupBy (keys: Expr list,aggs: Expr list) : LazyFrame =
+    /// <param name="having">Optional predicate to filter groups after aggregation.</param>
+    member this.GroupBy (keys: seq<Expr>, aggs: seq<Expr>, ?having: Expr) : LazyFrame =
         let lfClone = this.CloneHandle()
-        let kHandles = keys |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        let aHandles = aggs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        let h = PolarsWrapper.LazyGroupByAgg(lfClone, kHandles, aHandles)
+        let kHandles = keys |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
+        let aHandles = aggs |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
+        
+        let havingHandle = 
+            match having with
+            | Some hExpr -> hExpr.CloneHandle()
+            | None -> null
+            
+        let h = PolarsWrapper.LazyGroupByAgg(lfClone, kHandles, aHandles, havingHandle)
         new LazyFrame(h)
+
     /// <summary>
-    /// Group by keys and apply aggregations (Supports Selectors).
+    /// Group by keys and apply aggregations (Supports Selectors), optionally filtering groups.
     /// </summary>
-    member this.GroupBy(keys: seq<#IColumnExpr>, aggs: seq<#IColumnExpr>) =
-            let kExprs = keys |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toList
-            let aExprs = aggs |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toList
-            this.GroupBy(kExprs, aExprs)
+    member this.GroupBy(keys: seq<#IColumnExpr>, aggs: seq<#IColumnExpr>, ?having: Expr) =
+        let kExprs = keys |> Seq.collect (fun x -> x.ToExprs()) 
+        let aExprs = aggs |> Seq.collect (fun x -> x.ToExprs())
+        
+        match having with
+        | Some h -> this.GroupBy(kExprs, aExprs, having = h)
+        | None -> this.GroupBy(kExprs, aExprs)
     /// <summary>
     /// Pivot the LazyFrame.
     /// <para>

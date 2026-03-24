@@ -70,7 +70,8 @@ unsafe internal partial class NativeBindings
     public static partial LazyFrameHandle pl_lazy_groupby_agg(
         LazyFrameHandle lf, 
         IntPtr[] keys, UIntPtr keysLen, 
-        IntPtr[] aggs, UIntPtr aggsLen
+        IntPtr[] aggs, UIntPtr aggsLen,
+        IntPtr havingExpr
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_lazyframe_join(
