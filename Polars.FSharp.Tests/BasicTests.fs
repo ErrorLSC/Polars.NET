@@ -633,7 +633,7 @@ type ``Basic Functionality Tests`` () =
         // A ascending, B descending
         let res = 
             lf.Sort(
-                [ pl.col "A"; pl.col "B" ], 
+                columns = [ pl.col "A"; pl.col "B" ], 
                 descending = [false; true], 
                 nullsLast = [false; false]
             ).Collect()
@@ -648,7 +648,7 @@ type ``Basic Functionality Tests`` () =
         Assert.Equal(1, res.Cell<int>("A",1))
         Assert.Equal(1, res.Cell<int>("B",1))
     [<Fact>]
-    member _. ``ScanSeq Streaming Mode - Should convert data correctly`` () =
+    member _.``ScanSeq Streaming Mode - Should convert data correctly`` () =
         let now = DateTime.Now
         let data = [
             { Name = "Alice"; Age = 25; Score = 99.5; IsActive = true; JoinDate = now }

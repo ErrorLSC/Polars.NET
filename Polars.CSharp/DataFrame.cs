@@ -1530,21 +1530,14 @@ public class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
         bool[] nullsLast, 
         bool maintainOrder = false)
     {
-        var clonedHandles = new ExprHandle[exprs.Length];
-        for (int i = 0; i < exprs.Length; i++)
-        {
-            clonedHandles[i] = PolarsWrapper.CloneExpr(exprs[i].Handle);
-        }
-
-        var h = PolarsWrapper.DataFrameSort(
-            Handle, 
-            clonedHandles, 
+        var lf = Lazy().Sort( 
+            exprs, 
             descending, 
             nullsLast, 
             maintainOrder
         );
         
-        return new DataFrame(h);
+        return lf.Collect();
     }
     // ==========================================
     // TopK / BottomK (Eager Shortcuts)

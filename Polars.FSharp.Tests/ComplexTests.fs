@@ -395,7 +395,7 @@ type ``Complex Query Tests`` () =
 
         let res = 
             lf
-            |> pl.sortLazy (pl.col "date") false // Rolling 必须先排序
+            |> pl.sortLazy (pl.col "date") false 
             |> pl.withColumnLazy (
                 // 1.1: 10
                 // 1.2: (10+20)/2 = 15

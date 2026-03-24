@@ -1,3 +1,5 @@
+#nowarn "64"
+#nowarn "44"
 namespace Polars.FSharp
 
 open System
@@ -4590,46 +4592,54 @@ and DataFrame(handle: DataFrameHandle) =
     /// <param name="descending">sort direction (true=descending).Length must be 1 (broadcasting) or same with columns.</param>
     /// <param name="nullsLast">null value position (true=last).Length must be 1 (broadcasting) or same with columns</param>
     /// <param name="maintainOrder">Stable Sort option</param>
-    member this.Sort(
-        columns: seq<#IColumnExpr>,
+    member this.Sort (
+        columns: seq<IColumnExpr>,
         descending: seq<bool>,
         nullsLast: seq<bool>,
         ?maintainOrder: bool
-    ) =
-        let exprHandles = 
-            columns 
-            |> Seq.collect (fun x -> x.ToExprs()) 
-            |> Seq.map (fun e -> e.CloneHandle()) 
-            |> Seq.toArray
-        
-        let descArr = descending |> Seq.toArray
-        let nullsArr = nullsLast |> Seq.toArray
-        let stable = defaultArg maintainOrder false
+    ): DataFrame =
+        let lf = this.Lazy()
+        lf.Sort(columns, descending, nullsLast, ?maintainOrder = maintainOrder).Collect()
 
-        let h = PolarsWrapper.DataFrameSort(this.Handle, exprHandles, descArr, nullsArr, stable)
-        new DataFrame(h)
+    member this.Sort (
+        columns: seq<Expr>,
+        descending: seq<bool>,
+        nullsLast: seq<bool>,
+        ?maintainOrder: bool
+    ): DataFrame =
+        let cols = columns |> Seq.cast<IColumnExpr>
+        this.Sort(cols, descending, nullsLast, ?maintainOrder = maintainOrder)
 
     /// <summary> Sort with simple broadcasting options. </summary>
     member this.Sort(
-        columns: seq<#IColumnExpr>,
+        columns: seq<IColumnExpr>,
         ?descending: bool,
         ?nullsLast: bool,
         ?maintainOrder: bool
-    ) =
+    ) : DataFrame =
         let desc = defaultArg descending false
         let nLast = defaultArg nullsLast false
-        
         this.Sort(columns, [| desc |], [| nLast |], ?maintainOrder = maintainOrder)
-    /// <summary> Sort by a single expression. </summary>
-    member this.Sort(expr: Expr, ?descending: bool, ?nullsLast: bool) =
-        this.Sort([expr], ?descending=descending, ?nullsLast=nullsLast)
-    /// <summary> Sort by a single column name. </summary>
+    member this.Sort(
+        columns: seq<Expr>,
+        ?descending: bool,
+        ?nullsLast: bool,
+        ?maintainOrder: bool
+    ) : DataFrame =
+        let cols = columns |> Seq.cast<IColumnExpr>
+        this.Sort(cols, ?descending = descending, ?nullsLast = nullsLast, ?maintainOrder = maintainOrder)
 
-    member this.Sort(colName: string, ?descending: bool, ?nullsLast: bool) =
-        this.Sort([Expr.Col colName], ?descending=descending, ?nullsLast=nullsLast)
+    /// <summary> Sort by a single expression. </summary>
+    member this.Sort(expr: Expr, ?descending: bool, ?nullsLast: bool) : DataFrame =
+        this.Sort([expr :> IColumnExpr], ?descending=descending, ?nullsLast=nullsLast)
+
+    /// <summary> Sort by a single column name. </summary>
+    member this.Sort(colName: string, ?descending: bool, ?nullsLast: bool) : DataFrame =
+        this.Sort([Expr.Col colName :> IColumnExpr], ?descending=descending, ?nullsLast=nullsLast)
+
     /// <summary> Alias for Sort. </summary>
-    member this.Orderby (expr: Expr,desc :bool) : DataFrame =
-        this.Sort(expr,desc)
+    member this.Orderby (expr: Expr, desc: bool) : DataFrame =
+        this.Sort(expr, descending = desc)
     /// <summary> Group by keys and apply aggregate expressions. </summary>
     member this.GroupBy (keys: seq<Expr>,aggs: seq<Expr>, ?having: Expr) : DataFrame =
         this.Lazy().GroupBy(keys, aggs,?having=having).Collect()
@@ -7537,15 +7547,12 @@ and LazyFrame(handle: LazyFrameHandle) =
                 |> Seq.toList
             
             this.Select exprs
-    /// <summary>
-    /// Sort with Parameters
-    /// </summary>
     member this.Sort(
-        columns: seq<#IColumnExpr>,
+        columns: seq<IColumnExpr>, 
         descending: seq<bool>,
         nullsLast: seq<bool>,
         ?maintainOrder: bool
-    ) =
+    ): LazyFrame =
         let exprHandles = 
             columns 
             |> Seq.collect (fun x -> x.ToExprs()) 
@@ -7557,31 +7564,41 @@ and LazyFrame(handle: LazyFrameHandle) =
         let stable = defaultArg maintainOrder false
 
         let lfHandle = this.CloneHandle()
-
         let h = PolarsWrapper.LazyFrameSort(lfHandle, exprHandles, descArr, nullsArr, stable)
         new LazyFrame(h)
-
-    /// <summary>
-    /// Sort with simple options
-    /// </summary>
     member this.Sort(
-        columns: seq<#IColumnExpr>,
+        columns: seq<Expr>, 
+        descending: seq<bool>,
+        nullsLast: seq<bool>,
+        ?maintainOrder: bool
+    ): LazyFrame =
+        let cols = columns |> Seq.cast<IColumnExpr>
+        this.Sort(cols, descending, nullsLast, ?maintainOrder = maintainOrder)
+    member this.Sort(
+        columns: seq<IColumnExpr>,
         ?descending: bool,
         ?nullsLast: bool,
         ?maintainOrder: bool
-    ) =
+    ) : LazyFrame =
         let desc = defaultArg descending false
         let nLast = defaultArg nullsLast false
-        
         this.Sort(columns, [| desc |], [| nLast |], ?maintainOrder = maintainOrder)
-    member this.Sort(expr: Expr, ?descending: bool, ?nullsLast: bool) =
-        this.Sort([expr], ?descending=descending, ?nullsLast=nullsLast)
+    member this.Sort(
+        columns: seq<Expr>,
+        ?descending: bool,
+        ?nullsLast: bool,
+        ?maintainOrder: bool
+    ) : LazyFrame =
+        let cols = columns |> Seq.cast<IColumnExpr>
+        this.Sort(cols, ?descending = descending, ?nullsLast = nullsLast, ?maintainOrder = maintainOrder)
+    member this.Sort(expr: Expr, ?descending: bool, ?nullsLast: bool) : LazyFrame =
+        this.Sort([expr :> IColumnExpr], ?descending=descending, ?nullsLast=nullsLast)
 
-    member this.Sort(colName: string, ?descending: bool, ?nullsLast: bool) =
-        this.Sort([Expr.Col colName], ?descending=descending, ?nullsLast=nullsLast)
-    // Alias
-    member this.OrderBy(columns: seq<#IColumnExpr>, ?descending: bool, ?nullsLast: bool) = 
-        this.Sort(columns, ?descending=descending, ?nullsLast=nullsLast)
+    member this.Sort(colName: string, ?descending: bool, ?nullsLast: bool) : LazyFrame =
+        this.Sort([Expr.Col colName :> IColumnExpr], ?descending=descending, ?nullsLast=nullsLast)
+
+    member this.Orderby (expr: Expr, desc: bool) =
+        this.Sort(expr, descending = desc)
     // ==========================================
     // TopK / BottomK
     // ==========================================
