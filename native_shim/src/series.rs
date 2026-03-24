@@ -604,9 +604,9 @@ pub extern "C" fn pl_series_rechunk(ptr: *mut SeriesContext) -> *mut SeriesConte
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_series_chunk_lengths(ptr: *mut SeriesContext) -> usize {
+pub extern "C" fn pl_series_chunk_count(ptr: *mut SeriesContext) -> usize {
     let ctx = unsafe { &*ptr };
-    ctx.series.chunks().len()
+    ctx.series.n_chunks()
 }
 // ==========================================
 // Methods

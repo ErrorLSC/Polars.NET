@@ -12,7 +12,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_rechunk(SeriesHandle handle);
     [LibraryImport(LibName)]
-    public static partial nuint pl_series_chunk_lengths(SeriesHandle handle);
+    public static partial nuint pl_series_chunk_count(SeriesHandle handle);
     // --- Series Getters ---
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)]

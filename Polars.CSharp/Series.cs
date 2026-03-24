@@ -126,7 +126,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <summary>
     /// Gets the number of underlying Arrow memory chunks.
     /// </summary>
-    public int ChunkCount => (int)PolarsWrapper.SeriesChunkLengths(Handle);
+    public int ChunkCount => (int)PolarsWrapper.SeriesChunkCounts(Handle);
 
     /// <summary>
     /// Determines if the Series memory is physically contiguous (i.e., consists of a single chunk).

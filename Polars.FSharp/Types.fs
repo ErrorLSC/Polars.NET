@@ -53,7 +53,7 @@ type Series(handle: SeriesHandle) =
     /// Gets the number of underlying Arrow memory chunks.
     /// </summary>
     member this.ChunkCount : int = 
-        int (PolarsWrapper.SeriesChunkLengths handle)
+        int (PolarsWrapper.SeriesChunkCounts handle)
 
     /// <summary>
     /// Determines if the Series memory is physically contiguous (i.e., consists of a single chunk).
