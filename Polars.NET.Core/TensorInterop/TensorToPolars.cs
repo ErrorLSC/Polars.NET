@@ -6,7 +6,7 @@ using Apache.Arrow;
 using Apache.Arrow.Types;
 using Polars.NET.Core.Arrow;
 
-namespace Polars.NET.Core.Tensor;
+namespace Polars.NET.Core.TensorInterop;
 
 public static partial class ArrowTensorInterop
 {

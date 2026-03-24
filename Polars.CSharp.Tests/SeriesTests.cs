@@ -1360,5 +1360,72 @@ public class SeriesTests
 
         Assert.Equal(8.0f, readBackTensor[1, 1, 1]);
     }
+    [Fact]
+    [Trait("Series", "AsTensor")]
+    public void AsTensor_PerformsDeepCopy_SurvivesSeriesDisposal()
+    {
+        int[] data = [10, 20, 30, 40];
+        var series = Series.From("heap_tensor_test", data);
+
+        var heapTensor = series.AsTensor<int>();
+
+        series.Dispose(); 
+
+        Assert.Equal(2, heapTensor.Rank); 
+        Assert.Equal(4, heapTensor.Lengths[0]); 
+        Assert.Equal(1, heapTensor.Lengths[1]); 
+
+        Assert.Equal(10, heapTensor[0, 0]);
+        Assert.Equal(40, heapTensor[3, 0]);
+    }
+    [Fact]
+    [Trait("Series", "TensorUnsafe")]
+    public unsafe void GetNativePointers_ReturnsValidMemory_ForFFI()
+    {
+        float[,] matrix = new float[,]
+        {
+            { 1.1f, 1.2f, 1.3f },
+            { 2.1f, 2.2f, 2.3f }
+        };
+        
+        using var series = Series.From("ffi_matrix", matrix);
+
+        var (ptr, shape) = series.AsUnmanagedTensor<float>();
+
+        Assert.Equal(2, shape.Length);
+        Assert.Equal(2L, shape[0]); 
+        Assert.Equal(3L, shape[1]); 
+
+        int totalElements = (int)(shape[0] * shape[1]); 
+        
+        float* rawFloatPtr = (float*)ptr.ToPointer();
+        
+        var nativeSpan = new ReadOnlySpan<float>(rawFloatPtr, totalElements);
+
+        Assert.Equal(1.1f, nativeSpan[0]);
+        Assert.Equal(1.3f, nativeSpan[2]); 
+        Assert.Equal(2.1f, nativeSpan[3]); 
+        Assert.Equal(2.3f, nativeSpan[5]); 
+    }
+    [Fact]
+    [Trait("Series", "AsTensor3D")]
+    public void AsTensor_WithShape_PerformsDeepCopyOf3D()
+    {
+        float[] flatData = [1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f];
+        ReadOnlySpan<nint> shape3D = [2, 2, 2];
+        
+        var series = Series.From("3d_test", flatData);
+
+        var heapTensor = series.AsTensor<float>(shape3D);
+
+        series.Dispose(); 
+
+        Assert.Equal(3, heapTensor.Rank);
+        Assert.Equal(2, heapTensor.Lengths[0]);
+        Assert.Equal(2, heapTensor.Lengths[1]);
+        Assert.Equal(2, heapTensor.Lengths[2]);
+
+        Assert.Equal(8f, heapTensor[1, 1, 1]);
+    }
 
 }

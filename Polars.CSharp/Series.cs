@@ -4,7 +4,7 @@ using Apache.Arrow;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Helpers;
 using System.Runtime.CompilerServices;
-using Polars.NET.Core.Tensor;
+using Polars.NET.Core.TensorInterop;
 using System.Numerics.Tensors;
 
 namespace Polars.CSharp;
@@ -1314,6 +1314,51 @@ public partial class Series : IDisposable,IPolarsSeries
     /// </exception>
     public ReadOnlyTensorSpan<T> AsTransposedTensorSpan<T>() where T : unmanaged
         => ArrowTensorInterop.AsTransposedTensorSpan<T>(Handle);
+
+    /// <summary>
+    /// Deep copies the underlying Arrow memory into a managed .NET <see cref="Tensor{T}"/> on the garbage-collected heap.
+    /// Automatically infers the rank and dimensions: 1D data is promoted to a [N, 1] column vector, 
+    /// while 2D nested data becomes an [N, M] matrix.
+    /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="AsTensorSpan{T}()"/>, this method allocates memory and performs a safe physical copy. 
+    /// The returned Tensor is completely independent of the Polars engine, making it safe to pass across threads 
+    /// or await inside asynchronous (async/Task) workflows.
+    /// </remarks>
+    /// <typeparam name="T">The unmanaged primitive type of the tensor (e.g., float, int).</typeparam>
+    /// <returns>A new managed <see cref="Tensor{T}"/> containing the copied data.</returns>
+    public Tensor<T> AsTensor<T>() where T : unmanaged
+        => ArrowTensorInterop.AsTensor<T>(Handle);
+
+    /// <summary>
+    /// Deep copies the underlying Arrow memory into a managed .NET <see cref="Tensor{T}"/> with an explicit N-dimensional shape.
+    /// </summary>
+    /// <remarks>
+    /// This method performs a safe physical copy to the managed heap. It is highly useful when reshaping 
+    /// flat or nested Arrow arrays into higher-dimensional structures (e.g., 3D/4D image batches like [Batch, Channel, Height, Width]) 
+    /// required by Machine Learning models.
+    /// </remarks>
+    /// <typeparam name="T">The unmanaged primitive type of the tensor.</typeparam>
+    /// <param name="shape">The target dimensions. The total number of elements must match the underlying Arrow memory length.</param>
+    /// <returns>A new managed <see cref="Tensor{T}"/> reshaped to the specified dimensions.</returns>
+    /// <exception cref="ArgumentException">Thrown if the total elements required by the shape do not match the data length.</exception>
+    public Tensor<T> AsTensor<T>(ReadOnlySpan<nint> shape) where T : unmanaged
+        => ArrowTensorInterop.AsTensor<T>(Handle, shape);
+
+    /// <summary>
+    /// Extracts the raw unmanaged pointer and shape metadata of the underlying physical Arrow memory.
+    /// Designed for zero-copy integrations with native C++ Machine Learning backends like ONNX Runtime or TorchSharp.
+    /// </summary>
+    /// <remarks>
+    /// DANGER (LIFECYCLE WARNING): This is a zero-copy operation. The returned <see cref="IntPtr"/> points 
+    /// directly to native memory managed by the Rust Polars engine. It is ONLY valid as long as this <see cref="Series"/> 
+    /// instance remains alive. You MUST ensure the Series is not garbage collected or explicitly disposed 
+    /// while the native pointer is still in use by an external FFI library, otherwise it will result in a fatal segmentation fault.
+    /// </remarks>
+    /// <typeparam name="T">The unmanaged primitive type.</typeparam>
+    /// <returns>A tuple containing the raw <see cref="IntPtr"/> to the first element, and a <c>long[]</c> representing the tensor shape.</returns>
+    public (IntPtr DataPointer, long[] Shape) AsUnmanagedTensor<T>() where T : unmanaged
+        => ArrowTensorInterop.GetNativePointers<T>(Handle);
     /// <summary>
     /// Converts an N-Dimensional .NET Tensor into a Polars Series.
     /// Automatically infers the rank and dynamically wraps the data into Polars native types:

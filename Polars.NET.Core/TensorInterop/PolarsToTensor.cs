@@ -1,10 +1,11 @@
 using System.Numerics.Tensors;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using Polars.NET.Core.Arrow;
 
-namespace Polars.NET.Core.Tensor;
+namespace Polars.NET.Core.TensorInterop;
 
 public static partial class ArrowTensorInterop
 {
@@ -51,7 +52,48 @@ public static partial class ArrowTensorInterop
 
         return new ReadOnlyTensorSpan<T>(flatSpan, shape);
     }
+    public static Tensor<T> AsTensor<T>(this SeriesHandle handle) where T : unmanaged
+    {
+        var tensorSpan = handle.AsTensorSpan<T>();
+        
+        int totalElements = (int)tensorSpan.FlattenedLength;
+        T[] uninitArray = GC.AllocateUninitializedArray<T>(totalElements);
 
+        var heapTensor = Tensor.Create(uninitArray, tensorSpan.Lengths);
+
+        tensorSpan.CopyTo(heapTensor.AsTensorSpan());
+        
+        return heapTensor;
+    }
+    public static Tensor<T> AsTensor<T>(this SeriesHandle handle, ReadOnlySpan<nint> shape) where T : unmanaged
+    {
+        var tensorSpan = handle.AsTensorSpan<T>(shape);
+        
+        int totalElements = (int)tensorSpan.FlattenedLength;
+        T[] uninitArray = GC.AllocateUninitializedArray<T>(totalElements);
+
+        var heapTensor = Tensor.Create(uninitArray, shape);
+
+        tensorSpan.CopyTo(heapTensor.AsTensorSpan());
+        
+        return heapTensor;
+    }
+    public static unsafe (IntPtr Pointer, long[] Shape) GetNativePointers<T>(this SeriesHandle handle) where T : unmanaged
+    {
+        ReadOnlySpan<T> flatSpan = handle.AsReadOnlySpan<T>();
+
+        ref T refData = ref MemoryMarshal.GetReference(flatSpan);
+        IntPtr ptr = (IntPtr)Unsafe.AsPointer(ref refData);
+
+        var metadataSpan = handle.AsTensorSpan<T>();
+        long[] shape = new long[metadataSpan.Rank];
+        for (int i = 0; i < metadataSpan.Rank; i++)
+        {
+            shape[i] = metadataSpan.Lengths[i];
+        }
+
+        return (ptr, shape);
+    }
     private static void EnsureTypeMatch<T>(IArrowType arrowType) where T : unmanaged
     {
         Type expectedNetType = ArrowTypeResolver.GetNetTypeFromArrowType(arrowType);

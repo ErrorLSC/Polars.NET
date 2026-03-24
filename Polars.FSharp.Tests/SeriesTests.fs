@@ -695,12 +695,12 @@ type ``Series Tests`` () =
         )
 
     [<Fact>]
-    [<Trait("Series", "ToReadOnlySpan")>]
+    [<Trait("Series", "AsReadOnlySpan")>]
     member _.``ToReadOnlySpan - Valid 1D Numeric Series - Returns ZeroCopy Span`` () =
 
         use series = Series.create("float_features", [| 1.5f; 2.5f; 3.5f; 4.5f |])
 
-        let span = series.ToReadOnlySpan<float32>()
+        let span = series.AsReadOnlySpan<float32>()
 
         Assert.Equal(4, span.Length)
         Assert.Equal(1.5f, span.[0])
@@ -709,13 +709,13 @@ type ``Series Tests`` () =
         Assert.Equal(4.5f, span.[3])
 
     [<Fact>]
-    [<Trait("Series", "ToReadOnlySpanException")>]
+    [<Trait("Series", "AsReadOnlySpanException")>]
     member _.``ToReadOnlySpan - String Series - Throws FSharp Layer Exception`` () =
 
         use series = Series.create("string_tags", [| "hello"; "polars"; "fsharp" |])
 
         let ex = Assert.Throws<InvalidOperationException>(fun () -> 
-            let _ = series.ToReadOnlySpan<int>()
+            let _ = series.AsReadOnlySpan<int>()
             ()
         )
         Assert.Contains("Cannot create Tensor/Span from a String Series", ex.Message)
@@ -729,7 +729,7 @@ type ``Series Tests`` () =
 
         let ex = Assert.Throws<InvalidOperationException>(fun () -> 
 
-            let _ = series.ToReadOnlySpan<int>()
+            let _ = series.AsReadOnlySpan<int>()
             ()
         )
         Assert.Contains("Cannot extract Tensor memory: contains null values.", ex.Message)
@@ -782,7 +782,7 @@ type ``Series Tests`` () =
         
         let tensorIn = ReadOnlyTensorSpan<float32>(flatData, shapeSpan)
 
-        use series = Series.FromTensor("image_batch", tensorIn)
+        use series = Series.ofTensor("image_batch", tensorIn)
         Assert.Equal(2L, series.Length) 
 
         let tensorOut = series.AsTensorSpan<float32> shapeSpan
@@ -793,3 +793,68 @@ type ``Series Tests`` () =
         Assert.Equal(2, int tensorOut.Lengths.[2])
 
         Assert.Equal(8.0f, tensorOut.Item(ReadOnlySpan<nativeint> [| 1n; 1n; 1n |]))
+    [<Fact>]
+    [<Trait("Series", "AsTensor")>]
+    member _.``AsTensor - 1D Series - Performs Deep Copy And Promotes To 2D`` () =
+        let data = [| 10; 20; 30; 40 |]
+        let series = Series.create("heap_tensor_1d", data)
+
+        let heapTensor = series.AsTensor<int>()
+
+        (series :> IDisposable).Dispose()
+
+        Assert.Equal(2, heapTensor.Rank)
+        Assert.Equal(4, int heapTensor.Lengths.[0]) // Rows
+        Assert.Equal(1, int heapTensor.Lengths.[1]) // Cols
+
+        Assert.Equal(10, heapTensor.Item(ReadOnlySpan<nativeint> [| 0n; 0n |]))
+        Assert.Equal(40, heapTensor.Item(ReadOnlySpan<nativeint> [| 3n; 0n |]))
+
+
+    [<Fact>]
+    [<Trait("Series", "AsTensor3D")>]
+    member _.``AsTensor - With Shape - Performs Deep Copy of 3D`` () =
+        let flatData = [| 1f; 2f; 3f; 4f; 5f; 6f; 7f; 8f |]
+        let series = Series.create("heap_tensor_3d", flatData)
+
+        let shape3D = [| 2n; 2n; 2n |]
+        let shapeSpan = ReadOnlySpan<nativeint> shape3D
+
+        let heapTensor = series.AsTensor<float32> shapeSpan
+
+        (series :> IDisposable).Dispose()
+
+        Assert.Equal(3, heapTensor.Rank)
+        Assert.Equal(2, int heapTensor.Lengths.[0])
+        Assert.Equal(2, int heapTensor.Lengths.[1])
+        Assert.Equal(2, int heapTensor.Lengths.[2])
+
+        Assert.Equal(8f, heapTensor.Item(ReadOnlySpan<nativeint> [| 1n; 1n; 1n |]))
+
+
+    [<Fact>]
+    [<Trait("Series", "AsUnmanagedTensor")>]
+    member _.``AsUnmanagedTensor - Returns Valid Memory For FFI`` () =
+
+        let matrix = array2D [
+            [ 1.1f; 1.2f; 1.3f ]
+            [ 2.1f; 2.2f; 2.3f ]
+        ]
+        
+        use series = Series.ofArray2D("ffi_matrix", matrix)
+
+        let struct (ptr, shape) = series.AsUnmanagedTensor<float32>()
+
+        Assert.Equal(2, shape.Length)
+        Assert.Equal(2L, shape.[0]) 
+        Assert.Equal(3L, shape.[1]) 
+
+        let totalElements = int (shape.[0] * shape.[1])
+        
+        let ptrVoid = ptr.ToPointer() 
+        let nativeSpan = ReadOnlySpan<float32>(ptrVoid, totalElements)
+
+        Assert.Equal(1.1f, nativeSpan.[0])
+        Assert.Equal(1.3f, nativeSpan.[2]) 
+        Assert.Equal(2.1f, nativeSpan.[3])
+        Assert.Equal(2.3f, nativeSpan.[5]) 
