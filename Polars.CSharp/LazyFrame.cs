@@ -1217,6 +1217,15 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             startBy
         );
     }
+    /// <summary>
+    /// Generate a summary statistics DataFrame (count, mean, std, min, 25%, 50%, 75%, max).
+    /// Similar to pandas/polars describe().
+    /// Notice: This will collect LazyFrame once, but LazyFrame won't be consumed.
+    /// </summary>
+    public DataFrame Describe()
+        => Clone().Collect().Describe();
+
+    
     // ==========================================
     // Execution (Collect)
     // ==========================================

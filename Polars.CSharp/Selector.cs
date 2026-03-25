@@ -19,6 +19,8 @@ public class Selector : IDisposable
     }
 
     internal SelectorHandle CloneHandle() => PolarsWrapper.CloneSelector(Handle);
+    
+    public Selector Clone() => new(CloneHandle());
 
     // --- Int ---
     public static Expr operator *(Selector s, int other) => s.ToExpr() * other;

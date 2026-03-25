@@ -44,6 +44,15 @@ module Describe =
                 )
 
             pl.concat rowFrames
+            
+    type LazyFrame with
+        /// <summary>
+        /// Generate a summary statistics DataFrame (count, mean, std, min, 25%, 50%, 75%, max).
+        /// Similar to pandas/polars describe().
+        /// Notice: This will collect LazyFrame once, but LazyFrame won't be consumed.
+        /// </summary>
+        member this.Describe(): DataFrame =
+            this.Clone().Collect().Describe()
 
 [<Extension>]
 type LazyFrameDeltaExtensions =

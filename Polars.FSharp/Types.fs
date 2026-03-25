@@ -51,6 +51,8 @@ type Series(handle: SeriesHandle) =
     member _.Length = PolarsWrapper.SeriesLen handle
     member _.Len = PolarsWrapper.SeriesLen handle
     member _.NullCount : int64 = PolarsWrapper.SeriesNullCount handle
+    member internal this.CloneHandle() = PolarsWrapper.CloneSeries handle
+    member this.Clone() = new Series(this.CloneHandle())
     /// <summary>
     /// Gets the number of underlying Arrow memory chunks.
     /// </summary>
@@ -4724,9 +4726,6 @@ and DataFrame(handle: DataFrameHandle) =
                       ?sliceOffset: int64,
                       ?sliceLen: uint64) : DataFrame =
         
-        // let lHandles = leftOn |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
-        // let rHandles = rightOn |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
-        
         // Handle Defaults
         let suff = defaultArg suffix null // Pass null to let Rust use default ("_right")
         let valid = defaultArg validation JoinValidation.ManyToMany
@@ -5453,6 +5452,7 @@ and LazyFrame(handle: LazyFrameHandle) =
                 return df :> IPolarsDataFrame
             }
     member internal this.CloneHandle() = PolarsWrapper.LazyClone handle
+    member this.Clone() = new LazyFrame(this.CloneHandle())
     /// <summary> Execute the plan and return a DataFrame. </summary>
     member this.Collect(?streaming:bool) = 
         let stream = defaultArg streaming false

@@ -63,11 +63,13 @@ public class Expr : IDisposable
             _ => throw new NotSupportedException($"Unsupported literal type: {val.GetType().Name}")
         };
     }
+
+    internal ExprHandle CloneHandle() => PolarsWrapper.CloneExpr(Handle);
     /// <summary>
     /// Clone Expr
     /// </summary>
     /// <returns></returns>
-    internal ExprHandle CloneHandle() => PolarsWrapper.CloneExpr(Handle);
+    public Expr Clone() => new(CloneHandle());
 
     public static implicit operator Expr(int value) => Polars.Lit(value);
 

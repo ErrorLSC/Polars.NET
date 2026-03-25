@@ -23,6 +23,7 @@ type IColumnExpr =
 and Expr(handle: ExprHandle) =
     member _.Handle = handle
     member internal this.CloneHandle() = PolarsWrapper.CloneExpr handle
+    member this.Clone() = new Expr(this.CloneHandle())
     interface IDisposable with member _.Dispose() = handle.Dispose()
 
     interface IColumnExpr with
@@ -2328,6 +2329,7 @@ and Selector(handle: SelectorHandle) =
     
     member internal this.CloneHandle() = 
         PolarsWrapper.CloneSelector handle
+    member this.Clone() = new Selector(this.CloneHandle())
 
     // ==========================================
     // Methods
