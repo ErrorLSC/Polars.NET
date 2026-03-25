@@ -4579,6 +4579,72 @@ and DataFrame(handle: DataFrameHandle) =
     /// <summary> Filter rows based on a boolean expression (predicate). </summary>
     member this.Filter (expr: Expr) : DataFrame = 
         this.Lazy().Filter(expr).Collect()
+       /// <summary>
+    /// Return the number of non-null elements for each column.
+    /// </summary>
+    /// <returns></returns>
+    member this.Count() = 
+        this.Lazy().Count()
+    /// <summary>
+    /// Aggregate the columns in the Frame to their sum value.
+    /// </summary>
+    /// <returns></returns>
+    member this.Sum() =
+        this.Lazy().Sum()
+    /// <summary>
+    /// Aggregate the columns in the Frame to their maximum value.
+    /// </summary>
+    /// <returns></returns>
+    member this.Max() =
+        this.Lazy().Max()
+    /// Aggregate the columns in the Frame to their minimum value.
+    /// </summary>
+    /// <returns></returns>
+    member this.Min() =
+        this.Lazy().Min()
+    /// <summary>
+    /// Aggregate the columns in the Frame to their mean value.
+    /// </summary>
+    /// <returns></returns>
+    member this.Mean() =
+        this.Lazy().Mean()
+    /// <summary>
+    /// Aggregate the columns in the Frame to their median value.
+    /// </summary>
+    /// <returns></returns>
+    member this.Median() =
+        this.Lazy().Median()
+    /// <summary>
+    /// Aggregate the columns in the Frame as the sum of their null value count.
+    /// </summary>
+    /// <returns></returns>
+    member this.NullCount() = 
+        this.Lazy().NullCount()
+    /// <summary>
+    /// Aggregate the columns in the Frame to their standard deviation value.
+    /// </summary>
+    /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
+    /// <returns></returns>
+    member this.Std(?ddof:int) = 
+        let d = defaultArg ddof 1
+        this.Lazy().Std(ddof=d)
+    /// <summary>
+    /// Aggregate the columns in the Frame to their variance value.
+    /// </summary>
+    /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
+    /// <returns></returns>
+    member this.Var(?ddof:int) =
+        let d = defaultArg ddof 1
+        this.Lazy().Var(ddof=d)
+    /// <summary>
+    /// Aggregate the columns in the Frame to their quantile value.
+    /// </summary>
+    /// <param name="quantile">Quantile between 0.0 and 1.0.</param>
+    /// <param name="method">['nearest’, ‘higher’, ‘lower’, ‘midpoint’, ‘linear’] Interpolation method.</param>
+    /// <returns></returns>
+    member this.Quantile(quantile:float, ?method: QuantileMethod) =
+        let met = defaultArg method QuantileMethod.Linear
+        this.Lazy().Quantile(quantile,met)
     /// <summary>
     /// Sort the DataFrame.
     /// </summary>
@@ -7518,6 +7584,8 @@ and LazyFrame(handle: LazyFrameHandle) =
         let h = PolarsWrapper.LazyFilter(lfClone, exprClone)
         new LazyFrame(h)
     
+    member this.Select (expr: Expr) : LazyFrame =
+        this.Select [|expr|]
     member this.Select (exprs: seq<Expr>) : LazyFrame =
         let lfClone = this.CloneHandle()
         let handles = exprs |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
@@ -7707,6 +7775,94 @@ and LazyFrame(handle: LazyFrameHandle) =
             |> Seq.toList
         
         this.WithColumns exprs
+
+    /// <summary>
+    /// Return the number of non-null elements for each column.
+    /// </summary>
+    /// <returns></returns>
+    member this.Count() = 
+        let selector = new Selector(PolarsWrapper.SelectorAll())
+        let expr = selector.ToExpr()
+        this.Select(expr.Count())
+    /// <summary>
+    /// Aggregate the columns in the Frame to their sum value.
+    /// </summary>
+    /// <returns></returns>
+    member this.Sum() =
+        let selector = new Selector(PolarsWrapper.SelectorAll())
+        let expr = selector.ToExpr()
+        this.Select(expr.Sum())
+    /// <summary>
+    /// Aggregate the columns in the Frame to their maximum value.
+    /// </summary>
+    /// <returns></returns>
+    member this.Max() =
+        let selector = new Selector(PolarsWrapper.SelectorAll())
+        let expr = selector.ToExpr()
+        this.Select(expr.Max())
+    /// <summary>
+    /// Aggregate the columns in the Frame to their minimum value.
+    /// </summary>
+    /// <returns></returns>
+    member this.Min() =
+        let selector = new Selector(PolarsWrapper.SelectorAll())
+        let expr = selector.ToExpr()
+        this.Select(expr.Min())
+    /// <summary>
+    /// Aggregate the columns in the Frame to their mean value.
+    /// </summary>
+    /// <returns></returns>
+    member this.Mean() =
+        let selector = new Selector(PolarsWrapper.SelectorAll())
+        let expr = selector.ToExpr()
+        this.Select(expr.Mean())
+    /// <summary>
+    /// Aggregate the columns in the Frame to their median value.
+    /// </summary>
+    /// <returns></returns>
+    member this.Median() =
+        let selector = new Selector(PolarsWrapper.SelectorAll())
+        let expr = selector.ToExpr()
+        this.Select(expr.Median())
+    /// <summary>
+    /// Aggregate the columns in the Frame as the sum of their null value count.
+    /// </summary>
+    /// <returns></returns>
+    member this.NullCount() = 
+        let selector = new Selector(PolarsWrapper.SelectorAll())
+        let expr = selector.ToExpr()
+        this.Select(expr.NullCount())
+    /// <summary>
+    /// Aggregate the columns in the Frame to their standard deviation value.
+    /// </summary>
+    /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
+    /// <returns></returns>
+    member this.Std(?ddof:int) = 
+        let selector = new Selector(PolarsWrapper.SelectorAll())
+        let expr = selector.ToExpr()
+        let d = defaultArg ddof 1
+        this.Select(expr.Std(ddof=d))
+    /// <summary>
+    /// Aggregate the columns in the Frame to their variance value.
+    /// </summary>
+    /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
+    /// <returns></returns>
+    member this.Var(?ddof:int) =
+        let selector = new Selector(PolarsWrapper.SelectorAll())
+        let expr = selector.ToExpr()
+        let d = defaultArg ddof 1
+        this.Select(expr.Var(ddof=d))
+    /// <summary>
+    /// Aggregate the columns in the Frame to their quantile value.
+    /// </summary>
+    /// <param name="quantile">Quantile between 0.0 and 1.0.</param>
+    /// <param name="method">['nearest’, ‘higher’, ‘lower’, ‘midpoint’, ‘linear’] Interpolation method.</param>
+    /// <returns></returns>
+    member this.Quantile(quantile:float, ?method: QuantileMethod) =
+        let selector = new Selector(PolarsWrapper.SelectorAll())
+        let expr = selector.ToExpr()
+        let met = defaultArg method QuantileMethod.Linear
+        this.Select(expr.Quantile(quantile,met))
     /// <summary>
     /// Group by keys and apply aggregate expressions, optionally filtering groups.
     /// </summary>

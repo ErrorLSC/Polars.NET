@@ -303,6 +303,7 @@ gen_unary_op!(pl_expr_mean, mean);
 gen_unary_op!(pl_expr_max, max);
 gen_unary_op!(pl_expr_min, min);
 gen_unary_op!(pl_expr_abs, abs);
+gen_unary_op!(pl_expr_null_count, null_count);
 gen_unary_op!(pl_expr_product, product);
 gen_unary_op!(pl_expr_first, first);
 gen_unary_op!(pl_expr_last, last);
@@ -376,7 +377,7 @@ gen_binary_op!(pl_expr_fill_null, fill_null);
 gen_binary_op!(pl_expr_interpolate_by, interpolate_by);
 // Math Ops
 gen_binary_op!(pl_expr_pow,pow);
-gen_binary_op!(pl_expr_dot, dot);
+gen_binary_op!(pl_expr_dot,dot);
 // Gather 
 gen_binary_op!(pl_expr_gather, gather);
 // --- Cumulative Functions ---

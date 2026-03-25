@@ -194,6 +194,7 @@ public static partial class PolarsWrapper
     public static ExprHandle Max(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_max, e);
     public static ExprHandle Min(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_min, e);
     public static ExprHandle Abs(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_abs, e);
+    public static ExprHandle NullCount(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_null_count, e);
     public static ExprHandle Product(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_product, e);
     public static ExprHandle Skew(ExprHandle e, bool bias)
     {

@@ -166,6 +166,7 @@ and Expr(handle: ExprHandle) =
     member this.Mode() =new Expr(PolarsWrapper.Mode (this.CloneHandle()))
     member this.Max() = new Expr(PolarsWrapper.Max (this.CloneHandle()))
     member this.Min() = new Expr(PolarsWrapper.Min (this.CloneHandle()))
+    member this.NullCount() = new Expr(PolarsWrapper.NullCount (this.CloneHandle()))
     member this.Product() = new Expr(PolarsWrapper.Product (this.CloneHandle()))
     
     // Math

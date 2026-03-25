@@ -638,4 +638,132 @@ David,40,80000";
         Assert.Equal(300, result["Banana"][1]); // 01-02 Banana
         Assert.Equal(150, result["Apple"][1]);  // 01-02 Apple
     }
+    [Fact]
+    [Trait("LazyFrame","Aggregation1")]
+    public void Test_Lazy_Aggregation1()
+    {
+        var lf = DataFrame.FromSeries(
+            Series.From("col1",[1,0,114514]),
+            Series.From("col2",[5.5,4.4,double.NaN]),
+            Series.From("col3",new long?[] {null,985L,211L}),
+            Series.From("col4", ["",null,"nihao"])
+        ).Lazy();
+
+        var lf2 = lf.Clone();
+
+        var result = lf.Count().Collect();
+        Assert.Equal(3u,result["col1"][0]);
+        Assert.Equal(3u,result["col2"][0]);
+        Assert.Equal(2u,result["col3"][0]);
+        Assert.Equal(2u,result["col4"][0]);
+
+        var resultSum = lf2.Drop("col4").Sum().Collect();
+        Assert.Equal(114515,resultSum["col1"][0]);
+        Assert.Equal(double.NaN,resultSum["col2"][0]);
+        Assert.Equal(1196L,resultSum[2][0]);
+    }
+    [Fact]
+    [Trait("LazyFrame","Aggregation2")]
+    public void Test_Lazy_Aggregation2()
+    {
+        var lf = DataFrame.FromSeries(
+            Series.From("col1",[1,0,114514]),
+            Series.From("col2",[5.5,double.MaxValue,double.NaN]),
+            Series.From("col3",new long?[] {null,985L,211L})
+        ).Lazy();
+
+        var lf2 = lf.Clone();
+
+        var result = lf.Max().Collect();
+
+        Assert.Equal(114514,result["col1"][0]);
+        Assert.Equal(double.MaxValue,result["col2"][0]);
+        Assert.Equal(985L,result["col3"][0]);
+
+        var resultSum = lf2.Min().Collect();
+        Assert.Equal(0,resultSum["col1"][0]);
+        Assert.Equal(5.5,resultSum["col2"][0]);
+        Assert.Equal(211L,resultSum[2][0]);
+    }
+    [Fact]
+    [Trait("LazyFrame","Aggregation3")]
+    public void Test_Lazy_Aggregation3()
+    {
+        var lf = DataFrame.FromSeries(
+            Series.From("col1",[1,0,114514]),
+            Series.From("col2",[5.5,double.MaxValue,double.NaN]),
+            Series.From("col3",new long?[] {null,985L,211L})
+        ).Lazy();
+
+        var lf2 = lf.Clone();
+
+        var result = lf.Mean().Collect();
+
+        Assert.Equal(38171.67,(double)result["col1"][0],2);
+        Assert.Equal(double.NaN,result["col2"][0]);
+        Assert.Equal(598.0,(double)result["col3"][0],3);
+
+        var resultMedian = lf2.Median().Collect();
+        Assert.Equal(1.0,(double)resultMedian["col1"][0],1);
+        // Assert.Equal(,resultMedian["col2"][0]); 1.7977e308
+        Assert.Equal(598.0,(double)resultMedian[2][0],1);
+    }
+    [Fact]
+    [Trait("LazyFrame","Aggregation4")]
+    public void Test_Lazy_Aggregation4()
+    {
+        var lf = DataFrame.FromSeries(
+            Series.From("col1",[1,0,114514]),
+            Series.From("col2",[5.5,double.MaxValue,double.NaN]),
+            Series.From("col3",new long?[] {null,985L,211L})
+        ).Lazy();
+
+        var lf2 = lf.Clone();
+
+        var result = lf.Std().Collect();
+
+        Assert.Equal(66114.400053,(double)result["col1"][0],3);
+        Assert.Equal(double.NaN,result["col2"][0]);
+        Assert.Equal(547.300649,(double)result["col3"][0],3);
+
+        var resultVar = lf2.Var().Collect();
+        // Assert.Equal(1.0,(double)resultMedian["col1"][0],1);
+        Assert.Equal(double.NaN,resultVar["col2"][0]);
+        Assert.Equal(299538.0,(double)resultVar[2][0],1);
+    }
+    [Fact]
+    [Trait("LazyFrame","NullCount")]
+    public void Test_Lazy_NullCount()
+    {
+        var lf = DataFrame.FromSeries(
+            Series.From("col1",[1,0,114514]),
+            Series.From("col2",[5.5,4.4,double.NaN]),
+            Series.From("col3",new long?[] {null,985L,211L}),
+            Series.From("col4", ["",null,"nihao"])
+        ).Lazy();
+
+
+        var result = lf.NullCount().Collect();
+        Assert.Equal(0u,result["col1"][0]);
+        Assert.Equal(0u,result["col2"][0]);
+        Assert.Equal(1u,result["col3"][0]);
+        Assert.Equal(1u,result["col4"][0]);
+    }
+    [Fact]
+    [Trait("LazyFrame","Quantile")]
+    public void Test_Lazy_Quantile()
+    {
+        var lf = DataFrame.FromSeries(
+            Series.From("col1",[1,0,114514,6546213]),
+            Series.From("col2",[5.5,4.4,double.NaN,double.MinValue]),
+            Series.From("col3",new long?[] {null,985L,211L,1919810L})
+        ).Lazy();
+
+        var result = lf.Quantile(0.4,method:QuantileMethod.Linear).Collect();
+
+        Assert.Equal(22903.6,(double)result["col1"][0],1);
+        Assert.Equal(4.62,(double)result["col2"][0],2);
+        Assert.Equal(830.2,(double)result["col3"][0],2);
+    }
+
 }

@@ -116,6 +116,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_max(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_min(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_abs(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_null_count(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_skew(ExprHandle expr,[MarshalAs(UnmanagedType.U1)] bool bias);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_kurtosis(ExprHandle expr,[MarshalAs(UnmanagedType.U1)] bool fisher,[MarshalAs(UnmanagedType.U1)] bool bias);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_product(ExprHandle expr);

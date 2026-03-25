@@ -742,6 +742,10 @@ public class Expr : IDisposable
     /// </summary>
     public Expr Min() => new(PolarsWrapper.Min(CloneHandle()));
     /// <summary>
+    /// Aggregate the expression as the sum of its null value count.
+    /// </summary>
+    public Expr NullCount() => new(PolarsWrapper.NullCount(CloneHandle()));
+    /// <summary>
     /// Compute the product of an expression
     /// </summary>
     /// <returns></returns>
@@ -3067,14 +3071,14 @@ public class ArrayOps
     public Expr Max() => Wrap(PolarsWrapper.ArrayMax);
     public Expr Min() => Wrap(PolarsWrapper.ArrayMin);
     public Expr Sum() => Wrap(PolarsWrapper.ArraySum);
-    public Expr Mean() => Wrap(PolarsWrapper.ArrayMean); // New
-    public Expr Median() => Wrap(PolarsWrapper.ArrayMedian); // New
-    public Expr Std(byte ddof = 1) => new(PolarsWrapper.ArrayStd(PolarsWrapper.CloneExpr(_expr.Handle), ddof)); // New
-    public Expr Var(byte ddof = 1) => new(PolarsWrapper.ArrayVar(PolarsWrapper.CloneExpr(_expr.Handle), ddof)); // New
+    public Expr Mean() => Wrap(PolarsWrapper.ArrayMean); 
+    public Expr Median() => Wrap(PolarsWrapper.ArrayMedian); 
+    public Expr Std(byte ddof = 1) => new(PolarsWrapper.ArrayStd(PolarsWrapper.CloneExpr(_expr.Handle), ddof)); 
+    public Expr Var(byte ddof = 1) => new(PolarsWrapper.ArrayVar(PolarsWrapper.CloneExpr(_expr.Handle), ddof)); 
 
     // --- Boolean ---
-    public Expr Any() => Wrap(PolarsWrapper.ArrayAny); // New
-    public Expr All() => Wrap(PolarsWrapper.ArrayAll); // New
+    public Expr Any() => Wrap(PolarsWrapper.ArrayAny); 
+    public Expr All() => Wrap(PolarsWrapper.ArrayAll); 
 
     // --- Sort & Search ---
     public Expr Sort(bool descending = false, bool nullsLast = false, bool maintainOrder = false)
@@ -3082,9 +3086,9 @@ public class ArrayOps
         var h = PolarsWrapper.CloneExpr(_expr.Handle);
         return new Expr(PolarsWrapper.ArraySort(h, descending, nullsLast, maintainOrder));
     }
-    public Expr Reverse() => Wrap(PolarsWrapper.ArrayReverse); // New
-    public Expr ArgMin() => Wrap(PolarsWrapper.ArrayArgMin); // New
-    public Expr ArgMax() => Wrap(PolarsWrapper.ArrayArgMax); // New
+    public Expr Reverse() => Wrap(PolarsWrapper.ArrayReverse); 
+    public Expr ArgMin() => Wrap(PolarsWrapper.ArrayArgMin); 
+    public Expr ArgMax() => Wrap(PolarsWrapper.ArrayArgMax); 
 
     // --- Structure ---
     public Expr Get(int index, bool nullOnOob = true) => Get(Polars.Lit(index), nullOnOob);
@@ -3110,7 +3114,7 @@ public class ArrayOps
     /// <summary>
     /// Convert array to struct. Fields will be named field_0, field_1, etc.
     /// </summary>
-    public Expr ToStruct() => Wrap(PolarsWrapper.ArrayToStruct); // New
+    public Expr ToStruct() => Wrap(PolarsWrapper.ArrayToStruct); 
 
     public Expr ToList() => Wrap(PolarsWrapper.ArrayToList);
 
