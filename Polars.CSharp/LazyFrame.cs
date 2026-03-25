@@ -1239,7 +1239,21 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     public DataFrame Describe()
         => Clone().Collect().Describe();
 
-    
+    /// <summary>
+    /// Returns the string representation of the LazyFrame (ASCII table).
+    /// This allows Console.WriteLine(df) to print the table directly.
+    /// </summary>
+    public override string ToString()
+    {
+        if (Handle.IsInvalid) return "LazyFrame (Disposed)";
+        return Clone().Collect().ToString();
+    }
+
+    /// <summary>
+    /// Print the LazyFrame to Console.
+    /// </summary>
+    public void Show() => Console.WriteLine(ToString());
+
     // ==========================================
     // Execution (Collect)
     // ==========================================
@@ -1275,7 +1289,6 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
 
     async Task<IPolarsDataFrame> IPolarsLazyFrame.CollectAsync(bool useStreaming, CancellationToken cancellationToken)
         => await CollectAsync(useStreaming, cancellationToken).ConfigureAwait(false);
-
 
     /// <summary>
     /// Dispose the LazyFrame and release native resources.

@@ -8299,6 +8299,19 @@ and LazyFrame(handle: LazyFrameHandle) =
         )
 
         new LazyFrame(newH)
+        
+    /// <summary>
+    /// Returns the native Polars string representation of the LazyFrame.
+    /// Includes shape, header, and truncated data.
+    /// </summary>
+    override this.ToString() =
+        this.Clone().Collect().ToString()
+
+    /// <summary>
+    /// Print the LazyFrame to Console (Stdout).
+    /// </summary>
+    member this.Show() =
+        printfn "%s" (this.ToString())
 
 /// <summary>
 /// Polars Schema definition (Name -> DataType).
