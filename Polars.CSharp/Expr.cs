@@ -744,14 +744,20 @@ public class Expr : IDisposable
     /// </summary>
     public Expr Min() => new(PolarsWrapper.Min(CloneHandle()));
     /// <summary>
-    /// Aggregate the expression as the sum of its null value count.
+    /// Count the number of null.
     /// </summary>
     public Expr NullCount() => new(PolarsWrapper.NullCount(CloneHandle()));
+    /// <summary>
+    /// Count unique values.
+    /// Notes: Null is considered to be a unique value for the purposes of this operation.
+    /// </summary>
+    public Expr NUnique() => new(PolarsWrapper.NUnique(CloneHandle()));
     /// <summary>
     /// Compute the product of an expression
     /// </summary>
     /// <returns></returns>
     public Expr Product() => new(PolarsWrapper.Product(CloneHandle()));
+    
 
     // ==========================================
     // Math

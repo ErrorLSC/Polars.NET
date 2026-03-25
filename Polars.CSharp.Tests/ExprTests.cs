@@ -2,6 +2,7 @@ using Apache.Arrow;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Helpers;
 using static Polars.CSharp.Polars;
+using Cs = Polars.CSharp.Polars.Selectors;
 namespace Polars.CSharp.Tests;
 
 public class ExprTests
@@ -194,7 +195,6 @@ TooShort,1990-05-20,1.60";
     [Fact]
     public void Test_Rounding_And_Sign()
     {
-        // 数据: [-1.5, 1.5, 2.0]
         var data = new[] { -1.5, 1.5, 2.0 };
         using var df = DataFrame.FromColumns(new { val = data });
 
@@ -2199,7 +2199,6 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "StringManipulation")]
     public void Test_Expr_ConcatString_And_FormatString()
     {
-        // 准备带有 Null 的字符串数据，测试 ignoreNulls 逻辑
         using var df = DataFrame.FromColumns(new
         {
             WordA = new string[] { "apple", "banana", null, "hello" },
@@ -2304,4 +2303,17 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(30, (int)res["vertical_concat"][2]!);
         Assert.Equal(40, (int)res["vertical_concat"][3]!);
     }
-}
+    [Fact]
+    [Trait("Expr", "NUnique")]
+    public void Test_Expr_NUnique()
+    {
+        var df = DataFrame.FromSeries(
+            Series.From("col1", ["Genshin","Genshin",null,null,"Chiikawa"]),
+            Series.From("col2", new int?[] {12341,432123,12341,99999,null})
+        );
+
+        var result = df.Select(Cs.All().ToExpr().NUnique());
+        Assert.Equal(3u,result[0][0]);
+        Assert.Equal(4u,result[1][0]);
+    }
+}   

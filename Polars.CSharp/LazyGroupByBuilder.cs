@@ -27,32 +27,15 @@ public sealed class LazyGroupBy : IDisposable
     }
 
     /// <summary>
-    /// Apply aggregations to the group.
+    /// Filter groups with a list of predicates after aggregation.
+    /// Using this method is equivalent to adding the predicates to the aggregation and filtering afterwards.
     /// </summary>
-    // public LazyFrame Agg(params Expr[] aggs)
-    // {
-    //     ObjectDisposedException.ThrowIf(_disposed,nameof(LazyGroupBy));
-
-    //     var aggHandles = new ExprHandle[aggs.Length];
-    //     for (int i = 0; i < aggs.Length; i++)
-    //     {
-    //         aggHandles[i] = PolarsWrapper.CloneExpr(aggs[i].Handle);
-    //     }
-
-    //     var keysForRust = new ExprHandle[_ownedKeyHandles.Length];
-    //     for(int i=0; i<_ownedKeyHandles.Length; i++)
-    //     {
-    //         keysForRust[i] = PolarsWrapper.CloneExpr(_ownedKeyHandles[i]);
-    //     }
-        
-    //     var resHandle = PolarsWrapper.LazyGroupByAgg(_lfHandle, keysForRust, aggHandles);
-        
-    //     return new LazyFrame(resHandle);
-    // }
+    /// <param name="predicate">Expressions that evaluate to a boolean value for each group. Typically, this requires the use of an aggregation function.</param>
+    /// <returns></returns>
     public LazyGroupBy Having(Expr predicate)
     {
         _havingExpr = predicate;
-        return this; // 链式调用
+        return this; 
     }
     private Expr? _havingExpr = null;
 

@@ -304,6 +304,7 @@ gen_unary_op!(pl_expr_max, max);
 gen_unary_op!(pl_expr_min, min);
 gen_unary_op!(pl_expr_abs, abs);
 gen_unary_op!(pl_expr_null_count, null_count);
+gen_unary_op!(pl_expr_n_unique,n_unique);
 gen_unary_op!(pl_expr_product, product);
 gen_unary_op!(pl_expr_first, first);
 gen_unary_op!(pl_expr_last, last);
