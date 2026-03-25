@@ -75,14 +75,14 @@ module pl =
     /// pl.cols ["A"; "B"]
     /// </code>
     /// </example>
-    let cols (names: string list) =
-        let arr = List.toArray names
+    let cols (names: seq<string>) =
+        let arr = Seq.toArray names
         Expr.Cols names
     /// <summary>
     /// Select all columns.
     /// Equivalent to `pl.col("*")`.
     /// </summary>
-    let all () = new Selector(PolarsWrapper.SelectorAll())
+    let all() = Expr.Col "*"
 
     /// <summary>
     /// Create a literal expression from a value.

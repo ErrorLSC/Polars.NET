@@ -23,8 +23,102 @@ public class GroupByBuilder
     public GroupByBuilder Having(Expr predicate)
     {
         _havingExpr = predicate;
-        return this; // 链式调用
+        return this; 
     }
+
+    /// <summary>
+    /// Count the number of values in each group.
+    /// </summary>
+    public DataFrame Count()
+        => Agg(Polars.All().Count());
+
+    /// <summary>
+    /// Aggregate all columns into lists. 
+    /// </summary>
+    public DataFrame All()
+        => Agg(Polars.All()); 
+    
+    /// <summary>
+    /// Aggregate the first values in the group.
+    /// </summary>
+    /// <param name="ignoreNulls">Ignore null values (default False). If set to True, the first non-null value for each aggregation is returned, 
+    /// otherwise None is returned if no non-null value exists.</param>
+    /// <returns></returns>
+    public DataFrame First(bool ignoreNulls=false)
+        => Agg(Polars.All().First(ignoreNulls)); 
+    /// <summary>
+    /// Aggregate the last values in the group.
+    /// </summary>
+    /// <param name="ignoreNulls">Ignore null values (default False). If set to True, the last non-null value for each aggregation is returned, 
+    /// otherwise None is returned if no non-null value exists.</param>
+    /// <returns></returns>
+    public DataFrame Last(bool ignoreNulls=false)
+        => Agg(Polars.All().Last(ignoreNulls)); 
+    /// <summary>
+    /// Get the first n rows of each group.
+    /// </summary>
+    /// <param name="n">Number of rows to return.</param>
+    /// <returns></returns>
+    public DataFrame Head(int n=10)
+        => Agg(Polars.All().Head(n)); 
+    /// <summary>
+    /// Get the last n rows of each group.
+    /// </summary>
+    /// <param name="n">Number of rows to return.</param>
+    /// <returns></returns>
+    public DataFrame Tail(int n=10)
+        => Agg(Polars.All().Tail(n)); 
+    /// <summary>
+    /// Return the number of rows in each group.
+    /// </summary>
+    /// <param name="name">Assign a name to the resulting column; if unset, defaults to “len”.</param>
+    /// <returns></returns>
+    public DataFrame Len(string name="len")
+        => Agg(Polars.Len().Alias(name));
+    /// <summary>
+    /// Reduce the groups to the maximal value.
+    /// </summary>
+    /// <returns></returns>
+    public DataFrame Max()
+        => Agg(Polars.All().Max());
+    /// <summary>
+    /// Reduce the groups to the minimal value.
+    /// </summary>
+    /// <returns></returns>
+    public DataFrame Min()
+        => Agg(Polars.All().Min());
+    /// <summary>
+    /// Reduce the groups to the median value.
+    /// </summary>
+    /// <returns></returns>
+    public DataFrame Median()
+        => Agg(Polars.All().Median()); 
+    /// <summary>
+    /// Reduce the groups to the mean value.
+    /// </summary>
+    /// <returns></returns>
+    public DataFrame Mean()
+        => Agg(Polars.All().Mean()); 
+    /// <summary>
+    /// Count the unique values per group.
+    /// </summary>
+    /// <returns></returns>   
+    public DataFrame NUnique()
+        => Agg(Polars.All().NUnique());
+    /// <summary>
+    /// Reduce the groups to the sum.
+    /// </summary>
+    /// <returns></returns>  
+    public DataFrame Sum()
+        => Agg(Polars.All().Sum());  
+    /// <summary>
+    /// Compute the quantile per group.
+    /// </summary>
+    /// <param name="quantile">Quantile between 0.0 and 1.0.</param>
+    /// <param name="interpolation">Interpolation method.</param>
+    /// <returns></returns>          
+    public DataFrame Quantile(double quantile,QuantileMethod interpolation = QuantileMethod.Linear)
+        => Agg(Polars.All().Quantile(quantile,interpolation));   
 
     /// <summary>
     /// Aggregate with specified expressions.

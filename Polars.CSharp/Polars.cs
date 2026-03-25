@@ -22,6 +22,8 @@ public static partial class Polars
     /// <returns></returns>
     public static Expr Col(params string[] names)
         => new(PolarsWrapper.Cols(names));
+    public static Expr All()
+        => Col("*");
     /// <summary>
     /// Return the lines count of current context.
     /// </summary>

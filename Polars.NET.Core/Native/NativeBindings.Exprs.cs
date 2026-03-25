@@ -107,7 +107,14 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_xor(ExprHandle l, ExprHandle r);
     // Aggregation
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_first(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_first_non_null(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_last_non_null(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_last(ExprHandle expr);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_head(ExprHandle expr, UIntPtr length);
+
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_tail(ExprHandle expr, UIntPtr length);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_all(ExprHandle expr, [MarshalAs(UnmanagedType.U1)] bool ignoreNulls);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_any(ExprHandle expr, [MarshalAs(UnmanagedType.U1)] bool ignoreNulls);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_item(ExprHandle expr, [MarshalAs(UnmanagedType.U1)] bool allowEmpty);
@@ -443,7 +450,9 @@ unsafe internal partial class NativeBindings
 
     // Expr Len
     [LibraryImport(LibName)] 
-    public static partial ExprHandle pl_expr_len();
+    public static partial ExprHandle pl_expr_len(ExprHandle e);
+    [LibraryImport(LibName)] 
+    public static partial ExprHandle pl_len();
     [LibraryImport(LibName)] public static partial IntPtr pl_get_last_error();
     [LibraryImport(LibName)] public static partial void pl_free_error_msg(IntPtr ptr);
 

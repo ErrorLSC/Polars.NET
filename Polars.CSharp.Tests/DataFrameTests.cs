@@ -61,6 +61,78 @@ public class DataFrameTests
         Assert.Equal(200L, grouped.Column("total_salary").GetValue<long>(1));
     }
     [Fact]
+    [Trait("DataFrame", "GroupBySugar1")]
+    public void Test_DataFrame_GroupBy_Len()
+    {
+        string[] depts = ["IT", "IT", "HR", "HR", "HR", "Sales"];
+
+        using var df = DataFrame.FromColumns(
+            Series.From("dept", depts)
+        );
+
+        using var defaultLenDf = df
+            .GroupBy("dept")
+            .Len()
+            .Sort("len", descending: true);
+            
+        Assert.Equal(3, defaultLenDf.Height);
+        
+        Assert.Equal("HR", defaultLenDf.Column("dept").GetValue<string>(0));
+        Assert.Equal(3u, defaultLenDf.Column("len").GetValue<uint>(0));
+        
+        Assert.Equal("IT", defaultLenDf.Column("dept").GetValue<string>(1));
+        Assert.Equal(2u, defaultLenDf.Column("len").GetValue<uint>(1));
+
+        using var customLenDf = df
+            .GroupBy("dept")
+            .Len("employee_count")
+            .Sort("employee_count", descending: true);
+            
+        Assert.Equal(3, customLenDf.Height);
+        Assert.Equal(3u, customLenDf.Column("employee_count").GetValue<uint>(0)); 
+    }
+
+    [Fact]
+    [Trait("DataFrame", "GroupBySugar2")]
+    public void Test_DataFrame_GroupBy_Sugar_Aggregations()
+    {
+        string[] depts = ["IT", "IT", "HR", "HR", "Sales"];
+        long[] salaries = [100, 200, 150, 50, 30]; 
+
+        using var df = DataFrame.FromColumns(
+            Series.From("dept", depts),
+            Series.From("salary", salaries)
+        );
+
+        using var sumDf = df
+            .GroupBy("dept")
+            .Sum()
+            .Sort("dept"); 
+            
+        Assert.Equal(3, sumDf.Height);
+        Assert.Equal("HR", sumDf.Column("dept").GetValue<string>(0));
+        Assert.Equal(200L, sumDf.Column("salary").GetValue<long>(0));
+        Assert.Equal("IT", sumDf.Column("dept").GetValue<string>(1));
+        Assert.Equal(300L, sumDf.Column("salary").GetValue<long>(1));
+
+        using var maxDf = df
+            .GroupBy("dept")
+            .Max()
+            .Sort("dept");
+            
+        Assert.Equal(3, maxDf.Height);
+        Assert.Equal(150L, maxDf.Column("salary").GetValue<long>(0)); 
+        Assert.Equal(200L, maxDf.Column("salary").GetValue<long>(1)); 
+
+        using var headDf = df
+            .GroupBy("dept")
+            .Head(1) 
+            .Sort("dept");
+            
+        Assert.Equal(3, headDf.Height);
+        Assert.Contains("salary", headDf.ColumnNames); 
+    }
+    [Fact]
     public void Test_GroupBy_Advanced_Aggregations()
     {
         string[] groups = ["A", "A", "B", "C", "C"];

@@ -56,9 +56,15 @@ and Expr(handle: ExprHandle) =
     /// pl.cols ["A"; "B"]
     /// </code>
     /// </example>
-    static member Cols (names: string list) =
-        let arr = List.toArray names
+    static member Cols (names: seq<string>) =
+        let arr = Seq.toArray names
         new Expr(PolarsWrapper.Cols arr)
+    
+    /// <summary>
+    /// Create an expression representing all columns. Same as Col("*").
+    /// </summary>
+    static member All() = 
+        Expr.Col "*"
 
     // --- Rounding & Sign ---
     /// <summary> Round the underlying floating point data to the given number of decimals. </summary>
@@ -151,8 +157,28 @@ and Expr(handle: ExprHandle) =
         let newHandle = PolarsWrapper.ExprCast(this.CloneHandle(), typeHandle, isStrict)
         new Expr(newHandle)
     // Aggregations
-    member this.First() = new Expr(PolarsWrapper.First (this.CloneHandle()))
-    member this.Last() = new Expr(PolarsWrapper.Last(this.CloneHandle()))
+    /// <summary>
+    /// Get the first n rows.
+    /// </summary>
+    /// <param name="n">Number of rows to return.</param>
+    /// <returns></returns>
+    member this.Head(?n:int) =
+        let n10 = defaultArg n 10
+        new Expr(PolarsWrapper.Head(this.CloneHandle(),n10));
+    /// <summary>
+    /// Get the last n rows.
+    /// </summary>
+    /// <param name="n">Number of rows to return.</param>
+    /// <returns></returns>
+    member this.Tail(?n:int) =
+        let n10 = defaultArg n 10
+        new Expr(PolarsWrapper.Tail(this.CloneHandle(),n10));
+    member this.First(?ignoreNulls:bool) = 
+        let ign = defaultArg ignoreNulls false
+        new Expr(PolarsWrapper.First(this.CloneHandle(),ign))
+    member this.Last(?ignoreNulls:bool) =
+        let ign = defaultArg ignoreNulls false 
+        new Expr(PolarsWrapper.Last(this.CloneHandle(),ign))
     member this.All(?ignoreNulls:bool) = 
         let ignore = defaultArg ignoreNulls false
         new Expr(PolarsWrapper.All(this.CloneHandle(),ignore))
@@ -325,13 +351,16 @@ and Expr(handle: ExprHandle) =
     /// <summary>
     /// Count the number of valid (non-null) values.
     /// </summary>
-    /// <returns>A series which length is 1</returns>
-    member this.Count() = new Expr(PolarsWrapper.Count (this.CloneHandle()))
+    member this.Count() = new Expr(PolarsWrapper.Count(this.CloneHandle()))
+    /// <summary>
+    /// Return the number of elements in the column.
+    /// Null values count towards the total.
+    /// </summary>
+    member this.Len() = new Expr(PolarsWrapper.ExprLen(this.CloneHandle()))
     /// <summary>
     /// Get the standard deviation value.
     /// </summary>
     /// <param name="ddof">Delta Degrees of Freedom. Default is 1.</param>
-    /// <returns>A series which length is 1</returns>
     member this.Std(?ddof: int) = 
         let d = defaultArg ddof 1 // Default sample std dev
         new Expr(PolarsWrapper.Std(this.CloneHandle(), d))
@@ -339,20 +368,17 @@ and Expr(handle: ExprHandle) =
     /// Get the variance value.
     /// </summary>
     /// <param name="ddof">Delta Degrees of Freedom. Default is 1.</param>
-    /// <returns>A series which length is 1</returns>
     member this.Var(?ddof: int) = 
         let d = defaultArg ddof 1
         new Expr(PolarsWrapper.Var(this.CloneHandle(), d))
     /// <summary>
     /// Get the median value.
     /// </summary>
-    /// <returns>A series which length is 1</returns>
     member this.Median() = new Expr(PolarsWrapper.Median (this.CloneHandle()))
     /// <summary>
     /// Compute the sample skewness of a data set.
     /// </summary>
     /// <param name="bias">If False, the calculations are corrected for statistical bias.</param>
-    /// <returns>A series which length is 1</returns>
     member this.Skew(?bias: bool) = 
         let b = defaultArg bias true
         new Expr(PolarsWrapper.Skew(this.CloneHandle(), b))
@@ -361,7 +387,6 @@ and Expr(handle: ExprHandle) =
     /// </summary>
     /// <param name="fisher">If True, Fisher’s definition is used (normal ==> 0.0). If False, Pearson’s definition is used (normal ==> 3.0).</param>
     /// <param name="bias">If False, the calculations are corrected for statistical bias.</param>
-    /// <returns>A series which length is 1</returns>
     member this.Kurtosis(?fisher: bool, ?bias: bool) = 
         let f = defaultArg fisher true
         let b = defaultArg bias true
@@ -371,7 +396,6 @@ and Expr(handle: ExprHandle) =
     /// </summary>
     /// <param name="quantile">Quantile between 0.0 and 1.0.</param>
     /// <param name="method">['nearest’, ‘higher’, ‘lower’, ‘midpoint’, ‘linear’] Interpolation method.</param>
-    /// <returns>A series which length is 1</returns>
     member this.Quantile(q: float, ?interpolation: QuantileMethod) =
         let method = defaultArg interpolation QuantileMethod.Linear
         new Expr(PolarsWrapper.Quantile(this.CloneHandle(), q, method.ToNative()))
@@ -381,7 +405,6 @@ and Expr(handle: ExprHandle) =
     /// Computes the change from the previous row by default.
     /// </summary>
     /// <param name="n">periods to shift for forming percent change.</param>
-    /// <returns>A series which length is 1</returns>
     member this.PctChange(?n: int) = 
         let nd = defaultArg n 1
         new Expr(PolarsWrapper.PctChange(this.CloneHandle(), nd))
@@ -393,7 +416,6 @@ and Expr(handle: ExprHandle) =
     /// Default is <see cref="RankMethod.Average"/>.</param>
     /// <param name="descending">Rank in descending order.</param>
     /// <param name="seed">If method="random", use this as seed.</param>
-    /// <returns></returns>
     member this.Rank(?method: RankMethod, ?descending: bool,?seed: uint64) = 
         let rm = defaultArg method RankMethod.Average
         let des = defaultArg descending false

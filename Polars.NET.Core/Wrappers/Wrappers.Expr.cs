@@ -169,8 +169,55 @@ public static partial class PolarsWrapper
     // Reverse
     public static ExprHandle Reverse(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_reverse, e);
     // Aggregate
-    public static ExprHandle First(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_first, e);
-    public static ExprHandle Last(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_last, e);
+    public static ExprHandle First(ExprHandle e, bool ignoreNulls)
+    {
+        if (ignoreNulls == true)
+        {
+            var h = NativeBindings.pl_expr_first_non_null(e);
+            e.TransferOwnership();
+            return ErrorHelper.Check(h);
+        }
+        else
+        {
+            var h = NativeBindings.pl_expr_first(e);
+            e.TransferOwnership();
+            return ErrorHelper.Check(h);
+        }
+    }
+    public static ExprHandle Last(ExprHandle e,bool ignoreNulls)
+    {
+        if (ignoreNulls == true)
+        {
+            var h = NativeBindings.pl_expr_last_non_null(e);
+            e.TransferOwnership();
+            return ErrorHelper.Check(h);
+        }
+        else
+        {
+            var h = NativeBindings.pl_expr_last(e);
+            e.TransferOwnership();
+            return ErrorHelper.Check(h);
+        }   
+    }
+    public static ExprHandle Head(ExprHandle e, int n)
+    {
+        if (n < 0)
+            throw new ArgumentOutOfRangeException(nameof(n), "Length must be non-negative.");
+
+        var h = NativeBindings.pl_expr_head(e, (nuint)n);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+
+    public static ExprHandle Tail(ExprHandle e, int n)
+    {
+        if (n < 0)
+            throw new ArgumentOutOfRangeException(nameof(n), "Length must be non-negative.");
+
+        var h = NativeBindings.pl_expr_tail(e, (nuint)n);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     public static ExprHandle All(ExprHandle e, bool ignoreNulls)
     {
         var h = NativeBindings.pl_expr_all(e,ignoreNulls);
@@ -857,7 +904,8 @@ public static partial class PolarsWrapper
         return ErrorHelper.Check(h);
     }
     // Expr Length
-    public static ExprHandle Len() => ErrorHelper.Check(NativeBindings.pl_expr_len());
+    public static ExprHandle ExprLen(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_len,e);
+    public static ExprHandle Len() => NativeBindings.pl_len();
     // expr clone
     public static ExprHandle CloneExpr(ExprHandle expr)
         => ErrorHelper.Check(NativeBindings.pl_expr_clone(expr));

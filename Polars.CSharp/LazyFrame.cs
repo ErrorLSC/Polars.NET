@@ -119,57 +119,57 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </summary>
     /// <returns></returns>
     public LazyFrame Count()
-        => Select(Cs.All().ToExpr().Count());
+        => Select(Polars.All().Count());
     /// <summary>
     /// Aggregate the columns in the Frame to their sum value.
     /// </summary>
     /// <returns></returns>
     public LazyFrame Sum()
-        => Select(Cs.All().ToExpr().Sum());
+        => Select(Polars.All().Sum());
     /// <summary>
     /// Aggregate the columns in the Frame to their maximum value.
     /// </summary>
     /// <returns></returns>
     public LazyFrame Max()
-        => Select(Cs.All().ToExpr().Max());
+        => Select(Polars.All().Max());
     /// <summary>
     /// Aggregate the columns in the Frame to their minimum value.
     /// </summary>
     /// <returns></returns>
     public LazyFrame Min()
-        => Select(Cs.All().ToExpr().Min());
+        => Select(Polars.All().Min());
     /// <summary>
     /// Aggregate the columns in the Frame to their mean value.
     /// </summary>
     /// <returns></returns>
     public LazyFrame Mean()
-        => Select(Cs.All().ToExpr().Mean());
+        => Select(Polars.All().Mean());
     /// <summary>
     /// Aggregate the columns in the Frame to their median value.
     /// </summary>
     /// <returns></returns>
     public LazyFrame Median()
-        => Select(Cs.All().ToExpr().Median());
+        => Select(Polars.All().Median());
     /// <summary>
     /// Aggregate the columns in the Frame as the sum of their null value count.
     /// </summary>
     /// <returns></returns>
     public LazyFrame NullCount()
-        => Select(Cs.All().ToExpr().NullCount());
+        => Select(Polars.All().NullCount());
     /// <summary>
     /// Aggregate the columns in the Frame to their standard deviation value.
     /// </summary>
     /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
     /// <returns></returns>
     public LazyFrame Std(int ddof=1)
-        => Select(Cs.All().ToExpr().Std(ddof));
+        => Select(Polars.All().Std(ddof));
     /// <summary>
     /// Aggregate the columns in the Frame to their variance value.
     /// </summary>
     /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
     /// <returns></returns>
     public LazyFrame Var(int ddof=1)
-        => Select(Cs.All().ToExpr().Var(ddof));
+        => Select(Polars.All().Var(ddof));
 
     /// <summary>
     /// Aggregate the columns in the Frame to their quantile value.
@@ -178,7 +178,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <param name="method">['nearest’, ‘higher’, ‘lower’, ‘midpoint’, ‘linear’] Interpolation method.</param>
     /// <returns></returns>
     public LazyFrame Quantile(double quantile, QuantileMethod method = QuantileMethod.Linear)
-        => Select(Cs.All().ToExpr().Quantile(quantile,method));
+        => Select(Polars.All().Quantile(quantile,method));
 
     // ==========================================
     // Transformations

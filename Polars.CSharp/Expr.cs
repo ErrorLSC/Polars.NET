@@ -610,7 +610,6 @@ public class Expr : IDisposable
     // ---------------------------------------------------
     // Methods
     // ---------------------------------------------------
-
     /// <summary>
     /// Set a new name for a column
     /// </summary>
@@ -632,12 +631,26 @@ public class Expr : IDisposable
     /// Get the first value of the group/series.
     /// </summary>
     /// <returns>A new expression representing the first value.</returns>
-    public Expr First() => new(PolarsWrapper.First(CloneHandle()));
+    public Expr First(bool ignoreNulls = false) => new(PolarsWrapper.First(CloneHandle(),ignoreNulls));
     /// <summary>
     /// Get the last value of the group/series.
     /// </summary>
     /// <returns>A new expression representing the last value.</returns>
-    public Expr Last() => new(PolarsWrapper.Last(CloneHandle()));
+    public Expr Last(bool ignoreNulls = false) => new(PolarsWrapper.Last(CloneHandle(),ignoreNulls));
+
+    /// <summary>
+    /// Get the first n rows.
+    /// </summary>
+    /// <param name="n">Number of rows to return.</param>
+    /// <returns></returns>
+    public Expr Head(int n = 10) => new(PolarsWrapper.Head(CloneHandle(),n));
+    /// <summary>
+    /// Get the last n rows.
+    /// </summary>
+    /// <param name="n">Number of rows to return.</param>
+    /// <returns></returns>
+    public Expr Tail(int n = 10) => new(PolarsWrapper.Tail(CloneHandle(),n));
+
     /// <summary>
     /// Check if <b>all</b> values in the boolean expression are <c>true</c>.
     /// <para>This is a boolean aggregation.</para>
@@ -1048,9 +1061,15 @@ public class Expr : IDisposable
     // ==========================================
 
     /// <summary>
-    /// Count the number of values in this expression.
+    /// Return the number of non-null elements in the column.
     /// </summary>
     public Expr Count() => new(PolarsWrapper.Count(CloneHandle()));
+    /// <summary>
+    /// Return the number of elements in the column.
+    /// Null values count towards the total.
+    /// </summary>
+    /// <returns></returns>
+    public Expr Len() => new(PolarsWrapper.ExprLen(CloneHandle()));
 
     /// <summary>
     /// Get the standard deviation.

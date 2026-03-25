@@ -176,6 +176,88 @@ David,40,80000";
         Assert.Equal(200L, grouped.Column("total_salary").GetValue<long>(1));
     }
     [Fact]
+    [Trait("LazyFrame", "GroupBySugar1")]
+    public void Test_LazyFrame_GroupBy_Len()
+    {
+        string[] depts = ["IT", "IT", "HR", "HR", "HR", "Sales"];
+
+        using var df = DataFrame.FromColumns(
+            Series.From("dept", depts)
+        );
+
+        using var defaultLenLf = df.Lazy()
+            .GroupBy("dept")
+            .Len()
+            .Sort("len", descending: true);
+            
+        using var defaultLenDf = defaultLenLf.Collect();
+        
+        Assert.Equal(3, defaultLenDf.Height);
+        
+        Assert.Equal("HR", defaultLenDf.Column("dept").GetValue<string>(0));
+        Assert.Equal(3u, defaultLenDf.Column("len").GetValue<uint>(0));
+        
+        Assert.Equal("IT", defaultLenDf.Column("dept").GetValue<string>(1));
+        Assert.Equal(2u, defaultLenDf.Column("len").GetValue<uint>(1));
+
+        using var customLenLf = df.Lazy()
+            .GroupBy("dept")
+            .Len("employee_count")
+            .Sort("employee_count", descending: true);
+            
+        using var customLenDf = customLenLf.Collect();
+        
+        Assert.Equal(3, customLenDf.Height);
+        Assert.Equal(3u, customLenDf.Column("employee_count").GetValue<uint>(0)); 
+    }
+
+    [Fact]
+    [Trait("LazyFrame", "GroupBySugar2")]
+    public void Test_LazyFrame_GroupBy_Sugar_Aggregations()
+    {
+        string[] depts = ["IT", "IT", "HR", "HR", "Sales"];
+        long[] salaries = [100, 200, 150, 50, 30]; 
+
+        using var df = DataFrame.FromColumns(
+            Series.From("dept", depts),
+            Series.From("salary", salaries)
+        );
+
+        using var sumLf = df.Lazy()
+            .GroupBy("dept")
+            .Sum()
+            .Sort("dept"); 
+            
+        using var sumDf = sumLf.Collect();
+        
+        Assert.Equal(3, sumDf.Height);
+        Assert.Equal("HR", sumDf.Column("dept").GetValue<string>(0));
+        Assert.Equal(200L, sumDf.Column("salary").GetValue<long>(0));
+        Assert.Equal("IT", sumDf.Column("dept").GetValue<string>(1));
+        Assert.Equal(300L, sumDf.Column("salary").GetValue<long>(1));
+
+        using var maxLf = df.Lazy()
+            .GroupBy("dept")
+            .Max()
+            .Sort("dept");
+            
+        using var maxDf = maxLf.Collect();
+        
+        Assert.Equal(3, maxDf.Height);
+        Assert.Equal(150L, maxDf.Column("salary").GetValue<long>(0)); 
+        Assert.Equal(200L, maxDf.Column("salary").GetValue<long>(1)); 
+
+        using var headLf = df.Lazy()
+            .GroupBy("dept")
+            .Head(1) 
+            .Sort("dept");
+            
+        using var headDf = headLf.Collect();
+        
+        Assert.Equal(3, headDf.Height);
+        Assert.Contains("salary", headDf.ColumnNames); 
+    }
+    [Fact]
     public void Test_Lazy_Unpivot_With_Explain()
     {
         var content = @"date,apple,banana

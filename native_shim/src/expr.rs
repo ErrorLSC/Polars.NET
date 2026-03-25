@@ -307,6 +307,8 @@ gen_unary_op!(pl_expr_null_count, null_count);
 gen_unary_op!(pl_expr_n_unique,n_unique);
 gen_unary_op!(pl_expr_product, product);
 gen_unary_op!(pl_expr_first, first);
+gen_unary_op!(pl_expr_first_non_null, first_non_null);
+gen_unary_op!(pl_expr_last_non_null, last_non_null);
 gen_unary_op!(pl_expr_last, last);
 gen_unary_op!(pl_expr_reverse, reverse);
 gen_unary_op_arg_bool!(pl_expr_any, any);
@@ -472,6 +474,30 @@ pub extern "C" fn pl_expr_lit_null() -> *mut Expr {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_head(
+    expr_ptr: *mut ExprContext, 
+    length: usize
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let new_expr = ctx.inner.head(Some(length));
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_tail(
+    expr_ptr: *mut ExprContext, 
+    length: usize
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let new_expr = ctx.inner.tail(Some(length));
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_is_in(
     expr_ptr: *mut ExprContext, 
     other_ptr: *mut ExprContext,
@@ -608,7 +634,6 @@ pub extern "C" fn pl_expr_search_sorted(
         let ctx = unsafe { Box::from_raw(expr_ptr) };
         let element = unsafe { Box::from_raw(element_ptr) };
         
-        // FFI u8 映射到 Rust Enum
         let search_side = match side {
             1 => SearchSortedSide::Left,
             2 => SearchSortedSide::Right,
@@ -1817,7 +1842,7 @@ pub extern "C" fn pl_expr_round(
 // Meta Data
 // ==========================================
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_len() -> *mut ExprContext {
+pub extern "C" fn pl_len() -> *mut ExprContext {
     ffi_try!({
         // polars::prelude::len()
         let expr = len(); 
@@ -2382,6 +2407,7 @@ pub extern "C" fn pl_expr_if_else(
 
 // --- Statistics ---
 gen_unary_op!(pl_expr_count, count);
+gen_unary_op!(pl_expr_len, len);
 gen_unary_op!(pl_expr_median, median);
 gen_unary_op_u8!(pl_expr_std, std);
 gen_unary_op_u8!(pl_expr_var, var);

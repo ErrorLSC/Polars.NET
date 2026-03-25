@@ -2312,7 +2312,7 @@ TooShort,1990-05-20,1.60";
             Series.From("col2", new int?[] {12341,432123,12341,99999,null})
         );
 
-        var result = df.Select(Cs.All().ToExpr().NUnique());
+        var result = df.Select(All().NUnique());
         Assert.Equal(3u,result[0][0]);
         Assert.Equal(4u,result[1][0]);
     }
