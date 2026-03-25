@@ -55,6 +55,20 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             Console.WriteLine($" |-- {name}: {type.Kind}");
         }
     }
+    /// <summary>
+    /// Return LazyFrame Columns' Name
+    /// </summary>
+    public string[] Columns => [.. Schema.ColumnNames];
+
+    /// <summary>
+    /// Return LazyFrame Columns' Name
+    /// </summary>
+    public string[] ColumnNames => Columns;
+
+    /// <summary>
+    /// Return LazyFrame Columns' DataType
+    /// </summary>
+    public List<DataType> DataTypes => Schema.DataTypes;
 
     /// <summary>
     /// Get an explanation of the optimized query plan.

@@ -88,6 +88,10 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Get column names in order.
     /// </summary>
     public string[] ColumnNames => PolarsWrapper.GetColumnNames(Handle);
+    /// <summary>
+    /// Return DataFrame Columns' DataType
+    /// </summary>
+    public List<DataType> DataTypes => Schema.DataTypes;
 
     // ==========================================
     // Scalar Access (Direct)
@@ -148,43 +152,43 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     
     /// <inheritdoc cref="LazyFrame.Count"/>
     public DataFrame Count()
-     => Lazy().Count().Collect();
+        => Lazy().Count().Collect();
 
     /// <inheritdoc cref="LazyFrame.Sum"/>
     public DataFrame Sum()
-     => Lazy().Sum().Collect();
+        => Lazy().Sum().Collect();
 
     /// <inheritdoc cref="LazyFrame.Max"/>
     public DataFrame Max()
-     => Lazy().Max().Collect();
+        => Lazy().Max().Collect();
 
     /// <inheritdoc cref="LazyFrame.Min"/>
     public DataFrame Min()
-     => Lazy().Min().Collect();
+        => Lazy().Min().Collect();
 
     /// <inheritdoc cref="LazyFrame.Mean"/>
     public DataFrame Mean()
-     => Lazy().Mean().Collect();
+        => Lazy().Mean().Collect();
 
     /// <inheritdoc cref="LazyFrame.Median"/>
     public DataFrame Median()
-     => Lazy().Median().Collect();
+        => Lazy().Median().Collect();
 
     /// <inheritdoc cref="LazyFrame.NullCount"/>
     public DataFrame NullCount()
-     => Lazy().NullCount().Collect();
+        => Lazy().NullCount().Collect();
     
     /// <inheritdoc cref="LazyFrame.Std"/>
     public DataFrame Std(int ddof=1)
-     => Lazy().Std(ddof).Collect();
+        => Lazy().Std(ddof).Collect();
 
     /// <inheritdoc cref="LazyFrame.Var"/>
     public DataFrame Var(int ddof=1)
-     => Lazy().Var(ddof).Collect();
+        => Lazy().Var(ddof).Collect();
 
     /// <inheritdoc cref="LazyFrame.Quantile"/>
     public DataFrame Quantile(double quantile,QuantileMethod method = QuantileMethod.Linear)
-     => Lazy().Quantile(quantile,method).Collect();
+        => Lazy().Quantile(quantile,method).Collect();
 
     // ==========================================
     // DataFrame Operations

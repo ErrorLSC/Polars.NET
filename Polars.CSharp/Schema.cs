@@ -1,4 +1,5 @@
 #pragma warning disable CS1591
+using System.Reflection.Metadata;
 using System.Text;
 using Polars.NET.Core;
 
@@ -110,7 +111,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema
     }
         
     // ==========================================
-    // ColumnNames / Length 
+    // ColumnNames / Length / dtype
     // ==========================================
     public int Length => (int)PolarsWrapper.GetSchemaLen(Handle);
 
@@ -124,6 +125,30 @@ public class PolarsSchema : IDisposable,IPolarsSchema
             {
                 PolarsWrapper.GetSchemaFieldAt(Handle, i, out string name, out _);
                 list.Add(name);
+            }
+            return list;
+        }
+    }
+
+    public List<string> Names => ColumnNames;
+    /// <summary>
+    /// Gets the list of data types for the columns in the schema.
+    /// </summary>
+    public List<DataType> DataTypes
+    {
+        get
+        {
+            // Get the total number of fields in the schema
+            ulong len = PolarsWrapper.GetSchemaLen(Handle);
+            var list = new List<DataType>((int)len);
+            
+            for (ulong i = 0; i < len; i++)
+            {
+                // Discard the column name, keep the DataTypeHandle
+                PolarsWrapper.GetSchemaFieldAt(Handle, i, out _, out DataTypeHandle dtypeHandle);
+                
+                // Wrap the native handle in the high-level DataType API class
+                list.Add(new DataType(dtypeHandle));
             }
             return list;
         }

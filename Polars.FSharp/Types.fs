@@ -5157,6 +5157,7 @@ and DataFrame(handle: DataFrameHandle) =
     member this.Shape = this.Len,this.Width
     member _.ColumnNames = PolarsWrapper.GetColumnNames handle
     member _.Columns = PolarsWrapper.GetColumnNames handle
+    member this.DataTypes = this.Schema.DataTypes
     member this.Int(colName: string, rowIndex: int) : int64 option = 
         let nullableVal = PolarsWrapper.GetInt(handle, colName, int64 rowIndex)
         if nullableVal.HasValue then Some nullableVal.Value else None
@@ -5496,7 +5497,9 @@ and LazyFrame(handle: LazyFrameHandle) =
         )
         
         printfn "------------------------"
-
+    member this.Columns = this.Schema.Names
+    member this.ColumnNames = this.Columns
+    member this.DataTypes = this.Schema.DataTypes
     /// <summary> Print the query plan. </summary>
     member this.Explain(?optimized: bool) = 
         let opt = defaultArg optimized true
@@ -8361,11 +8364,22 @@ and PolarsSchema (handle: SchemaHandle) =
             name 
         ]
 
+    /// <summary> Get all column datatypes </summary>
+    member this.DataTypes =
+        let len = this.Len()
+        [ for i in 0UL .. (len - 1UL) -> 
+            let mutable name = Unchecked.defaultof<string>
+            let mutable _th = Unchecked.defaultof<DataTypeHandle>
+            PolarsWrapper.GetSchemaFieldAt(this.Handle, i, &name, &_th)
+            
+            DataType.FromHandle _th 
+        ]
+
     /// <summary> Convert to F# Map </summary>
     member this.ToMap() =
         let len = this.Len()
         [ for i in 0UL .. (len - 1UL) do
-            yield this.GetFieldAt(i) 
+            yield this.GetFieldAt i 
         ] |> Map.ofList
 
     /// <summary> Convert to Dictionary </summary>
@@ -8373,7 +8387,7 @@ and PolarsSchema (handle: SchemaHandle) =
         let len = this.Len()
         let dict = Dictionary<string, DataType>(int len)
         for i in 0UL .. (len - 1UL) do
-            let name, dtype = this.GetFieldAt(i)
+            let name, dtype = this.GetFieldAt i
             dict.[name] <- dtype
         dict
 
