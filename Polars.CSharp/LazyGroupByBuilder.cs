@@ -61,16 +61,13 @@ public sealed class LazyGroupBy : IDisposable
     /// </summary>
     public LazyFrame Tail(int n = 10)
     {
-        // 1. 聚合：提取后 N 行打包成 List
         var aggregated = Agg(Polars.All().Tail(n));
 
-        // 2. 提取键名
         string[] keyNames = _keys
             .Select(expr => expr.Meta.OutputName())
             .Where(name => !string.IsNullOrEmpty(name))
             .ToArray()!;
 
-        // 3. 展开并排除 Keys
         return aggregated.Explode(Cs.All().Exclude(keyNames));
     }
     /// <summary>
