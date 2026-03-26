@@ -1673,33 +1673,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         return new PolarsDataReader(innerReader, cts, producerTask); 
     }
-    /// <summary>
-    /// Common Write Interface:Transform DataFrame to IDataReader
-    /// </summary>
-    public void WriteTo( Action<IDataReader> writerAction, int bufferSize = 5,Dictionary<string, Type>? typeOverrides = null)
-    {
-        using var buffer = new BlockingCollection<RecordBatch>(bufferSize);
-
-        // Consumer Task
-        var consumerTask = Task.Run(() => 
-        {
-            using var reader = new ArrowToDbStream(buffer.GetConsumingEnumerable(),typeOverrides);
-            
-            writerAction(reader);
-        });
-
-        // Producer
-        try
-        {
-            ExportBatches(buffer.Add);
-        }
-        finally
-        {
-            buffer.CompleteAdding();
-        }
-
-        consumerTask.Wait();
-    }
+ 
     /// <summary>
     /// Generate a summary statistics DataFrame (count, mean, std, min, 25%, 50%, 75%, max).
     /// Similar to pandas/polars describe().

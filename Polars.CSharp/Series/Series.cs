@@ -1259,16 +1259,6 @@ public partial class Series : IDisposable,IPolarsSeries
     // ==========================================
 
     /// <summary>
-    /// Zero-copy convert to Apache Arrow Array.
-    /// </summary>
-    public IArrowArray ToArrow()
-        => PolarsWrapper.SeriesToArrow(Handle);
-    /// <summary>
-    /// Low-level entry point: Create Series from existing Arrow Array.
-    /// </summary>
-    public static Series FromArrow(string name, IArrowArray arrowArray)
-        => new(ArrowFfiBridge.ImportSeries(name, arrowArray));
-    /// <summary>
     /// Generate zero-copy ReadOnlySpan from a numeric Series.
     /// </summary>
     /// <typeparam name="T">Unmanaged Type Only (e.g., int, float, double)</typeparam>
