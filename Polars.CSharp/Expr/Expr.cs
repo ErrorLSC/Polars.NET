@@ -23,7 +23,6 @@ public partial class Expr : IDisposable
     /// <returns></returns>
     public Expr Clone() => new(CloneHandle());
 
-    
     // ==========================================
     // Columns
     // ==========================================

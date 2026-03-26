@@ -15,19 +15,12 @@ public readonly struct NameOps
     /// <param name="prefix"></param>
     /// <returns></returns>
     public Expr Prefix(string prefix)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new(PolarsWrapper.Prefix(h, prefix));
-    }
-
+        => new(PolarsWrapper.Prefix(_expr.CloneHandle(), prefix));
     /// <summary>
     /// Suffix the column name with a specified string.
     /// </summary>
     /// <param name="suffix"></param>
     /// <returns></returns>
     public Expr Suffix(string suffix)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new(PolarsWrapper.Suffix(h, suffix));
-    }
+        => new(PolarsWrapper.Suffix(_expr.CloneHandle(), suffix));
 }

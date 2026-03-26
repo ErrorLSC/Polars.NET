@@ -1897,6 +1897,9 @@ and Expr(handle: ExprHandle) =
             
         new Expr(PolarsWrapper.ConcatExprs(handles, rchk))
 
+    member this.ToSelector() =
+        new Selector(PolarsWrapper.ToSelector(this.CloneHandle()))
+
 // --- Namespace Helpers ---
 
 and DtOps(handle: ExprHandle) =

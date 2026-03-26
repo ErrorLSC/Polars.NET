@@ -54,18 +54,12 @@ public readonly struct StructOps
     /// </code>
     /// </example>
     public Expr Field(string name)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.StructFieldByName(h, name));
-    }
+        => new(PolarsWrapper.StructFieldByName(_expr.CloneHandle(), name));
     /// <summary>
     /// Retrieve a field by its index.
     /// </summary>
     public Expr Field(int index)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.StructFieldByIndex(h, index));
-    }
+        => new(PolarsWrapper.StructFieldByIndex(_expr.CloneHandle(), index));
     /// <summary>
     /// Rename the fields of the struct.
     /// </summary>
@@ -78,17 +72,11 @@ public readonly struct StructOps
     /// </code>
     /// </example>
     public Expr RenameFields(params string[] names)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.StructRenameFields(h, names));
-    }
+        => new(PolarsWrapper.StructRenameFields(_expr.CloneHandle(), names));
     /// <summary>
     /// Convert the struct column into a JSON string column.
     /// Useful for debugging or exporting to systems that support JSON strings.
     /// </summary>
     public Expr JsonEncode()
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.StructJsonEncode(h));
-    }
+        => new(PolarsWrapper.StructJsonEncode(_expr.CloneHandle()));
 }

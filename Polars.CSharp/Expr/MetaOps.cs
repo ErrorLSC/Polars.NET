@@ -18,5 +18,4 @@ public readonly struct MetaOps
     /// </summary>
     public string? OutputName()
         => PolarsWrapper.ExprGetOutputName(_expr.Handle);
-    
 }

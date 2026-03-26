@@ -20,10 +20,8 @@ public readonly struct StringOps
     internal StringOps(Expr expr) { _expr = expr; }
 
     private Expr Wrap(Func<ExprHandle, ExprHandle> op)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(op(h));
-    }
+        => new(op(_expr.CloneHandle()));
+    
     /// <summary>
     /// Convert string to uppercase.
     /// </summary>

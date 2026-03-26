@@ -15,10 +15,7 @@ public readonly struct ListOps
     internal ListOps(Expr expr) { _expr = expr; }
 
     private Expr Wrap(Func<ExprHandle, ExprHandle> op)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(op(h));
-    }
+        => new(op(_expr.CloneHandle()));
     /// <summary>
     /// Get the first element of the list.
     /// </summary>

@@ -15,10 +15,7 @@ public readonly struct ArrayOps
     internal ArrayOps(Expr expr) { _expr = expr; }
 
     private Expr Wrap(Func<ExprHandle, ExprHandle> op)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(op(h));
-    }
+        => new(op(_expr.CloneHandle()));
     // --- Aggregations ---
     public Expr Max() => Wrap(PolarsWrapper.ArrayMax);
     public Expr Min() => Wrap(PolarsWrapper.ArrayMin);
@@ -34,10 +31,8 @@ public readonly struct ArrayOps
 
     // --- Sort & Search ---
     public Expr Sort(bool descending = false, bool nullsLast = false, bool maintainOrder = false)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.ArraySort(h, descending, nullsLast, maintainOrder));
-    }
+        => new(PolarsWrapper.ArraySort(_expr.CloneHandle(), descending, nullsLast, maintainOrder));
+
     public Expr Reverse() => Wrap(PolarsWrapper.ArrayReverse); 
     public Expr ArgMin() => Wrap(PolarsWrapper.ArrayArgMin); 
     public Expr ArgMax() => Wrap(PolarsWrapper.ArrayArgMax); 
@@ -45,24 +40,14 @@ public readonly struct ArrayOps
     // --- Structure ---
     public Expr Get(int index, bool nullOnOob = true) => Get(Polars.Lit(index), nullOnOob);
     public Expr Get(Expr index, bool nullOnOob = true)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        var idx = PolarsWrapper.CloneExpr(index.Handle);
-        return new Expr(PolarsWrapper.ArrayGet(h, idx, nullOnOob));
-    }
+        => new(PolarsWrapper.ArrayGet(_expr.CloneHandle(), index.CloneHandle(), nullOnOob));
 
     public Expr Join(string separator, bool ignoreNulls = true)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.ArrayJoin(h, separator, ignoreNulls));
-    }
-
+        => new(PolarsWrapper.ArrayJoin(_expr.CloneHandle(), separator, ignoreNulls));
+    
     public Expr Explode(bool emptyAsNull=true,bool keepNulls = true)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.ArrayExplode(h,emptyAsNull,keepNulls)); 
-    }
-
+        => new(PolarsWrapper.ArrayExplode(_expr.CloneHandle(),emptyAsNull,keepNulls)); 
+    
     /// <summary>
     /// Convert array to struct. Fields will be named field_0, field_1, etc.
     /// </summary>
@@ -72,20 +57,14 @@ public readonly struct ArrayOps
 
     // [Update] Updated Contains signature
     public Expr Contains(Expr item, bool nullsEqual = false)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        var i = PolarsWrapper.CloneExpr(item.Handle);
-        return new Expr(PolarsWrapper.ArrayContains(h, i, nullsEqual));
-    }
+        => new(PolarsWrapper.ArrayContains(_expr.CloneHandle(),item.CloneHandle(), nullsEqual));
+    
     public Expr Contains(int item, bool nullsEqual = false) => Contains(Polars.Lit(item), nullsEqual);
     public Expr Contains(double item, bool nullsEqual = false) => Contains(Polars.Lit(item), nullsEqual);
 
     // Unique
     public Expr Unique(bool stable = false)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.ArrayUnique(h, stable));
-    }
+        => new(PolarsWrapper.ArrayUnique(_expr.CloneHandle(), stable));
     /// <summary>
     /// Concat this Array expression with other Array expressions.
     /// </summary>
@@ -94,11 +73,11 @@ public readonly struct ArrayOps
     {
         var allExprs = new ExprHandle[others.Length + 1];
 
-        allExprs[0] = PolarsWrapper.CloneExpr(_expr.Handle);
+        allExprs[0] = _expr.CloneHandle();
 
         for (int i = 0; i < others.Length; i++)
         {
-            allExprs[i + 1] = PolarsWrapper.CloneExpr(others[i].Handle);
+            allExprs[i + 1] = others[i].CloneHandle();
         }
 
         return new Expr(PolarsWrapper.ConcatArray(allExprs));
