@@ -1,4 +1,5 @@
 using Polars.NET.Core;
+using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
 /// <summary>
@@ -9,6 +10,7 @@ public sealed class LazyGroupBy : IDisposable
 {
     private readonly LazyFrameHandle _lfHandle;
     private readonly ExprHandle[] _ownedKeyHandles; 
+    private readonly Expr[] _keys;
     private bool _disposed;
 
     /// <summary>
@@ -42,17 +44,35 @@ public sealed class LazyGroupBy : IDisposable
     /// <summary>
     /// Get the first n rows of each group.
     /// </summary>
-    /// <param name="n">Number of rows to return.</param>
-    /// <returns></returns>
-    public LazyFrame Head(int n=10)
-        => Agg(Polars.All().Head(n)); 
+    public LazyFrame Head(int n = 10)
+    {
+        var aggregated = Agg(Polars.All().Head(n));
+
+        string[] keyNames = _keys
+            .Select(expr => expr.Meta.OutputName())
+            .Where(name => !string.IsNullOrEmpty(name))
+            .ToArray()!;
+
+        return aggregated.Explode(Cs.All().Exclude(keyNames)); 
+    }
+
     /// <summary>
     /// Get the last n rows of each group.
     /// </summary>
-    /// <param name="n">Number of rows to return.</param>
-    /// <returns></returns>
-    public LazyFrame Tail(int n=10)
-        => Agg(Polars.All().Tail(n)); 
+    public LazyFrame Tail(int n = 10)
+    {
+        // 1. 聚合：提取后 N 行打包成 List
+        var aggregated = Agg(Polars.All().Tail(n));
+
+        // 2. 提取键名
+        string[] keyNames = _keys
+            .Select(expr => expr.Meta.OutputName())
+            .Where(name => !string.IsNullOrEmpty(name))
+            .ToArray()!;
+
+        // 3. 展开并排除 Keys
+        return aggregated.Explode(Cs.All().Exclude(keyNames));
+    }
     /// <summary>
     /// Return the number of rows in each group.
     /// </summary>
@@ -107,6 +127,7 @@ public sealed class LazyGroupBy : IDisposable
     internal LazyGroupBy(LazyFrameHandle lfHandle, Expr[] keys)
     {
         _lfHandle = lfHandle;
+        _keys = keys;
 
         _ownedKeyHandles = new ExprHandle[keys.Length];
         for (int i = 0; i < keys.Length; i++)

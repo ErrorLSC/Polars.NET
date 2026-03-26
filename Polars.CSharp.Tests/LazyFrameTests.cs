@@ -253,7 +253,7 @@ David,40,80000";
             .Sort("dept");
             
         using var headDf = headLf.Collect();
-        
+
         Assert.Equal(3, headDf.Height);
         Assert.Contains("salary", headDf.ColumnNames); 
     }

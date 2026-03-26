@@ -55,4 +55,5 @@ unsafe internal partial class NativeBindings
     public static partial SelectorHandle pl_selector_not(SelectorHandle sel);
     // Bridges
     [LibraryImport(LibName)] public static partial ExprHandle pl_selector_into_expr(SelectorHandle sel);
+
 }

@@ -22,6 +22,10 @@ public static partial class Polars
     /// <returns></returns>
     public static Expr Col(params string[] names)
         => new(PolarsWrapper.Cols(names));
+    /// <summary>
+    /// Select all columns, same as Col("*")
+    /// </summary>
+    /// <returns></returns>
     public static Expr All()
         => Col("*");
     /// <summary>

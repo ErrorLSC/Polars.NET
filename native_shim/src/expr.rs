@@ -1,6 +1,7 @@
 use polars::{prelude::*, sql::sql_expr};
-use std::{ffi::CStr, os::raw::c_char};
-use crate::{datatypes::parse_timeunit, types::{DataTypeContext, ExprContext, SeriesContext}};
+use polars_plan::utils::expr_output_name;
+use std::{ffi::{CStr, CString}, os::raw::c_char};
+use crate::{datatypes::parse_timeunit, types::{DataTypeContext, ExprContext, SelectorContext, SeriesContext}};
 use std::ops::{Add, Sub, Mul, Div, Rem};
 use crate::utils::{consume_exprs_array, ptr_to_str};
 use polars_arrow::array::PrimitiveArray;
@@ -2663,5 +2664,37 @@ pub extern "C" fn pl_expr_sql(
         let expr = sql_expr(sql_str)?;
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: expr })))
+    })
+}
+
+// Meta
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_get_output_name(
+    expr_ptr: *mut ExprContext,
+    out_str: *mut *mut c_char
+) -> bool {
+    let ctx = unsafe { &*expr_ptr };
+    
+    match expr_output_name(&ctx.inner) {
+        Ok(name) => {
+            let c_str = CString::new(name.as_str()).unwrap();
+            unsafe { *out_str = c_str.into_raw() };
+            true
+        },
+        Err(_) => false 
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_try_into_selector(
+    expr_ptr: *mut ExprContext
+) -> *mut SelectorContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        
+        let selector = ctx.inner.try_into_selector()?;
+        
+        Ok(Box::into_raw(Box::new(SelectorContext { inner: selector })))
     })
 }

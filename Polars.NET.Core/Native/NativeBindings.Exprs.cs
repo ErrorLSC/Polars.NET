@@ -633,5 +633,12 @@ unsafe internal partial class NativeBindings
         PlSearchSortedSide side,
         [MarshalAs(UnmanagedType.I1)] bool descending
     );
+    [LibraryImport(LibName)] public static partial SelectorHandle pl_expr_try_into_selector(ExprHandle expr);
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_expr_get_output_name(
+        ExprHandle expr, 
+        out IntPtr outStr
+    );
     
 }

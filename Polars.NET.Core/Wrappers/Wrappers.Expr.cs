@@ -1,4 +1,5 @@
 using System.Net.NetworkInformation;
+using System.Runtime.InteropServices;
 using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
@@ -1105,5 +1106,29 @@ public static partial class PolarsWrapper
             ptrs,(UIntPtr)exprs.Length,
             rechunk           
         ));
+    }
+    public static SelectorHandle ToSelector(ExprHandle e) 
+    {
+        var h = NativeBindings.pl_expr_try_into_selector(e);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static string? ExprGetOutputName(ExprHandle expr)
+    {
+        bool success = NativeBindings.pl_expr_get_output_name(expr, out IntPtr strPtr);
+
+        if (!success || strPtr == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        try
+        {
+            return Marshal.PtrToStringUTF8(strPtr);
+        }
+        finally
+        {
+            NativeBindings.pl_free_string(strPtr);
+        }
     }
 }

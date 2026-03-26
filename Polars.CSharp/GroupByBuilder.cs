@@ -1,4 +1,4 @@
-using Polars.NET.Core;
+using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
 /// <summary>
@@ -8,6 +8,8 @@ public class GroupByBuilder
 {
     private readonly DataFrame _df;
     private readonly Expr[] _by;
+
+    private readonly Expr[] _keys;
     
     private Expr? _havingExpr = null;
 
@@ -15,6 +17,7 @@ public class GroupByBuilder
     {
         _df = df;
         _by = by;
+        _keys = by;
     }
 
     /// <summary>
@@ -57,17 +60,32 @@ public class GroupByBuilder
     /// <summary>
     /// Get the first n rows of each group.
     /// </summary>
-    /// <param name="n">Number of rows to return.</param>
-    /// <returns></returns>
-    public DataFrame Head(int n=10)
-        => Agg(Polars.All().Head(n)); 
+    public DataFrame Head(int n = 10)
+    {
+        var aggregated = Agg(Polars.All().Head(n));
+
+        string[] keyNames = _keys
+            .Select(expr => expr.Meta.OutputName())
+            .Where(name => !string.IsNullOrEmpty(name))
+            .ToArray()!;
+
+        return aggregated.Explode(Cs.All().Exclude(keyNames)); 
+    }
+
     /// <summary>
     /// Get the last n rows of each group.
     /// </summary>
-    /// <param name="n">Number of rows to return.</param>
-    /// <returns></returns>
-    public DataFrame Tail(int n=10)
-        => Agg(Polars.All().Tail(n)); 
+    public DataFrame Tail(int n = 10)
+    {
+        var aggregated = Agg(Polars.All().Tail(n));
+
+        string[] keyNames = _keys
+            .Select(expr => expr.Meta.OutputName())
+            .Where(name => !string.IsNullOrEmpty(name))
+            .ToArray()!;
+
+        return aggregated.Explode(Cs.All().Exclude(keyNames));
+    }
     /// <summary>
     /// Return the number of rows in each group.
     /// </summary>
