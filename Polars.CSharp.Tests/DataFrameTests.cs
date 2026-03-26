@@ -931,4 +931,23 @@ B,5";
 
         Assert.Equal(2, tensorData.Length);
     }
+    [Fact]
+    [Trait("DataFrame","HashRows")]
+    public void Test_DataFrame_HashRows()
+    {
+        using var scoresDf = DataFrame.FromColumns(new 
+        {
+            student = new[] { "Alice", "Alice", "Bob" },
+            year    = new[] { 2023,    2024,    2023 },
+            score   = new[] { 85,      90,      70 },
+            note    = new[] { "Score1", "Score2", "Score3" } 
+        });
+
+        var hashNull = scoresDf.HashRows(seed:null);
+        var hash42 = scoresDf.HashRows(seed:42);
+
+        hashNull.Show();
+        hash42.Show();
+
+    }
 }

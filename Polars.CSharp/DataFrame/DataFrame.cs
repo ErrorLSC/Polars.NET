@@ -93,6 +93,17 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     public List<DataType> DataTypes => Schema.DataTypes;
 
+    /// <summary>
+    /// Hash and combine the rows in this DataFrame.
+    /// </summary>
+    /// <param name="seed">Random seed parameter. Defaults to 42 for reproducible hashing.</param>
+    /// <returns>A Series containing the UInt64 hashes.</returns>
+    public Series HashRows(ulong? seed = 42)
+    {
+        var h = PolarsWrapper.DataFrameHashRows(Handle, seed);
+        return new Series(h);
+    }
+
     // ==========================================
     // Scalar Access (Direct)
     // ==========================================

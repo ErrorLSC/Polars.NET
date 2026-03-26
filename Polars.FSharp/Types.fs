@@ -4702,15 +4702,6 @@ and DataFrame(handle: DataFrameHandle) =
     /// <summary> Alias for Sort. </summary>
     member this.Orderby (expr: Expr, desc: bool) : DataFrame =
         this.Sort(expr, descending = desc)
-    // /// <summary> Group by keys and apply aggregate expressions. </summary>
-    // member this.GroupBy (keys: seq<Expr>,aggs: seq<Expr>, ?having: Expr) : DataFrame =
-    //     this.Lazy().GroupBy(keys, aggs,?having=having).Collect()
-
-    // /// <summary> Group by keys and apply aggregations (Supports Selectors). </summary>
-    // member this.GroupBy(keys: seq<#IColumnExpr>, aggs: seq<#IColumnExpr>,?having: Expr) =
-    //     let kExprs = keys |> Seq.collect (fun x -> x.ToExprs())
-    //     let aExprs = aggs |> Seq.collect (fun x -> x.ToExprs())
-    //     this.GroupBy (kExprs, aExprs,?having=having)
     /// <summary> Join with another DataFrame. </summary>
     member this.Join (other: DataFrame,
                       leftOn: seq<Expr>,
@@ -7846,35 +7837,6 @@ and LazyFrame(handle: LazyFrameHandle) =
     member this.Quantile(quantile:float, ?method: QuantileMethod) =
         let met = defaultArg method QuantileMethod.Linear
         this.Select(Expr.All().Quantile(quantile,met))
-    // /// <summary>
-    // /// Group by keys and apply aggregate expressions, optionally filtering groups.
-    // /// </summary>
-    // /// <param name="keys">Grouping keys.</param>
-    // /// <param name="aggs">Aggregation expressions to apply per group.</param>
-    // /// <param name="having">Optional predicate to filter groups after aggregation.</param>
-    // member this.GroupBy (keys: seq<Expr>, aggs: seq<Expr>, ?having: Expr) : LazyFrame =
-    //     let lfClone = this.CloneHandle()
-    //     let kHandles = keys |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
-    //     let aHandles = aggs |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
-        
-    //     let havingHandle = 
-    //         match having with
-    //         | Some hExpr -> hExpr.CloneHandle()
-    //         | None -> null
-            
-    //     let h = PolarsWrapper.LazyGroupByAgg(lfClone, kHandles, aHandles, havingHandle)
-    //     new LazyFrame(h)
-
-    // /// <summary>
-    // /// Group by keys and apply aggregations (Supports Selectors), optionally filtering groups.
-    // /// </summary>
-    // member this.GroupBy(keys: seq<#IColumnExpr>, aggs: seq<#IColumnExpr>, ?having: Expr) =
-    //     let kExprs = keys |> Seq.collect (fun x -> x.ToExprs()) 
-    //     let aExprs = aggs |> Seq.collect (fun x -> x.ToExprs())
-        
-    //     match having with
-    //     | Some h -> this.GroupBy(kExprs, aExprs, having = h)
-    //     | None -> this.GroupBy(kExprs, aExprs)
     /// <summary>
     /// Pivot the LazyFrame.
     /// <para>

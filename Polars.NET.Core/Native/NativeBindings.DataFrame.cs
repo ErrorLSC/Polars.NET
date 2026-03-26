@@ -137,4 +137,10 @@ unsafe internal partial class NativeBindings
         DataFrameHandle df, 
         DataFrameHandle other
     );
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_dataframe_hash_rows(
+        DataFrameHandle df,
+        ulong seed,
+        [MarshalAs(UnmanagedType.U1)] bool has_seed
+    );
 }

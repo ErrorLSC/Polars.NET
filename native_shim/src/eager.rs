@@ -40,8 +40,9 @@ pub extern "C" fn pl_dataframe_slice(
 // ==========================================
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_dataframe_height(df_ptr: *mut DataFrameContext) -> usize {
-    let ctx = unsafe { &*df_ptr };
+pub extern "C" fn pl_dataframe_height(ptr: *mut DataFrameContext) -> usize {
+    if ptr.is_null() { return 0; }
+    let ctx = unsafe { &*ptr };
     ctx.df.height()
 }
 
@@ -693,5 +694,29 @@ pub extern "C" fn pl_dataframe_to_string(df_ptr: *mut DataFrameContext) -> *mut 
         
         let c_str = CString::new(s).expect("String sanitization failed");
         Ok(c_str.into_raw())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_hash_rows(
+    df_ptr: *mut DataFrameContext,
+    seed: u64,
+    has_seed: bool,
+) -> *mut SeriesContext {
+    ffi_try!({
+        let ctx = unsafe { &mut *df_ptr };
+        
+        let hasher_builder = if has_seed {
+            Some(PlSeedableRandomStateQuality::seed_from_u64(seed))
+        } else {
+            None
+        };
+        
+        let chunked_array = ctx.df.hash_rows(hasher_builder)?;
+        
+        let mut series = chunked_array.into_series();
+        series.rename("".into());
+        
+        Ok(Box::into_raw(Box::new(SeriesContext { series: series })))
     })
 }

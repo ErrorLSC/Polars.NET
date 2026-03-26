@@ -183,6 +183,8 @@ public static partial class PolarsWrapper
 
         return ErrorHelper.Check(h);
     }
+    public static SeriesHandle DataFrameHashRows(DataFrameHandle df, ulong? seed)
+        => NativeBindings.pl_dataframe_hash_rows(df, seed ?? 0, seed.HasValue);
     // ==========================================
     // Stack Ops
     // ==========================================
