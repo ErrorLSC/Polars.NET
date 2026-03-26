@@ -26,13 +26,15 @@
     <Compile Include="CloudOptions.fs" />
     <Compile Include="UdfUtils.fs" />
     <Compile Include="Exprs.fs" />
-    <Compile Include="Types.fs" />
-    <Compile Include="Polars.fs" />
+    <Compile Include="Types.fs" />  
     <Compile Include="Ops.fs" />
     <Compile Include="Display.fs" />
+    <Compile Include="GroupByBuilder.fs" />
+    <Compile Include="Polars.fs" />
     <Compile Include="Delta.fs" />
     <Compile Include="Extensions.fs" />
     <Compile Include="Config.fs" />
+    
   </ItemGroup>
 
   <ItemGroup>

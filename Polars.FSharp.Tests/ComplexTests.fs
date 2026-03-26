@@ -88,7 +88,7 @@ type ``Complex Query Tests`` () =
             ])
             |> pl.selectLazy [
                 // Exclude (all except "ignore_me")
-                pl.all() |> pl.exclude ["birthdate"] |> pl.asExpr
+                pl.cs.all().Exclude ["birthdate"] |> pl.asExpr
             ]
             |> pl.groupByLazy 
                 // Keys
@@ -100,7 +100,7 @@ type ``Complex Query Tests`` () =
                     (pl.col "height").Mean().Round(2).Name.Prefix "avg_"
                 ]
             |> pl.collect
-            |> pl.sort ((pl.col "decade"),false)
+            |> pl.sort (pl.col "decade",false)
 
         let cols = res.ColumnNames
         Assert.DoesNotContain("birthdate", cols)

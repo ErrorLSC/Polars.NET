@@ -61,10 +61,8 @@ public readonly struct ListOps
     /// </code>
     /// </example>
     public Expr Get(int index)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.ListGet(h, index));
-    }
+        => new(PolarsWrapper.ListGet(_expr.CloneHandle(), index));
+    
     /// <summary>
     /// Get the length of the lists.
     /// </summary>
@@ -81,10 +79,7 @@ public readonly struct ListOps
     /// <param name="separator"></param>
     /// <returns></returns>
     public Expr Join(string separator)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.ListJoin(h, separator));
-    }
+        => new(PolarsWrapper.ListJoin(_expr.CloneHandle(), separator));
     /// <summary>
     /// Sort the list elements.
     /// </summary>
@@ -93,10 +88,8 @@ public readonly struct ListOps
     /// <param name="maintainOrder"></param>
     /// <returns></returns>
     public Expr Sort(bool descending = false, bool nullsLast = false, bool maintainOrder = false)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.ListSort(h, descending, nullsLast, maintainOrder));
-    }
+        => new(PolarsWrapper.ListSort(_expr.CloneHandle(), descending, nullsLast, maintainOrder));
+    
     /// <summary>
     /// Calculate the sum of the values in the list (row-wise).
     /// </summary>
@@ -129,11 +122,8 @@ public readonly struct ListOps
     /// <param name="nullsEqual"></param>
     /// <returns></returns>
     public Expr Contains(Expr item, bool nullsEqual=false)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        var i = PolarsWrapper.CloneExpr(item.Handle);
-        return new Expr(PolarsWrapper.ListContains(h, i,nullsEqual));
-    }
+        => new(PolarsWrapper.ListContains(_expr.CloneHandle(), item.CloneHandle(),nullsEqual));
+    
     /// <summary>
     /// Check if the list contains a specific integer or string item.
     /// </summary>
@@ -156,11 +146,11 @@ public readonly struct ListOps
     {
         var allExprs = new ExprHandle[others.Length + 1];
 
-        allExprs[0] = PolarsWrapper.CloneExpr(_expr.Handle);
+        allExprs[0] = _expr.CloneHandle();
 
         for (int i = 0; i < others.Length; i++)
         {
-            allExprs[i + 1] = PolarsWrapper.CloneExpr(others[i].Handle);
+            allExprs[i + 1] = others[i].CloneHandle();
         }
 
         return new Expr(PolarsWrapper.ConcatList(allExprs));

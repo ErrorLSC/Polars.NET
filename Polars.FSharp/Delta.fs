@@ -100,14 +100,14 @@ type Delta =
     /// (Internally maps to "{name}_src_tmp")
     /// </summary>
     static member Source(columnName: string) =
-        pl.col $"{columnName}_src_tmp"
+        Expr.Col $"{columnName}_src_tmp"
 
     /// <summary>
     /// Represents a column from the existing Target Delta Table.
     /// (Alias for standard Col(), adds semantic clarity)
     /// </summary>
     static member Target(columnName: string) =
-        pl.col columnName
+        Expr.Col columnName
 
     /// <summary>
     /// Deletes rows from a Delta Lake table that match a given predicate.
@@ -283,7 +283,7 @@ type Delta =
 
         // i64 -> Datetime
         if Seq.contains "timestamp" cols then
-            let expr = pl.col("timestamp").Cast(DataType.Datetime(TimeUnit.Milliseconds, Some "UCT")).Alias "timestamp"
+            let expr = Expr.Col("timestamp").Cast(DataType.Datetime(TimeUnit.Milliseconds, Some "UCT")).Alias "timestamp"
             df <- df.WithColumns [ expr :> IColumnExpr ]
 
         // operationParameters (Struct -> Columns)
@@ -313,7 +313,7 @@ type Delta =
             
         let finalCols = Array.append selection rest
         
-        df.Select(finalCols |> Array.map pl.col |> Array.map (fun x -> x :> IColumnExpr))
+        df.Select(finalCols |> Array.map Expr.Col |> Array.map (fun x -> x :> IColumnExpr))
 
     /// <summary>
     /// Optimizes the layout of the Delta table by compacting small files (bin-packing) and optionally applying Z-Order clustering.
@@ -1075,7 +1075,7 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
 
         // i64 -> Datetime
         if Seq.contains "timestamp" cols then
-            let expr = pl.col("timestamp").Cast(DataType.Datetime(TimeUnit.Milliseconds, Some "UCT")).Alias("timestamp")
+            let expr = Expr.Col("timestamp").Cast(DataType.Datetime(TimeUnit.Milliseconds, Some "UCT")).Alias("timestamp")
             df <- df.WithColumns [ expr :> IColumnExpr ]
 
         // operationMetrics (Struct -> Columns)
@@ -1106,7 +1106,7 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
             
         let finalCols = Array.append selection rest
         
-        df.Select(finalCols |> Array.map pl.col |> Array.map (fun x -> x :> IColumnExpr))
+        df.Select(finalCols |> Array.map Expr.Col |> Array.map (fun x -> x :> IColumnExpr))
 
 /// <summary>
 /// Builder for Delta Merge (Upsert) operations.

@@ -22,15 +22,15 @@ module Describe =
                 failwith "No numeric columns to describe."
 
             let metrics = [
-                "count",      fun (c: string) -> pl.col(c).Count().Cast Float64
-                "null_count", fun c -> pl.col(c).IsNull().Sum().Cast Float64
-                "mean",       fun c -> pl.col(c).Mean()
-                "std",        fun c -> pl.col(c).Std()
-                "min",        fun c -> pl.col(c).Min().Cast Float64
-                "25%",        fun c -> pl.col(c).Quantile 0.25
-                "50%",        fun c -> pl.col(c).Median().Cast Float64 
-                "75%",        fun c -> pl.col(c).Quantile 0.75
-                "max",        fun c -> pl.col(c).Max().Cast Float64
+                "count",      fun (c: string) -> Expr.Col(c).Count().Cast Float64
+                "null_count", fun c -> Expr.Col(c).IsNull().Sum().Cast Float64
+                "mean",       fun c -> Expr.Col(c).Mean()
+                "std",        fun c -> Expr.Col(c).Std()
+                "min",        fun c -> Expr.Col(c).Min().Cast Float64
+                "25%",        fun c -> Expr.Col(c).Quantile 0.25
+                "50%",        fun c -> Expr.Col(c).Median().Cast Float64 
+                "75%",        fun c -> Expr.Col(c).Quantile 0.75
+                "max",        fun c -> Expr.Col(c).Max().Cast Float64
             ]
 
             let rowFrames = 

@@ -41,6 +41,7 @@ and Expr(handle: ExprHandle) =
     /// <summary> Access string manipulation operations. </summary>
     member this.Str = new StringOps(this.CloneHandle())
     member this.Array = new ArrayOps(this.CloneHandle())
+    member this.Meta = new MetaOps(this.Handle)
 
     // --- Column ---
     /// <summary>
@@ -357,6 +358,8 @@ and Expr(handle: ExprHandle) =
     /// Null values count towards the total.
     /// </summary>
     member this.Len() = new Expr(PolarsWrapper.ExprLen(this.CloneHandle()))
+    /// <summary> Return the number of rows in the context. </summary>
+    static member Len() = new Expr(PolarsWrapper.Len())
     /// <summary>
     /// Get the standard deviation value.
     /// </summary>
@@ -1902,40 +1905,39 @@ and Expr(handle: ExprHandle) =
 
 // --- Namespace Helpers ---
 
-and DtOps(handle: ExprHandle) =
-    let wrap op = new Expr(op handle)
+and [<Struct>] DtOps(handle: ExprHandle) =
     /// <summary>Get the year from the underlying date/datetime.</summary>
-    member _.Year() = wrap PolarsWrapper.DtYear
+    member _.Year() = new Expr(PolarsWrapper.DtYear handle)
     /// <summary>Get the quarter from the underlying date/datetime.</summary>
-    member _.Quarter() = wrap PolarsWrapper.DtQuarter
+    member _.Quarter() = new Expr(PolarsWrapper.DtQuarter handle)
     /// <summary>Get the month from the underlying date/datetime.</summary>
-    member _.Month() = wrap PolarsWrapper.DtMonth
+    member _.Month() = new Expr(PolarsWrapper.DtMonth handle)
     /// <summary>Get the day from the underlying date/datetime.</summary>
-    member _.Day() = wrap PolarsWrapper.DtDay
+    member _.Day() = new Expr(PolarsWrapper.DtDay handle)
     /// <summary>Get the ordinal day(day of year) from the underlying date/datetime.</summary>
-    member _.OrdinalDay() = wrap PolarsWrapper.DtOrdinalDay
+    member _.OrdinalDay() = new Expr(PolarsWrapper.DtOrdinalDay handle)
     /// <summary>Get the weekday from the underlying date/datetime.</summary>
-    member _.Weekday() = wrap PolarsWrapper.DtWeekday
+    member _.Weekday() = new Expr(PolarsWrapper.DtWeekday handle)
     /// <summary>Get the hour from the underlying datetime.</summary>
-    member _.Hour() = wrap PolarsWrapper.DtHour
+    member _.Hour() = new Expr(PolarsWrapper.DtHour handle)
     /// <summary>Get the minute from the underlying datetime.</summary>
-    member _.Minute() = wrap PolarsWrapper.DtMinute
+    member _.Minute() = new Expr(PolarsWrapper.DtMinute handle)
     /// <summary>Get the second from the underlying datetime.</summary>
-    member _.Second() = wrap PolarsWrapper.DtSecond
+    member _.Second() = new Expr(PolarsWrapper.DtSecond handle)
     /// <summary>Get the millisecond from the underlying datetime.</summary>
-    member _.Millisecond() = wrap PolarsWrapper.DtMillisecond
+    member _.Millisecond() = new Expr(PolarsWrapper.DtMillisecond handle)
     /// <summary>Get the microsecond from the underlying datetime.</summary>
-    member _.Microsecond() = wrap PolarsWrapper.DtMicrosecond
+    member _.Microsecond() = new Expr(PolarsWrapper.DtMicrosecond handle)
     /// <summary>Get the nanosecond from the underlying datetime.</summary>
-    member _.Nanosecond() = wrap PolarsWrapper.DtNanosecond
+    member _.Nanosecond() = new Expr(PolarsWrapper.DtNanosecond handle)
     /// <summary>
     /// Cast to Date (remove time component).
     /// </summary>
-    member _.Date() = wrap PolarsWrapper.DtDate
+    member _.Date() = new Expr(PolarsWrapper.DtDate handle)
     /// <summary>
     /// Cast to Time (remove Date component).
     /// </summary>
-    member _.Time() = wrap PolarsWrapper.DtTime
+    member _.Time() = new Expr(PolarsWrapper.DtTime handle)
 
     /// <summary> Format datetime to string using the given format string (strftime). </summary>
     member _.ToString(format: string) = 
@@ -2087,15 +2089,14 @@ and DtOps(handle: ExprHandle) =
             holidayInts
         ))
         
-and StringOps(handle: ExprHandle) =
-    let wrap op = new Expr(op handle)
+and [<Struct>] StringOps(handle: ExprHandle) =
     
     /// <summary> Convert to uppercase. </summary>
-    member _.ToUpper() = wrap PolarsWrapper.StrToUpper
+    member _.ToUpper() = new Expr(PolarsWrapper.StrToUpper handle)
     /// <summary> Convert to lowercase. </summary>
-    member _.ToLower() = wrap PolarsWrapper.StrToLower
+    member _.ToLower() = new Expr(PolarsWrapper.StrToLower handle)
     /// <summary> Get length in bytes. </summary>
-    member _.Len() = wrap PolarsWrapper.StrLenBytes
+    member _.Len() = new Expr(PolarsWrapper.StrLenBytes handle)
     // F# uint64 = C# ulong
     member _.Slice(offset: int64, length: uint64) = 
         new Expr(PolarsWrapper.StrSlice(handle, offset, length))
@@ -2165,12 +2166,12 @@ and StringOps(handle: ExprHandle) =
     member _.ToDatetime(format: string) = 
         new Expr(PolarsWrapper.StrToDatetime(handle, format))
 
-and NameOps(handle: ExprHandle) =
-    let wrap op arg = new Expr(op(handle, arg))
-    member _.Prefix(p: string) = wrap PolarsWrapper.Prefix p
-    member _.Suffix(s: string) = wrap PolarsWrapper.Suffix s
+and [<Struct>] NameOps(handle: ExprHandle) =
+    // let wrap op arg = new Expr(op(handle, arg))
+    member _.Prefix(p: string) = new Expr(PolarsWrapper.Prefix(handle,p))
+    member _.Suffix(s: string) = new Expr(PolarsWrapper.Suffix(handle,s))
 
-and ListOps(handle: ExprHandle) =
+and [<Struct>] ListOps(handle: ExprHandle) =
     /// <summary> Get the first element of the list. </summary>
     member _.First() = new Expr(PolarsWrapper.ListFirst handle)
     /// <summary> Get element at index. </summary>
@@ -2198,9 +2199,10 @@ and ListOps(handle: ExprHandle) =
     /// Equivalent to: pl.concatList([parent, others...])
     /// </summary>
     member _.Concat(others: seq<#IColumnExpr>) =
+        let currentHandle = handle
         let handles = 
             seq {
-                yield handle
+                yield currentHandle
                 
                 yield! others 
                        |> Seq.collect (fun x -> x.ToExprs()) 
@@ -2208,7 +2210,7 @@ and ListOps(handle: ExprHandle) =
             }
             |> Seq.toArray
 
-        new Expr(PolarsWrapper.ConcatList(handles))
+        new Expr(PolarsWrapper.ConcatList handles)
 
     /// <summary>
     /// Overload: Concat a single expression/column.
@@ -2228,7 +2230,7 @@ and ListOps(handle: ExprHandle) =
         let itemHandle = PolarsWrapper.Lit item
         new Expr(PolarsWrapper.ListContains(PolarsWrapper.CloneExpr handle, itemHandle, nE))
 
-and ArrayOps(handle: ExprHandle) = 
+and [<Struct>] ArrayOps(handle: ExprHandle) = 
     // --- Aggregations ---
 
     /// <summary> Compute the sum of the values in the array. </summary>
@@ -2326,6 +2328,25 @@ and ArrayOps(handle: ExprHandle) =
         let indexHandle = PolarsWrapper.Lit index
         new Expr(PolarsWrapper.ArrayGet(handle, indexHandle, oob))
 
+    /// <summary>
+    /// Combine the current expression with other expressions into an Array.
+    /// Result: [parent_val, other_val_1, other_val_2, ...]
+    /// Equivalent to: pl.concatArray([parent, others...])
+    /// </summary>
+    member _.Concat(others: seq<#IColumnExpr>) =
+        let currentHandle = handle
+        let handles = 
+            seq {
+                yield currentHandle
+                
+                yield! others 
+                       |> Seq.collect (fun x -> x.ToExprs()) 
+                       |> Seq.map (fun e -> e.CloneHandle())
+            }
+            |> Seq.toArray
+
+        new Expr(PolarsWrapper.ConcatArray handles)
+
     // --- Conversion ---
 
     /// <summary> Convert Array to List (variable length). </summary>
@@ -2334,7 +2355,7 @@ and ArrayOps(handle: ExprHandle) =
     /// <summary> Convert Array to Struct. </summary>
     member _.ToStruct() = new Expr(PolarsWrapper.ArrayToStruct handle)
 
-and StructOps(handle: ExprHandle) =
+and [<Struct>] StructOps(handle: ExprHandle) =
     /// <summary> Retrieve a field from the struct by name. </summary>
     member _.Field(name: string) = 
         new Expr(PolarsWrapper.StructFieldByName(handle, name))
@@ -2346,6 +2367,9 @@ and StructOps(handle: ExprHandle) =
     member _.JsonEncode() = 
         new Expr(PolarsWrapper.StructJsonEncode handle);
 
+and MetaOps(handle: ExprHandle) = 
+    member this.OutputName() =
+        PolarsWrapper.ExprGetOutputName handle
 
 /// <summary>
 /// A column selection strategy (e.g., all columns, or specific columns).
@@ -2362,8 +2386,8 @@ and Selector(handle: SelectorHandle) =
     // ==========================================
 
     /// <summary> Exclude columns from a wildcard selection (col("*")). </summary>
-    member this.Exclude(names: string list) =
-        let arr = List.toArray names
+    member this.Exclude(names: seq<string>) =
+        let arr = Seq.toArray names
         new Selector(PolarsWrapper.SelectorExclude(this.CloneHandle(), arr))
         
     /// <summary>

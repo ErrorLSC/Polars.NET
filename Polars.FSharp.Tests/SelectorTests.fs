@@ -145,8 +145,8 @@ type SelectorTests() =
         // ==========================================
         let dfAgg = 
             df.GroupBy(
-                keys = [ !> pl.col("Region") ], 
-                aggs = [ !> pl.cs.numeric().ToExpr().Sum() ] // 👈 自动对 Sales 和 Profit 求和
+                keys = pl.col "Region" , 
+                aggs = pl.cs.numeric().ToExpr().Sum() 
             ).Sort (pl.col "Region", false)
 
         Assert.Equal(2L, dfAgg.Rows)
