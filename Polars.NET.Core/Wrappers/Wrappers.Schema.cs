@@ -134,22 +134,22 @@ public static partial class PolarsWrapper
             Time32Type or Time64Type => NewPrimitiveType((int)PlDataType.Time),
             
             TimestampType ts => NewDateTimeType(
-                (byte)(ts.Unit switch
+                ts.Unit switch
                 {
                     TimeUnit.Nanosecond => 0,   // ns
                     TimeUnit.Microsecond => 1,  // us
                     TimeUnit.Millisecond => 2,  // ms
                     _ => 1
-                }), ts.Timezone),
+                }, ts.Timezone),
                 
             DurationType dur => NewDurationType(
-                (byte)(dur.Unit switch
+                dur.Unit switch
                 {
                     TimeUnit.Nanosecond => 0,
                     TimeUnit.Microsecond => 1,
                     TimeUnit.Millisecond => 2,
                     _ => 1
-                })),
+                }),
                 
             ListType list => NewListType(MapArrowToDataTypeHandle(list.ValueDataType)),
             LargeListType lList => NewListType(MapArrowToDataTypeHandle(lList.ValueDataType)),

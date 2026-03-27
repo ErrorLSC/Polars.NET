@@ -24,11 +24,13 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     public TimeUnit? Unit { get; private set; }
     public string? TimeZone { get; private set; }
 
+    private IReadOnlyList<(string Name, DataType Type)>? _structFields;
+
     /// <summary>
     /// If this is an Array type, returns the fixed width.
     /// Returns 0 if not an Array type.
     /// </summary>
-    public ulong ArrayWidth => PolarsWrapper.DataTypeGetArrayWidth(Handle);
+    public long ArrayWidth => (long)PolarsWrapper.DataTypeGetArrayWidth(Handle);
 
     internal DataType(DataTypeHandle handle, DataTypeKind kind = DataTypeKind.Unknown)
     {
@@ -104,6 +106,35 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
         }
     }
 
+    /// <summary>
+    /// Gets the fields of a Struct type. 
+    /// Returns null if this DataType is not a Struct.
+    /// </summary>
+    public IReadOnlyList<(string Name, DataType Type)>? StructFields
+    {
+        get
+        {
+            if (Kind != DataTypeKind.Struct) return null;
+
+            if (_structFields == null)
+            {
+                ulong len = PolarsWrapper.GetStructLen(Handle);
+                var fields = new List<(string Name, DataType Type)>((int)len);
+
+                for (ulong i = 0; i < len; i++)
+                {
+                    PolarsWrapper.GetStructField(Handle, i, out string name, out DataTypeHandle typeHandle);
+                    
+                    fields.Add((name, new DataType(typeHandle)));
+                }
+
+                _structFields = fields.AsReadOnly();
+            }
+
+            return _structFields;
+        }
+    }
+
     // =========================================================================
     // Value Equality Implementation
     // =========================================================================
@@ -143,6 +174,21 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
                     if (myInner == null || otherInner == null) return false;
                     return myInner.Equals(otherInner);
                 }
+            case DataTypeKind.Struct:
+                var myFields = StructFields;
+                var otherFields = other.StructFields;
+
+                if (myFields == null && otherFields == null) return true;
+                if (myFields == null || otherFields == null) return false;
+                if (myFields.Count != otherFields.Count) return false;
+
+                for (int i = 0; i < myFields.Count; i++)
+                {
+                    if (myFields[i].Name != otherFields[i].Name) return false;
+                    
+                    if (!myFields[i].Type.Equals(otherFields[i].Type)) return false;
+                }
+                return true;
 
             default:
                 return true;
@@ -261,4 +307,29 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
         
         return new DataType(h, DataTypeKind.Struct);
     }
+    /// <summary>
+    /// Create a Struct DataType from a collection of named fields.
+    /// Preserves the exact order of the fields, which is strictly required by Polars.
+    /// </summary>
+    public static DataType Struct(IEnumerable<(string Name, DataType Type)> fields)
+    {
+        var names = new List<string>();
+        var handles = new List<DataTypeHandle>();
+
+        foreach (var field in fields)
+        {
+            names.Add(field.Name);
+            handles.Add(field.Type.Handle);
+        }
+
+        var h = PolarsWrapper.NewStructType(names.ToArray(), handles.ToArray());
+        return new DataType(h, DataTypeKind.Struct);
+    }
+    /// <summary>
+    /// Create a Struct DataType explicitly using Tuples.
+    /// <para>Example: <c>DataType.Struct(("Id", DataType.Int32), ("Name", DataType.String))</c></para>
+    /// </summary>
+    public static DataType Struct(params (string Name, DataType Type)[] fields)
+        => Struct((IEnumerable<(string Name, DataType Type)>)fields);
+    
 }

@@ -89,19 +89,27 @@ public static partial class PolarsWrapper
     /// Get Struct field length
     /// </summary>
     public static ulong GetStructLen(DataTypeHandle handle)
-        => (ulong)NativeBindings.pl_datatype_get_struct_len(handle);
+    {        
+        bool success = NativeBindings.pl_datatype_get_struct_len(handle,out uint len);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return len;
+    }
 
     /// <summary>
     /// Get Struct field info for specified index。
     /// </summary>
     public static void GetStructField(DataTypeHandle handle, ulong index, out string name, out DataTypeHandle typeHandle)
     {
-        NativeBindings.pl_datatype_get_struct_field(
+        bool success = NativeBindings.pl_datatype_get_struct_field(
             handle, 
             (UIntPtr)index, 
             out IntPtr namePtr, 
             out var outTypeHandle
         );
+
+        ErrorHelper.CheckBool(success); 
 
         typeHandle = ErrorHelper.Check(outTypeHandle);
         

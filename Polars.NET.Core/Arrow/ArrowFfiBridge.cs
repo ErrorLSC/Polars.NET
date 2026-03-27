@@ -21,8 +21,8 @@ public static class ArrowFfiBridge
 
         try
         {
-            NativeBindings.pl_datatype_export_arrow_schema(dataTypeHandle, cSchema);
-
+            bool success = NativeBindings.pl_datatype_export_arrow_schema(dataTypeHandle, cSchema);
+            ErrorHelper.CheckBool(success);
             var field = CArrowSchemaImporter.ImportField(cSchema);
             return field.DataType;
         }

@@ -15,25 +15,6 @@ pub unsafe extern "C" fn pl_schema_len(ptr: *mut SchemaContext, out_len: *mut us
     })
 }
 
-// #[unsafe(no_mangle)]
-// pub unsafe extern "C" fn pl_schema_get_at_index(
-//     ptr: *mut SchemaContext,
-//     index: usize,
-//     name_out: *mut *mut c_char,
-//     dtype_out: *mut *mut DataType 
-// ) {
-//     let ctx = unsafe{&*ptr};
-    
-//     if let Some((name, dtype)) = ctx.schema.get_at_index(index) {
-//         unsafe {*name_out = CString::new(name.as_str()).unwrap().into_raw()};
-        
-//         unsafe {*dtype_out = Box::into_raw(Box::new(dtype.clone()))};
-//     } else {
-//         unsafe {*name_out = std::ptr::null_mut()};
-//         unsafe {*dtype_out = std::ptr::null_mut()};
-//     }
-// }
-
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_schema_get_at_index(
     ptr: *mut SchemaContext,

@@ -379,48 +379,84 @@ pub unsafe extern "C" fn pl_datatype_get_array_width(ptr: *mut DataTypeContext) 
     result.unwrap_or(0)
 }
 
-// Get Struct field length
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pl_datatype_get_struct_len(ptr: *mut DataType) -> usize {
-    let dtype = unsafe {&*ptr};
-    if let DataType::Struct(fields) = dtype {
-        fields.len()
-    } else {
-        0
-    }
+pub extern "C" fn pl_datatype_get_struct_len(
+    ptr: *mut DataType,
+    out_len: *mut usize
+) -> bool {
+    ffi_bool_try!({
+        if ptr.is_null() {
+            polars_bail!(ComputeError: "DataType pointer is null");
+        }
+        
+        let dtype = unsafe { &*ptr };
+        
+        if let DataType::Struct(fields) = dtype {
+            unsafe { *out_len = fields.len() };
+            Ok(())
+        } else {
+            polars_bail!(ComputeError: "Expected Struct DataType, but got: {:?}", dtype);
+        }
+    })
 }
 
-// Get Struct field name and dtype
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pl_datatype_get_struct_field(
+pub extern "C" fn pl_datatype_get_struct_field(
     ptr: *mut DataType, 
     index: usize, 
     name_out: *mut *mut c_char, 
     type_out: *mut *mut DataType
-) {
-    let dtype = unsafe {&*ptr};
-    if let DataType::Struct(fields) = dtype {
-        if index < fields.len() {
-            let field = &fields[index]; // Field { name, dtype }
-            
-            unsafe {*name_out = CString::new(field.name.as_str()).unwrap().into_raw()};
-            
-            unsafe {*type_out = Box::into_raw(Box::new(field.dtype.clone()))};
+) -> bool {
+    ffi_bool_try!({
+        if ptr.is_null() {
+            polars_bail!(ComputeError: "DataType pointer is null");
         }
-    }
+        
+        let dtype = unsafe { &*ptr };
+        
+        if let DataType::Struct(fields) = dtype {
+            if index >= fields.len() {
+                polars_bail!(OutOfBounds: "Index {} is out of bounds for Struct DataType with {} fields", index, fields.len());
+            }
+            
+            let field = &fields[index];
+            
+            let c_name = CString::new(field.name.as_str())
+                .map_err(|e| polars_err!(ComputeError: "Struct field name contains null byte: {}", e))?;
+            
+            unsafe {
+                *name_out = c_name.into_raw();
+                *type_out = Box::into_raw(Box::new(field.dtype.clone()));
+            }
+            Ok(())
+        } else {
+            polars_bail!(ComputeError: "Expected Struct DataType, but got: {:?}", dtype);
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pl_datatype_export_arrow_schema(
+pub extern "C" fn pl_datatype_export_arrow_schema(
     ptr: *mut DataType,
     out_schema: *mut polars_arrow::ffi::ArrowSchema, 
-) {
-    let dtype = unsafe { &*ptr };
-    
-    let arrow_type = dtype.to_arrow(CompatLevel::newest());
-    let field = polars_arrow::datatypes::Field::new("value".into(), arrow_type, true);
-    
-    let schema = polars_arrow::ffi::export_field_to_c(&field);
-    
-    unsafe { std::ptr::write(out_schema, schema); }
+) -> bool {
+    ffi_bool_try!({
+        if ptr.is_null() {
+            polars_bail!(ComputeError: "DataType pointer is null");
+        }
+        if out_schema.is_null() {
+            polars_bail!(ComputeError: "Output ArrowSchema pointer is null");
+        }
+
+        let dtype = unsafe { &*ptr };
+        
+        let arrow_type = dtype.to_arrow(CompatLevel::newest());
+        let field = polars_arrow::datatypes::Field::new("value".into(), arrow_type, true);
+
+        let schema = polars_arrow::ffi::export_field_to_c(&field);
+        
+        unsafe { std::ptr::write(out_schema, schema); }
+        
+        Ok(())
+    })
 }

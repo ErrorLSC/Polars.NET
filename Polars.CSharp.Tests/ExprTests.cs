@@ -923,7 +923,7 @@ TooShort,1990-05-20,1.60";
 
             Assert.Equal(DataTypeKind.Float64, arrType.InnerType.Kind);
 
-            Assert.Equal(5UL, arrType.ArrayWidth);
+            Assert.Equal(5L, arrType.ArrayWidth);
         }
         [Fact]
         public void Test_Series_Array_ReadItem()

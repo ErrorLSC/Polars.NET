@@ -500,7 +500,7 @@ public class DataTypeTests
 
         Assert.Equal(DataTypeKind.Array, dtype.Kind);
         
-        Assert.Equal(3UL, dtype.ArrayWidth);
+        Assert.Equal(3L, dtype.ArrayWidth);
         
         Assert.Equal(DataTypeKind.Int32, dtype.InnerType.Kind);
     }
@@ -1055,5 +1055,50 @@ public class DataTypeTests
         };
 
         Assert.Throws<OverflowException>(() => Series.From("huge_decimal", data));
+    }
+    [Fact]
+    [Trait("DataType","Struct")]
+    public void Test_LitStruct_Creation_And_Metadata_Extraction()
+    {
+        var inputObj = new 
+        { 
+            Id = 42, 
+            Name = "Polars.NET", 
+            Score = 99.5,
+            IsActive = true 
+        };
+
+        using var df = new DataFrame()
+            .Select(LitStruct(inputObj).Alias("my_struct"));
+
+        var structType = df.Schema["my_struct"];
+        var expectedType = DataType.Struct(
+            ("Id", DataType.Int32),
+            ("Name", DataType.String),
+            ("Score", DataType.Float64),
+            ("IsActive", DataType.Boolean)
+        );
+
+        Assert.Equal(expectedType, structType);
+        Assert.Equal(4, structType.StructFields.Count);
+
+        Assert.Equal("Id", structType.StructFields[0].Name);
+        Assert.Equal(DataType.Int32, structType.StructFields[0].Type);
+
+        Assert.Equal("Name", structType.StructFields[1].Name);
+        Assert.Equal(DataType.String, structType.StructFields[1].Type);
+
+        Assert.Equal("Score", structType.StructFields[2].Name);
+        Assert.Equal(DataType.Float64, structType.StructFields[2].Type);
+
+        Assert.Equal("IsActive", structType.StructFields[3].Name);
+        Assert.Equal(DataType.Boolean, structType.StructFields[3].Type);
+
+        using var unnestedDf = df.Unnest("my_struct");
+
+        Assert.Equal(42, unnestedDf.GetValue<int>(0, "Id"));
+        Assert.Equal("Polars.NET", unnestedDf.GetValue<string>(0, "Name"));
+        Assert.Equal(99.5, unnestedDf.GetValue<double>(0, "Score"));
+        Assert.True(unnestedDf.GetValue<bool>(0, "IsActive"));
     }
 }

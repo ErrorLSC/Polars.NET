@@ -9,7 +9,8 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial void pl_datatype_free(IntPtr ptr);
     [LibraryImport(LibName)]
-    public static partial void pl_datatype_export_arrow_schema(DataTypeHandle dataTypePtr,CArrowSchema* outSchema);
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_datatype_export_arrow_schema(DataTypeHandle dataTypePtr,CArrowSchema* outSchema);
     [LibraryImport(LibName)]
     public static partial DataTypeHandle pl_datatype_new_primitive(int code);
 
@@ -44,29 +45,31 @@ unsafe internal partial class NativeBindings
     public static partial IntPtr pl_datatype_to_string(DataTypeHandle handle);
     [LibraryImport(LibName)]
     public static partial DataTypeHandle pl_datatype_clone(DataTypeHandle handle);
-    // 1. GetKind -
+    // 1. GetKind 
     [LibraryImport(LibName)]
     public static partial int pl_datatype_get_kind(DataTypeHandle handle);
 
-    // 2. GetTimeUnit -
+    // 2. GetTimeUnit 
     [LibraryImport(LibName)]
     public static partial int pl_datatype_get_time_unit(DataTypeHandle handle);
 
-    // 3. GetDecimalInfo - 
+    // 3. GetDecimalInfo  
     [LibraryImport(LibName)]
     public static partial void pl_datatype_get_decimal_info(DataTypeHandle handle, out int precision, out int scale);
 
-    // 4. GetTimeZone - 
+    // 4. GetTimeZone  
     [LibraryImport(LibName)]
     public static partial IntPtr pl_datatype_get_timezone(DataTypeHandle handle);
     [LibraryImport(LibName)]
     public static partial DataTypeHandle pl_datatype_get_inner(DataTypeHandle handle);
 
     [LibraryImport(LibName)]
-    public static partial UIntPtr pl_datatype_get_struct_len(DataTypeHandle handle);
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_datatype_get_struct_len(DataTypeHandle handle, out uint len);
 
     [LibraryImport(LibName)]
-    public static partial void pl_datatype_get_struct_field(
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_datatype_get_struct_field(
         DataTypeHandle handle, 
         UIntPtr index, 
         out IntPtr namePtr,       
