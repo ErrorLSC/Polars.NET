@@ -892,13 +892,6 @@ pub extern "C" fn pl_lazy_explain(lf_ptr: *mut LazyFrameContext, optimized: bool
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_free_string(ptr: *mut std::os::raw::c_char) {
-    if !ptr.is_null() {
-        unsafe { let _ = std::ffi::CString::from_raw(ptr); }
-    }
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn pl_lazy_clone(lf_ptr: *mut LazyFrameContext) -> *mut LazyFrameContext {
     let ctx = unsafe { &*lf_ptr };
     

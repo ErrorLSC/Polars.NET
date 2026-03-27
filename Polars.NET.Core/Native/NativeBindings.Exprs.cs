@@ -591,8 +591,6 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_quantile(ExprHandle e, double quantile, PlQuantileMethod interpol);
 
     [LibraryImport(LibName)]
-    public static partial void pl_free_c_string(IntPtr ptr);
-    [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_gather(ExprHandle expr, ExprHandle idx);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_gather_every(ExprHandle expr, nuint n, nuint offset);

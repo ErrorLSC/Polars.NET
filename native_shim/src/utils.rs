@@ -8,11 +8,9 @@ use polars_io::utils::sync_on_close::SyncOnCloseType;
 use crate::types::{ExprContext,SchemaContext};
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_free_c_string(c_str: *mut std::os::raw::c_char) {
-    if !c_str.is_null() {
-        unsafe {
-            let _ = std::ffi::CString::from_raw(c_str);
-        }
+pub extern "C" fn pl_free_string(ptr: *mut std::os::raw::c_char) {
+    if !ptr.is_null() {
+        unsafe { let _ = std::ffi::CString::from_raw(ptr); }
     }
 }
 

@@ -88,7 +88,6 @@ pub extern "C" fn pl_expr_map(
 
         let new_expr = ctx.inner.map(
             move |c| {
-                // [Logic from previous step]
                 // Column -> Series
                 let s = c.as_materialized_series().clone();
                 
