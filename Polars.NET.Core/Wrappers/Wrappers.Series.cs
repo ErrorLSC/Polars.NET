@@ -13,7 +13,13 @@ public static partial class PolarsWrapper
     public static SeriesHandle SeriesRechunk(SeriesHandle handle)
         => NativeBindings.pl_series_rechunk(handle);
     public static nuint SeriesChunkCounts(SeriesHandle handle)
-        => NativeBindings.pl_series_chunk_count(handle);
+    {
+        bool success = NativeBindings.pl_series_chunk_count(handle,out uint count);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return count;
+    }
     // --- Constructors ---
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SeriesHandle SeriesNew(string name, ReadOnlySpan<sbyte> data, ReadOnlySpan<byte> validity = default)
@@ -816,7 +822,22 @@ public static partial class PolarsWrapper
     {
         return ErrorHelper.Check(NativeBindings.pl_series_get_dtype(handle));
     }
-    public static long SeriesLen(SeriesHandle h) => (long)NativeBindings.pl_series_len(h);
+    public static long SeriesLen(SeriesHandle handle)
+    {
+        bool success = NativeBindings.pl_series_len(handle,out uint count);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return count;
+    }
+    public static long SeriesApproxNUnique(SeriesHandle series)
+    {
+        bool success = NativeBindings.pl_series_approx_n_unique(series, out uint count);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return count;
+    }
     
     public static string SeriesName(SeriesHandle h) 
     {
@@ -849,14 +870,32 @@ public static partial class PolarsWrapper
 
     public static double? SeriesGetDouble(SeriesHandle s, long idx)
     {
-        if (NativeBindings.pl_series_get_f64(s, (UIntPtr)idx, out double val)) return val;
-        return null;
+        bool success = NativeBindings.pl_series_get_f64(
+            s, (nuint)idx, out double val, out bool isNull);
+        
+        ErrorHelper.CheckBool(success);
+        if (isNull) return null;
+
+        return val;
     }
 
     public static bool? SeriesGetBool(SeriesHandle s, long idx)
     {
-        if (NativeBindings.pl_series_get_bool(s, (UIntPtr)idx, out bool val)) return val;
-        return null;
+        bool success = NativeBindings.pl_series_get_bool(
+            s, 
+            (nuint)idx, 
+            out bool val, 
+            out bool isNull
+        );
+
+        ErrorHelper.CheckBool(success);
+
+        if (isNull)
+        {
+            return null;
+        }
+
+        return val;
     }
 
     public static string? SeriesGetString(SeriesHandle s, long idx)
@@ -867,93 +906,171 @@ public static partial class PolarsWrapper
 
     public static decimal? SeriesGetDecimal(SeriesHandle s, long idx)
     {
-        // Get Int128 raw value and scale
-        if (NativeBindings.pl_series_get_decimal(s, (UIntPtr)idx, out Int128 val, out UIntPtr scalePtr))
+        bool success = NativeBindings.pl_series_get_decimal(
+            s, 
+            (nuint)idx, 
+            out Int128 val, 
+            out nuint precision, 
+            out nuint scale, 
+            out bool isNull
+        );
+
+        ErrorHelper.CheckBool(success);
+
+        if (isNull)
         {
-            int scale = (int)scalePtr;
-
-            // Boundary Check ：C# decimal max Scale is 28
-            // If Polars Scale > 28，C# decimal is not able to save such data
-            if (scale >= DecimalPacker.PowersOf10Int128.Length) 
-            {
-                // Fallback: lose accuracy or return null
-                try { return (decimal)val / (decimal)Math.Pow(10, scale); }
-                catch { return null; }
-            }
-
-            // Int128 -> Decimal
-            
-            Int128 divisor = DecimalPacker.PowersOf10Int128[scale];
-
-            // Integer Part
-            Int128 intPart = val / divisor;
-            // Fractional Part
-            Int128 remPart = val % divisor;
-
-            try 
-            {
-                // Int part
-                decimal dInt = (decimal)intPart;
-                
-                // rem part
-                decimal dRem = (decimal)remPart;
-                decimal dDivisor = (decimal)divisor; 
-                
-                // Assemble
-                return dInt + (dRem / dDivisor);
-            }
-            catch (OverflowException)
-            {
-                return null;
-            }
+            return null;
         }
-        return null;
+
+        int scaleInt = (int)scale;
+        int precisionInt = (int)precision;
+
+        // if (precisionInt > 29)
+        // {
+        //     throw new OverflowException(
+        //         $"Cannot safely marshal Polars Decimal({precisionInt}, {scaleInt}) to C# decimal. " +
+        //         "C# decimal supports a maximum precision of 29. " +
+        //         "Consider extracting this as a string (.Cast(DataType.String)) to preserve accuracy."
+        //     );
+        // }
+
+        if (scaleInt >= DecimalPacker.PowersOf10Int128.Length) 
+        {
+            try { return (decimal)val / (decimal)Math.Pow(10, scaleInt); }
+            catch { return null; }
+        }
+
+        Int128 divisor = DecimalPacker.PowersOf10Int128[scaleInt];
+        Int128 intPart = val / divisor;
+        Int128 remPart = val % divisor;
+
+        try 
+        {
+            decimal dInt = (decimal)intPart;
+            decimal dRem = (decimal)remPart;
+            decimal dDivisor = (decimal)divisor; 
+            
+            return dInt + (dRem / dDivisor);
+        }
+        catch (OverflowException)
+        {
+            return null;
+        }
     }
     // Date: Days since 1970-01-01
     public static DateOnly? SeriesGetDate(SeriesHandle s, long idx)
     {
-        if (NativeBindings.pl_series_get_date(s, (UIntPtr)idx, out int days))
+        bool success = NativeBindings.pl_series_get_date(
+            s, 
+            (nuint)idx, 
+            out int days, 
+            out bool isNull
+        );
+
+        ErrorHelper.CheckBool(success);
+
+        if (isNull)
         {
-            // 719162 is days from 0001-01-01 to 1970-01-01
-            return DateOnly.FromDayNumber(days + 719162); 
+            return null;
         }
-        return null;
+
+        return DateOnly.FromDayNumber(days + 719162); 
     }
 
     // Time: Nanoseconds since midnight
     public static TimeOnly? SeriesGetTime(SeriesHandle s, long idx)
     {
-        if (NativeBindings.pl_series_get_time(s, (UIntPtr)idx, out long ns))
+        bool success = NativeBindings.pl_series_get_time(
+            s, 
+            (nuint)idx, 
+            out long ns, 
+            out bool isNull
+        );
+        ErrorHelper.CheckBool(success);
+
+        if (isNull)
         {
-            // .NET Ticks = 100ns
-            long ticks = ns / 100;
-            return new TimeOnly(ticks);
+            return null;
         }
-        return null;
+
+        // .NET Ticks = 100ns
+        return new TimeOnly(ns /100);
     }
 
     // Datetime: Microseconds since 1970-01-01 (Assuming 'us' time unit)
-    public static DateTime? SeriesGetDatetime(SeriesHandle s, long idx)
+    /// <summary>
+    /// Gets the Datetime value at the specified index.
+    /// Returns a tuple containing the .NET DateTime and the TimeZone string (if aware).
+    /// </summary>
+    public static (DateTime Value, string? TimeZone)? SeriesGetDatetime(SeriesHandle s, long idx)
     {
-        if (NativeBindings.pl_series_get_datetime(s, (UIntPtr)idx, out long us))
+        bool success = NativeBindings.pl_series_get_datetime(
+            s, 
+            (nuint)idx, 
+            out long val, 
+            out PlTimeUnit timeUnit, 
+            out IntPtr tzPtr, 
+            out bool isNull
+        );
+
+        ErrorHelper.CheckBool(success);
+
+        if (isNull) return null;
+
+        string? timeZone = null;
+        if (tzPtr != IntPtr.Zero)
         {
-            // .NET Ticks = 100ns. 1 us = 10 ticks.
-            // Unix Epoch Ticks = 621355968000000000
-            long ticks = (us * 10) + 621355968000000000L;
-            return new DateTime(ticks, DateTimeKind.Unspecified); // Default Unspecified
+            try 
+            { 
+                timeZone = Marshal.PtrToStringUTF8(tzPtr); 
+            }
+            finally 
+            { 
+                NativeBindings.pl_free_string(tzPtr); 
+            }
         }
-        return null;
+
+        long ticks = timeUnit switch
+        {
+            PlTimeUnit.Nanoseconds => val / 100,             // Nanoseconds (ns)
+            PlTimeUnit.Microseconds => val * 10,              // Microseconds (us)
+            PlTimeUnit.Milliseconds => val * 10000,           // Milliseconds (ms)
+            _ => throw new PolarsException("Unknown TimeUnit returned from Polars.")
+        };
+
+        DateTime dt = DateTime.UnixEpoch.AddTicks(ticks);
+
+        // ====================================================================
+        // Wall Clock Modification
+        // ====================================================================
+        if (string.IsNullOrEmpty(timeZone))
+        {
+            dt = DateTime.SpecifyKind(dt, DateTimeKind.Unspecified);
+        }
+        else
+        {
+            dt = DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+        }
+
+        return (dt, timeZone);
     }
 
-    // Duration: Microseconds (Assuming 'us')
+    // Duration
     public static TimeSpan? SeriesGetDuration(SeriesHandle s, long idx)
     {
-        if (NativeBindings.pl_series_get_duration(s, (UIntPtr)idx, out long us))
+        bool success = NativeBindings.pl_series_get_duration(
+            s, (nuint)idx, out long val, out PlTimeUnit timeUnit, out bool isNull);
+        
+        ErrorHelper.CheckBool(success);
+        if (isNull) return null;
+
+        return timeUnit switch
         {
-            // 1 us = 10 ticks
-            return new TimeSpan(us * 10);
-        }
-        return null;
+            PlTimeUnit.Nanoseconds => TimeSpan.FromTicks(val / 100),       // Nanoseconds
+            PlTimeUnit.Microseconds => TimeSpan.FromTicks(val * 10),        // Microseconds
+            PlTimeUnit.Milliseconds => TimeSpan.FromMilliseconds(val),      // Milliseconds
+            _ => throw new PolarsException("Unknown TimeUnit")
+        };
     }
     // --- Arrow Integration ---
 
@@ -999,10 +1116,17 @@ public static partial class PolarsWrapper
     public static SeriesHandle SeriesIsNotNan(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_not_nan(s));
     public static SeriesHandle SeriesIsFinite(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_finite(s));
     public static SeriesHandle SeriesIsInfinite(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_infinite(s));
-    public static long SeriesNullCount(SeriesHandle s) => (long)NativeBindings.pl_series_null_count(s);
+    public static long SeriesNullCount(SeriesHandle s) => NativeBindings.pl_series_null_count(s);
     public static SeriesHandle SeriesUnique(SeriesHandle handle) => ErrorHelper.Check(NativeBindings.pl_series_unique(handle));
     public static SeriesHandle SeriesUniqueStable(SeriesHandle handle) => ErrorHelper.Check(NativeBindings.pl_series_unique_stable(handle));
-    public static ulong SeriesNUnique(SeriesHandle handle) => NativeBindings.pl_series_n_unique(handle);
+    public static long SeriesNUnique(SeriesHandle handle)
+    {
+        bool success = NativeBindings.pl_series_n_unique(handle,out uint count);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return count;
+    }
     // Ops
     public static SeriesHandle SeriesAdd(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_add(s1, s2));
     public static SeriesHandle SeriesSub(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_sub(s1, s2));

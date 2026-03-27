@@ -402,7 +402,7 @@ public class SeriesTests
         using var s = Series.From("nums", [1, 2, 2, 3]);
 
         // NUnique
-        Assert.Equal(3UL, s.NUnique); 
+        Assert.Equal(3L, s.NUnique()); 
 
         // IsDuplicated
         using var dupMask = s.IsDuplicated();

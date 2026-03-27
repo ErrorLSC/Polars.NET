@@ -316,6 +316,12 @@ public partial class Expr : IDisposable
     /// </summary>
     public Expr NUnique() => new(PolarsWrapper.NUnique(CloneHandle()));
     /// <summary>
+    /// Approximate count of unique values.
+    /// This is done using the HyperLogLog++ algorithm for cardinality estimation.
+    /// </summary>
+    /// <returns></returns>
+    public Expr ApproxNUnique() => new(PolarsWrapper.ApproxNUnique(CloneHandle()));
+    /// <summary>
     /// Compute the product of an expression
     /// </summary>
     /// <returns></returns>

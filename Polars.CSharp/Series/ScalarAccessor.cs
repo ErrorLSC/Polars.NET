@@ -49,7 +49,7 @@ public partial class Series : IDisposable,IPolarsSeries
             return (T?)(object?)PolarsWrapper.SeriesGetBool(Handle, index);
 
         // 3. String
-        if (underlying == typeof(string) && this.DataType != DataType.Categorical) 
+        if (underlying == typeof(string) && DataType != DataType.Categorical) 
         {
             if (PolarsWrapper.SeriesIsNullAt(Handle, index))
             {
@@ -74,8 +74,29 @@ public partial class Series : IDisposable,IPolarsSeries
             
         if (underlying == typeof(TimeSpan))
             return (T?)(object?)PolarsWrapper.SeriesGetDuration(Handle, index);
-        // if (underlying == typeof(DateTime))
-            // return (T?)(object?)PolarsWrapper.SeriesGetDatetime(Handle, index);
+        if (underlying == typeof(DateTime))
+        {
+            // 拿到豪华版元组 (DateTime, string?)
+            var dtTuple = PolarsWrapper.SeriesGetDatetime(Handle, index);
+            
+            // 如果底层是 null，直接返回泛型默认值 (对于 DateTime? 来说就是 null)
+            if (!dtTuple.HasValue) 
+                return default;
+            
+            // 解包！dtTuple.Value 是元组，dtTuple.Value.Value 是里面的 DateTime 
+            // 顺便做一下装箱拆箱操作，满足泛型 T 的要求
+            return (T)(object)dtTuple.Value.Value;
+        }
+        if (underlying == typeof(ValueTuple<DateTime, string>))
+        {
+            var dtTuple = PolarsWrapper.SeriesGetDatetime(Handle, index);
+            if (!dtTuple.HasValue) 
+                return default;
+
+            // 这里注意，由于 C# 的元组在反射时没有可空注解，
+            // 元组的值就是 dtTuple.Value
+            return (T)(object)dtTuple.Value;
+        }
 
         // ==============================================================
         // Universal Path - using Arrow Infrastructure

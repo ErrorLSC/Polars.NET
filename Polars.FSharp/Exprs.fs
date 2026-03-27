@@ -200,6 +200,7 @@ and Expr(handle: ExprHandle) =
     member this.Min() = new Expr(PolarsWrapper.Min (this.CloneHandle()))
     member this.NullCount() = new Expr(PolarsWrapper.NullCount (this.CloneHandle()))
     member this.NUnique() = new Expr(PolarsWrapper.NUnique (this.CloneHandle()))
+    member this.ApproxNUnique() = new Expr(PolarsWrapper.ApproxNUnique (this.CloneHandle()))
     member this.Product() = new Expr(PolarsWrapper.Product (this.CloneHandle()))
     
     // Math

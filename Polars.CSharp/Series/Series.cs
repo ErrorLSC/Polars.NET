@@ -433,6 +433,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Return the length of the Series.
     /// </summary>
     public long Len() => Length;
+
     /// <summary>
     /// Name of the Series.
     /// </summary>
@@ -445,7 +446,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Get the number of null values in the Series.
     /// </summary>
     public long NullCount => PolarsWrapper.SeriesNullCount(Handle);
-
+    
     // ==========================================
     // Operations
     // ==========================================
@@ -777,9 +778,16 @@ public partial class Series : IDisposable,IPolarsSeries
     // Unique Ops and Boolean Mask
     // ==========================================
     /// <summary>
+    /// Get an approximation of the number of unique values in this Series.
+    /// Uses HyperLogLog algorithm for fast, memory-efficient counting.
+    /// </summary>
+    /// <returns>Approximate count of unique values.</returns>
+    public long ApproxNUnique() => PolarsWrapper.SeriesApproxNUnique(Handle);
+    
+    /// <summary>
     /// Count the number of unique values in this Series.
     /// </summary>
-    public ulong NUnique => PolarsWrapper.SeriesNUnique(Handle);
+    public long NUnique() => PolarsWrapper.SeriesNUnique(Handle);
 
     /// <summary>
     /// Get the unique elements of this Series.

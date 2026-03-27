@@ -379,20 +379,23 @@ type Series(handle: SeriesHandle) =
     /// <summary>
     /// Get unique values (distinct).
     /// </summary>
-    member this.Unique() =
-        new Series(PolarsWrapper.SeriesUnique handle)
+    member this.Unique() = new Series(PolarsWrapper.SeriesUnique handle)
 
     /// <summary>
     /// Get unique values (distinct), maintaining original order.
     /// </summary>
-    member this.UniqueStable() =
-        new Series(PolarsWrapper.SeriesUniqueStable handle)
+    member this.UniqueStable() = new Series(PolarsWrapper.SeriesUniqueStable handle)
 
     /// <summary>
     /// Count the number of unique values.
     /// </summary>
-    member this.NUnique = 
-        PolarsWrapper.SeriesNUnique handle
+    member this.NUnique = PolarsWrapper.SeriesNUnique handle
+    /// <summary>
+    /// Get an approximation of the number of unique values in this Series.
+    /// Uses HyperLogLog algorithm for fast, memory-efficient counting.
+    /// </summary>
+    /// <returns>Approximate count of unique values.</returns>
+    member this.ApproxNUnique() = PolarsWrapper.SeriesApproxNUnique handle
     /// <summary>
     /// Get a boolean mask indicating which values are unique.
     /// Implemented via Expression engine.

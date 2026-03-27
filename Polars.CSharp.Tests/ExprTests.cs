@@ -301,8 +301,8 @@ TooShort,1990-05-20,1.60";
         Assert.Equal("2023/12/25", res.GetValue<string>(0, "fmt_custom"));
 
 
-        var expectedDate = new DateTime(2023, 12, 25);
-        var actualDate = res.GetValue<DateTime>(0, "date_only");
+        var expectedDate = new DateOnly(2023, 12, 25);
+        var actualDate = res.GetValue<DateOnly>(0, "date_only");
 
         Assert.Equal(expectedDate, actualDate); 
 
@@ -570,7 +570,7 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(DataTypeKind.Date, res.Schema["parsed_date"].Kind);
         
 
-        Assert.NotNull(res.GetValue<DateTime?>(0, "parsed_date")); 
+        Assert.NotNull(res.GetValue<DateOnly?>(0, "parsed_date")); 
 
         Assert.Null(res.GetValue<DateTime?>(0, "parsed_dt"));
 
@@ -2378,5 +2378,48 @@ TooShort,1990-05-20,1.60";
         });
 
         Assert.Contains("cannot be empty", ex.Message);
+    }
+    [Fact]
+    [Trait("Expr", "ApproxNUnique")]
+    public void Test_ApproxNUnique_SmallDataset()
+    {
+        var data = new int[] { 1, 1, 2, 2, 3, 3, 3, 4, 5, 5 };
+        
+        using var df = DataFrame.FromColumns(
+            Series.From("values", data)
+        );
+
+        var expr = Col("values").ApproxNUnique().Alias("approx_count");
+        
+        using var resultDf = df.Select(expr);
+        var approxCount = resultDf.Column("approx_count").GetValue<uint>(0);
+
+        Assert.True(approxCount >= 4 && approxCount <= 6, 
+            $"Expected approximately 5, but got {approxCount}");
+            
+        Assert.Equal(5u, approxCount);
+    }
+
+    [Fact]
+    [Trait("Expr", "ApproxNUnique")]
+    public void Test_ApproxNUnique_String_Cardinality()
+    {
+        var strData = new string[] { "apple", "banana", "apple", "orange", "banana", "grape" };
+        
+        using var df = DataFrame.FromColumns(
+            Series.From("fruits", strData)
+        );
+
+        var exprExact = Col("fruits").NUnique().Alias("exact");
+        var exprApprox = Col("fruits").ApproxNUnique().Alias("approx");
+
+        using var resultDf = df.Select(exprExact, exprApprox);
+        
+        var exactCount = resultDf.Column("exact").GetValue<uint>(0);
+        var approxCount = resultDf.Column("approx").GetValue<uint>(0);
+
+        Assert.Equal(4u, exactCount);
+
+        Assert.Equal(exactCount, approxCount); 
     }
 }   
