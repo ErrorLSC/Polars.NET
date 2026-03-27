@@ -389,7 +389,7 @@ type Series(handle: SeriesHandle) =
     /// <summary>
     /// Count the number of unique values.
     /// </summary>
-    member this.NUnique = PolarsWrapper.SeriesNUnique handle
+    member this.NUnique() = PolarsWrapper.SeriesNUnique handle
     /// <summary>
     /// Get an approximation of the number of unique values in this Series.
     /// Uses HyperLogLog algorithm for fast, memory-efficient counting.
@@ -1859,9 +1859,20 @@ type Series(handle: SeriesHandle) =
 
     member _.Time(index: int) : TimeOnly option = 
         PolarsWrapper.SeriesGetTime(handle, int64 index) |> Option.ofNullable
-
     member _.DateTime(index: int) : DateTime option = 
-        PolarsWrapper.SeriesGetDatetime(handle, int64 index) |> Option.ofNullable
+        let result = PolarsWrapper.SeriesGetDatetime(handle, int64 index)
+        if result.HasValue then
+            let struct (dt, _) = result.Value 
+            Some dt
+        else
+            None
+    /// <summary>
+    /// Gets the Datetime value and its TimeZone string at the specified index.
+    /// Returns None if the value is null.
+    /// </summary>
+    member _.DateTimeWithZone(index: int) : struct (DateTime * string) option = 
+        PolarsWrapper.SeriesGetDatetime(handle, int64 index)
+        |> Option.ofNullable
 
     member _.Duration(index: int) : TimeSpan option = 
         PolarsWrapper.SeriesGetDuration(handle, int64 index) |> Option.ofNullable
@@ -2231,6 +2242,18 @@ type Series(handle: SeriesHandle) =
             else if t = typeof<TimeSpan> || t = typeof<TimeSpan option> || t = typeof<Nullable<TimeSpan>> then
                 let v = PolarsWrapper.SeriesGetDuration(handle, index).Value
                 if t = typeof<TimeSpan option> then box (Some v) |> unbox<'T>
+                else box v |> unbox<'T>
+
+            else if t = typeof<DateTime> || t = typeof<DateTime option> || t = typeof<Nullable<DateTime>> then
+                let struct (dt, _) = PolarsWrapper.SeriesGetDatetime(handle, index).Value
+                
+                if t = typeof<DateTime option> then box (Some dt) |> unbox<'T>
+                else box dt |> unbox<'T>
+                
+            else if t = typeof<struct(DateTime * string)> || t = typeof<struct(DateTime * string) option> || t = typeof<Nullable<struct(DateTime * string)>> then
+                let v = PolarsWrapper.SeriesGetDatetime(handle, index).Value
+                
+                if t = typeof<struct(DateTime * string) option> then box (Some v) |> unbox<'T>
                 else box v |> unbox<'T>
 
             // --- Complex Types (Arrow Fallback) ---

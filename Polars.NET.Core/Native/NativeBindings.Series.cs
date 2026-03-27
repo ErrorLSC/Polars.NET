@@ -23,13 +23,13 @@ unsafe internal partial class NativeBindings
     // --- Series Getters ---
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)]
-    public static partial bool pl_series_get_i64(SeriesHandle s, UIntPtr idx, out long val);
+    public static partial bool pl_series_get_i64(SeriesHandle s, UIntPtr idx, out long val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)]
-    public static partial bool pl_series_get_i128(SeriesHandle s, UIntPtr idx, out Int128 val);
+    public static partial bool pl_series_get_i128(SeriesHandle s, UIntPtr idx, out Int128 val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)]
-    public static partial bool pl_series_get_u128(SeriesHandle series, UIntPtr idx, out UInt128 val);
+    public static partial bool pl_series_get_u128(SeriesHandle series, UIntPtr idx, out UInt128 val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)]
     public static partial bool pl_series_get_f64(SeriesHandle s, UIntPtr idx, out double val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
@@ -47,9 +47,6 @@ unsafe internal partial class NativeBindings
     public static partial IntPtr pl_series_get_str(SeriesHandle s, UIntPtr idx);
 
     // Decimal: out Int128, out UIntPtr (scale)
-    // [LibraryImport(LibName)]
-    // [return: MarshalAs(UnmanagedType.I1)]
-    // public static partial bool pl_series_get_decimal(SeriesHandle s, UIntPtr idx, out Int128 val, out UIntPtr scale);
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_get_decimal(
@@ -353,7 +350,11 @@ unsafe internal partial class NativeBindings
     public static partial IntPtr pl_series_name(SeriesHandle h);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial void pl_series_rename(SeriesHandle h, string name);
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_series_rename(
+        SeriesHandle series, 
+        string name
+    );
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_is_null(SeriesHandle s);
 

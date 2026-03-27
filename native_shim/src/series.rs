@@ -669,11 +669,34 @@ pub extern "C" fn pl_series_name(ptr: *mut SeriesContext) -> *mut c_char {
     })
 }
 
+// #[unsafe(no_mangle)]
+// pub extern "C" fn pl_series_rename(ptr: *mut SeriesContext, name: *const c_char) {
+//     let ctx = unsafe { &mut *ptr };
+//     let name_str = unsafe { CStr::from_ptr(name).to_string_lossy() };
+//     ctx.series.rename(name_str.into());
+// }
+
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_series_rename(ptr: *mut SeriesContext, name: *const c_char) {
-    let ctx = unsafe { &mut *ptr };
-    let name_str = unsafe { CStr::from_ptr(name).to_string_lossy() };
-    ctx.series.rename(name_str.into());
+pub extern "C" fn pl_series_rename(ptr: *mut SeriesContext, name: *const c_char) -> bool {
+    // 套上我们的无敌防御宏
+    ffi_bool_try!({
+        // 1. 终极防线：绝对不允许空指针引发 UB
+        if ptr.is_null() {
+            polars_bail!(ComputeError: "Series pointer is null");
+        }
+        if name.is_null() {
+            polars_bail!(ComputeError: "Cannot rename Series to a null string");
+        }
+
+        // 2. 安全解引用
+        let ctx = unsafe { &mut *ptr };
+        let name_str = unsafe { CStr::from_ptr(name).to_string_lossy() };
+        
+        // 3. 执行重命名 (Polars 的 rename 是 in-place 修改)
+        ctx.series.rename(name_str.into());
+
+        Ok(())
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -933,75 +956,93 @@ pub extern "C" fn pl_series_n_unique(
 // --- Scalar Access ---
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_series_get_i64(s_ptr: *mut SeriesContext, idx: usize, out_val: *mut i64) -> bool {
-    let ctx = unsafe { &*s_ptr };
-    if idx >= ctx.series.len() { return false; }
+pub extern "C" fn pl_series_get_i64(
+    s_ptr: *mut SeriesContext, 
+    idx: usize, 
+    out_val: *mut i64,
+    out_is_null: *mut bool
+) -> bool {
+    ffi_bool_try!({
+        let ctx = unsafe { &*s_ptr };
+        
+        if idx >= ctx.series.len() {
+            polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
+        }
 
-    match ctx.series.get(idx) {
-        Ok(AnyValue::Int64(v)) => { unsafe { *out_val = v }; true }
-        Ok(AnyValue::Int32(v)) => { unsafe { *out_val = v as i64 }; true }
-        Ok(AnyValue::Int16(v)) => { unsafe { *out_val = v as i64 }; true }
-        Ok(AnyValue::Int8(v)) => { unsafe { *out_val = v as i64 }; true }
-        Ok(AnyValue::UInt64(v)) => { unsafe { *out_val = v as i64 }; true } 
-        Ok(AnyValue::UInt32(v)) => { unsafe { *out_val = v as i64 }; true }
-        _ => false // Null or type mismatch
-    }
+        match ctx.series.get(idx)? {
+            AnyValue::Int64(v) => unsafe { *out_val = v; *out_is_null = false; },
+            AnyValue::Int32(v) => unsafe { *out_val = v as i64; *out_is_null = false; },
+            AnyValue::Int16(v) => unsafe { *out_val = v as i64; *out_is_null = false; },
+            AnyValue::Int8(v)  => unsafe { *out_val = v as i64; *out_is_null = false; },
+            AnyValue::UInt64(v) => unsafe { *out_val = v as i64; *out_is_null = false; }, 
+            AnyValue::UInt32(v) => unsafe { *out_val = v as i64; *out_is_null = false; },
+            AnyValue::Null => unsafe { *out_is_null = true; },
+            other => polars_bail!(ComputeError: "Expected Integer, got DataType: {:?}", other.dtype()),
+        }
+        
+        Ok(())
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_get_i128(
     s_ptr: *mut SeriesContext, 
     idx: usize, 
-    out_val: *mut u64 
+    out_val: *mut i128, 
+    out_is_null: *mut bool
 ) -> bool {
-    let ctx = unsafe { &*s_ptr };
-    if idx >= ctx.series.len() { return false; }
+    ffi_bool_try!({
+        let ctx = unsafe { &*s_ptr };
+        
+        if idx >= ctx.series.len() {
+            polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
+        }
 
-    let val = match ctx.series.get(idx) {
-        Ok(AnyValue::Int128(v)) => v,
-        Ok(AnyValue::Int64(v))  => v as i128,
-        Ok(AnyValue::Int32(v))  => v as i128,
-        Ok(AnyValue::Int16(v))  => v as i128,
-        Ok(AnyValue::Int8(v))   => v as i128,
-        Ok(AnyValue::UInt64(v)) => v as i128,
-        Ok(AnyValue::UInt32(v)) => v as i128,
-        Ok(AnyValue::UInt16(v)) => v as i128,
-        Ok(AnyValue::UInt8(v))  => v as i128,
-        _ => return false // Null or mismatch
-    };
-
-
-    unsafe {
-        *out_val = val as u64; 
-        *out_val.add(1) = (val >> 64) as u64; 
-    }
-    true
+        match ctx.series.get(idx)? {
+            AnyValue::Int128(v) => unsafe { *out_val = v; *out_is_null = false; },
+            AnyValue::Int64(v)  => unsafe { *out_val = v as i128; *out_is_null = false; },
+            AnyValue::Int32(v)  => unsafe { *out_val = v as i128; *out_is_null = false; },
+            AnyValue::Int16(v)  => unsafe { *out_val = v as i128; *out_is_null = false; },
+            AnyValue::Int8(v)   => unsafe { *out_val = v as i128; *out_is_null = false; },
+            AnyValue::UInt64(v) => unsafe { *out_val = v as i128; *out_is_null = false; },
+            AnyValue::UInt32(v) => unsafe { *out_val = v as i128; *out_is_null = false; },
+            AnyValue::UInt16(v) => unsafe { *out_val = v as i128; *out_is_null = false; },
+            AnyValue::UInt8(v)  => unsafe { *out_val = v as i128; *out_is_null = false; },
+            AnyValue::Null      => unsafe { *out_is_null = true; },
+            other => polars_bail!(ComputeError: "Expected Integer, got DataType: {:?}", other.dtype()),
+        }
+        
+        Ok(())
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_get_u128(
     s_ptr: *mut SeriesContext, 
     idx: usize, 
-    out_val: *mut u64 
+    out_val: *mut u128, 
+    out_is_null: *mut bool
 ) -> bool {
-    let ctx = unsafe { &*s_ptr };
-    if idx >= ctx.series.len() { return false; }
+    ffi_bool_try!({
+        let ctx = unsafe { &*s_ptr };
+        
+        if idx >= ctx.series.len() {
+            polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
+        }
 
-    let val = match ctx.series.get(idx) {
-        Ok(AnyValue::UInt128(v)) => v,
-        Ok(AnyValue::UInt64(v)) => v as u128,
-        Ok(AnyValue::UInt32(v)) => v as u128,
-        Ok(AnyValue::UInt16(v)) => v as u128,
-        Ok(AnyValue::UInt8(v))  => v as u128,
-        Ok(AnyValue::Int64(v)) if v >= 0 => v as u128,
-        _ => return false
-    };
-
-    unsafe {
-        *out_val = val as u64;
-        *out_val.add(1) = (val >> 64) as u64;
-    }
-    true
+        match ctx.series.get(idx)? {
+            AnyValue::UInt128(v) => unsafe { *out_val = v; *out_is_null = false; },
+            AnyValue::UInt64(v)  => unsafe { *out_val = v as u128; *out_is_null = false; },
+            AnyValue::UInt32(v)  => unsafe { *out_val = v as u128; *out_is_null = false; },
+            AnyValue::UInt16(v)  => unsafe { *out_val = v as u128; *out_is_null = false; },
+            AnyValue::UInt8(v)   => unsafe { *out_val = v as u128; *out_is_null = false; },
+            AnyValue::Int64(v) if v >= 0 => unsafe { *out_val = v as u128; *out_is_null = false; },
+            AnyValue::Null       => unsafe { *out_is_null = true; },
+            other => polars_bail!(ComputeError: "Expected Unsigned Integer, got DataType: {:?}", other.dtype()),
+        }
+        
+        Ok(())
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -1214,8 +1255,8 @@ pub extern "C" fn pl_series_get_datetime(
     s_ptr: *mut SeriesContext, 
     idx: usize, 
     out_val: *mut i64, 
-    out_time_unit: *mut u8,       // 新增：接住 TimeUnit
-    out_timezone: *mut *mut c_char, // 新增：接住时区字符串指针
+    out_time_unit: *mut u8,      
+    out_timezone: *mut *mut c_char, 
     out_is_null: *mut bool
 ) -> bool {
     ffi_bool_try!({
@@ -1226,23 +1267,20 @@ pub extern "C" fn pl_series_get_datetime(
         }
 
         match ctx.series.get(idx)? {
-            // 解包出时间戳 v，时间单位 tu，时区 tz
             AnyValue::Datetime(v, tu, tz) => {
-                // 1. 转换 TimeUnit
                 let tu_val = match tu {
                     TimeUnit::Nanoseconds => 0,
                     TimeUnit::Microseconds => 1,
                     TimeUnit::Milliseconds => 2,
                 };
 
-                // 2. 转换 TimeZone (如果有的话，转为 CString 释放给 C#)
                 let tz_ptr = match tz {
                     Some(tz_str) => {
                         let c_str = CString::new(tz_str.as_str())
                             .map_err(|e| polars_err!(ComputeError: "TimeZone contains null byte: {}", e))?;
                         c_str.into_raw()
                     },
-                    None => std::ptr::null_mut(), // 没有时区就是 Naive Time，返回 Null 指针
+                    None => std::ptr::null_mut(),
                 };
 
                 unsafe { 
@@ -1255,7 +1293,7 @@ pub extern "C" fn pl_series_get_datetime(
             AnyValue::Null => {
                 unsafe { 
                     *out_is_null = true; 
-                    *out_timezone = std::ptr::null_mut(); // 兜底清理
+                    *out_timezone = std::ptr::null_mut(); 
                 }
             },
             other => {

@@ -845,7 +845,14 @@ public static partial class PolarsWrapper
         return ErrorHelper.CheckString(ptr) ;
     }
     
-    public static void SeriesRename(SeriesHandle h, string name) => NativeBindings.pl_series_rename(h, name);
+    public static void SeriesRename(SeriesHandle h, string name)
+    {
+
+        bool success = NativeBindings.pl_series_rename(h, name);
+        
+        ErrorHelper.CheckBool(success);
+    }
+    
 
     // --- DataFrame Conversion ---
     public static DataFrameHandle SeriesToFrame(SeriesHandle h) 
@@ -854,18 +861,33 @@ public static partial class PolarsWrapper
     }
     public static long? SeriesGetInt(SeriesHandle s, long idx)
     {
-        if (NativeBindings.pl_series_get_i64(s, (UIntPtr)idx, out long val)) return val;
-        return null;
+        bool success = NativeBindings.pl_series_get_i64(
+            s, (nuint)idx, out long val, out bool isNull);
+        
+        ErrorHelper.CheckBool(success);
+        if (isNull) return null;
+
+        return val;
     }
     public static Int128? SeriesGetInt128(SeriesHandle s, long idx)
     {
-        if (NativeBindings.pl_series_get_i128(s, (UIntPtr)idx, out Int128 val)) return val;
-        return null;
+        bool success = NativeBindings.pl_series_get_i128(
+            s, (nuint)idx, out Int128 val, out bool isNull);
+        
+        ErrorHelper.CheckBool(success);
+        if (isNull) return null;
+
+        return val;
     }
     public static UInt128? SeriesGetUInt128(SeriesHandle s, long idx)
     {
-        if (NativeBindings.pl_series_get_u128(s, (UIntPtr)idx, out UInt128 val)) return val;
-        return null;
+        bool success = NativeBindings.pl_series_get_u128(
+            s, (nuint)idx, out UInt128 val, out bool isNull);
+        
+        ErrorHelper.CheckBool(success);
+        if (isNull) return null;
+
+        return val;
     }
 
     public static double? SeriesGetDouble(SeriesHandle s, long idx)

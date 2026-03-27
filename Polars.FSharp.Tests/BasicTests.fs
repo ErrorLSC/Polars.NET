@@ -512,7 +512,7 @@ type ``Basic Functionality Tests`` () =
                 |> pl.filterLazy(pl.col "Group" .== pl.lit "A")
                 |> pl.collect
 
-        Assert.Equal(2L, res.Rows) // 只剩下 Id 1 和 3
+        Assert.Equal(2L, res.Rows) 
         Assert.Equal(1L, res.Int("Id", 0).Value)
         Assert.Equal(3L, res.Int("Id", 1).Value)
 
@@ -540,7 +540,7 @@ type ``Basic Functionality Tests`` () =
         let s = Series.create("nums", [1; 2; 2; 3])
 
         // NUnique (Native)
-        Assert.Equal(3UL, s.NUnique) // 1, 2, 3
+        Assert.Equal(3L, s.NUnique()) // 1, 2, 3
 
         // Unique (Native)
         let sUniq = s.Unique().Sort false // Sort to compare deterministically
