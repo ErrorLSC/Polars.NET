@@ -66,56 +66,56 @@ and DataType =
         let kind = PolarsWrapper.GetDataTypeKind handle
 
         match kind with
-        | 1 -> Boolean
-        | 2 -> Int8
-        | 3 -> Int16
-        | 4 -> Int32
-        | 5 -> Int64
-        | 6 -> UInt8
-        | 7 -> UInt16
-        | 8 -> UInt32
-        | 9 -> UInt64
-        | 10 -> Float32
-        | 11 -> Float64
-        | 12 -> String 
-        | 13 -> Date
-        | 24 -> Int128
-        | 25 -> UInt128
-        | 26 -> Float16
+        | PlDataType.Boolean -> Boolean
+        | PlDataType.Int8 -> Int8
+        | PlDataType.Int16 -> Int16
+        | PlDataType.Int32 -> Int32
+        | PlDataType.Int64 -> Int64
+        | PlDataType.UInt8 -> UInt8
+        | PlDataType.UInt16 -> UInt16
+        | PlDataType.UInt32 -> UInt32
+        | PlDataType.UInt64 -> UInt64
+        | PlDataType.Float32 -> Float32
+        | PlDataType.Float64 -> Float64
+        | PlDataType.String -> String 
+        | PlDataType.Date -> Date
+        | PlDataType.Int128 -> Int128
+        | PlDataType.UInt128 -> UInt128
+        | PlDataType.Float16 -> Float16
         
         // --- Complex Type ---
         
         // Datetime
-        | 14 -> 
+        | PlDataType.Datetime -> 
             let unitCode = PolarsWrapper.GetTimeUnit handle
             let unit = 
                 match unitCode with 
-                | 0 -> Nanoseconds 
-                | 1 -> Microseconds 
-                | 2 -> Milliseconds 
+                | PlTimeUnit.Nanoseconds -> Nanoseconds 
+                | PlTimeUnit.Microseconds -> Microseconds 
+                | PlTimeUnit.Milliseconds -> Milliseconds 
                 | _ -> Microseconds
             
             let tz = Option.ofObj (PolarsWrapper.GetTimeZone handle)
             Datetime(unit, tz)
 
-        | 15 -> Time
+        | PlDataType.Time -> Time
         
         // Duration
-        | 16 -> 
+        | PlDataType.Duration-> 
             let unitCode = PolarsWrapper.GetTimeUnit handle
             let unit = 
                 match unitCode with 
-                | 0 -> Nanoseconds 
-                | 1 -> Microseconds 
-                | 2 -> Milliseconds 
+                | PlTimeUnit.Nanoseconds -> Nanoseconds 
+                | PlTimeUnit.Microseconds -> Microseconds 
+                | PlTimeUnit.Milliseconds -> Milliseconds 
                 | _ -> Microseconds
             Duration unit
 
-        | 17 -> Binary
-        | 18 -> Null
+        | PlDataType.Binary -> Binary
+        | PlDataType.Null -> Null
         
         // Struct
-        | 19 -> 
+        | PlDataType.Struct -> 
             let len = PolarsWrapper.GetStructLen handle
             let fields = 
                 [ for i in 0UL .. len - 1UL do
@@ -130,21 +130,21 @@ and DataType =
             Struct fields
 
         // List
-        | 20 -> 
+        | PlDataType.List -> 
             use innerHandle = PolarsWrapper.GetInnerType handle
             let innerType = DataType.FromHandle innerHandle
             List innerType
 
-        | 21 -> Categorical
+        | PlDataType.Categorical -> Categorical
 
         // Decimal
-        | 22 -> 
+        | PlDataType.Decimal -> 
             let mutable prec = 0
             let mutable scale = 0
             PolarsWrapper.GetDecimalInfo(handle, &prec, &scale)
             Decimal(Some prec,Some scale)
 
-        | 23 -> 
+        | PlDataType.Array -> 
             use innerHandle = PolarsWrapper.GetInnerType handle
             let width = PolarsWrapper.DataTypeGetArrayWidth handle;
             let innerType = DataType.FromHandle innerHandle

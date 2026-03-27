@@ -1,5 +1,5 @@
-use std::{ffi::{CStr, CString, c_char}, panic::{AssertUnwindSafe, catch_unwind}};
-use crate::{error::set_error, types::DataTypeContext, utils::ptr_to_str};
+use std::ffi::{CStr, CString, c_char};
+use crate::{types::DataTypeContext};
 use polars::prelude::*;
 
 macro_rules! define_pl_datatype_kind {
@@ -80,16 +80,17 @@ define_pl_datatype_kind! {
 // Primitive Type
 // 0=Bool, 1=Int8, ... (Same as C# defined enum)
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pl_datatype_new_primitive(code: i32) -> *mut DataType {
-    // 1. Convert code to Kind
-    if let Some(kind) = PlDataTypeKind::from_i32(code) {
-        // 2. Convert Kind to DataType
-        let dtype = kind.to_default_datatype();
-        Box::into_raw(Box::new(dtype))
-    } else {
-        let dtype = DataType::Unknown(Default::default());
-        Box::into_raw(Box::new(dtype))
-    }
+pub extern "C" fn pl_datatype_new_primitive(code: i32) -> *mut DataType {
+    ffi_try!({
+        // Convert code to Kind
+        if let Some(kind) = PlDataTypeKind::from_i32(code) {
+            // Convert Kind to DataType
+            let dtype = kind.to_default_datatype();
+            Ok(Box::into_raw(Box::new(dtype)))
+        } else {
+            polars_bail!(ComputeError: "Invalid primitive DataType code: {}", code);
+        }
+    })
 }
 
 // Decimal 
@@ -97,35 +98,38 @@ pub unsafe extern "C" fn pl_datatype_new_primitive(code: i32) -> *mut DataType {
 // scale: decimal places
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_new_decimal(precision: usize, scale: usize) -> *mut DataTypeContext {
-    let prec = if precision == 0 { 38 } else { precision };
-    let dtype = DataType::Decimal(prec, scale);
-    Box::into_raw(Box::new(DataTypeContext { dtype }))
+    ffi_try!({
+        let prec = if precision == 0 { 38 } else { precision };
+        let dtype = DataType::Decimal(prec, scale);
+        
+        Ok(Box::into_raw(Box::new(DataTypeContext { dtype })))
+    })
 }
 
 // Categorical 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_new_categorical() -> *mut DataTypeContext {
-    let cats = Categories::random(PlSmallStr::EMPTY, CategoricalPhysical::U32);
-
-    let mapping = cats.mapping();
-
-    let dtype = DataType::Categorical(cats, mapping);
-    
-    Box::into_raw(Box::new(DataTypeContext { dtype }))
+    ffi_try!({
+        let cats = Categories::random(PlSmallStr::EMPTY, CategoricalPhysical::U32);
+        let mapping = cats.mapping();
+        let dtype = DataType::Categorical(cats, mapping);
+        
+        Ok(Box::into_raw(Box::new(DataTypeContext { dtype })))
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_new_list(inner_ptr: *mut DataTypeContext) -> *mut DataTypeContext {
-    assert!(!inner_ptr.is_null());
-    
-    // Get innertype reference
-    let inner_ctx = unsafe { &*inner_ptr };
-    
-    // Build List Type
-    // DataType::List needs Box<DataType>
-    let list_dtype = DataType::List(Box::new(inner_ctx.dtype.clone()));
-    
-    Box::into_raw(Box::new(DataTypeContext { dtype: list_dtype }))
+    ffi_try!({
+        if inner_ptr.is_null() {
+            polars_bail!(ComputeError: "Inner DataTypeContext pointer is null for List creation");
+        }
+        
+        let inner_ctx = unsafe { &*inner_ptr };
+        let list_dtype = DataType::List(Box::new(inner_ctx.dtype.clone()));
+        
+        Ok(Box::into_raw(Box::new(DataTypeContext { dtype: list_dtype })))
+    })
 }
 
 pub fn parse_timeunit(unit: u8) -> TimeUnit {
@@ -140,29 +144,36 @@ pub fn parse_timeunit(unit: u8) -> TimeUnit {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_new_duration(unit: u8) -> *mut DataTypeContext {
-    let time_unit = parse_timeunit(unit);
-    let dt = DataType::Duration(time_unit);
-    Box::into_raw(Box::new(DataTypeContext { dtype:dt }))
+    ffi_try!({
+        let time_unit = parse_timeunit(unit);
+        let dt = DataType::Duration(time_unit);
+        
+        Ok(Box::into_raw(Box::new(DataTypeContext { dtype: dt })))
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_new_datetime(
-    unit_code: u8,     // 0=ns, 1=us, 2=ms
-    tz_ptr: *const c_char // null=Naive, string=Aware
+    unit_code: u8,     
+    tz_ptr: *const c_char 
 ) -> *mut DataTypeContext {
-    let time_unit = parse_timeunit(unit_code);
+    ffi_try!({
+        let time_unit = parse_timeunit(unit_code);
 
-    let timezone = if tz_ptr.is_null() {
-        None
-    } else {
-        unsafe { 
-            let c_str = ptr_to_str(tz_ptr).unwrap();
-            Some(TimeZone::from_static(c_str))
-        }
-    };
+        let timezone = if tz_ptr.is_null() {
+            None
+        } else {
+            let c_str = unsafe { CStr::from_ptr(tz_ptr) }
+                .to_str()
+                .map_err(|e| polars_err!(ComputeError: "Invalid UTF-8 in timezone string: {}", e))?;
 
-    let dtype = DataType::Datetime(time_unit, timezone);
-    Box::into_raw(Box::new(DataTypeContext { dtype }))
+            unsafe {Some(TimeZone::from_static(c_str))}
+        };
+
+        let dtype = DataType::Datetime(time_unit, timezone);
+        
+        Ok(Box::into_raw(Box::new(DataTypeContext { dtype })))
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -170,16 +181,17 @@ pub extern "C" fn pl_datatype_new_array(
     inner_ptr: *mut DataTypeContext, 
     width: usize
 ) -> *mut DataTypeContext {
-    // Check null pointer
-    if inner_ptr.is_null() {
-        return std::ptr::null_mut();
-    }
-    
-    let inner_ctx = unsafe { &*inner_ptr };
-    
-    let array_dtype = DataType::Array(Box::new(inner_ctx.dtype.clone()), width);
-    
-    Box::into_raw(Box::new(DataTypeContext { dtype: array_dtype }))
+    ffi_try!({
+        if inner_ptr.is_null() {
+            polars_bail!(ComputeError: "Inner DataTypeContext pointer is null");
+        }
+        
+        let inner_ctx = unsafe { &*inner_ptr };
+        
+        let array_dtype = DataType::Array(Box::new(inner_ctx.dtype.clone()), width);
+        
+        Ok(Box::into_raw(Box::new(DataTypeContext { dtype: array_dtype })))
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -264,34 +276,52 @@ pub extern "C" fn pl_datatype_clone(ptr: *mut DataTypeContext) -> *mut DataTypeC
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pl_datatype_get_kind(ptr: *mut DataType) -> i32 {
-    if ptr.is_null() { return 0; }
-    let dtype = unsafe {&*ptr};
-    map_dtype_to_kind(dtype) as i32
+pub extern "C" fn pl_datatype_get_kind(
+    ptr: *mut DataType,
+    out_kind: *mut i32
+) -> bool {
+    ffi_bool_try!({
+        if ptr.is_null() {
+            polars_bail!(ComputeError: "DataType pointer is null");
+        }
+        
+        let dtype = unsafe { &*ptr };
+        
+        unsafe { 
+            *out_kind = map_dtype_to_kind(dtype) as i32; 
+        }
+        
+        Ok(())
+    })
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pl_datatype_get_time_unit(ptr: *mut DataType) -> i32 {
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        if ptr.is_null() { return -1; }
-        let dtype = unsafe {&*ptr};
+pub extern "C" fn pl_datatype_get_time_unit(
+    ptr: *mut DataType,
+    out_unit: *mut u8
+) -> bool {
+    ffi_bool_try!({
+        if ptr.is_null() {
+            polars_bail!(ComputeError: "DataType pointer is null");
+        }
+        
+        let dtype = unsafe { &*ptr };
+        
         match dtype {
-            DataType::Datetime(u, _) | DataType::Duration(u) => match u {
-                TimeUnit::Nanoseconds => 0,
-                TimeUnit::Microseconds => 1,
-                TimeUnit::Milliseconds => 2,
+            DataType::Datetime(u, _) | DataType::Duration(u) => {
+                let unit_val = match u {
+                    TimeUnit::Nanoseconds => 0,
+                    TimeUnit::Microseconds => 1,
+                    TimeUnit::Milliseconds => 2,
+                };
+                unsafe { *out_unit = unit_val };
+                Ok(())
             },
-            _ => -1
+            _ => {
+                polars_bail!(ComputeError: "Expected Datetime or Duration DataType, but got: {:?}", dtype);
+            }
         }
-    }));
-
-    match result {
-        Ok(val) => val,
-        Err(_) => {
-            set_error("Panic in pl_datatype_get_time_unit".to_string());
-            -1
-        }
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -315,28 +345,29 @@ pub extern "C" fn pl_datatype_get_timezone(ptr: *mut DataType) -> *mut c_char {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pl_datatype_get_decimal_info(
+pub extern "C" fn pl_datatype_get_decimal_info(
     ptr: *mut DataType, 
-    precision: *mut i32, 
-    scale: *mut i32
-) {
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        if ptr.is_null() { return; }
-        let dtype = unsafe {&*ptr};
-        if let DataType::Decimal(p, s) = dtype {
-            unsafe {*precision = *p as i32};
-            unsafe {*scale = *s as i32};
-        } else {
-            unsafe {*precision = 0};
-            unsafe {*scale = 0};
+    out_precision: *mut i32, 
+    out_scale: *mut i32
+) -> bool {
+    ffi_bool_try!({
+        if ptr.is_null() {
+            polars_bail!(ComputeError: "DataType pointer is null");
         }
-    }));
-    
-    if result.is_err() {
-        set_error("Panic in pl_datatype_get_decimal_info".to_string());
-    }
+        
+        let dtype = unsafe { &*ptr };
+        
+        if let DataType::Decimal(precision, scale) = dtype {
+            unsafe {
+                *out_precision = *precision as i32 ; 
+                *out_scale = *scale as i32; 
+            }
+            Ok(())
+        } else {
+            polars_bail!(ComputeError: "Expected Decimal DataType, but got: {:?}", dtype);
+        }
+    })
 }
-
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_get_inner(ptr: *mut DataType) -> *mut DataType {
     ffi_try!({

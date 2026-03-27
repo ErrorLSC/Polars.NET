@@ -48,12 +48,12 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
         switch (Kind)
         {
             case DataTypeKind.Datetime:
-                Unit = MapIntToTimeUnit(PolarsWrapper.GetTimeUnit(Handle));
+                Unit = (TimeUnit?)PolarsWrapper.GetTimeUnit(Handle);
                 TimeZone = PolarsWrapper.GetTimeZone(Handle);
                 break;
 
             case DataTypeKind.Duration:
-                Unit = MapIntToTimeUnit(PolarsWrapper.GetTimeUnit(Handle));
+                Unit = (TimeUnit?)PolarsWrapper.GetTimeUnit(Handle);
                 break;
 
             case DataTypeKind.Decimal:
@@ -63,10 +63,6 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
                 break;
         }
     }
-    private static TimeUnit? MapIntToTimeUnit(int val) => val switch
-    {
-        0 => TimeUnit.Nanoseconds, 1 => TimeUnit.Microseconds, 2 => TimeUnit.Milliseconds, _ => null
-    };
     
     /// <summary>
     /// Dispose the underlying DataTypeHandle.

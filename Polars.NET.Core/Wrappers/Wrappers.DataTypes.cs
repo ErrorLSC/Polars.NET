@@ -60,20 +60,32 @@ public static partial class PolarsWrapper
     /// <summary>
     /// Get DataType Kind
     /// </summary>
-    public static int GetDataTypeKind(DataTypeHandle handle)
-        => NativeBindings.pl_datatype_get_kind(handle);
+    public static PlDataType GetDataTypeKind(DataTypeHandle handle)
+    {
+        bool success = NativeBindings.pl_datatype_get_kind(handle,out PlDataType kind);
+        ErrorHelper.CheckBool(success);
+        return kind;
+    }
 
     /// <summary>
     /// Get Time Unit
     /// </summary>
-    public static int GetTimeUnit(DataTypeHandle handle)
-        => NativeBindings.pl_datatype_get_time_unit(handle);
+    public static PlTimeUnit GetTimeUnit(DataTypeHandle handle)
+    {
+        bool success = NativeBindings.pl_datatype_get_time_unit(handle,out PlTimeUnit unit);
+        ErrorHelper.CheckBool(success);
+        return unit;
+    }
 
     /// <summary>
     /// Get Decimal Precision and Scal
     /// </summary>
     public static void GetDecimalInfo(DataTypeHandle handle, out int precision, out int scale)
-        => NativeBindings.pl_datatype_get_decimal_info(handle, out precision, out scale);
+    {
+        bool success = NativeBindings.pl_datatype_get_decimal_info(handle, out precision, out scale);
+
+        ErrorHelper.CheckBool(success);
+    }
     // ==========================================
     // DataType Introspection Wrappers
     // ==========================================

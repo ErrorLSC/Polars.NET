@@ -56,7 +56,7 @@ public enum PlPivotAgg: byte
     Last = 8
 }
 
-public enum PlTimeUnit
+public enum PlTimeUnit: byte
 {
     Nanoseconds = 0,
     Microseconds = 1,

@@ -49,15 +49,18 @@ unsafe internal partial class NativeBindings
     public static partial DataTypeHandle pl_datatype_clone(DataTypeHandle handle);
     // 1. GetKind 
     [LibraryImport(LibName)]
-    public static partial int pl_datatype_get_kind(DataTypeHandle handle);
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_datatype_get_kind(DataTypeHandle handle,out PlDataType kind);
 
     // 2. GetTimeUnit 
     [LibraryImport(LibName)]
-    public static partial int pl_datatype_get_time_unit(DataTypeHandle handle);
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_datatype_get_time_unit(DataTypeHandle handle, out PlTimeUnit unit);
 
     // 3. GetDecimalInfo  
     [LibraryImport(LibName)]
-    public static partial void pl_datatype_get_decimal_info(DataTypeHandle handle, out int precision, out int scale);
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_datatype_get_decimal_info(DataTypeHandle handle, out int precision, out int scale);
 
     // 4. GetTimeZone  
     [LibraryImport(LibName)]
