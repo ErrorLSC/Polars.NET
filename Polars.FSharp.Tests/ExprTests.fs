@@ -302,12 +302,12 @@ type ``String Logic Tests`` () =
 
         Assert.Equal("2023/12/25", res.String("fmt_custom", 0).Value)
 
-        Assert.Equal("2023-12-25", res.String("date_only", 0).Value)
+        Assert.Equal(DateOnly(2023,12,25), res.Date("date_only", 0).Value)
 
         // --- Row 1: 2024-01-01 00:00:00 ---
         Assert.Equal(2024L, res.Int("y", 1).Value)
         Assert.Equal(1L, res.Int("m", 1).Value)
-        Assert.Equal(0L, res.Int("h", 1).Value) // 零点
+        Assert.Equal(0L, res.Int("h", 1).Value) 
 
     [<Fact>]
     member _.``Cast Ops: Int to Float, String to Int`` () =

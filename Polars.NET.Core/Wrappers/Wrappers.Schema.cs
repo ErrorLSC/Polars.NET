@@ -37,18 +37,26 @@ public static partial class PolarsWrapper
     /// Get the length of Schema
     /// </summary>
     public static ulong GetSchemaLen(SchemaHandle schema)
-        => NativeBindings.pl_schema_len(schema);
+    {
+        bool success = NativeBindings.pl_schema_len(schema,out uint len);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return len;
+    }
     /// <summary>
     /// Get Schema Field by Index
     /// </summary>
     public static void GetSchemaFieldAt(SchemaHandle schema, ulong index, out string name, out DataTypeHandle typeHandle)
     {
-        NativeBindings.pl_schema_get_at_index(
-            schema, 
-            (UIntPtr)index, 
-            out IntPtr namePtr, 
-            out var outTypeHandle
-        );
+        bool success = NativeBindings.pl_schema_get_at_index(
+                schema, 
+                (UIntPtr)index, 
+                out IntPtr namePtr, 
+                out var outTypeHandle
+            );
+
+        ErrorHelper.CheckBool(success); 
 
         typeHandle = ErrorHelper.Check(outTypeHandle);
 

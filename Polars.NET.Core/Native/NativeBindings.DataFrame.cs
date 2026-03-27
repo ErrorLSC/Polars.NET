@@ -22,37 +22,18 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial SchemaHandle pl_dataframe_get_schema(DataFrameHandle df);
     [LibraryImport(LibName)]
-    public static partial UIntPtr pl_dataframe_height(DataFrameHandle df);
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_dataframe_height(DataFrameHandle df, out uint height);
     
     [LibraryImport(LibName)]
-    public static partial UIntPtr pl_dataframe_width(DataFrameHandle df);
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_dataframe_width(DataFrameHandle df,out uint width);
     [LibraryImport(LibName)] public static partial IntPtr pl_dataframe_get_column_name(DataFrameHandle df, UIntPtr index);
     [LibraryImport(LibName)] public static partial IntPtr pl_dataframe_to_string(DataFrameHandle df);
-    // Scalars
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    [return: MarshalAs(UnmanagedType.U1)]
-    public static partial bool pl_dataframe_get_i64(
-        DataFrameHandle df, 
-        string colName, 
-        UIntPtr row, 
-        out long outVal
-    );
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    [return: MarshalAs(UnmanagedType.U1)]
-    public static partial bool pl_dataframe_get_f64(
-        DataFrameHandle df, 
-        string colName, 
-        UIntPtr row, 
-        out double outVal
-    );
     [LibraryImport(LibName)] 
     public static partial DataFrameHandle pl_dataframe_clone(DataFrameHandle df);
     [LibraryImport(LibName)]
     public static partial LazyFrameHandle pl_dataframe_lazy(DataFrameHandle df);
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
-    public static partial IntPtr pl_dataframe_get_string(DataFrameHandle df, string colName, UIntPtr row);
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_head(DataFrameHandle df, UIntPtr n);
     [LibraryImport(LibName)]

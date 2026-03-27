@@ -40,17 +40,33 @@ pub extern "C" fn pl_dataframe_slice(
 // ==========================================
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_dataframe_height(ptr: *mut DataFrameContext) -> usize {
-    if ptr.is_null() { return 0; }
-    let ctx = unsafe { &*ptr };
-    ctx.df.height()
+pub extern "C" fn pl_dataframe_height(
+    ptr: *mut DataFrameContext,
+    out_height: *mut usize 
+) -> bool {
+    ffi_bool_try!({ 
+        if ptr.is_null() { 
+            polars_bail!(ComputeError: "DataFrame pointer is null"); 
+        }
+        let ctx = unsafe { &*ptr };
+        unsafe { *out_height = ctx.df.height() };
+        Ok(())
+    })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_dataframe_width(ptr: *mut DataFrameContext) -> usize {
-    if ptr.is_null() { return 0; }
-    let ctx = unsafe { &*ptr };
-    ctx.df.width()
+pub extern "C" fn pl_dataframe_width(
+    ptr: *mut DataFrameContext,
+    out_width: *mut usize 
+) -> bool {
+    ffi_bool_try!({ 
+        if ptr.is_null() { 
+            polars_bail!(ComputeError: "DataFrame pointer is null"); 
+        }
+        let ctx = unsafe { &*ptr };
+        unsafe { *out_width = ctx.df.width() };
+        Ok(())
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -58,29 +74,44 @@ pub extern "C" fn pl_dataframe_get_column_name(
     df_ptr: *mut DataFrameContext, 
     index: usize
 ) -> *mut c_char {
-    let ctx = unsafe { &*df_ptr };
-    let cols = ctx.df.get_column_names();
+    ffi_try!({
+        if df_ptr.is_null() {
+            polars_bail!(ComputeError: "DataFrame pointer is null");
+        }
+        let ctx = unsafe { &*df_ptr };
+        let cols = ctx.df.get_column_names();
     
-    if index >= cols.len() {
-        return std::ptr::null_mut();
-    }
+        if index >= cols.len() {
+            polars_bail!(OutOfBounds: "Column index {} is out of bounds for DataFrame of width {}", index, cols.len());
+        }
 
-    CString::new(cols[index].as_str()).unwrap().into_raw()
+        let name = cols[index].as_str();
+        let c_str = CString::new(name)
+            .map_err(|e| polars_err!(ComputeError: "Column name contains null byte: {}", e))?;
+
+        Ok(c_str.into_raw())
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_get_schema(
     df_ptr: *mut DataFrameContext,
 ) -> *mut SchemaContext {
-    let _df = unsafe { &*df_ptr };
+    ffi_try!({
+        if df_ptr.is_null() {
+            polars_bail!(ComputeError: "DataFrame pointer is null");
+        }
+        
+        let ctx = unsafe { &*df_ptr };
+        let schema = ctx.df.schema();
+        
+        let schema_ctx = Box::new(SchemaContext { 
+            schema: schema.to_owned()
+        });
 
-    let schema = unsafe { &*df_ptr }.df.schema();
-    
-    Box::into_raw(Box::new(SchemaContext { 
-        schema: schema.to_owned() 
-    }))
+        Ok(Box::into_raw(schema_ctx))
+    })
 }
-
 // --- Convenience Ops ---
 
 #[unsafe(no_mangle)]
@@ -260,100 +291,6 @@ pub extern "C" fn pl_dataframe_clone(ptr: *mut DataFrameContext) -> *mut DataFra
         
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
     })
-}
-// --- Scalar Access ---
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_dataframe_get_i64(
-    df_ptr: *mut DataFrameContext, 
-    col_name_ptr: *const c_char, 
-    row_index: usize,
-    out_val: *mut i64 
-) -> bool { 
-    let ctx = unsafe { &*df_ptr };
-    let col_name = ptr_to_str(col_name_ptr).unwrap_or("");
-    
-    let col = match ctx.df.column(col_name) {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-
-    match col.get(row_index) {
-        Ok(val) => match val {
-            AnyValue::Int64(v) => { unsafe { *out_val = v }; true },
-            AnyValue::Int32(v) => { unsafe { *out_val = v as i64 }; true },
-            AnyValue::Int16(v) => { unsafe { *out_val = v as i64 }; true },
-            AnyValue::Int8(v) =>  { unsafe { *out_val = v as i64 }; true },
-            AnyValue::UInt64(v) => { 
-                // i64::MAX 9,223,372,036,854,775,807
-                if v > (i64::MAX as u64) {
-                    // Overflow
-                    // return false
-                    false 
-                } else {
-                    unsafe { *out_val = v as i64 }; 
-                    true 
-                }
-            },
-            AnyValue::UInt32(v) => { unsafe { *out_val = v as i64 }; true }, 
-            AnyValue::UInt16(v) => { unsafe { *out_val = v as i64 }; true },
-            AnyValue::UInt8(v) =>  { unsafe { *out_val = v as i64 }; true },
-            _ => false, 
-        },
-        Err(_) => false 
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_dataframe_get_f64(
-    df_ptr: *mut DataFrameContext, 
-    col_name_ptr: *const c_char, 
-    row_index: usize,
-    out_val: *mut f64
-) -> bool {
-    let ctx = unsafe { &*df_ptr };
-    let col_name = ptr_to_str(col_name_ptr).unwrap_or("");
-    
-    let col = match ctx.df.column(col_name) {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-
-    match col.get(row_index) {
-        Ok(val) => match val {
-            AnyValue::Float64(v) => { unsafe { *out_val = v }; true },
-            AnyValue::Float32(v) => { unsafe { *out_val = v as f64 }; true },
-            
-            AnyValue::Int64(v) => { unsafe { *out_val = v as f64 }; true },
-            AnyValue::Int32(v) => { unsafe { *out_val = v as f64 }; true },
-            _ => false, 
-        },
-        Err(_) => false
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_dataframe_get_string(
-    df_ptr: *mut DataFrameContext, 
-    col_name_ptr: *const c_char, 
-    row_index: usize
-) -> *mut c_char {
-    let ctx = unsafe { &*df_ptr };
-    let col_name = ptr_to_str(col_name_ptr).unwrap_or("");
-    
-    match ctx.df.column(col_name) {
-        Ok(col) => match col.get(row_index) {
-            Ok(AnyValue::Null) => std::ptr::null_mut(),
-
-            Ok(AnyValue::String(s)) => CString::new(s).unwrap().into_raw(),
-            Ok(AnyValue::StringOwned(s)) => CString::new(s.as_str()).unwrap().into_raw(),
-            
-            Ok(v) => CString::new(v.to_string()).unwrap().into_raw(),
-            
-            Err(_) => std::ptr::null_mut()
-        },
-        Err(_) => std::ptr::null_mut()
-    }
 }
 
 // ==========================================

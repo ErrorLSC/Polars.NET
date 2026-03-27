@@ -7,8 +7,22 @@ public static partial class PolarsWrapper
     // ==========================================
     // Metadata
     // ==========================================
-    public static long DataFrameHeight(DataFrameHandle df) => (long)NativeBindings.pl_dataframe_height(df);
-    public static long DataFrameWidth(DataFrameHandle df) => (long)NativeBindings.pl_dataframe_width(df);
+    public static long DataFrameHeight(DataFrameHandle df)
+    {
+        bool success = NativeBindings.pl_dataframe_height(df,out uint height);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return height;
+    }
+    public static long DataFrameWidth(DataFrameHandle df)
+    {
+        bool success = NativeBindings.pl_dataframe_width(df,out uint width);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return width;
+    }
     public static string[] GetColumnNames(DataFrameHandle df)
     {
         long width = DataFrameWidth(df);
@@ -27,33 +41,6 @@ public static partial class PolarsWrapper
     public static DataFrameHandle CloneDataFrame(DataFrameHandle df)
     {
         return ErrorHelper.Check(NativeBindings.pl_dataframe_clone(df));
-    }
-    // ==========================================
-    // Scalar Access
-    // ==========================================
-
-    public static long? GetInt(DataFrameHandle df, string colName, long row)
-    {
-        if (NativeBindings.pl_dataframe_get_i64(df, colName, (UIntPtr)row, out long val))
-        {
-            return val;
-        }
-        return null;
-    }
-
-    public static double? GetDouble(DataFrameHandle df, string colName, long row)
-    {
-        if (NativeBindings.pl_dataframe_get_f64(df, colName, (UIntPtr)row, out double val))
-        {
-            return val;
-        }
-        return null;
-    }
-
-    public static string? GetString(DataFrameHandle df, string colName, long row)
-    {
-        IntPtr ptr = NativeBindings.pl_dataframe_get_string(df, colName, (UIntPtr)row);
-        return ErrorHelper.CheckString(ptr);
     }
     // ==========================================
     // Eager Ops

@@ -16,10 +16,12 @@ unsafe internal partial class NativeBindings
     );
     // Introspection
     [LibraryImport(LibName)]
-    public static partial UIntPtr pl_schema_len(SchemaHandle schema);
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_schema_len(SchemaHandle schema,out uint len);
 
     [LibraryImport(LibName)]
-    public static partial void pl_schema_get_at_index(
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_schema_get_at_index(
         SchemaHandle schema,
         UIntPtr index,
         out IntPtr namePtr,

@@ -5203,13 +5203,33 @@ and DataFrame(handle: DataFrameHandle) =
             cols.[i] <- this.Column i
         cols
     member this.DataTypes = this.Schema.DataTypes
+    // member this.Int(colName: string, rowIndex: int) : int64 option = 
+    //     let nullableVal = PolarsWrapper.GetInt(handle, colName, int64 rowIndex)
+    //     if nullableVal.HasValue then Some nullableVal.Value else None
+    // member this.Float(colName: string, rowIndex: int) : float option = 
+    //     let nullableVal = PolarsWrapper.GetDouble(handle, colName, int64 rowIndex)
+    //     if nullableVal.HasValue then Some nullableVal.Value else None
+    // member this.String(colName: string, rowIndex: int) = PolarsWrapper.GetString(handle, colName, int64 rowIndex) |> Option.ofObj
+    /// <summary>
+    /// Gets an integer (Int64) value from the specified column and row.
+    /// </summary>
     member this.Int(colName: string, rowIndex: int) : int64 option = 
-        let nullableVal = PolarsWrapper.GetInt(handle, colName, int64 rowIndex)
-        if nullableVal.HasValue then Some nullableVal.Value else None
+        use series = this.Column colName
+        series.GetValue<int64 option>(int64 rowIndex)
+
+    /// <summary>
+    /// Gets a float (Double) value from the specified column and row.
+    /// </summary>
     member this.Float(colName: string, rowIndex: int) : float option = 
-        let nullableVal = PolarsWrapper.GetDouble(handle, colName, int64 rowIndex)
-        if nullableVal.HasValue then Some nullableVal.Value else None
-    member this.String(colName: string, rowIndex: int) = PolarsWrapper.GetString(handle, colName, int64 rowIndex) |> Option.ofObj
+        use series = this.Column colName
+        series.GetValue<float option>(int64 rowIndex)
+
+    /// <summary>
+    /// Gets a string value from the specified column and row.
+    /// </summary>
+    member this.String(colName: string, rowIndex: int) : string option = 
+        use series = this.Column colName
+        series.GetValue<string>(int64 rowIndex) |> Option.ofObj
     member this.StringList(colName: string, rowIndex: int) : string list option =
         use colDf = this.Select(Expr.Col colName)
         use arrowBatch = colDf.ToArrow()

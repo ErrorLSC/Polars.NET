@@ -669,18 +669,10 @@ pub extern "C" fn pl_series_name(ptr: *mut SeriesContext) -> *mut c_char {
     })
 }
 
-// #[unsafe(no_mangle)]
-// pub extern "C" fn pl_series_rename(ptr: *mut SeriesContext, name: *const c_char) {
-//     let ctx = unsafe { &mut *ptr };
-//     let name_str = unsafe { CStr::from_ptr(name).to_string_lossy() };
-//     ctx.series.rename(name_str.into());
-// }
-
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_rename(ptr: *mut SeriesContext, name: *const c_char) -> bool {
-    // 套上我们的无敌防御宏
     ffi_bool_try!({
-        // 1. 终极防线：绝对不允许空指针引发 UB
+
         if ptr.is_null() {
             polars_bail!(ComputeError: "Series pointer is null");
         }
@@ -688,11 +680,9 @@ pub extern "C" fn pl_series_rename(ptr: *mut SeriesContext, name: *const c_char)
             polars_bail!(ComputeError: "Cannot rename Series to a null string");
         }
 
-        // 2. 安全解引用
         let ctx = unsafe { &mut *ptr };
         let name_str = unsafe { CStr::from_ptr(name).to_string_lossy() };
         
-        // 3. 执行重命名 (Polars 的 rename 是 in-place 修改)
         ctx.series.rename(name_str.into());
 
         Ok(())
