@@ -648,4 +648,10 @@ type CatalogTableType =
         | Managed -> PlCatalogTableType.Managed
         | External -> PlCatalogTableType.External
 
+type SizeUnit =
+    | Bytes
+    | Kilobytes
+    | Megabytes
+    | Gigabytes
+    | Terabytes
     

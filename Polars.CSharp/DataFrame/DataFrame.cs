@@ -104,6 +104,26 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         var h = PolarsWrapper.DataFrameHashRows(Handle, seed);
         return new Series(h);
     }
+    /// <summary>
+    /// Return an estimation of the total (heap) allocated size of the DataFrame.
+    /// Estimated size is given in the specified unit (bytes by default).
+    /// </summary>
+    /// <param name="unit">Scale the returned size to the given unit (uses 1024 base).</param>
+    /// <returns>The estimated size as a double.</returns>
+    public double EstimatedSize(SizeUnit unit = SizeUnit.Bytes)
+    {
+        long bytes = PolarsWrapper.DataFrameEstimatedSize(Handle);
+
+        return unit switch
+        {
+            SizeUnit.Bytes     => bytes, 
+            SizeUnit.Kilobytes => bytes / 1024.0,
+            SizeUnit.Megabytes => bytes / Math.Pow(1024, 2),
+            SizeUnit.Gigabytes => bytes / Math.Pow(1024, 3),
+            SizeUnit.Terabytes => bytes / Math.Pow(1024, 4),
+            _ => throw new ArgumentOutOfRangeException(nameof(unit), $"Unsupported size unit: {unit}")
+        };
+    }
 
     // ==========================================
     // Scalar Access (Direct)

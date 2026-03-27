@@ -965,7 +965,7 @@ B,5";
 
         var hashNull = scoresDf.HashRows(seed:null);
         var hash42 = scoresDf.HashRows(seed:42);
-
+        Console.WriteLine(scoresDf.EstimatedSize());
         hashNull.Show();
         hash42.Show();
 

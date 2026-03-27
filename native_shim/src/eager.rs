@@ -70,6 +70,23 @@ pub extern "C" fn pl_dataframe_width(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_estimated_size(
+    ptr: *mut DataFrameContext,
+    out_size: *mut usize
+) -> bool {
+    ffi_bool_try!({
+        if ptr.is_null() {
+            polars_bail!(ComputeError: "DataFrame pointer is null");
+        }
+        let ctx = unsafe { &*ptr };
+        
+        unsafe { *out_size = ctx.df.estimated_size() };
+        
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_get_column_name(
     df_ptr: *mut DataFrameContext, 
     index: usize

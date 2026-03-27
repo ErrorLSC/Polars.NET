@@ -23,6 +23,14 @@ public static partial class PolarsWrapper
         
         return width;
     }
+    public static long DataFrameEstimatedSize(DataFrameHandle df)
+    {
+        bool success = NativeBindings.pl_dataframe_estimated_size(df,out nuint size);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return (long)size;
+    }
     public static string[] GetColumnNames(DataFrameHandle df)
     {
         long width = DataFrameWidth(df);

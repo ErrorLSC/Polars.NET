@@ -472,6 +472,15 @@ public enum CatalogTableType : byte
 
 public enum SearchSortedSide : byte { Any = 0, Left = 1, Right = 2 }
 
+public enum SizeUnit
+{
+    Bytes,
+    Kilobytes,
+    Megabytes,
+    Gigabytes,
+    Terabytes
+}
+
 internal static class EnumExtensions
 {
     public static CoreEnums.PlDataType ToNative(this DataTypeKind kind) => kind switch

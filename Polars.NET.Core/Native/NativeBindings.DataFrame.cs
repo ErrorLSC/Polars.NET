@@ -124,4 +124,10 @@ unsafe internal partial class NativeBindings
         ulong seed,
         [MarshalAs(UnmanagedType.U1)] bool has_seed
     );
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_dataframe_estimated_size(
+        DataFrameHandle handle, 
+        out nuint size
+    );
 }

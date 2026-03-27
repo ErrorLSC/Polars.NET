@@ -5186,6 +5186,24 @@ and DataFrame(handle: DataFrameHandle) =
     member _.Len = PolarsWrapper.DataFrameHeight handle
     member _.Width = PolarsWrapper.DataFrameWidth handle
     /// <summary>
+    /// Return an estimation of the total (heap) allocated size of the DataFrame.
+    /// Estimated size is given in the specified unit (bytes by default).
+    /// </summary>
+    /// <param name="unit">Scale the returned size to the given unit (uses 1024 base).</param>
+    /// <returns>The estimated size as a double.</returns>
+    member this.EstimatedSize(unit:SizeUnit) =
+
+        let bytes = float (PolarsWrapper.DataFrameEstimatedSize(handle))
+
+        match unit with
+        | SizeUnit.Bytes     -> bytes
+        | SizeUnit.Kilobytes -> bytes / 1024.0
+        | SizeUnit.Megabytes -> bytes / (1024.0 ** 2.0)
+        | SizeUnit.Gigabytes -> bytes / (1024.0 ** 3.0)
+        | SizeUnit.Terabytes -> bytes / (1024.0 ** 4.0)
+        | _ -> raise (ArgumentOutOfRangeException(nameof unit, $"Unsupported size unit: {unit}"))
+
+    /// <summary>
     /// Returns the shape of the DataFrame as (Height, Width).
     /// </summary>
     member this.Shape = this.Len,this.Width
@@ -5203,13 +5221,7 @@ and DataFrame(handle: DataFrameHandle) =
             cols.[i] <- this.Column i
         cols
     member this.DataTypes = this.Schema.DataTypes
-    // member this.Int(colName: string, rowIndex: int) : int64 option = 
-    //     let nullableVal = PolarsWrapper.GetInt(handle, colName, int64 rowIndex)
-    //     if nullableVal.HasValue then Some nullableVal.Value else None
-    // member this.Float(colName: string, rowIndex: int) : float option = 
-    //     let nullableVal = PolarsWrapper.GetDouble(handle, colName, int64 rowIndex)
-    //     if nullableVal.HasValue then Some nullableVal.Value else None
-    // member this.String(colName: string, rowIndex: int) = PolarsWrapper.GetString(handle, colName, int64 rowIndex) |> Option.ofObj
+
     /// <summary>
     /// Gets an integer (Int64) value from the specified column and row.
     /// </summary>
