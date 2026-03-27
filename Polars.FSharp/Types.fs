@@ -128,7 +128,6 @@ type Series(handle: SeriesHandle) =
     member this.Struct = SeriesStructNameSpace this
     // --- Basic Operations ---
  
-    
     /// <remarks>
     /// Polars Operations like Appending or Filtering can create fragmented memory chunks. 
     /// Calling Rechunk() merges these chunks into a single contiguous Arrow array. 
@@ -1752,6 +1751,12 @@ type Series(handle: SeriesHandle) =
         let arr = Seq.toArray data
         let handle = SeriesFactory.CreateSpan(name, ReadOnlySpan<'T>(arr))
         new Series(handle)
+    /// <summary>
+    /// Create a Series from any sequence (List, Seq, etc.).
+    /// This will allocate memory via Seq.toArray.
+    /// </summary>
+    static member From(name:string, data: seq<'T>) = 
+        Series.create(name,data)
     
     // -------------------------------------------------------------------------
     // Fixed Size List / Array (Matrix)
@@ -2770,11 +2775,11 @@ and DataFrame(handle: DataFrameHandle) =
         member this.Dispose() = 
             this.Dispose()
     /// <summary> Create a DataFrame from a list of Series. </summary>
-    static member create(series: Series list) : DataFrame =
+    static member create(series: seq<Series>) : DataFrame =
         let handles = 
             series 
-            |> List.map (fun s -> s.Handle) 
-            |> List.toArray
+            |> Seq.map (fun s -> s.Handle) 
+            |> Seq.toArray
             
         let h = PolarsWrapper.DataFrameNew handles
         new DataFrame(h)
@@ -2783,6 +2788,8 @@ and DataFrame(handle: DataFrameHandle) =
         let handles = series |> Array.map (fun s -> s.Handle)
         let h = PolarsWrapper.DataFrameNew handles
         new DataFrame(h)
+    static member FromColumns([<ParamArray>] series: Series[]) : DataFrame =
+        DataFrame.create(series)
     // ---------------------------------------------------------
     // Read CSV (File / Cloud / Glob)
     // ---------------------------------------------------------
@@ -4886,6 +4893,16 @@ and DataFrame(handle: DataFrameHandle) =
         let rows = defaultArg n 5
         let h = PolarsWrapper.Tail(this.Handle, uint rows) 
         new DataFrame(h)
+    /// <summary>
+    /// Hash and combine the rows in this DataFrame.
+    /// </summary>
+    member this.HashRows(?seed: uint64) =
+        let s = defaultArg seed 42UL
+        
+        let nullableSeed = Nullable<uint64>(s)
+        
+        let h = PolarsWrapper.DataFrameHashRows(this.Handle, nullableSeed)
+        new Series(h)
 
     /// <summary> 
     /// Explode list columns to rows using a Selector.
@@ -4912,8 +4929,8 @@ and DataFrame(handle: DataFrameHandle) =
         let newHandle = PolarsWrapper.Unnest(this.Handle, cols, sep)
         new DataFrame(newHandle)
     /// <summary> Decompose multiple struct columns. </summary>
-    member this.UnnestColumns(columns: string list, ?separator: string) : DataFrame =
-        let cArr = List.toArray columns
+    member this.UnnestColumns(columns: seq<string>, ?separator: string) : DataFrame =
+        let cArr = Seq.toArray columns
         let sep = defaultArg separator null
         let newHandle = PolarsWrapper.Unnest(this.Handle, cArr, sep)
         new DataFrame(newHandle)
@@ -5043,7 +5060,7 @@ and DataFrame(handle: DataFrameHandle) =
         let sOn = new Selector(PolarsWrapper.SelectorCols onArr)
 
         this.Unpivot(sIndex,sOn,variableName,valueName)
-    member this.Unpivot (index: string list,on: string list) =
+    member this.Unpivot (index: seq<string>,on: seq<string>) =
         this.Unpivot(index,on,None,None)
     /// <summary> Alias for Unpivot. </summary>
     member this.Melt(index: Selector, on: Selector, variableName, valueName) = 
@@ -5052,7 +5069,7 @@ and DataFrame(handle: DataFrameHandle) =
     member this.Melt(index: seq<string>, on: seq<string>, variableName, valueName) = 
         this.Unpivot(index, on, variableName, valueName)
 
-    member this.Melt(index: string list, on: string list) =
+    member this.Melt(index: seq<string>, on: seq<string>) =
         this.Unpivot(index, on)
     /// <summary>
     /// Slice the DataFrame along the rows.
@@ -5148,6 +5165,17 @@ and DataFrame(handle: DataFrameHandle) =
     member this.Shape = this.Len,this.Width
     member _.ColumnNames = PolarsWrapper.GetColumnNames handle
     member _.Columns = PolarsWrapper.GetColumnNames handle
+
+    /// <summary>
+    /// Get all columns as an array of Series.
+    /// Order is guaranteed to match the physical column order.
+    /// </summary>
+    member this.GetColumns() : Series[] =
+        let w = int this.Width
+        let cols = Array.zeroCreate<Series> w
+        for i = 0 to w - 1 do
+            cols.[i] <- this.Column i
+        cols
     member this.DataTypes = this.Schema.DataTypes
     member this.Int(colName: string, rowIndex: int) : int64 option = 
         let nullableVal = PolarsWrapper.GetInt(handle, colName, int64 rowIndex)
@@ -5374,9 +5402,57 @@ and DataFrame(handle: DataFrameHandle) =
     /// <param name="columnIndices">Column indices array to prune the export (Projection Pushdown).</param>
     /// <param name="seed">Optional seed for Native Global Shuffle.</param>
     member this.ToArrowStream(columnIndices: int array, ?seed: uint64) : IArrowArrayStream = 
-        let span = if isNull columnIndices then ReadOnlySpan<int>.Empty else ReadOnlySpan<int>(columnIndices)
+        let span = if isNull columnIndices then ReadOnlySpan<int>.Empty else ReadOnlySpan<int> columnIndices
         let nullableSeed = Option.toNullable seed
         ArrowStreamInterop.ExportToStream(this.Handle, span, nullableSeed)
+
+    /// <summary>
+    /// Converts selected DataFrame columns into a managed 2D Row-Major Tensor [Rows, Columns].
+    /// Automatically handles memory fragmentation and performs the Column-Major to Row-Major transposition.
+    /// </summary>
+    member this.AsTensor<'T when 'T : unmanaged and 'T : struct and 'T :> ValueType and 'T : (new: unit -> 'T)>([<ParamArray>] columnNames: string[]) : Tensor<'T> =
+        
+        let targetColumns =
+            if isNull columnNames || columnNames.Length = 0 then
+                this.GetColumns()
+            else
+                columnNames |> Array.map this.Column
+
+        if targetColumns.Length = 0 then
+            invalidOp "Cannot create a Tensor from an empty DataFrame."
+
+        let cols = targetColumns.Length
+        let rows = int this.Height
+
+        let tensorData = Array.zeroCreate<'T> (rows * cols)
+        let destSpan = Span<'T> tensorData
+
+        try
+            for c = 0 to cols - 1 do
+                let col = targetColumns.[c]
+
+                let needsRechunk = not col.IsContiguous
+                let activeCol = if needsRechunk then col.Rechunk() else col
+
+                try
+                    let span = activeCol.AsReadOnlySpan<'T>()
+                    
+                    for r = 0 to rows - 1 do
+                        destSpan.[r * cols + c] <- span.[r]
+                finally
+                    if needsRechunk then activeCol.Dispose()
+        finally
+            for col in targetColumns do
+                if not (isNull (box col)) then col.Dispose()
+
+        let shape = [| nativeint rows; nativeint cols |]
+        Tensor.Create(tensorData, ReadOnlySpan<nativeint> shape)
+
+    /// <summary>
+    /// Converts all columns in the DataFrame into a managed 2D Row-Major Tensor.
+    /// </summary>
+    member this.AsTensor<'T when 'T : unmanaged and 'T : struct and 'T :> ValueType and 'T : (new: unit -> 'T)>() : Tensor<'T> =
+        this.AsTensor<'T> [||]
 
     // ==========================================
     // IEnumerable<Series> Support
@@ -5384,7 +5460,7 @@ and DataFrame(handle: DataFrameHandle) =
     interface IEnumerable<Series> with
         member this.GetEnumerator() : IEnumerator<Series> =
             let seq = seq {
-                let w = this.Columns.Length
+                let w = int this.Width 
                 for i in 0 .. w - 1 do
                     yield this.Column i
             }

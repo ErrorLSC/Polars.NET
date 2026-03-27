@@ -2316,4 +2316,67 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(3u,result[0][0]);
         Assert.Equal(4u,result[1][0]);
     }
+    [Fact]
+    [Trait("Expr", "Fold")]
+    public void Test_Fold_Sum_Columns()
+    {
+        using var df = DataFrame.FromColumns(
+            Series.From("a", [1, 2, 3]),
+            Series.From("b", [4, 5, 6]),
+            Series.From("c", [7, 8, 9])
+        );
+
+        // 10 + col("a") + col("b") + col("c")
+        var exprs = new[] { Col("a"), Col("b"), Col("c") };
+        var foldExpr = Fold(
+            acc: Lit(10), 
+            f: (acc, x) => acc + x, 
+            exprs: exprs
+        ).Alias("folded_sum");
+
+        using var resultDf = df.Select(foldExpr);
+
+        // 10 + 1 + 4 + 7 = 22
+        Assert.Equal(22, resultDf.Column("folded_sum").GetValue<int>(0));
+        // 10 + 2 + 5 + 8 = 25
+        Assert.Equal(25, resultDf.Column("folded_sum").GetValue<int>(1));
+        // 10 + 3 + 6 + 9 = 28
+        Assert.Equal(28, resultDf.Column("folded_sum").GetValue<int>(2));
+    }
+
+    [Fact]
+    [Trait("Expr", "Reduce")]
+    public void Test_Reduce_String_Concat()
+    {
+        using var df = DataFrame.FromColumns(
+            Series.From("part1", ["A", "X"]),
+            Series.From("part2", ["B", "Y"]),
+            Series.From("part3", ["C", "Z"])
+        );
+
+        var exprs = new[] { Col("part1"), Col("part2"), Col("part3") };
+        var reduceExpr = Reduce(
+            f: (acc, x) => acc + Lit("-") + x, 
+            exprs: exprs
+        ).Alias("reduced_str");
+
+        using var resultDf = df.Select(reduceExpr);
+
+        Assert.Equal("A-B-C", resultDf.Column("reduced_str").GetValue<string>(0));
+        Assert.Equal("X-Y-Z", resultDf.Column("reduced_str").GetValue<string>(1));
+    }
+
+    [Fact]
+    [Trait("Expr", "Reduce")]
+    public void Test_Reduce_Throws_On_Empty()
+    {
+        var emptyExprs = System.Array.Empty<Expr>();
+
+        var ex = Assert.Throws<ArgumentException>(() => 
+        {
+            Reduce((acc, x) => acc + x, emptyExprs);
+        });
+
+        Assert.Contains("cannot be empty", ex.Message);
+    }
 }   

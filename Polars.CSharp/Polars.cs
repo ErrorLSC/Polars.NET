@@ -327,6 +327,40 @@ public static partial class Polars
     /// </example>
     public static Expr CombineDateAndTime(Expr date, Expr time, TimeUnit tu = TimeUnit.Microseconds)
         => date.Dt.Combine(time, tu);
+
+    // ==========================================
+    // Fold & Reduce
+    // ==========================================
+
+    /// <summary>
+    /// Accumulate over multiple columns horizontally/row-wise with a left fold.
+    /// </summary>
+    public static Expr Fold(Expr acc, Func<Expr, Expr, Expr> f, IEnumerable<Expr> exprs)
+    {
+        Expr current = acc;
+        foreach (var expr in exprs)
+        {
+            current = f(current, expr);
+        }
+        return current;
+    }
+
+    /// <summary>
+    /// Reduce multiple columns horizontally/row-wise with a left fold.
+    /// </summary>
+    public static Expr Reduce(Func<Expr, Expr, Expr> f, IEnumerable<Expr> exprs)
+    {
+        using var enumerator = exprs.GetEnumerator();
+        if (!enumerator.MoveNext())
+            throw new ArgumentException("exprs cannot be empty for Reduce");
+
+        Expr current = enumerator.Current;
+        while (enumerator.MoveNext())
+        {
+            current = f(current, enumerator.Current);
+        }
+        return current;
+    }
 }
 
 public static class InterfaceUnwrapperExtensions

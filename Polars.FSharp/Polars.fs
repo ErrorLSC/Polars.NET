@@ -544,6 +544,14 @@ module pl =
             let dummy = DataType.Struct []
             byType dummy
 
+    /// <summary> Accumulate over multiple columns horizontally/row-wise. </summary>
+    let fold (f: Expr -> Expr -> Expr) (acc: Expr) (exprs: seq<Expr>) : Expr =
+        Seq.fold f acc exprs
+
+    /// <summary> Reduce multiple columns horizontally/row-wise. </summary>
+    let reduce (f: Expr -> Expr -> Expr) (exprs: seq<Expr>) : Expr =
+        Seq.reduce f exprs
+
     // ==========================================
     // Public API
     // ==========================================

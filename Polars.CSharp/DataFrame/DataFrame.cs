@@ -13,6 +13,7 @@ using Apache.Arrow.Ipc;
 using System.Data.Common;
 using System.Threading.Channels;
 using System.Diagnostics.CodeAnalysis;
+using System.Numerics.Tensors;
 
 namespace Polars.CSharp;
 
@@ -1772,32 +1773,34 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     // Interop
     // ==========================================
     /// <summary>
-    /// 
+    /// Converts selected DataFrame columns into a managed 2D Row-Major Tensor [Rows, Columns].
+    /// Automatically handles memory fragmentation and performs the Column-Major to Row-Major transposition 
+    /// required by most Machine Learning frameworks (like ONNX, TorchSharp, ML.NET).
     /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <param name="columnNames"></param>
-    /// <returns></returns>
-    /// <exception cref="InvalidOperationException"></exception>
-    public T[] ToTensor<T>(params string[] columnNames) where T : unmanaged
+    /// <typeparam name="T">Unmanaged Type Only (e.g., float, double, int)</typeparam>
+    /// <param name="columnNames">Specific columns to extract. If empty, extracts all columns.</param>
+    /// <returns>A 2D <see cref="Tensor{T}"/> representing the feature matrix.</returns>
+    public Tensor<T> AsTensor<T>(params string[] columnNames) where T : unmanaged
     {
         Series[] targetColumns;
         if (columnNames == null || columnNames.Length == 0)
         {
-            targetColumns = this.GetColumns();
+            targetColumns = GetColumns();
         }
         else
         {
             targetColumns = new Series[columnNames.Length];
             for (int i = 0; i < columnNames.Length; i++)
             {
-                targetColumns[i] = this.Column(columnNames[i]); 
+                targetColumns[i] = Column(columnNames[i]); 
             }
         }
 
-        if (targetColumns.Length == 0) return [];
+        if (targetColumns.Length == 0) 
+            throw new InvalidOperationException("Cannot create a Tensor from an empty DataFrame.");
 
         int cols = targetColumns.Length;
-        int rows = (int)this.Height; 
+        int rows = (int)Height; 
 
         T[] tensorData = new T[rows * cols];
         Span<T> destSpan = tensorData.AsSpan();
@@ -1808,27 +1811,25 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             {
                 var col = targetColumns[c];
 
-                IArrowType arrowType = col.DataType.GetArrowType(); 
-                Type actualNetType = ArrowTypeResolver.GetNetTypeFromArrowType(arrowType);
+                bool needsRechunk = !col.IsContiguous;
+                Series activeCol = needsRechunk ? col.Rechunk() : col;
 
-                if (actualNetType != typeof(T))
+                try
                 {
-                    throw new InvalidOperationException(
-                        $"Type mismatch on column '{col.Name}'. Expected {typeof(T).Name}, " +
-                        $"but got {actualNetType.Name} (Polars: {col.DataType}). " +
-                        "Please explicitly cast your columns using Col().Cast() before calling ToTensor."
-                    );
+                    ReadOnlySpan<T> span = activeCol.AsReadOnlySpan<T>();
+
+                    for (int r = 0; r < rows; r++)
+                    {
+                        destSpan[r * cols + c] = span[r];
+                    }
                 }
-
-                ReadOnlySpan<T> span = col.AsReadOnlySpan<T>();
-
-                for (int r = 0; r < rows; r++)
+                finally
                 {
-                    destSpan[r * cols + c] = span[r];
+                    if (needsRechunk) activeCol.Dispose();
                 }
             }
 
-            return tensorData;
+            return Tensor.Create(tensorData, [rows, cols]);
         }
         finally
         {
@@ -2272,13 +2273,14 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     public Series[] GetColumns()
     {
-        var names = PolarsWrapper.GetColumnNames(Handle);
+        int width = (int)Width;
+        var cols = new Series[width];
         
-        var cols = new Series[names.Length];
-        for (int i = 0; i < names.Length; i++)
+        for (int i = 0; i < width; i++)
         {
-            cols[i] = Column(names[i]);
+            cols[i] = Column(i); 
         }
+        
         return cols;
     }
     

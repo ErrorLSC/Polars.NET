@@ -952,3 +952,75 @@ type LitTests() =
         Assert.Equal(Some 4,unbox v_stacked.[3,"a"])
 
         Assert.Equal(Some 50,unbox v_stacked.[4,"b"])
+    [<Fact>]
+    [<Trait("DataFrame","AsTensor")>]
+    member _.``DataFrame: AsTensor extracts all columns to Row-Major 2D Tensor`` () =
+
+        let s1 = Series.From("feature1", [| 1.1f; 2.1f; 3.1f |])
+        let s2 = Series.From("feature2", [| 1.2f; 2.2f; 3.2f |])
+        use df = DataFrame.FromColumns [| s1; s2 |] 
+
+        // Act
+        let tensor = df.AsTensor<float32>()
+
+        // Assert
+        Assert.Equal(2, tensor.Rank)
+        Assert.Equal(3, int tensor.Lengths.[0]) 
+        Assert.Equal(2, int tensor.Lengths.[1]) 
+
+        let valAt r c = tensor.[ReadOnlySpan<nativeint>([| nativeint r; nativeint c |])]
+
+        Assert.Equal(1.1f, valAt 0 0)
+        Assert.Equal(1.2f, valAt 0 1)
+        
+        Assert.Equal(2.1f, valAt 1 0)
+        Assert.Equal(2.2f, valAt 1 1)
+
+        Assert.Equal(3.1f, valAt 2 0)
+        Assert.Equal(3.2f, valAt 2 1)
+
+    [<Fact>]
+    member _.``DataFrame: AsTensor extracts specifically selected columns`` () =
+        let s1 = Series.From("id", [| 1; 2 |])
+        let s2 = Series.From("feature1", [| 0.1f; 0.2f |])
+        let s3 = Series.From("feature2", [| 0.9f; 0.8f |])
+        use df = DataFrame.FromColumns [| s1; s2; s3 |]
+
+        let tensor = df.AsTensor<float32>("feature1", "feature2")
+
+        Assert.Equal(2, tensor.Rank)
+        Assert.Equal(2, int tensor.Lengths.[0]) // 2 Rows
+        Assert.Equal(2, int tensor.Lengths.[1]) // 2 Columns
+
+        let valAt r c = tensor.[ReadOnlySpan<nativeint>([| nativeint r; nativeint c |])]
+
+        Assert.Equal(0.1f, valAt 0 0)
+        Assert.Equal(0.9f, valAt 0 1)
+        
+        Assert.Equal(0.2f, valAt 1 0)
+        Assert.Equal(0.8f, valAt 1 1)
+
+    [<Fact>]
+    [<Trait("DataFrame","AsTensorEmpty")>]
+    member _.``DataFrame: AsTensor throws InvalidOperationException on empty DataFrame`` () =
+        use df = DataFrame.create([||])
+
+        let ex = Assert.Throws<InvalidOperationException>(fun () -> 
+            df.AsTensor<float32>() |> ignore 
+        )
+
+        Assert.Contains("Cannot create a Tensor from an empty DataFrame", ex.Message)
+
+    [<Fact>]
+    [<Trait("DataFrame","AsTensorException")>]
+    member _.``DataFrame: AsTensor throws Exception on type mismatch`` () =
+        // Arrange
+        let s1 = Series.From("age", [| 25; 30 |]) 
+        let s2 = Series.From("salary", [| 5000.5f; 6000.5f |]) 
+        use df = DataFrame.FromColumns [| s1; s2 |]
+
+        let ex = Assert.ThrowsAny<Exception>(fun () -> 
+            df.AsTensor<float32>() |> ignore
+        )
+        
+        Assert.NotNull ex

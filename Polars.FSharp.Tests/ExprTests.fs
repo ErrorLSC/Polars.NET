@@ -800,3 +800,62 @@ type ``String Logic Tests`` () =
         let s = res.Column "Res"
         Assert.Equal("A", s.GetValue<string> 0)
         Assert.Equal("C", s.GetValue<string> 1)
+    [<Fact>]
+    [<Trait("Expr", "Fold")>]
+    member _.``Fold should accumulate sum horizontally across columns`` () =
+
+        use a = Series.create("a", [| 1; 2; 3 |])
+        use b = Series.create("b", [| 4; 5; 6 |])
+        use c = Series.create("c", [| 7; 8; 9 |])
+        use df = DataFrame.create(a, b, c)
+
+        let exprs = [ pl.col "a"; pl.col "b"; pl.col "c" ]
+
+        let foldExpr = 
+            exprs 
+            |> pl.fold (fun acc x -> acc + x) (pl.lit 10)
+            |> pl.alias "folded_sum"
+
+        use resultDf = df.Select [| foldExpr |]
+        let col = resultDf.Column "folded_sum"
+
+        // 验证结果
+        Assert.Equal(22, col.GetValue<int>(0))
+        Assert.Equal(25, col.GetValue<int>(1))
+        Assert.Equal(28, col.GetValue<int>(2))
+
+
+    [<Fact>]
+    [<Trait("Expr", "Reduce")>]
+    member _.``Reduce should concatenate strings horizontally across columns`` () =
+        use part1 = Series.create("part1", [| "A"; "X" |])
+        use part2 = Series.create("part2", [| "B"; "Y" |])
+        use part3 = Series.create("part3", [| "C"; "Z" |])
+        use df = DataFrame.create(part1, part2, part3)
+
+        let exprs = [ pl.col "part1"; pl.col "part2"; pl.col "part3" ]
+
+        let reduceExpr = 
+            exprs 
+            |> pl.reduce (fun acc x -> acc + pl.lit "-" + x)
+            |> pl.alias "reduced_str"
+
+        use resultDf = df.Select [| reduceExpr |]
+        let col = resultDf.Column "reduced_str"
+
+        Assert.Equal("A-B-C", col.GetValue<string>(0))
+        Assert.Equal("X-Y-Z", col.GetValue<string>(1))
+
+
+    [<Fact>]
+    [<Trait("Expr", "Reduce")>]
+    member _.``Reduce should throw ArgumentException when sequence is empty`` () =
+        let emptyExprs = Seq.empty<Expr>
+        
+        let ex = Assert.Throws<ArgumentException>(fun () -> 
+            emptyExprs 
+            |> pl.reduce (fun acc x -> acc + x) 
+            |> ignore 
+        )
+        
+        Assert.Contains("empty", ex.Message.ToLower())

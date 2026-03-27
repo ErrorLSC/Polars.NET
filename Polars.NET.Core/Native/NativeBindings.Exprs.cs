@@ -22,6 +22,7 @@ unsafe internal partial class NativeBindings
     string key, 
     string value);
     [LibraryImport(LibName)] public static partial void pl_expr_free(IntPtr ptr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rechunk(ExprHandle expr);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_concat_expr(IntPtr[] exprs,UIntPtr exprLen, [MarshalAs(UnmanagedType.U1)] bool rechunk);
     // String Free

@@ -298,6 +298,7 @@ pub extern "C" fn pl_expr_col(name: *const c_char) -> *mut ExprContext {
 gen_str_ctor!(pl_expr_lit_str, lit);
 
 // --- Group 3: Unarp Ops ---
+gen_unary_op!(pl_expr_rechunk, rechunk);
 gen_unary_op!(pl_expr_sum, sum);
 gen_unary_op!(pl_expr_mean, mean);
 

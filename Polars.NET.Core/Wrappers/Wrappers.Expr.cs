@@ -908,8 +908,10 @@ public static partial class PolarsWrapper
     public static ExprHandle ExprLen(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_len,e);
     public static ExprHandle Len() => NativeBindings.pl_len();
     // expr clone
+    
     public static ExprHandle CloneExpr(ExprHandle expr)
         => ErrorHelper.Check(NativeBindings.pl_expr_clone(expr));
+    public static ExprHandle Rechunk(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_len,e);
     public static ExprHandle ExprCast(ExprHandle expr, DataTypeHandle dtype, bool strict)
         => ErrorHelper.Check(NativeBindings.pl_expr_cast(expr, dtype, strict));
     // Shift

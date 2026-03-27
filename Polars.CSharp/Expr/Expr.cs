@@ -168,6 +168,11 @@ public partial class Expr : IDisposable
     /// </summary>
     /// <returns>A new expression with the order reversed.</returns>
     public Expr Reverse() => new(PolarsWrapper.Reverse(CloneHandle()));
+    /// <summary>
+    /// Create a single chunk of memory for this Series.
+    /// </summary>
+    /// <returns></returns>
+    public Expr Rechunk() => new(PolarsWrapper.Rechunk(CloneHandle()));
 
     // ==========================================
     // Aggregation
