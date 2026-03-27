@@ -32,8 +32,10 @@ unsafe internal partial class NativeBindings
     );
 
     [LibraryImport(LibName)]
-    public static partial UIntPtr pl_datatype_get_array_width(
-        DataTypeHandle dtype
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_datatype_get_array_width(
+        DataTypeHandle dtype,
+        out uint width
     );
     [LibraryImport(LibName)]
     public static partial DataTypeHandle pl_datatype_new_struct(

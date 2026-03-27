@@ -84,7 +84,13 @@ public static partial class PolarsWrapper
     public static DataTypeHandle GetInnerType(DataTypeHandle handle)
         => ErrorHelper.Check(NativeBindings.pl_datatype_get_inner(handle));
     public static ulong DataTypeGetArrayWidth(DataTypeHandle dtype)
-        => (ulong)NativeBindings.pl_datatype_get_array_width(dtype);
+    {  
+        bool success = NativeBindings.pl_datatype_get_array_width(dtype, out uint width);
+        
+        ErrorHelper.CheckBool(success);
+        
+        return width;
+    }
     /// <summary>
     /// Get Struct field length
     /// </summary>

@@ -1103,8 +1103,11 @@ public static partial class PolarsWrapper
         var cArray = new CArrowArray();
         var cSchema = new CArrowSchema();
         
-        NativeBindings.pl_arrow_array_export(contextHandle, &cArray);
-        NativeBindings.pl_arrow_schema_export(contextHandle, &cSchema);
+        bool arraySuccess = NativeBindings.pl_arrow_array_export(contextHandle, out cArray);
+        ErrorHelper.CheckBool(arraySuccess);
+
+        bool schemaSuccess = NativeBindings.pl_arrow_schema_export(contextHandle, out cSchema);
+        ErrorHelper.CheckBool(schemaSuccess);
         bool ownershipTransferred = false;
         try
         {

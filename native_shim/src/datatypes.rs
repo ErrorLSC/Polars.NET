@@ -295,33 +295,23 @@ pub unsafe extern "C" fn pl_datatype_get_time_unit(ptr: *mut DataType) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pl_datatype_get_timezone(ptr: *mut DataType) -> *mut c_char {
-    let closure = || -> PolarsResult<*mut c_char> {
+pub extern "C" fn pl_datatype_get_timezone(ptr: *mut DataType) -> *mut c_char {
+    ffi_try!({
         if ptr.is_null() {
-            return Ok(std::ptr::null_mut());
+            polars_bail!(ComputeError: "DataType pointer is null");
         }
-        let dtype = unsafe {&*ptr};
-        if let DataType::Datetime(_, Some(tz)) = dtype {
-            let c_str = CString::new(tz.as_str()).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
-            return Ok(c_str.into_raw());
-        }
-        Ok(std::ptr::null_mut())
-    };
 
-    let result = catch_unwind(AssertUnwindSafe(closure));
-    match result {
-        Ok(inner) => match inner {
-            Ok(ptr) => ptr,
-            Err(e) => {
-                set_error(e.to_string());
-                std::ptr::null_mut()
-            }
-        },
-        Err(_) => {
-            set_error("Panic in pl_datatype_get_timezone".to_string());
-            std::ptr::null_mut()
+        let dtype = unsafe { &*ptr };
+        
+        if let DataType::Datetime(_, Some(tz)) = dtype {
+            let c_str = CString::new(tz.as_str())
+                .map_err(|e| polars_err!(ComputeError: "TimeZone contains null byte: {}", e))?;
+            
+            Ok(c_str.into_raw())
+        } else {
+            Ok(std::ptr::null_mut())
         }
-    }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -348,35 +338,46 @@ pub unsafe extern "C" fn pl_datatype_get_decimal_info(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pl_datatype_get_inner(ptr: *mut DataType) -> *mut DataType {
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        if ptr.is_null() { return std::ptr::null_mut(); }
-        let dtype = unsafe {&*ptr};
-        match dtype {
-            DataType::List(inner) => {
-                // Clone inner type and box it
-                Box::into_raw(Box::new(*inner.clone())) 
-            },
-            DataType::Array(inner, _) => {
-                Box::into_raw(Box::new(*inner.clone()))
-            },
-            _ => std::ptr::null_mut() // Not a list
+pub extern "C" fn pl_datatype_get_inner(ptr: *mut DataType) -> *mut DataType {
+    ffi_try!({
+        if ptr.is_null() {
+            polars_bail!(ComputeError: "DataType pointer is null");
         }
-    }));
-    result.unwrap_or(std::ptr::null_mut())
+
+        let dtype = unsafe { &*ptr };
+        
+        match dtype {
+            DataType::List(inner) | DataType::Array(inner, _) => {
+                Ok(Box::into_raw(Box::new(*inner.clone())))
+            },
+            _ => Ok(std::ptr::null_mut())
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pl_datatype_get_array_width(ptr: *mut DataTypeContext) -> usize {
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        if ptr.is_null() { return 0; }
-        let ctx = unsafe { &*ptr };
-        match &ctx.dtype {
-            DataType::Array(_, width) => *width,
-            _ => 0
+pub extern "C" fn pl_datatype_get_array_width(
+    ptr: *mut DataTypeContext, 
+    out_width: *mut usize
+) -> bool {
+    ffi_bool_try!({
+        if ptr.is_null() {
+            polars_bail!(ComputeError: "DataTypeContext pointer is null");
         }
-    }));
-    result.unwrap_or(0)
+        
+        let ctx = unsafe { &*ptr };
+        
+        match &ctx.dtype {
+            DataType::Array(_, width) => {
+                unsafe { *out_width = *width };
+            },
+            _ => {
+                unsafe { *out_width = 0 };
+            }
+        }
+        
+        Ok(())
+    })
 }
 
 #[unsafe(no_mangle)]

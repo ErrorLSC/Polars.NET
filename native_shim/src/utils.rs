@@ -1,64 +1,11 @@
 use std::ffi::{CStr, c_char};
 use polars::frame::UniqueKeepStrategy;
-use polars_arrow::ffi::ArrowArray;
-use polars_arrow::ffi::{export_array_to_c,export_field_to_c};
-use polars::prelude::{ArrowSchema, AsofStrategy,  Expr, JoinBuildSide, JoinCoalesce, JoinType, JoinValidation, MaintainOrderJoin, ParallelStrategy, PlSmallStr,  SchemaRef};
-use polars_arrow::datatypes::Field;
+use polars::prelude::{AsofStrategy,  Expr, JoinBuildSide, JoinCoalesce, JoinType, JoinValidation, MaintainOrderJoin, ParallelStrategy, PlSmallStr,  SchemaRef};
 use polars_io::ExternalCompression;
 use polars_io::prelude::JsonFormat;
 use polars_io::utils::sync_on_close::SyncOnCloseType;
 
 use crate::types::{ExprContext,SchemaContext};
-
-pub struct ArrowArrayContext {
-    pub array: Box<dyn polars_arrow::array::Array>, 
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_arrow_array_free(ptr: *mut ArrowArrayContext) {
-    if !ptr.is_null() {
-        unsafe { let _ = Box::from_raw(ptr); }
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_arrow_array_export(
-    ptr: *mut ArrowArrayContext,
-    out_c_array: *mut ArrowArray 
-) {
-    assert!(!ptr.is_null());
-    assert!(!out_c_array.is_null());
-
-    let ctx = unsafe { &*ptr };
-    
-    let array = ctx.array.clone(); 
-
-    let rust_arrow_array = export_array_to_c(array);
-
-    unsafe {
-        std::ptr::write(out_c_array, rust_arrow_array);
-    }
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_arrow_schema_export(
-    ptr: *mut ArrowArrayContext,
-    out_c_schema: *mut ArrowSchema
-) {
-    assert!(!ptr.is_null());
-    assert!(!out_c_schema.is_null());
-
-    let ctx = unsafe { &*ptr };
-    
-    let dtype = ctx.array.dtype().clone();
-
-    let field = Field::new("".into(), dtype, true);
-
-    let rust_arrow_schema = export_field_to_c(&field);
-
-    unsafe {
-        std::ptr::write(out_c_schema as *mut _, rust_arrow_schema);
-    }
-}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_free_c_string(c_str: *mut std::os::raw::c_char) {
