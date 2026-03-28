@@ -255,16 +255,17 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <summary>
     ///  Filter rows based on a boolean series.
     /// </summary>
-    /// <param name="series"></param>
-    /// <returns></returns>
     public LazyFrame Filter(Series series)
     {
         if (series.DataType != DataType.Boolean)
         {
             throw new InvalidExpressionException("Can not Filter by non-boolean series.");
         }
-        return Filter(Polars.Lit(series)); 
-    } 
+        
+        using var expr = Polars.Lit(series); 
+        
+        return Filter(expr); 
+    }
 
     /// <summary>
     /// Add or modify columns based on expressions.
@@ -306,11 +307,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <exception cref="ArgumentException">Thrown when the length of <paramref name="existing"/> does not match the length of <paramref name="newNames"/>.</exception>
     public LazyFrame Rename(string[] existing, string[] newNames, bool strict = true)
     {
-        if (existing == null || newNames == null)
-            throw new ArgumentNullException("Column names cannot be null");
-            
-        if (existing.Length != newNames.Length)
-            throw new ArgumentException("Column arrays length mismatch");
+        ArgumentNullException.ThrowIfNull(existing);
+        ArgumentNullException.ThrowIfNull(newNames);
 
         var newHandle = PolarsWrapper.LazyRename(Handle, existing, newNames, strict);
         
@@ -593,30 +591,32 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </summary>
     /// <param name="subset">Selector defining the subset of columns. If null, uses all columns.</param>
     /// <param name="keep">Strategy to keep duplicates (First, Last, Any, None).</param>
-    public LazyFrame Unique(Selector? subset = null, UniqueKeepStrategy keep = UniqueKeepStrategy.First)
+    public LazyFrame Unique(Selector? subset = null, UniqueKeepStrategy keep = UniqueKeepStrategy.First, bool maintainOrder=false)
+        => new (PolarsWrapper.LazyUnique(CloneHandle(), subset?.CloneHandle()!, keep.ToNative(),maintainOrder));
+    
+    /// <summary>
+    /// Keep unique rows based on specific column names.
+    /// </summary>
+    /// <param name="columns">A collection of column names to group by.</param>
+    /// <param name="keep">Strategy to keep duplicates (First, Last, Any, None).</param>
+    /// <param name="maintainOrder">Whether to maintain the original order of the rows (stable).</param>
+    public LazyFrame Unique(
+        IEnumerable<string> columns, 
+        UniqueKeepStrategy keep = UniqueKeepStrategy.First, 
+        bool maintainOrder = false)
     {
-        _ = subset?.CloneHandle(); // Clone handle or pass reference depending on ownership model
+        var columnsArray = columns as string[] ?? [.. columns];
+        
+        if (columnsArray.Length == 0)
+        {
+            return Unique(subset: null, keep, maintainOrder);
+        }
 
-        var h = PolarsWrapper.LazyUniqueStable(CloneHandle(), subset?.Handle!, keep.ToNative());
-        return new LazyFrame(h);
+        using var selector = Selector.Cols(columnsArray);
+        
+        return Unique(selector, keep, maintainOrder);
     }
-    /// <summary>
-    /// Keep unique rows (stable) based on specific column names.
-    /// </summary>
-    public LazyFrame Unique(UniqueKeepStrategy keep, params string[] columns)
-    {
-        using var sel = Selector.Cols(columns);
-        return Unique(sel, keep);
-    }
-    /// <summary>
-    /// Keep unique First rows (stable) based on a subset of columns defined column names.
-    /// </summary>
-    /// <param name="columns"></param>
-    /// <returns></returns>
-    public LazyFrame Unique(params string[] columns)
-    {
-        return Unique(UniqueKeepStrategy.First, columns);
-    }
+    
     /// <summary>
     /// Explode list-like columns into multiple rows.
     /// </summary>

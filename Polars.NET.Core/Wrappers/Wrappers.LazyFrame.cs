@@ -148,13 +148,14 @@ public static partial class PolarsWrapper
         selector.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static LazyFrameHandle LazyUniqueStable(
+    public static LazyFrameHandle LazyUnique(
         LazyFrameHandle lfHandle, 
         SelectorHandle selector, 
-        PlUniqueKeepStrategy keep)
+        PlUniqueKeepStrategy keep,
+        bool maintainOrder)
     {
         IntPtr selPtr = selector?.DangerousGetHandle() ?? IntPtr.Zero;
-        var h = NativeBindings.pl_lazyframe_unique_stable(lfHandle,selPtr,keep);
+        var h = NativeBindings.pl_lazyframe_unique(lfHandle,selPtr,keep,maintainOrder);
         lfHandle.TransferOwnership();
         selector?.TransferOwnership();
         return ErrorHelper.Check(h);

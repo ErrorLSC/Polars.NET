@@ -841,10 +841,11 @@ pub extern "C" fn pl_lazyframe_drop(lf_ptr: *mut LazyFrameContext, sel_ptr: *mut
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_lazyframe_unique_stable(
-    lf_ptr: *mut LazyFrameContext,
+pub extern "C" fn pl_lazyframe_unique(
+    lf_ptr: *mut LazyFrameContext,       
     selector: *mut SelectorContext, 
     keep_strategy: u8,
+    maintain_order: bool
 ) -> *mut LazyFrameContext {
     ffi_try!({
         let lf = unsafe { Box::from_raw(lf_ptr).inner };
@@ -858,7 +859,11 @@ pub extern "C" fn pl_lazyframe_unique_stable(
     
         let keep = parse_keep_strategy(keep_strategy);
 
-        let new_lf = lf.unique_stable(subset, keep);
+        let new_lf = if maintain_order {
+            lf.unique_stable(subset, keep)
+        } else {
+            lf.unique(subset, keep)
+        };
 
         Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
     })

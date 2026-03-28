@@ -1,4 +1,5 @@
 using static Polars.CSharp.Polars;
+using Pl = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp.Tests;
 
@@ -638,6 +639,7 @@ David,40,80000";
         Assert.Throws<ArgumentException>(() => res["B"]);
     }
     [Fact]
+    [Trait("LazyFrame","Unique")]
     public void Test_Lazy_Unique()
     {
         var df = DataFrame.From(
@@ -659,7 +661,7 @@ David,40,80000";
         Assert.Equal(2, res1.Height); 
         
         // Case B: Subset on All (null selector), Keep None (Drop all duplicates)
-        var res2 = lf.Unique(subset: null, keep: UniqueKeepStrategy.None)
+        var res2 = lf.Unique(subset: null, keep: UniqueKeepStrategy.None,maintainOrder:true)
                      .Collect();
                      
         Assert.Equal(2, res2.Height);
@@ -668,7 +670,7 @@ David,40,80000";
         Assert.Equal(3, (int)res2["B"][1]);
         
         // Case C: String overload
-        var res3 = lf.Unique("A", "B").Collect();
+        var res3 = lf.Unique(["A", "B"]).Collect();
         Assert.Equal(3, res3.Height); // (1,1), (1,2), (2,3) are kept. The last (1,1) dropped.
     }
     [Fact]

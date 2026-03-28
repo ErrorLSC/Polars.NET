@@ -4342,7 +4342,7 @@ and DataFrame(handle: DataFrameHandle) =
         let handle = ArrowStreamInterop.ImportForeignStream stream;
         
         let df = new DataFrame(handle)
-        df.HoldResource(stream); 
+        df.HoldResource stream
         df
     
     /// <summary>
@@ -4641,6 +4641,95 @@ and DataFrame(handle: DataFrameHandle) =
     // ==========================================
     // Eager Ops
     // ==========================================
+    /// <summary>
+    /// Return the number of unique rows, or the number of unique row-subsets.
+    /// </summary>
+    member this.NUnique(?subset: seq<string>) = 
+        use df: DataFrame = this.Unique(?subset = subset)
+        df.Height
+
+    /// <summary>
+    /// Return the number of unique rows, or the number of unique row-subsets.
+    /// </summary>
+    member this.NUnique([<ParamArray>]subset: Expr array) =
+        use df = this.Unique subset
+        df.Height
+
+    /// <summary>
+    /// Return the number of unique rows, or the number of unique row-subsets.
+    /// </summary> 
+    member this.Unique
+        (
+            ?subset: seq<string>,
+            ?keep: UniqueKeepStrategy,
+            ?maintainOrder: bool,
+            ?offset: int64,
+            ?len: int64
+        ) =
+        let keepArgs = defaultArg keep UniqueKeepStrategy.First
+        let maintainArgs = defaultArg maintainOrder false
+
+        let subsetArray =
+            match subset with
+            | Some s -> Array.ofSeq s
+            | None -> null
+
+        let slice =
+            match offset, len with
+            | Some o, Some l ->
+                let safeLen = uint64 (Math.Max(0L, l))
+                Nullable<struct (int64 * uint64)>(struct (o, safeLen)) 
+            | _ ->
+                Nullable<struct (int64 * uint64)>()
+
+        let h = PolarsWrapper.DataFrameUnique(
+            this.Handle,
+            subsetArray,
+            keepArgs.ToNative(),
+            maintainArgs,
+            slice
+        )
+
+        new DataFrame(h)
+
+    member this.Unique
+        (
+            subset: seq<Expr>,
+            ?keep: UniqueKeepStrategy,
+            ?maintainOrder: bool,
+            ?offset: int64,
+            ?len: int64
+        ) :DataFrame =
+        let resolvedColumnNames = ResizeArray<string>()
+
+        for expr in subset do
+            let name = expr.Meta.OutputName()
+            
+            if not (String.IsNullOrEmpty name) then
+                resolvedColumnNames.Add name
+            else
+                try
+                    let expandedNames = (this.Head(0).Select(expr) : DataFrame).Columns
+                    resolvedColumnNames.AddRange(expandedNames)
+                with ex ->
+                    let msg = sprintf "Cannot parse this expression to column names: %s" ex.Message
+                    raise (ArgumentException(msg, ex))
+
+        let finalSubset = 
+            resolvedColumnNames 
+            |> Seq.distinct 
+            |> Seq.toArray
+
+        if finalSubset.Length = 0 then
+            raise (ArgumentException "No Columns Selected")
+
+        this.Unique(
+            subset = finalSubset,
+            ?keep = keep,
+            ?maintainOrder = maintainOrder,
+            ?offset = offset,
+            ?len = len
+        )
     /// <summary> Add or replace columns using expressions. </summary>
     member this.WithColumns (exprs:seq<Expr>) : DataFrame =
         this.Lazy().WithColumns(exprs).Collect()
@@ -4678,6 +4767,9 @@ and DataFrame(handle: DataFrameHandle) =
     /// <summary> Filter rows based on a boolean expression (predicate). </summary>
     member this.Filter (expr: Expr) : DataFrame = 
         this.Lazy().Filter(expr).Collect()
+    /// <summary> Filter rows based on a boolean Series. </summary>
+    member this.Filter (series: Series) : DataFrame = 
+        this.Lazy().Filter(series).Collect()
        /// <summary>
     /// Return the number of non-null elements for each column.
     /// </summary>
@@ -7781,13 +7873,71 @@ and LazyFrame(handle: LazyFrameHandle) =
         )
         
         new LazyFrame(newHandle)
-    
+    /// <summary>
+    /// Keep unique rows (stable) based on a subset of columns defined by a Selector.
+    /// </summary>
+    member this.Unique
+        (
+            ?subset: Selector, 
+            ?keep: UniqueKeepStrategy, 
+            ?maintainOrder: bool
+        ) =
+        let keepArg = defaultArg keep UniqueKeepStrategy.First
+        let maintainArg = defaultArg maintainOrder false
+
+        let subsetHandle =
+            match subset with
+            | Some s -> s.CloneHandle()
+            | None -> Unchecked.defaultof<SelectorHandle>
+
+        let newHandle = PolarsWrapper.LazyUnique(
+            this.CloneHandle(), 
+            subsetHandle, 
+            keepArg.ToNative(), 
+            maintainArg
+        )
+
+        new LazyFrame(newHandle)
+    /// <summary>
+    /// Keep unique rows based on specific column names.
+    /// </summary>
+    member this.Unique
+        (
+            columns: seq<string>, 
+            ?keep: UniqueKeepStrategy, 
+            ?maintainOrder: bool
+        ) =
+        let columnsArray =
+            match columns with
+            | :? (string array) as arr -> arr
+            | _ -> columns |> Seq.toArray
+
+        if columnsArray.Length = 0 then
+            this.Unique(?subset = None, ?keep = keep, ?maintainOrder = maintainOrder)
+        else
+            use selector = Selector.Cols columnsArray
+            this.Unique(subset = selector, ?keep = keep, ?maintainOrder = maintainOrder)
+    /// <summary>
+    /// Filter rows based on a boolean expression.
+    /// <para>
+    /// In a LazyFrame, this operation is added to the logical plan and is optimized before execution.
+    /// Polars will attempt to push this filter down as close to the data source as possible (Predicate Pushdown).
+    /// </para>
+    /// </summary>
     member this.Filter (expr: Expr) : LazyFrame =
         let lfClone = this.CloneHandle()
         let exprClone = expr.CloneHandle()
         
         let h = PolarsWrapper.LazyFilter(lfClone, exprClone)
         new LazyFrame(h)
+
+    member this.Filter (series: Series) : LazyFrame =
+        if series.DataType <> DataType.Boolean then
+            invalidArg "series" "Series DataType should be Boolean"
+            
+        let sh = PolarsWrapper.Lit(series.CloneHandle())
+        use expr = new Expr(sh) 
+        this.Filter(expr)
     
     member this.Select (expr: Expr) : LazyFrame =
         this.Select [|expr|]

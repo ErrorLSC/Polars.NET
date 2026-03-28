@@ -207,28 +207,27 @@ pub extern "C" fn pl_dataframe_drop_nulls(df_ptr: *mut DataFrameContext, subset:
     })
 }
 
-
-
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_df_unique_stable(
+pub extern "C" fn pl_df_unique(
     df: *mut DataFrame,
     subset: *const *const c_char, // String array ptr
     subset_len: usize,            // Array length
-    keep_strategy: u8, // "first", "last", "any", "none"
+    keep_strategy: u8,
+    maintain_order: bool,            
     slice_offset: i64,
     slice_len: usize,
     slice_valid: u8,              // 1 = use slice, 0 = ignore slice
 ) -> *mut DataFrame {
     let df = unsafe { &*df };
 
-    // 1. Parse Subset (Option<&[String]>)
+    // 1. Parse Subset (Option<Vec<String>>)
     let subset_vec: Option<Vec<String>> = if subset.is_null() || subset_len == 0 {
         None
     } else {
         let slice = unsafe { std::slice::from_raw_parts(subset, subset_len) };
         let vec = slice
             .iter()
-            .map(|&p| unsafe { CStr::from_ptr(p).to_string_lossy().to_string() })
+            .map(|&p| unsafe { CStr::from_ptr(p).to_string_lossy().into_owned() })
             .collect();
         Some(vec)
     };
@@ -243,17 +242,18 @@ pub extern "C" fn pl_df_unique_stable(
         None
     };
 
-    // 4. Call Polars
-    let res = df.unique_stable(
-        subset_vec.as_deref(),
-        keep, 
-        slice
-    );
+    // 4. Call Polars based on maintain_order flag
+    let res = if maintain_order {
+        df.unique_stable(subset_vec.as_deref(), keep, slice)
+    } else {
+        df.unique::<Vec<String>, String>(subset_vec.as_deref(), keep, slice)
+    };
 
+    // 5. Handle Result
     match res {
         Ok(d) => Box::into_raw(Box::new(d)),
         Err(e) => {
-            // Error handling machinery (assuming you have one, or just panic for now)
+            // Error handling machinery
             eprintln!("Polars Error: {}", e);
             std::ptr::null_mut()
         }

@@ -65,10 +65,11 @@ public static partial class PolarsWrapper
         => ErrorHelper.Check(NativeBindings.pl_dataframe_slice(df,offset,(UIntPtr)length));
     public static DataFrameHandle Drop(DataFrameHandle df, string name)
         => ErrorHelper.Check(NativeBindings.pl_dataframe_drop(df, name));
-    public static DataFrameHandle DataFrameUniqueStable(
+    public static DataFrameHandle DataFrameUnique(
         DataFrameHandle dfHandle, 
         string[]? subset, 
         PlUniqueKeepStrategy keep,
+        bool maintainOrder,
         (long offset, ulong len)? slice)
     {
         // Slice handling
@@ -85,11 +86,12 @@ public static partial class PolarsWrapper
 
         UIntPtr subLen = subset == null ? UIntPtr.Zero : (UIntPtr)subset.Length;
 
-        return NativeBindings.pl_df_unique_stable(
+        return NativeBindings.pl_df_unique(
             dfHandle,
             subset,
             subLen,
             keep, 
+            maintainOrder,
             offset,
             (UIntPtr)len,
             sliceValid

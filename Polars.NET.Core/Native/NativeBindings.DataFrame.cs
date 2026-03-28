@@ -56,12 +56,13 @@ unsafe internal partial class NativeBindings
     public static partial DataFrameHandle pl_dataframe_drop_nulls(DataFrameHandle df, IntPtr[] subset, UIntPtr len);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial DataFrameHandle pl_df_unique_stable(
+    public static partial DataFrameHandle pl_df_unique(
         DataFrameHandle df,
         [In] 
         string[]? subset,
         UIntPtr subset_len,
         PlUniqueKeepStrategy keep,
+        [MarshalAs(UnmanagedType.U1)] bool maintain_order,
         long slice_offset,
         UIntPtr slice_len,
         byte slice_valid

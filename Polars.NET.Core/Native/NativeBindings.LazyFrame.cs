@@ -179,10 +179,11 @@ unsafe internal partial class NativeBindings
         SelectorHandle selector
     );
     [LibraryImport(LibName)]
-    public static partial LazyFrameHandle pl_lazyframe_unique_stable(
+    public static partial LazyFrameHandle pl_lazyframe_unique(
         LazyFrameHandle lf, 
         IntPtr selector,
-        PlUniqueKeepStrategy keep
+        PlUniqueKeepStrategy keep,
+        [MarshalAs(UnmanagedType.I1)] bool maintainOrder
     );
     // --- Streaming & Sink ---
     [LibraryImport(LibName)] 

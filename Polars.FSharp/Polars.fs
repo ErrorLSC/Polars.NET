@@ -497,7 +497,7 @@ module pl =
         /// Accepts any sequence (list, array, etc.) of strings.
         /// </summary>
         let inline cols (names: seq<string>) = 
-            new Selector(PolarsWrapper.SelectorCols(names |> Seq.toArray))
+            Selector.Cols names
         
         /// <summary> Select all columns. </summary>
         let inline all () = 

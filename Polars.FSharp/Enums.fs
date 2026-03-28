@@ -249,7 +249,18 @@ and DataType =
             use handle = this.CreateHandle()
             
             ArrowFfiBridge.ImportDataType handle
-        
+
+type UniqueKeepStrategy = 
+    | First
+    | Last
+    | Any
+    | NoKeep
+    member internal this.ToNative() =
+        match this with
+        | First -> PlUniqueKeepStrategy.First
+        | Last -> PlUniqueKeepStrategy.Last
+        | Any -> PlUniqueKeepStrategy.Any
+        | NoKeep -> PlUniqueKeepStrategy.None
 /// <summary>
 /// Represents the type of join operation to perform.
 /// </summary>
@@ -309,7 +320,6 @@ type ConcatType =
     | Horizontal
     | Diagonal
     
-    // 内部转换 helper
     member internal this.ToNative() =
         match this with
         | Vertical -> PlConcatType.Vertical

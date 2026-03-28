@@ -2391,6 +2391,9 @@ and Selector(handle: SelectorHandle) =
     // Methods
     // ==========================================
 
+    static member Cols (names: seq<string>) = 
+        new Selector(PolarsWrapper.SelectorCols(names |> Seq.toArray))
+
     /// <summary> Exclude columns from a wildcard selection (col("*")). </summary>
     member this.Exclude(names: seq<string>) =
         let arr = Seq.toArray names

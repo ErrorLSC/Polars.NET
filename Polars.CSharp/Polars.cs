@@ -363,7 +363,7 @@ public static partial class Polars
     }
 }
 
-public static class InterfaceUnwrapperExtensions
+internal static class InterfaceUnwrapperExtensions
 {
     /// <summary>
     /// Unwrap IPolarsDataFrame as DataFrame 

@@ -9,6 +9,7 @@ using Apache.Arrow.Ipc;
 using System.Data.Common;
 using System.Threading.Channels;
 using System.Numerics.Tensors;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
@@ -103,6 +104,23 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         var h = PolarsWrapper.DataFrameHashRows(Handle, seed);
         return new Series(h);
+    }
+
+    /// <summary>
+    /// Return the number of unique rows, or the number of unique row-subsets.
+    /// </summary>
+    /// <returns></returns>
+    public long NUnique(string[]? subset = null)
+    {
+        using var df = Unique(subset);
+        return df.Height;
+    }
+
+    /// <inheritdoc cref="DataFrame.NUnique(string[])"/>
+    public long NUnique(params Expr[] subset)
+    {
+        using var df = Unique(subset);
+        return df.Height;
     }
 
     // ==========================================
@@ -678,28 +696,77 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="subset">Column names to consider. If null/empty, checks all columns.</param>
     public DataFrame DropNulls(params string[]? subset) => new(PolarsWrapper.DropNulls(Handle, subset));
     /// <summary>
-    /// Get unique rows of this DataFrame maintaining the original order.
+    /// Returns a new DataFrame with unique rows.
     /// </summary>
-    /// <param name="subset">Columns to consider. If null, use all columns.</param>
-    /// <param name="keep">Strategy to keep duplicates.</param>
-    /// <returns>New DataFrame with unique rows.</returns>
-    public DataFrame Unique(string[]? subset = null, UniqueKeepStrategy keep = UniqueKeepStrategy.First)
+    /// <param name="subset">An optional array of column names to consider for identifying duplicate rows. If null, all columns are used.</param>
+    /// <param name="keep">The strategy for which duplicate rows to retain (First, Last, or None).</param>
+    /// <param name="maintainOrder">Keep the same order as the original DataFrame. This is more expensive to compute. Settings this to True blocks the possibility to run on the streaming engine.</param>
+    /// <param name="offset">The starting index from which to begin the slice of unique results. If null, no offset is applied.</param>
+    /// <param name="len">The maximum number of rows to include in the result. If null, all unique rows from the offset are returned.</param>
+    /// <returns>A new <see cref="DataFrame"/> containing only unique rows based on the specified criteria.</returns>
+    public DataFrame Unique(
+        string[]? subset = null, 
+        UniqueKeepStrategy keep = UniqueKeepStrategy.First, 
+        bool maintainOrder = false,
+        long? offset = null, 
+        long? len = null)
     {
-        var h = PolarsWrapper.DataFrameUniqueStable(Handle, subset, keep.ToNative(), null);
+        (long offset, ulong len)? slice = null;
+        if (offset.HasValue && len.HasValue)
+        {
+            slice = (offset.Value, (ulong)Math.Max(0, len.Value));
+        }
+
+        var h = PolarsWrapper.DataFrameUnique(
+            Handle, 
+            subset, 
+            keep.ToNative(), 
+            maintainOrder,
+            slice
+        );
+
         return new DataFrame(h);
     }
-
-    /// <summary>
-    /// Get unique rows with slicing support.
-    /// </summary>
+    /// <inheritdoc cref="DataFrame.Unique(string[], UniqueKeepStrategy, bool, long?, long?)"/>
     public DataFrame Unique(
-        string[]? subset, 
-        UniqueKeepStrategy keep, 
-        long offset, 
-        ulong len)
+        IEnumerable<Expr> subset, 
+        UniqueKeepStrategy keep = UniqueKeepStrategy.First, 
+        bool maintainOrder = false,
+        long? offset = null, 
+        long? len = null)
     {
-        var h = PolarsWrapper.DataFrameUniqueStable(Handle, subset, keep.ToNative(), (offset, len));
-        return new DataFrame(h);
+        var resolvedColumnNames = new List<string>();
+
+        foreach (var expr in subset)
+        {
+            var name = expr.Meta.OutputName();
+            if (!string.IsNullOrEmpty(name))
+            {
+                resolvedColumnNames.Add(name);
+            }
+            else
+            {
+                try 
+                {
+                    var expandedNames = this.Head(0).Select(expr).Columns; 
+                    resolvedColumnNames.AddRange(expandedNames);
+                }
+                catch (Exception ex)
+                {
+                    throw new ArgumentException(
+                        $"Cannot parse this expression to column names: {ex.Message}", ex);
+                }
+            }
+        }
+
+        var finalSubset = resolvedColumnNames.Distinct().ToArray();
+
+        if (finalSubset.Length == 0)
+        {
+            throw new ArgumentException("No Columns Selected");
+        }
+
+        return Unique(finalSubset, keep, maintainOrder, offset, len);
     }
     /// <summary>
     /// Slice the DataFrame along the rows.
@@ -849,8 +916,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         long? sliceOffset = null,
         ulong sliceLen = 0)
     {
-        var lExprs = leftOn.Select(Polars.Col).ToArray();
-        var rExprs = rightOn.Select(Polars.Col).ToArray();
+        var lExprs = leftOn.Select(Pl.Col).ToArray();
+        var rExprs = rightOn.Select(Pl.Col).ToArray();
         return Join(
             other, 
             lExprs, 
@@ -1593,7 +1660,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public DataFrame Melt(string[] index, string[]? on, string variableName = "variable", string valueName = "value") 
         => Unpivot(index, on, variableName, valueName);
 
-
     /// <summary>
     /// Export DataFrame to Record Batch
     /// </summary>
@@ -1644,8 +1710,94 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     }
  
     // ==========================================
-    // Interop
+    // LifeCycle
     // ==========================================
+    /// <summary>
+    /// Clone the DataFrame
+    /// </summary>
+    /// <returns></returns>
+    public DataFrame Clone()
+        => new(PolarsWrapper.CloneDataFrame(Handle));
+    /// <summary>
+    /// Dispose the DataFrame and release resources.
+    /// </summary>
+    private readonly List<IDisposable> _backingResources = [];
+
+    internal void HoldResource(IDisposable resource)
+    {
+        if (resource != null) _backingResources.Add(resource);
+    }
+    /// <summary>
+    /// Dispose the DataFrame and release resources.
+    /// </summary>
+    public void Dispose()
+    {
+        if (!Handle.IsInvalid) Handle.Dispose();
+
+        foreach (var res in _backingResources)
+        {
+            res.Dispose();
+        }
+        _backingResources.Clear();
+        GC.SuppressFinalize(this); 
+    }
+    
+    // ==========================================
+    // Object Mapping (To Records)
+    // ==========================================
+
+    /// <summary>
+    /// Convert DataFrame to a list of strongly-typed objects.
+    /// This triggers a conversion to Arrow format internally.
+    /// </summary>
+    public IEnumerable<T> Rows<T>() where T : new()
+    {
+        using var batch = ToArrow(); 
+
+        foreach (var item in ArrowReader.ReadRecordBatch<T>(batch))
+        {
+            yield return item;
+        }
+    }
+
+    // ==========================================
+    // Conversion
+    // ==========================================
+
+    /// <summary>
+    /// Convert a DataFrame to a Series of type Struct.
+    /// </summary>
+    /// <param name="name">Name for the struct Series.</param>
+    /// <returns></returns>
+    public Series ToStruct(string name="")
+    {
+        using var df = Select(Pl.AsStruct(Pl.All()));
+        var series = df[0];
+        series.Rename(name);
+        return series;
+    }
+
+    /// <summary>
+    /// Convert the DataFrame into a LazyFrame.
+    /// This allows building a query plan and optimizing execution.
+    /// </summary>
+    public LazyFrame Lazy()
+    {     
+        var lfHandle = PolarsWrapper.DataFrameToLazy(Handle);
+        
+        return new LazyFrame(lfHandle);
+    }
+
+    /// <summary>
+    /// Export DataFrame to Arrow C Data Interface Stream.
+    /// Supports zero-copy and lazy chunked reading.
+    /// </summary>
+    /// <param name="columnIndices">Optional column indices to prune the export (Projection Pushdown).</param>
+    /// <param name="seed">Optional random seed to shuffle chunks.</param>
+    /// <returns>Standard IArrowArrayStream</returns>
+    public IArrowArrayStream ToArrowStream(ReadOnlySpan<int> columnIndices = default, ulong? seed = null)
+        => ArrowStreamInterop.ExportToStream(Handle, columnIndices, seed);
+
     /// <summary>
     /// Converts selected DataFrame columns into a managed 2D Row-Major Tensor [Rows, Columns].
     /// Automatically handles memory fragmentation and performs the Column-Major to Row-Major transposition 
@@ -1713,84 +1865,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             }
         }
     }
-    // ==========================================
-    // LifeCycle
-    // ==========================================
-    /// <summary>
-    /// Clone the DataFrame
-    /// </summary>
-    /// <returns></returns>
-    public DataFrame Clone()
-        => new(PolarsWrapper.CloneDataFrame(Handle));
-    /// <summary>
-    /// Dispose the DataFrame and release resources.
-    /// </summary>
-    private readonly List<IDisposable> _backingResources = [];
 
-    internal void HoldResource(IDisposable resource)
-    {
-        if (resource != null) _backingResources.Add(resource);
-    }
-    /// <summary>
-    /// Dispose the DataFrame and release resources.
-    /// </summary>
-    public void Dispose()
-    {
-        if (!Handle.IsInvalid) Handle.Dispose();
-
-        foreach (var res in _backingResources)
-        {
-            res.Dispose();
-        }
-        _backingResources.Clear();
-        GC.SuppressFinalize(this); 
-    }
-    
-  
-    /// <summary>
-    /// Export DataFrame to Arrow C Data Interface Stream.
-    /// Supports zero-copy and lazy chunked reading.
-    /// </summary>
-    /// <param name="columnIndices">Optional column indices to prune the export (Projection Pushdown).</param>
-    /// <param name="seed">Optional random seed to shuffle chunks.</param>
-    /// <returns>Standard IArrowArrayStream</returns>
-    public IArrowArrayStream ToArrowStream(ReadOnlySpan<int> columnIndices = default, ulong? seed = null)
-        => ArrowStreamInterop.ExportToStream(Handle, columnIndices, seed);
-    
-    // ==========================================
-    // Object Mapping (To Records)
-    // ==========================================
-
-    /// <summary>
-    /// Convert DataFrame to a list of strongly-typed objects.
-    /// This triggers a conversion to Arrow format internally.
-    /// </summary>
-    public IEnumerable<T> Rows<T>() where T : new()
-    {
-        using var batch = ToArrow(); 
-
-        foreach (var item in ArrowReader.ReadRecordBatch<T>(batch))
-        {
-            yield return item;
-        }
-    }
-
-    // ==========================================
-    // Conversion to Lazy
-    // ==========================================
-
-    /// <summary>
-    /// Convert the DataFrame into a LazyFrame.
-    /// This allows building a query plan and optimizing execution.
-    /// </summary>
-    public LazyFrame Lazy()
-    {
-        var clonedHandle = PolarsWrapper.CloneDataFrame(Handle);
-        
-        var lfHandle = PolarsWrapper.DataFrameToLazy(clonedHandle);
-        
-        return new LazyFrame(lfHandle);
-    }
     // ==========================================
     // Series Access (Column Selection)
     // ==========================================

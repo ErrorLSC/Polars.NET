@@ -139,7 +139,7 @@ public static partial class PolarsWrapper
         ulong low64 = (uint)bits[0] | ((ulong)(uint)bits[1] << 32);
         ulong high32 = (uint)bits[2];
         
-        Int128 unscaled = new Int128(high32, low64);
+        Int128 unscaled = new(high32, low64);
 
         if ((bits[3] & 0x80000000) != 0)
         {
@@ -157,7 +157,6 @@ public static partial class PolarsWrapper
     {
         var h = NativeBindings.pl_expr_lit_series(serieshandle);
         serieshandle.TransferOwnership();
-
         return ErrorHelper.Check(h);
     }
     // Alias

@@ -243,7 +243,7 @@ module InterfaceUnwrapperExtensions =
         /// <summary>
         /// Unwrap IPolarsDataFrame as DataFrame 
         /// </summary>
-        member this.AsDataFrame() : DataFrame =
+        member internal this.AsDataFrame() : DataFrame =
             match this with
             | :? DataFrame as df -> df
             | _ -> raise (InvalidCastException "Not Standard Polars DataFrame")
@@ -253,23 +253,23 @@ module InterfaceUnwrapperExtensions =
         /// <summary>
         /// Unwrap IPolarsLazyFrame as LazyFrame 
         /// </summary>
-        member this.AsLazyFrame() : LazyFrame =
+        member internal this.AsLazyFrame() : LazyFrame =
             match this with
             | :? LazyFrame as lf -> lf
             | _ -> raise (InvalidCastException "Not Standard Polars LazyFrame")
 
     type IPolarsSeries with
-        member this.AsSeries() : Series = 
+        member internal this.AsSeries() : Series = 
             match this with
             | :? Series as ips -> ips
             | _ -> raise (InvalidCastException "Not Standard Polars Series")
-    let asDataFrame (idf: IPolarsDataFrame) : DataFrame = 
+    let internal asDataFrame (idf: IPolarsDataFrame) : DataFrame = 
         idf.AsDataFrame()
 
-    let asLazyFrame (ilf: IPolarsLazyFrame) : LazyFrame =
+    let internal asLazyFrame (ilf: IPolarsLazyFrame) : LazyFrame =
         ilf.AsLazyFrame()
     
-    let asSeries (ips: IPolarsSeries) : Series =
+    let internal asSeries (ips: IPolarsSeries) : Series =
         ips.AsSeries()
 
 [<AutoOpen>]

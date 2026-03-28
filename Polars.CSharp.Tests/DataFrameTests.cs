@@ -3,6 +3,7 @@ using System.Numerics.Tensors;
 using Apache.Arrow;
 using Apache.Arrow.Memory;
 using static Polars.CSharp.Polars;
+using Cs = Polars.CSharp.Polars.Selectors;
 namespace Polars.CSharp.Tests;
 
 public class DataFrameTests
@@ -785,7 +786,8 @@ B,5";
         Assert.Equal("Fig", slOverflow["Fruit"].GetValue<string>(0));
     }
     [Fact]
-    public void Test_Unique_Stable()
+    [Trait("DataFrame","Unique")]
+    public void Test_Unique()
     {
         var df = DataFrame.From(
         [
@@ -796,7 +798,7 @@ B,5";
         ]);
 
         // 1. Default (All cols, Keep First)
-        var res1 = df.Unique();
+        var res1 = df.Unique(maintainOrder:true);
         Assert.Equal(3, res1.Height);
         Assert.Equal(1, res1["A"][0]); // Order preserved
         Assert.Equal(2, res1["A"][1]);
@@ -814,8 +816,13 @@ B,5";
         Assert.Equal("y", res2["B"][0]); // Should keep the last one ("y")
 
         // 3. Keep None (Remove all duplicates)
-        var res3 = df.Unique(null, UniqueKeepStrategy.None);
+        var res3 = df.Unique(keep:UniqueKeepStrategy.None);
         Assert.Equal(2, res3.Height); // A=2 and A=3 are unique. A=1 appears twice so both removed.
+
+        // Unique by selector
+        var res4 = df2.Unique([Cs.Numeric()]);
+        Assert.Equal(1, res4.Height);
+
     }
     [Fact]
     public void Test_HStack_VStack()
@@ -965,9 +972,38 @@ B,5";
 
         var hashNull = scoresDf.HashRows(seed:null);
         var hash42 = scoresDf.HashRows(seed:42);
-        Console.WriteLine(scoresDf.EstimatedSize());
-        hashNull.Show();
-        hash42.Show();
+        
+        Assert.False(hashNull.IsEmpty);
+        Assert.False(hash42.IsEmpty);
+    }
+    [Fact]
+    [Trait("DataFrame","ToStruct")]
+    public void Test_DataFrame_To_Struct()
+    {
+        using var df = DataFrame.FromColumns(new 
+        {
+            Name = new[] { "A", "B" }, 
+            Age = new[] { 10, 20 },    
+            Score = new[] { 99, 88 }   
+        });
+        var structSeries = df.ToStruct(name:"struct");
 
+        Assert.Equal("struct",structSeries.Name);
+        Assert.Equal(DataType.Struct(["Name","Age","Score"],[DataType.String,DataType.Int32,DataType.Int32]),structSeries.DataType);
+        var dfBack = structSeries.Unnest();
+        Assert.Equal((2L,3L),dfBack.Shape);
+    }
+    [Fact]
+    [Trait("DataFrame","NUnique")]
+    public void Test_DataFrame_NUnique()
+    {
+        using var df = DataFrame.FromColumns(new 
+        {
+            Name = new[] { "A", "B","A" }, 
+            Age = new[] { 10, 20,10 },    
+            Score = new[] { 99, 88,99 }   
+        });
+        long unique = df.NUnique(Cs.String());
+        Assert.Equal(2L,unique);
     }
 }
