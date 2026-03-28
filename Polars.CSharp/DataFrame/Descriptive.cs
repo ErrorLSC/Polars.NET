@@ -7,7 +7,10 @@ namespace Polars.CSharp;
 
 public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
 {
-
+    /// <summary>
+    /// True if the DataFrame contains no rows.
+    /// </summary>
+    public bool IsEmpty => Height == 0;
     /// <summary>
     /// Get a mask of all duplicated rows in this DataFrame.
     /// </summary>

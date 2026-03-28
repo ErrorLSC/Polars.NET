@@ -515,6 +515,7 @@ public class SeriesTests
         
     }
     [Fact]
+    [Trait("Series","Show")]
     public void TestToString_And_Show()
     {
         var s = Series.From("my_series", [1, 2, 3, 4, 5]);
@@ -523,7 +524,7 @@ public class SeriesTests
 
         Assert.NotEmpty(str);
         Assert.True(str.Contains("my_series"), "Output should contain series name");
-        Assert.True(str.Contains("shape: (5, 1)"), "Output should contain DataFrame shape info");
+        Assert.True(str.Contains("shape: (5,)"), "Output should contain series shape info");
         
         s.Show();
         

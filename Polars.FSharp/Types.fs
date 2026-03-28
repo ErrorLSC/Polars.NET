@@ -5245,6 +5245,11 @@ and DataFrame(handle: DataFrameHandle) =
     member _.Len = PolarsWrapper.DataFrameHeight handle
     member _.Width = PolarsWrapper.DataFrameWidth handle
     /// <summary>
+    /// True if the DataFrame contains no rows.
+    /// </summary>
+    member this.IsEmpty : bool = 
+        this.Height = 0L
+    /// <summary>
     /// Return an estimation of the total (heap) allocated size of the DataFrame.
     /// Estimated size is given in the specified unit (bytes by default).
     /// </summary>
