@@ -852,7 +852,19 @@ public static partial class PolarsWrapper
         
         ErrorHelper.CheckBool(success);
     }
-    
+
+    public static void SeriesAppend(SeriesHandle h, SeriesHandle other)
+    {
+        bool success = NativeBindings.pl_series_append(h, other);
+        
+        ErrorHelper.CheckBool(success);
+    }
+    public static void SeriesExtend(SeriesHandle h, SeriesHandle other)
+    {
+        bool success = NativeBindings.pl_series_extend(h, other);
+        
+        ErrorHelper.CheckBool(success);
+    }
 
     // --- DataFrame Conversion ---
     public static DataFrameHandle SeriesToFrame(SeriesHandle h) 

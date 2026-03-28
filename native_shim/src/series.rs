@@ -1518,3 +1518,41 @@ pub extern "C" fn pl_series_value_counts(
         Ok(Box::into_raw(Box::new(DataFrameContext { df })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_append(s_ptr: *mut SeriesContext, other_ptr: *mut SeriesContext) -> bool {
+    ffi_bool_try!({
+        if s_ptr.is_null() {
+            polars_bail!(ComputeError: "Target Series pointer is null");
+        }
+        if other_ptr.is_null() {
+            polars_bail!(ComputeError: "Series to append pointer is null");
+        }
+
+        let target_ctx = unsafe { &mut *s_ptr };
+        let other_ctx = unsafe { &*other_ptr };
+        
+        target_ctx.series.append(&other_ctx.series)?;
+
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_extend(s_ptr: *mut SeriesContext, other_ptr: *mut SeriesContext) -> bool {
+    ffi_bool_try!({
+        if s_ptr.is_null() {
+            polars_bail!(ComputeError: "Target Series pointer is null");
+        }
+        if other_ptr.is_null() {
+            polars_bail!(ComputeError: "Series to extend pointer is null");
+        }
+
+        let target_ctx = unsafe { &mut *s_ptr };
+        let other_ctx = unsafe { &*other_ptr };
+        
+        target_ctx.series.extend(&other_ctx.series)?;
+
+        Ok(())
+    })
+}

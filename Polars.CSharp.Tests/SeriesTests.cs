@@ -1450,28 +1450,43 @@ public class SeriesTests
         Assert.Contains("only has 6 elements", ex.Message);
     }
 
-    // [Fact]
-    // [Trait("Series", "AsDangerousUnmanagedTensor")]
-    // public void AsDangerousUnmanagedTensor_NotContiguous_ThrowsInvalidOperationException()
-    // {
-    //    
-    //     using var s1 = Series.From("data", [1, 2]);
-    //     using var s2 = Series.From("data", [3, 4]);
+    [Fact]
+    [Trait("Series", "AsDangerousUnmanagedTensor")]
+    public void AsDangerousUnmanagedTensor_NotContiguous_ThrowsInvalidOperationException()
+    {
+       
+        using var s1 = Series.From("data", [1, 2]);
+        using var s2 = Series.From("data", [3, 4]);
         
-    //    
-    //     s1.Append(s2, appendChunks: true); 
+       
+        s1.Append(s2); 
 
-    //     nint[] targetShape = [2, 2];
+        nint[] targetShape = [2, 2];
 
-    //     // Act & Assert
-    //     var ex = Assert.Throws<InvalidOperationException>(() =>
-    //     {
-    //         s1.AsDangerousUnmanagedTensor<int>(targetShape);
-    //     });
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+        {
+            s1.AsDangerousUnmanagedTensor<int>(targetShape);
+        });
 
-    //     Assert.Contains("fragmented", ex.Message);
-    //     Assert.Contains("call .Rechunk()", ex.Message);
-    // }
+        Assert.Contains("fragmented", ex.Message);
+        Assert.Contains("call .Rechunk()", ex.Message);
+    }
+    [Fact]
+    [Trait("Series", "AsDangerousUnmanagedTensor")]
+    public void AsDangerousUnmanagedTensor_Contiguous()
+    {
+       
+        using var s1 = Series.From("data", [1, 2]);
+        using var s2 = Series.From("data", [3, 4]);
+       
+        s1.Extend(s2); 
+
+        nint[] targetShape = [2, 2];
+
+        var (ptr, shape) = s1.AsDangerousUnmanagedTensor<int>(targetShape);
+
+        Assert.NotEqual(IntPtr.Zero, ptr);
+    }
     [Fact]
     [Trait("Series", "AsTensor3D")]
     public void AsTensor_WithShape_PerformsDeepCopyOf3D()

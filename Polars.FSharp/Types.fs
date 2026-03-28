@@ -146,6 +146,21 @@ type Series(handle: SeriesHandle) =
     member this.Slice(offset: int64, length: int64) =
         new Series(PolarsWrapper.SeriesSlice(handle, offset, length))
     /// <summary>
+    /// Append a Series to this one.
+    /// The resulting series will consist of multiple chunks.
+    /// </summary>
+    /// <param name="other">Series to append.</param>
+    member this.Append(other:Series) = 
+        PolarsWrapper.SeriesAppend(this.Handle,other.Handle)
+    /// <summary>
+    /// Extend the memory backed by this Series with the values from another.
+    /// Different from append, which adds the chunks from other to the chunks of this series, extend appends the data from other to the underlying memory locations and thus may cause a reallocation (which is expensive).
+    /// If this does not cause a reallocation, the resulting data structure will not have any extra chunks and thus will yield faster queries.
+    /// </summary>
+    /// <param name="other">Series to extend the series with.</param>
+    member this.Extend(other:Series) = 
+        PolarsWrapper.SeriesExtend(this.Handle,other.Handle)
+    /// <summary>
     /// Sort this Series. Returns a new Series.
     /// </summary>
     /// <param name="descending">Sort in descending order (default: false).</param>
@@ -2460,6 +2475,26 @@ type Series(handle: SeriesHandle) =
             ))
             
         ArrowTensorInterop.GetNativePointers<'T> this.Handle
+    /// <summary>
+    /// Extracts the raw unmanaged pointer and shape metadata of the underlying physical Arrow memory.
+    /// Designed for zero-copy integrations with native C++ Machine Learning backends like ONNX Runtime or TorchSharp.
+    /// </summary>
+    /// <remarks>
+    /// DANGER (LIFECYCLE WARNING): This is a zero-copy operation. The returned <see cref="IntPtr"/> points 
+    /// directly to native memory managed by the Rust Polars engine. It is ONLY valid as long as this <see cref="Series"/> 
+    /// instance remains alive. You MUST ensure the Series is not garbage collected or explicitly disposed 
+    /// while the native pointer is still in use by an external FFI library, otherwise it will result in a fatal segmentation fault.
+    /// </remarks>
+    /// <typeparam name="T">The unmanaged primitive type.</typeparam>
+    /// <returns>A tuple containing the raw <see cref="IntPtr"/> to the first element, and a <c>long[]</c> representing the tensor shape.</returns>
+    member this.AsDangerousUnmanagedTensor<'T when 'T : unmanaged and 'T : struct and 'T :> ValueType and 'T : (new: unit -> 'T)>(shape:ReadOnlySpan<nativeint>) =
+        if not this.IsContiguous then
+            raise (InvalidOperationException(
+                $"Cannot extract a contiguous native pointer because the Series is fragmented into {this.ChunkCount} chunks. " +
+                "You MUST call .Rechunk() on this Series to merge the memory before exporting it to an unmanaged Tensor."
+            ))
+            
+        ArrowTensorInterop.GetNativePointers<'T>(this.Handle,shape)
     /// <summary>
     /// Converts an N-Dimensional .NET Tensor into a Polars Series.
     /// Automatically infers the rank and dynamically wraps the data into Polars native types:

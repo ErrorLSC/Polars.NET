@@ -461,16 +461,26 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <param name="offset">Start index. Negative values count from the end.</param>
     /// <param name="length">Length of the slice.</param>
     public Series Slice(long offset, long length)
-    {
-        var newHandle = PolarsWrapper.SeriesSlice(Handle, offset, length);
-        return new Series(newHandle);
-    }
-    
+        => new(PolarsWrapper.SeriesSlice(Handle, offset, length));
     /// <summary>
     /// <inheritdoc cref="Expr.Reverse" path="/summary"/>
     /// </summary>
     /// <returns>A new <see cref="Series"/> with the order reversed.</returns>
     public Series Reverse() => ApplyExpr(Polars.Col(Name).Reverse());
+    /// <summary>
+    /// Append a Series to this one.
+    /// The resulting series will consist of multiple chunks.
+    /// </summary>
+    /// <param name="other">Series to append.</param>
+    public void Append(Series other) => PolarsWrapper.SeriesAppend(Handle,other.Handle);    
+    /// <summary>
+    /// Extend the memory backed by this Series with the values from another.
+    /// Different from append, which adds the chunks from other to the chunks of this series, extend appends the data from other to the underlying memory locations and thus may cause a reallocation (which is expensive).
+    /// If this does not cause a reallocation, the resulting data structure will not have any extra chunks and thus will yield faster queries.
+    /// </summary>
+    /// <param name="other">Series to extend the series with.</param>
+    public void Extend(Series other) => PolarsWrapper.SeriesExtend(Handle,other.Handle);
+
     // ==========================================
     // Null Checks & Boolean Masks
     // ==========================================

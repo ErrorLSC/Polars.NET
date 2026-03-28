@@ -386,6 +386,12 @@ unsafe internal partial class NativeBindings
         long offset, 
         UIntPtr length
     );
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.I1)] 
+    public static partial bool pl_series_append(SeriesHandle s_ptr, SeriesHandle other_ptr);
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.I1)] 
+    public static partial bool pl_series_extend(SeriesHandle s_ptr, SeriesHandle other_ptr);
     // --- Series Cast ---
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_cast(SeriesHandle s, DataTypeHandle dtype);
