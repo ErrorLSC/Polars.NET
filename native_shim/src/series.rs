@@ -1363,193 +1363,90 @@ pub extern "C" fn pl_series_get_duration(
 // Arithmetic Ops 
 // ==========================================
 
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_add(s1: *mut SeriesContext, s2: *mut SeriesContext) -> *mut SeriesContext {
-    ffi_try!({
-        let s1 = unsafe { &(*s1).series };
-        let s2 = unsafe { &(*s2).series };
-        let res = s1 + s2; 
-        Ok(Box::into_raw(Box::new(SeriesContext { series: res? })))
-    })
+macro_rules! impl_series_arithmetic_op {
+    ($func_name:ident, $op:tt) => {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $func_name(s1: *mut SeriesContext, s2: *mut SeriesContext) -> *mut SeriesContext {
+            ffi_try!({
+                let s1_ref = unsafe { &(*s1).series };
+                let s2_ref = unsafe { &(*s2).series };
+                let res = s1_ref $op s2_ref; 
+                Ok(Box::into_raw(Box::new(SeriesContext { series: res? })))
+            })
+        }
+    };
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_sub(s1: *mut SeriesContext, s2: *mut SeriesContext) -> *mut SeriesContext {
-    ffi_try!({
-        let s1 = unsafe { &(*s1).series };
-        let s2 = unsafe { &(*s2).series };
-        let res = s1 - s2;
-        Ok(Box::into_raw(Box::new(SeriesContext { series: res? })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_mul(s1: *mut SeriesContext, s2: *mut SeriesContext) -> *mut SeriesContext {
-    ffi_try!({
-        let s1 = unsafe { &(*s1).series };
-        let s2 = unsafe { &(*s2).series };
-        let res = s1 * s2;
-        Ok(Box::into_raw(Box::new(SeriesContext { series: res? })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_div(s1: *mut SeriesContext, s2: *mut SeriesContext) -> *mut SeriesContext {
-    ffi_try!({
-        let s1 = unsafe { &(*s1).series };
-        let s2 = unsafe { &(*s2).series };
-        let res = s1 / s2;
-        Ok(Box::into_raw(Box::new(SeriesContext { series: res? })))
-    })
-}
+impl_series_arithmetic_op!(pl_series_add, +);
+impl_series_arithmetic_op!(pl_series_sub, -);
+impl_series_arithmetic_op!(pl_series_mul, *);
+impl_series_arithmetic_op!(pl_series_div, /);
 
 // ==========================================
 // Comparison Ops 
 // ==========================================
 
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_eq(s1: *mut SeriesContext, s2: *mut SeriesContext) -> *mut SeriesContext {
-    ffi_try!({
-        let s1 = unsafe { &(*s1).series };
-        let s2 = unsafe { &(*s2).series };
-        let res = s1.equal(s2).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.into_series();
-        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
-    })
+macro_rules! impl_series_comparison_op {
+    ($func_name:ident, $method:ident) => {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $func_name(s1: *mut SeriesContext, s2: *mut SeriesContext) -> *mut SeriesContext {
+            ffi_try!({
+                let s1_ref = unsafe { &(*s1).series };
+                let s2_ref = unsafe { &(*s2).series };
+                let res = s1_ref.$method(s2_ref)
+                    .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?
+                    .into_series();
+                Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
+            })
+        }
+    };
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_neq(s1: *mut SeriesContext, s2: *mut SeriesContext) -> *mut SeriesContext {
-    ffi_try!({
-        let s1 = unsafe { &(*s1).series };
-        let s2 = unsafe { &(*s2).series };
-        let res = s1.not_equal(s2).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.into_series();
-        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_gt(s1: *mut SeriesContext, s2: *mut SeriesContext) -> *mut SeriesContext {
-    ffi_try!({
-        let s1 = unsafe { &(*s1).series };
-        let s2 = unsafe { &(*s2).series };
-        let res = s1.gt(s2).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.into_series();
-        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_gt_eq(s1: *mut SeriesContext, s2: *mut SeriesContext) -> *mut SeriesContext {
-    ffi_try!({
-        let s1 = unsafe { &(*s1).series };
-        let s2 = unsafe { &(*s2).series };
-        let res = s1.gt_eq(s2).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.into_series();
-        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_lt(s1: *mut SeriesContext, s2: *mut SeriesContext) -> *mut SeriesContext {
-    ffi_try!({
-        let s1 = unsafe { &(*s1).series };
-        let s2 = unsafe { &(*s2).series };
-        let res = s1.lt(s2).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.into_series();
-        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_lt_eq(s1: *mut SeriesContext, s2: *mut SeriesContext) -> *mut SeriesContext {
-    ffi_try!({
-        let s1 = unsafe { &(*s1).series };
-        let s2 = unsafe { &(*s2).series };
-        let res = s1.lt_eq(s2).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.into_series();
-        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
-    })
-}
+impl_series_comparison_op!(pl_series_eq, equal);
+impl_series_comparison_op!(pl_series_neq, not_equal);
+impl_series_comparison_op!(pl_series_gt, gt);
+impl_series_comparison_op!(pl_series_gt_eq, gt_eq);
+impl_series_comparison_op!(pl_series_lt, lt);
+impl_series_comparison_op!(pl_series_lt_eq, lt_eq);
 // ==========================================
 // Aggregations
 // ==========================================
 
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_sum(s_ptr: *mut SeriesContext) -> *mut SeriesContext {
-    ffi_try!({
-        let s = unsafe { &(*s_ptr).series };
-        let res = s.sum_reduce()?.into_series(s.name().clone());
-        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
-    })
+macro_rules! impl_series_reduce_op {
+    ($func_name:ident, $method:ident) => {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $func_name(s_ptr: *mut SeriesContext) -> *mut SeriesContext {
+            ffi_try!({
+                let s = unsafe { &(*s_ptr).series };
+                let res = s.$method()?.into_series(s.name().clone());
+                Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
+            })
+        }
+    };
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_mean(s_ptr: *mut SeriesContext) -> *mut SeriesContext {
-    ffi_try!({
-        let s = unsafe { &(*s_ptr).series };
-        let mean_val = s.mean();
-        let res = Series::new(s.name().clone(), &[mean_val]);
-        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
-    })
+impl_series_reduce_op!(pl_series_sum, sum_reduce);
+impl_series_reduce_op!(pl_series_min, min_reduce);
+impl_series_reduce_op!(pl_series_max, max_reduce);
+impl_series_reduce_op!(pl_series_mean, mean_reduce);
+
+macro_rules! impl_series_unary_bool_op {
+    ($func_name:ident, $method:ident) => {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $func_name(s_ptr: *mut SeriesContext) -> *mut SeriesContext {
+            ffi_try!({
+                let s = unsafe { &(*s_ptr).series }; 
+                let res = s.$method()?.into_series();
+                Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
+            })
+        }
+    };
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_min(s_ptr: *mut SeriesContext) -> *mut SeriesContext {
-    ffi_try!({
-        let s = unsafe { &(*s_ptr).series };
-        
-        let scalar = s.min_reduce()?;
-        
-        let res = scalar.into_series(s.name().clone());
-        
-        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_max(s_ptr: *mut SeriesContext) -> *mut SeriesContext {
-    ffi_try!({
-        let s = unsafe { &(*s_ptr).series };
-        
-        let scalar = s.max_reduce()?;
-        
-        let res = scalar.into_series(s.name().clone());
-        
-        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_is_nan(s_ptr: *mut SeriesContext) -> *mut SeriesContext {
-    ffi_try!({
-        let ctx = unsafe { &*s_ptr };
-        let res = ctx.series.is_nan()?.into_series();
-        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_is_not_nan(s_ptr: *mut SeriesContext) -> *mut SeriesContext {
-    ffi_try!({
-        let ctx = unsafe { &*s_ptr };
-        let res = ctx.series.is_not_nan()?.into_series();
-        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_is_finite(s_ptr: *mut SeriesContext) -> *mut SeriesContext {
-    ffi_try!({
-        let ctx = unsafe { &*s_ptr };
-        let res = ctx.series.is_finite()?.into_series();
-        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_is_infinite(s_ptr: *mut SeriesContext) -> *mut SeriesContext {
-    ffi_try!({
-        let ctx = unsafe { &*s_ptr };
-        let res = ctx.series.is_infinite()?.into_series();
-        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
-    })
-}
+impl_series_unary_bool_op!(pl_series_is_nan, is_nan);
+impl_series_unary_bool_op!(pl_series_is_not_nan, is_not_nan);
+impl_series_unary_bool_op!(pl_series_is_finite, is_finite);
+impl_series_unary_bool_op!(pl_series_is_infinite, is_infinite);
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pl_series_get_dtype(ptr: *mut Series) -> *mut DataType {

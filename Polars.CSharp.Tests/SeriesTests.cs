@@ -373,8 +373,8 @@ public class SeriesTests
         
         Assert.Equal(15, s.Sum<int>());
 
-        // Mean: 3.0
-        Assert.Equal(3.0, s.Mean<double>());
+        // Mean: 3
+        Assert.Equal(3, s.Mean<double>());
         
         // Min/Max
         Assert.Equal(1, s.Min<int>());
