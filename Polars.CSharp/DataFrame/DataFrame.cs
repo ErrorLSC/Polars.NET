@@ -1857,6 +1857,69 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         return sb.ToString();
     }
+
+    /// <summary>
+    /// Return a dense preview of the DataFrame as a new DataFrame.
+    /// Schema: "column" (String), "dtype" (String), "values" (List[String])
+    /// </summary>
+    public DataFrame GlimpseFrame(int maxItemsPerColumn = 10, int maxColnameLength = 50)
+    {
+        long nRows = Height;
+        int limit = (int)Math.Min(maxItemsPerColumn, nRows);
+
+        var cols = Schema.ToList();
+        
+        using var headDf = Head(limit);
+        using var strDf = headDf.Select(Expr.All().Cast(DataType.String));
+
+        var outColNames = new string[cols.Count];
+        var outDtypes = new string[cols.Count];
+        
+        var outValues = new string[cols.Count][];
+
+        for (int colIdx = 0; colIdx < cols.Count; colIdx++)
+        {
+            var colName = cols[colIdx].Name;
+            var dtype = cols[colIdx].Type;
+
+            outColNames[colIdx] = colName.Length > maxColnameLength
+                ? string.Concat(colName.AsSpan(0, maxColnameLength - 1), "…")
+                : colName;
+
+            outDtypes[colIdx] = dtype.ToString();
+
+            using var strSeries = strDf[colIdx];
+            
+            var valArray = new string[limit];
+            
+            for (long rowIdx = 0; rowIdx < limit; rowIdx++)
+            {
+                if (strSeries.IsNullAt(rowIdx))
+                {
+                    valArray[rowIdx] = "null";
+                }
+                else
+                {
+                    string? s = strSeries.GetValue<string>(rowIdx);
+                    valArray[rowIdx] = dtype == DataType.String ? $"'{s}'" : (s ?? "null");
+                }
+            }
+            
+            // 将这组值存入二维数组
+            outValues[colIdx] = valArray;
+        }
+
+        // ==========================================================
+        // 召唤你的神级构造器！
+        // ==========================================================
+        var s1 = Series.From("column", outColNames);
+        var s2 = Series.From("dtype", outDtypes);
+        
+        // 假设你的 List 构造器可以接收 string[][] 或 IEnumerable<IEnumerable<string>>
+        var s3 = Series.From("values", outValues); 
+
+        return DataFrame.FromSeries(s1, s2, s3);
+    }
     // ==========================================
     // Display (Show)
     // ==========================================

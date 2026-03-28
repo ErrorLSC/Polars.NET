@@ -94,7 +94,7 @@ type ``Extensions Tests`` () =
         
 
         df.PrintSchema() 
-        df.Glimpse()
+        df.GlimpseFrame() |> pl.show |> ignore
         
         // DataFrame -> Seq
         let dfFlat =

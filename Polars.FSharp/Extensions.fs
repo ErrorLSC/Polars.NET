@@ -114,6 +114,59 @@ module Describe =
             let itemLimit = defaultArg maxItemsPerColumn 10
             let nameLimit = defaultArg maxColnameLength 50
             printf "%s" (this.GlimpseString(itemLimit, nameLimit))
+
+        /// <summary>
+        /// Return a dense preview of the DataFrame as a new DataFrame.
+        /// Schema: "column" (String), "dtype" (String), "values" (List[String])
+        /// </summary>
+        member this.GlimpseFrame(?maxItemsPerColumn: int, ?maxColnameLength: int) =
+            let itemLimit = defaultArg maxItemsPerColumn 10
+            let nameLimit = defaultArg maxColnameLength 50
+            let nRows = this.Height
+            let limit = int (min (int64 itemLimit) nRows)
+
+            let schema = this.Schema
+            let cols = schema.ToList()
+
+            use headDf = this.Head limit
+
+            use strDf = headDf.Select [| Expr.All().Cast DataType.String |]
+
+            let outColNames, outDtypes, outValues =
+                cols 
+                |> List.map (fun (colName, dtype) ->
+                    
+                    let displayColName = 
+                        if colName.Length > nameLimit then
+                            colName.Substring(0, nameLimit - 1) + "…"
+                        else
+                            colName
+                    
+                    let dtypeStr = dtype.ToString()
+
+                    use strSeries = strDf.Column colName 
+                    
+                    let valArray =
+                        [| for rowIdx in 0 .. (limit - 1) do
+                            if strSeries.IsNullAt rowIdx then
+                                yield "null"
+                            else
+                                let s = strSeries.GetValue<string> rowIdx
+                                if dtype = DataType.String then
+                                    yield sprintf "'%s'" s
+                                else
+                                    yield s
+                        |]
+
+                    displayColName, dtypeStr, valArray
+                )
+                |> List.unzip3 
+
+            let s1 = Series.create("column", outColNames |> Array.ofList)
+            let s2 = Series.create("dtype", outDtypes |> Array.ofList)
+            let s3 = Series.create("values", outValues |> Array.ofList)  
+
+            DataFrame.create(s1, s2, s3)
             
     type LazyFrame with
         /// <summary>

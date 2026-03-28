@@ -94,6 +94,31 @@ public static partial class ArrowTensorInterop
 
         return (ptr, shape);
     }
+    public static unsafe (IntPtr Pointer, long[] Shape) GetNativePointers<T>(this SeriesHandle handle, ReadOnlySpan<nint> shape) where T : unmanaged
+    {
+        ReadOnlySpan<T> flatSpan = handle.AsReadOnlySpan<T>();
+        ref T refData = ref MemoryMarshal.GetReference(flatSpan);
+        IntPtr ptr = (IntPtr)Unsafe.AsPointer(ref refData);
+
+        long totalElements = 1;
+        long[] returnShape = new long[shape.Length];
+        for (int i = 0; i < shape.Length; i++)
+        {
+            totalElements *= shape[i];
+            returnShape[i] = shape[i];
+        }
+
+        if (totalElements != flatSpan.Length)
+        {
+            throw new ArgumentException(
+                $"Shape mismatch! The requested shape requires {totalElements} elements, " +
+                $"but the underlying Series physical memory only has {flatSpan.Length} elements. " +
+                "You cannot reshape into a size that does not match the exact memory footprint."
+            );
+        }
+
+        return (ptr, returnShape);
+    }
     private static void EnsureTypeMatch<T>(IArrowType arrowType) where T : unmanaged
     {
         Type expectedNetType = ArrowTypeResolver.GetNetTypeFromArrowType(arrowType);

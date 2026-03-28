@@ -1408,6 +1408,71 @@ public class SeriesTests
         Assert.Equal(2.3f, nativeSpan[5]); 
     }
     [Fact]
+    [Trait("Series", "AsDangerousUnmanagedTensor")]
+    public unsafe void AsDangerousUnmanagedTensor_WithValidShape_ReturnsPointerAndReshapedMetadata()
+    {
+        using var s = Series.From("data", [1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f]);
+        
+        // 2 * 3 = 6
+        nint[] newShape = [2, 3]; 
+
+        // Act
+        var (ptr, shape) = s.AsDangerousUnmanagedTensor<float>(newShape);
+
+        // Assert
+        Assert.NotEqual(IntPtr.Zero, ptr);
+        
+        Assert.Equal(2, shape.Length);
+        Assert.Equal(2, shape[0]);
+        Assert.Equal(3, shape[1]);
+
+        float* floatPtr = (float*)ptr.ToPointer();
+        Assert.Equal(1.0f, floatPtr[0]); 
+        Assert.Equal(6.0f, floatPtr[5]); 
+    }
+
+    [Fact]
+    [Trait("Series", "AsDangerousUnmanagedTensor")]
+    public void AsDangerousUnmanagedTensor_WithInvalidShape_ThrowsArgumentException()
+    {
+        using var s = Series.From("data", [1, 2, 3, 4, 5, 6]);
+        
+        nint[] badShape = [2, 4]; 
+
+        // Act & Assert
+        var ex = Assert.Throws<ArgumentException>(() =>
+        {
+            s.AsDangerousUnmanagedTensor<int>(badShape);
+        });
+
+        Assert.Contains("Shape mismatch", ex.Message);
+        Assert.Contains("requires 8 elements", ex.Message);
+        Assert.Contains("only has 6 elements", ex.Message);
+    }
+
+    // [Fact]
+    // [Trait("Series", "AsDangerousUnmanagedTensor")]
+    // public void AsDangerousUnmanagedTensor_NotContiguous_ThrowsInvalidOperationException()
+    // {
+    //    
+    //     using var s1 = Series.From("data", [1, 2]);
+    //     using var s2 = Series.From("data", [3, 4]);
+        
+    //    
+    //     s1.Append(s2, appendChunks: true); 
+
+    //     nint[] targetShape = [2, 2];
+
+    //     // Act & Assert
+    //     var ex = Assert.Throws<InvalidOperationException>(() =>
+    //     {
+    //         s1.AsDangerousUnmanagedTensor<int>(targetShape);
+    //     });
+
+    //     Assert.Contains("fragmented", ex.Message);
+    //     Assert.Contains("call .Rechunk()", ex.Message);
+    // }
+    [Fact]
     [Trait("Series", "AsTensor3D")]
     public void AsTensor_WithShape_PerformsDeepCopyOf3D()
     {

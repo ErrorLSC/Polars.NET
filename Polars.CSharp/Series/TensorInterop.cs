@@ -119,6 +119,21 @@ public partial class Series : IDisposable,IPolarsSeries
         }
         return ArrowTensorInterop.GetNativePointers<T>(Handle);
     }
+    /// <summary>
+    /// Extracts the raw unmanaged pointer and reshapes the metadata for native ML backends.
+    /// </summary>
+    /// <param name="shape">The target tensor shape. Total elements must strictly match the memory length.</param>
+    public (IntPtr DataPointer, long[] Shape) AsDangerousUnmanagedTensor<T>(ReadOnlySpan<nint> shape) where T : unmanaged
+    {
+        if (!IsContiguous)
+        {
+            throw new InvalidOperationException(
+                $"Cannot extract a contiguous native pointer because the Series is fragmented into {ChunkCount} chunks. " +
+                "You MUST call .Rechunk() on this Series to merge the memory before exporting it to an unmanaged Tensor."
+            );
+        }
+        return ArrowTensorInterop.GetNativePointers<T>(Handle, shape);
+    }
      
     /// <summary>
     /// Converts an N-Dimensional .NET Tensor into a Polars Series.

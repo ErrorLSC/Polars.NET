@@ -1742,26 +1742,35 @@ type Series(handle: SeriesHandle) =
         new Series(handle)
 
     /// <summary>
-    /// Create a Series from array
-    /// </summary>
-    static member create(name: string, data: 'T[]) =
-        let handle = SeriesFactory.CreateSpan(name, ReadOnlySpan<'T> data)
-        new Series(handle)
-
-    /// <summary>
     /// Create a Series from any sequence (List, Seq, etc.).
-    /// This will allocate memory via Seq.toArray.
+    /// Intelligently routes F# specific types (option/voption) to CreateSpan,
+    /// while routing standard .NET types to the zero-allocation CreateGenericType.
     /// </summary>
     static member create(name: string, data: seq<'T>) =
-        let arr = Seq.toArray data
-        let handle = SeriesFactory.CreateSpan(name, ReadOnlySpan<'T>(arr))
-        new Series(handle)
+        let t = typeof<'T>
+        
+        let isFSharpOption = 
+            t.IsGenericType && 
+            (t.GetGenericTypeDefinition() = typedefof<voption<_>> || 
+             t.GetGenericTypeDefinition() = typedefof<option<_>>)
+
+        if isFSharpOption then
+            let arr = Seq.toArray data
+            let handle = SeriesFactory.CreateSpan(name, ReadOnlySpan<'T> arr)
+            
+            if isNull (box handle) || handle.IsInvalid then
+                new Series(SeriesFactory.Create(name, arr))
+            else
+                new Series(handle)
+        else
+            let handle = SeriesFactory.CreateGenericType(name, data)
+            new Series(handle)
+
     /// <summary>
-    /// Create a Series from any sequence (List, Seq, etc.).
-    /// This will allocate memory via Seq.toArray.
+    /// Alias for create matching C# naming convention.
     /// </summary>
-    static member From(name:string, data: seq<'T>) = 
-        Series.create(name,data)
+    static member From(name: string, data: seq<'T>) = 
+        Series.create(name, data)
     
     // -------------------------------------------------------------------------
     // Fixed Size List / Array (Matrix)
