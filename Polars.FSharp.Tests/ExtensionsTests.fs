@@ -66,6 +66,7 @@ type ``Extensions Tests`` () =
 
 
     [<Fact>]
+    [<Trait("Extension","ComplexType")>]
     member _.``Interop: Full Complex Type Roundtrip`` () =
         let data = [
             { 
@@ -93,6 +94,7 @@ type ``Extensions Tests`` () =
         
 
         df.PrintSchema() 
+        df.Glimpse()
         
         // DataFrame -> Seq
         let dfFlat =

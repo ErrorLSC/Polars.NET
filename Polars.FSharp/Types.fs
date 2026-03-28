@@ -356,6 +356,8 @@ type Series(handle: SeriesHandle) =
     /// </summary>
     member _.IsNullAt(index: int) : bool =
         PolarsWrapper.SeriesIsNullAt(handle, int64 index)
+    member _.IsNullAt(index: int64) : bool =
+        PolarsWrapper.SeriesIsNullAt(handle, index)
     /// <summary>
     /// Get the number of null values in the Series.
     /// This is an O(1) operation (metadata access).
@@ -4568,8 +4570,9 @@ and DataFrame(handle: DataFrameHandle) =
         
         use sc = this.Schema
 
-        sc.ToMap() 
-        |> Map.iter (fun name dtype -> 
+        sc.ToList() 
+        |> List.iter (fun (name, dtype) -> 
+
             printfn "%-15s | %O" name dtype
         )
         
@@ -5198,10 +5201,9 @@ and DataFrame(handle: DataFrameHandle) =
         match unit with
         | SizeUnit.Bytes     -> bytes
         | SizeUnit.Kilobytes -> bytes / 1024.0
-        | SizeUnit.Megabytes -> bytes / (1024.0 ** 2.0)
-        | SizeUnit.Gigabytes -> bytes / (1024.0 ** 3.0)
-        | SizeUnit.Terabytes -> bytes / (1024.0 ** 4.0)
-        | _ -> raise (ArgumentOutOfRangeException(nameof unit, $"Unsupported size unit: {unit}"))
+        | SizeUnit.Megabytes -> bytes / 1024.0 ** 2.0
+        | SizeUnit.Gigabytes -> bytes / 1024.0 ** 3.0
+        | SizeUnit.Terabytes -> bytes / 1024.0 ** 4.0
 
     /// <summary>
     /// Returns the shape of the DataFrame as (Height, Width).
@@ -8464,12 +8466,16 @@ and PolarsSchema (handle: SchemaHandle) =
             DataType.FromHandle _th 
         ]
 
-    /// <summary> Convert to F# Map </summary>
-    member this.ToMap() =
+    /// <summary> Convert to F# ordered List of fields </summary>
+    member this.ToList() =
         let len = this.Len()
         [ for i in 0UL .. (len - 1UL) do
             yield this.GetFieldAt i 
-        ] |> Map.ofList
+        ]
+
+    /// <summary> Convert to F# Map (Warning: Does not preserve column order!) </summary>
+    member this.ToMap() =
+        this.ToList() |> Map.ofList
 
     /// <summary> Convert to Dictionary </summary>
     member this.ToDictionary() =

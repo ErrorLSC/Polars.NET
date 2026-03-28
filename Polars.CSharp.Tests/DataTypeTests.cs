@@ -411,6 +411,7 @@ public class DataTypeTests
         Assert.Equal(2, list0[1]);
     }
     [Fact]
+    [Trait("DataType","TimeZone")]
     public void Test_TimeZone_Operations_EndToEnd()
     {
         // 2023-01-01 10:00:00

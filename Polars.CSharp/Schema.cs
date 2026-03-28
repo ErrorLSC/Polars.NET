@@ -89,8 +89,26 @@ public class PolarsSchema : IDisposable,IPolarsSchema
 
     Dictionary<string, IPolarsDataType> IPolarsSchema.ToDictionary()
     {
-        return this.ToDictionary()
+        return ToDictionary()
                     .ToDictionary(kvp => kvp.Key, kvp => (IPolarsDataType)kvp.Value);
+    }
+    /// <summary>
+    /// Returns the schema as an ordered list of fields.
+    /// </summary>
+    public List<(string Name, DataType Type)> ToList()
+    {
+        if (Handle.IsInvalid) return [];
+
+        ulong len = PolarsWrapper.GetSchemaLen(Handle);
+        var result = new List<(string Name, DataType Type)>((int)len);
+
+        for (ulong i = 0; i < len; i++)
+        {
+            PolarsWrapper.GetSchemaFieldAt(Handle, i, out string name, out DataTypeHandle dtHandle);
+            result.Add((name, new DataType(dtHandle)));
+        }
+
+        return result;
     }
 
     public DataType this[string name]

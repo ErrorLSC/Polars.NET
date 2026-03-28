@@ -47,19 +47,24 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     }
     IPolarsSchema IPolarsDataFrame.Schema => Schema;
     /// <summary>
-    /// Prints the schema to the console.
+    /// Prints the schema of the DataFrame to the standard output.
     /// </summary>
     public void PrintSchema()
     {
         using var schema = Schema;
+        var fields = schema.ToList(); 
+
+        int maxNameLen = fields.Count > 0 ? fields.Max(f => f.Name.Length) : 15;
+        maxNameLen = Math.Max(maxNameLen, 10); 
+
+        Console.WriteLine("--- DataFrame Schema ---");
         
-        Console.WriteLine("root");
-        
-        foreach (var name in schema.ColumnNames)
+        foreach (var field in fields)
         {
-            var type = schema[name]; 
-            Console.WriteLine($" |-- {name}: {type.Kind}");
+            Console.WriteLine($"{field.Name.PadRight(maxNameLen)} | {field.Type}");
         }
+        
+        Console.WriteLine(new string('-', maxNameLen + 26));
     }
  
     // ==========================================
@@ -1771,6 +1776,86 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
                 frame.Dispose();
             }
         }
+    }
+    /// <summary>
+    /// Print a dense preview of the DataFrame to the standard output.
+    /// The formatting shows one line per column so that wide dataframes display cleanly.
+    /// </summary>
+    /// <param name="maxItemsPerColumn">Maximum number of items to show per column.</param>
+    /// <param name="maxColnameLength">Maximum length of the displayed column names.</param>
+    public void Glimpse(int maxItemsPerColumn = 10, int maxColnameLength = 50)
+        => Console.Write(GlimpseString(maxItemsPerColumn, maxColnameLength));
+
+    /// <summary>
+    /// Return a dense preview of the DataFrame as a formatted string.
+    /// </summary>
+    public string GlimpseString(int maxItemsPerColumn = 10, int maxColnameLength = 50)
+    {
+        long nRows = Height;
+        long nCols = Width;
+        long limit = Math.Min(maxItemsPerColumn, nRows);
+
+        var schema = Schema;
+        var cols = schema.ToList();
+
+        using var headDf = Head((int)limit);
+        using var strDf = headDf.Select(Expr.All().Cast(DataType.String));
+
+        var rowInfos = new List<(string Name, string DType, string Values)>(cols.Count);
+        int maxNameLen = 0;
+        int maxDtypeLen = 0;
+
+        for (int colIdx = 0; colIdx < cols.Count; colIdx++)
+        {
+            var colName = cols[colIdx].Name;
+            var dtype = cols[colIdx].Type;
+
+            string displayColName = colName.Length > maxColnameLength
+                ? string.Concat(colName.AsSpan(0, maxColnameLength - 1), "…")
+                : colName;
+            
+            maxNameLen = Math.Max(maxNameLen, displayColName.Length);
+
+            string dtypeStr = $"<{dtype.Kind}>"; 
+            maxDtypeLen = Math.Max(maxDtypeLen, dtypeStr.Length);
+
+            using var strSeries = strDf[colIdx]; 
+            
+            var valStrs = new List<string>((int)limit);
+            for (long rowIdx = 0; rowIdx < limit; rowIdx++)
+            {
+                if (strSeries.IsNullAt(rowIdx))
+                {
+                    valStrs.Add("null");
+                }
+                else
+                {
+                    string? s = strSeries.GetValue<string>(rowIdx);
+                    
+                    if (dtype.Kind == DataTypeKind.String)
+                    {
+                        valStrs.Add($"'{s}'");
+                    }
+                    else
+                    {
+                        valStrs.Add(s ?? "null");
+                    }
+                }
+            }
+
+            rowInfos.Add((displayColName, dtypeStr, string.Join(", ", valStrs)));
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"Rows: {nRows}");
+        sb.AppendLine($"Columns: {nCols}");
+
+        foreach (var (Name, DType, Values) in rowInfos)
+        {
+            sb.AppendLine($"$ {Name.PadRight(maxNameLen)} {DType.PadLeft(maxDtypeLen)} {Values}");
+        }
+
+        return sb.ToString();
     }
     // ==========================================
     // Display (Show)

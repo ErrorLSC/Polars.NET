@@ -1778,6 +1778,7 @@ TooShort,1990-05-20,1.60";
     }
 
     [Fact]
+    [Trait("Expr","LitNest3")]
     public void Test_Level3_The_Ultimate_Nest()
     {
         // Struct 

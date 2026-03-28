@@ -3,6 +3,7 @@ open System.Runtime.CompilerServices
 
 [<AutoOpen>]
 module Describe =
+    open System.Text
     
     type DataFrame with
         /// <summary>
@@ -44,6 +45,75 @@ module Describe =
                 )
 
             pl.concat rowFrames
+
+        /// <summary>
+        /// Return a dense preview of the DataFrame as a formatted string.
+        /// </summary>
+        member this.GlimpseString(?maxItemsPerColumn:int,?maxColnameLength: int ) =
+            let nRows = this.Height
+            let nCols = this.Width
+            let itemLimit = defaultArg maxItemsPerColumn 10
+            let nameLimit = defaultArg maxColnameLength 50
+            let limit = int (min (int64 itemLimit) nRows)
+
+            let schema = this.Schema
+            let cols = schema.ToList()
+
+            use headDf = this.Head limit
+            use strDf = headDf.Select [| Expr.All().Cast DataType.String |]
+
+            let mutable maxNameLen = 0
+            let mutable maxDtypeLen = 0
+
+            let rowInfos = 
+                cols |> List.mapi (fun colIdx (colName, dtype) ->
+                    
+                    let displayColName = 
+                        if colName.Length > nameLimit then
+                            colName.Substring(0, nameLimit - 1) + "…"
+                        else
+                            colName
+                    
+                    maxNameLen <- max maxNameLen displayColName.Length
+
+                    let dtypeStr = sprintf "<%s>" (dtype.ToString())
+                    maxDtypeLen <- max maxDtypeLen dtypeStr.Length
+
+                    use strSeries = strDf.Column colName 
+                    
+                    let valStrs =
+                        [ for rowIdx in 0 .. (limit - 1) do
+                            if strSeries.IsNullAt rowIdx then
+                                yield "null"
+                            else
+                                let s = strSeries.GetValue<string> rowIdx
+                                if dtype = DataType.String then
+                                    yield sprintf "'%s'" s
+                                else
+                                    yield s
+                        ]
+
+                    displayColName, dtypeStr, System.String.Join(", ", valStrs)
+                )
+
+            let sb = StringBuilder()
+            sb.AppendLine(sprintf "Rows: %d" nRows) |> ignore
+            sb.AppendLine(sprintf "Columns: %d" nCols) |> ignore
+
+            for name, dtypeStr, values in rowInfos do
+                let paddedName = name.PadRight maxNameLen
+                let paddedDtype = dtypeStr.PadLeft maxDtypeLen
+                sb.AppendLine(sprintf "$ %s %s %s" paddedName paddedDtype values) |> ignore
+
+            sb.ToString()
+
+        /// <summary>
+        /// Print a dense preview of the DataFrame to the standard output.
+        /// </summary>
+        member this.Glimpse(?maxItemsPerColumn:int,?maxColnameLength: int )  =
+            let itemLimit = defaultArg maxItemsPerColumn 10
+            let nameLimit = defaultArg maxColnameLength 50
+            printf "%s" (this.GlimpseString(itemLimit, nameLimit))
             
     type LazyFrame with
         /// <summary>
@@ -53,6 +123,8 @@ module Describe =
         /// </summary>
         member this.Describe(): DataFrame =
             this.Clone().Collect().Describe()
+
+    
 
 [<Extension>]
 type LazyFrameDeltaExtensions =
