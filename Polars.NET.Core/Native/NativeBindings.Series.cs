@@ -362,11 +362,12 @@ unsafe internal partial class NativeBindings
     public static partial SeriesHandle pl_series_is_not_null(SeriesHandle s);
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)]
-    public static partial bool pl_series_is_null_at(SeriesHandle s, UIntPtr idx);
+    public static partial bool pl_series_is_null_at(SeriesHandle s,nuint idx,[MarshalAs(UnmanagedType.I1)] out bool IsNull);
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_drop_nulls(SeriesHandle s);
     [LibraryImport(LibName)]
-    public static partial uint pl_series_null_count(SeriesHandle s);
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static partial bool pl_series_null_count(SeriesHandle s, out uint count);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_nan(SeriesHandle s);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_not_nan(SeriesHandle s);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_finite(SeriesHandle s);

@@ -1136,12 +1136,26 @@ public static partial class PolarsWrapper
     public static SeriesHandle SeriesIsNull(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_null(s));
     public static SeriesHandle SeriesIsNotNull(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_not_null(s));
     public static SeriesHandle SeriesDropNulls(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_drop_nulls(s));
-    public static bool SeriesIsNullAt(SeriesHandle s, long idx) => NativeBindings.pl_series_is_null_at(s, (UIntPtr)idx);
+    public static bool SeriesIsNullAt(SeriesHandle s, long idx)
+    {
+        bool success = NativeBindings.pl_series_is_null_at(s, (nuint)idx, out bool isNull);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return isNull;
+    }
     public static SeriesHandle SeriesIsNan(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_nan(s));
     public static SeriesHandle SeriesIsNotNan(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_not_nan(s));
     public static SeriesHandle SeriesIsFinite(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_finite(s));
     public static SeriesHandle SeriesIsInfinite(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_infinite(s));
-    public static long SeriesNullCount(SeriesHandle s) => NativeBindings.pl_series_null_count(s);
+    public static long SeriesNullCount(SeriesHandle s)
+    {
+        bool success = NativeBindings.pl_series_null_count(s, out uint count);
+
+        ErrorHelper.CheckBool(success); 
+        
+        return count;
+    }
     public static SeriesHandle SeriesUnique(SeriesHandle handle) => ErrorHelper.Check(NativeBindings.pl_series_unique(handle));
     public static SeriesHandle SeriesUniqueStable(SeriesHandle handle) => ErrorHelper.Check(NativeBindings.pl_series_unique_stable(handle));
     public static long SeriesNUnique(SeriesHandle handle)

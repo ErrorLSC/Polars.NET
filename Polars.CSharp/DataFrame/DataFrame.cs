@@ -1904,18 +1904,12 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
                     valArray[rowIdx] = dtype == DataType.String ? $"'{s}'" : (s ?? "null");
                 }
             }
-            
-            // 将这组值存入二维数组
+
             outValues[colIdx] = valArray;
         }
-
-        // ==========================================================
-        // 召唤你的神级构造器！
-        // ==========================================================
         var s1 = Series.From("column", outColNames);
         var s2 = Series.From("dtype", outDtypes);
         
-        // 假设你的 List 构造器可以接收 string[][] 或 IEnumerable<IEnumerable<string>>
         var s3 = Series.From("values", outValues); 
 
         return DataFrame.FromSeries(s1, s2, s3);

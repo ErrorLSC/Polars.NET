@@ -882,21 +882,45 @@ pub extern "C" fn pl_series_is_not_null(s_ptr: *mut SeriesContext) -> *mut Serie
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_series_is_null_at(s_ptr: *mut SeriesContext, idx: usize) -> bool {
-    let ctx = unsafe { &*s_ptr };
-    if idx >= ctx.series.len() { 
-        return false; 
-    }
-    match ctx.series.get(idx) {
-        Ok(AnyValue::Null) => true,
-        _ => false 
-    }
+pub extern "C" fn pl_series_is_null_at(
+    s_ptr: *mut SeriesContext, 
+    idx: usize,
+    out_is_null: *mut bool
+) -> bool {
+    ffi_bool_try!({
+        if s_ptr.is_null() {
+            polars_bail!(ComputeError: "Series pointer is null");
+        }
+        
+        let ctx = unsafe { &*s_ptr };
+        let len = ctx.series.len();
+        
+        if idx >= len { 
+            polars_bail!(OutOfBounds: "Index {} is out of bounds for Series of length {}", idx, len);
+        }
+        
+        let is_null = match ctx.series.get(idx) {
+            Ok(AnyValue::Null) => true,
+            _ => false 
+        };
+        
+        unsafe { *out_is_null = is_null; }
+        
+        Ok(())
+    })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_series_null_count(s_ptr: *mut SeriesContext) -> usize {
-    let ctx = unsafe { &*s_ptr };
-    ctx.series.null_count()
+pub extern "C" fn pl_series_null_count(s_ptr: *mut SeriesContext,out_count: *mut usize) -> bool {
+    ffi_bool_try!({
+        let ctx = unsafe { &*s_ptr };
+
+        let count = ctx.series.null_count();
+        
+        unsafe { *out_count = count };
+            
+        Ok(())
+    })
 }
 
 #[unsafe(no_mangle)]
