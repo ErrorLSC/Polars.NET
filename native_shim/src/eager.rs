@@ -674,3 +674,21 @@ pub extern "C" fn pl_dataframe_hash_rows(
         Ok(Box::into_raw(Box::new(SeriesContext { series: series })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_is_duplicated(df_ptr: *mut DataFrameContext) -> *mut SeriesContext {
+    ffi_try!({
+        let df = unsafe { &(*df_ptr).df };
+        let res = df.is_duplicated()?.into_series();
+        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_is_unique(df_ptr: *mut DataFrameContext) -> *mut SeriesContext {
+    ffi_try!({
+        let df = unsafe { &(*df_ptr).df };
+        let res = df.is_unique()?.into_series();
+        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
+    })
+}

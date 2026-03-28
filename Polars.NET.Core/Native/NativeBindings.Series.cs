@@ -437,4 +437,5 @@ unsafe internal partial class NativeBindings
     // --- Arrow Export ---
     [LibraryImport(LibName)]
     public static partial ArrowArrayContextHandle pl_series_to_arrow(SeriesHandle h);
+    [LibraryImport(LibName)] public static partial IntPtr pl_series_to_string(SeriesHandle series);
 }

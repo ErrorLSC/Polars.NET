@@ -46,10 +46,12 @@ public static partial class PolarsWrapper
     }
     public static SchemaHandle GetDataFrameSchema(DataFrameHandle handle)
         =>ErrorHelper.Check(NativeBindings.pl_dataframe_get_schema(handle));
+    public static SeriesHandle DataFrameIsDuplicated(DataFrameHandle handle)
+        =>ErrorHelper.Check(NativeBindings.pl_dataframe_is_duplicated(handle));
+    public static SeriesHandle DataFrameIsUnique(DataFrameHandle handle)
+        =>ErrorHelper.Check(NativeBindings.pl_dataframe_is_unique(handle));
     public static DataFrameHandle CloneDataFrame(DataFrameHandle df)
-    {
-        return ErrorHelper.Check(NativeBindings.pl_dataframe_clone(df));
-    }
+        => ErrorHelper.Check(NativeBindings.pl_dataframe_clone(df));
     // ==========================================
     // Eager Ops
     // ==========================================

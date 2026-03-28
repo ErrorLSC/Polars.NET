@@ -970,4 +970,23 @@ B,5";
         hash42.Show();
 
     }
+    [Fact]
+    [Trait("DataFrame","IsDuplicated")]
+    public void Test_DataFrame_IsDuplicated()
+    {
+        using var scoresDf = DataFrame.FromColumns(new 
+        {
+            student = new[] { "Alice", "Alice", "Bob" },
+            year    = new[] { 2023,    2024,    2023 },
+            score   = new[] { 85,      90,      70 },
+            note    = new[] { "Score1", "Score2", "Score3" } 
+        });
+
+        var dupDf = scoresDf.IsDuplicated();
+        var uniDf = scoresDf.IsUnique();
+
+        dupDf.Show();
+        uniDf.Show();
+
+    }
 }

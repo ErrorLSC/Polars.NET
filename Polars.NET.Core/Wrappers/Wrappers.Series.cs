@@ -1233,4 +1233,9 @@ public static partial class PolarsWrapper
             normalize
         ));
     }
+    public static string SeriesToString(SeriesHandle handle)
+    {
+        var ptr = NativeBindings.pl_series_to_string(handle);
+        return ErrorHelper.CheckString(ptr);
+    }
 }

@@ -2512,8 +2512,20 @@ type Series(handle: SeriesHandle) =
     static member ofTensor<'T when 'T : unmanaged and 'T : struct and 'T :> ValueType and 'T : (new: unit -> 'T)>(name:string,tensor: ReadOnlyTensorSpan<'T> ) = 
         new Series(ArrowTensorInterop.ImportTensor(name, tensor))
     
-    member this.Show() =
-        this.ToFrame().Show()
+    /// <summary>
+    /// Returns the string representation of the Series (ASCII table).
+    /// </summary>
+    override this.ToString() =
+        if this.Handle.IsInvalid then 
+            "Series (Disposed)"
+        else 
+            PolarsWrapper.SeriesToString(this.Handle)
+
+    /// <summary>
+    /// Print the Series to Console.
+    /// </summary>
+    member this.Show() = 
+        printfn "%O" this
 and SeriesDtNameSpace(parent: Series) =
     
     // Helper: col("Name").Dt.Op(...)
@@ -5255,6 +5267,16 @@ and DataFrame(handle: DataFrameHandle) =
     member this.Shape = this.Len,this.Width
     member _.ColumnNames = PolarsWrapper.GetColumnNames handle
     member _.Columns = PolarsWrapper.GetColumnNames handle
+
+    /// <summary>
+    /// Get a mask of all duplicated rows in this DataFrame.
+    /// </summary>
+    member this.IsDuplicated() = new Series(PolarsWrapper.DataFrameIsDuplicated handle)
+
+    /// <summary>
+    /// Get a mask of all unique rows in this DataFrame.
+    /// </summary>
+    member this.IsUnique() = new Series(PolarsWrapper.DataFrameIsUnique handle)
 
     /// <summary>
     /// Get all columns as an array of Series.

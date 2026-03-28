@@ -130,4 +130,8 @@ unsafe internal partial class NativeBindings
         DataFrameHandle handle, 
         out nuint size
     );
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_dataframe_is_duplicated(DataFrameHandle handle);
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_dataframe_is_unique(DataFrameHandle handle);
 }

@@ -693,7 +693,10 @@ pub extern "C" fn pl_series_rename(ptr: *mut SeriesContext, name: *const c_char)
 pub extern "C" fn pl_series_to_string(s_ptr: *mut SeriesContext) -> *mut c_char {
     ffi_try!({
         let ctx = unsafe { &*s_ptr };
-        let s = std::string::ToString::to_string(&ctx.series); // Native Display
+        let mut s = std::string::ToString::to_string(&ctx.series); // Native Display
+        if s.contains('\0') {
+            s = s.replace('\0', "␀"); 
+        }
         let c_str = CString::new(s).map_err(|e| polars_err!(ComputeError: "Series contains null byte: {}", e))?;
         Ok(c_str.into_raw())
     })

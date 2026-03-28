@@ -979,8 +979,7 @@ public partial class Series : IDisposable,IPolarsSeries
     public override string ToString()
     {
         if (Handle.IsInvalid) return "Series (Disposed)";
-        using var df = this.ToFrame();
-        return df.ToString();
+        return PolarsWrapper.SeriesToString(Handle);
     }
 
     /// <summary>
