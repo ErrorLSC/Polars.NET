@@ -70,7 +70,8 @@ and Expr(handle: ExprHandle) =
     /// Create a single chunk of memory for this Series.
     /// </summary>
     /// <returns></returns>
-    member this.Rechunk() = new Expr(PolarsWrapper.Rechunk(this.CloneHandle()));
+    member this.Rechunk() = new Expr(PolarsWrapper.Rechunk(this.CloneHandle()))
+
     // --- Rounding & Sign ---
     /// <summary> Round the underlying floating point data to the given number of decimals. </summary>
     member this.Round(decimals: int) = new Expr(PolarsWrapper.Round(this.CloneHandle(), uint decimals))

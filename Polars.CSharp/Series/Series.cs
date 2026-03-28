@@ -129,6 +129,11 @@ public partial class Series : IDisposable,IPolarsSeries
     public bool IsContiguous => ChunkCount == 1;
 
     /// <summary>
+    /// True if the Series is empty.
+    /// </summary>
+    public bool IsEmpty => Length == 0;
+
+    /// <summary>
     /// Get the string representation of the Series data type (e.g. "i64", "str", "datetime(μs)").
     /// </summary>
     public string DataTypeName => PolarsWrapper.GetSeriesDtypeString(Handle);

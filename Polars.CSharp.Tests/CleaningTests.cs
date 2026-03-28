@@ -194,4 +194,22 @@ public class CleaningTests
         Assert.Equal(1, resultDf.Height);
         Assert.Equal(100.0, resultDf["f"][0]);
     }
+    [Fact]
+    [Trait("Cleaning","IsDuplicated")]
+    public void Test_DataFrame_IsDuplicated_IsUnique()
+    {
+        using var scoresDf = DataFrame.FromColumns(new 
+        {
+            student = new[] { "Alice", "Alice", "Bob" },
+            year    = new[] { 2023,    2023,    2023 },
+            score   = new[] { 85,      85,      70 },
+            note    = new[] { "Score1", "Score1", "Score3" } 
+        });
+        var dupDf = scoresDf.Filter(scoresDf.IsDuplicated());
+        Assert.Equal(2L,dupDf.Height);
+
+        var uniDf = scoresDf.Filter(scoresDf.IsUnique());
+        Assert.Equal(1L,uniDf.Height);
+
+    }
 }

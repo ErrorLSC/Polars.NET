@@ -65,6 +65,11 @@ type Series(handle: SeriesHandle) =
     member this.IsContiguous : bool = 
         this.ChunkCount = 1
 
+    /// <summary>
+    /// True if the Series is empty.
+    /// </summary>
+    member this.IsEmpty = this.Length = 0
+
     // ==========================================
     // Expression Composition (The "ApplyExpr" Pattern)
     // ==========================================
@@ -5247,8 +5252,7 @@ and DataFrame(handle: DataFrameHandle) =
     /// <summary>
     /// True if the DataFrame contains no rows.
     /// </summary>
-    member this.IsEmpty : bool = 
-        this.Height = 0L
+    member this.IsEmpty : bool = this.Height = 0L
     /// <summary>
     /// Return an estimation of the total (heap) allocated size of the DataFrame.
     /// Estimated size is given in the specified unit (bytes by default).

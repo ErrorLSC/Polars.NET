@@ -251,12 +251,21 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </code>
     /// </example>
     public LazyFrame Filter(Expr expr)
+        => new(PolarsWrapper.LazyFilter(CloneHandle(), expr.CloneHandle()));
+    /// <summary>
+    ///  Filter rows based on a boolean series.
+    /// </summary>
+    /// <param name="series"></param>
+    /// <returns></returns>
+    public LazyFrame Filter(Series series)
     {
-        var lfClone = CloneHandle();
-        var h = PolarsWrapper.CloneExpr(expr.Handle);
-        //
-        return new LazyFrame(PolarsWrapper.LazyFilter(lfClone, h));
-    }
+        if (series.DataType != DataType.Boolean)
+        {
+            throw new InvalidExpressionException("Can not Filter by non-boolean series.");
+        }
+        return Filter(Polars.Lit(series)); 
+    } 
+
     /// <summary>
     /// Add or modify columns based on expressions.
     /// </summary>

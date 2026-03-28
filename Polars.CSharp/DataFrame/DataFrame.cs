@@ -253,6 +253,16 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         return lf.Collect();
     }
     /// <summary>
+    ///  Filter rows based on a boolean series.
+    /// </summary>
+    /// <param name="series"></param>
+    /// <returns></returns>
+    public DataFrame Filter(Series series)
+    {
+        var lf = Lazy().Filter(series);
+        return lf.Collect();
+    }
+    /// <summary>
     /// Add new columns to the DataFrame or replace existing ones using expressions.
     /// <para>
     /// Unlike <see cref="Select(Expr[])"/>, this method keeps all original columns in the DataFrame 
