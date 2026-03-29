@@ -111,13 +111,6 @@ public static partial class PolarsWrapper
 
         return ErrorHelper.Check(NativeBindings.pl_dataframe_rename_many(df, oldNames, newNames, (nuint)oldNames.Length));
     }
-    public static DataFrameHandle DropNulls(DataFrameHandle df, string[]? subset)
-    {
-        return UseUtf8StringArray(subset ?? [], ptrs => 
-        {
-            return ErrorHelper.Check(NativeBindings.pl_dataframe_drop_nulls(df, ptrs, (UIntPtr)ptrs.Length));
-        });
-    }
 
     public static unsafe DataFrameHandle SampleN(DataFrameHandle df, ulong n, bool replacement, bool shuffle, ulong? seed)
     {

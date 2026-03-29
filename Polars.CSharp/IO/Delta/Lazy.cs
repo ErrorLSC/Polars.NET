@@ -1,6 +1,7 @@
 #pragma warning disable CS1573
 
 using Polars.NET.Core;
+using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
 
@@ -203,7 +204,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         CloudOptions? cloudOptions = null)
     {
         using var selector = (partitionBy != null && partitionBy.Length > 0) 
-            ? Selector.Cols(partitionBy) 
+            ? Cs.Col(partitionBy) 
             : null;
 
         SinkDelta(

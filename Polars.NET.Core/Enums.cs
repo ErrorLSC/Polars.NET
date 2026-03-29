@@ -66,7 +66,8 @@ public enum PlTimeUnit: byte
     Hour = 5,
     Day = 6,
     Month =7,
-    Year =8
+    Year =8,
+    All = 100
 }
 /// <summary>
 /// Concat Type Enum

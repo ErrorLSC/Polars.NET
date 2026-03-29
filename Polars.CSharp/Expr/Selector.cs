@@ -151,41 +151,31 @@ public class Selector : IDisposable
         return new Selector(newHandle);
     }
     /// <summary>
-    /// Select columns by name.
-    /// </summary>
-    public static Selector Cols(params string[] names)
-    {
-        var newHandle = PolarsWrapper.SelectorCols(names);
-        return new Selector(newHandle);
-    }
-    /// <summary>
-    /// Select columns by name.
-    /// </summary>
-    public static Selector Col(params string[] names)
-        => Cols(names);
-    /// <summary>
     /// Convert the selector to an Expression.
     /// This allows using selectors inside Select(), WithColumns(), etc.
     /// </summary>
     public Expr ToExpr()
-    {
-        var exprHandle = PolarsWrapper.SelectorToExpr(Handle);
-        return new Expr(exprHandle);
-    }
-
+        =>new(PolarsWrapper.SelectorToExpr(Handle));
+    
     // --- Set Operations ( &, |, !, - ) ---
 
+    // INTERSECTION (A & B)
     public static Selector operator &(Selector left, Selector right)
         => new(PolarsWrapper.SelectorAnd(left.CloneHandle(), right.CloneHandle()));
-
+    // UNION (A | B)
     public static Selector operator |(Selector left, Selector right)
         => new(PolarsWrapper.SelectorOr(left.CloneHandle(), right.CloneHandle()));
-
+    // COMPLEMENT (~A)
+    public static Selector operator ~(Selector s)
+        => new(PolarsWrapper.SelectorNot(s.CloneHandle()));
     public static Selector operator !(Selector s)
         => new(PolarsWrapper.SelectorNot(s.CloneHandle()));
-
-    // Difference: A - B
-    public static Selector operator -(Selector left, Selector right) => left & (!right);
+    // SYMMETRIC DIFFERENCE (A ^ B)
+    public static Selector operator ^(Selector left, Selector right)
+        => new(PolarsWrapper.SelectorXor(left.CloneHandle(), right.CloneHandle()));
+    // DIFFERENCE (A - B)
+    public static Selector operator -(Selector left, Selector right)
+        => new(PolarsWrapper.SelectorSub(left.CloneHandle(), right.CloneHandle()));
     
     /// <summary>
     /// Implicitly convert Selector to Expr.

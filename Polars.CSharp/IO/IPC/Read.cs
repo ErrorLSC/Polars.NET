@@ -1,5 +1,6 @@
 #pragma warning disable CS1573
 using Polars.NET.Core;
+using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
 public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
@@ -75,7 +76,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
                 colsToSelect.Add(includePathColumn);
             }
 
-            lf = lf.Select(Selector.Cols(colsToSelect.ToArray()));
+            lf = lf.Select(Cs.Col([.. colsToSelect]));
         }
 
         return lf.Collect();
@@ -136,7 +137,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
                 colsToSelect.Add(includePathColumn);
             }
 
-            lf = lf.Select(Selector.Cols(colsToSelect.ToArray()));
+            lf = lf.Select(Cs.Col([.. colsToSelect]));
         }
 
         return lf.Collect();

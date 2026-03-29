@@ -1,4 +1,5 @@
 using Polars.NET.Core;
+using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
 public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
@@ -85,7 +86,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         if (columns != null && columns.Length > 0)
         {
-            lf = lf.Select(Selector.Cols(columns));
+            lf = lf.Select(Cs.Col(columns));
         }
 
         return lf.Collect();
@@ -166,7 +167,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         if (columns != null && columns.Length > 0)
         {
-            lf = lf.Select(Selector.Cols(columns));
+            lf = lf.Select(Cs.Col(columns));
         }
 
         return lf.Collect();
@@ -249,7 +250,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         if (columns != null && columns.Length > 0)
         {
-            lf = lf.Select(Selector.Cols(columns));
+            lf = lf.Select(Cs.Col(columns));
         }
 
         return lf.Collect();
@@ -336,7 +337,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
                 colsToSelect.Add(rowIndexName);
             }
 
-            lf = lf.Select(Selector.Cols([.. colsToSelect]));
+            lf = lf.Select(Cs.Col([.. colsToSelect]));
         }
 
         return await lf.CollectAsync(useStreaming: true);

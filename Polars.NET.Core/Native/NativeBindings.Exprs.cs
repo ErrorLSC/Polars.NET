@@ -324,10 +324,21 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_str_ends_with(ExprHandle e, string suffix);
     // Parsing
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial ExprHandle pl_expr_str_to_date(ExprHandle e, string format);
-
+    public static partial ExprHandle pl_expr_str_to_date(        
+        ExprHandle e,
+        string? format,
+        [MarshalAs(UnmanagedType.U1)] bool strict,
+        [MarshalAs(UnmanagedType.U1)] bool exact,
+        [MarshalAs(UnmanagedType.U1)] bool cache);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial ExprHandle pl_expr_str_to_datetime(ExprHandle e, string format);
+    public static partial ExprHandle pl_expr_str_to_datetime(
+        ExprHandle e,
+        PlTimeUnit unit,
+        string? timeZone,
+        string? format,
+        [MarshalAs(UnmanagedType.U1)] bool strict,
+        [MarshalAs(UnmanagedType.U1)] bool exact,
+        [MarshalAs(UnmanagedType.U1)] bool cache);
     
     [LibraryImport(LibName)] 
     public static partial ExprHandle pl_expr_str_slice(ExprHandle expr, long offset, ulong length);

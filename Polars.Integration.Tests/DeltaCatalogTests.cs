@@ -3,6 +3,7 @@ using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using Polars.CSharp;
 using static Polars.CSharp.Polars;
+using Cs = Polars.CSharp.Polars.Selectors;
 using Polars.Integration.Tests.Fixtures;
 using Polars.NET.Core; 
 
@@ -257,7 +258,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             df1.WriteCatalogTable(
                 uc, catalog, schema, table, 
                 mode: DeltaSaveMode.Overwrite, 
-                partitionBy: Selector.Col("Region"), 
+                partitionBy: Cs.Col("Region"), 
                 cloudOptions: cloudOptions
             );
         }
@@ -505,7 +506,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         {
             df.WriteCatalogTable(
                 uc, catalog, schema, table, 
-                partitionBy: Selector.Col("Year"), 
+                partitionBy: Cs.Col("Year"), 
                 mode: DeltaSaveMode.Overwrite, 
                 cloudOptions: cloudOptions
             );

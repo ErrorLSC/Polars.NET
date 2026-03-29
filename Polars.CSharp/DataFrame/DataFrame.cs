@@ -10,6 +10,7 @@ using System.Data.Common;
 using System.Threading.Channels;
 using System.Numerics.Tensors;
 using Pl = Polars.CSharp.Polars;
+using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
 
@@ -192,6 +193,52 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     // ==========================================
     // DataFrame Operations
     // ==========================================
+
+    /// <summary>
+    /// Fill null values in all columns with a specified Expression.
+    /// </summary>
+    public DataFrame FillNull(Expr fillValue)
+    {
+        ArgumentNullException.ThrowIfNull(fillValue);
+        using var lf = Lazy();
+        var filledLf = lf.FillNull(fillValue); 
+        return filledLf.Collect();
+    }
+
+    /// <summary>
+    /// Fill null values in all columns with a specified literal value.
+    /// </summary>
+    public DataFrame FillNull(object value)
+    {
+        using var lf = Lazy();
+        var filledLf = lf.FillNull(value);
+        return filledLf.Collect();
+    }
+
+    // ==========================================
+    // FillNan
+    // ==========================================
+
+    /// <summary>
+    /// Fill NaN values in floating point columns with a specified Expression.
+    /// </summary>
+    public DataFrame FillNan(Expr fillValue)
+    {
+        ArgumentNullException.ThrowIfNull(fillValue);
+        using var lf = Lazy();
+        var filledLf = lf.FillNan(fillValue);
+        return filledLf.Collect();
+    }
+
+    /// <summary>
+    /// Fill NaN values in floating point columns with a specified literal value.
+    /// </summary>
+    public DataFrame FillNan(object value)
+    {
+        using var lf = Lazy();
+        var filledLf = lf.FillNan(value);
+        return filledLf.Collect();
+    }
     /// <summary>
     /// Select columns from the DataFrame and apply expressions to them.
     /// <para>
@@ -483,9 +530,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         
         return lf.Collect();
     }
-    // ==========================================
-    // TopK / BottomK (Eager Shortcuts)
-    // ==========================================
 
     /// <summary>
     /// Get the top k rows according to the given expressions.
@@ -568,7 +612,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </example>
     public DataFrame Explode(params string[] columns)
     {
-        using var sel = Selector.Cols(columns);
+        using var sel = Cs.Col(columns);
         return Explode(sel);
     }
     /// <summary>
@@ -1702,9 +1746,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </example>
     public DataFrame Pivot(string[] index, string[] columns, string[] values, PivotAgg aggregateFunction = PivotAgg.First,bool sortColumns =false,bool maintainOrder = true,string? separator=null)
     {
-        using var sIndex = Selector.Cols(index);
-        using var sColumns = Selector.Cols(columns);
-        using var sValues = Selector.Cols(values);
+        using var sIndex = Cs.Col(index);
+        using var sColumns = Cs.Col(columns);
+        using var sValues = Cs.Col(values);
 
         return Pivot(
             sIndex, 
@@ -1743,9 +1787,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         bool maintainOrder = true,
         string? separator = null)
     {
-        using var sIndex = Selector.Cols(index);
-        using var sColumns = Selector.Cols(columns);
-        using var sValues = Selector.Cols(values);
+        using var sIndex = Cs.Col(index);
+        using var sColumns = Cs.Col(columns);
+        using var sValues = Cs.Col(values);
 
         return Pivot(
             sIndex, 
@@ -1799,8 +1843,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </example>
     public DataFrame Unpivot(string[] index, string[]? on, string variableName = "variable", string valueName = "value")
     {
-        using var sIndex = Selector.Cols(index);
-        using var sOn = on is not null ? Selector.Cols(on) : null;
+        using var sIndex = Cs.Col(index);
+        using var sOn = on is not null ? Cs.Col(on) : null;
 
         return Unpivot(sIndex, sOn, variableName, valueName);
     }

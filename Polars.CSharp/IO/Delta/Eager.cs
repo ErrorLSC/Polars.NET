@@ -1,4 +1,4 @@
-#pragma warning disable CS1573
+using Cs = Polars.CSharp.Polars.Selectors;
 
 using Polars.NET.Core;
 
@@ -133,7 +133,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         CloudOptions? cloudOptions = null)
     {
         using var selector = (partitionBy != null && partitionBy.Length > 0) 
-            ? Selector.Cols(partitionBy) 
+            ? Cs.Col(partitionBy) 
             : null;
 
         WriteDelta(

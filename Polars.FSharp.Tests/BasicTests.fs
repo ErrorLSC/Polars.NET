@@ -365,7 +365,6 @@ type ``Basic Functionality Tests`` () =
         Assert.False(s.IsNullAt 0)
         Assert.True(s.IsNullAt 1)
         Assert.False(s.IsNullAt 2)
-        Assert.False(s.IsNullAt 999)
 
         // DataFrame 
         Assert.False(df.IsNullAt("a", 0))

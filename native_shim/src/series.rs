@@ -902,8 +902,8 @@ pub extern "C" fn pl_series_is_null_at(
             polars_bail!(OutOfBounds: "Index {} is out of bounds for Series of length {}", idx, len);
         }
         
-        let is_null = match ctx.series.get(idx) {
-            Ok(AnyValue::Null) => true,
+        let is_null = match unsafe { ctx.series.get_unchecked(idx) } {
+            AnyValue::Null => true,
             _ => false 
         };
         

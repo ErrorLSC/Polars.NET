@@ -368,7 +368,7 @@ David,40,80000";
         
         using var lf = df.Lazy();
 
-        using var selector = Selector.Cols("expanded");
+        using var selector = Cs.Col("expanded");
 
         using var res = lf
             .Select(Col("chars").Str.Split(",").Alias("expanded"))
@@ -477,6 +477,7 @@ David,40,80000";
     }
 
     [Fact]
+    [Trait("LazyFrame","Unnest")]
     public void Test_LazyFrame_Unnest_With_Strings()
     {
         
@@ -484,7 +485,7 @@ David,40,80000";
 
         // Action
         using var res = df.Lazy()
-            .Unnest("my_struct")
+            .Unnest(Cs.Nested())
             .Collect();
 
         // Assert
@@ -499,28 +500,11 @@ David,40,80000";
     }
 
     [Fact]
-    public void Test_LazyFrame_Unnest_With_Selector()
-    {
-        using var df = CreateStructDataFrame();
-
-        using var selector = Selector.Cols("my_struct");
-
-        using var res = df.Lazy()
-            .Unnest(selector)
-            .Collect();
-
-        // Assert
-        Assert.Equal(3, res.Height); 
-        Assert.Equal(100, (int)res["field_0"][2]);
-        Assert.Equal(200, (int)res["field_1"][2]);
-    }
-
-    [Fact]
     public void Test_LazyFrame_Unnest_Reuse_Selector()
     {
         
         using var df = CreateStructDataFrame();
-        using var selector = Selector.Cols("my_struct");
+        using var selector = Cs.Col("my_struct");
 
         using var lf1 = df.Lazy().Unnest(selector); 
         using var res1 = lf1.Collect();
@@ -672,7 +656,7 @@ David,40,80000";
         var lf = df.Lazy();
         
         // Case A: Subset on "A", Keep First
-        var res1 = lf.Unique(Selector.Cols("A"), UniqueKeepStrategy.First)
+        var res1 = lf.Unique(Cs.Col("A"), UniqueKeepStrategy.First)
                      .Collect();
         
         Assert.Equal(2, res1.Height); 

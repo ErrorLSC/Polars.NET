@@ -521,11 +521,31 @@ public static partial class PolarsWrapper
     public static ExprHandle StrEndsWith(ExprHandle e, string suffix)
         => UnaryStrOp(NativeBindings.pl_expr_str_ends_with, e, suffix);
 
-    public static ExprHandle StrToDate(ExprHandle e, string format)
-        => UnaryStrOp(NativeBindings.pl_expr_str_to_date, e, format);
+    public static ExprHandle StrToDate(        
+        ExprHandle e,
+        string? format,
+        [MarshalAs(UnmanagedType.U1)] bool strict,
+        [MarshalAs(UnmanagedType.U1)] bool exact,
+        [MarshalAs(UnmanagedType.U1)] bool cache)
+    {
+        var h = NativeBindings.pl_expr_str_to_date(e,format,strict,exact,cache);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
 
-    public static ExprHandle StrToDatetime(ExprHandle e, string format)
-        => UnaryStrOp(NativeBindings.pl_expr_str_to_datetime, e, format);
+    public static ExprHandle StrToDatetime(        
+        ExprHandle e,
+        PlTimeUnit unit,
+        string? timeZone,
+        string? format,
+        [MarshalAs(UnmanagedType.U1)] bool strict,
+        [MarshalAs(UnmanagedType.U1)] bool exact,
+        [MarshalAs(UnmanagedType.U1)] bool cache)
+    {
+        var h = NativeBindings.pl_expr_str_to_datetime(e,unit,timeZone,format,strict,exact,cache);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     // Compare
     public static ExprHandle Eq(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_eq, l, r);
     public static ExprHandle Neq(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_neq, l, r);

@@ -109,88 +109,6 @@ public static partial class Polars
         return Lit(values.ToArray());
     }
     
-    // ---------------------------------------------------------
-    // Selectors Entry Points
-    // ---------------------------------------------------------
-
-    /// <summary>
-    /// String matching selectors namespace.
-    /// Usage: Polars.Selectors.StartsWith("A") or Pl.Cs.StartWith("A")
-    /// </summary>
-    public static class Selectors
-    {
-        /// <summary>
-        /// Select all columns.
-        /// </summary>
-        public static Selector All() 
-            => new(PolarsWrapper.SelectorAll());
-        /// <summary>
-        /// Select columns.
-        /// </summary>
-        public static Selector Cols(params string[] columns) 
-            => new(PolarsWrapper.SelectorCols(columns));
-
-        /// <summary>
-        /// Select all numeric columns (Int, Float, etc.).
-        /// </summary>
-        public static Selector Numeric() 
-            => new(PolarsWrapper.SelectorNumeric());
-
-        /// <summary>
-        /// Select all string/utf8 columns.
-        /// </summary>
-        public static Selector String() 
-            => new(PolarsWrapper.SelectorByDtype(PlDataType.String));
-
-        /// <summary>
-        /// Select all date columns.
-        /// </summary>
-        public static Selector Date() 
-            => new(PolarsWrapper.SelectorByDtype(PlDataType.Date));
-
-        /// <summary>
-        /// Select all datetime columns (any precision/timezone).
-        /// </summary>
-        public static Selector Datetime() 
-            => new(PolarsWrapper.SelectorByDtype(PlDataType.Datetime));
-
-        /// <summary>
-        /// Select columns by specific DataType.
-        /// </summary>
-        public static Selector DType(DataType type) 
-        {
-            var typeKind = type.Kind;
-            return new(PolarsWrapper.SelectorByDtype(typeKind.ToNative()));
-        }
-        /// <summary>
-        /// Select column whose name starts with given prefix.
-        /// </summary>
-        /// <param name="prefix"></param>
-        /// <returns></returns>
-        public static Selector StartsWith(string prefix) 
-            => new(PolarsWrapper.SelectorStartsWith(prefix));
-        /// <summary>
-        /// Select column whose name ends with given suffix.
-        /// </summary>
-        /// <param name="suffix"></param>
-        /// <returns></returns>
-        public static Selector EndsWith(string suffix) 
-            => new(PolarsWrapper.SelectorEndsWith(suffix));
-        /// <summary>
-        /// Select column whose name contains given string.
-        /// </summary>
-        /// <param name="str"></param>
-        /// <returns></returns>
-        public static Selector Contains(string str) 
-            => new(PolarsWrapper.SelectorContains(str));
-        /// <summary>
-        /// Select column whose name matches given string.
-        /// </summary>
-        /// <param name="regex"></param>
-        /// <returns></returns>
-        public static Selector Matches(string regex) 
-            => new(PolarsWrapper.SelectorMatch(regex));
-    }
     // ==========================================
     // Control Flow
     // ==========================================
@@ -365,6 +283,140 @@ public static partial class Polars
             current = f(current, enumerator.Current);
         }
         return current;
+    }
+       // ---------------------------------------------------------
+    // Selectors Entry Points
+    // ---------------------------------------------------------
+
+    /// <summary>
+    /// String matching selectors namespace.
+    /// Usage: Polars.Selectors.StartsWith("A") or Pl.Cs.StartWith("A")
+    /// </summary>
+    public readonly struct Selectors
+    {
+        /// <summary>
+        /// Select all columns.
+        /// </summary>
+        public static Selector All() 
+            => new(PolarsWrapper.SelectorAll());
+        /// <summary>
+        /// Select columns.
+        /// </summary>
+        public static Selector Col(params string[] columns) 
+            => new(PolarsWrapper.SelectorCols(columns));
+
+        /// <summary>
+        /// Select all numeric columns (Int, Float, etc.).
+        /// </summary>
+        public static Selector Numeric()  => new(PolarsWrapper.SelectorNumeric());
+
+        /// <summary>
+        /// Select all string/utf8 columns.
+        /// </summary>
+        public static Selector String() => new(PolarsWrapper.SelectorByDtype(PlDataType.String));
+
+        /// <summary>
+        /// Select all date columns.
+        /// </summary>
+        public static Selector Date() => new(PolarsWrapper.SelectorByDtype(PlDataType.Date));
+        public static Selector Boolean() => new(PolarsWrapper.SelectorByDtype(PlDataType.Boolean));
+
+        public static Selector Empty() => new(PolarsWrapper.SelectorEmpty());
+        public static Selector Integer() => new(PolarsWrapper.SelectorInteger());
+        public static Selector UnsignedInteger() => new(PolarsWrapper.SelectorUnsignedInteger());
+        public static Selector SignedInteger() => new(PolarsWrapper.SelectorSignedInteger());
+        public static Selector Float() => new(PolarsWrapper.SelectorFloat());
+        public static Selector Decimal() => new(PolarsWrapper.SelectorDecimal());
+        public static Selector Enum() => new(PolarsWrapper.SelectorEnum());
+        public static Selector Nested() => new(PolarsWrapper.SelectorNested());
+        public static Selector Struct() => new(PolarsWrapper.SelectorStruct());
+        public static Selector Temporal() => new(PolarsWrapper.SelectorTemporal());
+        /// <summary>
+        /// Select list columns. Optionally filter by the inner data type.
+        /// Example: Cs.List(Cs.Integer())
+        /// </summary>
+        public static Selector List(Selector? inner = null)
+            => new(PolarsWrapper.SelectorList(inner?.CloneHandle()));
+        
+        /// <summary>
+        /// Select array columns. Optionally filter by inner data type and fixed width.
+        /// </summary>
+        public static Selector Array(Selector? inner = null, long? width = null)
+            => new(PolarsWrapper.SelectorArray(inner?.CloneHandle(), width));
+        
+        private static PlTimeUnit GetNativeTimeUnit(TimeUnit? unit)
+            => unit.HasValue ? unit.Value.ToNative() : (PlTimeUnit)100;
+
+        private static Selector DatetimeInternal(TimeUnit? timeUnit, string? tzString)
+            =>new (PolarsWrapper.SelectorDatetime(GetNativeTimeUnit(timeUnit), tzString));
+
+        /// <summary>
+        /// Select all datetime columns (both with and without timezones).
+        /// </summary>
+        public static Selector Datetime(TimeUnit? timeUnit = null) 
+            => DatetimeInternal(timeUnit, null); // null 对应 Rust 端的 TimeZoneSet::Any
+
+        /// <summary>
+        /// Select ONLY timezone-naive datetime columns (no timezone set).
+        /// </summary>
+        public static Selector DatetimeNaive(TimeUnit? timeUnit = null) 
+            => DatetimeInternal(timeUnit, "");
+
+        /// <summary>
+        /// Select ONLY timezone-aware datetime columns (any timezone).
+        /// </summary>
+        public static Selector DatetimeAware(TimeUnit? timeUnit = null) 
+            => DatetimeInternal(timeUnit, "*"); 
+
+        /// <summary>
+        /// Select datetime columns matching a specific timezone (e.g., "UTC", "Asia/Shanghai").
+        /// </summary>
+        public static Selector DatetimeExact(string timeZone, TimeUnit? timeUnit = null) 
+        {
+            ArgumentException.ThrowIfNullOrEmpty(timeZone);
+            return DatetimeInternal(timeUnit, timeZone);
+        }
+        /// <summary>
+        /// Select all duration columns. Optionally match a specific TimeUnit.
+        /// </summary>
+        public static Selector Duration(TimeUnit? timeUnit = null)
+            => new (PolarsWrapper.SelectorDuration(GetNativeTimeUnit(timeUnit)));
+        /// <summary>
+        /// Select columns by specific DataType.
+        /// </summary>
+        public static Selector DType(DataType type) 
+        {
+            var typeKind = type.Kind;
+            return new(PolarsWrapper.SelectorByDtype(typeKind.ToNative()));
+        }
+        /// <summary>
+        /// Select column whose name starts with given prefix.
+        /// </summary>
+        /// <param name="prefix"></param>
+        /// <returns></returns>
+        public static Selector StartsWith(string prefix) 
+            => new(PolarsWrapper.SelectorStartsWith(prefix));
+        /// <summary>
+        /// Select column whose name ends with given suffix.
+        /// </summary>
+        /// <param name="suffix"></param>
+        /// <returns></returns>
+        public static Selector EndsWith(string suffix) 
+            => new(PolarsWrapper.SelectorEndsWith(suffix));
+        /// <summary>
+        /// Select column whose name contains given string.
+        /// </summary>
+        /// <param name="str"></param>
+        /// <returns></returns>
+        public static Selector Contains(string str) 
+            => new(PolarsWrapper.SelectorContains(str));
+        /// <summary>
+        /// Select column whose name matches given string.
+        /// </summary>
+        /// <param name="regex"></param>
+        /// <returns></returns>
+        public static Selector Matches(string regex) 
+            => new(PolarsWrapper.SelectorMatch(regex));
     }
 }
 

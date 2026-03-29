@@ -1,3 +1,4 @@
+using Cs = Polars.CSharp.Polars.Selectors;
 namespace Polars.CSharp.Tests;
 
 public class ParquetPartitionTests : IDisposable
@@ -29,7 +30,7 @@ public class ParquetPartitionTests : IDisposable
         
         lf.SinkParquetPartitioned(
             _testBaseDir,
-            partitionBy: Selector.Cols("Group"), 
+            partitionBy: Cs.Col("Group"), 
             includeKeys: true
         );
 

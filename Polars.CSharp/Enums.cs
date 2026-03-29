@@ -483,7 +483,7 @@ public enum SizeUnit
 
 internal static class EnumExtensions
 {
-    public static CoreEnums.PlDataType ToNative(this DataTypeKind kind) => kind switch
+    internal static CoreEnums.PlDataType ToNative(this DataTypeKind kind) => kind switch
     {
         DataTypeKind.SameAsInput => CoreEnums.PlDataType.SameAsInput,
         DataTypeKind.Int8 => CoreEnums.PlDataType.Int8,
@@ -512,7 +512,7 @@ internal static class EnumExtensions
         DataTypeKind.String => CoreEnums.PlDataType.String, 
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
     };
-    public static CoreEnums.PlTimeUnit ToNative(this TimeUnit unit) => unit switch
+    internal static CoreEnums.PlTimeUnit ToNative(this TimeUnit unit) => unit switch
     {
         TimeUnit.Nanoseconds => CoreEnums.PlTimeUnit.Nanoseconds,
         TimeUnit.Microseconds => CoreEnums.PlTimeUnit.Microseconds,
@@ -525,7 +525,7 @@ internal static class EnumExtensions
         TimeUnit.Year => CoreEnums.PlTimeUnit.Year,
         _ => CoreEnums.PlTimeUnit.Nanoseconds
     };
-    public static CoreEnums.PlJoinType ToNative(this JoinType type) => type switch
+    internal static CoreEnums.PlJoinType ToNative(this JoinType type) => type switch
     {
         JoinType.Inner => CoreEnums.PlJoinType.Inner,
         JoinType.Left => CoreEnums.PlJoinType.Left,
@@ -537,7 +537,7 @@ internal static class EnumExtensions
         _ => CoreEnums.PlJoinType.Inner
     };
 
-    public static CoreEnums.PlPivotAgg ToNative(this PivotAgg agg) => agg switch
+    internal static CoreEnums.PlPivotAgg ToNative(this PivotAgg agg) => agg switch
     {
         PivotAgg.First => CoreEnums.PlPivotAgg.First,
         PivotAgg.Sum => CoreEnums.PlPivotAgg.Sum,
@@ -551,7 +551,7 @@ internal static class EnumExtensions
         _ => CoreEnums.PlPivotAgg.First
     };
     
-    public static CoreEnums.PlConcatType ToNative(this ConcatType type) => type switch
+    internal static CoreEnums.PlConcatType ToNative(this ConcatType type) => type switch
     {
         ConcatType.Vertical => CoreEnums.PlConcatType.Vertical,
         ConcatType.Horizontal => CoreEnums.PlConcatType.Horizontal,

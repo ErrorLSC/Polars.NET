@@ -212,4 +212,26 @@ public class CleaningTests
         Assert.Equal(1L,uniDf.Height);
 
     }
+    [Fact]
+    [Trait("Cleaning","Fill")]
+    public void Test_FillNull_And_FillNan_With_Selectors()
+    {
+        using var s1 = Series.From("ints", new int?[] { 1, null, 3 });
+        using var s2 = Series.From("floats", new double?[] { 1.1, double.NaN, null });
+        using var s3 = Series.From("strings", ["A", "B", "C"]); 
+        
+        using var df = DataFrame.FromSeries(s1, s2, s3);
+
+        using var nanFilledDf = df.FillNan(99.9);
+        
+        Assert.Equal(99.9, nanFilledDf["floats"][1]); 
+        Assert.Null(nanFilledDf["floats"][2]); 
+
+        using var lf2 = nanFilledDf.Lazy();
+        using var finalDf = lf2.FillNull(-1).Collect();
+
+        Assert.Equal(-1.0, finalDf["floats"][2]);
+        
+        Assert.Equal(-1, finalDf["ints"][1]);
+    }
 }

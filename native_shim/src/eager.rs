@@ -234,24 +234,6 @@ pub extern "C" fn pl_dataframe_rename_many(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_dataframe_drop_nulls(df_ptr: *mut DataFrameContext, subset: *const *const c_char, len: usize) -> *mut DataFrameContext {
-    ffi_try!({
-        let ctx = unsafe { &*df_ptr };
-        
-        let new_df = if subset.is_null() || len == 0 {
-            ctx.df.drop_nulls::<String>(None)? 
-        } else {
-            let slice = unsafe { std::slice::from_raw_parts(subset, len) };
-            let cols: Vec<String> = slice.iter()
-                .map(|&p| unsafe { CStr::from_ptr(p).to_string_lossy().to_string() })
-                .collect();
-            ctx.df.drop_nulls(Some(&cols))?
-        };
-        Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
-    })
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn pl_df_unique(
     df: *mut DataFrame,
     subset: *const *const c_char, // String array ptr

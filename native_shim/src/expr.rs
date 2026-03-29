@@ -966,37 +966,82 @@ pub extern "C" fn pl_expr_str_ends_with(expr_ptr: *mut ExprContext, suffix: *con
 // Parsing (String -> Date/Time)
 // format: e.g. "%Y-%m-%d"
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_str_to_date(expr_ptr: *mut ExprContext, format: *const c_char) -> *mut ExprContext {
-    let ctx = unsafe { Box::from_raw(expr_ptr) };
-    let fmt = unsafe { CStr::from_ptr(format).to_string_lossy() };
-    
-    // strptime(dtype, options)
-    let options = StrptimeOptions {
-        format: Some(fmt.into()),
-        strict: false,
-        exact: true,
-        ..Default::default()
-    };
-    
-    let new_expr = ctx.inner.str().to_date(options);
-    Box::into_raw(Box::new(ExprContext { inner: new_expr }))
+pub extern "C" fn pl_expr_str_to_date(
+    expr_ptr: *mut ExprContext,
+    format: *const c_char,
+    strict: bool,
+    exact: bool,
+    cache: bool,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+
+        let format_opt = if format.is_null() {
+            None
+        } else {
+            let fmt_str = unsafe { CStr::from_ptr(format).to_string_lossy() };
+            Some(fmt_str.into())
+        };
+
+        let options = StrptimeOptions {
+            format: format_opt,
+            strict,
+            exact,
+            cache,
+        };
+
+        let new_expr = ctx.inner.str().to_date(options);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
 }
 
+
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_str_to_datetime(expr_ptr: *mut ExprContext, format: *const c_char) -> *mut ExprContext {
-    let ctx = unsafe { Box::from_raw(expr_ptr) };
-    let fmt = unsafe { CStr::from_ptr(format).to_string_lossy() };
-    
-    let options = StrptimeOptions {
-        format: Some(fmt.into()),
-        strict: false,
-        exact: true,
-        ..Default::default()
-    };
-    
-    // default: Microseconds, no timezone
-    let new_expr = ctx.inner.str().to_datetime(Some(TimeUnit::Microseconds), None, options, lit("raise"));
-    Box::into_raw(Box::new(ExprContext { inner: new_expr }))
+pub extern "C" fn pl_expr_str_to_datetime(
+    expr_ptr: *mut ExprContext,
+    time_unit: u8, // 0: Nano, 1: Micro, 2: Milli, -1: None
+    time_zone: *const c_char,
+    format: *const c_char,
+    strict: bool,
+    exact: bool,
+    cache: bool,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        
+        let tu_opt = match time_unit {
+            0 => Some(TimeUnit::Nanoseconds),
+            1 => Some(TimeUnit::Microseconds),
+            2 => Some(TimeUnit::Milliseconds),
+            _ => None, 
+        };
+
+        let tz_opt = if time_zone.is_null() {
+            None
+        } else {
+            let tz_str = unsafe { CStr::from_ptr(time_zone).to_string_lossy() };
+            TimeZone::opt_try_new(Some(tz_str.as_ref()))?
+        };
+
+        let format_opt = if format.is_null() {
+            None
+        } else {
+            let fmt_str = unsafe { CStr::from_ptr(format).to_string_lossy() };
+            Some(fmt_str.into())
+        };
+
+        let options = StrptimeOptions {
+            format: format_opt,
+            strict,
+            exact,
+            cache,
+        };
+
+        let new_expr = ctx.inner.str().to_datetime(tu_opt, tz_opt, options, lit("raise"));
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
 }
 
 // ==========================================

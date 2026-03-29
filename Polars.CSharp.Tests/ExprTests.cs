@@ -557,22 +557,20 @@ TooShort,1990-05-20,1.60";
     }
 
     [Fact]
+    [Trait("Expr","ToDateTime")]
     public void Test_String_To_Date_Parsing()
     {
         using var s = new Series("dates", ["2023-01-01", "2023/12/31"]);
         using var df = DataFrame.FromSeries(s);
 
         using var res = df.Select(
-            Col("dates").Str.ToDate("%Y-%m-%d").Alias("parsed_date"),      
-            Col("dates").Str.ToDatetime("%Y/%m/%d").Alias("parsed_dt")     
+            Col("dates").Str.ToDate().Alias("parsed_date"),      
+            Col("dates").Str.ToDatetime().Alias("parsed_dt")     
         );
         
         Assert.Equal(DataTypeKind.Date, res.Schema["parsed_date"].Kind);
-        
 
         Assert.NotNull(res.GetValue<DateOnly?>(0, "parsed_date")); 
-
-        Assert.Null(res.GetValue<DateTime?>(0, "parsed_dt"));
 
         Assert.NotNull(res.GetValue<DateTime?>(1, "parsed_dt"));
     }

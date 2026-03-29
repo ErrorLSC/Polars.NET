@@ -272,18 +272,56 @@ public readonly struct StringOps
     /// */
     /// </code>
     /// </example>
-    public Expr ToDate(string format)
+    /// <param name="format">The parsing format (e.g., "%Y-%m-%d"). Null for auto-inference.</param>
+    /// <param name="strict">If true, raises an error on parsing failure. If false, returns nulls.</param>
+    /// <param name="exact">If true, requires an exact match. If false, allows matching substrings.</param>
+    /// <param name="cache">Use a cache of unique converted dates to speed up parsing.</param>
+    public Expr ToDate(
+        string? format = null,
+        bool strict = true,
+        bool exact = true,
+        bool cache = true)
     {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.StrToDate(h, format));
+        var h = PolarsWrapper.StrToDate(
+            PolarsWrapper.CloneExpr(_expr.Handle), 
+            format, 
+            strict, 
+            exact, 
+            cache
+        );
+        
+        return new Expr(h);
     }
 
     /// <summary>
-    /// Convert string to Datetime using the specified format.
+    /// Convert string to Datetime. If format is null, Polars will attempt to infer it.
     /// </summary>
-    public Expr ToDatetime(string format)
+    /// <param name="format">The parsing format (e.g., "%Y-%m-%d"). Null for auto-inference.</param>
+    /// <param name="timeUnit">Target time unit. Null to use default (usually Microseconds).</param>
+    /// <param name="timeZone">Target time zone (e.g., "UTC", "Asia/Shanghai").</param>
+    /// <param name="strict">If true, raises an error on parsing failure. If false, returns nulls.</param>
+    /// <param name="exact">If true, requires an exact match. If false, allows matching substrings.</param>
+    /// <param name="cache">Use a cache of unique converted dates to speed up parsing.</param>
+    public Expr ToDatetime(
+        string? format = null,
+        TimeUnit? timeUnit = null,
+        string? timeZone = null,
+        bool strict = true,
+        bool exact = true,
+        bool cache = true)
     {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.StrToDatetime(h, format));
+        PlTimeUnit tu = timeUnit.HasValue ? timeUnit.Value.ToNative() : (PlTimeUnit)100;
+        
+        var h = PolarsWrapper.StrToDatetime(
+            PolarsWrapper.CloneExpr(_expr.Handle), 
+            tu, 
+            timeZone, 
+            format, 
+            strict, 
+            exact, 
+            cache
+        );
+        
+        return new Expr(h);
     }
 }

@@ -44,13 +44,41 @@ public static partial class PolarsWrapper
 
     // --- Type Selectors ---
 
-    public static SelectorHandle SelectorByDtype(PlDataType kind)
+    public static SelectorHandle SelectorByDtype(PlDataType kind) => ErrorHelper.Check(NativeBindings.pl_selector_by_dtype((int)kind));
+    public static SelectorHandle SelectorNumeric() => ErrorHelper.Check(NativeBindings.pl_selector_numeric());
+    public static SelectorHandle SelectorEmpty() => ErrorHelper.Check(NativeBindings.pl_selector_empty());
+    public static SelectorHandle SelectorInteger() => ErrorHelper.Check(NativeBindings.pl_selector_integer());
+    public static SelectorHandle SelectorUnsignedInteger() => ErrorHelper.Check(NativeBindings.pl_selector_unsigned_integer());
+    public static SelectorHandle SelectorSignedInteger() => ErrorHelper.Check(NativeBindings.pl_selector_signed_integer());
+    public static SelectorHandle SelectorFloat() => ErrorHelper.Check(NativeBindings.pl_selector_float());
+    public static SelectorHandle SelectorDecimal() => ErrorHelper.Check(NativeBindings.pl_selector_decimal());
+    public static SelectorHandle SelectorEnum() => ErrorHelper.Check(NativeBindings.pl_selector_enum_type());
+    public static SelectorHandle SelectorNested() => ErrorHelper.Check(NativeBindings.pl_selector_nested());
+    public static SelectorHandle SelectorStruct() => ErrorHelper.Check(NativeBindings.pl_selector_struct());
+    public static SelectorHandle SelectorTemporal() => ErrorHelper.Check(NativeBindings.pl_selector_temporal());
+    public static SelectorHandle SelectorList(SelectorHandle? selector)
     {
-        return ErrorHelper.Check(NativeBindings.pl_selector_by_dtype((int)kind));
+        var sePtr = selector?.TransferOwnership() ?? IntPtr.Zero;
+        var h = NativeBindings.pl_selector_list(sePtr);
+        return ErrorHelper.Check(h);
     }
-
-    public static SelectorHandle SelectorNumeric()
-        => ErrorHelper.Check(NativeBindings.pl_selector_numeric());
+    public static SelectorHandle SelectorArray(SelectorHandle? selector, long? width)
+    {
+        var sePtr = selector?.TransferOwnership() ?? IntPtr.Zero;
+        nuint w = width.HasValue && width.Value > 0 ? (nuint)width.Value : 0;
+        var h = NativeBindings.pl_selector_array(sePtr,w);
+        return ErrorHelper.Check(h);
+    }
+    public static SelectorHandle SelectorDatetime(PlTimeUnit unit, string? timeZone)
+    {
+        var h = NativeBindings.pl_selector_datetime(unit,timeZone);
+        return ErrorHelper.Check(h);
+    }
+    public static SelectorHandle SelectorDuration(PlTimeUnit unit)
+    {
+        var h = NativeBindings.pl_selector_duration(unit);
+        return ErrorHelper.Check(h);
+    }
 
     // --- Set Operations ---
 
@@ -71,6 +99,22 @@ public static partial class PolarsWrapper
         right.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static SelectorHandle SelectorXor(SelectorHandle left, SelectorHandle right)
+    {
+        var h = NativeBindings.pl_selector_xor(left, right);
+        left.TransferOwnership();
+        right.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+
+    public static SelectorHandle SelectorSub(SelectorHandle left, SelectorHandle right)
+    {
+        var h = NativeBindings.pl_selector_sub(left, right);
+        left.TransferOwnership();
+        right.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+
 
     public static SelectorHandle SelectorNot(SelectorHandle sel)
     {
