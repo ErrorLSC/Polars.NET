@@ -182,8 +182,8 @@ module pl =
     /// <summary> Exclude columns from Selector. </summary>
     let exclude (names: string list) (s: Selector) = s.Exclude names
     /// <summary> Create a Struct expression from a list of expressions. </summary>
-    let asStruct (exprs: Expr list) =
-        let handles = exprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+    let asStruct (exprs: seq<Expr>) =
+        let handles = exprs |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
         new Expr(PolarsWrapper.AsStruct handles)
     let struct_ = asStruct
     // --- Eager Ops ---

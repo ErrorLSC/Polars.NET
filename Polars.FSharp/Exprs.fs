@@ -66,6 +66,10 @@ and Expr(handle: ExprHandle) =
     /// </summary>
     static member All() = 
         Expr.Col "*"
+    /// <summary> Create a Struct expression from a list of expressions. </summary>
+    static member AsStruct (exprs: seq<Expr>) =
+        let handles = exprs |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
+        new Expr(PolarsWrapper.AsStruct handles)
     /// <summary>
     /// Create a single chunk of memory for this Series.
     /// </summary>

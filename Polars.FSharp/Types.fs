@@ -4642,6 +4642,16 @@ and DataFrame(handle: DataFrameHandle) =
     // Eager Ops
     // ==========================================
     /// <summary>
+    /// Convert a DataFrame to a Series of type Struct.
+    /// </summary>
+    /// <param name="name">Name for the struct Series.</param>
+    member this.ToStruct(?name:string) =   
+        let n = defaultArg name ""
+        use df: DataFrame = this.Select(Expr.AsStruct [|Expr.All()|])
+        let series = df[0]
+        series.Rename n
+    
+    /// <summary>
     /// Return the number of unique rows, or the number of unique row-subsets.
     /// </summary>
     member this.NUnique(?subset: seq<string>) = 
