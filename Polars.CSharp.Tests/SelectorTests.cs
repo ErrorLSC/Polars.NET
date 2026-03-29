@@ -130,7 +130,9 @@ public class SelectorTests
         // Numeric | String -> A, B, C
         // Float | Boolean -> B, D
         // XOR : A, C, D
-        using var resXor = df.Select((Cs.Numeric() | Cs.String()) ^ (Cs.Float() | Cs.Boolean()));
+        using var complexSelector = (Cs.Numeric() | Cs.String()) ^ (Cs.Float() | Cs.Boolean());
+        using var resXor = df.Select(complexSelector);
+        Console.WriteLine(complexSelector);
         Assert.Equal(["A", "C", "D"], [.. resXor.Columns.OrderBy(c => c)]);
         
         using var resBang = df.Select(!Cs.Numeric());

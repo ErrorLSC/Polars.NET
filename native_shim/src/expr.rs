@@ -2745,3 +2745,23 @@ pub extern "C" fn pl_expr_try_into_selector(
         Ok(Box::into_raw(Box::new(SelectorContext { inner: selector })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_to_string(ptr: *mut ExprContext) -> *mut c_char {
+    ffi_try!({
+        if ptr.is_null() {
+            polars_bail!(ComputeError: "Expr pointer is null");
+        }
+        
+        let ctx = unsafe { &*ptr };
+        
+        let mut s = ctx.inner.to_string();
+        
+        if s.contains('\0') {
+            s = s.replace('\0', "␀"); 
+        }
+        
+        let c_str = CString::new(s).expect("String sanitization failed");
+        Ok(c_str.into_raw())
+    })
+}

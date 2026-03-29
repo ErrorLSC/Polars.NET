@@ -4,7 +4,7 @@ using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
 
-public static partial class PolarsWrapper
+public readonly partial struct PolarsWrapper
 {
     public static CatalogHandle InitUnityCatalog(string workspaceUrl, string bearerToken)
         => ErrorHelper.Check(NativeBindings.pl_catalog_unity_new(workspaceUrl, bearerToken));

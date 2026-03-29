@@ -2,7 +2,7 @@ using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
 
-public static partial class PolarsWrapper
+public readonly partial struct PolarsWrapper
 {
     public static SelectorHandle SelectorAll() 
         => ErrorHelper.Check(NativeBindings.pl_selector_all());
@@ -128,5 +128,11 @@ public static partial class PolarsWrapper
         var h = NativeBindings.pl_selector_into_expr(sel);
         sel.TransferOwnership(); 
         return ErrorHelper.Check(h);
+    }
+    public static string SelectorToString(SelectorHandle sel)
+    {
+        var selString = NativeBindings.pl_selector_to_string(sel);
+
+        return ErrorHelper.CheckString(selString);
     }
 }

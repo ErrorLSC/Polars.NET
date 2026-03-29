@@ -2,7 +2,7 @@ using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
 
-public static partial class PolarsWrapper
+public readonly partial struct PolarsWrapper
 {
     public static DataTypeHandle CloneHandle(DataTypeHandle handle) => ErrorHelper.Check(NativeBindings.pl_datatype_clone(handle));
     public static DataTypeHandle NewPrimitiveType(int code) => ErrorHelper.Check(NativeBindings.pl_datatype_new_primitive(code));

@@ -651,5 +651,9 @@ unsafe internal partial class NativeBindings
         ExprHandle expr, 
         out IntPtr outStr
     );
+    [LibraryImport(LibName)]
+    public static partial IntPtr pl_expr_to_string(
+        ExprHandle expr
+    );
     
 }

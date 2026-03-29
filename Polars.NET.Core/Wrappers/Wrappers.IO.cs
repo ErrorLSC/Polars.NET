@@ -4,7 +4,7 @@ using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Native;
 namespace Polars.NET.Core;
 
-public static partial class PolarsWrapper
+public readonly partial struct PolarsWrapper
 {
     public static LazyFrameHandle ScanCsv(
         string path,

@@ -3,7 +3,7 @@ using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
 
-public static partial class PolarsWrapper
+public readonly partial struct PolarsWrapper
 {
     public static long Vacuum(
         string path,

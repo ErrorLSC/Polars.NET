@@ -1059,7 +1059,11 @@ public partial class Expr : IDisposable
         Handle?.Dispose();
         GC.SuppressFinalize(this); 
     }
-
+    public override string ToString()
+    {
+        if (Handle.IsInvalid) return "Expr (Disposed)";
+        return PolarsWrapper.ExprToString(Handle);
+    }
     /// <summary>
     /// Decide whether two Expr objects are the same instance
     /// </summary>

@@ -1,5 +1,5 @@
 use polars::prelude::*;
-use std::{ffi::CStr, os::raw::c_char};
+use std::{ffi::{CStr, CString}, os::raw::c_char};
 use crate::{types::{ExprContext, SelectorContext}, utils::ptr_to_str};
 
 #[unsafe(no_mangle)]
@@ -75,12 +75,46 @@ pub extern "C" fn pl_selector_cols(
         Ok(Box::into_raw(Box::new(SelectorContext { inner: s })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_selector_by_index(
+    indices_ptr: *const i64,
+    indices_len: usize,
+    strict: bool,
+) -> *mut SelectorContext {
+    ffi_try!({
+        if indices_ptr.is_null() && indices_len > 0 {
+            polars_bail!(ComputeError: "Indices pointer is null");
+        }
+        
+        let slice = if indices_len == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(indices_ptr, indices_len) }
+        };
+        
+        let s = Selector::ByIndex {
+            indices: slice.into(),
+            strict,
+        };
+        Ok(Box::into_raw(Box::new(SelectorContext { inner: s })))
+    })
+}
 // =================================================================
 // String Matchers (StartsWith, EndsWith, Contains, Regex)
 // =================================================================
 
 fn to_small_str(ptr: *const c_char) -> PolarsResult<PlSmallStr> {
-    let s = ptr_to_str(ptr).unwrap();
+    if ptr.is_null() {
+        polars_bail!(ComputeError: "String pointer is null");
+    }
+
+    let c_str = unsafe { CStr::from_ptr(ptr) };
+    
+    let s = c_str.to_str().map_err(|e| {
+        polars_err!(ComputeError: "Invalid UTF-8 string: {}", e)
+    })?;
+
     Ok(PlSmallStr::from_str(s))
 }
 
@@ -89,7 +123,7 @@ pub extern "C" fn pl_selector_starts_with(
     pattern: *const c_char
 ) -> *mut SelectorContext {
     ffi_try!({
-        let p = ptr_to_str(pattern).unwrap();
+        let p = ptr_to_str(pattern).map_err(|e| PolarsError::ComputeError(format!("Invalid UTF-8 string {}", e).into()))?;
         let regex = format!("^{}", p);
         let s = Selector::Matches(PlSmallStr::from_str(&regex));
         Ok(Box::into_raw(Box::new(SelectorContext { inner: s })))
@@ -101,7 +135,7 @@ pub extern "C" fn pl_selector_ends_with(
     pattern: *const c_char
 ) -> *mut SelectorContext {
     ffi_try!({
-        let p = ptr_to_str(pattern).unwrap();
+        let p = ptr_to_str(pattern).map_err(|e| PolarsError::ComputeError(format!("Invalid UTF-8 string {}", e).into()))?;
         let regex = format!("{}$", p);
         let s = Selector::Matches(PlSmallStr::from_str(&regex));
         Ok(Box::into_raw(Box::new(SelectorContext { inner: s })))
@@ -113,8 +147,8 @@ pub extern "C" fn pl_selector_contains(
     pattern: *const c_char
 ) -> *mut SelectorContext {
     ffi_try!({
-        let p = ptr_to_str(pattern).unwrap();
-        let s = Selector::Matches(PlSmallStr::from_str(p));
+        let p = to_small_str(pattern)?;
+        let s = Selector::Matches(p);
         Ok(Box::into_raw(Box::new(SelectorContext { inner: s })))
     })
 }
@@ -124,7 +158,7 @@ pub extern "C" fn pl_selector_match(
     pattern: *const c_char
 ) -> *mut SelectorContext {
     ffi_try!({
-        let p = to_small_str(pattern).unwrap();
+        let p = to_small_str(pattern)?;
         let s = Selector::Matches(p);
         Ok(Box::into_raw(Box::new(SelectorContext { inner: s })))
     })
@@ -450,5 +484,25 @@ pub extern "C" fn pl_selector_clone(
         let ctx = unsafe { &*sel_ptr };
         let new_sel = ctx.inner.clone();
         Ok(Box::into_raw(Box::new(SelectorContext { inner: new_sel })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_selector_to_string(ptr: *mut SelectorContext) -> *mut c_char {
+    ffi_try!({
+        if ptr.is_null() {
+            polars_bail!(ComputeError: "Selector pointer is null");
+        }
+        
+        let ctx = unsafe { &*ptr };
+        
+        let mut s = ctx.inner.to_string();
+        
+        if s.contains('\0') {
+            s = s.replace('\0', "␀"); 
+        }
+        
+        let c_str = CString::new(s).expect("String sanitization failed");
+        Ok(c_str.into_raw())
     })
 }

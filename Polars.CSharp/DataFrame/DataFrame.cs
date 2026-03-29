@@ -297,7 +297,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <seealso cref="Select(Expr[])"/>
     public DataFrame Select(params string[] columns)
     {
-        var exprs = columns.Select(Polars.Col).ToArray();
+        var exprs = columns.Select(Pl.Col).ToArray();
         return Select(exprs);
     }
     /// <summary>

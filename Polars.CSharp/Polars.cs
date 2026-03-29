@@ -284,7 +284,7 @@ public readonly partial struct Polars
         }
         return current;
     }
-       // ---------------------------------------------------------
+    // ---------------------------------------------------------
     // Selectors Entry Points
     // ---------------------------------------------------------
 
@@ -320,7 +320,7 @@ public readonly partial struct Polars
         /// </summary>
         public static Selector Date() => new(PolarsWrapper.SelectorByDtype(PlDataType.Date));
         public static Selector Boolean() => new(PolarsWrapper.SelectorByDtype(PlDataType.Boolean));
-
+        public static Selector Binary() => ByDType(DataType.Binary);
         public static Selector Empty() => new(PolarsWrapper.SelectorEmpty());
         public static Selector Integer() => new(PolarsWrapper.SelectorInteger());
         public static Selector UnsignedInteger() => new(PolarsWrapper.SelectorUnsignedInteger());
@@ -354,7 +354,7 @@ public readonly partial struct Polars
         /// Select all datetime columns (both with and without timezones).
         /// </summary>
         public static Selector Datetime(TimeUnit? timeUnit = null) 
-            => DatetimeInternal(timeUnit, null); // null 对应 Rust 端的 TimeZoneSet::Any
+            => DatetimeInternal(timeUnit, null); // TimeZoneSet::Any
 
         /// <summary>
         /// Select ONLY timezone-naive datetime columns (no timezone set).
@@ -384,7 +384,7 @@ public readonly partial struct Polars
         /// <summary>
         /// Select columns by specific DataType.
         /// </summary>
-        public static Selector DType(DataType type) 
+        public static Selector ByDType(DataType type) 
         {
             var typeKind = type.Kind;
             return new(PolarsWrapper.SelectorByDtype(typeKind.ToNative()));
@@ -417,6 +417,32 @@ public readonly partial struct Polars
         /// <returns></returns>
         public static Selector Matches(string regex) 
             => new(PolarsWrapper.SelectorMatch(regex));
+
+        /// <summary>
+        /// Select all columns with alphabetic names.
+        /// </summary>
+        public static Selector Alpha(bool asciiOnly = false, bool ignoreSpaces = false)
+        {
+            // asciiOnly ? [a-zA-Z] : \p{L} (Unicode characters)
+            string charClass = asciiOnly ? "a-zA-Z" : @"\p{L}";
+            if (ignoreSpaces) charClass += " ";
+            
+            string pattern = $"^[{charClass}]+$";
+            return Matches(pattern);
+        }
+
+        /// <summary>
+        /// Select all columns with alphanumeric names.
+        /// </summary>
+        public static Selector Alphanumeric(bool asciiOnly = false, bool ignoreSpaces = false)
+        {
+            // asciiOnly ? [a-zA-Z0-9] : [\p{L}\p{N}]
+            string charClass = asciiOnly ? "a-zA-Z0-9" : @"\p{L}\p{N}";
+            if (ignoreSpaces) charClass += " ";
+
+            string pattern = $"^[{charClass}]+$";
+            return Matches(pattern);
+        }
     }
 }
 

@@ -4,7 +4,7 @@ using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
 
-public static partial class PolarsWrapper
+public readonly partial struct PolarsWrapper
 {
     // Unary Nodes
     private static ExprHandle UnaryOp(Func<ExprHandle, ExprHandle> op, ExprHandle expr)
@@ -1134,6 +1134,11 @@ public static partial class PolarsWrapper
         var h = NativeBindings.pl_expr_try_into_selector(e);
         e.TransferOwnership();
         return ErrorHelper.Check(h);
+    }
+    public static string ExprToString(ExprHandle e) 
+    {
+        var h = NativeBindings.pl_expr_to_string(e);
+        return ErrorHelper.CheckString(h);
     }
     public static string? ExprGetOutputName(ExprHandle expr)
     {

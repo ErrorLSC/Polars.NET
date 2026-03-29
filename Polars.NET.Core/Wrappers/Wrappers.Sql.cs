@@ -3,7 +3,7 @@ using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
 
-public static partial class PolarsWrapper
+public readonly partial struct PolarsWrapper
 {
     public static SqlContextHandle SqlContextNew() 
         => ErrorHelper.Check(NativeBindings.pl_sql_context_new());

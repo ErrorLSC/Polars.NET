@@ -2332,7 +2332,7 @@ TooShort,1990-05-20,1.60";
             f: (acc, x) => acc + x, 
             exprs: exprs
         ).Alias("folded_sum");
-
+        Console.WriteLine(foldExpr);
         using var resultDf = df.Select(foldExpr);
 
         // 10 + 1 + 4 + 7 = 22

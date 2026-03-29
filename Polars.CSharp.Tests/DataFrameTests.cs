@@ -610,9 +610,8 @@ B,5";
             Col("nums"),
             Col("nums").Str.Split(",").Alias("list_vals")
         );
-        using var dtype = DataType.List(DataType.String);
         // Explode for all Int32 list 
-        using var exploded = dfWithList.Explode(Selectors.DType(dtype));
+        using var exploded = dfWithList.Explode(Cs.List(Cs.String()));
 
         Assert.Equal(3, exploded.Height);
 

@@ -155,7 +155,7 @@ public class Selector : IDisposable
     /// This allows using selectors inside Select(), WithColumns(), etc.
     /// </summary>
     public Expr ToExpr()
-        =>new(PolarsWrapper.SelectorToExpr(Handle));
+        => new(PolarsWrapper.SelectorToExpr(CloneHandle()));
     
     // --- Set Operations ( &, |, !, - ) ---
 
@@ -183,7 +183,11 @@ public class Selector : IDisposable
     /// </summary>
     public static implicit operator Expr(Selector selector) => selector.ToExpr();
     public override bool Equals(object? obj) => base.Equals(obj);
-
+    public override string ToString()
+    {
+        if (Handle.IsInvalid) return "Selector (Disposed)";
+        return PolarsWrapper.SelectorToString(Handle);
+    }
     public override int GetHashCode() => base.GetHashCode();
     /// <summary>
     /// Dispose unused Selector Handle

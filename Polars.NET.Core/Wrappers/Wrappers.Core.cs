@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace Polars.NET.Core;
 
-public static partial class PolarsWrapper
+public readonly partial struct PolarsWrapper
 {
     // Helper : Transform Handles,used in move ptr to Rust
     internal static IntPtr[] HandlesToPtrs(PolarsHandle[] handles)

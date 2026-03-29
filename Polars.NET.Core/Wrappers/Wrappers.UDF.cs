@@ -5,7 +5,7 @@ using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
 
-public static partial class PolarsWrapper
+public readonly partial struct PolarsWrapper
 {
     private static readonly CleanupCallback s_cleanupDelegate = CleanupTrampoline;
 
