@@ -8140,6 +8140,48 @@ and LazyFrame(handle: LazyFrameHandle) =
         this.WithColumns exprs
 
     /// <summary>
+    /// Cast LazyFrame column(s) to the specified dtype(s) using a dictionary mapping.
+    /// </summary>
+    member this.Cast(dtypes: seq<string * DataType>, ?strict: bool) =
+        let strictArg = defaultArg strict true
+
+        let castExprs =
+            dtypes
+            |> Seq.map (fun (colName, dtype) -> 
+                Expr.Col(colName).Cast(dtype, strictArg)
+            )
+
+        this.WithColumns castExprs
+
+    /// <summary>
+    /// Cast all columns in the LazyFrame to the specified dtype.
+    /// </summary>
+    member this.Cast(dtype: DataType, ?strict: bool) =
+        let strictArg = defaultArg strict true
+        
+        let castAllExpr = Expr.Col("*").Cast(dtype, strictArg)
+        
+        this.Select castAllExpr
+    /// <summary>
+    /// Cast columns matching an Expr/Selector to a specific DataType.
+    /// </summary>
+    member this.Cast(expr: Expr, dtype: DataType, ?strict: bool) =
+        let strictArg = defaultArg strict true
+        this.WithColumns [|expr.Cast(dtype, strictArg)|]
+
+    /// <summary>
+    /// Cast multiple expressions/selectors to their target DataTypes.
+    /// Example: lf.Cast([ (pl.cs.Numeric(), DataType.Float32); (col("Id"), DataType.Int32) ])
+    /// </summary>
+    member this.Cast(dtypes: seq<Expr * DataType>, ?strict: bool) =
+        let strictArg = defaultArg strict true
+        
+        let castExprs = 
+            dtypes 
+            |> Seq.map (fun (expr, dt) -> expr.Cast(dt, strictArg))
+            
+        this.WithColumns castExprs
+    /// <summary>
     /// Return the number of non-null elements for each column.
     /// </summary>
     /// <returns></returns>

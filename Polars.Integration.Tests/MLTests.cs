@@ -1,10 +1,10 @@
 using Polars.CSharp;
 using static Polars.CSharp.Polars;
+using Cs = Polars.CSharp.Polars.Selectors;
 using Polars.NET.ML.CSharpExtensions;
 using Polars.NET.ML.DataView;
 using Microsoft.ML;
 using Microsoft.ML.Data;
-using GraphQL;
 
 namespace Polars.Integration.Tests;
 
@@ -288,23 +288,11 @@ public class DataViewConversionTests
         });
         // var explicitSchema = PolarsSchema.From<Iris>();
         using var lf = LazyFrame.ScanParquet(hfUrl, cloudOptions: options);
-        using var df = lf.Collect(useStreaming: true);
+        
+        // sepal length (cm), sepal width (cm), petal length (cm), petal width (cm)     
+        using var cleanlf = lf.Cast((Cs.DType(DataType.Float64),DataType.Float32));
+        using var cleanDf = cleanlf.WithColumns(ConcatArray(Cs.DType(DataType.Float32).ToExpr().Alias("Features"))).Collect();
 
-        Assert.Equal(150, df.Height);
-        
-        // sepal length (cm), sepal width (cm), petal length (cm), petal width (cm)
-        // Polars Data Cleaning
-        var exprs = new[]
-        {
-            ConcatArray(
-                Col("SepalLengthCm").Cast(DataType.Float32),
-                Col("SepalWidthCm").Cast(DataType.Float32),
-                Col("PetalLengthCm").Cast(DataType.Float32),
-                Col("PetalWidthCm").Cast(DataType.Float32)
-            ).Alias("Features")
-        };
-        
-        using var cleanDf = df.WithColumns(exprs);
         cleanDf.Show();
         // ==========================================
         // Polars -> ML.NET

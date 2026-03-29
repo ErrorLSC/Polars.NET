@@ -1287,16 +1287,60 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         bool checkDuplicates = true,
         bool strict = true,
         bool unitLengthAsScalar = false)
-    {
-        return ConcatInternal(dfs, PlConcatType.Horizontal, checkDuplicates, strict,unitLengthAsScalar);
-    }
+            => ConcatInternal(dfs, PlConcatType.Horizontal, checkDuplicates, strict,unitLengthAsScalar);
     /// <summary>
     /// Diagonal concatenation of DataFrames.
     /// </summary>
     public static DataFrame ConcatDiagonal(IEnumerable<DataFrame> dfs)
+        => ConcatInternal(dfs, PlConcatType.Diagonal, true);
+
+    /// <summary>
+    /// Cast DataFrame column(s) to the specified dtype(s) using a dictionary mapping.
+    /// </summary>
+    public DataFrame Cast(IDictionary<string, DataType> dtypes, bool strict = true)
     {
-        return ConcatInternal(dfs, PlConcatType.Diagonal, true);
+        ArgumentNullException.ThrowIfNull(dtypes);
+
+        var castExprs = dtypes.Select(kvp =>
+            Pl.Col(kvp.Key).Cast(kvp.Value, strict)
+        );
+
+        return WithColumns([.. castExprs]);
     }
+
+    /// <summary>
+    /// Cast all columns in the DataFrame to the specified dtype.
+    /// </summary>
+    public DataFrame Cast(DataType dtype, bool strict = true)
+        => Select(Pl.All().Cast(dtype, strict));
+
+    /// <summary>
+    /// Cast columns matching a specific Expression or Selector to a DataType.
+    /// Example: lf.Cast(Cs.EndsWith("Cm").ToExpr(), DataType.Float32)
+    /// </summary>
+    public DataFrame Cast(Expr expr, DataType dtype, bool strict = true)
+    {
+        ArgumentNullException.ThrowIfNull(expr);
+        
+        return WithColumns(expr.Cast(dtype, strict));
+    }
+
+    /// <summary>
+    /// Cast multiple expressions/selectors to their target DataTypes using tuples.
+    /// </summary>
+    public DataFrame Cast(IEnumerable<(Expr Expr, DataType Dtype)> dtypes, bool strict = true)
+    {
+        ArgumentNullException.ThrowIfNull(dtypes);
+
+        var castExprs = dtypes.Select(t => t.Expr.Cast(t.Dtype, strict)).ToArray();
+        return WithColumns(castExprs);
+    }
+
+    /// <summary>
+    /// lf.Cast((Cs.Numeric().ToExpr(), DataType.Float32), (Polars.Col("Id"), DataType.Int32))
+    /// </summary>
+    public DataFrame Cast(params (Expr Expr, DataType Dtype)[] dtypes)
+        =>Cast((IEnumerable<(Expr, DataType)>)dtypes, strict: true);
 
     // ==========================================
     // Stack Ops
