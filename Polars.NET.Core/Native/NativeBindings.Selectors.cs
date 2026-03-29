@@ -24,7 +24,11 @@ unsafe internal partial class NativeBindings
         IntPtr[] names,
         UIntPtr len
     );
-
+    [LibraryImport(LibName)]
+    public static partial SelectorHandle pl_selector_by_index(
+        long* indices_ptr,
+        nuint indices_len,
+        [MarshalAs(UnmanagedType.I1)] bool strict); 
     // String Matchers
     [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
     public static partial SelectorHandle pl_selector_starts_with(string pattern);

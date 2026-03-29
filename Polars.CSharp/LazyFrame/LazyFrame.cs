@@ -34,10 +34,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     public PolarsSchema Schema
     {
         get
-        {
-            var handle = PolarsWrapper.GetLazySchema(Handle);
-            
-            return new PolarsSchema(handle);
+        {       
+            return new PolarsSchema(PolarsWrapper.GetLazySchema(Handle));
         }
     }
     IPolarsSchema IPolarsLazyFrame.Schema => this.Schema;
@@ -99,78 +97,73 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </code>
     /// </example>
     public string Explain(bool optimized = true)
-    {
-        return PolarsWrapper.Explain(Handle, optimized);
-    }
+        => PolarsWrapper.Explain(Handle, optimized);
+
     /// <summary>
     /// Clone the LazyFrame, creating a new independent copy.
     /// </summary>
     /// <returns></returns>
     public LazyFrame Clone()
-    {
-        return new LazyFrame(PolarsWrapper.LazyClone(Handle));
-    }
+        => new(PolarsWrapper.LazyClone(Handle));
     internal LazyFrameHandle CloneHandle()
-    {
-        return PolarsWrapper.LazyClone(Handle);
-    }
-
+        => PolarsWrapper.LazyClone(Handle);
+    
     /// <summary>
     /// Return the number of non-null elements for each column.
     /// </summary>
     /// <returns></returns>
     public LazyFrame Count()
-        => Select(Polars.All().Count());
+        => Select(Pl.All().Count());
     /// <summary>
     /// Aggregate the columns in the Frame to their sum value.
     /// </summary>
     /// <returns></returns>
     public LazyFrame Sum()
-        => Select(Polars.All().Sum());
+        => Select(Pl.All().Sum());
     /// <summary>
     /// Aggregate the columns in the Frame to their maximum value.
     /// </summary>
     /// <returns></returns>
     public LazyFrame Max()
-        => Select(Polars.All().Max());
+        => Select(Pl.All().Max());
     /// <summary>
     /// Aggregate the columns in the Frame to their minimum value.
     /// </summary>
     /// <returns></returns>
     public LazyFrame Min()
-        => Select(Polars.All().Min());
+        => Select(Pl.All().Min());
     /// <summary>
     /// Aggregate the columns in the Frame to their mean value.
     /// </summary>
     /// <returns></returns>
     public LazyFrame Mean()
-        => Select(Polars.All().Mean());
+        => Select(Pl.All().Mean());
     /// <summary>
     /// Aggregate the columns in the Frame to their median value.
     /// </summary>
     /// <returns></returns>
     public LazyFrame Median()
-        => Select(Polars.All().Median());
+        => Select(Pl.All().Median());
     /// <summary>
     /// Aggregate the columns in the Frame as the sum of their null value count.
     /// </summary>
     /// <returns></returns>
     public LazyFrame NullCount()
-        => Select(Polars.All().NullCount());
+        => Select(Pl.All().NullCount());
     /// <summary>
     /// Aggregate the columns in the Frame to their standard deviation value.
     /// </summary>
     /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
     /// <returns></returns>
     public LazyFrame Std(int ddof=1)
-        => Select(Polars.All().Std(ddof));
+        => Select(Pl.All().Std(ddof));
     /// <summary>
     /// Aggregate the columns in the Frame to their variance value.
     /// </summary>
     /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
     /// <returns></returns>
     public LazyFrame Var(int ddof=1)
-        => Select(Polars.All().Var(ddof));
+        => Select(Pl.All().Var(ddof));
 
     /// <summary>
     /// Aggregate the columns in the Frame to their quantile value.
@@ -179,7 +172,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <param name="method">['nearest’, ‘higher’, ‘lower’, ‘midpoint’, ‘linear’] Interpolation method.</param>
     /// <returns></returns>
     public LazyFrame Quantile(double quantile, QuantileMethod method = QuantileMethod.Linear)
-        => Select(Polars.All().Quantile(quantile,method));
+        => Select(Pl.All().Quantile(quantile,method));
 
     // ==========================================
     // Transformations
@@ -205,7 +198,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </summary>
     public LazyFrame Select(params string[] columns)
     {
-        var exprs = columns.Select(Polars.Col).ToArray();
+        var exprs = columns.Select(Pl.Col).ToArray();
         return Select(exprs);
     }
     /// <summary>
@@ -263,7 +256,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             throw new InvalidExpressionException("Can not Filter by non-boolean series.");
         }
         
-        using var expr = Polars.Lit(series); 
+        using var expr = Pl.Lit(series); 
         
         return Filter(expr); 
     }
@@ -290,10 +283,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <param name="offset">Start index. Negative values count from the end.</param>
     /// <param name="length">Number of rows to return.</param>
     public LazyFrame Slice(long offset, uint length)
-    {
-        var handle = PolarsWrapper.LazySlice(CloneHandle(), offset, length);
-        return new LazyFrame(handle);
-    }
+        => new(PolarsWrapper.LazySlice(CloneHandle(), offset, length));
+
     /// <summary>
     /// Renames columns in the <see cref="LazyFrame"/>.
     /// </summary>
@@ -400,9 +391,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         bool descending = false, 
         bool nullsLast = false, 
         bool maintainOrder = false)
-    {
-        return Sort([expr], [descending], [nullsLast], maintainOrder);
-    }
+        => Sort([expr], [descending], [nullsLast], maintainOrder);
+    
     /// <summary>
     /// Sort using multiple exprs and single option.
     /// </summary>
@@ -416,9 +406,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         bool descending = false, 
         bool nullsLast = false, 
         bool maintainOrder = false)
-    {
-        return Sort(exprs, [descending], [nullsLast], maintainOrder);
-    }
+        => Sort(exprs, [descending], [nullsLast], maintainOrder);
+    
     /// <summary>
     /// Sort the LazyFrame by multiple columns (all ascending or all descending).
     /// </summary>
@@ -427,10 +416,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         bool descending = false, 
         bool nullsLast = false, 
         bool maintainOrder = false)
-    {
-        var exprs = columns.Select(Polars.Col).ToArray();
-        return Sort(exprs, [descending], [nullsLast], maintainOrder);
-    }
+        => Sort(columns.Select(Pl.Col).ToArray(), [descending], [nullsLast], maintainOrder);
 
     /// <summary>
     /// Lazily sort the DataFrame by multiple columns.
@@ -472,10 +458,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         bool[] descending, 
         bool[] nullsLast, 
         bool maintainOrder = false)
-    {
-        var exprs = columns.Select(Polars.Col).ToArray();
-        return Sort(exprs, descending, nullsLast, maintainOrder);
-    }
+        => Sort(columns.Select(Pl.Col).ToArray(), descending, nullsLast, maintainOrder);
 
     /// <summary>
     /// Sort the LazyFrame by multiple exprs.
@@ -531,9 +514,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// Get the top k rows according to a single expression.
     /// </summary>
     public LazyFrame TopK(int k, Expr by, bool reverse = false)
-    {
-        return TopK(k, [by], [reverse]);
-    }
+        => TopK(k, [by], [reverse]);
     
     /// <summary>
     /// Get the top k rows according to a single column name.
@@ -543,9 +524,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <param name="reverse"></param>
     /// <returns></returns>
     public LazyFrame TopK(int k, string colName, bool reverse = false)
-    {
-        return TopK(k, Polars.Col(colName), reverse);
-    }
+        => TopK(k, Pl.Col(colName), reverse);
 
     /// <summary>
     /// Get the bottom k rows according to the given expressions.
@@ -571,9 +550,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// Get the bottom k rows according to a single expression.
     /// </summary>
     public LazyFrame BottomK(int k, Expr by, bool reverse = false)
-    {
-        return BottomK(k, [by], [reverse]);
-    }
+        => BottomK(k, [by], [reverse]);
     /// <summary>
     /// Get the bottom k rows according to a single column name.
     /// </summary>
@@ -582,19 +559,16 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <param name="reverse"></param>
     /// <returns></returns>
     public LazyFrame BottomK(int k, string colName, bool reverse = false)
-    {
-        return BottomK(k, Polars.Col(colName), reverse);
-    }
+        => BottomK(k, Pl.Col(colName), reverse);
+
     /// <summary>
     /// Limit the number of rows in the LazyFrame.
     /// </summary>
     /// <param name="n"></param>
     /// <returns></returns>
     public LazyFrame Limit(uint n)
-    {
-        var lfClone = CloneHandle();
-        return new LazyFrame(PolarsWrapper.LazyLimit(lfClone, n));
-    }
+        => new(PolarsWrapper.LazyLimit(CloneHandle(), n));
+
     /// <summary>
     /// Lazily unnest struct columns.
     /// <para>
@@ -618,13 +592,11 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     }
     /// <summary>
     /// Unnest specific struct columns by name.
-    /// (Syntactic sugar for Unnest(Selector.Cols(...)))
+    /// (Syntactic sugar for Unnest(Cs.ByName(...)))
     /// </summary>
     public LazyFrame Unnest(params string[] columns)
-    {
-        using var sel = Cs.ByName(columns);
-        return Unnest(sel,null);
-    }
+        => Unnest(Cs.ByName(columns),null);
+
     /// <summary>
     /// Drop selected columns by selector.
     /// </summary>
@@ -747,7 +719,6 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     public LazyFrame FillNull(object value)
         => FillNull(Expr.MakeLit(value));
     
-
     /// <summary>
     /// Fill NaN values in floating point columns with a specified Expression.
     /// </summary>
@@ -821,10 +792,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <param name="columns"></param>
     /// <returns></returns>
     public LazyFrame Explode(params string[] columns)
-    {
-        using var sel = Cs.ByName(columns);
-        return Explode(sel);
-    }
+        => Explode(Cs.ByName(columns));
+    
 
     // ==========================================
     // Reshaping
@@ -1097,8 +1066,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         long? sliceOffset = null,
         ulong sliceLen = 0)
     {
-        var lExprs = leftOn.Select(Polars.Col).ToArray();
-        var rExprs = rightOn.Select(Polars.Col).ToArray();
+        var lExprs = leftOn.Select(Pl.Col).ToArray();
+        var rExprs = rightOn.Select(Pl.Col).ToArray();
         return Join(
             other, 
             lExprs, 
@@ -1348,11 +1317,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </code>
     /// </example>
     public LazyGroupBy GroupBy(params Expr[] keys)
-    {
-        var lfClone = CloneHandle();
-        
-        return new LazyGroupBy(lfClone, keys);
-    }
+        => new(CloneHandle(), keys);
+
     /// <summary>
     /// Group by a single column name.
     /// <para>
@@ -1360,7 +1326,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </para>
     /// </summary>
     public LazyGroupBy GroupBy(string name)
-        => GroupBy([Polars.Col(name)]);
+        => GroupBy([Pl.Col(name)]);
 
     /// <summary>
     /// Group by multiple column names.
@@ -1369,10 +1335,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </para>
     /// </summary>
     public LazyGroupBy GroupBy(params string[] names)
-    {
-        var exprs = names.Select(n => Polars.Col(n)).ToArray();
-        return GroupBy(exprs);
-    }
+        => GroupBy(names.Select(Pl.Col).ToArray());
     /// <summary>
     /// Lazily group based on a time index using dynamic windows.
     /// <para>
@@ -1428,7 +1391,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
 
     /// <summary>
     /// Returns the string representation of the LazyFrame (ASCII table).
-    /// This allows Console.WriteLine(df) to print the table directly.
+    /// This allows Console.WriteLine(lf) to print the table directly.
     /// </summary>
     public override string ToString()
     {
@@ -1452,9 +1415,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         => new(PolarsWrapper.LazyCollect(Handle,useStreaming));
 
     IPolarsDataFrame IPolarsLazyFrame.Collect(bool useStreaming)
-    {
-        return this.Collect(useStreaming);
-    }
+        => Collect(useStreaming);
 
     /// <summary>
     /// Execute the query plan using the streaming engine.

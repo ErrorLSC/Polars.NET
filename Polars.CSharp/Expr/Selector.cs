@@ -1,4 +1,5 @@
 using Polars.NET.Core;
+using Cs = Polars.CSharp.Polars.Selectors;
 #pragma warning disable CS1591 
 namespace Polars.CSharp;
 
@@ -149,6 +150,39 @@ public class Selector : IDisposable
     {
         var newHandle = PolarsWrapper.SelectorExclude(Handle, names);
         return new Selector(newHandle);
+    }
+    /// <summary>
+    /// Exclude columns matching any of the specified Selectors.
+    /// Usage: cs.Numeric().Exclude(cs.First(), cs.Last())
+    /// </summary>
+    public Selector Exclude(params ReadOnlySpan<Selector> selectors)
+    {
+        if (selectors.Length == 0) return this;
+
+        Selector toExclude = selectors[0];
+        for (int i = 1; i < selectors.Length; i++)
+        {
+            toExclude |= selectors[i]; 
+        }
+
+        return this - toExclude; 
+    }
+
+    /// <summary>
+    /// Exclude columns matching any of the specified Data Types.
+    /// Usage: cs.All().Exclude(PlDataType.String, PlDataType.Boolean)
+    /// </summary>
+    public Selector Exclude(params ReadOnlySpan<DataType> dtypes)
+    {
+        if (dtypes.Length == 0) return this;
+
+        Selector toExclude = Cs.ByDtype(dtypes[0]);
+        for (int i = 1; i < dtypes.Length; i++)
+        {
+            toExclude |= Cs.ByDtype(dtypes[i]);
+        }
+
+        return this - toExclude;
     }
     /// <summary>
     /// Convert the selector to an Expression.

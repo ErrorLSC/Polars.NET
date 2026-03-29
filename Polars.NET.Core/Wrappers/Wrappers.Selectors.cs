@@ -28,6 +28,15 @@ public readonly partial struct PolarsWrapper
             return ErrorHelper.Check(h);
         });
     }
+
+    public static unsafe SelectorHandle SelectorByIndex(ReadOnlySpan<long> indices, bool strict)
+    {
+        fixed (long* ptr = indices)
+        {
+            var h = NativeBindings.pl_selector_by_index(ptr, (nuint)indices.Length, strict);
+            return ErrorHelper.Check(h);
+        }
+    }
     // --- String Matchers ---
         
     public static SelectorHandle SelectorStartsWith(string pattern)

@@ -2167,14 +2167,57 @@ and [<Struct>] StringOps(handle: ExprHandle) =
     /// <summary>
     /// Parse string to Date using a format string (e.g., "%Y-%m-%d").
     /// </summary>
-    member _.ToDate(format: string) = 
-        new Expr(PolarsWrapper.StrToDate(handle, format))
+    /// <param name="format">The parsing format (e.g., "%Y-%m-%d"). Null for auto-inference.</param>
+    /// <param name="strict">If true, raises an error on parsing failure. If false, returns nulls.</param>
+    /// <param name="exact">If true, requires an exact match. If false, allows matching substrings.</param>
+    /// <param name="cache">Use a cache of unique converted dates to speed up parsing.</param>
+    member _.ToDate(?format: string,?strict:bool,?exact:bool,?cache:bool) = 
+        let fmt = Option.toObj format
+        let strt = defaultArg strict true
+        let ext = defaultArg exact true
+        let cac = defaultArg cache true
+        new Expr(PolarsWrapper.StrToDate(handle,fmt, strt,ext,cac))
 
     /// <summary>
-    /// Parse string to Datetime using a format string.
+    /// Convert string to Datetime. If format is null, Polars will attempt to infer it.
     /// </summary>
-    member _.ToDatetime(format: string) = 
-        new Expr(PolarsWrapper.StrToDatetime(handle, format))
+    /// <param name="format">The parsing format (e.g., "%Y-%m-%d"). Null for auto-inference.</param>
+    /// <param name="timeUnit">Target time unit. Null to use default (usually Microseconds).</param>
+    /// <param name="timeZone">Target time zone (e.g., "UTC", "Asia/Shanghai").</param>
+    /// <param name="strict">If true, raises an error on parsing failure. If false, returns nulls.</param>
+    /// <param name="exact">If true, requires an exact match. If false, allows matching substrings.</param>
+    /// <param name="cache">Use a cache of unique converted dates to speed up parsing.</param>
+    member this.ToDatetime(
+        ?format: string,
+        ?timeUnit: TimeUnit,
+        ?timeZone: string,
+        ?strict: bool,
+        ?exact: bool,
+        ?cache: bool) = 
+        
+        let tu = 
+            match timeUnit with
+            | Some u -> u.ToNative()
+            | None -> LanguagePrimitives.EnumOfValue 100uy
+        
+        let tz = Option.toObj timeZone
+        let fmt = Option.toObj format
+
+        let st = defaultArg strict true
+        let ex = defaultArg exact true
+        let ca = defaultArg cache true
+        
+        let h = PolarsWrapper.StrToDatetime(
+            handle, 
+            tu, 
+            tz, 
+            fmt, 
+            st, 
+            ex, 
+            ca
+        )
+        
+        new Expr(h)
 
 and [<Struct>] NameOps(handle: ExprHandle) =
     // let wrap op arg = new Expr(op(handle, arg))

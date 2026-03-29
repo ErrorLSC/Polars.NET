@@ -304,7 +304,46 @@ public readonly partial struct Polars
         /// </summary>
         public static Selector ByName(params string[] columns) 
             => new(PolarsWrapper.SelectorCols(columns));
+        /// <summary>
+        /// Select columns by their index. 
+        /// Usage: Cs.ByIndex(0, 2, 4)
+        /// </summary>
+        public static Selector ByIndex(params ReadOnlySpan<long> indices) 
+            => ByIndex(indices, strict: true);
 
+        /// <summary>
+        /// Select columns by their index with strictness control.
+        /// </summary>
+        public static Selector ByIndex(ReadOnlySpan<long> indices, bool strict)
+            => new(PolarsWrapper.SelectorByIndex(indices, strict));
+        /// <summary>
+        /// Select columns by specific DataType.
+        /// </summary>
+        public static Selector ByDtype(DataType type) 
+        {
+            var typeKind = type.Kind;
+            return new(PolarsWrapper.SelectorByDtype(typeKind.ToNative()));
+        }
+        /// <summary>
+        /// Select all columns EXCEPT the specified Selectors.
+        /// </summary>
+        public static Selector Exclude(params ReadOnlySpan<Selector> selectors)
+            => All().Exclude(selectors);
+
+        /// <summary>
+        /// Select all columns EXCEPT the specified Data Types.
+        /// </summary>
+        public static Selector Exclude(params ReadOnlySpan<DataType> dtypes)
+            => All().Exclude(dtypes);
+        /// <summary>
+        /// Select the first column.
+        /// </summary>
+        public static Selector First() => ByIndex([0L]);
+
+        /// <summary>
+        /// Select the last column.
+        /// </summary>
+        public static Selector Last() => ByIndex([-1L]);
         /// <summary>
         /// Select all numeric columns (Int, Float, etc.).
         /// </summary>
@@ -320,7 +359,7 @@ public readonly partial struct Polars
         /// </summary>
         public static Selector Date() => new(PolarsWrapper.SelectorByDtype(PlDataType.Date));
         public static Selector Boolean() => new(PolarsWrapper.SelectorByDtype(PlDataType.Boolean));
-        public static Selector Binary() => ByDType(DataType.Binary);
+        public static Selector Binary() => ByDtype(DataType.Binary);
         public static Selector Empty() => new(PolarsWrapper.SelectorEmpty());
         public static Selector Integer() => new(PolarsWrapper.SelectorInteger());
         public static Selector UnsignedInteger() => new(PolarsWrapper.SelectorUnsignedInteger());
@@ -381,14 +420,7 @@ public readonly partial struct Polars
         /// </summary>
         public static Selector Duration(TimeUnit? timeUnit = null)
             => new (PolarsWrapper.SelectorDuration(GetNativeTimeUnit(timeUnit)));
-        /// <summary>
-        /// Select columns by specific DataType.
-        /// </summary>
-        public static Selector ByDType(DataType type) 
-        {
-            var typeKind = type.Kind;
-            return new(PolarsWrapper.SelectorByDtype(typeKind.ToNative()));
-        }
+
         /// <summary>
         /// Select column whose name starts with given prefix.
         /// </summary>
@@ -413,7 +445,7 @@ public readonly partial struct Polars
         /// <summary>
         /// Select column whose name matches given string.
         /// </summary>
-        /// <param name="regex"></param>
+        /// <param name="regex">Regular Expression</param>
         /// <returns></returns>
         public static Selector Matches(string regex) 
             => new(PolarsWrapper.SelectorMatch(regex));
@@ -430,6 +462,65 @@ public readonly partial struct Polars
             string pattern = $"^[{charClass}]+$";
             return Matches(pattern);
         }
+        /// <summary>
+        /// <para>[EN] Select columns whose names consist entirely of CJK scripts (Han, Hiragana, Katakana, Hangul).
+        /// The 'chinese' option enables \p{Han}, which also includes Japanese Kanji and Korean Hanja.</para>
+        /// <para>[ZH] 选择列名完全由中日韩字符（Han / 平假名 / 片假名 / 韩文）组成的列。
+        /// 注意：'chinese' 实际匹配 \p{Han}，包含日文汉字与韩文汉字。</para>
+        /// <para>[JA] 列名がCJK文字（漢字・ひらがな・カタカナ・ハングル）のみで構成される列を選択します。
+        /// ※ 'chinese' は \p{Han}（日本・韓国の漢字を含む）を有効にします。</para>
+        /// <para>[KO] 열 이름이 CJK 문자(한자, 히라가나, 가타카나, 한글)로만 구성된 열을 선택합니다.
+        /// ※ 'chinese'는 \p{Han}을 의미하며 일본/한국 한자도 포함합니다.</para>
+        /// </summary>
+        public static Selector CJK(
+            bool chinese = true, 
+            bool japanese = true, 
+            bool korean = true, 
+            bool ignoreSpaces = false)
+        {
+            if (!chinese && !japanese && !korean)
+                throw new ArgumentException("At least one CJK script must be enabled.");
+
+            string charClass = "";
+            
+            if (chinese)  charClass += @"\p{Han}";
+            if (japanese) charClass += @"\p{Hiragana}\p{Katakana}";
+            if (korean)   charClass += @"\p{Hangul}";
+            
+            if (ignoreSpaces) charClass += " ";
+
+            string pattern = $"^[{charClass}]+$";
+            return Matches(pattern);
+        }
+        /// <summary>
+        /// <para>[EN] Select columns whose names consist of CJK scripts, Unicode digits (\p{N}),
+        /// and optionally ASCII/full-width Latin letters.</para>
+        /// <para>[ZH] 选择列名由中日韩字符、数字（\p{N}，含全/半角）以及可选英文字母（全/半角）组成的列。</para>
+        /// <para>[JA] 列名がCJK文字・数字（\p{N}、全角/半角）および英字（全角/半角）で構成される列を選択します。</para>
+        /// <para>[KO] 열 이름이 CJK 문자, 숫자(\p{N}, 전각/반각) 및 영문자(전각/반각)로 구성된 열을 선택합니다.</para>
+        /// </summary>
+        public static Selector CJKAlphanumeric(
+            bool chinese = true, 
+            bool japanese = true, 
+            bool korean = true, 
+            bool includeLetters = true, 
+            bool ignoreSpaces = false)
+        {
+            if (!chinese && !japanese && !korean)
+                throw new ArgumentException("At least one CJK script must be enabled.");
+
+            string charClass = @"\p{N}"; 
+            
+            if (includeLetters) charClass += "a-zA-ZＡ-Ｚａ-ｚ";
+            if (chinese)  charClass += @"\p{Han}";
+            if (japanese) charClass += @"\p{Hiragana}\p{Katakana}";
+            if (korean)   charClass += @"\p{Hangul}";
+            
+            if (ignoreSpaces) charClass += " ";
+
+            string pattern = $"^[{charClass}]+$";
+            return Matches(pattern);
+        }
 
         /// <summary>
         /// Select all columns with alphanumeric names.
@@ -443,6 +534,36 @@ public readonly partial struct Polars
             string pattern = $"^[{charClass}]+$";
             return Matches(pattern);
         }
+        /// <summary>
+        /// Expand a Selector against a DataFrame to get the matched column names.
+        /// </summary>
+        public static string[] ExpandSelector(DataFrame target, Selector selector)
+        {
+            ArgumentNullException.ThrowIfNull(target);
+            ArgumentNullException.ThrowIfNull(selector);
+
+            using var emptyDf = target.Clear(); 
+            
+            using var result = emptyDf.Select(selector);
+            
+            return [.. result.Columns];
+        }
+
+        /// <summary>
+        /// Expand an Expr against a DataFrame to get the matched column names.
+        /// </summary>
+        public static string[] ExpandSelector(DataFrame target, Expr expr)
+        {
+            ArgumentNullException.ThrowIfNull(target);
+            ArgumentNullException.ThrowIfNull(expr);
+
+            using var emptyDf = target.Clear();
+            using var result = emptyDf.Select(expr);
+            return [.. result.Columns];
+        }
+        public static string[] ExpandSelector(LazyFrame target, Selector selector)
+           => [.. target.Select(selector).Schema.Names];
+        
     }
 }
 
