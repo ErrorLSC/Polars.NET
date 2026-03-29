@@ -692,3 +692,16 @@ pub extern "C" fn pl_dataframe_is_unique(df_ptr: *mut DataFrameContext) -> *mut 
         Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_rechunk(df_ptr: *mut DataFrameContext) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*df_ptr };
+        
+        let mut new_df = ctx.df.clone();
+        
+        new_df.rechunk_mut_par();
+
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
+    })
+}

@@ -34,6 +34,7 @@ unsafe internal partial class NativeBindings
     public static partial DataFrameHandle pl_dataframe_clone(DataFrameHandle df);
     [LibraryImport(LibName)]
     public static partial LazyFrameHandle pl_dataframe_lazy(DataFrameHandle df);
+    [LibraryImport(LibName)] public static partial DataFrameHandle pl_dataframe_rechunk(DataFrameHandle df);
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_head(DataFrameHandle df, UIntPtr n);
     [LibraryImport(LibName)]

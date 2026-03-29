@@ -122,7 +122,29 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         using var df = Unique(subset);
         return df.Height;
     }
+    /// <summary>
+    /// Get the number of chunks used by the first Column of this DataFrame.
+    /// (Equivalent to strategy='first')
+    /// </summary>
+    public long NChunks()
+    {
+        if (Width == 0) return 0;
+        return Column(0).NChunks; 
+    }
 
+    /// <summary>
+    /// Get an array containing the number of chunks for all columns in this DataFrame.
+    /// (Equivalent to strategy='all')
+    /// </summary>
+    public long[] NChunksAll()
+        => [.. this.Select(s => s.NChunks)];
+
+    /// <summary>
+    /// Rechunk the data in this DataFrame to a contiguous allocation.
+    /// This will make sure all subsequent operations have optimal and predictable performance.
+    /// </summary>
+    public DataFrame Rechunk() => new(PolarsWrapper.DataFrameRechunk(Handle));
+    
     // ==========================================
     // Aggregation
     // ==========================================

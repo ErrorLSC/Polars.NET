@@ -825,6 +825,7 @@ B,5";
 
     }
     [Fact]
+    [Trait("DataFrame","VStack")]
     public void Test_HStack_VStack()
     {
         // --- Test HStack ---
@@ -855,7 +856,11 @@ B,5";
 
         Assert.Equal(5, vStacked.Height);
         Assert.Equal(2, vStacked.Width);
+        Assert.Equal(2L,vStacked.NChunks());
+
+        var rechunked = vStacked.Rechunk();
         
+        Assert.Equal(1L,rechunked.NChunks());
         
         // Row 0 (from df1)
         Assert.Equal(1, vStacked["a"][0]);

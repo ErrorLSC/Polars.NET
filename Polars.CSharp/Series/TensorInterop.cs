@@ -113,7 +113,7 @@ public partial class Series : IDisposable,IPolarsSeries
         if (!this.IsContiguous)
         {
             throw new InvalidOperationException(
-                $"Cannot extract a contiguous native pointer because the Series is fragmented into {this.ChunkCount} chunks. " +
+                $"Cannot extract a contiguous native pointer because the Series is fragmented into {this.NChunks} chunks. " +
                 "You MUST call .Rechunk() on this Series to merge the memory before exporting it to an unmanaged Tensor."
             );
         }
@@ -128,7 +128,7 @@ public partial class Series : IDisposable,IPolarsSeries
         if (!IsContiguous)
         {
             throw new InvalidOperationException(
-                $"Cannot extract a contiguous native pointer because the Series is fragmented into {ChunkCount} chunks. " +
+                $"Cannot extract a contiguous native pointer because the Series is fragmented into {NChunks} chunks. " +
                 "You MUST call .Rechunk() on this Series to merge the memory before exporting it to an unmanaged Tensor."
             );
         }

@@ -56,14 +56,14 @@ type Series(handle: SeriesHandle) =
     /// <summary>
     /// Gets the number of underlying Arrow memory chunks.
     /// </summary>
-    member this.ChunkCount : int = 
-        int (PolarsWrapper.SeriesChunkCounts handle)
+    member this.NChunks : int64 = 
+        int64 (PolarsWrapper.SeriesChunkCounts handle)
 
     /// <summary>
     /// Determines if the Series memory is physically contiguous (i.e., consists of a single chunk).
     /// </summary>
     member this.IsContiguous : bool = 
-        this.ChunkCount = 1
+        this.NChunks = 1
 
     /// <summary>
     /// True if the Series is empty.
@@ -2475,7 +2475,7 @@ type Series(handle: SeriesHandle) =
     member this.AsDangerousUnmanagedTensor<'T when 'T : unmanaged and 'T : struct and 'T :> ValueType and 'T : (new: unit -> 'T)>() =
         if not this.IsContiguous then
             raise (InvalidOperationException(
-                $"Cannot extract a contiguous native pointer because the Series is fragmented into {this.ChunkCount} chunks. " +
+                $"Cannot extract a contiguous native pointer because the Series is fragmented into {this.NChunks} chunks. " +
                 "You MUST call .Rechunk() on this Series to merge the memory before exporting it to an unmanaged Tensor."
             ))
             
@@ -2495,7 +2495,7 @@ type Series(handle: SeriesHandle) =
     member this.AsDangerousUnmanagedTensor<'T when 'T : unmanaged and 'T : struct and 'T :> ValueType and 'T : (new: unit -> 'T)>(shape:ReadOnlySpan<nativeint>) =
         if not this.IsContiguous then
             raise (InvalidOperationException(
-                $"Cannot extract a contiguous native pointer because the Series is fragmented into {this.ChunkCount} chunks. " +
+                $"Cannot extract a contiguous native pointer because the Series is fragmented into {this.NChunks} chunks. " +
                 "You MUST call .Rechunk() on this Series to merge the memory before exporting it to an unmanaged Tensor."
             ))
             
@@ -3843,26 +3843,6 @@ and DataFrame(handle: DataFrameHandle) =
             else if coreType = typeof<Int128> then true
             else if coreType = typeof<UInt128> then true
             else false
-    /// <summary>
-    /// [Internal] Worker method to transpose a single column from Record[] to Series.
-    /// This is generic to avoid boxing during array population.
-    /// </summary>
-    static member private CreateSeriesFromColumn<'Rec, 'Field>(data: 'Rec[], name: string, prop: PropertyInfo) : Series =
-        // 1. Create Fast Getter (Delegate)
-        let getterMethod = prop.GetGetMethod()
-        let getter = Delegate.CreateDelegate(typeof<Func<'Rec, 'Field>>, getterMethod) :?> Func<'Rec, 'Field>
-        
-        // 2. Transpose: Row-Oriented -> Column-Oriented
-        //    (Allocation happens here: O(N))
-        let len = data.Length
-        let colData = Array.zeroCreate<'Field> len
-        
-        for i = 0 to len - 1 do
-            colData.[i] <- getter.Invoke(data.[i])
-            
-        // 3. Delegate to C# SeriesFactory (The Magic Step!)
-        Series.create(name, colData)
-
     /// <summary>
     /// Create a DataFrame from a sequence of records.
     /// <para>
@@ -5351,6 +5331,24 @@ and DataFrame(handle: DataFrameHandle) =
     member _.Height = PolarsWrapper.DataFrameHeight handle
     member _.Len = PolarsWrapper.DataFrameHeight handle
     member _.Width = PolarsWrapper.DataFrameWidth handle
+    /// <summary>
+    /// Get the number of chunks used by the first Column of this DataFrame.
+    /// </summary>
+    member this.NChunks() =
+        if this.Width = 0 then 0L
+        else this.Column(0).NChunks
+
+    /// <summary>
+    /// Rechunk the data in this DataFrame to a contiguous allocation.
+    /// This will make sure all subsequent operations have optimal and predictable performance.
+    /// </summary>
+    member this.Rechunk() = new DataFrame(PolarsWrapper.DataFrameRechunk this.Handle)
+
+    /// <summary>
+    /// Get an array containing the number of chunks for all columns in this DataFrame.
+    /// </summary>
+    member this.NChunksAll() =
+        this |> Seq.map (fun s -> s.NChunks) |> Seq.toArray
     /// <summary>
     /// True if the DataFrame contains no rows.
     /// </summary>

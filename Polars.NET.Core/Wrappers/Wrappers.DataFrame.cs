@@ -240,19 +240,11 @@ public static partial class PolarsWrapper
 
         return ErrorHelper.Check(NativeBindings.pl_dataframe_new(locker.Pointers, (UIntPtr)series.Length));
     }
-    /// <summary>
-    /// Create a DataFrame from an Arrow C Stream.
-    /// </summary>
     public static unsafe DataFrameHandle DataFrameNewFromStream(Arrow.CArrowArrayStream* stream)
     {
         var handle = NativeBindings.pl_dataframe_new_from_stream(stream);
         return ErrorHelper.Check(handle);
     }
-    /// <summary>
-    /// Convert DataFrame to LazyFrame
-    /// </summary>
-    /// <param name="df"></param>
-    /// <returns></returns>
     public static LazyFrameHandle DataFrameToLazy(DataFrameHandle df) 
         => ErrorHelper.Check(NativeBindings.pl_dataframe_lazy(df));
     public static string DataFrameToString(DataFrameHandle handle)
@@ -260,4 +252,6 @@ public static partial class PolarsWrapper
         var ptr = NativeBindings.pl_dataframe_to_string(handle);
         return ErrorHelper.CheckString(ptr);
     }
+    public static DataFrameHandle DataFrameRechunk(DataFrameHandle df) 
+        => ErrorHelper.Check(NativeBindings.pl_dataframe_rechunk(df));
 }
