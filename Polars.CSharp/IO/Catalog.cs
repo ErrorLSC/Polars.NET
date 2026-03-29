@@ -658,7 +658,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
     }
 }
 
-public static partial class Polars 
+public readonly partial struct Polars 
 {
     /// <summary>
     /// Init Unity Catalog connection

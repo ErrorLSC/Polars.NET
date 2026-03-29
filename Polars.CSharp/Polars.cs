@@ -6,7 +6,7 @@ namespace Polars.CSharp;
 /// <summary>
 /// Polars Static Helpers
 /// </summary>
-public static partial class Polars
+public readonly partial struct Polars
 {
     /// <summary>
     /// Column Expr (name: string)
@@ -425,7 +425,7 @@ internal static class InterfaceUnwrapperExtensions
     /// <summary>
     /// Unwrap IPolarsDataFrame as DataFrame 
     /// </summary>
-    public static DataFrame AsDataFrame(this IPolarsDataFrame idf)
+    internal static DataFrame AsDataFrame(this IPolarsDataFrame idf)
     {
         if (idf is DataFrame df)
             return df;
@@ -438,7 +438,7 @@ internal static class InterfaceUnwrapperExtensions
     /// <param name="ilf">A IPolarsLazyFrame</param>
     /// <returns></returns>
     /// <exception cref="InvalidCastException"></exception>
-    public static LazyFrame AsLazyFrame(this IPolarsLazyFrame ilf)
+    internal static LazyFrame AsLazyFrame(this IPolarsLazyFrame ilf)
     {
         if (ilf is LazyFrame lf)
             return lf;
@@ -451,7 +451,7 @@ internal static class InterfaceUnwrapperExtensions
     /// <param name="iS">A IPolarsSeries</param>
     /// <returns></returns>
     /// <exception cref="InvalidCastException"></exception>
-    public static Series AsSeries(this IPolarsSeries iS)
+    internal static Series AsSeries(this IPolarsSeries iS)
     {
         if (iS is Series s)
             return s;
