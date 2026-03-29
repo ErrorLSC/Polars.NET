@@ -371,6 +371,19 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     public LazyFrame Cast(params (Expr Expr, DataType Dtype)[] dtypes)
         =>Cast((IEnumerable<(Expr, DataType)>)dtypes, strict: true);
     /// <summary>
+    /// Create an empty (n=0) or n-row null-filled (n>0) copy of the LazyFrame.
+    /// Returns a n-row null-filled LazyFrame with an identical schema.
+    /// </summary>
+    /// <param name="n">Number of (null-filled) rows to return in the cleared frame.</param>
+    /// <returns>A new LazyFrame.</returns>
+    public LazyFrame Clear(long n = 0)
+    {
+        using var schema = Schema; 
+
+        return schema.ToLazyFrame(n);
+    }
+
+    /// <summary>
     /// Sort the LazyFrame by a single column.
     /// </summary>
     public LazyFrame Sort(

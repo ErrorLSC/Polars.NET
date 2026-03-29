@@ -8,7 +8,7 @@ namespace Polars.CSharp;
 /// <summary>
 /// Represents a Polars Schema (Name -> DataType mapping).
 /// </summary>
-public class PolarsSchema : IDisposable,IPolarsSchema
+public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>
 {
     internal SchemaHandle Handle { get; private set; }
     private bool _disposed;
@@ -174,6 +174,14 @@ public class PolarsSchema : IDisposable,IPolarsSchema
 
     IPolarsDataType IPolarsSchema.this[string name] 
         => this[name];
+    
+    /// <summary>
+    /// Creates an empty DataFrame from this Schema.
+    /// </summary>
+    /// <returns>An empty DataFrame with columns and types matching the schema.</returns>
+    public DataFrame ToDataFrame(long length=0)
+        => new(PolarsWrapper.DataFrameFromSchema(Handle, (uint)length));
+
     // ==========================================
     // ToString
     // ==========================================
@@ -197,6 +205,47 @@ public class PolarsSchema : IDisposable,IPolarsSchema
         
         sb.Append('}');
         return sb.ToString();
+    }
+    // ==========================================
+    // Equality Members
+    // ==========================================
+    
+    public override bool Equals(object? obj)
+        => Equals(obj as PolarsSchema);
+
+    public bool Equals(PolarsSchema? other)
+    {
+        if (ReferenceEquals(this, other)) return true;
+        
+        if (other is null || Handle.IsInvalid || other.Handle.IsInvalid) return false;
+
+        if (Length != other.Length) return false;
+
+        return ToList().SequenceEqual(other.ToList());
+    }
+
+    public override int GetHashCode()
+    {
+        if (Handle.IsInvalid) return 0;
+
+        var hash = new HashCode();
+        foreach (var (name, type) in ToList())
+        {
+            hash.Add(name);
+            hash.Add(type);
+        }
+        return hash.ToHashCode();
+    }
+
+    public static bool operator ==(PolarsSchema? left, PolarsSchema? right)
+    {
+        if (left is null) return right is null;
+        return left.Equals(right);
+    }
+
+    public static bool operator !=(PolarsSchema? left, PolarsSchema? right)
+    {
+        return !(left == right);
     }
     public void Dispose()
     {

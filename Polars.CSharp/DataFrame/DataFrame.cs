@@ -1342,6 +1342,19 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public DataFrame Cast(params (Expr Expr, DataType Dtype)[] dtypes)
         =>Cast((IEnumerable<(Expr, DataType)>)dtypes, strict: true);
 
+    /// <summary>
+    /// Create an empty (n=0) or n-row null-filled (n>0) copy of the DataFrame.
+    /// Returns a n-row null-filled DataFrame with an identical schema.
+    /// </summary>
+    /// <param name="n">Number of (null-filled) rows to return in the cleared frame.</param>
+    /// <returns>A new DataFrame.</returns>
+    public DataFrame Clear(long n = 0)
+    {
+        using var schema = this.Schema; 
+
+        return schema.ToDataFrame(n);
+    }
+
     // ==========================================
     // Stack Ops
     // ==========================================
@@ -1428,10 +1441,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </remarks>
     /// <seealso cref="GroupBy(Expr[])"/>
     public GroupByBuilder GroupBy(params string[] columns)
-    {
-        var exprs = columns.Select(Polars.Col).ToArray();
-        return GroupBy(exprs);
-    }
+        => GroupBy(columns.Select(Pl.Col).ToArray());
     /// <summary>
     /// Group based on a time index using dynamic windows (Rolling/Resampling).
     /// <para>

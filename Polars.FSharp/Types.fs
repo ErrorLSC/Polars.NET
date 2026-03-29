@@ -23,6 +23,7 @@ open System.Data.Common
 open System.Threading.Channels
 open Polars.NET.Core.TensorInterop
 open System.Numerics.Tensors
+open System.Linq
 /// --- Series ---
 /// <summary>
 /// An eager Series holding a single column of data.
@@ -4622,6 +4623,15 @@ and DataFrame(handle: DataFrameHandle) =
     // Eager Ops
     // ==========================================
     /// <summary>
+    /// Create an empty (n=0) or n-row null-filled (n>0) copy of the DataFrame.
+    /// Returns a n-row null-filled DataFrame with an identical schema.
+    /// </summary>
+    /// <param name="n">Number of (null-filled) rows to return in the cleared frame.</param>
+    /// <returns>A new DataFrame.</returns>
+    member this.Clear(?n: int64) = 
+        use schema = this.Schema
+        schema.ToDataFrame(?length=n)
+    /// <summary>
     /// Convert a DataFrame to a Series of type Struct.
     /// </summary>
     /// <param name="name">Name for the struct Series.</param>
@@ -7882,6 +7892,16 @@ and LazyFrame(handle: LazyFrameHandle) =
         
         new LazyFrame(newHandle)
     /// <summary>
+    /// Create an empty (n=0) or n-row null-filled (n>0) copy of the LazyFrame.
+    /// Returns a n-row null-filled LazyFrame with an identical schema.
+    /// </summary>
+    /// <param name="n">Number of (null-filled) rows to return in the cleared frame.</param>
+    /// <returns>A new LazyFrame.</returns>
+    member this.Clear(?n:int64) = 
+        use schema = this.Schema
+        schema.ToLazyFrame(?length=n)
+    
+    /// <summary>
     /// Keep unique rows (stable) based on a subset of columns defined by a Selector.
     /// </summary>
     member this.Unique
@@ -8672,7 +8692,7 @@ and LazyFrame(handle: LazyFrameHandle) =
 and PolarsSchema (handle: SchemaHandle) =
     
     // --- Property ---
-  member val Handle = handle
+    member val Handle = handle
 
     // --- Constructors ---
     static member private CreateHandleFromFields(fields: seq<string * DataType>) =
@@ -8774,6 +8794,21 @@ and PolarsSchema (handle: SchemaHandle) =
                         find (i + 1UL)
             find 0UL
 
+    /// <summary>
+    /// Creates an empty DataFrame from this Schema.
+    /// </summary>
+    member this.ToDataFrame(?length: int64) =
+        let len = defaultArg length 0L
+        let dfHandle: DataFrameHandle = PolarsWrapper.DataFrameFromSchema(handle,uint len)
+        new DataFrame(dfHandle)
+
+    /// <summary>
+    /// Creates an empty LazyFrame from this Schema.
+    /// </summary>
+    member this.ToLazyFrame(?length: int64) =
+        use emptyDf = this.ToDataFrame(?length=length)
+        emptyDf.Lazy()
+
     // --- Display ---
     
     override this.ToString() =
@@ -8787,6 +8822,43 @@ and PolarsSchema (handle: SchemaHandle) =
                 if i < len - 1UL then sb.Append(", ") |> ignore
             sb.Append "}" |> ignore
             sb.ToString()
+
+    // ==========================================
+    // Equality Members
+    // ==========================================
+    
+    interface IEquatable<PolarsSchema> with
+        member this.Equals(other: PolarsSchema) =
+            if Object.ReferenceEquals(this, other) then true
+            elif this.Handle.IsInvalid || other.Handle.IsInvalid then false
+            else
+                let myList = this.ToList()
+                let otherList = other.ToList()
+                
+                if myList.Length <> otherList.Length then false
+                else
+                    Enumerable.SequenceEqual(myList, otherList)
+
+    override this.Equals(obj: obj) =
+        match obj with
+        | :? PolarsSchema as other -> (this :> IEquatable<_>).Equals(other)
+        | _ -> false
+
+    override this.GetHashCode() =
+        if this.Handle.IsInvalid then 0
+        else
+            let hash = HashCode()
+            for name, dt in this.ToList() do
+                hash.Add(name)
+                hash.Add(dt) 
+            hash.ToHashCode()
+
+    static member op_Equality (left: PolarsSchema, right: PolarsSchema) =
+        if Object.ReferenceEquals(left, null) then Object.ReferenceEquals(right, null)
+        else left.Equals(right)
+
+    static member op_Inequality (left: PolarsSchema, right: PolarsSchema) =
+        not (left = right)
 
     // --- Interface ---
     

@@ -859,7 +859,7 @@ B,5";
         Assert.Equal(2L,vStacked.NChunks());
 
         var rechunked = vStacked.Rechunk();
-        
+
         Assert.Equal(1L,rechunked.NChunks());
         
         // Row 0 (from df1)
@@ -1010,5 +1010,23 @@ B,5";
         });
         long unique = df.NUnique(Cs.String());
         Assert.Equal(2L,unique);
+    }
+    [Fact]
+    [Trait("DataFrame","Clear")]
+    public void Test_DataFrame_Clear()
+    {
+        using var df = DataFrame.FromColumns(new 
+        {
+            Name = new[] { "A", "B","A" }, 
+            Age = new[] { 10, 20,10 },    
+            Score = new[] { 99, 88,99 }   
+        });
+        var clearDf = df.Clear();
+        Assert.Equal(clearDf.Schema,df.Schema);
+        Assert.True(clearDf.IsEmpty);
+
+        var clearDf1 = df.Clear(1);
+        Assert.Equal(1L,clearDf1.Height);
+        Assert.Null(clearDf1[0][0]);
     }
 }

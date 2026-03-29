@@ -35,6 +35,20 @@ pub extern "C" fn pl_dataframe_slice(
         Ok(Box::into_raw(Box::new(result_df)))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_from_schema(
+    schema_ptr: *mut SchemaContext,
+    length: usize
+) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*schema_ptr };
+        
+        let df = DataFrame::full_null(&ctx.schema, length);
+        
+        Ok(Box::into_raw(Box::new(DataFrameContext { df })))
+    })
+}
 // ==========================================
 // DataFrame Ops
 // ==========================================

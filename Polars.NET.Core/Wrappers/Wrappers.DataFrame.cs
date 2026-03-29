@@ -233,7 +233,7 @@ public static partial class PolarsWrapper
     {
         if (series == null || series.Length == 0)
             {
-                return ErrorHelper.Check(NativeBindings.pl_dataframe_new(Array.Empty<IntPtr>(), UIntPtr.Zero));
+                return ErrorHelper.Check(NativeBindings.pl_dataframe_new([], UIntPtr.Zero));
             }
 
         using var locker = new SafeHandleLock<SeriesHandle>(series);
@@ -243,6 +243,11 @@ public static partial class PolarsWrapper
     public static unsafe DataFrameHandle DataFrameNewFromStream(Arrow.CArrowArrayStream* stream)
     {
         var handle = NativeBindings.pl_dataframe_new_from_stream(stream);
+        return ErrorHelper.Check(handle);
+    }
+    public static DataFrameHandle DataFrameFromSchema(SchemaHandle schema,uint length)
+    {
+        var handle = NativeBindings.pl_dataframe_from_schema(schema,length);
         return ErrorHelper.Check(handle);
     }
     public static LazyFrameHandle DataFrameToLazy(DataFrameHandle df) 

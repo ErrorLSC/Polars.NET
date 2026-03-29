@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Apache.Arrow;
 
 [assembly: DisableRuntimeMarshalling]
 
@@ -17,6 +18,12 @@ unsafe internal partial class NativeBindings
     public static partial DataFrameHandle pl_dataframe_new(
         IntPtr[] columns, 
         UIntPtr len
+    );
+
+    [LibraryImport(LibName)]
+    public static partial DataFrameHandle pl_dataframe_from_schema(
+        SchemaHandle schema,
+        nuint length
     );
 
     [LibraryImport(LibName)]
