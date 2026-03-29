@@ -133,7 +133,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         CloudOptions? cloudOptions = null)
     {
         using var selector = (partitionBy != null && partitionBy.Length > 0) 
-            ? Cs.Col(partitionBy) 
+            ? Cs.ByName(partitionBy) 
             : null;
 
         WriteDelta(

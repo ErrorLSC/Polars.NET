@@ -622,7 +622,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </summary>
     public LazyFrame Unnest(params string[] columns)
     {
-        using var sel = Cs.Col(columns);
+        using var sel = Cs.ByName(columns);
         return Unnest(sel,null);
     }
     /// <summary>
@@ -643,7 +643,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <param name="columns"></param>
     /// <returns></returns>
     public LazyFrame Drop(params string[] columns)
-        => Drop(Cs.Col(columns));
+        => Drop(Cs.ByName(columns));
 
     /// <summary>
     /// Drop columns by specific Expressions.
@@ -677,7 +677,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     public LazyFrame DropNulls(params string[] subset)
     {
         if (subset == null || subset.Length == 0) return DropNulls((Selector?)null);
-        return DropNulls(Cs.Col(subset));
+        return DropNulls(Cs.ByName(subset));
     }
     /// <summary>
     /// DropNulls columns by specific Expressions.
@@ -711,7 +711,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     public LazyFrame DropNan(params string[] subset)
     {
         if (subset == null || subset.Length == 0) return DropNan((Selector?)null);
-        return DropNan(Cs.Col(subset));
+        return DropNan(Cs.ByName(subset));
     }
     /// <summary>
     /// DropNaN columns by specific Expressions.
@@ -790,7 +790,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             return Unique(subset: null, keep, maintainOrder);
         }
 
-        using var selector = Cs.Col(columnsArray);
+        using var selector = Cs.ByName(columnsArray);
         
         return Unique(selector, keep, maintainOrder);
     }
@@ -822,7 +822,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <returns></returns>
     public LazyFrame Explode(params string[] columns)
     {
-        using var sel = Cs.Col(columns);
+        using var sel = Cs.ByName(columns);
         return Explode(sel);
     }
 
@@ -903,9 +903,9 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         bool maintainOrder = true,
         string? separator = null)
     {
-        using var sIndex = Cs.Col(index);
-        using var sColumns = Cs.Col(columns);
-        using var sValues = Cs.Col(values);
+        using var sIndex = Cs.ByName(index);
+        using var sColumns = Cs.ByName(columns);
+        using var sValues = Cs.ByName(values);
 
         return Pivot(
             sIndex,
@@ -931,9 +931,9 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         bool maintainOrder = true,
         string? separator = null)
     {
-        using var sIndex = Cs.Col(index);
-        using var sColumns = Cs.Col(columns);
-        using var sValues = Cs.Col(values);
+        using var sIndex = Cs.ByName(index);
+        using var sColumns = Cs.ByName(columns);
+        using var sValues = Cs.ByName(values);
 
         return Pivot(
             sIndex,
@@ -967,8 +967,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </summary>
     public LazyFrame Unpivot(string[] index, string[]? on, string variableName = "variable", string valueName = "value")
     {
-        using var sIndex = Cs.Col(index);
-        using var sOn = on is not null ? Cs.Col(on) : null;
+        using var sIndex = Cs.ByName(index);
+        using var sOn = on is not null ? Cs.ByName(on) : null;
 
         return Unpivot(sIndex, sOn, variableName, valueName);
     }

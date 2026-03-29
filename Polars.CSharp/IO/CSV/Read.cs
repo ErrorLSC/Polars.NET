@@ -86,7 +86,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         if (columns != null && columns.Length > 0)
         {
-            lf = lf.Select(Cs.Col(columns));
+            lf = lf.Select(Cs.ByName(columns));
         }
 
         return lf.Collect();
@@ -167,7 +167,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         if (columns != null && columns.Length > 0)
         {
-            lf = lf.Select(Cs.Col(columns));
+            lf = lf.Select(Cs.ByName(columns));
         }
 
         return lf.Collect();
@@ -250,7 +250,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         if (columns != null && columns.Length > 0)
         {
-            lf = lf.Select(Cs.Col(columns));
+            lf = lf.Select(Cs.ByName(columns));
         }
 
         return lf.Collect();
@@ -337,7 +337,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
                 colsToSelect.Add(rowIndexName);
             }
 
-            lf = lf.Select(Cs.Col([.. colsToSelect]));
+            lf = lf.Select(Cs.ByName([.. colsToSelect]));
         }
 
         return await lf.CollectAsync(useStreaming: true);

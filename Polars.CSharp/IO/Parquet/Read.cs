@@ -83,7 +83,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
                 colsToSelect.Add(includePathColumn);
             }
 
-            lf = lf.Select(Cs.Col([.. colsToSelect]));
+            lf = lf.Select(Cs.ByName([.. colsToSelect]));
         }
 
         return lf.Collect();
@@ -148,7 +148,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
                 colsToSelect.Add(includePathColumn);
             }
 
-            lf = lf.Select(Cs.Col([.. colsToSelect]));
+            lf = lf.Select(Cs.ByName([.. colsToSelect]));
         }
 
         return lf.Collect();
@@ -260,7 +260,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
                 colsToSelect.Add(includePathColumn);
             }
 
-            lf = lf.Select(Cs.Col([.. colsToSelect]));
+            lf = lf.Select(Cs.ByName([.. colsToSelect]));
         }
 
         return await lf.CollectAsync(useStreaming:true);

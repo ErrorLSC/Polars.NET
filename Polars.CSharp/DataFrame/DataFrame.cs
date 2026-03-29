@@ -612,7 +612,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </example>
     public DataFrame Explode(params string[] columns)
     {
-        using var sel = Cs.Col(columns);
+        using var sel = Cs.ByName(columns);
         return Explode(sel);
     }
     /// <summary>
@@ -1746,9 +1746,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </example>
     public DataFrame Pivot(string[] index, string[] columns, string[] values, PivotAgg aggregateFunction = PivotAgg.First,bool sortColumns =false,bool maintainOrder = true,string? separator=null)
     {
-        using var sIndex = Cs.Col(index);
-        using var sColumns = Cs.Col(columns);
-        using var sValues = Cs.Col(values);
+        using var sIndex = Cs.ByName(index);
+        using var sColumns = Cs.ByName(columns);
+        using var sValues = Cs.ByName(values);
 
         return Pivot(
             sIndex, 
@@ -1768,7 +1768,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="columns">Column names to use as columns.</param>
     /// <param name="values">Column names to use as values.</param>
     /// <param name="aggregateExpr">
-    /// A custom expression to aggregate the values (e.g., <c>pl.Col("val").Sum() * 100</c>).
+    /// A custom expression to aggregate the values (e.g., <c>pl.ByName("val").Sum() * 100</c>).
     /// </param>
     /// <param name="sortColumns">
     /// Sort the transposed columns.
@@ -1787,9 +1787,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         bool maintainOrder = true,
         string? separator = null)
     {
-        using var sIndex = Cs.Col(index);
-        using var sColumns = Cs.Col(columns);
-        using var sValues = Cs.Col(values);
+        using var sIndex = Cs.ByName(index);
+        using var sColumns = Cs.ByName(columns);
+        using var sValues = Cs.ByName(values);
 
         return Pivot(
             sIndex, 
@@ -1843,8 +1843,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </example>
     public DataFrame Unpivot(string[] index, string[]? on, string variableName = "variable", string valueName = "value")
     {
-        using var sIndex = Cs.Col(index);
-        using var sOn = on is not null ? Cs.Col(on) : null;
+        using var sIndex = Cs.ByName(index);
+        using var sOn = on is not null ? Cs.ByName(on) : null;
 
         return Unpivot(sIndex, sOn, variableName, valueName);
     }

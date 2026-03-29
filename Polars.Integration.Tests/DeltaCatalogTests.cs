@@ -258,7 +258,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             df1.WriteCatalogTable(
                 uc, catalog, schema, table, 
                 mode: DeltaSaveMode.Overwrite, 
-                partitionBy: Cs.Col("Region"), 
+                partitionBy: Cs.ByName("Region"), 
                 cloudOptions: cloudOptions
             );
         }
@@ -506,7 +506,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         {
             df.WriteCatalogTable(
                 uc, catalog, schema, table, 
-                partitionBy: Cs.Col("Year"), 
+                partitionBy: Cs.ByName("Year"), 
                 mode: DeltaSaveMode.Overwrite, 
                 cloudOptions: cloudOptions
             );

@@ -302,7 +302,7 @@ public static partial class Polars
         /// <summary>
         /// Select columns.
         /// </summary>
-        public static Selector Col(params string[] columns) 
+        public static Selector ByName(params string[] columns) 
             => new(PolarsWrapper.SelectorCols(columns));
 
         /// <summary>

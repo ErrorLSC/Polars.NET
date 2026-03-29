@@ -368,7 +368,7 @@ David,40,80000";
         
         using var lf = df.Lazy();
 
-        using var selector = Cs.Col("expanded");
+        using var selector = Cs.ByName("expanded");
 
         using var res = lf
             .Select(Col("chars").Str.Split(",").Alias("expanded"))
@@ -504,7 +504,7 @@ David,40,80000";
     {
         
         using var df = CreateStructDataFrame();
-        using var selector = Cs.Col("my_struct");
+        using var selector = Cs.ByName("my_struct");
 
         using var lf1 = df.Lazy().Unnest(selector); 
         using var res1 = lf1.Collect();
@@ -656,7 +656,7 @@ David,40,80000";
         var lf = df.Lazy();
         
         // Case A: Subset on "A", Keep First
-        var res1 = lf.Unique(Cs.Col("A"), UniqueKeepStrategy.First)
+        var res1 = lf.Unique(Cs.ByName("A"), UniqueKeepStrategy.First)
                      .Collect();
         
         Assert.Equal(2, res1.Height); 

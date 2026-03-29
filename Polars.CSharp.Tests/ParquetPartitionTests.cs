@@ -30,7 +30,7 @@ public class ParquetPartitionTests : IDisposable
         
         lf.SinkParquetPartitioned(
             _testBaseDir,
-            partitionBy: Cs.Col("Group"), 
+            partitionBy: Cs.ByName("Group"), 
             includeKeys: true
         );
 
