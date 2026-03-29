@@ -146,18 +146,6 @@ pub extern "C" fn pl_dataframe_get_schema(
 // --- Convenience Ops ---
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_dataframe_drop(df_ptr: *mut DataFrameContext, name: *const c_char) -> *mut DataFrameContext {
-    ffi_try!({
-        let ctx = unsafe { &*df_ptr };
-        let col_name = unsafe { CStr::from_ptr(name).to_string_lossy() };
-        
-        let new_df = ctx.df.drop(&col_name)?;
-        
-        Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
-    })
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_drop_many(
     df_ptr: *mut DataFrameContext,
     names_ptr: *const *const c_char,
@@ -177,6 +165,25 @@ pub extern "C" fn pl_dataframe_drop_many(
         let new_df = ctx.df.drop_many_amortized(&names_set);
         
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_drop_in_place(
+    df_ptr: *mut DataFrameContext,
+    name: *const c_char,
+) -> *mut SeriesContext {
+    ffi_try!({
+        let ctx = unsafe { &mut *df_ptr }; 
+        let col_name = unsafe { CStr::from_ptr(name).to_string_lossy() };
+
+        let col = ctx.df.drop_in_place(&col_name)?;
+
+        let series = col.as_series()
+            .cloned()
+            .expect("Failed to cast Column to Series");
+
+        Ok(Box::into_raw(Box::new(SeriesContext { series })))
     })
 }
 

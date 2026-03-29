@@ -5320,6 +5320,15 @@ and DataFrame(handle: DataFrameHandle) =
     member this.Drop([<ParamArray>]exprs: Expr array) =
         this.Drop(exprs :> seq<Expr>)
     /// <summary>
+    /// Drop a column in-place and return it as a Series.
+    /// Note: This mutates the original DataFrame.
+    /// </summary>
+    member this.DropInPlace(name: string) =
+        if String.IsNullOrEmpty name then nullArg (nameof name)
+        
+        let seriesHandle = PolarsWrapper.DropInPlace(this.Handle, name)
+        new Series(seriesHandle)
+    /// <summary>
     /// Rename a column. Returns a new DataFrame.
     /// </summary>
     member this.Rename(oldName: string, newName: string) : DataFrame =

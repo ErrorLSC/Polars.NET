@@ -53,9 +53,9 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] 
     public static partial DataFrameHandle pl_with_columns(DataFrameHandle df, IntPtr[] exprs, UIntPtr len);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial DataFrameHandle pl_dataframe_drop(DataFrameHandle df, string name);
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial DataFrameHandle pl_dataframe_drop_many(DataFrameHandle df, string[] columns, nuint len);
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial SeriesHandle pl_dataframe_drop_in_place(DataFrameHandle df, string name);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial DataFrameHandle pl_dataframe_rename(DataFrameHandle df, string oldName, string newName);

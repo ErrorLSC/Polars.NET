@@ -1047,4 +1047,20 @@ B,5";
         
         Assert.Throws<ArgumentException>(() => res["C"]);
     }
+    [Fact]
+    [Trait("DataFrame","DropInPlace")]
+    public void Test_DropInPlace()
+    {
+        using DataFrame df = DataFrame.FromRows(
+        [
+            new { A = 1, B = 2.2, C = "hello" },
+            new { A = 3, B = 4.4, C = "world" }
+        ]);
+
+        using Series res = df.DropInPlace("A");
+        Assert.Equal(2, res.Length);
+        Assert.Equal(1,res[0]);
+        Assert.Equal(2,df.Width);
+
+    }
 }

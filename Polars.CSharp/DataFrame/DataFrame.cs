@@ -696,6 +696,18 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         return droppedLf.Collect();
     }
     /// <summary>
+    /// Drop a column in-place and return it as a Series.
+    /// Note: This mutates the original DataFrame.
+    /// </summary>
+    /// <param name="name">The name of the column to drop.</param>
+    /// <returns>The dropped column as a Series.</returns>
+    public Series DropInPlace(string name)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+
+        return new Series(PolarsWrapper.DropInPlace(Handle, name));
+    }
+    /// <summary>
     /// Rename a column.
     /// </summary>
     public DataFrame Rename(string oldName, string newName) => new(PolarsWrapper.Rename(Handle, oldName, newName));
