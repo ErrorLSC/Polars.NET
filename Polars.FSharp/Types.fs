@@ -5333,14 +5333,54 @@ and DataFrame(handle: DataFrameHandle) =
     /// </summary>
     member this.Rename(oldName: string, newName: string) : DataFrame =
         new DataFrame(PolarsWrapper.Rename(handle, oldName, newName))
+    
+    /// <summary>
+    /// Drop rows containing one or more Null values.
+    /// </summary>
+    member this.DropNulls(?subset: Selector) =
+        use lf = this.Lazy()
+        let droppedLf: LazyFrame = lf.DropNulls(?subset = subset)
+        droppedLf.Collect()
 
     /// <summary>
-    /// Drop rows containing any null values.
-    /// subset: Optional list of column names to consider.
+    /// Drop rows with Nulls in specific columns.
     /// </summary>
-    member this.DropNulls(?subset: string list) : DataFrame =
-        let s = subset |> Option.map List.toArray |> Option.toObj
-        new DataFrame(PolarsWrapper.DropNulls(handle, s))
+    member this.DropNulls([<ParamArray>]subset: string array) =
+        use lf = this.Lazy()
+        let droppedLf: LazyFrame = lf.DropNulls(subset)
+        droppedLf.Collect()
+
+    /// <summary>
+    /// Drop rows with Nulls by specific Expressions.
+    /// </summary>
+    member this.DropNulls([<ParamArray>]exprs: Expr array) =
+        use lf = this.Lazy()
+        let droppedLf: LazyFrame = lf.DropNulls(exprs)
+        droppedLf.Collect()
+
+    /// <summary>
+    /// Drop rows containing one or more NaN values.
+    /// </summary>
+    member this.DropNan(?subset: Selector) =
+        use lf = this.Lazy()
+        let droppedLf: LazyFrame= lf.DropNan(?subset = subset)
+        droppedLf.Collect()
+
+    /// <summary>
+    /// Drop rows with NaN in specific columns.
+    /// </summary>
+    member this.DropNan([<ParamArray>]subset: string array) =
+        use lf = this.Lazy()
+        let droppedLf: LazyFrame = lf.DropNan subset
+        droppedLf.Collect()
+
+    /// <summary>
+    /// Drop rows with NaN by specific Expressions.
+    /// </summary>
+    member this.DropNan([<ParamArray>]exprs: Expr array) =
+        use lf = this.Lazy()
+        let droppedLf: LazyFrame = lf.DropNan exprs
+        droppedLf.Collect()
 
     /// <summary>
     /// Sample n rows from the DataFrame.
@@ -7996,6 +8036,63 @@ and LazyFrame(handle: LazyFrameHandle) =
         exprs |> Seq.fold (fun (lf: LazyFrame) expr -> lf.Drop(expr.ToSelector())) this
     member this.Drop([<ParamArray>]exprs: Expr array) =
         this.Drop(exprs :> seq<Expr>)
+    // ==========================================
+    // DropNulls
+    // ==========================================
+
+    /// <summary>
+    /// Drop rows containing one or more Null values.
+    /// </summary>
+    member this.DropNulls(?subset: Selector) =
+        let subsetHandle = subset |> Option.map (fun s -> s.CloneHandle()) |> Option.toObj
+            
+        let h = PolarsWrapper.LazyFrameDropNulls(this.CloneHandle(), subsetHandle)
+        new LazyFrame(h)
+
+    /// <summary>
+    /// Drop rows with Nulls in specific columns.
+    /// </summary>
+    member this.DropNulls([<ParamArray>] subset: string array) =
+        if isNull subset || subset.Length = 0 then 
+            this.DropNulls()
+        else 
+            this.DropNulls(Expr.Cols(subset))
+
+    /// <summary>
+    /// Drop rows with Nulls by specific Expressions.
+    /// </summary>
+    member this.DropNulls([<ParamArray>] exprs: Expr array) =
+        if isNull exprs then nullArg (nameof exprs)
+        exprs |> Seq.fold (fun (lf: LazyFrame) expr -> lf.DropNulls(expr.ToSelector())) this
+
+    // ==========================================
+    // DropNan
+    // ==========================================
+
+    /// <summary>
+    /// Drop rows containing one or more NaN values.
+    /// </summary>
+    member this.DropNan(?subset: Selector) =
+        let subsetHandle = subset |> Option.map (fun s -> s.CloneHandle()) |> Option.toObj
+            
+        let h = PolarsWrapper.LazyFrameDropNans(this.CloneHandle(), subsetHandle)
+        new LazyFrame(h)
+
+    /// <summary>
+    /// Drop rows with NaN in specific columns.
+    /// </summary>
+    member this.DropNan([<ParamArray>] subset: string array) =
+        if isNull subset || subset.Length = 0 then 
+            this.DropNan()
+        else 
+            this.DropNan(Expr.Cols subset)
+
+    /// <summary>
+    /// Drop rows with NaN by specific Expressions.
+    /// </summary>
+    member this.DropNan([<ParamArray>] exprs: Expr array) =
+        if isNull exprs then nullArg (nameof exprs)
+        exprs |> Seq.fold (fun (lf: LazyFrame) expr -> lf.DropNan(expr.ToSelector())) this
     /// <summary>
     /// Filter rows based on a boolean expression.
     /// <para>

@@ -1,5 +1,5 @@
 using static Polars.CSharp.Polars;
-using Pl = Polars.CSharp.Polars.Selectors;
+using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp.Tests;
 
@@ -620,23 +620,40 @@ David,40,80000";
     }
 
     [Fact]
-    public void Test_Drop_BySelector()
+    [Trait("LazyFrame","DropNulls")]
+    public void Test_DropNulls()
     {
-        var df = DataFrame.From(
+        var df = DataFrame.FromRows(
         [
-            new { A = 1, B = 2.2, C = "hello" },
-            new { A = 3, B = 4.4, C = "world" }
+            new { A = 1, B = 2.2, C = null as string },
+            new { A = 2, B = double.NaN, C = "world" }
         ]);
 
         var lf = df.Lazy();
-        var res = lf.Drop(Selector.Cols("B"))
+        var res = lf.DropNulls()
                     .Collect();
 
-        Assert.Equal(2, res.Width);
-        Assert.Equal("A", res.ColumnNames[0]);
-        Assert.Equal("C", res.ColumnNames[1]);
+        Assert.Equal(3, res.Width);
+        Assert.Equal(1, res.Len);
         
-        Assert.Throws<ArgumentException>(() => res["B"]);
+    }
+    [Fact]
+    [Trait("LazyFrame","DropNaNs")]
+    public void Test_DropNaN()
+    {
+        var df = DataFrame.FromRows(
+        [
+            new { A = 1, B = 2.2, C = null as string },
+            new { A = 2, B = double.NaN, C = "world" }
+        ]);
+
+        var lf = df.Lazy();
+        var res = lf.DropNan()
+                    .Collect();
+
+        Assert.Equal(3, res.Width);
+        Assert.Equal(1, res.Len);
+        
     }
     [Fact]
     [Trait("LazyFrame","Unique")]

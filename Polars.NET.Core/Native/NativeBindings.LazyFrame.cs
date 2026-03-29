@@ -155,7 +155,7 @@ unsafe internal partial class NativeBindings
     public static partial LazyFrameHandle pl_lazyframe_unpivot(
         LazyFrameHandle lf,
         SelectorHandle index,
-        SelectorHandle? on, // Nullable
+        IntPtr on, // Nullable
         string? varName,
         string? valName
     );
@@ -177,6 +177,16 @@ unsafe internal partial class NativeBindings
     public static partial LazyFrameHandle pl_lazyframe_drop(
         LazyFrameHandle lf, 
         SelectorHandle selector
+    );
+    [LibraryImport(LibName)]
+    public static partial LazyFrameHandle pl_lazyframe_drop_nulls(
+        LazyFrameHandle lf, 
+        IntPtr selector
+    );
+    [LibraryImport(LibName)]
+    public static partial LazyFrameHandle pl_lazyframe_drop_nans(
+        LazyFrameHandle lf, 
+        IntPtr selector
     );
     [LibraryImport(LibName)]
     public static partial LazyFrameHandle pl_lazyframe_unique(

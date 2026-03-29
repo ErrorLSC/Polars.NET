@@ -841,6 +841,49 @@ pub extern "C" fn pl_lazyframe_drop(lf_ptr: *mut LazyFrameContext, sel_ptr: *mut
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_lazyframe_drop_nulls(
+    lf_ptr: *mut LazyFrameContext,
+    sel_ptr: *mut SelectorContext, 
+) -> *mut LazyFrameContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(lf_ptr)};
+        
+        let subset = if sel_ptr.is_null() {
+            None
+        } else {
+            let sel_ctx = unsafe { Box::from_raw(sel_ptr) };
+            Some(sel_ctx.inner)
+        };
+        
+        let new_lf = ctx.inner.drop_nulls(subset);
+        
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazyframe_drop_nans(
+    lf_ptr: *mut LazyFrameContext,
+    sel_ptr: *mut SelectorContext, 
+) -> *mut LazyFrameContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(lf_ptr)};
+        
+        let subset = if sel_ptr.is_null() {
+            None
+        } else {
+            let sel_ctx = unsafe { Box::from_raw(sel_ptr) };
+            Some(sel_ctx.inner)
+        };
+        
+        let new_lf = ctx.inner.drop_nans(subset);
+        
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
+    })
+}
+
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_lazyframe_unique(
     lf_ptr: *mut LazyFrameContext,       
     selector: *mut SelectorContext, 

@@ -661,6 +661,74 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         return currentLf;
     }
     /// <summary>
+    /// Drop rows containing one or more Null values.
+    /// </summary>
+    /// <param name="subset">Optional subset of columns to consider. If null, evaluates all columns.</param>
+    public LazyFrame DropNulls(Selector? subset=null)
+    {
+        var lfClone = CloneHandle();
+        var sClone = subset?.CloneHandle();
+        var h = PolarsWrapper.LazyFrameDropNulls(lfClone, sClone);
+        return new LazyFrame(h);
+    }
+    /// <summary>
+    /// Drop rows with Nulls in specific columns.
+    /// </summary>
+    public LazyFrame DropNulls(params string[] subset)
+    {
+        if (subset == null || subset.Length == 0) return DropNulls((Selector?)null);
+        return DropNulls(Cs.Cols(subset));
+    }
+    /// <summary>
+    /// DropNulls columns by specific Expressions.
+    /// </summary>
+    public LazyFrame DropNulls(params Expr[] exprs)
+    {
+        ArgumentNullException.ThrowIfNull(exprs);
+
+        var currentLf = this;
+        foreach (var expr in exprs)
+        {
+            currentLf = currentLf.DropNulls(expr.ToSelector());
+        }
+        
+        return currentLf;
+    }
+    /// <summary>
+    /// Drop rows containing one or more Null values.
+    /// </summary>
+    /// <param name="subset">Optional subset of columns to consider. If null, evaluates all columns.</param>
+    public LazyFrame DropNan(Selector? subset=null)
+    {
+        var lfClone = CloneHandle();
+        var sClone = subset?.CloneHandle();
+        var h = PolarsWrapper.LazyFrameDropNans(lfClone, sClone);
+        return new LazyFrame(h);
+    }
+    /// <summary>
+    /// Drop rows with Nulls in specific columns.
+    /// </summary>
+    public LazyFrame DropNan(params string[] subset)
+    {
+        if (subset == null || subset.Length == 0) return DropNan((Selector?)null);
+        return DropNan(Cs.Cols(subset));
+    }
+    /// <summary>
+    /// DropNan columns by specific Expressions.
+    /// </summary>
+    public LazyFrame DropNan(params Expr[] exprs)
+    {
+        ArgumentNullException.ThrowIfNull(exprs);
+
+        var currentLf = this;
+        foreach (var expr in exprs)
+        {
+            currentLf = currentLf.DropNan(expr.ToSelector());
+        }
+        
+        return currentLf;
+    }
+    /// <summary>
     /// Keep unique rows (stable) based on a subset of columns defined by a Selector.
     /// </summary>
     /// <param name="subset">Selector defining the subset of columns. If null, uses all columns.</param>

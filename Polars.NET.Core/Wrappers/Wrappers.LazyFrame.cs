@@ -148,6 +148,20 @@ public static partial class PolarsWrapper
         selector.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static LazyFrameHandle LazyFrameDropNulls(LazyFrameHandle lf, SelectorHandle? selector)
+    {   
+        var selPtr = selector?.TransferOwnership() ?? IntPtr.Zero;
+        var h = ErrorHelper.Check(NativeBindings.pl_lazyframe_drop_nulls(lf, selPtr));
+        lf.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static LazyFrameHandle LazyFrameDropNans(LazyFrameHandle lf, SelectorHandle? selector)
+    {   
+        var selPtr = selector?.TransferOwnership() ?? IntPtr.Zero;
+        var h = ErrorHelper.Check(NativeBindings.pl_lazyframe_drop_nans(lf, selPtr));
+        lf.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     public static LazyFrameHandle LazyUnique(
         LazyFrameHandle lfHandle, 
         SelectorHandle selector, 
@@ -266,17 +280,16 @@ public static partial class PolarsWrapper
     }
     public static LazyFrameHandle LazyUnpivot(LazyFrameHandle lf, SelectorHandle index, SelectorHandle? on, string? variableName, string? valueName)
     {
-
+        var onPtr = on?.TransferOwnership() ?? IntPtr.Zero;
         var h = NativeBindings.pl_lazyframe_unpivot(
             lf,
             index,
-            on, 
+            onPtr, 
             variableName,
             valueName
         );
         lf.TransferOwnership();
         index.TransferOwnership();
-        on?.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     public static LazyFrameHandle LazyConcat(LazyFrameHandle[] handles,PlConcatType how, bool rechunk = false, bool parallel = true)

@@ -745,11 +745,66 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         return Rename(oldNames, newNames);
     }
+    
     /// <summary>
-    /// Drop rows containing null values.
+    /// Drop rows containing one or more Null values.
     /// </summary>
-    /// <param name="subset">Column names to consider. If null/empty, checks all columns.</param>
-    public DataFrame DropNulls(params string[]? subset) => new(PolarsWrapper.DropNulls(Handle, subset));
+    public DataFrame DropNulls(Selector? subset = null)
+    {
+        using var lf = Lazy();
+        var droppedLf = lf.DropNulls(subset);
+        return droppedLf.Collect();
+    }
+
+    /// <summary>
+    /// Drop rows with Nulls in specific columns.
+    /// </summary>
+    public DataFrame DropNulls(params string[] subset)
+    {
+        using var lf = Lazy();
+        var droppedLf = lf.DropNulls(subset);
+        return droppedLf.Collect();
+    }
+
+    /// <summary>
+    /// Drop rows with Nulls by specific Expressions.
+    /// </summary>
+    public DataFrame DropNulls(params Expr[] exprs)
+    {
+        using var lf = Lazy();
+        var droppedLf = lf.DropNulls(exprs);
+        return droppedLf.Collect();
+    }
+
+    /// <summary>
+    /// Drop rows containing one or more NaN values.
+    /// </summary>
+    public DataFrame DropNan(Selector? subset = null)
+    {
+        using var lf = Lazy();
+        var droppedLf = lf.DropNan(subset);
+        return droppedLf.Collect();
+    }
+
+    /// <summary>
+    /// Drop rows with NaN in specific columns.
+    /// </summary>
+    public DataFrame DropNan(params string[] subset)
+    {
+        using var lf = Lazy();
+        var droppedLf = lf.DropNan(subset);
+        return droppedLf.Collect();
+    }
+
+    /// <summary>
+    /// Drop rows with NaN by specific Expressions.
+    /// </summary>
+    public DataFrame DropNan(params Expr[] exprs)
+    {
+        using var lf = Lazy();
+        var droppedLf = lf.DropNan(exprs);
+        return droppedLf.Collect();
+    }
     /// <summary>
     /// Returns a new DataFrame with unique rows.
     /// </summary>
