@@ -115,7 +115,7 @@ public static partial class Polars
 
     /// <summary>
     /// String matching selectors namespace.
-    /// Usage: Polars.Selectors.StartsWith("A")
+    /// Usage: Polars.Selectors.StartsWith("A") or Pl.Cs.StartWith("A")
     /// </summary>
     public static class Selectors
     {
@@ -124,6 +124,11 @@ public static partial class Polars
         /// </summary>
         public static Selector All() 
             => new(PolarsWrapper.SelectorAll());
+        /// <summary>
+        /// Select columns.
+        /// </summary>
+        public static Selector Cols(params string[] columns) 
+            => new(PolarsWrapper.SelectorCols(columns));
 
         /// <summary>
         /// Select all numeric columns (Int, Float, etc.).

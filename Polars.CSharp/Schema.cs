@@ -176,11 +176,22 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>
         => this[name];
     
     /// <summary>
-    /// Creates an empty DataFrame from this Schema.
+    /// Create an empty (n=0) or n-row null-filled (n>0) copy of the DataFrame.
+    /// Returns a n-row null-filled DataFrame with an identical schema. n can be greater than the current number of rows in the DataFrame.
     /// </summary>
     /// <returns>An empty DataFrame with columns and types matching the schema.</returns>
     public DataFrame ToDataFrame(long length=0)
         => new(PolarsWrapper.DataFrameFromSchema(Handle, (uint)length));
+    /// <summary>
+    /// Create an empty copy of the current LazyFrame, with zero to ‘n’ rows.
+    /// Returns a copy with an identical schema but no data.
+    /// </summary>
+    /// <returns>An empty DataFrame with columns and types matching the schema.</returns>
+    public LazyFrame ToLazyFrame(long length=0)
+    {
+        using var df = new DataFrame(PolarsWrapper.DataFrameFromSchema(Handle, (uint)length));
+        return df.Lazy();
+    }
 
     // ==========================================
     // ToString

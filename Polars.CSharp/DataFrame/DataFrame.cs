@@ -670,10 +670,31 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     // ==========================================
 
     /// <summary>
-    /// Drop a column by name.
+    /// Drop one or more columns from the DataFrame.
+    /// Returns a new DataFrame.
     /// </summary>
-    public DataFrame Drop(string columnName) => new(PolarsWrapper.Drop(Handle, columnName));
+    public DataFrame Drop(params string[] columns)
+    {
+        if (columns == null || columns.Length == 0)
+        {
+            return new DataFrame(PolarsWrapper.CloneDataFrame(Handle));
+        }
 
+        var newHandle = PolarsWrapper.Drop(Handle, columns);
+        return new DataFrame(newHandle);
+    }
+    /// <summary>
+    /// Drop columns using Polars Selectors or Expressions.
+    /// Example: df.Drop(Cs.EndsWith("_tmp").ToExpr())
+    /// </summary>
+    public DataFrame Drop(params Expr[] exprs)
+    {
+        ArgumentNullException.ThrowIfNull(exprs);
+
+        using var lf = this.Lazy();
+        using var droppedLf = lf.Drop(exprs);
+        return droppedLf.Collect();
+    }
     /// <summary>
     /// Rename a column.
     /// </summary>

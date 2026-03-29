@@ -1029,4 +1029,22 @@ B,5";
         Assert.Equal(1L,clearDf1.Height);
         Assert.Null(clearDf1[0][0]);
     }
+    [Fact]
+    [Trait("DataFrame","Drop")]
+    public void Test_Drop()
+    {
+        var df = DataFrame.From(
+        [
+            new { A = 1, B = 2.2, C = "hello" },
+            new { A = 3, B = 4.4, C = "world" }
+        ]);
+
+        var res = df.Drop(Cs.String());
+        Assert.Equal(2, res.Width);
+
+        var res2 = df.Drop("A","B");
+        Assert.Equal(1,res2.Width);
+        
+        Assert.Throws<ArgumentException>(() => res["C"]);
+    }
 }

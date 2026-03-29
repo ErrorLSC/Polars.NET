@@ -5296,11 +5296,29 @@ and DataFrame(handle: DataFrameHandle) =
     /// </summary>
     member this.Show() =
         printfn "%s" (this.ToString())
-    /// Remove a column by name. Returns a new DataFrame.
-    /// </summary>
-    member this.Drop(name: string) : DataFrame =
-        new DataFrame(PolarsWrapper.Drop(handle, name))
+    /// <summary>
+    /// Drop one or more columns from the DataFrame.
+    /// Returns a new DataFrame.
+    
+    member this.Drop([<ParamArray>]columns: string array) =
+        if isNull columns || columns.Length = 0 then
+            new DataFrame(PolarsWrapper.CloneDataFrame this.Handle)
+        else
+            let newHandle = PolarsWrapper.Drop(this.Handle, columns)
+            new DataFrame(newHandle)
 
+    /// <summary>
+    /// Drop columns using Polars Selectors or Expressions.
+    /// </summary>
+    member this.Drop(exprs: seq<Expr>) =
+        if isNull exprs then nullArg (nameof exprs)
+
+        use lf = this.Lazy()
+        use droppedLf:LazyFrame = lf.Drop exprs
+        
+        droppedLf.Collect()
+    member this.Drop([<ParamArray>]exprs: Expr array) =
+        this.Drop(exprs :> seq<Expr>)
     /// <summary>
     /// Rename a column. Returns a new DataFrame.
     /// </summary>
@@ -7945,6 +7963,30 @@ and LazyFrame(handle: LazyFrameHandle) =
         else
             use selector = Selector.Cols columnsArray
             this.Unique(subset = selector, ?keep = keep, ?maintainOrder = maintainOrder)
+    /// <summary>
+    /// Drop selected columns by selector.
+    /// </summary>
+    member this.Drop(selector: Selector) =
+        let h = PolarsWrapper.LazyFrameDrop(this.CloneHandle(), selector.CloneHandle())
+        new LazyFrame(h)
+
+    /// <summary>
+    /// Drop selected columns by column names.
+    /// </summary>
+    member this.Drop([<ParamArray>]columns: string array) =
+        if isNull columns then nullArg (nameof columns)
+        
+        this.Drop(Selector.Cols columns)
+
+    /// <summary>
+    /// Drop columns by specific Expressions.
+    /// </summary>
+    member this.Drop(exprs: seq<Expr>) =
+        if isNull exprs then nullArg (nameof exprs)
+        
+        exprs |> Seq.fold (fun (lf: LazyFrame) expr -> lf.Drop(expr.ToSelector())) this
+    member this.Drop([<ParamArray>]exprs: Expr array) =
+        this.Drop(exprs :> seq<Expr>)
     /// <summary>
     /// Filter rows based on a boolean expression.
     /// <para>

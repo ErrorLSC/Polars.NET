@@ -65,6 +65,8 @@ public static partial class PolarsWrapper
         => ErrorHelper.Check(NativeBindings.pl_dataframe_slice(df,offset,(UIntPtr)length));
     public static DataFrameHandle Drop(DataFrameHandle df, string name)
         => ErrorHelper.Check(NativeBindings.pl_dataframe_drop(df, name));
+    public static DataFrameHandle Drop(DataFrameHandle df, string[] columns)
+        => ErrorHelper.Check(NativeBindings.pl_dataframe_drop_many(df, columns,(nuint)columns.Length));
     public static DataFrameHandle DataFrameUnique(
         DataFrameHandle dfHandle, 
         string[]? subset, 
@@ -102,12 +104,12 @@ public static partial class PolarsWrapper
         => ErrorHelper.Check(NativeBindings.pl_dataframe_rename(df, oldName, newName));
     public static DataFrameHandle Rename(DataFrameHandle df, string[] oldNames, string[] newNames)
     {
-    if (oldNames.Length != newNames.Length)
-    {
-        throw new ArgumentException("The lengths of oldNames and newNames must be identical.");
-    }
+        if (oldNames.Length != newNames.Length)
+        {
+            throw new ArgumentException("The lengths of oldNames and newNames must be identical.");
+        }
 
-    return ErrorHelper.Check(NativeBindings.pl_dataframe_rename_many(df, oldNames, newNames, (nuint)oldNames.Length));
+        return ErrorHelper.Check(NativeBindings.pl_dataframe_rename_many(df, oldNames, newNames, (nuint)oldNames.Length));
     }
     public static DataFrameHandle DropNulls(DataFrameHandle df, string[]? subset)
     {

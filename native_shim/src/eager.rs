@@ -158,6 +158,29 @@ pub extern "C" fn pl_dataframe_drop(df_ptr: *mut DataFrameContext, name: *const 
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_drop_many(
+    df_ptr: *mut DataFrameContext,
+    names_ptr: *const *const c_char,
+    names_len: usize,
+) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*df_ptr };
+
+        let names_slice = unsafe { std::slice::from_raw_parts(names_ptr, names_len) };
+
+        let mut names_set = PlHashSet::with_capacity(names_len);
+        for &n_ptr in names_slice {
+            let col_name = unsafe { CStr::from_ptr(n_ptr).to_string_lossy() };
+            names_set.insert(PlSmallStr::from_str(&col_name)); 
+        }
+
+        let new_df = ctx.df.drop_many_amortized(&names_set);
+        
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_rename(df_ptr: *mut DataFrameContext, old: *const c_char, new: *const c_char) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*df_ptr };

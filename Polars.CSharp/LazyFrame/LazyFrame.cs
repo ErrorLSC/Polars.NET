@@ -643,9 +643,22 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <param name="columns"></param>
     /// <returns></returns>
     public LazyFrame Drop(params string[] columns)
+        => Drop(Cs.Cols(columns));
+
+    /// <summary>
+    /// Drop columns by specific Expressions.
+    /// </summary>
+    public LazyFrame Drop(params Expr[] exprs)
     {
-        using var sel = Selector.Cols(columns);
-        return Drop(sel);
+        ArgumentNullException.ThrowIfNull(exprs);
+
+        var currentLf = this;
+        foreach (var expr in exprs)
+        {
+            currentLf = currentLf.Drop(expr.ToSelector());
+        }
+        
+        return currentLf;
     }
     /// <summary>
     /// Keep unique rows (stable) based on a subset of columns defined by a Selector.
@@ -673,7 +686,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             return Unique(subset: null, keep, maintainOrder);
         }
 
-        using var selector = Selector.Cols(columnsArray);
+        using var selector = Cs.Cols(columnsArray);
         
         return Unique(selector, keep, maintainOrder);
     }
