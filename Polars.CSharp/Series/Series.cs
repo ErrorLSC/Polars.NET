@@ -268,8 +268,6 @@ public partial class Series : IDisposable,IPolarsSeries
     public Series SearchSorted(Expr element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
         => ApplyExpr(Polars.Col(Name).SearchSorted(element, side, descending));
     
- 
-
     // ==========================================
     // Trigonometry
     // ==========================================
@@ -943,9 +941,7 @@ public partial class Series : IDisposable,IPolarsSeries
     public DataFrame ToFrame()
         => new(PolarsWrapper.SeriesToFrame(Handle));
     IPolarsDataFrame IPolarsSeries.ToFrame()
-    {
-        return ToFrame();
-    }
+        => ToFrame();
    
     // ==========================================
     // Window & Rolling
