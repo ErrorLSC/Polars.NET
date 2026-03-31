@@ -32,16 +32,13 @@ public partial class Expr : IDisposable
     /// </summary>
     /// <param name="names"></param>
     /// <returns></returns>
-    public static Expr Col(params string[] names)
-        => Pl.Col(names);
+    public static Expr Col(params string[] names) => Pl.Col(names);
     /// <summary>
     /// Select all columns, same as Col("*")
     /// </summary>
     /// <returns></returns>
-    public static Expr All()
-        => Col("*");
-    public Expr Exclude(params string[] names)
-        => ToSelector().Exclude(names).ToExpr();
+    public static Expr All() => Col("*");
+    public Expr Exclude(params string[] names) => ToSelector().Exclude(names).ToExpr();
 
     // ==========================================
     // Sort
@@ -86,7 +83,7 @@ public partial class Expr : IDisposable
     /// <param name="index">The index number.</param>
     /// <param name="nullOnOutOfBounds">If true, returns Null when the index is out of bounds instead of raising an error.</param>
     public Expr Get(ulong index, bool nullOnOutOfBounds = false)
-        => new(PolarsWrapper.Get(CloneHandle(), Polars.Lit(index).Handle, nullOnOutOfBounds));
+        => new(PolarsWrapper.Get(CloneHandle(), Pl.Lit(index).Handle, nullOnOutOfBounds));
     /// <summary>
     /// Gather values by an index expression.
     /// </summary>
@@ -106,20 +103,17 @@ public partial class Expr : IDisposable
     /// <summary>
     /// Get the index of the unique values.
     /// </summary>
-    public Expr ArgUnique() 
-        => new(PolarsWrapper.ArgUnique(CloneHandle()));
+    public Expr ArgUnique() => new(PolarsWrapper.ArgUnique(CloneHandle()));
 
     /// <summary>
     /// Get the index of the maximum value.
     /// </summary>
-    public Expr ArgMax() 
-        => new(PolarsWrapper.ArgMax(CloneHandle()));
+    public Expr ArgMax() => new(PolarsWrapper.ArgMax(CloneHandle()));
 
     /// <summary>
     /// Get the index of the minimum value.
     /// </summary>
-    public Expr ArgMin() 
-        => new(PolarsWrapper.ArgMin(CloneHandle()));
+    public Expr ArgMin() => new(PolarsWrapper.ArgMin(CloneHandle()));
 
     /// <summary>
     /// Get the index values that would sort this expression.
@@ -133,8 +127,7 @@ public partial class Expr : IDisposable
     /// Find the index of the first occurrence of a specific value.
     /// </summary>
     /// <param name="element">The element expression to search for.</param>
-    public Expr IndexOf(Expr element) 
-        => new(PolarsWrapper.IndexOf(CloneHandle(), element.CloneHandle()));
+    public Expr IndexOf(Expr element) => new(PolarsWrapper.IndexOf(CloneHandle(), element.CloneHandle()));
 
     /// <summary>
     /// Find indices where elements should be inserted to maintain order (Binary Search).
@@ -145,13 +138,11 @@ public partial class Expr : IDisposable
     public Expr SearchSorted(Expr element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
         => new(PolarsWrapper.SearchSorted(CloneHandle(), element.CloneHandle(), side.ToNative(), descending));
 
-    /// <inheritdoc cref="Polars.SqlExpr(string)"/>
-    public static Expr SqlExpr(string sql)
-        =>Polars.SqlExpr(sql);
+    /// <inheritdoc cref="Pl.SqlExpr(string)"/>
+    public static Expr SqlExpr(string sql) => Pl.SqlExpr(sql);
 
-    /// <inheritdoc cref="Polars.SqlExprs"/>
-    public static Expr[] SqlExprs(IEnumerable<string> sqls) 
-            => [.. sqls.Select(SqlExpr)];
+    /// <inheritdoc cref="Pl.SqlExprs"/>
+    public static Expr[] SqlExprs(IEnumerable<string> sqls) => [.. sqls.Select(SqlExpr)];
     // ---------------------------------------------------
     // Methods
     // ---------------------------------------------------
@@ -327,7 +318,6 @@ public partial class Expr : IDisposable
     /// <returns></returns>
     public Expr Product() => new(PolarsWrapper.Product(CloneHandle()));
     
-
     // ==========================================
     // Math
     // ==========================================
@@ -477,8 +467,7 @@ public partial class Expr : IDisposable
     /// </summary>
     /// <param name="by">The column to use for interpolation (e.g. a timestamp column).</param>
     /// <returns>A new expression with interpolated values.</returns>
-    public Expr InterpolateBy(Expr by) 
-        => new(PolarsWrapper.InterpolateBy(CloneHandle(), by.CloneHandle()));
+    public Expr InterpolateBy(Expr by) => new(PolarsWrapper.InterpolateBy(CloneHandle(), by.CloneHandle()));
     /// <summary>
     /// Evaluate whether the expression is null.
     /// </summary>
@@ -491,8 +480,7 @@ public partial class Expr : IDisposable
     /// Fill floating point NaN values with a specified value.
     /// Note: This is different from FillNull. It only handles IEEE 754 NaN.
     /// </summary>
-    public Expr FillNan(object value)
-        => new(PolarsWrapper.FillNan(CloneHandle(), MakeLit(value).Handle));
+    public Expr FillNan(object value) => new(PolarsWrapper.FillNan(CloneHandle(), MakeLit(value).Handle));
     /// <summary>
     /// Drop null values.
     /// </summary>
@@ -551,8 +539,7 @@ public partial class Expr : IDisposable
     /// <inheritdoc cref="TopKBy(int, Expr[], bool[])" path="/param[@name='reverse']/node()"/>
     /// </param>
     /// <returns>A new expression.</returns>
-    public Expr TopKBy(int k, Expr by, bool reverse = false)
-        => TopKBy(k, [by], [reverse]);
+    public Expr TopKBy(int k, Expr by, bool reverse = false) => TopKBy(k, [by], [reverse]);
 
     /// <summary>
     /// Get the bottom <paramref name="k"/> rows according to the sorting criteria defined by <paramref name="by"/>.
@@ -588,8 +575,7 @@ public partial class Expr : IDisposable
     /// <param name="by">The expression (column) to sort by.</param>
     /// <param name="reverse">See <see cref="BottomKBy(int, Expr[], bool[])"/>.</param>
     /// <returns>A new expression.</returns>
-    public Expr BottomKBy(int k, Expr by, bool reverse = false)
-        => BottomKBy(k, [by], [reverse]);
+    public Expr BottomKBy(int k, Expr by, bool reverse = false) => BottomKBy(k, [by], [reverse]);
     // ==========================================
     // Unique and Duplicated
     // ==========================================
@@ -679,8 +665,7 @@ public partial class Expr : IDisposable
     /// </summary>
     /// <param name="n">periods to shift for forming percent change.</param>
     /// <returns>A series which length is 1</returns>
-    public Expr PctChange(int n = 1)
-        => new(PolarsWrapper.PctChange(CloneHandle(), n));
+    public Expr PctChange(int n = 1) => new(PolarsWrapper.PctChange(CloneHandle(), n));
     /// <summary>
     /// Assign ranks to data, dealing with ties appropriately.
     /// </summary>
@@ -700,36 +685,31 @@ public partial class Expr : IDisposable
     /// </summary>
     /// <param name="reverse">Reverse the operation.</param>
     /// <returns></returns>
-    public Expr CumSum(bool reverse = false)
-        => new(PolarsWrapper.CumSum(CloneHandle(), reverse));
+    public Expr CumSum(bool reverse = false) => new(PolarsWrapper.CumSum(CloneHandle(), reverse));
     /// <summary>
     /// Get an array with the cumulative max computed at every element.
     /// </summary>
     /// <param name="reverse">Reverse the operation.</param>
     /// <returns></returns>
-    public Expr CumMax(bool reverse = false)
-        => new(PolarsWrapper.CumMax(CloneHandle(), reverse));
+    public Expr CumMax(bool reverse = false) => new(PolarsWrapper.CumMax(CloneHandle(), reverse));
     /// <summary>
     /// Get an array with the cumulative min computed at every element.
     /// </summary>
     /// <param name="reverse">Reverse the operation.</param>
     /// <returns></returns>
-    public Expr CumMin(bool reverse = false)
-        => new(PolarsWrapper.CumMin(CloneHandle(), reverse));
+    public Expr CumMin(bool reverse = false) => new(PolarsWrapper.CumMin(CloneHandle(), reverse));
     /// <summary>
     /// Get an array with the cumulative prod computed at every element.
     /// </summary>
     /// <param name="reverse">Reverse the operation.</param>
     /// <returns></returns>
-    public Expr CumProd(bool reverse = false)
-        => new(PolarsWrapper.CumProd(CloneHandle(), reverse));
+    public Expr CumProd(bool reverse = false) => new(PolarsWrapper.CumProd(CloneHandle(), reverse));
     /// <summary>
     /// Get an array with the cumulative count computed at every element.
     /// </summary>
     /// <param name="reverse">Reverse the operation.</param>
     /// <returns></returns>
-    public Expr CumCount(bool reverse = false)
-        => new(PolarsWrapper.CumCount(CloneHandle(), reverse));
+    public Expr CumCount(bool reverse = false) => new(PolarsWrapper.CumCount(CloneHandle(), reverse));
     // ==========================================
     // EWM Functions
     // ==========================================
@@ -791,14 +771,12 @@ public partial class Expr : IDisposable
     /// </param>
     /// <returns>A new expression representing the time/index-based EWM mean.</returns>
     public Expr EwmMeanBy(Expr by, string halfLife)
-    {
-        return new Expr(PolarsWrapper.EwmMeanBy(
+        => new(PolarsWrapper.EwmMeanBy(
             CloneHandle(),
             by.CloneHandle(),
             halfLife
         ));
-    }
-
+    
     // ==========================================
     // Logic / Comparison
     // ==========================================
@@ -821,7 +799,7 @@ public partial class Expr : IDisposable
     /// <param name="predicate">Boolean expression used to filter the current expression.</param>
     /// <returns>A new expression with filtered values.</returns>
     public Expr Filter(Expr predicate)
-     => new(PolarsWrapper.Filter(CloneHandle(),predicate.CloneHandle()));
+        => new(PolarsWrapper.Filter(CloneHandle(),predicate.CloneHandle()));
     // ==========================================
     // Casting
     // ==========================================
@@ -900,24 +878,15 @@ public partial class Expr : IDisposable
     /// </code>
     /// </example>
     public Expr Over(params Expr[] partitionBy)
-    {
-        var partitionHandles = System.Array.ConvertAll(partitionBy, e => e.CloneHandle());
-
-        var h = PolarsWrapper.Over(CloneHandle(), partitionHandles);
-
-        return new Expr(h);
-    }
+        => new (PolarsWrapper.Over(CloneHandle(), System.Array.ConvertAll(partitionBy, e => e.CloneHandle())));
 
     /// <summary>
     /// Window function: Apply aggregation over specific groups.
     /// Example: Col("Amt").Sum().Over("Group", "Date")
     /// </summary>
     public Expr Over(params string[] partitionBy)
-    {
-        var exprs = System.Array.ConvertAll(partitionBy, Polars.Col);
-        return Over(exprs);
-    }
-
+        => Over(System.Array.ConvertAll(partitionBy, Pl.Col));
+    
     /// <summary>
     /// Shift values by the given number of indices.
     /// Positive values shift downstream, negative values shift upstream.

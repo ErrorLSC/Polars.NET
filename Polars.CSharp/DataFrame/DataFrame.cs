@@ -3,7 +3,6 @@ using Polars.NET.Core.Arrow;
 using Apache.Arrow;
 using System.Data;
 using Pl = Polars.CSharp.Polars;
-using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
 

@@ -261,7 +261,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Print the DataFrame to Console.
     /// </summary>
     public void Show() => Console.WriteLine(ToString());
-   /// <summary>
+    /// <summary>
     /// Generates an HTML representation of the DataFrame.
     /// Useful for rendering in Jupyter/Polyglot Notebooks.
     /// </summary>

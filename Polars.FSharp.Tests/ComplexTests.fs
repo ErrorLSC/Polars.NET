@@ -536,7 +536,7 @@ type ``Complex Query Tests`` () =
         let totalRows = 100_000
         
         // ---------------------------------------------------------
-        // Extract]
+        // Extract
         // ---------------------------------------------------------
         let sourceTable = new DataTable()
         sourceTable.Columns.Add("OrderId", typeof<int>) |> ignore
@@ -574,7 +574,7 @@ type ``Complex Query Tests`` () =
         // Load
         // ---------------------------------------------------------
         
-        let targetTable = new DataTable() // 模拟目标表
+        let targetTable = new DataTable() 
 
         let schemaContract = dict [
             "OrderDate", typeof<DateTime>
@@ -658,8 +658,8 @@ type ``Complex Query Tests`` () =
                 ]
             ).Collect().Sort([pl.col "Category"; pl.col "Time"], false) 
 
-        // Window 1 (10:00): [10:00, 12:00) -> 包含 10:00, 10:30, 11:00, 11:30
-        // Window 2 (11:00): [11:00, 13:00) -> 包含 11:00, 11:30
+        // Window 1 (10:00): [10:00, 12:00) -> 10:00, 10:30, 11:00, 11:30
+        // Window 2 (11:00): [11:00, 13:00) -> 11:00, 11:30
         
         Assert.Equal(3L, res.Rows) 
 

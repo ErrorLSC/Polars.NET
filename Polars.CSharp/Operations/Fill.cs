@@ -1,3 +1,7 @@
+using Polars.NET.Core;
+using Pl = Polars.CSharp.Polars;
+using Cs = Polars.CSharp.Polars.Selectors;
+
 namespace Polars.CSharp;
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {

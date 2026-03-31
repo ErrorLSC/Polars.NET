@@ -42,7 +42,6 @@ type SensorData = {
     Timestamp: DateTime
 }
 
-// 场景 2: 过滤测试
 [<CLIMutable>]
 type Student = {
     Id: int
@@ -50,7 +49,6 @@ type Student = {
     Score: double
 }
 
-// 场景 3: Join 测试 (Multi-pass)
 [<CLIMutable>]
 type JoinItem = {
     Key: int
@@ -396,8 +394,6 @@ type ``Basic Functionality Tests`` () =
 
         use demand = Series.create("demand", [100.0; 200.0; 300.0])
         use weight = Series.create("weight", [0.5; 1.5; 1.0])
-
-        // weighted_mean = (demand * weight).Sum() / weight.Sum()
         
         let sProd = demand * weight    // [50.0, 300.0, 300.0]
         let sSumProd = sProd.Sum()     // [650.0]
@@ -893,7 +889,7 @@ type LitTests() =
         let dfStrOpt = df.Select(pl.lit listStrOpt)
         
         Assert.Equal(2L, dfStrOpt.Height)
-        Assert.Equal("Valid", dfStrOpt.Column(0).GetValue<string>(0))
+        Assert.Equal("Valid", dfStrOpt.Column(0).GetValue<string> 0)
         Assert.True(dfStrOpt.Column(0).IsNullAt(1))
 
     [<Fact>]
@@ -1002,7 +998,7 @@ type LitTests() =
     [<Fact>]
     [<Trait("DataFrame","AsTensorEmpty")>]
     member _.``DataFrame: AsTensor throws InvalidOperationException on empty DataFrame`` () =
-        use df = DataFrame.create([||])
+        use df = DataFrame.create [||]
 
         let ex = Assert.Throws<InvalidOperationException>(fun () -> 
             df.AsTensor<float32>() |> ignore 

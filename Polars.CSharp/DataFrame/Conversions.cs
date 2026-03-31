@@ -13,6 +13,26 @@ namespace Polars.CSharp;
 public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
 {
     /// <summary>
+    /// Convert a DataFrame to a Series of type Struct.
+    /// </summary>
+    /// <param name="name">Name for the struct Series.</param>
+    /// <returns></returns>
+    public Series ToStruct(string name="")
+    {
+        using var df = Select(Pl.AsStruct(Pl.All()));
+        var series = df[0];
+        series.Rename(name);
+        return series;
+    }
+
+    /// <summary>
+    /// Convert the DataFrame into a LazyFrame.
+    /// This allows building a query plan and optimizing execution.
+    /// </summary>
+    public LazyFrame Lazy()
+        => new(PolarsWrapper.DataFrameToLazy(Handle));
+    
+    /// <summary>
     /// Export DataFrame As DbDataReader (Zero-Copy Enabled)
     /// </summary>    
     public DbDataReader AsDataReader(int bufferSize = 5, Dictionary<string, Type>? typeOverrides = null)
@@ -53,29 +73,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         var innerReader = new ArrowToDbStream(stream, typeOverrides);
 
         return new PolarsDataReader(innerReader, cts, producerTask); 
-    }
-       /// <summary>
-    /// Convert a DataFrame to a Series of type Struct.
-    /// </summary>
-    /// <param name="name">Name for the struct Series.</param>
-    /// <returns></returns>
-    public Series ToStruct(string name="")
-    {
-        using var df = Select(Pl.AsStruct(Pl.All()));
-        var series = df[0];
-        series.Rename(name);
-        return series;
-    }
-
-    /// <summary>
-    /// Convert the DataFrame into a LazyFrame.
-    /// This allows building a query plan and optimizing execution.
-    /// </summary>
-    public LazyFrame Lazy()
-    {     
-        var lfHandle = PolarsWrapper.DataFrameToLazy(Handle);
-        
-        return new LazyFrame(lfHandle);
     }
 
     /// <summary>

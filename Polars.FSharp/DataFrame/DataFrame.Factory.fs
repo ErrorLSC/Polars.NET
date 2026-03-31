@@ -8,18 +8,18 @@ open System.Reflection
 
 type internal RecordColumnTransposer =
     static member CreateSeriesFromColumn<'Rec, 'Field>(data: 'Rec[], name: string, prop: PropertyInfo) : Series =
-        // 1. Create Fast Getter (Delegate)
+        // Create Fast Getter (Delegate)
         let getterMethod = prop.GetGetMethod()
         let getter = Delegate.CreateDelegate(typeof<Func<'Rec, 'Field>>, getterMethod) :?> Func<'Rec, 'Field>
         
-        // 2. Transpose: Row-Oriented -> Column-Oriented
+        // Transpose: Row-Oriented -> Column-Oriented
         let len = data.Length
         let colData = Array.zeroCreate<'Field> len
         
         for i = 0 to len - 1 do
             colData.[i] <- getter.Invoke(data.[i])
             
-        // 3. Delegate to C# SeriesFactory
+        // Delegate to C# SeriesFactory
         Series.create(name, colData)
 
 [<AutoOpen>]
@@ -113,25 +113,6 @@ module DataFrameFactory =
                 else if coreType = typeof<Int128> then true
                 else if coreType = typeof<UInt128> then true
                 else false
-        // /// <summary>
-        // /// [Internal] Worker method to transpose a single column from Record[] to Series.
-        // /// This is generic to avoid boxing during array population.
-        // /// </summary>
-        // static member private CreateSeriesFromColumn<'Rec, 'Field>(data: 'Rec[], name: string, prop: PropertyInfo) : Series =
-        //     // 1. Create Fast Getter (Delegate)
-        //     let getterMethod = prop.GetGetMethod()
-        //     let getter = Delegate.CreateDelegate(typeof<Func<'Rec, 'Field>>, getterMethod) :?> Func<'Rec, 'Field>
-            
-        //     // 2. Transpose: Row-Oriented -> Column-Oriented
-        //     //    (Allocation happens here: O(N))
-        //     let len = data.Length
-        //     let colData = Array.zeroCreate<'Field> len
-            
-        //     for i = 0 to len - 1 do
-        //         colData.[i] <- getter.Invoke(data.[i])
-                
-        //     // 3. Delegate to C# SeriesFactory (The Magic Step!)
-        //     Series.create(name, colData)
         /// <summary>
         /// Create a DataFrame from a sequence of records.
         /// <para>

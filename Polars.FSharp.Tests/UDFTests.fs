@@ -61,7 +61,7 @@ type ``UDF Tests`` () =
 
     [<Fact>]
     member _.``Map UDF error is propagated to F#`` () =
-        use csv = new TempCsv("num\n1")
+        use csv = new TempCsv "num\n1"
         let lf = LazyFrame.ScanCsv csv.Path
         
         let udf = Func<IArrowArray, IArrowArray> UdfLogic.alwaysFail

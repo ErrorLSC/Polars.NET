@@ -69,36 +69,6 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     public List<DataType> DataTypes => Schema.DataTypes;
 
     /// <summary>
-    /// Get an explanation of the optimized query plan.
-    /// <para>
-    /// Returns a string representation of the logical plan after Polars optimizers 
-    /// (predicate pushdown, projection pushdown, etc.) have run.
-    /// </para>
-    /// </summary>
-    /// <param name="optimized">If true, show the optimized plan. If false, show the logical plan as built.</param>
-    /// <returns>The plan as a string.</returns>
-    /// <example>
-    /// <code>
-    /// var q = df.Lazy()
-    ///     .Filter(Col("group") != "C")
-    ///     .WithColumns((Col("val") * 2).Alias("val_x_2"))
-    ///     .Select("group", "val_x_2");
-    /// 
-    /// Console.WriteLine(q.Explain());
-    /// /* Output (Optimized Plan):
-    /// simple π 2/2 ["group", "val_x_2"]
-    ///    WITH_COLUMNS:
-    ///    [[(col("val")) * (2)].alias("val_x_2")] 
-    ///     FILTER [(col("group")) != ("C")]
-    ///     FROM
-    ///       DF ["group", "val"]; PROJECT["group", "val"] 2/2 COLUMNS
-    /// */
-    /// </code>
-    /// </example>
-    public string Explain(bool optimized = true)
-        => PolarsWrapper.Explain(Handle, optimized);
-
-    /// <summary>
     /// Clone the LazyFrame, creating a new independent copy.
     /// </summary>
     /// <returns></returns>
@@ -107,7 +77,27 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     internal LazyFrameHandle CloneHandle()
         => PolarsWrapper.LazyClone(Handle);
     
+    /// <summary>
+    /// Renames columns in the <see cref="LazyFrame"/>.
+    /// </summary>
+    /// <param name="existing">An array of existing column names to be renamed.</param>
+    /// <param name="newNames">An array of new column names, corresponding by index to the names in <paramref name="existing"/>.</param>
+    /// <param name="strict">
+    /// If <c>true</c>, an error is raised if any column in <paramref name="existing"/> is not found in the schema. 
+    /// If <c>false</c>, columns that are not found are silently ignored. Default is <c>true</c>.
+    /// </param>
+    /// <returns>A new <see cref="LazyFrame"/> with the rename operation applied.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="existing"/> or <paramref name="newNames"/> is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when the length of <paramref name="existing"/> does not match the length of <paramref name="newNames"/>.</exception>
+    public LazyFrame Rename(string[] existing, string[] newNames, bool strict = true)
+    {
+        ArgumentNullException.ThrowIfNull(existing);
+        ArgumentNullException.ThrowIfNull(newNames);
 
+        var newHandle = PolarsWrapper.LazyRename(Handle, existing, newNames, strict);
+        
+        return new LazyFrame(newHandle);
+    }
     // ==========================================
     // Transformations
     // ==========================================
@@ -218,28 +208,6 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <param name="length">Number of rows to return.</param>
     public LazyFrame Slice(long offset, uint length)
         => new(PolarsWrapper.LazySlice(CloneHandle(), offset, length));
-
-    /// <summary>
-    /// Renames columns in the <see cref="LazyFrame"/>.
-    /// </summary>
-    /// <param name="existing">An array of existing column names to be renamed.</param>
-    /// <param name="newNames">An array of new column names, corresponding by index to the names in <paramref name="existing"/>.</param>
-    /// <param name="strict">
-    /// If <c>true</c>, an error is raised if any column in <paramref name="existing"/> is not found in the schema. 
-    /// If <c>false</c>, columns that are not found are silently ignored. Default is <c>true</c>.
-    /// </param>
-    /// <returns>A new <see cref="LazyFrame"/> with the rename operation applied.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="existing"/> or <paramref name="newNames"/> is null.</exception>
-    /// <exception cref="ArgumentException">Thrown when the length of <paramref name="existing"/> does not match the length of <paramref name="newNames"/>.</exception>
-    public LazyFrame Rename(string[] existing, string[] newNames, bool strict = true)
-    {
-        ArgumentNullException.ThrowIfNull(existing);
-        ArgumentNullException.ThrowIfNull(newNames);
-
-        var newHandle = PolarsWrapper.LazyRename(Handle, existing, newNames, strict);
-        
-        return new LazyFrame(newHandle);
-    }
     /// <summary>
     /// Slice the LazyFrame (Convenience overload).
     /// </summary>
@@ -248,7 +216,6 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         if (length < 0) throw new ArgumentOutOfRangeException(nameof(length), "Length must be non-negative.");
         return Slice(offset, (uint)length);
     }
-  
     /// <summary>
     /// Create an empty (n=0) or n-row null-filled (n>0) copy of the LazyFrame.
     /// Returns a n-row null-filled LazyFrame with an identical schema.
@@ -262,116 +229,12 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         return schema.ToLazyFrame(n);
     }
     /// <summary>
-    /// Get the top k rows according to the given expressions.
-    /// <para>This selects the largest values.</para>
-    /// </summary>
-    /// <param name="k">Number of rows to return.</param>
-    /// <param name="by">Expressions to sort by.</param>
-    /// <param name="reverse">
-    /// If true, select the smallest values (reverse the sort order) for that column.
-    /// </param>
-    public LazyFrame TopK(int k, Expr[] by, bool[] reverse)
-    {
-        if (by.Length != reverse.Length)
-            throw new ArgumentException("Length of 'by' and 'reverse' must match.");
-
-        var lfHandle = CloneHandle(); // Consume self
-        var clonedHandles = new ExprHandle[by.Length];
-        for (int i = 0; i < by.Length; i++)
-        {
-            clonedHandles[i] = PolarsWrapper.CloneExpr(by[i].Handle);
-        }
-
-        var h = PolarsWrapper.LazyFrameTopK(lfHandle, (uint)k, clonedHandles, reverse);
-        return new LazyFrame(h);
-    }
-
-    /// <summary>
-    /// Get the top k rows according to a single expression.
-    /// </summary>
-    public LazyFrame TopK(int k, Expr by, bool reverse = false)
-        => TopK(k, [by], [reverse]);
-    
-    /// <summary>
-    /// Get the top k rows according to a single column name.
-    /// </summary>
-    /// <param name="k"></param>
-    /// <param name="colName"></param>
-    /// <param name="reverse"></param>
-    /// <returns></returns>
-    public LazyFrame TopK(int k, string colName, bool reverse = false)
-        => TopK(k, Pl.Col(colName), reverse);
-
-    /// <summary>
-    /// Get the bottom k rows according to the given expressions.
-    /// <para>This selects the smallest values.</para>
-    /// </summary>
-    public LazyFrame BottomK(int k, Expr[] by, bool[] reverse)
-    {
-        if (by.Length != reverse.Length)
-            throw new ArgumentException("Length of 'by' and 'reverse' must match.");
-
-        var lfHandle = CloneHandle();
-        var clonedHandles = new ExprHandle[by.Length];
-        for (int i = 0; i < by.Length; i++)
-        {
-            clonedHandles[i] = PolarsWrapper.CloneExpr(by[i].Handle);
-        }
-
-        var h = PolarsWrapper.LazyFrameBottomK(lfHandle, (uint)k, clonedHandles, reverse);
-        return new LazyFrame(h);
-    }
-
-    /// <summary>
-    /// Get the bottom k rows according to a single expression.
-    /// </summary>
-    public LazyFrame BottomK(int k, Expr by, bool reverse = false)
-        => BottomK(k, [by], [reverse]);
-    /// <summary>
-    /// Get the bottom k rows according to a single column name.
-    /// </summary>
-    /// <param name="k"></param>
-    /// <param name="colName"></param>
-    /// <param name="reverse"></param>
-    /// <returns></returns>
-    public LazyFrame BottomK(int k, string colName, bool reverse = false)
-        => BottomK(k, Pl.Col(colName), reverse);
-
-    /// <summary>
     /// Limit the number of rows in the LazyFrame.
     /// </summary>
     /// <param name="n"></param>
     /// <returns></returns>
     public LazyFrame Limit(uint n)
         => new(PolarsWrapper.LazyLimit(CloneHandle(), n));
-
-    /// <summary>
-    /// Lazily unnest struct columns.
-    /// <para>
-    /// Currently uses a Selector to perform the unnesting.
-    /// </para>
-    /// </summary>
-    /// <seealso cref="DataFrame.Unnest(string[], string?)"/>
-    /// <example>
-    /// <code>
-    /// df.Lazy()
-    ///   .Unnest("User")
-    ///   .Collect();
-    /// </code>
-    /// </example>
-    public LazyFrame Unnest(Selector selector,string? separator = null)
-    {
-        var lfClone = CloneHandle();
-        var sClone = selector.CloneHandle();
-        var h = PolarsWrapper.LazyFrameUnnest(lfClone, sClone,separator);
-        return new LazyFrame(h);
-    }
-    /// <summary>
-    /// Unnest specific struct columns by name.
-    /// (Syntactic sugar for Unnest(Cs.ByName(...)))
-    /// </summary>
-    public LazyFrame Unnest(params string[] columns)
-        => Unnest(Cs.ByName(columns),null);
 
     /// <summary>
     /// Keep unique rows (stable) based on a subset of columns defined by a Selector.
@@ -403,35 +266,35 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         
         return Unique(selector, keep, maintainOrder);
     }
-    
     /// <summary>
-    /// Explode list-like columns into multiple rows.
+    /// Get an explanation of the optimized query plan.
+    /// <para>
+    /// Returns a string representation of the logical plan after Polars optimizers 
+    /// (predicate pushdown, projection pushdown, etc.) have run.
+    /// </para>
     /// </summary>
-    /// <param name="selector"></param>
-    /// <param name="emptyAsNull">
-    /// If <c>true</c>, empty lists are exploded into a single <c>null</c> value. 
-    /// If <c>false</c>, rows with empty lists are removed from the result.
-    /// </param>
-    /// <param name="keepNulls">
-    /// If <c>true</c>, <c>null</c> values in the column are preserved as <c>null</c> in the result. 
-    /// If <c>false</c>, rows with <c>null</c> values are removed.
-    /// </param>
-    /// <returns></returns>
-    public LazyFrame Explode(Selector selector,bool emptyAsNull=true,bool keepNulls=true)
-    {
-        var lfClone = CloneHandle();
-        var sClone = selector.CloneHandle();
-        var h = PolarsWrapper.LazyExplode(lfClone, sClone,emptyAsNull,keepNulls);
-        return new LazyFrame(h);
-    }
-    /// <summary>
-    /// Explode list-like columns into multiple rows.
-    /// </summary>
-    /// <param name="columns"></param>
-    /// <returns></returns>
-    public LazyFrame Explode(params string[] columns)
-        => Explode(Cs.ByName(columns));
-
+    /// <param name="optimized">If true, show the optimized plan. If false, show the logical plan as built.</param>
+    /// <returns>The plan as a string.</returns>
+    /// <example>
+    /// <code>
+    /// var q = df.Lazy()
+    ///     .Filter(Col("group") != "C")
+    ///     .WithColumns((Col("val") * 2).Alias("val_x_2"))
+    ///     .Select("group", "val_x_2");
+    /// 
+    /// Console.WriteLine(q.Explain());
+    /// /* Output (Optimized Plan):
+    /// simple π 2/2 ["group", "val_x_2"]
+    ///    WITH_COLUMNS:
+    ///    [[(col("val")) * (2)].alias("val_x_2")] 
+    ///     FILTER [(col("group")) != ("C")]
+    ///     FROM
+    ///       DF ["group", "val"]; PROJECT["group", "val"] 2/2 COLUMNS
+    /// */
+    /// </code>
+    /// </example>
+    public string Explain(bool optimized = true)
+        => PolarsWrapper.Explain(Handle, optimized);
     /// <summary>
     /// Generate a summary statistics DataFrame (count, mean, std, min, 25%, 50%, 75%, max).
     /// Similar to pandas/polars describe().
