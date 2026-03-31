@@ -200,10 +200,10 @@ type ``String Logic Tests`` () =
 
                 // ToDate
                 // "20250101" -> Date
-                pl.col("raw").Str.ToDate("%Y%m%d").Alias "parsed_date"
+                pl.col("raw").Str.ToDate("%Y%m%d",false).Alias "parsed_date"
 
                 // "  2025-12-31  " -> "2025-12-31" -> Date
-                pl.col("raw").Str.Strip().Str.ToDate("%Y-%m-%d").Alias "chain_date"
+                pl.col("raw").Str.Strip().Str.ToDate("%Y-%m-%d",false).Alias "chain_date"
             ])
 
         // Strip

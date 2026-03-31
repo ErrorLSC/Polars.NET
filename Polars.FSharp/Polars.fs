@@ -41,7 +41,7 @@ type LitMechanism = LitMechanism with
 
     // --- Array (High Performance) ---
     static member ($) (LitMechanism, v: int[])      = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
-     static member ($) (LitMechanism, v: Half[])    = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
+    static member ($) (LitMechanism, v: Half[])    = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
     static member ($) (LitMechanism, v: int64[])    = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
     static member ($) (LitMechanism, v: float[])    = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
     static member ($) (LitMechanism, v: float32[])  = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
@@ -77,7 +77,7 @@ module pl =
     /// </example>
     let cols (names: seq<string>) =
         let arr = Seq.toArray names
-        Expr.Cols names
+        Expr.Col names
     /// <summary>
     /// Select all columns.
     /// Equivalent to `pl.col("*")`.
@@ -489,15 +489,8 @@ module pl =
         /// <summary>
         /// Select a single column by name.
         /// </summary>
-        let inline col (name: string) =
+        let inline byName (name: string) =
             new Selector(PolarsWrapper.SelectorCols [| name |])
-        
-        /// <summary>
-        /// Select multiple columns by their names.
-        /// Accepts any sequence (list, array, etc.) of strings.
-        /// </summary>
-        let inline cols (names: seq<string>) = 
-            Selector.Cols names
         
         /// <summary> Select all columns. </summary>
         let inline all () = 

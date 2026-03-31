@@ -26,13 +26,53 @@
     <Compile Include="CloudOptions.fs" />
     <Compile Include="UdfUtils.fs" />
     <Compile Include="Exprs.fs" />
+    <Compile Include="Expr/DtOps.fs" />
+    <Compile Include="Expr/StringOps.fs" />
+    <Compile Include="Expr/ListOps.fs" />
+    <Compile Include="Expr/ArrayOps.fs" />
+    <Compile Include="Expr/NameOps.fs" />
+    <Compile Include="Expr/StructOps.fs" />
+    <Compile Include="Expr/MetaOps.fs" />
+    <Compile Include="Expr/ExprNamespaces.fs" />
     <Compile Include="Types.fs" />  
+    <Compile Include="Series/Series.DtOps.fs" />
+    <Compile Include="Series/Series.StringOps.fs" />
+    <Compile Include="Series/Series.ListOps.fs" />
+    <Compile Include="Series/Series.ArrayOps.fs" />
+    <Compile Include="Series/Series.StructOps.fs" />
+    <Compile Include="Series/Series.Namespaces.fs" />
+    <Compile Include="Series/Series.Operations.fs" />
+    <Compile Include="Series/Series.RollingOps.fs" />
+    <Compile Include="Operations/ValueAccessors.fs" />
+    <Compile Include="IO/CSV/Read.fs" />
+    <Compile Include="IO/CSV/Write.fs" />
+    <Compile Include="IO/JSON/Read.fs" />
+    <Compile Include="IO/JSON/Write.fs" />
+    <Compile Include="IO/Parquet/Read.fs" />
+    <Compile Include="IO/Parquet/Write.fs" />
+    <Compile Include="IO/IPC/Read.fs" />
+    <Compile Include="IO/IPC/Write.fs" />
+    <Compile Include="IO/ADO.NET/Read.fs" />
+    <Compile Include="IO/ADO.NET/Write.fs" />
+    <Compile Include="IO/ADBC.fs" />
+    <Compile Include="IO/Avro.fs" />
+    <Compile Include="IO/Excel.fs" />
+    <Compile Include="Operations/Sort.fs" />
+    <Compile Include="Operations/Join.fs" />
+    <Compile Include="Operations/GroupBy.fs" />
+    <Compile Include="Operations/Pivot.fs" />
+    <Compile Include="Operations/TensorInterops.fs" />
+    <Compile Include="DataFrame/DataFrame.Factory.fs" />
     <Compile Include="Ops.fs" />
     <Compile Include="Display.fs" />
-    <Compile Include="GroupByBuilder.fs" />
+    
     <Compile Include="Polars.fs" />
-    <Compile Include="Delta.fs" />
+    
     <Compile Include="Extensions.fs" />
+    <Compile Include="IO/Delta/Delta.fs" />
+    <Compile Include="IO/Delta/Read.fs" />
+    <Compile Include="IO/Delta/Write.fs" />
+    <Compile Include="IO/Catalog.fs" />
     <Compile Include="Config.fs" />
     
   </ItemGroup>

@@ -2,7 +2,6 @@ namespace Polars.FSharp
 
 open System
 open Polars.NET.Core
-
 /// <summary>
 /// Intermediate builder for LazyGroupBy operations.
 /// Holds the LazyFrame handle (ownership transferred to this builder) and grouping keys.
@@ -145,6 +144,7 @@ type LazyGroupBy internal (lfHandle: LazyFrameHandle, keys: Expr[]) =
 
 [<AutoOpen>]
 module LazyGroupByExtensions =
+    open Polars.NET.Core.Helpers
 
     type LazyFrame with
 
@@ -184,6 +184,72 @@ module LazyGroupByExtensions =
             let aExprs = aggs |> Seq.collect (fun x -> x.ToExprs())
             use builder = this.GroupBy(keys, ?having = having)
             builder.Agg aExprs
+
+        /// <summary>
+        /// Perform a dynamic group-by (rolling window) and aggregation in one step.
+        /// </summary>
+        /// <param name="indexCol">Name of the time index column.</param>
+        /// <param name="every">Period of the window (step size).</param>
+        /// <param name="aggs">List of aggregation expressions to apply.</param>
+        /// <param name="period">Size of the window. Defaults to 'every'.</param>
+        /// <param name="offset">Offset of the window. Defaults to 0.</param>
+        /// <param name="by">Additional grouping keys (e.g. ID, Category).</param>
+        /// <param name="label">Label of the window (Left, Right, DataPoint).</param>
+        /// <param name="includeBoundaries">Whether to include the window boundaries.</param>
+        /// <param name="closedWindow">Which side of the window is closed.</param>
+        /// <param name="startBy">Strategy to determine the start of the first window.</param>
+        member this.GroupByDynamic(
+            indexCol: string,
+            every: TimeSpan,
+            aggs: seq<#IColumnExpr>, 
+            ?period: TimeSpan,
+            ?offset: TimeSpan,
+            ?by: seq<#IColumnExpr>, 
+            ?label: Label,
+            ?includeBoundaries: bool,
+            ?closedWindow: ClosedWindow,
+            ?startBy: StartBy
+        ) : LazyFrame =
+            let periodVal = defaultArg period every
+            let offsetVal = defaultArg offset TimeSpan.Zero
+            let labelVal = defaultArg label Label.Left
+            let includeBoundariesVal = defaultArg includeBoundaries false
+            let closedWindowVal = defaultArg closedWindow ClosedWindow.Left
+            let startByVal = defaultArg startBy StartBy.WindowBound
+
+            let everyStr = DurationFormatter.ToPolarsString every
+            let periodStr = DurationFormatter.ToPolarsString periodVal
+            let offsetStr = DurationFormatter.ToPolarsString offsetVal
+
+            let keyExprs = 
+                match by with
+                | Some cols -> cols |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toList
+                | None -> []
+            let keyHandles = keyExprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+
+            let aggExprs = 
+                aggs 
+                |> Seq.collect (fun x -> x.ToExprs()) 
+                |> Seq.toList
+            let aggHandles = aggExprs |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+
+            let lfHandle = this.CloneHandle()
+
+            let newH = PolarsWrapper.LazyGroupByDynamic(
+                lfHandle,
+                indexCol,
+                everyStr,
+                periodStr,
+                offsetStr,
+                labelVal.ToNative(),
+                includeBoundariesVal,
+                closedWindowVal.ToNative(),
+                startByVal.ToNative(),
+                keyHandles,
+                aggHandles
+            )
+
+            new LazyFrame(newH)
 
 /// <summary>
 /// Intermediate builder for eager GroupBy operations.
@@ -288,6 +354,7 @@ type GroupBy internal (df: DataFrame, keys: Expr[]) =
 
 [<AutoOpen>]
 module DataFrameGroupByExtensions =
+    open Polars.NET.Core.Helpers
 
     type DataFrame with
         
@@ -318,3 +385,43 @@ module DataFrameGroupByExtensions =
 
         member this.GroupBy(keys: Expr, aggs: Expr, ?having: Expr) : DataFrame =
             this.GroupBy([keys], [aggs], ?having = having)
+                /// <summary>
+        /// Perform a dynamic group-by (rolling window) and aggregation in one step.
+        /// </summary>
+        /// <param name="indexCol">Name of the time index column.</param>
+        /// <param name="every">Period of the window (step size).</param>
+        /// <param name="aggs">List of aggregation expressions to apply.</param>
+        /// <param name="period">Size of the window. Defaults to 'every'.</param>
+        /// <param name="offset">Offset of the window. Defaults to 0.</param>
+        /// <param name="by">Additional grouping keys (e.g. ID, Category).</param>
+        /// <param name="label">Label of the window (Left, Right, DataPoint).</param>
+        /// <param name="includeBoundaries">Whether to include the window boundaries.</param>
+        /// <param name="closedWindow">Which side of the window is closed.</param>
+        /// <param name="startBy">Strategy to determine the start of the first window.</param>
+        member this.GroupByDynamic(
+            indexCol: string,
+            every: TimeSpan,
+            aggs: seq<#IColumnExpr>, 
+            ?period: TimeSpan,
+            ?offset: TimeSpan,
+            ?by: seq<#IColumnExpr>, 
+            ?label: Label,
+            ?includeBoundaries: bool,
+            ?closedWindow: ClosedWindow,
+            ?startBy: StartBy
+        ) : DataFrame =
+            let newLf = this.Lazy().GroupByDynamic(
+                indexCol,
+                every,
+                aggs,
+                ?period=period,
+                ?offset=offset,
+                ?by=by,
+                ?label=label,
+                ?includeBoundaries=includeBoundaries,
+                ?closedWindow=closedWindow,
+                ?startBy=startBy)
+            
+            newLf.Collect()
+
+
