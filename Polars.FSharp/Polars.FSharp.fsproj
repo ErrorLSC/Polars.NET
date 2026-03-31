@@ -57,6 +57,7 @@
     <Compile Include="IO/ADBC.fs" />
     <Compile Include="IO/Avro.fs" />
     <Compile Include="IO/Excel.fs" />
+    <Compile Include="Operations/Manipulations.fs" />
     <Compile Include="Operations/Sort.fs" />
     <Compile Include="Operations/Join.fs" />
     <Compile Include="Operations/GroupBy.fs" />
@@ -65,16 +66,13 @@
     <Compile Include="DataFrame/DataFrame.Factory.fs" />
     <Compile Include="Ops.fs" />
     <Compile Include="Display.fs" />
-    
     <Compile Include="Polars.fs" />
-    
     <Compile Include="Extensions.fs" />
     <Compile Include="IO/Delta/Delta.fs" />
     <Compile Include="IO/Delta/Read.fs" />
     <Compile Include="IO/Delta/Write.fs" />
     <Compile Include="IO/Catalog.fs" />
     <Compile Include="Config.fs" />
-    
   </ItemGroup>
 
   <ItemGroup>
