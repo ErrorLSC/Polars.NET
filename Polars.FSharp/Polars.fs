@@ -1,3 +1,4 @@
+#nowarn "3391"
 namespace Polars.FSharp
 
 open System
@@ -5,6 +6,7 @@ open System.ComponentModel
 open Polars.NET.Core
 open System.Threading.Tasks
 open Polars.NET.Core.Helpers
+open Polars.NET.Core.Arrow
 
 [<EditorBrowsable(EditorBrowsableState.Never)>]
 type LitMechanism = LitMechanism with
@@ -481,6 +483,28 @@ module pl =
         setEnvVar ("POLARS_" + suffix) value
     let setEnvVarAll vars =
         vars |> Seq.iter (fun (k, v) -> PolarsWrapper.SetEnvVar(k, v))
+    
+    /// <summary> Accumulate over multiple columns horizontally/row-wise. </summary>
+    let fold (f: Expr -> Expr -> Expr) (acc: Expr) (exprs: seq<Expr>) : Expr =
+        Seq.fold f acc exprs
+
+    /// <summary> Reduce multiple columns horizontally/row-wise. </summary>
+    let reduce (f: Expr -> Expr -> Expr) (exprs: seq<Expr>) : Expr =
+        Seq.reduce f exprs
+
+    /// <summary>
+    /// Print the DataFrame to Console (Table format).
+    /// </summary>
+    let show (df: DataFrame) : DataFrame =
+        df.Show()
+        df
+
+    /// <summary>
+    /// Print the Series to Console.
+    /// </summary>
+    let showSeries (s: Series) : Series =
+        s.Show()
+        s
     // ==========================================
     // Column Selectors (pl.cs)
     // ==========================================
@@ -491,14 +515,29 @@ module pl =
         /// </summary>
         let inline byName (name: string) =
             new Selector(PolarsWrapper.SelectorCols [| name |])
+
+        /// <summary>
+        /// Select columns by their index with strictness control.
+        /// </summary>
+        let inline byIndex(indices:ReadOnlySpan<int64>) (strict:bool) = new Selector(PolarsWrapper.SelectorByIndex(indices, strict))
+        /// <summary>
+        /// Select columns by their index. 
+        /// Usage: cs.byIndex(0L, 2L, 4L)
+        /// </summary>
+        let inline byIndexStrict(indices:ReadOnlySpan<int64>) = byIndex indices true
         
         /// <summary> Select all columns. </summary>
         let inline all () = 
             new Selector(PolarsWrapper.SelectorAll())
-        
-        /// <summary> Select numeric columns (Int, Float, Decimal). </summary>
-        let inline numeric () = 
-            new Selector(PolarsWrapper.SelectorNumeric())
+        /// <summary>
+        /// Select all columns EXCEPT the specified Selectors.
+        /// </summary>
+        let exclude([<ParamArray>] selectors:ReadOnlySpan<Selector>) = all().Exclude selectors
+
+        /// <summary>
+        /// Select all columns EXCEPT the specified Data Types.
+        /// </summary>
+        let excludeDtype([<ParamArray>] dtypes:ReadOnlySpan<DataType>) = all().Exclude dtypes
         
         /// <summary> Select columns by DataType. </summary>
         let inline byType (dt: DataType) = 
@@ -506,7 +545,18 @@ module pl =
             let kind = enum<PlDataType> code
             
             new Selector(PolarsWrapper.SelectorByDtype kind)
-        
+        /// <summary> Select columns by .NET System.Type. </summary>
+        let byNetType (t: System.Type) =
+            let arrowType = ArrowTypeResolver.GetArrowTypeFromNetType t
+            let dt = DataType.FromArrowType arrowType
+            byType dt
+
+        /// <summary> 
+        /// Select columns by Generic Type.
+        /// Usage: pl.cs.byType<int option>() or pl.cs.byType<DateTime>()
+        /// </summary>
+        let inline byGenericType<'T> () =
+            byNetType typeof<'T>
         /// <summary> Select columns starting with a pattern. </summary>
         let inline startsWith (pattern: string) = 
             new Selector(PolarsWrapper.SelectorStartsWith pattern)
@@ -522,48 +572,198 @@ module pl =
         /// <summary> Select columns matching a regex pattern. </summary>
         let inline matches (regex: string) = 
             new Selector(PolarsWrapper.SelectorMatch regex)
-        
-        /// <summary> Invert a selector. </summary>
-        let not (s: Selector) = 
-            new Selector(PolarsWrapper.SelectorNot(s.CloneHandle()))
 
-        /// <summary> Select all list columns. </summary>
-        let list () = 
-            let dummy = DataType.List DataType.Null
-            byType dummy
+        /// <summary>
+        /// Select the first column.
+        /// </summary>
+        let first() = byIndex ([|0L|].AsSpan())
+
+        /// <summary>
+        /// Select the last column.
+        /// </summary>
+        let last() = byIndex ([|-1L|].AsSpan())
+        /// <summary> Select numeric columns (Int, Float, Decimal). </summary>
+        let inline numeric() = 
+            new Selector(PolarsWrapper.SelectorNumeric())
+        /// <summary> Select string columns.</summary>
+        let inline string() = byType DataType.String 
+
+        let inline date() = new Selector(PolarsWrapper.SelectorByDtype(PlDataType.Date));
+        let inline boolean() = new Selector(PolarsWrapper.SelectorByDtype(PlDataType.Boolean));
+        let inline binary() = byType DataType.Binary
+        let inline empty() = new Selector(PolarsWrapper.SelectorEmpty());
+        let inline integer() = new Selector(PolarsWrapper.SelectorInteger());
+        let inline unsignedInteger() = new Selector(PolarsWrapper.SelectorUnsignedInteger());
+        let inline signedInteger() = new Selector(PolarsWrapper.SelectorSignedInteger());
+        let inline float() = new Selector(PolarsWrapper.SelectorFloat());
+        let inline decimal() = new Selector(PolarsWrapper.SelectorDecimal());
+        let inline enum() = new Selector(PolarsWrapper.SelectorEnum());
+        let inline nested() = new Selector(PolarsWrapper.SelectorNested());
+        let inline struct_() = new Selector(PolarsWrapper.SelectorStruct());
+        let inline Temporal() = new Selector(PolarsWrapper.SelectorTemporal());
+        /// <summary>
+        /// Select list columns. Optionally filter by the inner data type.
+        /// Example: pl.cs.list(Some(pl.cs.numeric()))
+        /// </summary>
+        let list (inner: Selector option) =
+            let innerHandle = 
+                match inner with
+                | Some s -> s.CloneHandle()
+                | None -> null
+                
+            new Selector(PolarsWrapper.SelectorList innerHandle)
+        let private getNativeTimeUnit (unit: TimeUnit option) : PlTimeUnit =
+            match unit with
+            | Some u -> u.ToNative()
+            | None -> PlTimeUnit.All
+
+        let private datetimeInternal (timeUnit: TimeUnit option) (tzString: string option) =
+            let tu = getNativeTimeUnit timeUnit
+            let tz = Option.toObj tzString
+            new Selector(PolarsWrapper.SelectorDatetime(tu, tz))
+        /// <summary>
+        /// Select array columns. Optionally filter by inner data type and fixed width.
+        /// Example: pl.cs.array (Some(pl.cs.numeric())) (Some 3L)
+        /// </summary>
+        let array (inner: Selector option) (width: int64 option) =
+            let innerHandle = 
+                match inner with
+                | Some s -> s.CloneHandle()
+                | None -> null
+            let w = Option.toNullable width
+            new Selector(PolarsWrapper.SelectorArray(innerHandle, w))
+
+        /// <summary>
+        /// Select all datetime columns (both with and without timezones).
+        /// </summary>
+        let datetime (timeUnit: TimeUnit option) =
+            datetimeInternal timeUnit None
+
+        /// <summary>
+        /// Select ONLY timezone-naive datetime columns (no timezone set).
+        /// </summary>
+        let datetimeNaive (timeUnit: TimeUnit option) =
+            datetimeInternal timeUnit (Some "")
+
+        /// <summary>
+        /// Select ONLY timezone-aware datetime columns (any timezone).
+        /// </summary>
+        let datetimeAware (timeUnit: TimeUnit option) =
+            datetimeInternal timeUnit (Some "*")
+
+        /// <summary>
+        /// Select datetime columns matching a specific timezone (e.g., "UTC", "Asia/Shanghai").
+        /// </summary>
+        let datetimeExact (timeZone: string) (timeUnit: TimeUnit option) =
+            if System.String.IsNullOrEmpty timeZone then
+                invalidArg "timeZone" "timeZone cannot be null or empty"
+                
+            datetimeInternal timeUnit (Some timeZone)
+        /// <summary>
+        /// Select all duration columns. Optionally match a specific TimeUnit.
+        /// </summary>
+        let duration (timeUnit: TimeUnit option) =
+            new Selector(PolarsWrapper.SelectorDuration(getNativeTimeUnit timeUnit))
+        /// <summary>
+        /// Select all columns with alphabetic names.
+        /// </summary>
+        let alpha (asciiOnly: bool option) (ignoreSpaces: bool option) =
+            let isAscii = defaultArg asciiOnly false
+            let isIgnoreSpaces = defaultArg ignoreSpaces false
             
-        /// <summary> Select all struct columns. </summary>
-        let struct_ () = 
-            let dummy = DataType.Struct []
-            byType dummy
+            let mutable charClass = if isAscii then "a-zA-Z" else @"\p{L}"
+            if isIgnoreSpaces then charClass <- charClass + " "
+            
+            matches (sprintf "^[%s]+$" charClass)
 
-    /// <summary> Accumulate over multiple columns horizontally/row-wise. </summary>
-    let fold (f: Expr -> Expr -> Expr) (acc: Expr) (exprs: seq<Expr>) : Expr =
-        Seq.fold f acc exprs
+        /// <summary>
+        /// <para>[EN] Select columns whose names consist entirely of CJK scripts (Han, Hiragana, Katakana, Hangul).
+        /// The 'chinese' option enables \p{Han}, which also includes Japanese Kanji and Korean Hanja.</para>
+        /// <para>[ZH] 选择列名完全由中日韩字符（Han / 平假名 / 片假名 / 韩文）组成的列。
+        /// 注意：'chinese' 实际匹配 \p{Han}，包含日文汉字与韩文汉字。</para>
+        /// <para>[JA] 列名がCJK文字（漢字・ひらがな・カタカナ・ハングル）のみで構成される列を選択します。
+        /// ※ 'chinese' は \p{Han}（日本・韓国の漢字を含む）を有効にします。</para>
+        /// <para>[KO] 열 이름이 CJK 문자(한자, 히라가나, 가타카나, 한글)로만 구성된 열을 선택합니다.
+        /// ※ 'chinese'는 \p{Han}을 의미하며 일본/한국 한자도 포함합니다.</para>
+        /// </summary>
+        let cjk (chinese: bool option) (japanese: bool option) (korean: bool option) (ignoreSpaces: bool option) =
+            let isChinese = defaultArg chinese true
+            let isJapanese = defaultArg japanese true
+            let isKorean = defaultArg korean true
+            let isIgnoreSpaces = defaultArg ignoreSpaces false
 
-    /// <summary> Reduce multiple columns horizontally/row-wise. </summary>
-    let reduce (f: Expr -> Expr -> Expr) (exprs: seq<Expr>) : Expr =
-        Seq.reduce f exprs
+            if not isChinese && not isJapanese && not isKorean then
+                invalidArg "CJK" "At least one CJK script must be enabled."
 
-    // ==========================================
-    // Public API
-    // ==========================================
+            let mutable charClass = ""
+            if isChinese then charClass <- charClass + @"\p{Han}"
+            if isJapanese then charClass <- charClass + @"\p{Hiragana}\p{Katakana}"
+            if isKorean then charClass <- charClass + @"\p{Hangul}"
+            if isIgnoreSpaces then charClass <- charClass + " "
 
-    /// <summary>
-    /// Print the DataFrame to Console (Table format).
-    /// </summary>
-    let show (df: DataFrame) : DataFrame =
-        df.Show()
-        df
+            matches (sprintf "^[%s]+$" charClass)
 
-    /// <summary>
-    /// Print the Series to Console.
-    /// </summary>
-    let showSeries (s: Series) : Series =
-        let h = PolarsWrapper.SeriesToFrame s.Handle
-        use df = new DataFrame(h)
-        df.Show()
-        s
+        /// <summary>
+        /// <para>[EN] Select columns whose names consist of CJK scripts, Unicode digits (\p{N}),
+        /// and optionally ASCII/full-width Latin letters.</para>
+        /// <para>[ZH] 选择列名由中日韩字符、数字（\p{N}，含全/半角）以及可选英文字母（全/半角）组成的列。</para>
+        /// <para>[JA] 列名がCJK文字・数字（\p{N}、全角/半角）および英字（全角/半角）で構成される列を選択します。</para>
+        /// <para>[KO] 열 이름이 CJK 문자, 숫자(\p{N}, 전각/반각) 및 영문자(전각/반각)로 구성된 열을 선택합니다.</para>
+        /// </summary>
+        let cjkAlphanumeric (chinese: bool option) (japanese: bool option) (korean: bool option) (includeLetters: bool option) (ignoreSpaces: bool option) =
+            let isChinese = defaultArg chinese true
+            let isJapanese = defaultArg japanese true
+            let isKorean = defaultArg korean true
+            let isIncludeLetters = defaultArg includeLetters true
+            let isIgnoreSpaces = defaultArg ignoreSpaces false
+
+            if not isChinese && not isJapanese && not isKorean then
+                invalidArg "CJKAlphanumeric" "At least one CJK script must be enabled."
+
+            let mutable charClass = @"\p{N}"
+            if isIncludeLetters then charClass <- charClass + "a-zA-ZＡ-Ｚａ-ｚ"
+            if isChinese then charClass <- charClass + @"\p{Han}"
+            if isJapanese then charClass <- charClass + @"\p{Hiragana}\p{Katakana}"
+            if isKorean then charClass <- charClass + @"\p{Hangul}"
+            if isIgnoreSpaces then charClass <- charClass + " "
+
+            matches (sprintf "^[%s]+$" charClass)
+
+        /// <summary>
+        /// Select all columns with alphanumeric names.
+        /// </summary>
+        let alphanumeric (asciiOnly: bool option) (ignoreSpaces: bool option) =
+            let isAscii = defaultArg asciiOnly false
+            let isIgnoreSpaces = defaultArg ignoreSpaces false
+            
+            let mutable charClass = if isAscii then "a-zA-Z0-9" else @"\p{L}\p{N}"
+            if isIgnoreSpaces then charClass <- charClass + " "
+
+            matches (sprintf "^[%s]+$" charClass)
+        /// <summary>
+        /// Expand a Selector against a DataFrame to get the matched column names.
+        /// </summary>
+        let expandDf (selector: Selector) (target: DataFrame) : string array =
+            use emptyDf = target.Clear()
+            use result = emptyDf.Select [selector]
+            result.Columns |> Seq.toArray
+
+        /// <summary>
+        /// Expand an Expr against a DataFrame to get the matched column names.
+        /// </summary>
+        let expandDfExpr (expr: Expr) (target: DataFrame) : string array =
+            use emptyDf = target.Clear()
+            use result = emptyDf.Select expr
+            result.Columns |> Seq.toArray
+
+        /// <summary>
+        /// Expand a Selector against a LazyFrame to get the matched column names.
+        /// </summary>
+        let expandLf (selector: Selector) (target: LazyFrame) : string array =
+            target.Select(selector.ToExpr()).Schema.Names |> Seq.toArray
+
+
+
 
 [<AutoOpen>]
 module PolarsAutoOpen =

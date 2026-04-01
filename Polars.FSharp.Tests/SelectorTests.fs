@@ -154,3 +154,80 @@ type SelectorTests() =
         Assert.Equal(250, dfAgg.Cell<int>( "Sales",1)) 
         // US Profit: 20 + 30 = 50
         Assert.Equal(50, dfAgg.Cell<int>( "Profit",1))
+    [<Fact>]
+    [<Trait("Selector","Types")>]
+    member _.``Selector: Advanced Regex Patterns and Generic Types`` () =
+        let data = [
+            {|
+                pureAlpha = 1                   // int
+                alphaNum123 = "test"            // string
+                原神启动 = 3.14                     // float
+                日文カタカナ = true                // bool
+                한글 = DateTime(2023, 1, 1)      // DateTime
+                Mix中英123 = 100L                 // int64
+                ``has space`` = 42              // int (with space)
+            |}
+        ]
+        let df = DataFrame.ofRecords data
+
+        // ==========================================
+        // Regex Selectors 
+        // ==========================================
+
+        let dfAlpha = df.Select [ pl.cs.alpha (Some true) None ]
+        Assert.Equal(1L, dfAlpha.Width)
+        Assert.Contains("pureAlpha", dfAlpha.Columns)
+
+        // A-2. alpha (Unicode):  CJK included 
+        let dfAlphaUnicode = df.Select [ pl.cs.alpha (Some false) None ]
+        Assert.Equal(4L, dfAlphaUnicode.Width) // pureAlpha, 原神启动, 日文カタカナ, 한글
+
+        // alphanumeric: 
+        let dfAlphaNum = df.Select [ pl.cs.alphanumeric (Some true) None ]
+        Assert.Equal(2L, dfAlphaNum.Width)
+        Assert.Contains("pureAlpha", dfAlphaNum.Columns)
+        Assert.Contains("alphaNum123", dfAlphaNum.Columns)
+
+        // cjk
+        let dfCjk = df.Select [ pl.cs.cjk None None None None ]
+        Assert.Equal(3L, dfCjk.Width)
+        Assert.Contains("原神启动", dfCjk.Columns)
+        Assert.Contains("日文カタカナ", dfCjk.Columns)
+        Assert.Contains("한글", dfCjk.Columns)
+
+        // cjkAlphanumeric
+        let dfCjkMix = df.Select [ pl.cs.cjkAlphanumeric None None None None None ]
+        Assert.Equal(6L, dfCjkMix.Width) 
+        Assert.DoesNotContain("has space", dfCjkMix.Columns)
+
+        // IgnoreSpaces 
+        let dfSpace = df.Select [ pl.cs.alpha (Some true) (Some true) ]
+        Assert.Equal(2L, dfSpace.Width)
+        Assert.Contains("pureAlpha", dfSpace.Columns)
+        Assert.Contains("has space", dfSpace.Columns)
+
+        // ==========================================
+        // Generic Type Selector
+        // ==========================================
+
+        let dfInt = df.Select [ pl.cs.byGenericType<int>() ]
+        Assert.Equal(2L, dfInt.Width)
+        Assert.Contains("pureAlpha", dfInt.Columns)
+        Assert.Contains("has space", dfInt.Columns)
+
+        let dfStr = df.Select [ pl.cs.byGenericType<string>() ]
+        Assert.Equal(1L, dfStr.Width)
+        Assert.Contains("alphaNum123", dfStr.Columns)
+        
+        let dfDt = df.Select [ pl.cs.byGenericType<DateTime>() ]
+        Assert.Equal(1L, dfDt.Width)
+        Assert.Contains("한글", dfDt.Columns)
+
+        let dfWithoutBoolOrLong = 
+            df.Select [ 
+                pl.cs.all() 
+                  - pl.cs.byGenericType<bool>() 
+                  - pl.cs.byGenericType<int64>() 
+            ]
+        Assert.DoesNotContain("日文カタカナ", dfWithoutBoolOrLong.Columns)
+        Assert.DoesNotContain("Mix中英123", dfWithoutBoolOrLong.Columns)

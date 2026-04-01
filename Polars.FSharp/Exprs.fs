@@ -1920,7 +1920,34 @@ and Selector(handle: SelectorHandle) =
     member this.Exclude(names: seq<string>) =
         let arr = Seq.toArray names
         new Selector(PolarsWrapper.SelectorExclude(this.CloneHandle(), arr))
-        
+    /// <summary>
+    /// Exclude columns matching any of the specified Selectors.
+    /// </summary>
+    member this.Exclude([<ParamArray>] selectors: ReadOnlySpan<Selector>) =
+        if selectors.Length = 0 then 
+            this
+        else
+            let mutable toExclude = selectors.[0]
+            for i = 1 to selectors.Length - 1 do
+                toExclude <- toExclude ||| selectors.[i]
+                
+            this - toExclude
+
+    /// <summary>
+    /// Exclude columns matching any of the specified Data Types.
+    /// </summary>
+    member this.Exclude([<ParamArray>] dtypes: ReadOnlySpan<DataType>) =
+        if dtypes.Length = 0 then 
+            this
+        else
+            let createSelector (dt: DataType) =
+                new Selector(PolarsWrapper.SelectorByDtype(enum<PlDataType> dt.Code))
+            
+            let mutable toExclude = createSelector dtypes.[0]
+            for i = 1 to dtypes.Length - 1 do
+                toExclude <- toExclude ||| createSelector dtypes.[i]
+                
+            this - toExclude
     /// <summary>
     /// Convert the Selector to an Expression.
     /// Selectors are essentially dynamic Expressions that expand to column names.
@@ -1956,6 +1983,10 @@ and Selector(handle: SelectorHandle) =
     /// <remarks> Some Polars versions support this as a shorthand for Exclude or Difference </remarks>
     static member (-) (l: Selector, r: Selector) =
          new Selector(PolarsWrapper.SelectorAnd(l.CloneHandle(), PolarsWrapper.SelectorNot(r.CloneHandle())))
+    static member (^^) (l: Selector, r: Selector) =
+         new Selector(PolarsWrapper.SelectorXor(l.CloneHandle(), r.CloneHandle()))
+
+
 
 /// <summary>
 /// Let Expr & Selector in same line possible

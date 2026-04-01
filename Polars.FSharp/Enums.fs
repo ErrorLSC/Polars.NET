@@ -159,7 +159,69 @@ and DataType =
         | Float32 | Float64 | Int128 | Float16
         | Decimal _ -> true
         | _ -> false
-
+    /// <summary>
+    /// Get Apache Arrow Type back to Polars.NET DataType.
+    /// </summary>
+    static member FromArrowType (arrowType: Apache.Arrow.Types.IArrowType) : DataType =
+        match arrowType with
+        | :? Apache.Arrow.Types.Int8Type -> Int8
+        | :? Apache.Arrow.Types.Int16Type -> Int16
+        | :? Apache.Arrow.Types.Int32Type -> Int32
+        | :? Apache.Arrow.Types.Int64Type -> Int64
+        | :? Apache.Arrow.Types.UInt8Type -> UInt8
+        | :? Apache.Arrow.Types.UInt16Type -> UInt16
+        | :? Apache.Arrow.Types.UInt32Type -> UInt32
+        | :? Apache.Arrow.Types.UInt64Type -> UInt64
+        | :? Apache.Arrow.Types.HalfFloatType -> Float16
+        | :? Apache.Arrow.Types.FloatType -> Float32
+        | :? Apache.Arrow.Types.DoubleType -> Float64
+        | :? Apache.Arrow.Types.BooleanType -> Boolean
+        
+        | :? Apache.Arrow.Types.Decimal128Type as d -> Decimal(Some d.Precision, Some d.Scale)
+        | :? Apache.Arrow.Types.Decimal256Type as d -> Decimal(Some d.Precision, Some d.Scale)
+        
+        | :? Apache.Arrow.Types.StringType
+        | :? Apache.Arrow.Types.StringViewType -> String
+        | :? Apache.Arrow.Types.BinaryType
+        | :? Apache.Arrow.Types.BinaryViewType -> Binary
+        
+        | :? Apache.Arrow.Types.Date32Type -> Date
+        | :? Apache.Arrow.Types.Time64Type -> Time
+        
+        | :? Apache.Arrow.Types.TimestampType as t ->
+            let unit = 
+                match t.Unit with
+                | Apache.Arrow.Types.TimeUnit.Microsecond -> Microseconds
+                | Apache.Arrow.Types.TimeUnit.Millisecond -> Milliseconds
+                | Apache.Arrow.Types.TimeUnit.Nanosecond -> Nanoseconds
+                | _ -> Microseconds
+            Datetime(unit, Option.ofObj t.Timezone)
+            
+        | :? Apache.Arrow.Types.DurationType as d ->
+            let unit = 
+                match d.Unit with
+                | Apache.Arrow.Types.TimeUnit.Microsecond -> Microseconds
+                | Apache.Arrow.Types.TimeUnit.Millisecond -> Milliseconds
+                | Apache.Arrow.Types.TimeUnit.Nanosecond -> Nanoseconds
+                | _ -> Microseconds
+            Duration unit
+            
+        | :? Apache.Arrow.Types.ListType as l -> 
+            List(DataType.FromArrowType l.ValueDataType)
+        | :? Apache.Arrow.Types.LargeListType as l -> 
+            List(DataType.FromArrowType l.ValueDataType)
+        | :? Apache.Arrow.Types.FixedSizeListType as l -> 
+            Array(DataType.FromArrowType l.ValueDataType, uint64 l.ListSize)
+            
+        | :? Apache.Arrow.Types.StructType as s ->
+            let fields = 
+                s.Fields 
+                |> Seq.map (fun f -> { Name = f.Name; DataType = DataType.FromArrowType f.DataType })
+                |> Seq.toList
+            Struct fields
+            
+        | _ -> 
+            raise (NotSupportedException(sprintf "ArrowType %s is not supported yet." (arrowType.GetType().Name)))
     /// <summary>
     /// Creates a native Polars DataTypeHandle from this F# DataType.
     /// Recursive structures (List, Struct) are handled automatically.

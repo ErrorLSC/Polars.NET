@@ -190,7 +190,7 @@ public class SelectorTests
         );
 
 
-        using var resStrList = df.Select(Cs.List(Cs.String()));
+        using var resStrList = df.Select(Cs.List(Cs.ByDtype<string>()));
         Assert.Single(resStrList.Columns);
         Assert.Equal("list_str", resStrList.Columns[0]);
 

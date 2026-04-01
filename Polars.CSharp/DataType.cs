@@ -1,4 +1,5 @@
 #pragma warning disable CS1591
+using Apache.Arrow;
 using Apache.Arrow.Types;
 using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
@@ -72,11 +73,7 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
         Handle?.Dispose();
         GC.SuppressFinalize(this); 
     }
-    /// <summary>
-    /// Get Apache Arrow Type
-    /// </summary>
-    public IArrowType GetArrowType()
-        => ArrowFfiBridge.ImportDataType(Handle);
+
     /// <summary>
     /// Output DataType string (e.g., "datetime[ms, Asia/Shanghai]")
     /// </summary>
@@ -319,7 +316,7 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
             handles.Add(field.Type.Handle);
         }
 
-        var h = PolarsWrapper.NewStructType(names.ToArray(), handles.ToArray());
+        var h = PolarsWrapper.NewStructType([.. names], [.. handles]);
         return new DataType(h, DataTypeKind.Struct);
     }
     /// <summary>
@@ -328,5 +325,70 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// </summary>
     public static DataType Struct(params (string Name, DataType Type)[] fields)
         => Struct((IEnumerable<(string Name, DataType Type)>)fields);
-    
+    /// <summary>
+    /// Get Apache Arrow Type
+    /// </summary>
+    public IArrowType GetArrowType() => ArrowFfiBridge.ImportDataType(Handle);
+    /// <summary>
+    /// Generate DataType from ArrowType
+    /// </summary>
+    /// <param name="arrowType"></param>
+    /// <returns></returns>
+    /// <exception cref="NotSupportedException"></exception>
+    public static DataType FromArrowType(IArrowType arrowType)
+    {
+        return arrowType switch
+        {
+            Int8Type => Int8,
+            Int16Type => Int16,
+            Int32Type => Int32,
+            Int64Type => Int64,
+            UInt8Type => UInt8,
+            UInt16Type => UInt16,
+            UInt32Type => UInt32,
+            UInt64Type => UInt64,
+            HalfFloatType => Float16,
+            FloatType => Float32,
+            DoubleType => Float64,
+            BooleanType => Boolean,
+
+            Decimal128Type d => Decimal(d.Precision, d.Scale),
+            Decimal256Type d => Decimal(d.Precision, d.Scale),
+
+            StringType or StringViewType => String,
+            BinaryType or BinaryViewType => Binary,
+
+            Date32Type => Date,
+            Time64Type => Time,
+            TimestampType t => Datetime(
+                t.Unit switch
+                {
+                    Apache.Arrow.Types.TimeUnit.Microsecond => TimeUnit.Microseconds,
+                    Apache.Arrow.Types.TimeUnit.Millisecond => TimeUnit.Milliseconds, 
+                    Apache.Arrow.Types.TimeUnit.Nanosecond => TimeUnit.Nanoseconds, 
+                    _ => TimeUnit.Microseconds
+                }, 
+                t.Timezone
+            ),
+            DurationType d => Duration(
+                d.Unit switch { 
+                    Apache.Arrow.Types.TimeUnit.Microsecond => TimeUnit.Microseconds,
+                    Apache.Arrow.Types.TimeUnit.Millisecond => TimeUnit.Milliseconds, 
+                    Apache.Arrow.Types.TimeUnit.Nanosecond => TimeUnit.Nanoseconds, 
+                    _ => TimeUnit.Microseconds
+                }
+            ),
+
+            ListType l => List(FromArrowType(l.ValueDataType)),
+            LargeListType l => List(FromArrowType(l.ValueDataType)),
+            FixedSizeListType l => Array(FromArrowType(l.ValueDataType), (uint)l.ListSize),
+            
+            StructType s => Struct(
+                [.. s.Fields.Select(f => f.Name)],
+                [.. s.Fields.Select(f => FromArrowType(f.DataType))]
+            ),
+
+            _ => throw new NotSupportedException($"ArrowType {arrowType.GetType().Name} is not supported yet.")
+        };
+    }
 }

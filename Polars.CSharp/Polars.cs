@@ -1,5 +1,6 @@
 #pragma warning disable CS1591
 using Polars.NET.Core;
+using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Helpers;
 namespace Polars.CSharp;
 
@@ -324,6 +325,22 @@ public readonly partial struct Polars
             var typeKind = type.Kind;
             return new(PolarsWrapper.SelectorByDtype(typeKind.ToNative()));
         }
+        /// <summary>
+        /// Select columns by specific DataType.
+        /// </summary>
+        public static Selector ByDtype(Type type) 
+        {
+            var arrowType = ArrowTypeResolver.GetArrowTypeFromNetType(type);
+            var plType = DataType.FromArrowType(arrowType);
+            return ByDtype(plType);
+        }
+        /// <summary>
+        /// Select columns by Generic Type.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <returns></returns>
+        public static Selector ByDtype<T>() 
+            => ByDtype(typeof(T));
         /// <summary>
         /// Select all columns EXCEPT the specified Selectors.
         /// </summary>
