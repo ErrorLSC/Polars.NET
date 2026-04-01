@@ -31,7 +31,12 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     public LazyFrame Lazy()
         => new(PolarsWrapper.DataFrameToLazy(Handle));
-    
+
+    /// <summary>
+    /// Export DataFrame to Record Batch
+    /// </summary>
+    /// <param name="onBatchReceived">Receive RecordBatch Callback</param>
+    public void ExportBatches(Action<RecordBatch> onBatchReceived) => PolarsWrapper.ExportBatches(Handle, onBatchReceived);
     /// <summary>
     /// Export DataFrame As DbDataReader (Zero-Copy Enabled)
     /// </summary>    

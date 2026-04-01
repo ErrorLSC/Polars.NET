@@ -850,5 +850,19 @@ David,40,80000";
         Assert.Equal(4.62,(double)result["col2"][0],2);
         Assert.Equal(830.2,(double)result["col3"][0],2);
     }
+    [Fact]
+    [Trait("LazyFrame","FilterByArray")]
+    public void Test_Lazy_Filter()
+    {
+        var lf = DataFrame.FromSeries(
+            Series.From("col1",[1,0,114514,6546213]),
+            Series.From("col2",[5.5,4.4,double.NaN,double.MinValue]),
+            Series.From("col3",new long?[] {null,985L,211L,1919810L})
+        ).Lazy();
+
+        var result = lf.Filter([false,false,true,true]).Collect();
+        Assert.Equal(2L,result.Height);
+        Assert.Equal(114514,result[0][0]);
+    }
 
 }

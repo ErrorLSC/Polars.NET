@@ -17,8 +17,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Transfer a DataFrame to Arrow
     /// </summary>
     /// <returns></returns>
-    public RecordBatch ToArrow()
-        => ArrowFfiBridge.ExportDataFrame(Handle);
+    public RecordBatch ToArrow() => ArrowFfiBridge.ExportDataFrame(Handle);
 }
 
 
@@ -27,11 +26,9 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <summary>
     /// Zero-copy convert to Apache Arrow Array.
     /// </summary>
-    public IArrowArray ToArrow()
-        => PolarsWrapper.SeriesToArrow(Handle);
+    public IArrowArray ToArrow() => PolarsWrapper.SeriesToArrow(Handle);
     /// <summary>
     /// Low-level entry point: Create Series from existing Arrow Array.
     /// </summary>
-    public static Series FromArrow(string name, IArrowArray arrowArray)
-        => new(ArrowFfiBridge.ImportSeries(name, arrowArray));
+    public static Series FromArrow(string name, IArrowArray arrowArray) => new(ArrowFfiBridge.ImportSeries(name, arrowArray));
 }

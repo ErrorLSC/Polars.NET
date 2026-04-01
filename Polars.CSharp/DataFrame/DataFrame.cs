@@ -87,18 +87,12 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Return DataFrame Columns' DataType
     /// </summary>
     public List<DataType> DataTypes => Schema.DataTypes;
-
     /// <summary>
     /// Hash and combine the rows in this DataFrame.
     /// </summary>
     /// <param name="seed">Random seed parameter. Defaults to 42 for reproducible hashing.</param>
     /// <returns>A Series containing the UInt64 hashes.</returns>
-    public Series HashRows(ulong? seed = 42)
-    {
-        var h = PolarsWrapper.DataFrameHashRows(Handle, seed);
-        return new Series(h);
-    }
-
+    public Series HashRows(ulong? seed = 42) => new(PolarsWrapper.DataFrameHashRows(Handle, seed));
     /// <summary>
     /// Return the number of unique rows, or the number of unique row-subsets.
     /// </summary>
@@ -124,14 +118,12 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         if (Width == 0) return 0;
         return Column(0).NChunks; 
     }
-
     /// <summary>
     /// Get an array containing the number of chunks for all columns in this DataFrame.
     /// (Equivalent to strategy='all')
     /// </summary>
     public long[] NChunksAll()
         => [.. this.Select(s => s.NChunks)];
-
     /// <summary>
     /// Rechunk the data in this DataFrame to a contiguous allocation.
     /// This will make sure all subsequent operations have optimal and predictable performance.
@@ -180,9 +172,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// */
     /// </code>
     /// </example>
-    public DataFrame Select(params Expr[] exprs)
-      => Lazy().Select(exprs).Collect();
-    
+    public DataFrame Select(params Expr[] exprs) => Lazy().Select(exprs).Collect();
     /// <summary>
     /// Select columns by name (convenience overload).
     /// <para>
@@ -195,9 +185,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// For more advanced selections (renaming, calculations), use <see cref="Select(Expr[])"/>.
     /// </remarks>
     /// <seealso cref="Select(Expr[])"/>
-    public DataFrame Select(params string[] columns)
-        => Select(columns.Select(Pl.Col).ToArray());
-    
+    public DataFrame Select(params string[] columns) => Select(columns.Select(Pl.Col).ToArray());
     /// <summary>
     /// Filter rows based on a boolean expression (predicate).
     /// <para>
@@ -232,17 +220,19 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// */
     /// </code>
     /// </example>
-    public DataFrame Filter(Expr expr)
-        => Lazy().Filter(expr).Collect();
-    
+    public DataFrame Filter(Expr expr) => Lazy().Filter(expr).Collect();
     /// <summary>
     ///  Filter rows based on a boolean series.
     /// </summary>
-    /// <param name="series"></param>
+    /// <param name="series">A boolean series as mask</param>
     /// <returns></returns>
-    public DataFrame Filter(Series series)
-        => Lazy().Filter(series).Collect();
-    
+    public DataFrame Filter(Series series) => Lazy().Filter(series).Collect();
+    /// <summary>
+    /// Filter rows based on a boolean array.
+    /// </summary>
+    /// <param name="mask">A boolean IEnumerable as mask</param>
+    /// <returns></returns>
+    public DataFrame Filter(IEnumerable<bool> mask) => Lazy().Filter(mask).Collect(); 
     /// <summary>
     /// Add new columns to the DataFrame or replace existing ones using expressions.
     /// <para>
@@ -281,8 +271,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// */
     /// </code>
     /// </example>
-    public DataFrame WithColumns(params Expr[] exprs)
-        => Lazy().WithColumns(exprs).Collect();
+    public DataFrame WithColumns(params Expr[] exprs) => Lazy().WithColumns(exprs).Collect();
+    /// <summary>
+    /// Add or modify columns based on series. Series will be converted to Expressions implicitly
+    /// </summary>
+    public DataFrame WithColumns(params Series[] series) => Lazy().WithColumns(series).Collect();
     /// <summary>
     /// Return head lines from a DataFrame
     /// </summary>
@@ -412,8 +405,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="offset">Start index. Negative values work as expected (counting from the end).</param>
     /// <param name="length">Length of the slice.</param>
     /// <returns>A new sliced DataFrame.</returns>
-    public DataFrame Slice(long offset, ulong length)
-        => new(PolarsWrapper.Slice(Handle, offset, length));
+    public DataFrame Slice(long offset, ulong length) => new(PolarsWrapper.Slice(Handle, offset, length));
     /// <summary>
     /// Slice the DataFrame along the rows (Convenience overload for int).
     /// </summary>
@@ -482,14 +474,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public DataFrame VStack(DataFrame other)
         => new(PolarsWrapper.VStack(Handle, other.Handle));
 
-    /// <summary>
-    /// Export DataFrame to Record Batch
-    /// </summary>
-    /// <param name="onBatchReceived">Receive RecordBatch Callback</param>
-    public void ExportBatches(Action<RecordBatch> onBatchReceived)
-        => PolarsWrapper.ExportBatches(Handle, onBatchReceived);
-
- 
     // ==========================================
     // LifeCycle
     // ==========================================

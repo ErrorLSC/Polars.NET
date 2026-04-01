@@ -171,20 +171,26 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     public LazyFrame Filter(Expr expr)
         => new(PolarsWrapper.LazyFilter(CloneHandle(), expr.CloneHandle()));
     /// <summary>
-    ///  Filter rows based on a boolean series.
+    /// Filter rows based on a boolean series.
     /// </summary>
     public LazyFrame Filter(Series series)
     {
         if (series.DataType != DataType.Boolean)
         {
-            throw new InvalidExpressionException("Can not Filter by non-boolean series.");
+            throw new InvalidExpressionException("Can not filter by non-boolean series.");
         }
         
         using var expr = Pl.Lit(series); 
         
         return Filter(expr); 
     }
-
+    /// <summary>
+    /// Filter rows based on a boolean array.
+    /// </summary>
+    /// <param name="mask"></param>
+    /// <returns></returns>
+    public LazyFrame Filter(IEnumerable<bool> mask)
+        => Filter(Pl.Lit(mask)); 
     /// <summary>
     /// Add or modify columns based on expressions.
     /// </summary>
@@ -199,6 +205,18 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         var lfClone = CloneHandle();
         var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
         return new LazyFrame(PolarsWrapper.LazyWithColumns(lfClone, handles));
+    }
+    /// <summary>
+    /// Add or modify columns based on series. Series will be converted to Expressions implicitly
+    /// </summary>
+    public LazyFrame WithColumns(params Series[] series)
+    {
+        var exprs = new Expr[series.Length];
+        for (int i = 0; i < series.Length; i++)
+        {
+            exprs[i] = Pl.Lit(series[i]);
+        }
+        return WithColumns(exprs);
     }
     /// <summary>
     /// Slice the LazyFrame.
