@@ -2453,6 +2453,23 @@ pub extern "C" fn pl_expr_if_else(
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_extend_constant(
+    self_ptr: *mut ExprContext,
+    value_ptr: *mut ExprContext,
+    n_ptr: *mut ExprContext
+) -> *mut ExprContext {
+    ffi_try!({
+        let self_expr = unsafe { Box::from_raw(self_ptr) };
+        let value = unsafe { Box::from_raw(value_ptr) };
+        let n = unsafe { Box::from_raw(n_ptr) };
+
+        let new_expr = self_expr.inner.extend_constant(value.inner, n.inner);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
 // --- Statistics ---
 gen_unary_op!(pl_expr_count, count);
 gen_unary_op!(pl_expr_len, len);

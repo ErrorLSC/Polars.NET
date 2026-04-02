@@ -40,6 +40,14 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <returns></returns>
     public static Series operator /(Series left, Series right)
         => new(PolarsWrapper.SeriesDiv(left.Handle, right.Handle));
+    /// <summary>
+    /// Mod Series
+    /// </summary>
+    /// <param name="left"></param>
+    /// <param name="right"></param>
+    /// <returns></returns>  
+    public static Series operator %(Series left, Series right)
+        => new(PolarsWrapper.SeriesRem(left.Handle, right.Handle));
     // ==========================================
     // Bitwise Operators (<<, >>)
     // ==========================================

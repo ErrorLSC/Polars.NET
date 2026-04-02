@@ -1,4 +1,4 @@
-﻿using System.Linq.Expressions;
+﻿#pragma warning disable CS8632
 using System.Numerics.Tensors;
 using Apache.Arrow;
 using Apache.Arrow.Memory;
@@ -1091,5 +1091,119 @@ B,5";
         Assert.Equal(1,res[0]);
         Assert.Equal(2,df.Width);
 
+    }
+    [Fact]
+    [Trait("DataFrame","UnstackVertical")]
+    public void Unstack_Vertical_WithDefaultNullFill_ShouldWork()
+    {
+        // shape: (5, 2)
+        var df = DataFrame.FromColumns(new
+        {
+            foo = new[] { 1, 2, 3, 4, 5 },
+            bar = new[] { "a", "b", "c", "d", "e" }
+        });
+
+        using var unstacked = df.Unstack(step: 2, how: UnstackDirection.Vertical);
+
+        // Assert
+        Assert.Equal(2, unstacked.Height);
+        Assert.Equal(6, unstacked.Width);
+
+        var cols = unstacked.Columns;
+        Assert.Contains("foo_0", cols);
+        Assert.Contains("foo_1", cols);
+        Assert.Contains("foo_2", cols);
+        Assert.Contains("bar_2", cols);
+
+        var foo0 = unstacked["foo_0"].ToArray<int?>();
+        Assert.Equal(1, foo0[0]);
+        Assert.Equal(2, foo0[1]);
+
+        var foo2 = unstacked["foo_2"].ToArray<int?>();
+        Assert.Equal(5, foo2[0]);
+        Assert.Null(foo2[1]);
+
+        var bar2 = unstacked["bar_2"].ToArray<string>();
+        Assert.Equal("e", bar2[0]);
+        Assert.Null(bar2[1]);
+    }
+
+    [Fact]
+    [Trait("DataFrame","UnstackHorizontal")]
+    public void Unstack_Horizontal_ShouldSortCorrectly()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            val = new[] { 10, 20, 30, 40, 50 }
+        });
+
+        using var unstacked = df.Unstack(step: 3, how: UnstackDirection.Horizontal);
+
+        // _0: 10, 40
+        // _1: 20, 50
+        // _2: 30, null
+        Assert.Equal(2, unstacked.Height);
+        Assert.Equal(3, unstacked.Width);
+
+        var val0 = unstacked["val_0"].ToArray<int?>();
+        Assert.Equal(10, val0[0]);
+        Assert.Equal(40, val0[1]);
+
+        var val1 = unstacked["val_1"].ToArray<int?>();
+        Assert.Equal(20, val1[0]);
+        Assert.Equal(50, val1[1]);
+
+        var val2 = unstacked["val_2"].ToArray<int?>();
+        Assert.Equal(30, val2[0]);
+        Assert.Null(val2[1]);
+    }
+
+    [Fact]
+    [Trait("DataFrame","UnstackVerticalBroadcast")]
+    public void Unstack_Vertical_WithCustomFillValues_ShouldBroadcastAndFill()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            id = new[] { 1, 2, 3 },
+            name = new[] { "Alice", "Bob", "Charlie" }
+        });
+
+
+        object?[] fills = [-1, "Unknown"];
+        using var unstacked = df.Unstack(step: 2, how: UnstackDirection.Vertical, fillValues: fills);
+
+        // Assert
+        Assert.Equal(2, unstacked.Height);
+
+        var id1 = unstacked["id_1"].ToArray<int?>();
+        Assert.Equal(3, id1[0]);
+        Assert.Equal(-1, id1[1]);
+
+        var name1 = unstacked["name_1"].ToArray<string>();
+        Assert.Equal("Charlie", name1[0]);
+        Assert.Equal("Unknown", name1[1]);
+    }
+
+    [Fact]
+    [Trait("DataFrame","UnstackSelected")]
+    public void Unstack_WithSpecificColumns_ShouldOnlyUnstackSelected()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            A = new[] { 1, 2, 3 },
+            B = new[] { 4, 5, 6 },
+            C = new[] { 7, 8, 9 }
+        });
+
+        using var unstacked = df.Unstack(step: 2, columns: ["A", "C"]);
+
+        // Assert
+        Assert.Equal(4, unstacked.Width); // A_0, A_1, C_0, C_1
+        Assert.Contains("A_0", unstacked.Columns);
+        Assert.Contains("C_0", unstacked.Columns);
+        Assert.DoesNotContain("B_0", unstacked.Columns);
     }
 }

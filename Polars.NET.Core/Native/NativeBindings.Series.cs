@@ -400,6 +400,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_sub(SeriesHandle s1, SeriesHandle s2);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_mul(SeriesHandle s1, SeriesHandle s2);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_div(SeriesHandle s1, SeriesHandle s2);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_rem(SeriesHandle s1, SeriesHandle s2);
 
     // Comparison
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_eq(SeriesHandle s1, SeriesHandle s2);

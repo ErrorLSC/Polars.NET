@@ -800,6 +800,29 @@ public partial class Expr : IDisposable
     /// <returns>A new expression with filtered values.</returns>
     public Expr Filter(Expr predicate)
         => new(PolarsWrapper.Filter(CloneHandle(),predicate.CloneHandle()));
+
+    // ==========================================
+    // Extend Constant
+    // ==========================================
+    /// <summary>
+    /// Extremely fast method for extending the Series with ‘n’ copies of a value.
+    /// </summary>
+    /// <param name="value">A constant literal value or a unit expression with which to extend the expression result Series; can pass None to extend with nulls.</param>
+    /// <param name="n">The number of additional values that will be added.</param>
+    /// <returns></returns>
+    public Expr ExtendConstant(Expr value,Expr n)
+        => new(PolarsWrapper.ExtendConstant(CloneHandle(),value.CloneHandle(),n.CloneHandle()));
+    /// <summary>
+    /// Extend the column with a constant value (Syntax Sugar).
+    /// </summary>
+    public Expr ExtendConstant(object value, ulong n)
+        => ExtendConstant(MakeLit(value), MakeLit(n));
+
+    /// <summary>
+    /// Extend the column with a constant value (Syntax Sugar for int).
+    /// </summary>
+    public Expr ExtendConstant(object value, int n)
+        => ExtendConstant(MakeLit(value), MakeLit(n));
     // ==========================================
     // Casting
     // ==========================================

@@ -206,7 +206,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     public DataFrame Select(params string[] columns) => Lazy().Select(columns).Collect();
     /// <summary>
-    /// Select columns by name (convenience overload).
+    /// Select columns by expressions (convenience overload).
     /// </summary>
     public DataFrame Select(IEnumerable<Expr> exprs) => Lazy().Select(exprs).Collect();
     

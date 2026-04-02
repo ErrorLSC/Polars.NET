@@ -481,6 +481,12 @@ public enum SizeUnit
     Terabytes
 }
 
+public enum UnstackDirection
+{
+    Vertical,
+    Horizontal
+}
+
 internal static class EnumExtensions
 {
     internal static CoreEnums.PlDataType ToNative(this DataTypeKind kind) => kind switch

@@ -1059,6 +1059,16 @@ public readonly partial struct PolarsWrapper
         
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle ExtendConstant(ExprHandle e, ExprHandle value, ExprHandle n)
+    {
+        var h = NativeBindings.pl_expr_extend_constant(e, value, n);
+        
+        e.TransferOwnership();
+        value.TransferOwnership();
+        n.TransferOwnership();
+        
+        return ErrorHelper.Check(h);
+    }
     public static ExprHandle SqlExpr(string sql)
         =>ErrorHelper.Check(NativeBindings.pl_expr_sql(sql));
     public static ExprHandle Gather(ExprHandle expr,ExprHandle idx)

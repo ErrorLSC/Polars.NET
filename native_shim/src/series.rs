@@ -1384,6 +1384,7 @@ impl_series_arithmetic_op!(pl_series_add, +);
 impl_series_arithmetic_op!(pl_series_sub, -);
 impl_series_arithmetic_op!(pl_series_mul, *);
 impl_series_arithmetic_op!(pl_series_div, /);
+impl_series_arithmetic_op!(pl_series_rem, %);
 
 // ==========================================
 // Comparison Ops 

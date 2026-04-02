@@ -285,6 +285,7 @@ public readonly partial struct Polars
         }
         return current;
     }
+
     // ---------------------------------------------------------
     // Selectors Entry Points
     // ---------------------------------------------------------
