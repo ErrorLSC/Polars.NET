@@ -721,6 +721,13 @@ and DataFrame(handle: DataFrameHandle) =
     /// </summary>
     member this.VStack(other: DataFrame) : DataFrame =
         new DataFrame(PolarsWrapper.VStack(this.Handle, other.Handle))
+    /// <summary>
+    /// Extend another DataFrame to this one.
+    /// Checks that the schema matches. NChunks wont't change.
+    /// </summary>
+    member this.Extend(other: DataFrame) : DataFrame =
+        PolarsWrapper.DataFrameExtend(this.Handle, other.Handle)
+        this
 
     // ==========================================
     // Printing / String Representation

@@ -27,6 +27,7 @@ module SeriesOperationExtensions =
         /// <param name="other">Series to extend the series with.</param>
         member this.Extend(other:Series) = 
             PolarsWrapper.SeriesExtend(this.Handle,other.Handle)
+            this
 
         /// <summary>
         /// Explode a list column into multiple rows.
