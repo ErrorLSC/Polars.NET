@@ -29,7 +29,7 @@ public readonly struct IntoExpr
     }
 
     /// <summary>
-    /// 智能消耗 Expr，确保内存绝对安全。
+    /// Consume generated Expr
     /// </summary>
     public Expr Consume()
     {

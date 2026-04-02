@@ -102,7 +102,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     // Transformations
     // ==========================================
     /// <summary>
-    /// Select specific columns or expressions.
+    /// Select columns from the LazyFrame.
+    /// Accepts Expr, Selector, or string column names.
     /// </summary>
     /// <example>
     /// <code>
@@ -110,27 +111,61 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// lf.Select(Col("a"), (Col("b") * 2).Alias("b_double"));
     /// </code>
     /// </example>
-    public LazyFrame Select(params Expr[] exprs)
-    {
-        var lfClone = CloneHandle();
-        var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
-        return new LazyFrame(PolarsWrapper.LazySelect(lfClone, handles));
-    }
-    /// <summary>
-    /// Select columns from the LazyFrame.
-    /// Accepts Expr, Selector, or string column names.
-    /// </summary>
     public LazyFrame Select(params IntoExpr[] exprs)
     {
         if (exprs.Length == 0) return this;
 
-        var nativeExprs = new Expr[exprs.Length];
+        var handles = new ExprHandle[exprs.Length];
         for (int i = 0; i < exprs.Length; i++)
         {
-            nativeExprs[i] = exprs[i].Consume();
+            using var safeExpr = exprs[i].Consume();
+            handles[i] = PolarsWrapper.CloneExpr(safeExpr.Handle);
         }
 
-        return Select(nativeExprs); 
+        return new LazyFrame(PolarsWrapper.LazySelect(CloneHandle(), handles));
+    }
+    /// <summary>
+    /// Bridge overload to support C# 12 collection expressions.
+    /// Usage: lf.Select(["Id", "Name", "Date"])
+    /// </summary>
+    public LazyFrame Select(IEnumerable<string> columns)
+    {
+        var cols = columns as string[] ?? [.. columns];
+        if (cols.Length == 0) return this;
+
+        var intoExprs = new IntoExpr[cols.Length];
+        for (int i = 0; i < cols.Length; i++)
+        {
+            intoExprs[i] = cols[i]; 
+        }
+
+        return Select(intoExprs);
+    }
+
+    /// <summary>
+    /// Select columns from the LazyFrame by column names.
+    /// </summary>
+    public LazyFrame Select(params string[] columns)
+    {
+        if (columns.Length == 0) return this;
+        return Select((IEnumerable<string>)columns);
+    }
+    /// <summary>
+    /// Bridge overload to support dynamic LINQ generation of Expressions.
+    /// Usage: lf.Select(myColumns.Select(c => Pl.Col(c) * 2))
+    /// </summary>
+    public LazyFrame Select(IEnumerable<Expr> exprs)
+    {
+        var exprArray = exprs as Expr[] ?? [.. exprs];
+        if (exprArray.Length == 0) return this;
+
+        var handles = new ExprHandle[exprArray.Length];
+        for (int i = 0; i < exprArray.Length; i++)
+        {
+            handles[i] = PolarsWrapper.CloneExpr(exprArray[i].Handle);
+        }
+
+        return new LazyFrame(PolarsWrapper.LazySelect(CloneHandle(), handles));
     }
     /// <summary>
     /// Filter rows based on a boolean expression.

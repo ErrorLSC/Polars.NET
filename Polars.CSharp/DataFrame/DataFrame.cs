@@ -151,7 +151,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// The result will only contain the columns specified in the expression list.
     /// </para>
     /// </summary>
-    /// <param name="exprs">A list of expressions defining the columns to select or compute.</param>
+    /// <param name="columns">A list of expressions defining the columns to select or compute.</param>
     /// <returns>A new DataFrame containing only the selected/computed columns.</returns>
     /// <example>
     /// <code>
@@ -183,7 +183,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// */
     /// </code>
     /// </example>
-    public DataFrame Select(params Expr[] exprs) => Lazy().Select(exprs).Collect();
+    public DataFrame Select(params IntoExpr[] columns) => Lazy().Select(columns).Collect();
     /// <summary>
     /// Select columns by name (convenience overload).
     /// <para>
@@ -193,10 +193,18 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="columns">The names of the columns to select.</param>
     /// <returns>A new DataFrame containing only the selected columns.</returns>
     /// <remarks>
-    /// For more advanced selections (renaming, calculations), use <see cref="Select(Expr[])"/>.
+    /// For more advanced selections (renaming, calculations), use <see cref="Select(IntoExpr[])"/>.
     /// </remarks>
-    /// <seealso cref="Select(Expr[])"/>
-    public DataFrame Select(params IntoExpr[] columns) => Lazy().Select(columns).Collect();
+    public DataFrame Select(IEnumerable<string> columns) => Lazy().Select(columns).Collect();
+    /// <summary>
+    /// Select columns by name (convenience overload).
+    /// </summary>
+    public DataFrame Select(params string[] columns) => Lazy().Select(columns).Collect();
+    /// <summary>
+    /// Select columns by name (convenience overload).
+    /// </summary>
+    public DataFrame Select(IEnumerable<Expr> exprs) => Lazy().Select(exprs).Collect();
+    
     /// <summary>
     /// Filter rows based on a boolean expression (predicate).
     /// <para>
@@ -247,7 +255,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <summary>
     /// Add new columns to the DataFrame or replace existing ones using expressions.
     /// <para>
-    /// Unlike <see cref="Select(Expr[])"/>, this method keeps all original columns in the DataFrame 
+    /// Unlike <see cref="Select(IntoExpr[])"/>, this method keeps all original columns in the DataFrame 
     /// and appends the new ones (or replaces them if the names match).
     /// </para>
     /// </summary>

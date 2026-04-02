@@ -235,7 +235,7 @@ public partial class Expr : IDisposable
     /// Behavior depends on context:
     /// <list type="bullet">
     /// <item>In <see cref="DataFrame.GroupBy(Expr[])"/>: Calculates the sum for each group.</item>
-    /// <item>In <see cref="DataFrame.Select(Expr[])"/>: Calculates the sum of the entire column (scalar result).</item>
+    /// <item>In <see cref="DataFrame.Select(IntoExpr[])"/>: Calculates the sum of the entire column (scalar result).</item>
     /// </list>
     /// </para>
     /// </summary>
@@ -907,7 +907,7 @@ public partial class Expr : IDisposable
     /// This turns a list column into a long column (flattening).
     /// </para>
     /// <para>
-    /// <b>Warning:</b> When used in <see cref="DataFrame.Select(Expr[])"/> with other columns, 
+    /// <b>Warning:</b> When used in <see cref="DataFrame.Select(IntoExpr[])"/> with other columns, 
     /// it may cause a length mismatch error if the other columns are not broadcasted. 
     /// Use <see cref="DataFrame.Explode(string[])"/> for safely exploding columns while repeating others.
     /// </para>

@@ -629,7 +629,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         
         selection.AddRange(existingCols.Except(priorityCols));
         
-        return df.Select(selection.Select(Polars.Col).ToArray());
+        return df.Select(selection);
     }
     /// <summary>
     /// Dispose handle

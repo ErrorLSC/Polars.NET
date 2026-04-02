@@ -6,38 +6,48 @@ namespace Polars.CSharp;
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
     /// <summary>
-    /// Sort the LazyFrame by a single column.
+    /// Master method: Sort by multiple Expressions with optional parallel boolean arrays.
     /// </summary>
-    public LazyFrame Sort(
-        string column, 
-        bool descending = false, 
-        bool nullsLast = false, 
-        bool maintainOrder = false)
-        => Sort([Pl.Col(column)], [descending], [nullsLast], maintainOrder);
+    public LazyFrame Sort(IEnumerable<Expr> exprs, bool[]? descending = null, bool[]? nullsLast = null, bool maintainOrder = false)
+    {
+        var exprArray = exprs as Expr[] ?? [.. exprs];
+        if (exprArray.Length == 0) return this;
+
+        var desc = descending ?? [false];
+        var nulls = nullsLast ?? [false];
+
+        var clonedHandles = new ExprHandle[exprArray.Length];
+        for (int i = 0; i < exprArray.Length; i++)
+        {
+            clonedHandles[i] = PolarsWrapper.CloneExpr(exprArray[i].Handle);
+        }
+
+        var h = PolarsWrapper.LazyFrameSort(CloneHandle(), clonedHandles, desc, nulls, maintainOrder);
+        return new LazyFrame(h);
+    }
     /// <summary>
-    /// Sort using a single expression.
+    /// Sort by multiple columns with specific descending directions using Tuples.
+    /// Usage: lf.Sort( ("Age", true), ("Name", false), (Cs.Numeric(), true) )
     /// </summary>
-    public LazyFrame Sort(
-        Expr expr, 
-        bool descending = false, 
-        bool nullsLast = false, 
-        bool maintainOrder = false)
-        => Sort([expr], [descending], [nullsLast], maintainOrder);
-    
-    /// <summary>
-    /// Sort using multiple exprs and single option.
-    /// </summary>
-    /// <param name="exprs"></param>
-    /// <param name="descending"></param>
-    /// <param name="nullsLast"></param>
-    /// <param name="maintainOrder"></param>
-    /// <returns></returns>
-    public LazyFrame Sort(
-        Expr[] exprs, 
-        bool descending = false, 
-        bool nullsLast = false, 
-        bool maintainOrder = false)
-        => Sort(exprs, [descending], [nullsLast], maintainOrder);
+    public LazyFrame Sort(params (IntoExpr By, bool Descending)[] sortConfigs)
+    {
+        if (sortConfigs.Length == 0) return this;
+
+        var handles = new ExprHandle[sortConfigs.Length];
+        var descArray = new bool[sortConfigs.Length];
+        var nullsArray = new bool[sortConfigs.Length]; 
+
+        for (int i = 0; i < sortConfigs.Length; i++)
+        {
+            using var safeExpr = sortConfigs[i].By.Consume();
+            handles[i] = PolarsWrapper.CloneExpr(safeExpr.Handle);
+            descArray[i] = sortConfigs[i].Descending;
+            nullsArray[i] = false; 
+        }
+
+        var h = PolarsWrapper.LazyFrameSort(CloneHandle(), handles, descArray, nullsArray, maintainOrder: false);
+        return new LazyFrame(h);
+    }
     
     /// <summary>
     /// Sort the LazyFrame by multiple columns (all ascending or all descending).
@@ -47,7 +57,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         bool descending = false, 
         bool nullsLast = false, 
         bool maintainOrder = false)
-        => Sort(columns.Select(Pl.Col).ToArray(), [descending], [nullsLast], maintainOrder);
+        => Sort([.. columns.Select(Pl.Col)], [descending], [nullsLast], maintainOrder);
 
     /// <summary>
     /// Lazily sort the DataFrame by multiple columns.
@@ -60,7 +70,6 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// <param name="descending">Sort order for each column.</param>
     /// <param name="nullsLast">Whether nulls go last for each column.</param>
     /// <param name="maintainOrder">Whether to maintain the relative order of rows with equal keys.</param>
-    /// <seealso cref="DataFrame.Sort(string[], bool[], bool[], bool)"/>
     /// <example>
     /// <code>
     /// df.Lazy()
@@ -84,35 +93,30 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// */
     /// </code>
     /// </example>
-    public LazyFrame Sort(
-        string[] columns, 
-        bool[] descending, 
-        bool[] nullsLast, 
-        bool maintainOrder = false)
-        => Sort(columns.Select(Pl.Col).ToArray(), descending, nullsLast, maintainOrder);
+    public LazyFrame Sort(IEnumerable<string> columns, bool descending = false, bool nullsLast = false, bool maintainOrder = false)
+    {
+        var cols = columns as string[] ?? [.. columns];
+        if (cols.Length == 0) return this;
+
+        var exprHandles = new ExprHandle[cols.Length];
+        for (int i = 0; i < cols.Length; i++) 
+        {
+            exprHandles[i] = PolarsWrapper.CloneExpr(Pl.Col(cols[i]).Handle);
+        }
+
+        var h = PolarsWrapper.LazyFrameSort(CloneHandle(), exprHandles, [descending], [nullsLast], maintainOrder);
+        return new LazyFrame(h);
+    }
 
     /// <summary>
     /// Sort the LazyFrame by multiple exprs.
     /// </summary>
-    public LazyFrame Sort(
-        Expr[] exprs, 
-        bool[] descending, 
-        bool[] nullsLast, 
-        bool maintainOrder = false)
+    public LazyFrame Sort(IntoExpr by, bool descending = false, bool nullsLast = false, bool maintainOrder = false)
     {
-        var clonedHandles = new ExprHandle[exprs.Length];
-        for (int i = 0; i < exprs.Length; i++)
-        {
-            clonedHandles[i] = PolarsWrapper.CloneExpr(exprs[i].Handle);
-        }
-
-        var h = PolarsWrapper.LazyFrameSort(
-            Handle, 
-            clonedHandles, 
-            descending, 
-            nullsLast, 
-            maintainOrder
-        );
+        using var safeExpr = by.Consume();
+        
+        var handles = new[] { PolarsWrapper.CloneExpr(safeExpr.Handle) };
+        var h = PolarsWrapper.LazyFrameSort(CloneHandle(), handles, [descending], [nullsLast], maintainOrder);
         
         return new LazyFrame(h);
     }
@@ -124,33 +128,17 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Sort the DataFrame by a single column.
     /// </summary>
     public DataFrame Sort(
-        string column, 
+        IntoExpr column, 
         bool descending = false, 
         bool nullsLast = false, 
         bool maintainOrder = false)
     {
-        return Sort(
-            [Polars.Col(column)], 
-            [descending], 
-            [nullsLast], 
+        return Lazy().Sort(
+            column, 
+            descending, 
+            nullsLast, 
             maintainOrder
-        );
-    }
-    /// <summary>
-    /// Sort the DataFrame by a single expr.
-    /// </summary>
-    public DataFrame Sort(
-        Expr expr, 
-        bool descending = false, 
-        bool nullsLast = false, 
-        bool maintainOrder = false)
-    {
-        return Sort(
-            [expr], 
-            [descending], 
-            [nullsLast], 
-            maintainOrder
-        );
+        ).Collect();
     }
     /// <summary>
     /// Sort the DataFrame by multiple columns (all ascending or all descending).
@@ -161,22 +149,20 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         bool nullsLast = false, 
         bool maintainOrder = false)
     {
-        var exprs = columns.Select(Polars.Col).ToArray();
-        return Sort(
-            exprs, 
-            [descending], 
-            [nullsLast], 
+        return Lazy().Sort(
+            columns, 
+            descending, 
+            nullsLast, 
             maintainOrder
-        );
+        ).Collect();
     }
-
     /// <summary>
     /// Sort the DataFrame by multiple columns with specific sort orders for each column.
     /// <para>
     /// This allows for complex sorting, such as sorting by Category (Ascending) and then by Price (Descending).
     /// </para>
     /// </summary>
-    /// <param name="columns">Names of the columns to sort by.</param>
+    /// <param name="columns">The columns to sort by.</param>
     /// <param name="descending">Array of booleans indicating sort order for each column (false=Ascending, true=Descending).</param>
     /// <param name="nullsLast">Array of booleans indicating whether nulls should be placed at the end for each column.</param>
     /// <param name="maintainOrder">Whether to maintain the relative order of rows with equal keys (stable sort). Expensive.</param>
@@ -213,38 +199,13 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// */
     /// </code>
     /// </example>
-    public DataFrame Sort(
-        string[] columns, 
-        bool[] descending, 
-        bool[] nullsLast, 
-        bool maintainOrder = false)
-    {
-        var exprs = columns.Select(Polars.Col).ToArray();
-        return Sort(exprs, descending, nullsLast, maintainOrder);
-    }
-
+    public DataFrame Sort(IEnumerable<string> columns, bool descending = false, bool nullsLast = false, bool maintainOrder = false)
+        => Lazy().Sort(columns,descending,nullsLast,maintainOrder).Collect();
     /// <summary>
-    /// Sort using multiple expressions (all ascending or all descending).
+    /// Master method: Sort by multiple Expressions with optional parallel boolean arrays.
     /// </summary>
     public DataFrame Sort(
-        Expr[] exprs, 
-        bool descending = false, 
-        bool nullsLast = false, 
-        bool maintainOrder = false)
-    {
-        return Sort(
-            exprs, 
-            [descending], 
-            [nullsLast], 
-            maintainOrder
-        );
-    }
-
-    /// <summary>
-    /// Sort the DataFrame by multiple columns.
-    /// </summary>
-    public DataFrame Sort(
-        Expr[] exprs, 
+        IEnumerable<Expr> exprs, 
         bool[] descending, 
         bool[] nullsLast, 
         bool maintainOrder = false)
@@ -258,4 +219,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         
         return lf.Collect();
     }
+    /// <summary>
+    /// Sort by multiple columns with specific descending directions using Tuples.
+    /// Usage: df.Sort( ("Age", true), ("Name", false), (Cs.Numeric(), true) )
+    /// </summary>
+    public DataFrame Sort(params (IntoExpr By, bool Descending)[] sortConfigs)
+        => Lazy().Sort(sortConfigs).Collect();
+
 }

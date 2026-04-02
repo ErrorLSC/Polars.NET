@@ -284,7 +284,7 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
         => new(PolarsWrapper.NewListType(innerType.Handle), DataTypeKind.List);
     /// <summary>
     /// Create a Fixed-Size List (Array) data type.
-    /// <para>Example: DataType.Array(DataType.Int32, 3)</para>
+    /// <para>Example: DataType.Array(DataType.Int32, 3),DataType.Array(typeof(int), 3) </para>
     /// </summary>
     /// <param name="inner">The data type of the elements.</param>
     /// <param name="width">The fixed length of the array.</param>

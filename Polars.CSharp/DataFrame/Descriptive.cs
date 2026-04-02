@@ -94,7 +94,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
                     exprs.Add(op(col));
                 }
 
-                rowFrames.Add(Select(exprs.ToArray()));
+                rowFrames.Add(Select(exprs));
             }
 
             return Concat(rowFrames);

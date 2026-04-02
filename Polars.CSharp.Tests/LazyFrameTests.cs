@@ -525,10 +525,10 @@ David,40,80000";
         
         using var df = DataFrame.FromColumns(new { raw1 = data1, raw2 = data2 })
             .Select(
-                Col("raw1").Cast(DataType.Array(DataType.Int32, 2)).Array.ToStruct().Alias("s1"),
+                Col("raw1").Cast(DataType.Array(typeof(int), 2)).Array.ToStruct().Alias("s1"),
                 
                 // s2 : field_0 -> other_0, field_1 -> other_1
-                Col("raw2").Cast(DataType.Array(DataType.Int32, 2)).Array.ToStruct()
+                Col("raw2").Cast(DataType.Array(typeof(int), 2)).Array.ToStruct()
                     .Struct.RenameFields("other_0", "other_1") 
                     .Alias("s2")
             );
@@ -686,14 +686,13 @@ David,40,80000";
             });
         var lf = df.Lazy();
 
-        var expectedColumnsDf = new Series("product", ["Banana", "Apple"]).ToFrame(); 
+        var expectedColumns = new Series("product", ["Banana", "Apple"]); 
 
-        // 3. 执行 Lazy Pivot
         var pivotedLf = lf.Pivot(
-            index: ["date"],          
-            columns:["product"],     
-            values: ["sales"],       
-            onColumns: expectedColumnsDf,
+            index: "date",          
+            on:"product",     
+            values: "sales",       
+            onColumns: expectedColumns,
             aggregateFunction: PivotAgg.Sum, 
             maintainOrder: true         
         );
