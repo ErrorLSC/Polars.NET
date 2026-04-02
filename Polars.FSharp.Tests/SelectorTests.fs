@@ -106,14 +106,14 @@ type SelectorTests() =
         
         let dfTransformed = 
             df.Select([
-                !> pl.cs.numeric()
+                pl.cs.numeric()
                     .ToExpr()
                     .Truediv(pl.lit 100.0)
                     .Name.Suffix("_pct")
                 
-                !> pl.cs.byType(pl.string).ToExpr().Str.ToUpper()
+                pl.cs.byType(pl.string).ToExpr().Str.ToUpper()
                 
-                !> ~~~(pl.cs.numeric() ||| pl.cs.byType pl.string)
+                (~~~(pl.cs.numeric() ||| pl.cs.byType pl.string)).ToExpr()
             ])
 
         Assert.Contains("Age_pct", dfTransformed.Columns)

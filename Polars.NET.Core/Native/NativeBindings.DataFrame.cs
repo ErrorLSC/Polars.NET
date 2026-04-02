@@ -90,6 +90,13 @@ unsafe internal partial class NativeBindings
         UIntPtr len,
         string? separator
     );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial DataFrameHandle pl_dataframe_explode(
+        DataFrameHandle df,
+        string[] cols,
+        UIntPtr len,
+        [MarshalAs(UnmanagedType.U1)] bool emptyAsNull,
+        [MarshalAs(UnmanagedType.U1)] bool keepNulls);
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_select(DataFrameHandle df, IntPtr[] exprs, UIntPtr len);
     [LibraryImport(LibName)] 

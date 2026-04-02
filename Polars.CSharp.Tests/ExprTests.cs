@@ -373,6 +373,7 @@ TooShort,1990-05-20,1.60";
     // Cast Ops: Int to Float, String to Int
     // ==========================================
     [Fact]
+    [Trait("Expr","Cast")]
     public void Cast_Ops_Int_To_Float_String_To_Int()
     {
         using var csv = new DisposableFile("val_str,val_int\n100,10\n200,20",".csv");
@@ -380,10 +381,10 @@ TooShort,1990-05-20,1.60";
 
         using var res = df.Select(
             // 1. String -> Int64
-            Col("val_str").Cast(DataType.Int64).Alias("str_to_int"),
+            Col("val_str").Cast(typeof(long)).Alias("str_to_int"),
             
             // 2. Int64 -> Float64
-            Col("val_int").Cast(DataType.Float64).Alias("int_to_float")
+            Col("val_int").Cast(typeof(double)).Alias("int_to_float")
         );
 
         long v1 = res.Column("str_to_int").GetValue<long>(0);

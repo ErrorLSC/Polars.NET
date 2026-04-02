@@ -1954,7 +1954,7 @@ and Selector(handle: SelectorHandle) =
     /// </summary>
     member this.ToExpr() =
         new Expr(PolarsWrapper.SelectorToExpr(this.CloneHandle()))
-
+    static member Float() = new Selector(PolarsWrapper.SelectorFloat());
     interface IColumnExpr with
         member this.ToExprs() = [this.ToExpr()]
 

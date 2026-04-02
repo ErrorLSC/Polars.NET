@@ -117,13 +117,20 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         return new LazyFrame(PolarsWrapper.LazySelect(lfClone, handles));
     }
     /// <summary>
-    /// Select columns by name.
-    /// <para>Syntactic sugar for <c>Select(Expr.Col(name))</c>.</para>
+    /// Select columns from the LazyFrame.
+    /// Accepts Expr, Selector, or string column names.
     /// </summary>
-    public LazyFrame Select(params string[] columns)
+    public LazyFrame Select(params IntoExpr[] exprs)
     {
-        var exprs = columns.Select(Pl.Col).ToArray();
-        return Select(exprs);
+        if (exprs.Length == 0) return this;
+
+        var nativeExprs = new Expr[exprs.Length];
+        for (int i = 0; i < exprs.Length; i++)
+        {
+            nativeExprs[i] = exprs[i].Consume();
+        }
+
+        return Select(nativeExprs); 
     }
     /// <summary>
     /// Filter rows based on a boolean expression.
@@ -191,32 +198,53 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <returns></returns>
     public LazyFrame Filter(IEnumerable<bool> mask)
         => Filter(Pl.Lit(mask)); 
+    // /// <summary>
+    // /// Add or modify columns based on expressions.
+    // /// </summary>
+    // /// <example>
+    // /// <code>
+    // /// // Add a new column "c" while keeping "a" and "b"
+    // /// lf.WithColumns((Col("a") + Col("b")).Alias("c"));
+    // /// </code>
+    // /// </example>
+    // public LazyFrame WithColumns(params Expr[] exprs)
+    // {
+    //     var lfClone = CloneHandle();
+    //     var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
+    //     return new LazyFrame(PolarsWrapper.LazyWithColumns(lfClone, handles));
+    // }
+    // /// <summary>
+    // /// Add or modify columns based on series. Series will be converted to Expressions implicitly
+    // /// </summary>
+    // public LazyFrame WithColumns(params Series[] series)
+    // {
+    //     var exprs = new Expr[series.Length];
+    //     for (int i = 0; i < series.Length; i++)
+    //     {
+    //         exprs[i] = Pl.Lit(series[i]);
+    //     }
+    //     return WithColumns(exprs);
+    // }
     /// <summary>
-    /// Add or modify columns based on expressions.
+    /// Add or modify columns based on Expressions, Strings, Selectors, or Series.
     /// </summary>
     /// <example>
     /// <code>
-    /// // Add a new column "c" while keeping "a" and "b"
-    /// lf.WithColumns((Col("a") + Col("b")).Alias("c"));
+    /// // Add a new column "c", overwrite with a Series, and select a string column!
+    /// lf.WithColumns(Pl.Col("a") + 1, mySeries, "ExistingCol", Cs.Numeric() * 2);
     /// </code>
     /// </example>
-    public LazyFrame WithColumns(params Expr[] exprs)
+    public LazyFrame WithColumns(params IntoExpr[] exprs)
     {
-        var lfClone = CloneHandle();
-        var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
-        return new LazyFrame(PolarsWrapper.LazyWithColumns(lfClone, handles));
-    }
-    /// <summary>
-    /// Add or modify columns based on series. Series will be converted to Expressions implicitly
-    /// </summary>
-    public LazyFrame WithColumns(params Series[] series)
-    {
-        var exprs = new Expr[series.Length];
-        for (int i = 0; i < series.Length; i++)
+        if (exprs.Length == 0) return this;
+
+        var handles = new ExprHandle[exprs.Length];
+        for (int i = 0; i < exprs.Length; i++)
         {
-            exprs[i] = Pl.Lit(series[i]);
+            handles[i] = PolarsWrapper.CloneExpr(exprs[i].Consume().Handle);
         }
-        return WithColumns(exprs);
+
+        return new LazyFrame(PolarsWrapper.LazyWithColumns(CloneHandle(), handles));
     }
     /// <summary>
     /// Slice the LazyFrame.
@@ -283,6 +311,14 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         using var selector = Cs.ByName(columnsArray);
         
         return Unique(selector, keep, maintainOrder);
+    }
+    /// <summary>
+    /// Keep unique rows based on a subset of columns (Selector, strings, Types, etc.).
+    /// </summary>
+    public LazyFrame Unique(IntoSelector subset, UniqueKeepStrategy keep = UniqueKeepStrategy.First, bool maintainOrder = false)
+    {
+        using var selector = subset.Consume();
+        return new(PolarsWrapper.LazyUnique(CloneHandle(), selector.CloneHandle(), keep.ToNative(), maintainOrder));
     }
     /// <summary>
     /// Get an explanation of the optimized query plan.

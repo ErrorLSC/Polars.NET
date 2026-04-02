@@ -127,6 +127,9 @@ public readonly partial struct PolarsWrapper
     }
     public static DataFrameHandle Unnest(DataFrameHandle df, string[] columns,string? separator)
         => ErrorHelper.Check(NativeBindings.pl_dataframe_unnest(df, columns, (UIntPtr)columns.Length,separator));
+    public static DataFrameHandle Explode(DataFrameHandle df, string[] columns,bool emptyAsNull,bool keepNulls)
+        => ErrorHelper.Check(NativeBindings.pl_dataframe_explode(df, columns, (UIntPtr)columns.Length,emptyAsNull,keepNulls));
+    
     // Pivot (Eager)
     public static DataFrameHandle Pivot(
         DataFrameHandle df, 

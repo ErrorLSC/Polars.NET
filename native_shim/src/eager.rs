@@ -574,6 +574,35 @@ pub extern "C" fn pl_dataframe_unnest(
         Ok(Box::into_raw(Box::new(result_df)))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_explode(
+    df: *mut DataFrame,
+    cols: *const *const c_char,
+    len: usize,
+    empty_as_null: bool,
+    keep_nulls: bool,
+) -> *mut DataFrame {
+    ffi_try!({
+        let df = unsafe { &*df };
+        
+        let cols_slice = unsafe { std::slice::from_raw_parts(cols, len) };
+        
+        let names = cols_slice
+            .iter()
+            .map(|&ptr| unsafe { CStr::from_ptr(ptr).to_str().unwrap() });
+
+        let options = ExplodeOptions {
+            empty_as_null,
+            keep_nulls
+        };
+
+        let result_df = df.explode(names, options)?;
+
+        Ok(Box::into_raw(Box::new(result_df)))
+    })
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_get_column(
     ptr: *mut DataFrameContext, 

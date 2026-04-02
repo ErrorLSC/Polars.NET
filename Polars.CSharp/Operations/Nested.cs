@@ -5,36 +5,44 @@ namespace Polars.CSharp;
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
     /// <summary>
-    /// Lazily unnest struct columns.
-    /// <para>
-    /// Currently uses a Selector to perform the unnesting.
-    /// </para>
+    /// Lazily unnest struct columns using a Selector, String, DataType, or Expr.
+    /// Usage: lf.Unnest("User") or lf.Unnest("User", separator: "_")
     /// </summary>
-    /// <seealso cref="DataFrame.Unnest(string[], string?)"/>
-    /// <example>
-    /// <code>
-    /// df.Lazy()
-    ///   .Unnest("User")
-    ///   .Collect();
-    /// </code>
-    /// </example>
-    public LazyFrame Unnest(Selector selector,string? separator = null)
+    public LazyFrame Unnest(IntoSelector columns, string? separator = null)
     {
-        var lfClone = CloneHandle();
-        var sClone = selector.CloneHandle();
-        var h = PolarsWrapper.LazyFrameUnnest(lfClone, sClone,separator);
+        using var selector = columns.Consume();
+        var h = PolarsWrapper.LazyFrameUnnest(CloneHandle(), selector.CloneHandle(), separator);
+        return new LazyFrame(h);
+    }
+
+    /// <summary>
+    /// Lazily unnest specific struct columns.
+    /// Bridge overload to support C# 12 collection expressions.
+    /// Usage: lf.Unnest(["User", "Profile"]) or lf.Unnest(["User", "Profile"], separator: "_")
+    /// </summary>
+    public LazyFrame Unnest(IEnumerable<string> columns, string? separator = null)
+    {
+        var colsArray = columns as string[] ?? [.. columns];
+        if (colsArray.Length == 0) return this;
+        
+        using var selector = Cs.ByName(colsArray);
+        var h = PolarsWrapper.LazyFrameUnnest(CloneHandle(), selector.CloneHandle(), separator);
         return new LazyFrame(h);
     }
     /// <summary>
-    /// Unnest specific struct columns by name.
-    /// (Syntactic sugar for Unnest(Cs.ByName(...)))
+    /// Lazily unnest specific struct columns.
+    /// Bridge overload to support C# 12 collection expressions.
+    /// Usage: lf.Unnest(["User", "Profile"]) or lf.Unnest(["User", "Profile"], separator: "_")
     /// </summary>
     public LazyFrame Unnest(params string[] columns)
-        => Unnest(Cs.ByName(columns),null);
-        /// <summary>
+    {
+        if (columns.Length == 0) return this;
+        return Unnest(columns, null);
+    }
+    /// <summary>
     /// Explode list-like columns into multiple rows.
     /// </summary>
-    /// <param name="selector"></param>
+    /// <param name="columns">the columns need to be exploded</param>
     /// <param name="emptyAsNull">
     /// If <c>true</c>, empty lists are exploded into a single <c>null</c> value. 
     /// If <c>false</c>, rows with empty lists are removed from the result.
@@ -44,11 +52,23 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// If <c>false</c>, rows with <c>null</c> values are removed.
     /// </param>
     /// <returns></returns>
-    public LazyFrame Explode(Selector selector,bool emptyAsNull=true,bool keepNulls=true)
+    public LazyFrame Explode(IntoSelector columns, bool emptyAsNull = true, bool keepNulls = true)
     {
-        var lfClone = CloneHandle();
-        var sClone = selector.CloneHandle();
-        var h = PolarsWrapper.LazyExplode(lfClone, sClone,emptyAsNull,keepNulls);
+        using var safeSelector = columns.Consume();
+        var h = PolarsWrapper.LazyExplode(CloneHandle(), safeSelector.CloneHandle(), emptyAsNull, keepNulls);
+        return new LazyFrame(h);
+    }
+    /// <summary>
+    /// Bridge overload to support C# 12 collection expressions.
+    /// Usage: lf.Explode(["list1", "list2"]) or lf.Explode(["list1", "list2"], keepNulls: false)
+    /// </summary>
+    public LazyFrame Explode(IEnumerable<string> columns, bool emptyAsNull = true, bool keepNulls = true)
+    {
+        var colsArray = columns as string[] ?? [.. columns];
+        if (colsArray.Length == 0) return this;
+
+        using var selector = Cs.ByName(colsArray);
+        var h = PolarsWrapper.LazyExplode(CloneHandle(), selector.CloneHandle(), emptyAsNull, keepNulls);
         return new LazyFrame(h);
     }
     /// <summary>
@@ -95,9 +115,15 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// */
     /// </code>
     /// </example>
-    public DataFrame Unnest(string[] columns,string? separator=null)
+    public DataFrame Unnest(IntoSelector columns, string? separator = null)
     {
-        var newHandle = PolarsWrapper.Unnest(Handle, columns,separator);
+        using var safeSelector = columns.Consume();
+        
+        string[] resolvedColumns = Cs.ExpandSelector(this, safeSelector);
+
+        if (resolvedColumns.Length == 0) return this; 
+
+        var newHandle = PolarsWrapper.Unnest(Handle, resolvedColumns, separator);
         return new DataFrame(newHandle);
     }
     /// <summary>
@@ -108,6 +134,10 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </para>
     /// </summary>
     /// <param name="columns">The names of the struct columns to unnest.</param>
+    /// <param name="separator">
+    /// Optional separator to append to the struct field names (e.g., "struct_col.field"). 
+    /// If null, the field names replace the struct column name directly.
+    /// </param>
     /// <returns>A new DataFrame with the struct columns expanded.</returns>
     /// <example>
     /// <code>
@@ -137,7 +167,22 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// */
     /// </code>
     /// </example>
-    public DataFrame Unnest(params string[] columns) => Unnest(columns, separator: null);
+    public DataFrame Unnest(IEnumerable<string> columns, string? separator = null)
+    {
+        var colsArray = columns as string[] ?? [.. columns];
+        if (colsArray.Length == 0) return this;
+        
+        var newHandle = PolarsWrapper.Unnest(Handle, colsArray, separator);
+        return new DataFrame(newHandle);
+    }
+    /// <summary>
+    /// Decompose a struct column into multiple columns (one for each field in the struct).
+    /// </summary>
+    public DataFrame Unnest(params string[] columns)
+    {
+        if (columns.Length == 0) return this;
+        return Unnest(columns, null);
+    }
     /// <summary>
     /// Explode list/array columns into multiple rows.
     /// <para>
@@ -176,13 +221,13 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </example>
     public DataFrame Explode(params string[] columns)
     {
-        using var sel = Cs.ByName(columns);
-        return Explode(sel);
+        if (columns.Length == 0) return this;
+        return Explode((IEnumerable<string>)columns); 
     }
     /// <summary>
     /// Explode list/array columns into multiple rows using selector.
     /// </summary>
-    /// <param name="selector">Column Selector</param>
+    /// <param name="columns">Columns need to be exploded</param>
     /// <param name="emptyAsNull">
     /// If <c>true</c>, empty lists are exploded into a single <c>null</c> value. 
     /// If <c>false</c>, rows with empty lists are removed from the result.
@@ -192,10 +237,28 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// If <c>false</c>, rows with <c>null</c> values are removed.
     /// </param>
     /// <returns></returns>
-    public DataFrame Explode(Selector selector,bool emptyAsNull=true, bool keepNulls=true)
+    public DataFrame Explode(IntoSelector columns, bool emptyAsNull = true, bool keepNulls = true)
     {
-        var lf = Lazy().Explode(selector,emptyAsNull,keepNulls);
-        return lf.Collect();
+        using var safeSelector = columns.Consume();
+        
+        string[] resolvedColumns = Cs.ExpandSelector(this, safeSelector);
+        
+        if (resolvedColumns.Length == 0) return this;
+
+        var h = PolarsWrapper.Explode(Handle, resolvedColumns, emptyAsNull, keepNulls);
+        return new DataFrame(h);
+    }
+    /// <summary>
+    /// Bridge overload to support C# 12 collection expressions.
+    /// Usage: df.Explode(["list1", "list2"])
+    /// </summary>
+    public DataFrame Explode(IEnumerable<string> columns, bool emptyAsNull = true, bool keepNulls = true)
+    {
+        var colsArray = columns as string[] ?? columns.ToArray();
+        if (colsArray.Length == 0) return this;
+
+        var h = PolarsWrapper.Explode(Handle, colsArray, emptyAsNull, keepNulls);
+        return new DataFrame(h);
     }
  
 }

@@ -462,8 +462,8 @@ David,40,80000";
         var data = new[] 
         { 
             new[] { 1, 2 }, 
-            new[] { 10, 20 },
-            new[] { 100, 200 }
+            [10, 20],
+            [100, 200]
         };
 
         var df = DataFrame.FromColumns(new { raw = data });
@@ -500,6 +500,7 @@ David,40,80000";
     }
 
     [Fact]
+    [Trait("LazyFrame","UnnestReuseSelector")]
     public void Test_LazyFrame_Unnest_Reuse_Selector()
     {
         
@@ -516,6 +517,7 @@ David,40,80000";
     }
     
     [Fact]
+    [Trait("LazyFrame","UnnestMultipleCols")]
     public void Test_LazyFrame_Unnest_Multiple_Cols()
     {
         var data1 = new[] { new[] { 1, 2 } };
@@ -532,9 +534,8 @@ David,40,80000";
             );
 
         using var res = df.Lazy()
-            .Unnest("s1", "s2") 
+            .Unnest(["s1", "s2"],separator:null) 
             .Collect();
-
         // s1 : field_0, field_1
         // s2 : other_0, other_1
         Assert.True(res.Columns.Contains("field_0"));
@@ -632,7 +633,7 @@ David,40,80000";
         ]);
 
         var lf = df.Lazy();
-        var res = lf.DropNan()
+        var res = lf.DropNans()
                     .Collect();
 
         Assert.Equal(3, res.Width);
@@ -656,13 +657,13 @@ David,40,80000";
         var lf = df.Lazy();
         
         // Case A: Subset on "A", Keep First
-        var res1 = lf.Unique(Cs.ByName("A"), UniqueKeepStrategy.First)
+        var res1 = lf.Unique(Cs.ByIndex(0), UniqueKeepStrategy.First)
                      .Collect();
         
         Assert.Equal(2, res1.Height); 
         
         // Case B: Subset on All (null selector), Keep None (Drop all duplicates)
-        var res2 = lf.Unique(subset: null, keep: UniqueKeepStrategy.None,maintainOrder:true)
+        var res2 = lf.Unique(keep: UniqueKeepStrategy.None,maintainOrder:true)
                      .Collect();
                      
         Assert.Equal(2, res2.Height);

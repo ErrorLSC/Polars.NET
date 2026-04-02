@@ -325,6 +325,15 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// </summary>
     public static DataType Struct(params (string Name, DataType Type)[] fields)
         => Struct((IEnumerable<(string Name, DataType Type)>)fields);
+    
+    public Type GetNetType() => ArrowTypeResolver.GetNetTypeFromArrowType(GetArrowType());
+    public static DataType FromNetType<T>() => FromArrowType(ArrowTypeResolver.GetArrowTypeFromNetType(typeof(T)));
+    /// <summary>
+    /// Implicitly convert System.Type to Polars DataType.
+    /// Example: DataType dt = typeof(int); // dt is now DataType.Int32
+    /// </summary>
+    public static implicit operator DataType(Type type) 
+        => FromArrowType(ArrowTypeResolver.GetArrowTypeFromNetType(type));
     /// <summary>
     /// Get Apache Arrow Type
     /// </summary>

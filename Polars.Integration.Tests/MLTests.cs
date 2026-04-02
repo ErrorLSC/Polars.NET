@@ -290,7 +290,7 @@ public class DataViewConversionTests
         using var lf = LazyFrame.ScanParquet(hfUrl, cloudOptions: options);
         
         // sepal length (cm), sepal width (cm), petal length (cm), petal width (cm)     
-        using var cleanlf = lf.Cast((Cs.Float(),DataType.Float32));
+        using var cleanlf = lf.Cast((typeof(double),typeof(float)));
         using var cleanDf = cleanlf.WithColumns(ConcatArray(Cs.Float().ToExpr().Alias("Features"))).Collect();
 
         cleanDf.Show();

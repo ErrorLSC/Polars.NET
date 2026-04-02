@@ -23,7 +23,7 @@ public class DataFrameTests
         Assert.Equal(2, df.Width);
 
         using var resultDf = df.Select(
-            Col("id"), 
+            "id", 
             (Col("value") * 2.0).Alias("value_doubled")
         );
 
@@ -490,8 +490,8 @@ public class DataFrameTests
             .Alias("roll_mean");
 
         using var res = df.Select(
-            Col("date"),
-            Col("val"),
+            "date",
+            "val",
             rollExpr
         );
 
@@ -810,7 +810,7 @@ B,5";
             new { A = 1, B = "y" } // Duplicate on A
         ]);
         
-        var res2 = df2.Unique(["A"], UniqueKeepStrategy.Last);
+        var res2 = df2.Unique("A", UniqueKeepStrategy.Last);
         Assert.Equal(1, res2.Height);
         Assert.Equal("y", res2["B"][0]); // Should keep the last one ("y")
 
@@ -819,7 +819,7 @@ B,5";
         Assert.Equal(2, res3.Height); // A=2 and A=3 are unique. A=1 appears twice so both removed.
 
         // Unique by selector
-        var res4 = df2.Unique([Cs.Numeric()]);
+        var res4 = df2.Unique(Cs.Numeric());
         Assert.Equal(1, res4.Height);
 
     }

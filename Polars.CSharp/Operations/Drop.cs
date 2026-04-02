@@ -7,108 +7,105 @@ namespace Polars.CSharp;
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
     /// <summary>
-    /// Drop selected columns by selector.
+    /// Drop columns based on Strings, Selectors, Types, or Expressions.
+    /// Usage: lf.Drop("Id", "Name", Cs.Numeric(), typeof(float), Pl.Col("Status"));
     /// </summary>
-    /// <param name="selector"></param>
-    /// <returns></returns>
-    public LazyFrame Drop(Selector selector)
+    public LazyFrame Drop(params IntoSelector[] columnsToDrop)
     {
-        var lfClone = CloneHandle();
-        var sClone = selector.CloneHandle();
-        var h = PolarsWrapper.LazyFrameDrop(lfClone, sClone);
+        if (columnsToDrop.Length == 0) return this;
+
+        var combinedSelector = columnsToDrop[0].Consume();
+        for (int i = 1; i < columnsToDrop.Length; i++)
+        {
+            combinedSelector |= columnsToDrop[i].Consume();
+        }
+
+        using var sClone = combinedSelector.CloneHandle();
+        var h = PolarsWrapper.LazyFrameDrop(CloneHandle(), sClone);
+        
         return new LazyFrame(h);
     }
-    /// <summary>
-    /// Drop selected columns by column names.
-    /// </summary>
-    /// <param name="columns"></param>
-    /// <returns></returns>
-    public LazyFrame Drop(params string[] columns)
-        => Drop(Cs.ByName(columns));
 
     /// <summary>
-    /// Drop columns by specific Expressions.
+    /// Bridge overload to support C# 12 collection expressions.
+    /// Usage: lf.Drop(["Id", "Name"])
     /// </summary>
-    public LazyFrame Drop(params Expr[] exprs)
+    public LazyFrame Drop(IEnumerable<string> columns)
     {
-        ArgumentNullException.ThrowIfNull(exprs);
-
-        var currentLf = this;
-        foreach (var expr in exprs)
-        {
-            currentLf = currentLf.Drop(expr.ToSelector());
-        }
+        var colsArray = columns as string[] ?? [.. columns];
+        if (colsArray.Length == 0) return this;
         
-        return currentLf;
+        using var selector = Cs.ByName(colsArray);
+        return Drop(selector);
     }
     /// <summary>
-    /// Drop rows containing one or more Null values.
+    /// Drop rows containing one or more Null values in ALL columns.
     /// </summary>
-    /// <param name="subset">Optional subset of columns to consider. If null, evaluates all columns.</param>
-    public LazyFrame DropNulls(Selector? subset=null)
-    {
-        var lfClone = CloneHandle();
-        var sClone = subset?.CloneHandle();
-        var h = PolarsWrapper.LazyFrameDropNulls(lfClone, sClone);
-        return new LazyFrame(h);
-    }
-    /// <summary>
-    /// Drop rows with Nulls in specific columns.
-    /// </summary>
-    public LazyFrame DropNulls(params string[] subset)
-    {
-        if (subset == null || subset.Length == 0) return DropNulls((Selector?)null);
-        return DropNulls(Cs.ByName(subset));
-    }
-    /// <summary>
-    /// DropNulls columns by specific Expressions.
-    /// </summary>
-    public LazyFrame DropNulls(params Expr[] exprs)
-    {
-        ArgumentNullException.ThrowIfNull(exprs);
+    public LazyFrame DropNulls()
+        => new (PolarsWrapper.LazyFrameDropNulls(CloneHandle(), null));
 
-        var currentLf = this;
-        foreach (var expr in exprs)
+    /// <summary>
+    /// Drop rows with Nulls in a specific subset of columns (Selectors, Strings, Types, Exprs).
+    /// Usage: lf.DropNulls("Id", Cs.Numeric(), typeof(string), Pl.Col("Status"));
+    /// </summary>
+    public LazyFrame DropNulls(params IntoSelector[] subsets)
+    {
+        if (subsets.Length == 0) return DropNulls();
+
+        var combinedSelector = subsets[0].Consume();
+        for (int i = 1; i < subsets.Length; i++)
         {
-            currentLf = currentLf.DropNulls(expr.ToSelector());
+            combinedSelector |= subsets[i].Consume();
         }
+
+        using var sClone = combinedSelector.CloneHandle();
+        return new LazyFrame(PolarsWrapper.LazyFrameDropNulls(CloneHandle(), sClone));
+    }
+
+    /// <summary>
+    /// Bridge overload to support C# 12 collection expressions.
+    /// Usage: lf.DropNulls(["Id", "Name"])
+    /// </summary>
+    public LazyFrame DropNulls(IEnumerable<string> subset)
+    {
+        var colsArray = subset as string[] ?? [.. subset];
+        if (colsArray.Length == 0) return DropNulls();
         
-        return currentLf;
+        using var selector = Cs.ByName(colsArray);
+        return DropNulls(selector); 
     }
     /// <summary>
     /// Drop rows containing one or more NaN values.
     /// </summary>
-    /// <param name="subset">Optional subset of columns to consider. If null, evaluates all columns.</param>
-    public LazyFrame DropNan(Selector? subset=null)
+    /// <param name="subsets">Optional subset of columns to consider. If null, evaluates all columns.</param>
+    public LazyFrame DropNans(params IntoSelector[] subsets)
     {
-        var lfClone = CloneHandle();
-        var sClone = subset?.CloneHandle();
-        var h = PolarsWrapper.LazyFrameDropNans(lfClone, sClone);
+        if (subsets.Length == 0) return this;
+        var combinedSelector = subsets[0].Consume();
+        for (int i = 1; i < subsets.Length; i++)
+        {
+            combinedSelector |= subsets[i].Consume();
+        }
+
+        using var sClone = combinedSelector.CloneHandle();
+        var h = PolarsWrapper.LazyFrameDropNans(CloneHandle(), sClone);
         return new LazyFrame(h);
     }
     /// <summary>
     /// Drop rows with NaN in specific columns.
     /// </summary>
-    public LazyFrame DropNan(params string[] subset)
+    public LazyFrame DropNans(IEnumerable<string> subset)
     {
-        if (subset == null || subset.Length == 0) return DropNan((Selector?)null);
-        return DropNan(Cs.ByName(subset));
+        var colsArray = subset as string[] ?? [.. subset];
+        if (colsArray.Length == 0) return DropNans();
+        using var selector = Cs.ByName(colsArray);
+        return DropNans(selector); 
     }
     /// <summary>
-    /// DropNaN columns by specific Expressions.
+    /// Drop NaN in all columns.
     /// </summary>
-    public LazyFrame DropNan(params Expr[] exprs)
-    {
-        ArgumentNullException.ThrowIfNull(exprs);
-
-        var currentLf = this;
-        foreach (var expr in exprs)
-        {
-            currentLf = currentLf.DropNan(expr.ToSelector());
-        }
-        
-        return currentLf;
-    }
+    public LazyFrame DropNans()
+        => new (PolarsWrapper.LazyFrameDropNans(CloneHandle(), null));
 }
 
 public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
@@ -131,7 +128,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Drop columns using Polars Selectors or Expressions.
     /// Example: df.Drop(Cs.EndsWith("_tmp").ToExpr())
     /// </summary>
-    public DataFrame Drop(params Expr[] exprs)
+    public DataFrame Drop(params IntoSelector[] exprs)
     {
         ArgumentNullException.ThrowIfNull(exprs);
 
@@ -154,60 +151,35 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <summary>
     /// Drop rows containing one or more Null values.
     /// </summary>
-    public DataFrame DropNulls(Selector? subset = null)
-    {
-        using var lf = Lazy();
-        var droppedLf = lf.DropNulls(subset);
-        return droppedLf.Collect();
-    }
+    public DataFrame DropNulls()
+        => Lazy().DropNulls().Collect();
 
     /// <summary>
     /// Drop rows with Nulls in specific columns.
     /// </summary>
-    public DataFrame DropNulls(params string[] subset)
-    {
-        using var lf = Lazy();
-        var droppedLf = lf.DropNulls(subset);
-        return droppedLf.Collect();
-    }
+    public DataFrame DropNulls(IEnumerable<string> subsets)
+        => Lazy().DropNulls(subsets).Collect();
 
     /// <summary>
     /// Drop rows with Nulls by specific Expressions.
     /// </summary>
-    public DataFrame DropNulls(params Expr[] exprs)
-    {
-        using var lf = Lazy();
-        var droppedLf = lf.DropNulls(exprs);
-        return droppedLf.Collect();
-    }
-
+    public DataFrame DropNulls(params IntoSelector[] subsets)
+        => Lazy().DropNulls(subsets).Collect();
+    
     /// <summary>
     /// Drop rows containing one or more NaN values.
     /// </summary>
-    public DataFrame DropNan(Selector? subset = null)
-    {
-        using var lf = Lazy();
-        var droppedLf = lf.DropNan(subset);
-        return droppedLf.Collect();
-    }
-
+    public DataFrame DropNans()
+        => Lazy().DropNans().Collect();
     /// <summary>
     /// Drop rows with NaN in specific columns.
     /// </summary>
-    public DataFrame DropNan(params string[] subset)
-    {
-        using var lf = Lazy();
-        var droppedLf = lf.DropNan(subset);
-        return droppedLf.Collect();
-    }
+    public DataFrame DropNans(params IntoSelector[] subsets)
+        => Lazy().DropNans(subsets).Collect();
 
     /// <summary>
     /// Drop rows with NaN by specific Expressions.
     /// </summary>
-    public DataFrame DropNan(params Expr[] exprs)
-    {
-        using var lf = Lazy();
-        var droppedLf = lf.DropNan(exprs);
-        return droppedLf.Collect();
-    }
+    public DataFrame DropNans(IEnumerable<string > subsets)
+        => Lazy().DropNans(subsets).Collect();
 }

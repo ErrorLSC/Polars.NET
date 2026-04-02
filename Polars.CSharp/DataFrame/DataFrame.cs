@@ -3,6 +3,7 @@ using Polars.NET.Core.Arrow;
 using Apache.Arrow;
 using System.Data;
 using Pl = Polars.CSharp.Polars;
+using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
 
@@ -94,19 +95,29 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <returns>A Series containing the UInt64 hashes.</returns>
     public Series HashRows(ulong? seed = 42) => new(PolarsWrapper.DataFrameHashRows(Handle, seed));
     /// <summary>
-    /// Return the number of unique rows, or the number of unique row-subsets.
+    /// Return the number of unique rows (based on all columns).
     /// </summary>
-    /// <returns></returns>
-    public long NUnique(string[]? subset = null)
+    public long NUnique()
+    {
+        using var df = Unique();
+        return df.Height;
+    }
+
+    /// <summary>
+    /// Return the number of unique rows based on a subset of columns (Selector, Type, string, etc.).
+    /// </summary>
+    public long NUnique(IntoSelector subset)
     {
         using var df = Unique(subset);
         return df.Height;
     }
 
-    /// <inheritdoc cref="DataFrame.NUnique(string[])"/>
-    public long NUnique(params Expr[] subset)
+    /// <summary>
+    /// Return the number of unique rows based on specific column names (supports ["A", "B"] syntax).
+    /// </summary>
+    public long NUnique(IEnumerable<string> columns)
     {
-        using var df = Unique(subset);
+        using var df = Unique(columns);
         return df.Height;
     }
     /// <summary>
@@ -185,7 +196,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// For more advanced selections (renaming, calculations), use <see cref="Select(Expr[])"/>.
     /// </remarks>
     /// <seealso cref="Select(Expr[])"/>
-    public DataFrame Select(params string[] columns) => Select(columns.Select(Pl.Col).ToArray());
+    public DataFrame Select(params IntoExpr[] columns) => Lazy().Select(columns).Collect();
     /// <summary>
     /// Filter rows based on a boolean expression (predicate).
     /// <para>
@@ -271,11 +282,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// */
     /// </code>
     /// </example>
-    public DataFrame WithColumns(params Expr[] exprs) => Lazy().WithColumns(exprs).Collect();
-    /// <summary>
-    /// Add or modify columns based on series. Series will be converted to Expressions implicitly
-    /// </summary>
-    public DataFrame WithColumns(params Series[] series) => Lazy().WithColumns(series).Collect();
+    public DataFrame WithColumns(params IntoExpr[] exprs) => Lazy().WithColumns(exprs).Collect();
+    // /// <summary>
+    // /// Add or modify columns based on series. Series will be converted to Expressions implicitly
+    // /// </summary>
+    // public DataFrame WithColumns(params Series[] series) => Lazy().WithColumns(series).Collect();
     /// <summary>
     /// Return head lines from a DataFrame
     /// </summary>
@@ -327,30 +338,25 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         return Rename(oldNames, newNames);
     }
     /// <summary>
-    /// Returns a new DataFrame with unique rows.
+    /// Returns a new DataFrame with unique rows based on ALL columns.
     /// </summary>
-    /// <param name="subset">An optional array of column names to consider for identifying duplicate rows. If null, all columns are used.</param>
-    /// <param name="keep">The strategy for which duplicate rows to retain (First, Last, or None).</param>
-    /// <param name="maintainOrder">Keep the same order as the original DataFrame. This is more expensive to compute. Settings this to True blocks the possibility to run on the streaming engine.</param>
-    /// <param name="offset">The starting index from which to begin the slice of unique results. If null, no offset is applied.</param>
-    /// <param name="len">The maximum number of rows to include in the result. If null, all unique rows from the offset are returned.</param>
-    /// <returns>A new <see cref="DataFrame"/> containing only unique rows based on the specified criteria.</returns>
+    /// <param name="keep">The strategy for which duplicate rows to retain (First, Last, Any, or None).</param>
+    /// <param name="maintainOrder">Keep the same order as the original DataFrame.</param>
+    /// <param name="offset">The starting index from which to begin the slice of unique results.</param>
+    /// <param name="len">The maximum number of rows to include in the result.</param>
     public DataFrame Unique(
-        string[]? subset = null, 
         UniqueKeepStrategy keep = UniqueKeepStrategy.First, 
         bool maintainOrder = false,
         long? offset = null, 
         long? len = null)
     {
-        (long offset, ulong len)? slice = null;
-        if (offset.HasValue && len.HasValue)
-        {
-            slice = (offset.Value, (ulong)Math.Max(0, len.Value));
-        }
+        (long offset, ulong len)? slice = (offset.HasValue && len.HasValue) 
+            ? (offset.Value, (ulong)Math.Max(0, len.Value)) 
+            : null;
 
         var h = PolarsWrapper.DataFrameUnique(
             Handle, 
-            subset, 
+            null, 
             keep.ToNative(), 
             maintainOrder,
             slice
@@ -358,46 +364,58 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         return new DataFrame(h);
     }
-    /// <inheritdoc cref="DataFrame.Unique(string[], UniqueKeepStrategy, bool, long?, long?)"/>
+    /// <summary>
+    /// Returns a new DataFrame with unique rows based on specific column names.
+    /// Supports C# 12 collection expressions like ["Id", "Date"].
+    /// </summary>
     public DataFrame Unique(
-        IEnumerable<Expr> subset, 
+        IEnumerable<string> subset, 
         UniqueKeepStrategy keep = UniqueKeepStrategy.First, 
         bool maintainOrder = false,
         long? offset = null, 
         long? len = null)
     {
-        var resolvedColumnNames = new List<string>();
-
-        foreach (var expr in subset)
+        var columns = subset as string[] ?? subset.ToArray();
+        
+        if (columns.Length == 0)
         {
-            var name = expr.Meta.OutputName();
-            if (!string.IsNullOrEmpty(name))
-            {
-                resolvedColumnNames.Add(name);
-            }
-            else
-            {
-                try 
-                {
-                    var expandedNames = this.Head(0).Select(expr).Columns; 
-                    resolvedColumnNames.AddRange(expandedNames);
-                }
-                catch (Exception ex)
-                {
-                    throw new ArgumentException(
-                        $"Cannot parse this expression to column names: {ex.Message}", ex);
-                }
-            }
+            return Unique(keep, maintainOrder, offset, len);
         }
 
-        var finalSubset = resolvedColumnNames.Distinct().ToArray();
+        (long offset, ulong len)? slice = (offset.HasValue && len.HasValue) 
+            ? (offset.Value, (ulong)Math.Max(0, len.Value)) 
+            : null;
 
-        if (finalSubset.Length == 0)
+        var h = PolarsWrapper.DataFrameUnique(
+            Handle, 
+            columns, 
+            keep.ToNative(), 
+            maintainOrder,
+            slice
+        );
+
+        return new DataFrame(h);
+    }
+    /// <summary>
+    /// Returns a new DataFrame with unique rows based on a subset of columns (Selector, Type, DataType).
+    /// </summary>
+    public DataFrame Unique(
+        IntoSelector subset, 
+        UniqueKeepStrategy keep = UniqueKeepStrategy.First, 
+        bool maintainOrder = false,
+        long? offset = null, 
+        long? len = null)
+    {
+        using var selector = subset.Consume();
+        
+        string[] columns = Cs.ExpandSelector(this, selector);
+
+        if (columns.Length == 0)
         {
-            throw new ArgumentException("No Columns Selected");
+            throw new ArgumentException("No Columns Selected. The given subset/selector did not match any columns.");
         }
 
-        return Unique(finalSubset, keep, maintainOrder, offset, len);
+        return Unique(columns, keep, maintainOrder, offset, len);
     }
     /// <summary>
     /// Slice the DataFrame along the rows.
