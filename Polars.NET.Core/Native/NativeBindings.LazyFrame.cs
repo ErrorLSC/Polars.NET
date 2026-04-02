@@ -23,10 +23,10 @@ unsafe internal partial class NativeBindings
         string every,
         string period,
         string offset,
-        int label,
+        PlLabel label,
         [MarshalAs(UnmanagedType.I1)] bool includeBoundaries,
-        int closedWindow,
-        int startBy,
+        PlClosedWindow closedWindow,
+        PlStartBy startBy,
         IntPtr[] keys, UIntPtr keysLen,
         IntPtr[] aggs, UIntPtr aggsLen
     );

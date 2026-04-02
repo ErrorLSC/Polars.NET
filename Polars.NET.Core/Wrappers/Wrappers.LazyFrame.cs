@@ -219,10 +219,10 @@ public readonly partial struct PolarsWrapper
             every,
             period,
             offset,
-            (int)label,
+            label,
             includeBoundaries,
-            (int)closedWindow,
-            (int)startBy,
+            closedWindow,
+            startBy,
             keyPtrs, (UIntPtr)keys.Length,
             aggPtrs, (UIntPtr)aggs.Length
         );

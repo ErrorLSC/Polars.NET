@@ -86,7 +86,7 @@ public enum PlLabel
     DataPoint = 2
 }
 
-public enum PlStartBy
+public enum PlStartBy : byte
 {
     WindowBound = 0,
     DataPoint = 1,
@@ -99,7 +99,7 @@ public enum PlStartBy
     Sunday = 8
 }
 
-public enum PlClosedWindow
+public enum PlClosedWindow: byte
 {
     Left = 0,
     Right = 1,

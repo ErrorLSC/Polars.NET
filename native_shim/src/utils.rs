@@ -1,6 +1,7 @@
 use std::ffi::{CStr, c_char};
 use polars::frame::UniqueKeepStrategy;
-use polars::prelude::{AsofStrategy,  Expr, JoinBuildSide, JoinCoalesce, JoinType, JoinValidation, MaintainOrderJoin, ParallelStrategy, PlSmallStr,  SchemaRef};
+use polars::prelude::{AsofStrategy, ClosedInterval, Expr, JoinBuildSide, JoinCoalesce, JoinType, JoinValidation, MaintainOrderJoin, ParallelStrategy, PlSmallStr, SchemaRef, TimeUnit};
+use polars::time::ClosedWindow;
 use polars_io::ExternalCompression;
 use polars_io::prelude::JsonFormat;
 use polars_io::utils::sync_on_close::SyncOnCloseType;
@@ -166,11 +167,43 @@ pub(crate) fn map_json_format(code: u8) -> JsonFormat {
 }
 
 #[inline]
-pub fn map_sync_on_close(val: u8) -> SyncOnCloseType {
+pub(crate) fn map_sync_on_close(val: u8) -> SyncOnCloseType {
     match val {
         1 => SyncOnCloseType::Data,
         2 => SyncOnCloseType::All,
         _ => SyncOnCloseType::None,
+    }
+}
+
+#[inline]
+pub(crate) fn parse_closed_window(val: u8) -> ClosedWindow {
+    match val {
+        0 => ClosedWindow::Left,
+        1 => ClosedWindow::Right,
+        2 => ClosedWindow::Both,
+        3 => ClosedWindow::None,
+        _ => ClosedWindow::Left,
+    }
+}
+
+#[inline]
+pub(crate) fn parse_time_unit(val: u8) -> Option<TimeUnit> {
+    match val {
+        0 => Some(TimeUnit::Nanoseconds),
+        1 => Some(TimeUnit::Microseconds),
+        2 => Some(TimeUnit::Milliseconds),
+        _ => None,
+    }
+}
+
+#[inline]
+pub(crate) fn parse_closed_interval(val: u8) -> ClosedInterval {
+    match val {
+        0 => ClosedInterval::Left,
+        1 => ClosedInterval::Right,
+        2 => ClosedInterval::Both,
+        3 => ClosedInterval::None,
+        _ => ClosedInterval::Both, 
     }
 }
 

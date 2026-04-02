@@ -1,6 +1,6 @@
 use std::ffi::{CStr, c_char};
 use polars::prelude::*;
-use crate::types::*;
+use crate::{types::*, utils::parse_closed_window};
 use polars::lazy::dsl::UnpivotArgsDSL;
 use crate::utils::{consume_exprs_array, map_asof_strategy, map_coalesce, map_join_side, map_jointype, map_maintain_order, map_validation, parse_keep_strategy, ptr_to_str, ptr_to_vec_string};
 
@@ -295,10 +295,10 @@ pub unsafe extern "C" fn pl_lazy_group_by_dynamic(
     every: *const c_char,
     period: *const c_char,
     offset: *const c_char,
-    label_idx: i32,         
+    label_idx: u8,         
     include_boundaries: bool,
-    closed_window_idx: i32, 
-    start_by_idx: i32,      
+    closed_window_idx: u8, 
+    start_by_idx: u8,      
     // --- Keys & Aggs ---
     keys_ptr: *const *mut ExprContext, keys_len: usize,
     aggs_ptr: *const *mut ExprContext, aggs_len: usize
@@ -311,13 +311,7 @@ pub unsafe extern "C" fn pl_lazy_group_by_dynamic(
         let period_str = unsafe { CStr::from_ptr(period).to_str().unwrap() };
         let offset_str = unsafe { CStr::from_ptr(offset).to_str().unwrap() };
 
-        let closed_window = match closed_window_idx {
-            0 => ClosedWindow::Left,
-            1 => ClosedWindow::Right,
-            2 => ClosedWindow::Both,
-            3 => ClosedWindow::None,
-            _ => ClosedWindow::Left,
-        };
+        let closed_window = parse_closed_window(closed_window_idx);
 
         let label = match label_idx {
             0 => Label::Left,

@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Apache.Arrow.C;
+using Polars.NET.Core.Helpers;
 
 namespace Polars.NET.Core.Native;
 
@@ -655,6 +656,21 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial IntPtr pl_expr_to_string(
         ExprHandle expr
+    );
+
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_int_range(
+        ExprHandle start,
+        ExprHandle end,
+        long step,
+        DataTypeHandle datatype
+    );
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_int_ranges(
+        ExprHandle start,
+        ExprHandle end,
+        ExprHandle step,
+        DataTypeHandle datatype
     );
     
 }

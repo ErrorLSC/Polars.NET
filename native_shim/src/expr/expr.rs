@@ -1,7 +1,7 @@
 use polars::{prelude::*, sql::sql_expr};
-use polars_plan::utils::expr_output_name;
+use polars_plan::{utils::expr_output_name};
 use std::{ffi::{CStr, CString}, os::raw::c_char};
-use crate::{datatypes::parse_timeunit, types::{DataTypeContext, ExprContext, SelectorContext, SeriesContext}};
+use crate::{datatypes::parse_timeunit, types::{DataTypeContext, ExprContext, SelectorContext, SeriesContext}, utils::parse_closed_window};
 use std::ops::{Add, Sub, Mul, Div, Rem};
 use crate::utils::{consume_exprs_array, ptr_to_str};
 use polars_arrow::array::PrimitiveArray;
@@ -171,15 +171,7 @@ macro_rules! gen_rolling_op {
         }
     };
 }
-fn parse_closed_window(val: u8) -> ClosedWindow {
-    match val {
-        0 => ClosedWindow::Left,
-        1 => ClosedWindow::Right,
-        2 => ClosedWindow::Both,
-        3 => ClosedWindow::None,
-        _ => ClosedWindow::Left,
-    }
-}
+
 macro_rules! gen_rolling_by_op {
     ($func_name:ident, $method:ident) => {
         #[unsafe(no_mangle)]
