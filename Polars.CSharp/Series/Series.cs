@@ -487,6 +487,15 @@ public partial class Series : IDisposable,IPolarsSeries
         PolarsWrapper.SeriesExtend(Handle,other.Handle);
         return this;
     }
+    /// <summary>
+    /// Extremely fast method for extending the Series with ‘n’ copies of a value.
+    /// </summary>
+    /// <param name="value">A constant literal value or a unit expression with which to extend the expression result Series; can pass None to extend with nulls.</param>
+    /// <param name="n">The number of additional values that will be added.</param>
+    /// <returns></returns>
+    public Series ExtendConstant(Expr value,Expr n) => ApplyExpr(Polars.Col(Name).ExtendConstant(value,n));
+    /// <inheritdoc cref="ExtendConstant(Expr,Expr)"/>
+    public Series ExtendConstant(object value,int n) => ApplyExpr(Polars.Col(Name).ExtendConstant(value,n));
 
     // ==========================================
     // Null Checks & Boolean Masks

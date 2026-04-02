@@ -121,12 +121,12 @@ public readonly struct SeriesStrOps
     /// <summary>
     /// Convert string to Date using the specified format.
     /// </summary>
-    public Series ToDate(string format)
-        => Apply(e => e.Str.ToDate(format));
+    public Series ToDate(string? format = null, bool strict = true, bool exact = true, bool cache = true)
+        => Apply(e => e.Str.ToDate(format,strict,exact,cache));
 
     /// <summary>
     /// Convert string to Datetime using the specified format.
     /// </summary>
-    public Series ToDatetime(string format)
-        => Apply(e => e.Str.ToDatetime(format));
+    public Series ToDatetime(string? format = null,TimeUnit unit=TimeUnit.Microseconds,string? timeZone=null, bool strict = true, bool exact = true, bool cache = true)
+        => Apply(e => e.Str.ToDatetime(format,unit,timeZone,strict,exact,cache));
 }
