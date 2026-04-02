@@ -63,7 +63,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Lazily sort the DataFrame by multiple columns.
     /// <para>
     /// This operation is added to the logical plan. 
-    /// Use <see cref="TopK(int, string, bool)"/> if you only need the top/bottom N rows, as it is more efficient.
+    /// Use <see cref="LazyFrame.TopK(int, IEnumerable{Expr}, bool[])"/> if you only need the top/bottom N rows, as it is more efficient.
     /// </para>
     /// </summary>
     /// <param name="columns">Names of the columns to sort by.</param>
