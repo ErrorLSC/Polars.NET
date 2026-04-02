@@ -482,7 +482,11 @@ public partial class Series : IDisposable,IPolarsSeries
     /// If this does not cause a reallocation, the resulting data structure will not have any extra chunks and thus will yield faster queries.
     /// </summary>
     /// <param name="other">Series to extend the series with.</param>
-    public void Extend(Series other) => PolarsWrapper.SeriesExtend(Handle,other.Handle);
+    public Series Extend(Series other)
+    {
+        PolarsWrapper.SeriesExtend(Handle,other.Handle);
+        return this;
+    }
 
     // ==========================================
     // Null Checks & Boolean Masks

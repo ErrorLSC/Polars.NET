@@ -827,7 +827,9 @@ B,5";
     public void Test_HStack_VStack()
     {
         // --- Test HStack ---
-        using var df1 = DataFrame.FromColumns(new { a = new[] { 1, 2, 3 } });
+        using var df1 = DataFrame.FromColumns(
+            Series.From("a",[1,2,3])
+        );
         
         // New Column:[b]
         using var sNew = new Series("b", [10, 20, 30]);
@@ -867,6 +869,35 @@ B,5";
         // Row 3 (from df2, index 0)
         Assert.Equal(4, vStacked["a"][3]);
         Assert.Equal(40, vStacked["b"][3]);
+    }
+    [Fact]
+    [Trait("DataFrame","Extend")]
+    public void Test_Extend()
+    {
+        using var df1 = DataFrame.FromColumns(
+            Series.From("a",[1,2,3]),
+            Series.From("b",[10,20,30])
+        );
+        // DF2: [a, b]
+        using var df2 = DataFrame.FromColumns(new 
+        { 
+            a = new[] { 4, 5 }, 
+            b = new[] { 40, 50 } 
+        });
+
+        using var extended = df1.Extend(df2);
+
+        Assert.Equal(5, extended.Height);
+        Assert.Equal(2, extended.Width);
+        Assert.Equal(1L,extended.NChunks());
+        
+        // Row 0 (from df1)
+        Assert.Equal(1, extended["a"][0]);
+        Assert.Equal(10, extended["b"][0]);
+        
+        // Row 3 (from df2, index 0)
+        Assert.Equal(4, extended["a"][3]);
+        Assert.Equal(40, extended["b"][3]);
     }
     [Fact]
     [Trait("DataFrame", "AsTensor")]

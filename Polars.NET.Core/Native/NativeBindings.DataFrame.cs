@@ -42,6 +42,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial LazyFrameHandle pl_dataframe_lazy(DataFrameHandle df);
     [LibraryImport(LibName)] public static partial DataFrameHandle pl_dataframe_rechunk(DataFrameHandle df);
+    [LibraryImport(LibName)] public static partial DataFrameHandle pl_dataframe_align_chunks(DataFrameHandle df);
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_head(DataFrameHandle df, UIntPtr n);
     [LibraryImport(LibName)]
@@ -133,6 +134,12 @@ unsafe internal partial class NativeBindings
 
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_vstack(
+        DataFrameHandle df, 
+        DataFrameHandle other
+    );
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_dataframe_extend(
         DataFrameHandle df, 
         DataFrameHandle other
     );

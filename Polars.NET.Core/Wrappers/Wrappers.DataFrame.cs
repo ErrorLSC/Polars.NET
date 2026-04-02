@@ -205,8 +205,12 @@ public readonly partial struct PolarsWrapper
 
     public static DataFrameHandle VStack(DataFrameHandle df, DataFrameHandle other)
         => ErrorHelper.Check(NativeBindings.pl_vstack(df, other));
+    public static void DataFrameExtend(DataFrameHandle df, DataFrameHandle other)
+    {
+        bool success = NativeBindings.pl_dataframe_extend(df, other);
 
-
+        ErrorHelper.CheckBool(success);
+    }
     public static SeriesHandle DataFrameGetColumn(DataFrameHandle h, string name)
     {
         var sh = NativeBindings.pl_dataframe_get_column(h, name);
@@ -257,4 +261,6 @@ public readonly partial struct PolarsWrapper
     }
     public static DataFrameHandle DataFrameRechunk(DataFrameHandle df) 
         => ErrorHelper.Check(NativeBindings.pl_dataframe_rechunk(df));
+    public static DataFrameHandle DataFrameAlignChunks(DataFrameHandle df) 
+        => ErrorHelper.Check(NativeBindings.pl_dataframe_align_chunks(df));
 }

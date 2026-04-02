@@ -140,6 +140,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// This will make sure all subsequent operations have optimal and predictable performance.
     /// </summary>
     public DataFrame Rechunk() => new(PolarsWrapper.DataFrameRechunk(Handle));
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <returns></returns>
+    public DataFrame AlignChunks() => new(PolarsWrapper.DataFrameAlignChunks(Handle));
     
     // ==========================================
     // DataFrame Operations
@@ -499,6 +504,18 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="other">The DataFrame to stack vertically.</param>
     public DataFrame VStack(DataFrame other)
         => new(PolarsWrapper.VStack(Handle, other.Handle));
+    /// <summary>
+    /// Extend the memory backed by this DataFrame with the values from other.
+    /// Different from vstack which adds the chunks from other to the chunks of this DataFrame, extend appends the data from other to the underlying memory locations and thus may cause a reallocation.
+    /// If this does not cause a reallocation, the resulting data structure will not have any extra chunks and thus will yield faster queries.
+    /// </summary>
+    /// <param name="other">The DataFrame to extend.</param>
+    public DataFrame Extend(DataFrame other)
+    {
+        PolarsWrapper.DataFrameExtend(Handle,other.Handle);
+        return this;
+    }
+
 
     // ==========================================
     // LifeCycle

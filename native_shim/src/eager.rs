@@ -537,10 +537,31 @@ pub extern "C" fn pl_vstack(
         let ctx = unsafe { &*df_ptr };
         let other_ctx = unsafe { &*other_ptr };
 
-        // vstack in polars-core returns a PolarsResult<DataFrame> (it clones self internally)
         let res_df = ctx.df.vstack(&other_ctx.df)?;
 
         Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_extend(
+    df_ptr: *mut DataFrameContext,
+    other_ptr: *mut DataFrameContext,
+) -> bool {
+    ffi_bool_try!({
+        if df_ptr.is_null() {
+            polars_bail!(ComputeError: "Target DataFrame pointer is null");
+        }
+        if other_ptr.is_null() {
+            polars_bail!(ComputeError: "DataFrame to extend pointer is null");
+        }
+
+        let target_ctx = unsafe { &mut *df_ptr };
+        let other_ctx = unsafe { &*other_ptr };
+        
+        target_ctx.df.extend(&other_ctx.df)?;
+
+        Ok(())
     })
 }
 
@@ -756,6 +777,19 @@ pub extern "C" fn pl_dataframe_rechunk(df_ptr: *mut DataFrameContext) -> *mut Da
         let mut new_df = ctx.df.clone();
         
         new_df.rechunk_mut_par();
+
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_align_chunks(df_ptr: *mut DataFrameContext) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*df_ptr };
+        
+        let mut new_df = ctx.df.clone();
+        
+        new_df.align_chunks_par();
 
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
     })
