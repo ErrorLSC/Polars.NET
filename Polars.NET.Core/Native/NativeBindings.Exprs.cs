@@ -686,5 +686,25 @@ unsafe internal partial class NativeBindings
         string? interval,
         IntPtr numSamples,
         PlClosedWindow closedWindow
+    );
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_datetime_range(
+        IntPtr start,
+        IntPtr end,
+        string? interval,
+        IntPtr numSamples,
+        PlClosedWindow closedWindow,
+        PlTimeUnit unit,
+        string? timeZone
+    );  
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_datetime_ranges(
+        IntPtr start,
+        IntPtr end,
+        string? interval,
+        IntPtr numSamples,
+        PlClosedWindow closedWindow,
+        PlTimeUnit unit,
+        string? timeZone
     );  
 }

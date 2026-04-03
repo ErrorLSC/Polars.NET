@@ -1199,4 +1199,34 @@ public readonly partial struct PolarsWrapper
         var h = NativeBindings.pl_expr_date_ranges(startHandle,endHandle,interval,numSamplesHandle,closedWindow);
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle DatetimeRange(
+        ExprHandle? start,
+        ExprHandle? end,
+        string? interval,
+        ExprHandle? numSamples,
+        PlClosedWindow closedWindow,
+        PlTimeUnit unit,
+        string? timeZone) 
+    {
+        IntPtr startHandle = start?.TransferOwnership() ?? IntPtr.Zero;
+        IntPtr endHandle = end?.TransferOwnership() ?? IntPtr.Zero;
+        IntPtr numSamplesHandle = numSamples?.TransferOwnership() ?? IntPtr.Zero;
+        var h = NativeBindings.pl_expr_datetime_range(startHandle,endHandle,interval,numSamplesHandle,closedWindow,unit,timeZone);
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle DatetimeRanges(
+        ExprHandle? start,
+        ExprHandle? end,
+        string? interval,
+        ExprHandle? numSamples,
+        PlClosedWindow closedWindow,
+        PlTimeUnit unit,
+        string? timeZone) 
+    {
+        IntPtr startHandle = start?.TransferOwnership() ?? IntPtr.Zero;
+        IntPtr endHandle = end?.TransferOwnership() ?? IntPtr.Zero;
+        IntPtr numSamplesHandle = numSamples?.TransferOwnership() ?? IntPtr.Zero;
+        var h = NativeBindings.pl_expr_datetime_ranges(startHandle,endHandle,interval,numSamplesHandle,closedWindow,unit,timeZone);
+        return ErrorHelper.Check(h);
+    }
 }

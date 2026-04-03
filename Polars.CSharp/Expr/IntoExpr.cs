@@ -21,6 +21,11 @@ public readonly struct IntoExpr
     public static implicit operator IntoExpr(Series series) => new(Pl.Lit(series), ownsExpr: true);
     public static implicit operator IntoExpr(DataType dtype) => new(Cs.ByDtype(dtype).ToExpr(), ownsExpr: true);
     public static implicit operator IntoExpr(Type type) => new(Cs.ByDtype(type).ToExpr(), ownsExpr: true);
+    public static implicit operator IntoExpr(DateOnly date) => new(Pl.Lit(date), ownsExpr: true);
+    public static implicit operator IntoExpr(DateTime dt) => new(Pl.Lit(dt), ownsExpr: true);
+    public static implicit operator IntoExpr(TimeOnly time) => new(Pl.Lit(time), ownsExpr: true);
+    public static implicit operator IntoExpr(TimeSpan ts) => new(Pl.Lit(ts), ownsExpr: true);
+    public static implicit operator IntoExpr(DateTimeOffset dtoffset) => new(Pl.Lit(dtoffset), ownsExpr: true);
 
     private IntoExpr(Expr expr, bool ownsExpr) 
     {
