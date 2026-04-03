@@ -296,10 +296,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </code>
     /// </example>
     public DataFrame WithColumns(params IntoExpr[] exprs) => Lazy().WithColumns(exprs).Collect();
-    // /// <summary>
-    // /// Add or modify columns based on series. Series will be converted to Expressions implicitly
-    // /// </summary>
-    // public DataFrame WithColumns(params Series[] series) => Lazy().WithColumns(series).Collect();
     /// <summary>
     /// Return head lines from a DataFrame
     /// </summary>

@@ -1,4 +1,3 @@
-#pragma warning disable CS1591
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
@@ -32,20 +31,15 @@ public readonly partial struct Polars
 
         return new(PolarsWrapper.IntRange(realStart.CloneHandle(), realEnd.CloneHandle(), step, actualDtype.Handle));
     }
-
     /// <summary>
-    /// IntRange (Convenience Overload for int)
+    /// Generate a range of integers as a Series.
     /// </summary>
-    public static Expr IntRange(int start, int? end = null, int step = 1, DataType? dtype = null)
-    {
-        if (end is null)
-        {
-            return IntRange(Lit(0), Lit(start), step, dtype);
-        }
-        
-        return IntRange(Lit(start), Lit(end.Value), step, dtype);
-    }
-
+    /// <param name="start">Start of the range (inclusive).</param>
+    /// <param name="end">End of the range (exclusive). If set to Null (default), the value of start is used and start is set to 0.</param>
+    /// <param name="step">Step size of the range.</param>
+    /// <param name="name">The name of generated series.</param>
+    /// <param name="dtype">Integer data type of the ranges. Defaults to Int64.</param>
+    /// <returns>A Literal Expression containing the integer series.</returns>
     public static Series IntRangeAsSeries(Expr start, Expr? end=null, long step = 1, string name = "int", DataType? dtype = null)
     {
         var expr = IntRange(start,end,step,dtype);
@@ -55,11 +49,6 @@ public readonly partial struct Polars
         return series;
     }
 
-    /// <summary>
-    /// IntRangeAsSeries (Convenience Overload for int)
-    /// </summary>
-    public static Series IntRangeAsSeries(int start, int? end=null, int step = 1, string name = "int", DataType? dtype = null)
-        => IntRangeAsSeries(start, end, (long)step, name, dtype);
     /// <summary>
     /// Generate a range of integers for each row of the input columns.
     /// Resulting column is of dtype List(dtype).
@@ -80,17 +69,13 @@ public readonly partial struct Polars
             actualDtype.Handle 
         ));
     }
-
-    /// <summary>
-    /// IntRanges (Convenience Overload for int)
-    /// </summary>
-    public static Expr IntRanges(int start, int? end = null, int step = 1, DataType? dtype = null)
+    /// <inheritdoc cref="IntRanges"/>
+    public static Series IntRangesAsSeries(IntoExpr start, IntoExpr? end=null, IntoExpr? step = null, string name = "int", DataType? dtype = null)
     {
-        if (end is null)
-        {
-            return IntRanges(Lit(0), Lit(start), Lit(step), dtype);
-        }
-        
-        return IntRanges(Lit(start), Lit(end.Value), Lit(step), dtype);
+        var expr = IntRanges(start,end,step,dtype);
+        using var df = new DataFrame().WithColumns(expr);
+        var series = df[0];
+        series.Rename(name);
+        return series;
     }
 }

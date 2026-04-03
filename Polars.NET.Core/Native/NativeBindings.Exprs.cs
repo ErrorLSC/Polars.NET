@@ -657,7 +657,6 @@ unsafe internal partial class NativeBindings
     public static partial IntPtr pl_expr_to_string(
         ExprHandle expr
     );
-
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_int_range(
         ExprHandle start,
@@ -672,5 +671,20 @@ unsafe internal partial class NativeBindings
         ExprHandle step,
         DataTypeHandle datatype
     );
-    
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_date_range(
+        IntPtr start,
+        IntPtr end,
+        string? interval,
+        IntPtr numSamples,
+        PlClosedWindow closedWindow
+    );
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_date_ranges(
+        IntPtr start,
+        IntPtr end,
+        string? interval,
+        IntPtr numSamples,
+        PlClosedWindow closedWindow
+    );  
 }

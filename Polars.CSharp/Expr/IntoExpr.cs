@@ -2,6 +2,7 @@
 using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
 using Polars.NET.Core;
+using Polars.NET.Core.Helpers;
 namespace Polars.CSharp;
 
 /// <summary>
@@ -71,5 +72,26 @@ public readonly struct IntoSelector
         {
             return new Selector(_selector.CloneHandle());
         }
+    }
+}
+
+/// <summary>
+/// A union type representing a time interval. 
+/// Can be implicitly converted from a Polars duration string (e.g., "1mo", "1w") or a .NET TimeSpan.
+/// </summary>
+public readonly struct IntoDuration
+{
+    public readonly string Value;
+
+    public static implicit operator IntoDuration(string value) => new(value);
+    
+    public static implicit operator IntoDuration(TimeSpan timeSpan) => new(timeSpan.ToPolarsDuration());
+
+    private IntoDuration(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new ArgumentException("Duration string cannot be null or empty.", nameof(value));
+        
+        Value = value;
     }
 }

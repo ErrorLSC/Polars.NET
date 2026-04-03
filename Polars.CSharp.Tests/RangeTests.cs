@@ -79,7 +79,7 @@ public class RangeTests
         });
 
         // Act
-        using var result = df.Select(Polars.IntRanges("start_col", "end_col").Alias("ranges"));
+        using var result = df.Select(Pl.IntRanges("start_col", "end_col").Alias("ranges"));
 
         // Assert
         var listSeries = result["ranges"];
@@ -92,5 +92,39 @@ public class RangeTests
 
         var values = exploded["ranges"].ToArray<long?>();
         Assert.Equal([1, 2, 5, 6, 7], values);
+    }
+    [Fact]
+    [Trait("Range","DateRange")]
+    public void DateRange_StartEnd_WithDefaultInterval_ShouldWork()
+    {
+        var series = Pl.DateRangeAsSeries(new DateOnly(2026, 1, 1),new DateOnly(2026, 1, 5));
+
+        Assert.Equal(DataType.Date, series.DataType);
+        Assert.Equal(5, series.Length); 
+
+        Assert.Equal(new DateOnly(2026, 1, 1), series[0]);
+        Assert.Equal(new DateOnly(2026, 1, 5), series[4]);
+
+        var series2 = Pl.DateRangeAsSeries(new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 2), interval: TimeSpan.FromDays(1));
+
+        Assert.Equal(2, series2.Length);
+        Assert.Equal(new DateOnly(2026, 1, 1), series2[0]);
+        Assert.Equal(new DateOnly(2026, 1, 2), series2[1]);
+    }
+    [Fact]
+    [Trait("Range","DateRanges")]
+    public void DateRanges_StartEnd_WithDefaultInterval_ShouldWork()
+    {
+        var series = Pl.DateRangesAsSeries(new DateOnly(2026, 1, 1),new DateOnly(2026, 1, 5));
+
+        Assert.Equal(DataType.List(DataType.Date), series.DataType);
+        Assert.Equal(1, series.Length); 
+
+        var exploded = series.Explode();
+        Assert.Equal(exploded.ToArray<DateOnly>(),Pl.DateRangeAsSeries(new DateOnly(2026, 1, 1),new DateOnly(2026, 1, 5)).ToArray<DateOnly>());
+
+        var series2 = Pl.DateRangesAsSeries(new DateOnly(2026, 1, 1), new DateOnly(2026, 1, 2), interval: TimeSpan.FromDays(1));
+
+        Assert.Equal(1, series2.Length);
     }
 }

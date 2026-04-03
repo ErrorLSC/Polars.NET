@@ -13,6 +13,10 @@ public partial class Expr : IDisposable
     public static implicit operator Expr(double value) => Polars.Lit(value);
 
     public static implicit operator Expr(DateTime value) => Polars.Lit(value);
+    public static implicit operator Expr(DateTimeOffset value) => Polars.Lit(value);
+    public static implicit operator Expr(DateOnly value) => Polars.Lit(value);
+    public static implicit operator Expr(TimeOnly value) => Polars.Lit(value);
+    public static implicit operator Expr(TimeSpan value) => Polars.Lit(value);
 
     public static implicit operator Expr(bool value) => Polars.Lit(value);
 
