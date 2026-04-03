@@ -1,5 +1,5 @@
 using Pl = Polars.CSharp.Polars;
-
+using Cs = Polars.CSharp.Polars.Selectors;
 namespace Polars.CSharp.Tests;
 
 public class RangeTests
@@ -154,10 +154,10 @@ public class RangeTests
 
         Assert.Equal(4, series.Length); // 10:00, 11:00, 12:00, 13:00
         
-        Assert.Equal(new DateTime(2026, 1, 1, 10, 0, 0), (DateTime)series[0]);
-        Assert.Equal(new DateTime(2026, 1, 1, 11, 0, 0), (DateTime)series[1]);
-        Assert.Equal(new DateTime(2026, 1, 1, 12, 0, 0), (DateTime)series[2]);
-        Assert.Equal(new DateTime(2026, 1, 1, 13, 0, 0), (DateTime)series[3]);
+        Assert.Equal(new DateTime(2026, 1, 1, 10, 0, 0), series[0]);
+        Assert.Equal(new DateTime(2026, 1, 1, 11, 0, 0), series[1]);
+        Assert.Equal(new DateTime(2026, 1, 1, 12, 0, 0), series[2]);
+        Assert.Equal(new DateTime(2026, 1, 1, 13, 0, 0), series[3]);
     }
     [Fact]
     [Trait("Range","DatetimeRange")]
@@ -348,4 +348,134 @@ public class RangeTests
         Assert.Equal(new TimeOnly(20, 0), (TimeOnly)flatSeries[3]);
         Assert.Equal(new TimeOnly(21, 0), (TimeOnly)flatSeries[4]);
     }
+    [Fact]
+    [Trait("Range", "LinearSpaceDefault")]
+    public void LinearSpaceAsSeries_DefaultBothClosed_ShouldIncludeEndpoints()
+    {
+        // Arrange & Act
+        using var series = Pl.LinearSpaceAsSeries(0.0, 10.0, 5);
+
+        // Assert
+        Assert.Equal(DataType.Float64, series.DataType);
+        Assert.Equal(5, series.Length);
+
+        Assert.Equal(0.0, series[0]);
+        Assert.Equal(2.5, series[1]);
+        Assert.Equal(5.0, series[2]);
+        Assert.Equal(7.5, series[3]);
+        Assert.Equal(10.0, series[4]);
+    }
+
+    [Fact]
+    [Trait("Range", "LinearSpaceOpen")]
+    public void LinearSpaceAsSeries_OpenInterval_ShouldExcludeEndpoints()
+    {
+        // Arrange & Act
+        using var series = Pl.LinearSpaceAsSeries(
+            0.0, 
+            12.0, 
+            5, 
+            closed: ClosedInterval.None
+        );
+
+        Assert.Equal(5, series.Length);
+        
+        Assert.Equal(2.0, series[0]);
+        Assert.Equal(4.0, series[1]);
+        Assert.Equal(6.0, series[2]);
+        Assert.Equal(8.0, series[3]);
+        Assert.Equal(10.0, series[4]);
+    }
+
+    [Fact]
+    [Trait("Range", "LinearSpacesRowWise")]
+    public void LinearSpaces_RowWise_ShouldGenerateLists()
+    {
+        var df = DataFrame.FromColumns(new
+        {
+            start_col = new double[] { 0, 10 },
+            end_col = new double[] { 10, 20 }
+        });
+
+        using var result = df.Select(
+            Pl.LinearSpaces("start_col", "end_col", 3).Alias("spaces")
+        );
+
+        var listSeries = result["spaces"];
+        
+        Assert.Equal(DataType.List(typeof(double)), listSeries.DataType);
+
+        using var exploded = result.Explode("spaces");
+        var flatArr = exploded["spaces"];
+
+        Assert.Equal(0.0, flatArr[0]);
+        Assert.Equal(5.0, flatArr[1]);
+        Assert.Equal(10.0, flatArr[2]);
+        
+        Assert.Equal(10.0, flatArr[3]);
+        Assert.Equal(15.0, flatArr[4]);
+        Assert.Equal(20.0, flatArr[5]);
+    }
+
+    [Fact]
+    [Trait("Range", "LinearSpacesAsArray")]
+    public void LinearSpaces_WithAsArrayTrue_ShouldGenerateFixedSizeArrays()
+    {
+        var df = DataFrame.FromColumns(new
+        {
+            start_col = new double[] { 0, 10 },
+            end_col = new double[] { 10, 20 }
+        });
+
+        // Act
+        using var result = df.Select(
+            Pl.LinearSpaces("start_col", "end_col", numSamples: 3, asArray: true).Alias("spaces")
+        );
+
+        Assert.Equal(DataType.Array(typeof(double),3), result["spaces"].DataType);
+        Assert.Equal(2, result.Height);
+
+        using var exploded = result.Explode(Cs.Array());
+        Assert.Equal(6, exploded.Height);
+    }
+    [Fact]
+    [Trait("Range", "LinearSpaceDateOnly")]
+    public void LinearSpaceAsSeries_WithDateOnly_ShouldPromoteToDatetime()
+    {
+        // Arrange
+        var start = new DateOnly(2026, 1, 1);
+        var end = new DateOnly(2026, 1, 2);
+
+        // Act
+        using var series = Pl.LinearSpaceAsSeries(start, end, numSamples: 3);
+
+        // Assert
+        Assert.Equal(DataType.Datetime(TimeUnit.Microseconds), series.DataType);
+        Assert.Equal(3, series.Length);
+
+        Assert.Equal(new DateTime(2026, 1, 1, 0, 0, 0),series[0]);
+        Assert.Equal(new DateTime(2026, 1, 1, 12, 0, 0),series[1]);
+        Assert.Equal(new DateTime(2026, 1, 2, 0, 0, 0), series[2]);
+    }
+
+    [Fact]
+    [Trait("Range", "LinearSpaceDateTime")]
+    public void LinearSpaceAsSeries_WithDateTime_ShouldGenerateEquallySpacedTime()
+    {
+        var start = new DateTime(2026, 1, 1, 0, 0, 0);
+        var end = new DateTime(2026, 1, 1, 2, 0, 0);
+
+        using var series = Pl.LinearSpaceAsSeries(start, end, numSamples: 5);
+
+        // Assert
+        Assert.Equal(DataType.Datetime(TimeUnit.Microseconds), series.DataType);
+        Assert.Equal(5, series.Length);
+
+        Assert.Equal(new DateTime(2026, 1, 1, 0, 0, 0), series[0]);
+        Assert.Equal(new DateTime(2026, 1, 1, 0, 30, 0), series[1]);
+        Assert.Equal(new DateTime(2026, 1, 1, 1, 0, 0), series[2]);
+        Assert.Equal(new DateTime(2026, 1, 1, 1, 30, 0), series[3]);
+        Assert.Equal(new DateTime(2026, 1, 1, 2, 0, 0), series[4]);
+    }
+    
 }

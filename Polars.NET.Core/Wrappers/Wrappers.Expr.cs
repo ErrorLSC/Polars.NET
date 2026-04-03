@@ -1243,4 +1243,29 @@ public readonly partial struct PolarsWrapper
         end.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle LinearSpace(
+        ExprHandle start,
+        ExprHandle end,
+        ExprHandle numSamples,
+        PlClosedInterval closedInterval) 
+    {
+        var h = NativeBindings.pl_expr_linear_space(start,end,numSamples,closedInterval);
+        start.TransferOwnership();
+        end.TransferOwnership();
+        numSamples.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle LinearSpaces(
+        ExprHandle start,
+        ExprHandle end,
+        ExprHandle numSamples,
+        PlClosedInterval closedInterval,
+        bool asArray) 
+    {
+        var h = NativeBindings.pl_expr_linear_spaces(start,end,numSamples,closedInterval,asArray);
+        start.TransferOwnership();
+        end.TransferOwnership();
+        numSamples.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
 }

@@ -487,6 +487,11 @@ public enum UnstackDirection
     Horizontal
 }
 
+public enum ClosedInterval
+{
+    Left,Right,Both,None
+}
+
 internal static class EnumExtensions
 {
     internal static CoreEnums.PlDataType ToNative(this DataTypeKind kind) => kind switch
@@ -788,6 +793,14 @@ internal static class EnumExtensions
         SearchSortedSide.Left => CoreEnums.PlSearchSortedSide.Left,
         SearchSortedSide.Right => CoreEnums.PlSearchSortedSide.Right,
         _ => throw new ArgumentOutOfRangeException(nameof(side), side, null)
+    };
+    internal static CoreEnums.PlClosedInterval ToNative(this ClosedInterval closed) => closed switch
+    {
+        ClosedInterval.Both => CoreEnums.PlClosedInterval.Both,
+        ClosedInterval.Left => CoreEnums.PlClosedInterval.Left,
+        ClosedInterval.Right => CoreEnums.PlClosedInterval.Right,
+        ClosedInterval.None => CoreEnums.PlClosedInterval.None,
+        _ => throw new ArgumentOutOfRangeException(nameof(closed), closed, null)
     };
 }
 

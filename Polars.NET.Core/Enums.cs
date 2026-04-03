@@ -336,3 +336,11 @@ public enum PlCatalogTableType : byte
 }
 
 public enum PlSearchSortedSide : byte { Any = 0, Left = 1, Right = 2 }
+
+public enum PlClosedInterval: byte
+{
+    Left = 0,
+    Right = 1,
+    Both =2,
+    None =3
+}

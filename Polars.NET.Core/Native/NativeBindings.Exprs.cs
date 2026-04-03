@@ -721,4 +721,19 @@ unsafe internal partial class NativeBindings
         string? interval,
         PlClosedWindow closedWindow
     );
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_linear_space(
+        ExprHandle start,
+        ExprHandle end,
+        ExprHandle numSamples,
+        PlClosedInterval closedWindow
+    );
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_linear_spaces(
+        ExprHandle start,
+        ExprHandle end,
+        ExprHandle numSamples,
+        PlClosedInterval closedWindow,
+        [MarshalAs(UnmanagedType.U1)] bool asArray
+    );
 }
