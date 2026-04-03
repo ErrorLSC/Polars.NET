@@ -14,17 +14,19 @@ public readonly partial struct Polars
     /// <param name="timeZone">Time zone of the resulting Datetime data type.</param>
     /// <returns></returns>
     public static Expr DatetimeRange(
-        Expr? start = null, 
-        Expr? end = null, 
+        IntoExpr? start = null, 
+        IntoExpr? end = null, 
         IntoDuration? interval = null,
         ClosedWindow closed = ClosedWindow.Both,
         TimeUnit unit=TimeUnit.Microseconds,
         string? timeZone=null)
     {
+        using var realStart = start?.Consume();
+        using var realEnd = end?.Consume();
         string actualInterval = interval.HasValue ? interval.Value.Value : "1d";
         var handle = PolarsWrapper.DatetimeRange(
-            start?.CloneHandle(),
-            end?.CloneHandle(),
+            realStart?.CloneHandle(),
+            realEnd?.CloneHandle(),
             actualInterval,
             null,
             closed.ToNative(),
@@ -36,8 +38,8 @@ public readonly partial struct Polars
     }
     /// <inheritdoc cref="DatetimeRange"/>
     public static Series DatetimeRangeAsSeries(
-        Expr? start = null, 
-        Expr? end = null, 
+        IntoExpr? start = null, 
+        IntoExpr? end = null, 
         IntoDuration? interval = null,
         ClosedWindow closed = ClosedWindow.Both,
         TimeUnit unit=TimeUnit.Microseconds,

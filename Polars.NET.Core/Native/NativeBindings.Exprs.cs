@@ -706,5 +706,19 @@ unsafe internal partial class NativeBindings
         PlClosedWindow closedWindow,
         PlTimeUnit unit,
         string? timeZone
-    );  
+    ); 
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_time_range(
+        ExprHandle start,
+        ExprHandle end,
+        string? interval,
+        PlClosedWindow closedWindow
+    );
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_time_ranges(
+        ExprHandle start,
+        ExprHandle end,
+        string? interval,
+        PlClosedWindow closedWindow
+    );
 }

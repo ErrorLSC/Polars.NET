@@ -11,23 +11,12 @@ public readonly partial struct Polars
     /// <param name="step">Step size of the range.</param>
     /// <param name="dtype">Integer data type of the ranges. Defaults to Int64.</param>
     /// <returns>A Literal Expression containing the integer series.</returns>
-    public static Expr IntRange(Expr start, Expr? end = null, long step = 1, DataType? dtype = null)
+    public static Expr IntRange(IntoExpr start, IntoExpr? end = null, long step = 1, DataType? dtype = null)
     {
         var actualDtype = dtype ?? DataType.Int64;
         
-        Expr realStart;
-        Expr realEnd;
-
-        if (end is null)
-        {
-            realStart = Lit(0);
-            realEnd = start;
-        }
-        else
-        {
-            realStart = start;
-            realEnd = end;
-        }
+        using Expr realStart = end is null ? Lit(0) : start.Consume();
+        using Expr realEnd = end is null ? start.Consume() : end.Value.Consume();
 
         return new(PolarsWrapper.IntRange(realStart.CloneHandle(), realEnd.CloneHandle(), step, actualDtype.Handle));
     }
@@ -40,7 +29,7 @@ public readonly partial struct Polars
     /// <param name="name">The name of generated series.</param>
     /// <param name="dtype">Integer data type of the ranges. Defaults to Int64.</param>
     /// <returns>A Literal Expression containing the integer series.</returns>
-    public static Series IntRangeAsSeries(Expr start, Expr? end=null, long step = 1, string name = "int", DataType? dtype = null)
+    public static Series IntRangeAsSeries(IntoExpr start, IntoExpr? end=null, long step = 1, string name = "int", DataType? dtype = null)
     {
         var expr = IntRange(start,end,step,dtype);
         using var df = new DataFrame().WithColumns(expr);

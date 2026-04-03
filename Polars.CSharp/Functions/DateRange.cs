@@ -12,15 +12,17 @@ public readonly partial struct Polars
     /// <param name="closed">Define which sides of the range are closed</param>
     /// <returns>Column of data type Date</returns>
     public static Expr DateRange(
-        Expr? start = null, 
-        Expr? end = null, 
+        IntoExpr? start = null, 
+        IntoExpr? end = null, 
         IntoDuration? interval = null,
         ClosedWindow closed = ClosedWindow.Both)
     {
+        using var realStart = start?.Consume();
+        using var realEnd = end?.Consume();
         string actualInterval = interval.HasValue ? interval.Value.Value : "1d";
         var handle = PolarsWrapper.DateRange(
-            start?.CloneHandle(),
-            end?.CloneHandle(),
+            realStart?.CloneHandle(),
+            realEnd?.CloneHandle(),
             actualInterval,
             null,
             closed.ToNative()
@@ -30,8 +32,8 @@ public readonly partial struct Polars
     }
     /// <inheritdoc cref="DateRange"/>
     public static Series DateRangeAsSeries(
-        Expr? start = null, 
-        Expr? end = null, 
+        IntoExpr? start = null, 
+        IntoExpr? end = null, 
         IntoDuration? interval = null, 
         ClosedWindow closed = ClosedWindow.Both,
         string name="date")

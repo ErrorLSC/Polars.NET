@@ -270,4 +270,82 @@ public class RangeTests
         Assert.Equal(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero), (DateTimeOffset)flatSeries[0]);
         Assert.Equal(new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero), (DateTimeOffset)flatSeries[1]);
     }
+    [Fact]
+    [Trait("Range", "TimeRange_Defaults")]
+    public void TimeRangeAsSeries_DefaultBounds_ShouldCoverFullDay()
+    {
+        using var series = Pl.TimeRangeAsSeries();
+
+        // Assert
+        Assert.Equal(typeof(TimeOnly), series.DataType);
+        Assert.Equal(24, series.Length);
+
+        Assert.Equal(TimeOnly.MinValue, (TimeOnly)series[0]); // 00:00
+        Assert.Equal(new TimeOnly(1, 0), (TimeOnly)series[1]);  // 01:00
+        Assert.Equal(new TimeOnly(23, 0), (TimeOnly)series[23]); // 23:00
+    }
+
+    [Fact]
+    [Trait("Range", "TimeRangeExplicit")]
+    public void TimeRangeAsSeries_ExplicitBounds_WithTimeSpanInterval()
+    {
+        // Arrange
+        var start = new TimeOnly(10, 0);
+        var end = new TimeOnly(11, 30);
+
+        using var series = Pl.TimeRangeAsSeries(
+            start, 
+            end, 
+            interval: TimeSpan.FromMinutes(30)
+        );
+
+        // Assert
+        Assert.Equal(4, series.Length); 
+        
+        // 10:00, 10:30, 11:00, 11:30
+        Assert.Equal(new TimeOnly(10, 0), (TimeOnly)series[0]);
+        Assert.Equal(new TimeOnly(10, 30), (TimeOnly)series[1]);
+        Assert.Equal(new TimeOnly(11, 0), (TimeOnly)series[2]);
+        Assert.Equal(new TimeOnly(11, 30), (TimeOnly)series[3]);
+    }
+
+    [Fact]
+    [Trait("Range", "TimeRangesRowWise")]
+    public void TimeRanges_RowWise_ShouldGenerateLists()
+    {
+        // Arrange
+        var start1 = new TimeOnly(8, 0);
+        var end1 = new TimeOnly(10, 0);
+        
+        var start2 = new TimeOnly(20, 0);
+        var end2 = new TimeOnly(21, 0);
+
+        var df = DataFrame.FromColumns(new
+        {
+            start_col = new[] { start1, start2 },
+            end_col = new[] { end1, end2 }
+        });
+
+        // Act
+        using var result = df.Select(
+            Pl.TimeRanges("start_col", "end_col", interval: "1h").Alias("ranges")
+        );
+
+        // Assert
+        var listSeries = result["ranges"];
+        Assert.Equal(DataType.List(typeof(TimeOnly)), listSeries.DataType);
+        Assert.Equal(2, listSeries.Length);
+
+        using var exploded = result.Explode("ranges");
+        var flatSeries = exploded["ranges"];
+
+        Assert.Equal(5, flatSeries.Length);
+
+        Assert.Equal(new TimeOnly(8, 0), (TimeOnly)flatSeries[0]);
+        Assert.Equal(new TimeOnly(9, 0), (TimeOnly)flatSeries[1]);
+        Assert.Equal(new TimeOnly(10, 0), (TimeOnly)flatSeries[2]);
+        
+        Assert.Equal(new TimeOnly(20, 0), (TimeOnly)flatSeries[3]);
+        Assert.Equal(new TimeOnly(21, 0), (TimeOnly)flatSeries[4]);
+    }
 }

@@ -1229,4 +1229,18 @@ public readonly partial struct PolarsWrapper
         var h = NativeBindings.pl_expr_datetime_ranges(startHandle,endHandle,interval,numSamplesHandle,closedWindow,unit,timeZone);
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle TimeRange(ExprHandle start,ExprHandle end,string? interval,PlClosedWindow closedWindow) 
+    {
+        var h = NativeBindings.pl_expr_time_range(start,end,interval,closedWindow);
+        start.TransferOwnership();
+        end.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle TimeRanges(ExprHandle start,ExprHandle end,string? interval,PlClosedWindow closedWindow) 
+    {
+        var h = NativeBindings.pl_expr_time_ranges(start,end,interval,closedWindow);
+        start.TransferOwnership();
+        end.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
 }
