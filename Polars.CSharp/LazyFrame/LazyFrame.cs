@@ -132,17 +132,42 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <param name="n">Number of rows to return.</param>
     /// <returns></returns>
     public LazyFrame Limit(int n=5)
-        => new(PolarsWrapper.LazyLimit(CloneHandle(), (uint)n));
+        => Slice(0,n);
+    /// <summary>
+    /// Get the last n rows.
+    /// </summary>
+    /// <param name="n">Number of rows to return.</param>
+    /// <returns></returns>
+    public LazyFrame Tail(int n=5)
+        => Slice(-n,n);
+    /// <summary>
+    /// Get the last row.
+    /// </summary>
+    /// <returns></returns>
+    public LazyFrame Last()
+        => Tail(1);
+    /// <summary>
+    /// Get the first row.
+    /// </summary>
+    /// <returns></returns>
+    public LazyFrame First()
+        => Head(1);
     /// <inheritdoc cref="Limit"/>
     public LazyFrame Head(int n=5) => Limit(n);
     /// <summary>
-    /// Gather every n-th row.
+    /// Take every nth row in the Frame and return as a new Frame.
     /// </summary>
     /// <param name="n">Gather every n-th row.</param>
     /// <param name="offset">Starting Index</param>
     /// <returns></returns>
     public LazyFrame GatherEvery(int n, int offset = 0)
         => Select(Pl.All().GatherEvery((ulong)n, (ulong)offset));
+    /// <summary>
+    /// Interpolate intermediate values. The interpolation method is linear.
+    /// Nulls at the beginning and end of the series remain null.
+    /// </summary>
+    public LazyFrame Interpolate()
+        => Select(Pl.All().Interpolate(InterpolationMethod.Linear));
 
     // ==========================================
     // Execution (Collect)

@@ -125,7 +125,7 @@ public class UdfTests
         Assert.Equal(5, df.Height); 
 
         // UDF (Int64 -> Int64)
-        var udf = Col("num").Map<long, long>(x => x * 2, DataType.Int64).Alias("res");
+        var udf = Col("num").Map<long, long>(x => x * 2, typeof(long)).Alias("res");
 
         using var res = df.Select(
             Col("num"),
@@ -198,7 +198,7 @@ public class UdfTests
 
         // UDF: "Hello, {name}!"
         var greetExpr = Col("name")
-            .Map<string, string>(name => $"Hello, {name}!", DataType.String)
+            .Map<string, string>(name => $"Hello, {name}!", typeof(string))
             .Alias("greeting");
 
         using var res = df.Select(Col("name"), greetExpr);
@@ -216,7 +216,7 @@ public class UdfTests
         using var df = DataFrame.ReadCsv(csv.Path);
 
         var formatExpr = Col("id")
-            .Map<long, string>(id => $"Order-{id}", DataType.String)
+            .Map<long, string>(id => $"Order-{id}", typeof(string))
             .Alias("order_id");
 
         using var res = df.Select(Col("id"), formatExpr);
@@ -277,7 +277,7 @@ public class UdfTests
                     .Agg(
                         Col("val")
                         .Implode() 
-                        .Map((Func<long[], long>)myGroupLogic, DataType.Int64) 
+                        .Map((Func<long[], long>)myGroupLogic, typeof(long)) 
                         .Alias("custom_agg")
                     )
                     .Sort("key");

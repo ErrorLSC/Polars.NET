@@ -784,6 +784,51 @@ B,5";
         Assert.Equal("Fig", slOverflow["Fruit"].GetValue<string>(0));
     }
     [Fact]
+    [Trait("DataFrame", "InsertColumn")]
+    public void Test_DataFrame_InsertColumn_SyntaxSugar()
+    {
+        // Setup initial DataFrame: 
+        // a = [1, 2, 3]
+        // b = [4, 5, 6]
+        using var df = DataFrame.FromColumns(new 
+        { 
+            a = new[] { 1, 2, 3 }, 
+            b = new[] { 4, 5, 6 } 
+        });
+
+        Assert.Equal(2, df.Width);
+        Assert.Equal("a", df.Columns[0]);
+        Assert.Equal("b", df.Columns[1]);
+
+        // Insert at index 1 -> [a, a_times_10, b]
+        using var df1 = df.InsertColumn(1, (Col("a") * 10).Alias("a_times_10"));
+        
+        Assert.Equal(3, df1.Width);
+        Assert.Equal("a_times_10", df1.Columns[1]);
+        Assert.Equal(20, df1["a_times_10"][1]); 
+
+        // int -> IntoExpr -> pl.lit
+        // Insert at index 0 -> [literal, a, a_times_10, b]
+        using var df2 = df1.InsertColumn(0, 99); 
+        
+        Assert.Equal(4, df2.Width);
+        Assert.Equal("literal", df2.Columns[0]); 
+        Assert.Equal(99, df2["literal"][0]);
+        Assert.Equal(99, df2["literal"][2]); 
+
+        // Width is 4. Index -1 -> width + (-1) = 3 -> [literal, a, a_times_10, new_series, b]
+        using var s = Series.From("new_series", [7, 8, 9]);
+        using var df3 = df2.InsertColumn(-1, s);
+        
+        Assert.Equal(5, df3.Width);
+        Assert.Equal("new_series", df3.Columns[3]);
+        Assert.Equal("b", df3.Columns[4]);
+        Assert.Equal(8, df3["new_series"][1]);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => df3.InsertColumn(10, 100));
+        Assert.Throws<ArgumentOutOfRangeException>(() => df3.InsertColumn(-10, 100));
+    }
+    [Fact]
     [Trait("DataFrame","Unique")]
     public void Test_Unique()
     {

@@ -217,6 +217,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         return Slice(offset, (ulong)length);
     }
 
+
     // ==========================================
     // Sampling
     // ==========================================
@@ -248,6 +249,38 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <inheritdoc cref="LazyFrame.GatherEvery(int, int)"/>
     public DataFrame GatherEvery(int n, int offset = 0)
         => Select(Pl.All().GatherEvery((ulong)n, (ulong)offset));
+    /// <inheritdoc cref="LazyFrame.Interpolate"/>
+    public DataFrame Interpolate()
+        => Select(Pl.All().Interpolate(InterpolationMethod.Linear));
+    /// <summary>
+    /// Insert a column into the DataFrame at a specified index.
+    /// Accepts a string (column name), a Series, a primitive value, or an Expr.
+    /// </summary>
+    public DataFrame InsertColumn(int index, IntoExpr column)
+    {
+        int originalIndex = index;
+
+        if (index < 0)
+        {
+            index = (int)(Width + index);
+            if (index < 0)
+                throw new ArgumentOutOfRangeException(nameof(index), 
+                    $"Column index {originalIndex} is out of range (frame has {Width} columns)");
+        }
+        else if (index > Width)
+        {
+            throw new ArgumentOutOfRangeException(nameof(index), 
+                $"Column index {originalIndex} is out of range (frame has {Width} columns)");
+        }
+
+        var exprToInsert = column.Consume();
+
+        var cols = Columns.Select(Pl.Col).ToList();
+
+        cols.Insert(index, exprToInsert);
+
+        return Select(cols.ToArray());
+    }
 
     // ==========================================
     // Stack Ops

@@ -4,7 +4,6 @@ use polars_arrow::ffi::{self, ArrowArray, ArrowArrayStream, ArrowArrayStreamRead
 use polars_arrow::array::StructArray;
 use polars_arrow::datatypes::{ArrowDataType, Field};
 use polars_core::prelude::CompatLevel;
-use polars_core::utils::Container;
 use crate::types::{DataFrameContext, LazyFrameContext};
 
 #[unsafe(no_mangle)]
@@ -47,9 +46,8 @@ pub extern "C" fn pl_dataframe_from_arrow_record_batch(
             None => {
                 let name = PlSmallStr::from_str(&field.name);
                 let series = Series::from_arrow(name, array)?;
-                let height = series.len();
 
-                DataFrame::new(height,vec![Column::from(series)])?
+                DataFrame::new_infer_height(vec![Column::from(series)])?
             }
         };
 

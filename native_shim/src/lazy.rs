@@ -1005,5 +1005,3 @@ pub extern "C" fn pl_lazy_frame_free(ptr: *mut LazyFrameContext) {
         Ok(())
     })
 }
-
-
