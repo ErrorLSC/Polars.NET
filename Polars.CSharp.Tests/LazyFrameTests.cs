@@ -913,5 +913,67 @@ David,40,80000";
         Assert.Equal(1L,result.Height);
         Assert.Equal(1,result[0][0]);
     }
+    [Fact]
+    [Trait("LazyFrame", "MatchToSchema")]
+    public void Test_LazyFrame_MatchToSchema_ComplexAlignment()
+    {
+        // 1. 准备原始数据 (具有杂乱的 Schema)
+        // a: Int32
+        // b: Float64
+        // extra: String (我们不需要这列)
+        using var df = DataFrame.FromColumns(new
+        {
+            a = new[] { 1, 2, 3 },
+            b = new[] { 1.1, 2.2, 3.3 },
+            extra = new[] { "x", "y", "z" }
+        });
+        using var lf = df.Lazy();
 
+        // 2. 定义目标 Schema (严谨、规范的终态)
+        // a: Int64 (要求向上转型)
+        // b: Float64 (保持不变)
+        // c: Float64 (原始数据中缺失这列，需要补齐)
+        var schemaDict = new Dictionary<string, DataType>
+        {
+            { "a", DataType.Int64 }, 
+            { "b", DataType.Float64},
+            { "c", DataType.Float64 }
+        };
+        using var targetSchema = PolarsSchema.From(schemaDict);
+
+        using var alignedLf = lf.MatchToSchema(
+            targetSchema,
+            extraColumns: ExtraColumnsPolicy.Ignore, 
+            defaultConfig: new MatchSchemaConfig
+            {
+                IntegerCast = UpcastOrForbid.Upcast 
+            },
+            columnOverrides: new Dictionary<string, MatchSchemaConfig>
+            {
+                ["c"] = new MatchSchemaConfig
+                {
+                    MissingColumns = MissingColumnAction.InsertWith(99.9) 
+                }
+            }
+        );
+
+        using var resDf = alignedLf.Collect();
+
+        Assert.Equal(3, resDf.Width);
+        Assert.Equal(3, resDf.Height);
+
+        var cols = resDf.Columns;
+        Assert.Contains("a", cols);
+        Assert.Contains("b", cols);
+        Assert.Contains("c", cols);
+        Assert.DoesNotContain("extra", cols);
+
+        Assert.Equal(DataType.Int64, resDf["a"].DataType);
+        
+        var cValues = resDf["c"];
+        Assert.Equal(DataType.Float64, cValues.DataType);
+        Assert.Equal(99.9, cValues[0]);
+        Assert.Equal(99.9, cValues[1]);
+        Assert.Equal(99.9, cValues[2]);
+    }
 }

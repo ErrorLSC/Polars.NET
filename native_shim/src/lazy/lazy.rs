@@ -56,24 +56,6 @@ macro_rules! gen_lazy_single_expr_op {
     };
 }
 
-/// LazyFrame -> Scalar Parameters -> LazyFrame
-/// For: limit (u32), head (u32)
-macro_rules! gen_lazy_scalar_op {
-    ($func_name:ident, $method:ident, $arg_type:ty) => {
-        #[unsafe(no_mangle)]
-        pub extern "C" fn $func_name(
-            lf_ptr: *mut LazyFrameContext, 
-            val: $arg_type
-        ) -> *mut LazyFrameContext {
-            ffi_try!({
-                let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
-                let new_lf = lf_ctx.inner.$method(val); 
-                Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
-            })
-        }
-    };
-}
-
 // ==========================================
 // Macro (Standard API)
 // ==========================================
@@ -84,10 +66,6 @@ gen_lazy_vec_op!(pl_lazy_with_columns, with_columns);
 
 // --- Filter ---
 gen_lazy_single_expr_op!(pl_lazy_filter, filter);
-
-// --- Limit ---
-gen_lazy_scalar_op!(pl_lazy_limit, limit, u32);
-gen_lazy_scalar_op!(pl_lazy_tail, tail, u32);
 
 // ==========================================
 // Rename
@@ -974,7 +952,6 @@ pub unsafe extern "C" fn pl_lazyframe_get_schema(lf_ptr: *mut LazyFrameContext) 
         Ok(Box::into_raw(Box::new(SchemaContext { schema: schema_ref })))
     })
 }
-
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_lazy_explain(lf_ptr: *mut LazyFrameContext, optimized: bool) -> *mut c_char {

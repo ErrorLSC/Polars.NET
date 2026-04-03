@@ -174,12 +174,6 @@ public readonly partial struct PolarsWrapper
         selector?.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static LazyFrameHandle LazyLimit(LazyFrameHandle lf, uint n)
-    {
-        var h = NativeBindings.pl_lazy_limit(lf, n);
-        lf.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
     public static LazyFrameHandle LazyGroupByAgg(LazyFrameHandle lf, ExprHandle[] keys, ExprHandle[] aggs,ExprHandle? havingExpr)
     {
         var keyPtrs = HandlesToPtrs(keys);
@@ -441,6 +435,28 @@ public readonly partial struct PolarsWrapper
     
         return ErrorHelper.Check(h);
     }
+    public static LazyFrameHandle MatchToSchema(
+            LazyFrameHandle lf,
+            SchemaHandle schema,
+            PlExtraColumnsPolicy extraColumnsCode,
+            PlMatchToSchemaPerColumnC defaultConfig,
+            PlSchemaColumnOverrideC[]? overrides)
+        {
+            UIntPtr overridesLen = overrides != null ? (UIntPtr)overrides.Length : UIntPtr.Zero;
+
+            var h = NativeBindings.pl_lazyframe_match_to_schema(
+                lf,
+                schema,
+                extraColumnsCode,
+                defaultConfig,
+                overrides,
+                overridesLen
+            );
+
+            lf.TransferOwnership();
+            
+            return ErrorHelper.Check(h);
+        }
     // Streaming Collect
     public static DataFrameHandle CollectStreaming(LazyFrameHandle lf)
     {

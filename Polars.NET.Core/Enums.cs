@@ -344,3 +344,7 @@ public enum PlClosedInterval: byte
     Both =2,
     None =3
 }
+public enum PlMissingColumnsPolicyType : byte { Insert = 0, Raise = 1, InsertWith = 2 }
+public enum PlMissingColumnsPolicy : byte { Raise = 0, Insert = 1 }
+public enum PlUpcastOrForbid : byte { Forbid = 0, Upcast = 1 }
+public enum PlExtraColumnsPolicy : byte { Raise = 0, Ignore = 1 }

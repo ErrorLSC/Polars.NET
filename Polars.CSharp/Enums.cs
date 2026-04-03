@@ -492,6 +492,10 @@ public enum ClosedInterval
     Left,Right,Both,None
 }
 
+public enum MissingColumnsPolicy : byte { Raise = 0, Insert = 1 }
+public enum UpcastOrForbid : byte { Forbid = 0, Upcast = 1 }
+public enum ExtraColumnsPolicy : byte { Raise = 0, Ignore = 1 }
+
 internal static class EnumExtensions
 {
     internal static CoreEnums.PlDataType ToNative(this DataTypeKind kind) => kind switch

@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.Marshalling;
 using Apache.Arrow.C;
 
 namespace Polars.NET.Core.Native;
@@ -134,7 +133,6 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial LazyFrameHandle pl_lazy_clone(LazyFrameHandle lf);
 
-    [LibraryImport(LibName)] public static partial LazyFrameHandle pl_lazy_limit(LazyFrameHandle lf, uint n);
     [LibraryImport(LibName)] public static partial LazyFrameHandle pl_lazy_with_columns(LazyFrameHandle lf, IntPtr[] exprs, UIntPtr len);
     [LibraryImport(LibName)] 
     public static partial LazyFrameHandle pl_lazyframe_explode(
@@ -207,6 +205,15 @@ unsafe internal partial class NativeBindings
         IntPtr selector,
         PlUniqueKeepStrategy keep,
         [MarshalAs(UnmanagedType.I1)] bool maintainOrder
+    );
+    [LibraryImport(LibName)]
+    public static partial LazyFrameHandle pl_lazyframe_match_to_schema(
+        LazyFrameHandle lf,
+        SchemaHandle schema,
+        PlExtraColumnsPolicy extraColumnsCode,
+        PlMatchToSchemaPerColumnC defaultConfig,
+        PlSchemaColumnOverrideC[]? overrides,
+        UIntPtr overridesLen
     );
     // --- Streaming & Sink ---
     [LibraryImport(LibName)] 
