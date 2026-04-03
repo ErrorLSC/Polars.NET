@@ -1,6 +1,5 @@
 #pragma warning disable CS1573
 
-using System.Data;
 using Polars.NET.Core;
 using Cs = Polars.CSharp.Polars.Selectors;
 using Pl = Polars.CSharp.Polars;
@@ -98,189 +97,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         
         return new LazyFrame(newHandle);
     }
-    // ==========================================
-    // Transformations
-    // ==========================================
-    /// <summary>
-    /// Select columns from the LazyFrame.
-    /// Accepts Expr, Selector, or string column names.
-    /// </summary>
-    /// <example>
-    /// <code>
-    /// // Select "a" and calculate "b" * 2
-    /// lf.Select(Col("a"), (Col("b") * 2).Alias("b_double"));
-    /// </code>
-    /// </example>
-    public LazyFrame Select(params IntoExpr[] exprs)
-    {
-        if (exprs.Length == 0) return this;
 
-        var handles = new ExprHandle[exprs.Length];
-        for (int i = 0; i < exprs.Length; i++)
-        {
-            using var safeExpr = exprs[i].Consume();
-            handles[i] = PolarsWrapper.CloneExpr(safeExpr.Handle);
-        }
-
-        return new LazyFrame(PolarsWrapper.LazySelect(CloneHandle(), handles));
-    }
-    /// <summary>
-    /// Bridge overload to support C# 12 collection expressions.
-    /// Usage: lf.Select(["Id", "Name", "Date"])
-    /// </summary>
-    public LazyFrame Select(IEnumerable<string> columns)
-    {
-        var cols = columns as string[] ?? [.. columns];
-        if (cols.Length == 0) return this;
-
-        var intoExprs = new IntoExpr[cols.Length];
-        for (int i = 0; i < cols.Length; i++)
-        {
-            intoExprs[i] = cols[i]; 
-        }
-
-        return Select(intoExprs);
-    }
-
-    /// <summary>
-    /// Select columns from the LazyFrame by column names.
-    /// </summary>
-    public LazyFrame Select(params string[] columns)
-    {
-        if (columns.Length == 0) return this;
-        return Select((IEnumerable<string>)columns);
-    }
-    /// <summary>
-    /// Bridge overload to support dynamic LINQ generation of Expressions.
-    /// Usage: lf.Select(myColumns.Select(c => Pl.Col(c) * 2))
-    /// </summary>
-    public LazyFrame Select(IEnumerable<Expr> exprs)
-    {
-        var exprArray = exprs as Expr[] ?? [.. exprs];
-        if (exprArray.Length == 0) return this;
-
-        var handles = new ExprHandle[exprArray.Length];
-        for (int i = 0; i < exprArray.Length; i++)
-        {
-            handles[i] = PolarsWrapper.CloneExpr(exprArray[i].Handle);
-        }
-
-        return new LazyFrame(PolarsWrapper.LazySelect(CloneHandle(), handles));
-    }
-    /// <summary>
-    /// Filter rows based on a boolean expression.
-    /// <para>
-    /// In a LazyFrame, this operation is added to the logical plan and is optimized before execution.
-    /// Polars will attempt to push this filter down as close to the data source as possible (Predicate Pushdown).
-    /// </para>
-    /// </summary>
-    /// <param name="expr">A boolean expression.</param>
-    /// <returns>A new LazyFrame with the filter applied.</returns>
-    /// <example>
-    /// <code>
-    /// var df = DataFrame.FromColumns(new
-    /// {
-    ///     group = new[] { "A", "A", "B", "B", "C" },
-    ///     val = new[] { 1, 2, 3, 4, 5 }
-    /// });
-    /// 
-    /// // Build a lazy query:
-    /// // 1. Filter out group 'C'
-    /// // 2. Multiply 'val' by 2
-    /// // 3. Select specific columns
-    /// var q = df.Lazy()
-    ///     .Filter(Col("group") != "C")
-    ///     .WithColumns((Col("val") * 2).Alias("val_x_2"))
-    ///     .Select("group", "val_x_2");
-    /// 
-    /// // Execute
-    /// q.Collect().Show();
-    /// /* Output:
-    /// shape: (4, 2)
-    /// ┌───────┬─────────┐
-    /// │ group ┆ val_x_2 │
-    /// │ ---   ┆ ---     │
-    /// │ str   ┆ i32     │
-    /// ╞═══════╪═════════╡
-    /// │ A     ┆ 2       │
-    /// │ A     ┆ 4       │
-    /// │ B     ┆ 6       │
-    /// │ B     ┆ 8       │
-    /// └───────┴─────────┘
-    /// */
-    /// </code>
-    /// </example>
-    public LazyFrame Filter(Expr expr)
-        => new(PolarsWrapper.LazyFilter(CloneHandle(), expr.CloneHandle()));
-    /// <summary>
-    /// Filter rows based on a boolean series.
-    /// </summary>
-    public LazyFrame Filter(Series series)
-    {
-        if (series.DataType != DataType.Boolean)
-        {
-            throw new InvalidExpressionException("Can not filter by non-boolean series.");
-        }
-        
-        using var expr = Pl.Lit(series); 
-        
-        return Filter(expr); 
-    }
-    /// <summary>
-    /// Filter rows based on a boolean array.
-    /// </summary>
-    /// <param name="mask"></param>
-    /// <returns></returns>
-    public LazyFrame Filter(IEnumerable<bool> mask)
-        => Filter(Pl.Lit(mask)); 
-    // /// <summary>
-    // /// Add or modify columns based on expressions.
-    // /// </summary>
-    // /// <example>
-    // /// <code>
-    // /// // Add a new column "c" while keeping "a" and "b"
-    // /// lf.WithColumns((Col("a") + Col("b")).Alias("c"));
-    // /// </code>
-    // /// </example>
-    // public LazyFrame WithColumns(params Expr[] exprs)
-    // {
-    //     var lfClone = CloneHandle();
-    //     var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
-    //     return new LazyFrame(PolarsWrapper.LazyWithColumns(lfClone, handles));
-    // }
-    // /// <summary>
-    // /// Add or modify columns based on series. Series will be converted to Expressions implicitly
-    // /// </summary>
-    // public LazyFrame WithColumns(params Series[] series)
-    // {
-    //     var exprs = new Expr[series.Length];
-    //     for (int i = 0; i < series.Length; i++)
-    //     {
-    //         exprs[i] = Pl.Lit(series[i]);
-    //     }
-    //     return WithColumns(exprs);
-    // }
-    /// <summary>
-    /// Add or modify columns based on Expressions, Strings, Selectors, or Series.
-    /// </summary>
-    /// <example>
-    /// <code>
-    /// // Add a new column "c", overwrite with a Series, and select a string column!
-    /// lf.WithColumns(Pl.Col("a") + 1, mySeries, "ExistingCol", Cs.Numeric() * 2);
-    /// </code>
-    /// </example>
-    public LazyFrame WithColumns(params IntoExpr[] exprs)
-    {
-        if (exprs.Length == 0) return this;
-
-        var handles = new ExprHandle[exprs.Length];
-        for (int i = 0; i < exprs.Length; i++)
-        {
-            handles[i] = PolarsWrapper.CloneExpr(exprs[i].Consume().Handle);
-        }
-
-        return new LazyFrame(PolarsWrapper.LazyWithColumns(CloneHandle(), handles));
-    }
     /// <summary>
     /// Slice the LazyFrame.
     /// <para>This operation is lazy; it only affects the query plan.</para>
@@ -310,102 +127,22 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         return schema.ToLazyFrame(n);
     }
     /// <summary>
-    /// Limit the number of rows in the LazyFrame.
+    /// Get the first n rows.
     /// </summary>
-    /// <param name="n"></param>
+    /// <param name="n">Number of rows to return.</param>
     /// <returns></returns>
-    public LazyFrame Limit(uint n)
-        => new(PolarsWrapper.LazyLimit(CloneHandle(), n));
-
+    public LazyFrame Limit(int n=5)
+        => new(PolarsWrapper.LazyLimit(CloneHandle(), (uint)n));
+    /// <inheritdoc cref="Limit"/>
+    public LazyFrame Head(int n=5) => Limit(n);
     /// <summary>
-    /// Keep unique rows (stable) based on a subset of columns defined by a Selector.
+    /// Gather every n-th row.
     /// </summary>
-    /// <param name="subset">Selector defining the subset of columns. If null, uses all columns.</param>
-    /// <param name="keep">Strategy to keep duplicates (First, Last, Any, None).</param>
-    public LazyFrame Unique(Selector? subset = null, UniqueKeepStrategy keep = UniqueKeepStrategy.First, bool maintainOrder=false)
-        => new (PolarsWrapper.LazyUnique(CloneHandle(), subset?.CloneHandle()!, keep.ToNative(),maintainOrder));
-    
-    /// <summary>
-    /// Keep unique rows based on specific column names.
-    /// </summary>
-    /// <param name="columns">A collection of column names to group by.</param>
-    /// <param name="keep">Strategy to keep duplicates (First, Last, Any, None).</param>
-    /// <param name="maintainOrder">Whether to maintain the original order of the rows (stable).</param>
-    public LazyFrame Unique(
-        IEnumerable<string> columns, 
-        UniqueKeepStrategy keep = UniqueKeepStrategy.First, 
-        bool maintainOrder = false)
-    {
-        var columnsArray = columns as string[] ?? [.. columns];
-        
-        if (columnsArray.Length == 0)
-        {
-            return Unique(subset: null, keep, maintainOrder);
-        }
-
-        using var selector = Cs.ByName(columnsArray);
-        
-        return Unique(selector, keep, maintainOrder);
-    }
-    /// <summary>
-    /// Keep unique rows based on a subset of columns (Selector, strings, Types, etc.).
-    /// </summary>
-    public LazyFrame Unique(IntoSelector subset, UniqueKeepStrategy keep = UniqueKeepStrategy.First, bool maintainOrder = false)
-    {
-        using var selector = subset.Consume();
-        return new(PolarsWrapper.LazyUnique(CloneHandle(), selector.CloneHandle(), keep.ToNative(), maintainOrder));
-    }
-    /// <summary>
-    /// Get an explanation of the optimized query plan.
-    /// <para>
-    /// Returns a string representation of the logical plan after Polars optimizers 
-    /// (predicate pushdown, projection pushdown, etc.) have run.
-    /// </para>
-    /// </summary>
-    /// <param name="optimized">If true, show the optimized plan. If false, show the logical plan as built.</param>
-    /// <returns>The plan as a string.</returns>
-    /// <example>
-    /// <code>
-    /// var q = df.Lazy()
-    ///     .Filter(Col("group") != "C")
-    ///     .WithColumns((Col("val") * 2).Alias("val_x_2"))
-    ///     .Select("group", "val_x_2");
-    /// 
-    /// Console.WriteLine(q.Explain());
-    /// /* Output (Optimized Plan):
-    /// simple π 2/2 ["group", "val_x_2"]
-    ///    WITH_COLUMNS:
-    ///    [[(col("val")) * (2)].alias("val_x_2")] 
-    ///     FILTER [(col("group")) != ("C")]
-    ///     FROM
-    ///       DF ["group", "val"]; PROJECT["group", "val"] 2/2 COLUMNS
-    /// */
-    /// </code>
-    /// </example>
-    public string Explain(bool optimized = true)
-        => PolarsWrapper.Explain(Handle, optimized);
-    /// <summary>
-    /// Generate a summary statistics DataFrame (count, mean, std, min, 25%, 50%, 75%, max).
-    /// Similar to pandas/polars describe().
-    /// Notice: This will collect LazyFrame once, but LazyFrame won't be consumed.
-    /// </summary>
-    public DataFrame Describe()
-        => Clone().Collect().Describe();
-
-    /// <summary>
-    /// Returns the string representation of the LazyFrame (ASCII table).
-    /// This allows Console.WriteLine(lf) to print the table directly.
-    /// </summary>
-    public override string ToString()
-    {
-        if (Handle.IsInvalid) return "LazyFrame (Disposed)";
-        return Clone().Collect().ToString();
-    }
-
-    /// <summary>
-    /// Print the LazyFrame to Console.
-    /// </summary>
-    public void Show() => Console.WriteLine(ToString());
+    /// <param name="n">Gather every n-th row.</param>
+    /// <param name="offset">Starting Index</param>
+    /// <returns></returns>
+    public LazyFrame GatherEvery(int n, int offset = 0)
+        => Select(Pl.All().GatherEvery((ulong)n, (ulong)offset));
 
     // ==========================================
     // Execution (Collect)

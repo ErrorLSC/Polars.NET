@@ -1,6 +1,5 @@
 using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
-using Apache.Arrow;
 using System.Data;
 using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
@@ -149,153 +148,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     // ==========================================
     // DataFrame Operations
     // ==========================================
-    /// <summary>
-    /// Select columns from the DataFrame and apply expressions to them.
-    /// <para>
-    /// This is the primary way to project data, rename columns, or compute new columns based on existing ones.
-    /// The result will only contain the columns specified in the expression list.
-    /// </para>
-    /// </summary>
-    /// <param name="columns">A list of expressions defining the columns to select or compute.</param>
-    /// <returns>A new DataFrame containing only the selected/computed columns.</returns>
-    /// <example>
-    /// <code>
-    /// var df = DataFrame.FromColumns(new
-    /// {
-    ///     foo = new[] { 1, 2, 3 },
-    ///     bar = new[] { 6, 7, 8 },
-    ///     ham = new[] { "a", "b", "c" }
-    /// });
-    /// 
-    /// // Select "foo" column and compute a new column "bar_x_2"
-    /// var selected = df.Select(
-    ///     Col("foo"),
-    ///     (Col("bar") * 2).Alias("bar_x_2")
-    /// );
-    /// 
-    /// selected.Show();
-    /// /* Output:
-    /// shape: (3, 2)
-    /// ┌─────┬─────────┐
-    /// │ foo ┆ bar_x_2 │
-    /// │ --- ┆ ---     │
-    /// │ i32 ┆ i32     │
-    /// ╞═════╪═════════╡
-    /// │ 1   ┆ 12      │
-    /// │ 2   ┆ 14      │
-    /// │ 3   ┆ 16      │
-    /// └─────┴─────────┘
-    /// */
-    /// </code>
-    /// </example>
-    public DataFrame Select(params IntoExpr[] columns) => Lazy().Select(columns).Collect();
-    /// <summary>
-    /// Select columns by name (convenience overload).
-    /// <para>
-    /// This is a shortcut for creating <see cref="Polars.Col(string)"/> expressions for each column name.
-    /// </para>
-    /// </summary>
-    /// <param name="columns">The names of the columns to select.</param>
-    /// <returns>A new DataFrame containing only the selected columns.</returns>
-    /// <remarks>
-    /// For more advanced selections (renaming, calculations), use <see cref="Select(IntoExpr[])"/>.
-    /// </remarks>
-    public DataFrame Select(IEnumerable<string> columns) => Lazy().Select(columns).Collect();
-    /// <summary>
-    /// Select columns by name (convenience overload).
-    /// </summary>
-    public DataFrame Select(params string[] columns) => Lazy().Select(columns).Collect();
-    /// <summary>
-    /// Select columns by expressions (convenience overload).
-    /// </summary>
-    public DataFrame Select(IEnumerable<Expr> exprs) => Lazy().Select(exprs).Collect();
-    
-    /// <summary>
-    /// Filter rows based on a boolean expression (predicate).
-    /// <para>
-    /// Retains only the rows where the expression evaluates to true.
-    /// </para>
-    /// </summary>
-    /// <param name="expr">A boolean expression to filter by (e.g., Col("a") > 5).</param>
-    /// <returns>A new DataFrame containing only the matching rows.</returns>
-    /// <example>
-    /// <code>
-    /// var df = DataFrame.FromColumns(new
-    /// {
-    ///     foo = new[] { 1, 2, 3 },
-    ///     bar = new[] { 6, 7, 8 },
-    ///     ham = new[] { "a", "b", "c" }
-    /// });
-    /// 
-    /// // Keep rows where "foo" is greater than 1
-    /// var filtered = df.Filter(Col("foo") > 1);
-    /// 
-    /// filtered.Show();
-    /// /* Output:
-    /// shape: (2, 3)
-    /// ┌─────┬─────┬─────┐
-    /// │ foo ┆ bar ┆ ham │
-    /// │ --- ┆ --- ┆ --- │
-    /// │ i32 ┆ i32 ┆ str │
-    /// ╞═════╪═════╪═════╡
-    /// │ 2   ┆ 7   ┆ b   │
-    /// │ 3   ┆ 8   ┆ c   │
-    /// └─────┴─────┴─────┘
-    /// */
-    /// </code>
-    /// </example>
-    public DataFrame Filter(Expr expr) => Lazy().Filter(expr).Collect();
-    /// <summary>
-    ///  Filter rows based on a boolean series.
-    /// </summary>
-    /// <param name="series">A boolean series as mask</param>
-    /// <returns></returns>
-    public DataFrame Filter(Series series) => Lazy().Filter(series).Collect();
-    /// <summary>
-    /// Filter rows based on a boolean array.
-    /// </summary>
-    /// <param name="mask">A boolean IEnumerable as mask</param>
-    /// <returns></returns>
-    public DataFrame Filter(IEnumerable<bool> mask) => Lazy().Filter(mask).Collect(); 
-    /// <summary>
-    /// Add new columns to the DataFrame or replace existing ones using expressions.
-    /// <para>
-    /// Unlike <see cref="Select(IntoExpr[])"/>, this method keeps all original columns in the DataFrame 
-    /// and appends the new ones (or replaces them if the names match).
-    /// </para>
-    /// </summary>
-    /// <param name="exprs">Expressions defining the new columns to add.</param>
-    /// <returns>A new DataFrame with the original columns plus the new/modified columns.</returns>
-    /// <example>
-    /// <code>
-    /// var df = DataFrame.FromColumns(new
-    /// {
-    ///     foo = new[] { 1, 2, 3 },
-    ///     bar = new[] { 6, 7, 8 },
-    ///     ham = new[] { "a", "b", "c" }
-    /// });
-    /// 
-    /// // Add a "sum" column (foo + bar) while keeping others
-    /// var withCols = df.WithColumns(
-    ///     (Col("foo") + Col("bar")).Alias("sum")
-    /// );
-    /// 
-    /// withCols.Show();
-    /// /* Output:
-    /// shape: (3, 4)
-    /// ┌─────┬─────┬─────┬─────┐
-    /// │ foo ┆ bar ┆ ham ┆ sum │
-    /// │ --- ┆ --- ┆ --- ┆ --- │
-    /// │ i32 ┆ i32 ┆ str ┆ i32 │
-    /// ╞═════╪═════╪═════╪═════╡
-    /// │ 1   ┆ 6   ┆ a   ┆ 7   │
-    /// │ 2   ┆ 7   ┆ b   ┆ 9   │
-    /// │ 3   ┆ 8   ┆ c   ┆ 11  │
-    /// └─────┴─────┴─────┴─────┘
-    /// */
-    /// </code>
-    /// </example>
-    public DataFrame WithColumns(params IntoExpr[] exprs) => Lazy().WithColumns(exprs).Collect();
+
+
     /// <summary>
     /// Return head lines from a DataFrame
     /// </summary>
@@ -346,86 +200,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         return Rename(oldNames, newNames);
     }
-    /// <summary>
-    /// Returns a new DataFrame with unique rows based on ALL columns.
-    /// </summary>
-    /// <param name="keep">The strategy for which duplicate rows to retain (First, Last, Any, or None).</param>
-    /// <param name="maintainOrder">Keep the same order as the original DataFrame.</param>
-    /// <param name="offset">The starting index from which to begin the slice of unique results.</param>
-    /// <param name="len">The maximum number of rows to include in the result.</param>
-    public DataFrame Unique(
-        UniqueKeepStrategy keep = UniqueKeepStrategy.First, 
-        bool maintainOrder = false,
-        long? offset = null, 
-        long? len = null)
-    {
-        (long offset, ulong len)? slice = (offset.HasValue && len.HasValue) 
-            ? (offset.Value, (ulong)Math.Max(0, len.Value)) 
-            : null;
 
-        var h = PolarsWrapper.DataFrameUnique(
-            Handle, 
-            null, 
-            keep.ToNative(), 
-            maintainOrder,
-            slice
-        );
-
-        return new DataFrame(h);
-    }
-    /// <summary>
-    /// Returns a new DataFrame with unique rows based on specific column names.
-    /// Supports C# 12 collection expressions like ["Id", "Date"].
-    /// </summary>
-    public DataFrame Unique(
-        IEnumerable<string> subset, 
-        UniqueKeepStrategy keep = UniqueKeepStrategy.First, 
-        bool maintainOrder = false,
-        long? offset = null, 
-        long? len = null)
-    {
-        var columns = subset as string[] ?? subset.ToArray();
-        
-        if (columns.Length == 0)
-        {
-            return Unique(keep, maintainOrder, offset, len);
-        }
-
-        (long offset, ulong len)? slice = (offset.HasValue && len.HasValue) 
-            ? (offset.Value, (ulong)Math.Max(0, len.Value)) 
-            : null;
-
-        var h = PolarsWrapper.DataFrameUnique(
-            Handle, 
-            columns, 
-            keep.ToNative(), 
-            maintainOrder,
-            slice
-        );
-
-        return new DataFrame(h);
-    }
-    /// <summary>
-    /// Returns a new DataFrame with unique rows based on a subset of columns (Selector, Type, DataType).
-    /// </summary>
-    public DataFrame Unique(
-        IntoSelector subset, 
-        UniqueKeepStrategy keep = UniqueKeepStrategy.First, 
-        bool maintainOrder = false,
-        long? offset = null, 
-        long? len = null)
-    {
-        using var selector = subset.Consume();
-        
-        string[] columns = Cs.ExpandSelector(this, selector);
-
-        if (columns.Length == 0)
-        {
-            throw new ArgumentException("No Columns Selected. The given subset/selector did not match any columns.");
-        }
-
-        return Unique(columns, keep, maintainOrder, offset, len);
-    }
     /// <summary>
     /// Slice the DataFrame along the rows.
     /// </summary>
@@ -439,7 +214,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public DataFrame Slice(int offset, int length)
     {
         if (length < 0) throw new ArgumentOutOfRangeException(nameof(length), "Length must be non-negative.");
-        return Slice((long)offset, (ulong)length);
+        return Slice(offset, (ulong)length);
     }
 
     // ==========================================
@@ -470,6 +245,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         return schema.ToDataFrame(n);
     }
+    /// <inheritdoc cref="LazyFrame.GatherEvery(int, int)"/>
+    public DataFrame GatherEvery(int n, int offset = 0)
+        => Select(Pl.All().GatherEvery((ulong)n, (ulong)offset));
 
     // ==========================================
     // Stack Ops
