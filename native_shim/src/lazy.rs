@@ -819,6 +819,60 @@ pub extern "C" fn pl_lazyframe_join_asof(
         Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
     })
 }
+
+// ==========================================
+// Join Where (Inequi-Join / Predicate Join)
+// ==========================================
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazyframe_join_where(
+    left_ptr: *mut LazyFrameContext,
+    right_ptr: *mut LazyFrameContext,
+    predicates_ptr: *const *mut ExprContext, predicates_len: usize,
+    how_code: u8,
+    suffix_ptr: *const c_char,
+    validation_code: u8,
+    coalesce_code: u8,
+    maintain_order_code: u8,
+    nulls_equal: bool,
+) -> *mut LazyFrameContext {
+    ffi_try!({
+        // Consume contexts and take ownership
+        let left_ctx = unsafe { Box::from_raw(left_ptr) };
+        let right_ctx = unsafe { Box::from_raw(right_ptr) };
+        
+        // Consume predicates array
+        let predicates = unsafe { consume_exprs_array(predicates_ptr, predicates_len) };
+
+        // Map Enums (using existing utilities from utils.rs)
+        let how = map_jointype(how_code);
+        let validation = map_validation(validation_code);
+        let coalesce = map_coalesce(coalesce_code);
+        let maintain_order = map_maintain_order(maintain_order_code);
+
+        // Construct the JoinBuilder
+        let mut builder = JoinBuilder::new(left_ctx.inner)
+            .with(right_ctx.inner)
+            .how(how)
+            .validate(validation)
+            .join_nulls(nulls_equal)
+            .coalesce(coalesce)
+            .maintain_order(maintain_order);
+
+        // Apply suffix if provided
+        if !suffix_ptr.is_null() {
+            let s_str = ptr_to_str(suffix_ptr)
+                .map_err(|e| PolarsError::ComputeError(format!("Invalid suffix string: {}", e).into()))?;
+            builder = builder.suffix(PlSmallStr::from_str(s_str));
+        }
+
+        // 6. Finish with join predicates
+        let res_lf = builder.join_where(predicates);
+
+        // 7. Return the new LazyFrameContext
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: res_lf })))
+    })
+}
 // ==========================================
 // Ops
 // ==========================================

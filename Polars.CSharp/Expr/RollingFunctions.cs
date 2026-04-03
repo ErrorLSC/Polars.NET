@@ -29,7 +29,7 @@ public partial class Expr : IDisposable
     /// Apply a rolling mean (moving average) over a window.
     /// </summary>
     /// <param name="windowSize">
-    /// The size of the window formatted as a string duration.
+    /// The size of the window formatted as a string duration. Or use .NET TimeSpan directly.
     /// <para>Examples: <c>"3i"</c> (3 index rows), <c>"1d"</c> (1 day), <c>"1h"</c> (1 hour).</para>
     /// </param>
     /// <param name="minPeriods">

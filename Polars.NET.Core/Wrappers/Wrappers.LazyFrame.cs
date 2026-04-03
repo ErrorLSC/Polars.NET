@@ -412,6 +412,35 @@ public readonly partial struct PolarsWrapper
             return ErrorHelper.Check(h);
         }
     }
+    public static LazyFrameHandle JoinWhere(
+        LazyFrameHandle left, 
+        LazyFrameHandle right, 
+        ExprHandle[] predicates, 
+        PlJoinType how,
+        string? suffix,
+        PlJoinValidation validation,
+        PlJoinCoalesce coalesce,
+        PlJoinMaintainOrder maintainOrder,
+        bool nullsEqual)
+    {
+        var lPtrs = HandlesToPtrs(predicates);
+
+        var h = NativeBindings.pl_lazyframe_join_where(
+            left, 
+            right, 
+            lPtrs, (nuint)lPtrs.Length, 
+            how,
+            suffix,         
+            validation,
+            coalesce,
+            maintainOrder,
+            nullsEqual
+        );
+        left.TransferOwnership();
+        right.TransferOwnership();
+    
+        return ErrorHelper.Check(h);
+    }
     // Streaming Collect
     public static DataFrameHandle CollectStreaming(LazyFrameHandle lf)
     {

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 using Apache.Arrow.C;
 
 namespace Polars.NET.Core.Native;
@@ -116,6 +117,18 @@ unsafe internal partial class NativeBindings
         IntPtr sliceOffset, // *const i64
         UIntPtr sliceLen
     );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LazyFrameHandle pl_lazyframe_join_where(
+        LazyFrameHandle left,
+        LazyFrameHandle right,
+        nint[] predicates,
+        nuint predicatesLen,
+        PlJoinType how,
+        string? suffix,
+        PlJoinValidation validation,
+        PlJoinCoalesce coalesce,
+        PlJoinMaintainOrder maintainOrder,
+        [MarshalAs(UnmanagedType.U1)] bool nullsEqual);
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_lazy_collect(LazyFrameHandle lf,[MarshalAs(UnmanagedType.U1)] bool useStreaming);
     [LibraryImport(LibName)]

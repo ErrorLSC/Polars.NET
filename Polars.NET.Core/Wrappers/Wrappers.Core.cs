@@ -7,7 +7,7 @@ public readonly partial struct PolarsWrapper
     // Helper : Transform Handles,used in move ptr to Rust
     internal static IntPtr[] HandlesToPtrs(PolarsHandle[] handles)
     {
-        if (handles == null || handles.Length == 0) return Array.Empty<IntPtr>();
+        if (handles == null || handles.Length == 0) return [];
         
         var ptrs = new IntPtr[handles.Length];
         for (int i = 0; i < handles.Length; i++)
@@ -23,7 +23,7 @@ public readonly partial struct PolarsWrapper
     {
         if (strings == null || strings.Length == 0)
         {
-            return action(Array.Empty<IntPtr>());
+            return action([]);
         }
 
         var ptrs = new IntPtr[strings.Length];

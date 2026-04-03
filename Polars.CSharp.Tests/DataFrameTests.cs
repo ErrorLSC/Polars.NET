@@ -224,6 +224,7 @@ public class DataFrameTests
     // Join Tests
     // ==========================================
     [Fact]
+    [Trait("DataFrame","Join")]
     public void Test_DataFrame_Join_MultiColumn_WithParams()
     {
         using var scoresDf = DataFrame.FromColumns(new 
@@ -248,8 +249,7 @@ public class DataFrameTests
         // (Bob, 2024) -> discard
         using var joinedDf = scoresDf.Join(
             classDf,
-            leftOn: ["student", "year"],
-            rightOn: ["student", "year"],
+            on: ["student", "year"],
             how: JoinType.Inner,
             
             suffix: "_conflict_test",          
@@ -722,6 +722,7 @@ B,5";
         Assert.Contains(4, sums);
     }
     [Fact]
+    [Trait("DataFrame","JoinAsOf")]
     public void Test_DataFrame_JoinAsOf_Eager()
     {
         // Left: [10:00, 10:02], val_l = [1, 2]
@@ -745,15 +746,14 @@ B,5";
         // JoinAsOf (Backward strategy)
         using var res = dfLeft.JoinAsOf(
             dfRight,
-            leftOn: Col("ts"),
-            rightOn: Col("ts"),
+            on: "ts",
             tolerance: null,
             strategy: AsofStrategy.Backward
         );
 
         Assert.Equal(2, res.Height);
         
-        var rVals = res["val_r"].ToArray<int>();
+        var rVals = res["val_r"];
         Assert.Equal(20, rVals[0]); // 10:00 matched 10:00
         Assert.Equal(30, rVals[1]); // 10:02 matched 10:01 (closest previous)
     }

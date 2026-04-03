@@ -1,4 +1,4 @@
-using static Polars.CSharp.Polars;
+using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp.Tests;
@@ -24,8 +24,8 @@ David,40,80000";
         Assert.Contains("name", df.Columns);
 
         using var filtered = lf_copyed
-            .Filter(Col("age") > 30)
-            .Select(Col("name"), Col("salary"));
+            .Filter(Pl.Col("age") > 30)
+            .Select(Pl.Col("name"), Pl.Col("salary"));
         using var resultDf = filtered.Collect();
 
         Assert.Equal(2, resultDf.Height);
@@ -57,7 +57,7 @@ David,40,80000";
         Assert.Equal(1, df.Column("id").GetValue<long>(0));
         Assert.Equal("Alice", df.Column("name").GetValue<string>(0));
         
-        using var df1_again = lf1.Select(Col("id") * Lit(10)).Collect();
+        using var df1_again = lf1.Select(Pl.Col("id") * 10).Collect();
         Assert.Equal(2, df1_again.Height);
         
         Assert.Equal(10, df1_again.Column("id").GetValue<long>(0));
@@ -97,6 +97,7 @@ David,40,80000";
         Assert.Equal(300, df.GetValue<int?>(1, "C"));
     }
     [Fact]
+    [Trait("LazyFrame","Join")]
     public void Test_LazyFrame_Join_MultiColumn_WithParams()
     {
 
@@ -120,8 +121,7 @@ David,40,80000";
 
         using var joinedLf = scoresLf.Join(
             classLf,
-            leftOn: [Col("student"), Col("year")],
-            rightOn: [Col("student"), Col("year")],
+            on: ["student", "year"],
             how: JoinType.Inner,
             
             suffix: "_lazy_conflict",           
@@ -145,7 +145,7 @@ David,40,80000";
         Assert.Equal("L1", sorted.GetValue<string>(0, "note"));
         Assert.Equal("R1", sorted.GetValue<string>(0, "note_lazy_conflict"));
 
-        using var bobCheck = joinedDf.Filter(Col("student") == Lit("Bob"));
+        using var bobCheck = joinedDf.Filter(Pl.Col("student") == Pl.Lit("Bob"));
         Assert.Equal(0, bobCheck.Height);
     }
     [Fact]
@@ -162,8 +162,8 @@ David,40,80000";
 
         using var groupedlf = df.Lazy()
             .GroupBy("dept")
-            .Having(Col("salary").Sum() > 100) 
-            .Agg(Col("salary").Sum().Alias("total_salary"))
+            .Having(Pl.Col("salary").Sum() > 100) 
+            .Agg(Pl.Col("salary").Sum().Alias("total_salary"))
             .Sort("total_salary", descending: true); 
             
         using var grouped = groupedlf.Collect();
@@ -294,6 +294,7 @@ David,40,80000";
         Assert.True(price0 == 10 || price0 == 20);
     }
     [Fact]
+    [Trait("LazyFrame","JoinAsOf")]
     public void Test_Lazy_JoinAsOf_With_TimeSpan_Tolerance()
     {
         
@@ -314,15 +315,10 @@ David,40,80000";
 
         var joinedLf = lfTrades.JoinAsOf(
             lfQuotes,
-            leftOn: Col("time"),
-            rightOn: Col("time"),
-            
+            on: "time",
+            by: ["sym"],
             tolerance: TimeSpan.FromMinutes(2), 
-            
-            strategy: AsofStrategy.Backward,
-            
-            leftBy: [Col("sym")],
-            rightBy: [Col("sym")]
+            strategy: AsofStrategy.Backward 
         );
 
         using var df = joinedLf.Collect();
@@ -339,6 +335,44 @@ David,40,80000";
         Assert.Null(df.Column("bid").GetValue<long?>(2));
     }
     [Fact]
+    [Trait("LazyFrame", "JoinWhere")]
+    public void Test_LazyFrame_JoinWhere_Multiple_Conditions()
+    {
+        using var dfLeft = DataFrame.FromColumns(new
+        {
+            id = new[] { 1, 2, 3, 4 },
+            score = new[] { 50, 80, 95, 40 }
+        });
+
+        using var dfRight = DataFrame.FromColumns(new
+        {
+            ref_id = new[] { 1, 2, 3, 4 },
+            pass_mark = new[] { 60, 60, 90, 50 }
+        });
+
+        using var res = dfLeft.Lazy().JoinWhere(
+            other: dfRight.Lazy(),
+            predicates: [
+                Pl.Col("id") == Pl.Col("ref_id"),       
+                Pl.Col("score") >= Pl.Col("pass_mark")  
+            ],
+            how: JoinType.Inner
+        ).Collect();
+        
+        // id=1 (50 >= 60) -> Discard
+        // id=2 (80 >= 60) -> Keep
+        // id=3 (95 >= 90) -> Keep
+        // id=4 (40 >= 50) -> Discard
+        
+        Assert.Equal(2, res.Height); 
+        Assert.True(res.Columns.Contains("id"));
+        Assert.True(res.Columns.Contains("ref_id"));
+        
+        var idSeries = res["id"];
+        Assert.Equal(2, (int)idSeries[0]);
+        Assert.Equal(3, (int)idSeries[1]);
+    }
+    [Fact]
     public void Test_Lazy_GroupBy_Ownership()
     {
         var data = new[]
@@ -351,13 +385,13 @@ David,40,80000";
         using var lf = df.Lazy();
 
 
-        using var agg1 = lf.GroupBy(Col("Dept"))
-                           .Agg(Col("Val").Sum().Alias("SumVal"))
+        using var agg1 = lf.GroupBy("Dept")
+                           .Agg(Pl.Col("Val").Sum().Alias("SumVal"))
                            .Collect();
         
         Assert.Equal(2, agg1.Height); // A, B
 
-        using var res2 = lf.Select(Col("Dept")).Collect();
+        using var res2 = lf.Select("Dept").Collect();
         Assert.Equal(3, res2.Height);
     }
     [Fact]
@@ -371,7 +405,7 @@ David,40,80000";
         using var selector = Cs.ByName("expanded");
 
         using var res = lf
-            .Select(Col("chars").Str.Split(",").Alias("expanded"))
+            .Select(Pl.Col("chars").Str.Split(",").Alias("expanded"))
             .Explode(selector)
             .Collect();
 
@@ -407,8 +441,8 @@ David,40,80000";
         Console.WriteLine("\n--- 2. Modified Schema (Type Inference) ---");
         
         using var lf2 = lf.Select(
-            Col("a").Cast(DataType.Float64).Alias("a_cast"),
-            Col("c").Implode().Alias("c_list") 
+            Pl.Col("a").Cast(DataType.Float64).Alias("a_cast"),
+            Pl.Col("c").Implode().Alias("c_list") 
         );
 
         using var schema2 = lf2.Schema;
@@ -469,7 +503,7 @@ David,40,80000";
         var df = DataFrame.FromColumns(new { raw = data });
         
         return df.Select(
-            Col("raw")
+            Pl.Col("raw")
                 .Cast(DataType.Array(DataType.Int32, 2))
                 .Array.ToStruct()
                 .Alias("my_struct")
@@ -525,10 +559,10 @@ David,40,80000";
         
         using var df = DataFrame.FromColumns(new { raw1 = data1, raw2 = data2 })
             .Select(
-                Col("raw1").Cast(DataType.Array(typeof(int), 2)).Array.ToStruct().Alias("s1"),
+                Pl.Col("raw1").Cast(DataType.Array(typeof(int), 2)).Array.ToStruct().Alias("s1"),
                 
                 // s2 : field_0 -> other_0, field_1 -> other_1
-                Col("raw2").Cast(DataType.Array(typeof(int), 2)).Array.ToStruct()
+                Pl.Col("raw2").Cast(DataType.Array(typeof(int), 2)).Array.ToStruct()
                     .Struct.RenameFields("other_0", "other_1") 
                     .Alias("s2")
             );
