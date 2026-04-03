@@ -114,7 +114,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <inheritdoc cref="WriteCsv"/>
     public void WriteCsvPartitioned(
         string path,
-        Selector partitionBy,
+        IntoSelector partitionBy,
         bool includeKeys = true,
         bool keysPreGrouped = false,
         int maxRowsPerFile = 0,

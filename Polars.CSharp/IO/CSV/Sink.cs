@@ -164,7 +164,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <param name="cloudOptions">Options for cloud storage (AWS S3, Azure Blob, GCS, etc.).</param>
     public void SinkCsvPartitioned(
         string path,
-        Selector partitionBy,
+        IntoSelector partitionBy,
         bool includeKeys = true,
         bool keysPreGrouped = false,
         int maxRowsPerFile = 0,
@@ -197,7 +197,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             Handle,
             path,
             // --- Partition Params ---
-            partitionBy.Handle, 
+            partitionBy.Consume().CloneHandle(), 
             includeKeys,
             keysPreGrouped,
             maxRowsPerFile > 0 ? (nuint)maxRowsPerFile : 0,

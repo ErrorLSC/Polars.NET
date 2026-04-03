@@ -511,8 +511,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         PolarsWrapper.DataFrameExtend(Handle,other.Handle);
         return this;
     }
-
-
     // ==========================================
     // LifeCycle
     // ==========================================

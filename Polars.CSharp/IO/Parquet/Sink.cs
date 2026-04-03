@@ -87,7 +87,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <param name="cloudOptions">Options for cloud storage (AWS S3, Azure Blob, GCS, etc.).</param>
     public void SinkParquetPartitioned(
         string path,
-        Selector partitionBy,
+        IntoSelector partitionBy,
         bool includeKeys = true,
         bool keysPreGrouped = false,
         int maxRowsPerFile = 0,
@@ -103,6 +103,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         bool mkdir = false,
         CloudOptions? cloudOptions = null)
     {
+        var pby = partitionBy.Consume();
         // Parse cloud options using the helper
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 
@@ -111,7 +112,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             path,
             
             // --- Partition Params ---
-            partitionBy.Handle, 
+            pby.CloneHandle(), 
             includeKeys,
             keysPreGrouped,
             maxRowsPerFile > 0 ? (nuint)maxRowsPerFile : 0,

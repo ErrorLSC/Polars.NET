@@ -49,7 +49,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <inheritdoc cref="LazyFrame.SinkParquetPartitioned"/>
     public void WriteParquetPartitioned(
         string path,
-        Selector partitionBy,
+        IntoSelector partitionBy,
         bool includeKeys = true,
         bool keysPreGrouped = false,
         int maxRowsPerFile = 0,

@@ -65,7 +65,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <param name="approxBytesPerFile">Approximate size in bytes per file. 0 means no limit.</param>
     public void SinkIpcPartitioned(
         string path,
-        Selector partitionBy,
+        IntoSelector partitionBy,
         bool includeKeys = true,
         bool keysPreGrouped = false,
         int maxRowsPerFile = 0,
@@ -85,7 +85,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             Handle,
             path,
             // --- Partition Params ---
-            partitionBy.Handle, 
+            partitionBy.Consume().CloneHandle(), 
             includeKeys,
             keysPreGrouped,
             maxRowsPerFile > 0 ? (nuint)maxRowsPerFile : 0,

@@ -56,23 +56,11 @@ public readonly struct SeriesDtOps
     /// <summary>
     /// Truncate the datetimes to the given interval (e.g. "1d", "1h", "15m").
     /// </summary>
-    public Series Truncate(string every) => Apply(e => e.Dt.Truncate(every));
-    /// <summary>
-    /// Truncate the datetimes to the given timespan
-    /// </summary>
-    /// <param name="every"></param>
-    /// <returns></returns>
-    public Series Truncate(TimeSpan every) => Apply(e => e.Dt.Truncate(every));
+    public Series Truncate(IntoDuration every) => Apply(e => e.Dt.Truncate(every));
     /// <summary>
     /// Round the datetimes to the given interval.
     /// </summary>
-    public Series Round(string every) => Apply(e => e.Dt.Round(every));
-    /// <summary>
-    /// Round the datetimes to the given timespan interval.
-    /// </summary>
-    /// <param name="every"></param>
-    /// <returns></returns>
-    public Series Round(TimeSpan every) => Apply(e => e.Dt.Round(every));
+    public Series Round(IntoDuration every) => Apply(e => e.Dt.Round(every));
     // ==========================================
     // Offset
     // ==========================================
@@ -134,6 +122,7 @@ public readonly struct SeriesDtOps
     // ==========================================
     // BusinessDays
     // ==========================================
+
     /// <summary>
     /// Add business days to the date column.
     /// </summary>
@@ -144,15 +133,6 @@ public readonly struct SeriesDtOps
     /// Default is Mon-Fri.
     /// </param>
     /// <param name="roll">Strategy for handling non-business days.</param>
-    public Series AddBusinessDays(
-        int n, 
-        IEnumerable<DateOnly>? holidays = null, 
-        bool[]? weekMask = null, 
-        Roll roll = Roll.Raise)
-        =>Apply(e => e.Dt.AddBusinessDays(n,holidays,weekMask,roll));
-    /// <summary>
-    /// Add business days to the date column.
-    /// </summary>
     public Series AddBusinessDays(
         Expr n, 
         IEnumerable<DateOnly>? holidays = null, 

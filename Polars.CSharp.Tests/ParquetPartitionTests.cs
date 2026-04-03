@@ -20,6 +20,7 @@ public class ParquetPartitionTests : IDisposable
     }
 
     [Fact]
+    [Trait("IO","Partitioned")]
     public void SinkParquetPartitioned_ScanParquet_EndToEnd()
     {
         var sGroup = new Series("Group", ["A", "A", "B", "B", "C"]);

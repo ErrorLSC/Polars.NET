@@ -123,7 +123,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <param name="cloudOptions">Options for cloud storage authentication and configuration.</param>
     public void SinkDelta(
         string path,
-        Selector? partitionBy = null,
+        IntoSelector? partitionBy = null,
         DeltaSaveMode mode = DeltaSaveMode.Append,
         bool canEvolve=false,
         bool includeKeys = true,
@@ -143,7 +143,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     {
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = 
             CloudOptions.ParseCloudOptions(cloudOptions);
-        using var partitionByH = partitionBy?.CloneHandle(); 
+        using var partitionByH = partitionBy?.Consume().Handle; 
         PolarsWrapper.SinkDelta(
             Handle,
             path,
@@ -182,63 +182,6 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             values
         );
     }
-    /// <inheritdoc cref="SinkDelta(string, Selector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)"/>
-    public void SinkDelta(
-        string path,
-        string[]? partitionBy,
-        DeltaSaveMode mode = DeltaSaveMode.Append,
-        bool canEvolve = false,
-        bool includeKeys = true,
-        bool keysPreGrouped = false,
-        int maxRowsPerFile = 0,
-        long approxBytesPerFile = 0,
-        ParquetCompression compression = ParquetCompression.Snappy,
-        int compressionLevel = -1,
-        bool statistics = true, 
-        uint rowGroupSize = 0,
-        uint dataPageSize = 0,
-        int compatLevel = -1,
-        bool maintainOrder = true,
-        SyncOnClose syncOnClose = SyncOnClose.None,
-        bool mkdir = false,
-        CloudOptions? cloudOptions = null)
-    {
-        using var selector = (partitionBy != null && partitionBy.Length > 0) 
-            ? Cs.ByName(partitionBy) 
-            : null;
-
-        SinkDelta(
-            path, selector, mode, canEvolve, includeKeys, keysPreGrouped, maxRowsPerFile, 
-            approxBytesPerFile, compression, compressionLevel, statistics, rowGroupSize, 
-            dataPageSize, compatLevel, maintainOrder, syncOnClose, mkdir, cloudOptions
-        );
-    }
-
-    /// <inheritdoc cref="SinkDelta(string, Selector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)"/>
-    public void SinkDelta(
-        string path,
-        string partitionBy,
-        DeltaSaveMode mode = DeltaSaveMode.Append,
-        bool canEvolve = false,
-        bool includeKeys = true,
-        bool keysPreGrouped = false,
-        int maxRowsPerFile = 0,
-        long approxBytesPerFile = 0,
-        ParquetCompression compression = ParquetCompression.Snappy,
-        int compressionLevel = -1,
-        bool statistics = true, 
-        uint rowGroupSize = 0,
-        uint dataPageSize = 0,
-        int compatLevel = -1,
-        bool maintainOrder = true,
-        SyncOnClose syncOnClose = SyncOnClose.None,
-        bool mkdir = false,
-        CloudOptions? cloudOptions = null)
-            => SinkDelta(
-                path, [partitionBy], mode, canEvolve, includeKeys, keysPreGrouped, 
-                maxRowsPerFile, approxBytesPerFile, compression, compressionLevel, statistics, 
-                rowGroupSize, dataPageSize, compatLevel, maintainOrder, syncOnClose, mkdir, cloudOptions
-            );
     
     /// <summary>
     /// Merge a LazyFrame into a Delta Lake table with full SQL MERGE semantics.

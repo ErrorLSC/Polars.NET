@@ -124,33 +124,19 @@ public readonly struct DtOps
     /// );
     /// </code>
     /// </example>
-    public Expr Truncate(string every)
+    public Expr Truncate(IntoDuration every)
     {
         var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.DtTruncate(h, every));
+        return new Expr(PolarsWrapper.DtTruncate(h, every.Value));
     }
-    /// <summary>
-    /// Truncate the datetimes to the given timespan
-    /// </summary>
-    /// <param name="every"></param>
-    /// <returns></returns>
-    public Expr Truncate(TimeSpan every)
-        => Truncate(DurationFormatter.ToPolarsString(every));
     /// <summary>
     /// Round the datetimes to the given interval.
     /// </summary>
-    public Expr Round(string every)
+    public Expr Round(IntoDuration every)
     {
         var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.DtRound(h, every));
+        return new Expr(PolarsWrapper.DtRound(h, every.Value));
     }
-    /// <summary>
-    /// Round the datetimes to the given timespan interval.
-    /// </summary>
-    /// <param name="every"></param>
-    /// <returns></returns>
-    public Expr Round(TimeSpan every)
-        => Round(DurationFormatter.ToPolarsString(every));
     // ==========================================
     // Offset
     // ==========================================
@@ -314,18 +300,6 @@ public readonly struct DtOps
     /// );
     /// </code>
     /// </example>
-    public Expr AddBusinessDays(
-        int n,
-        IEnumerable<DateOnly>? holidays = null,
-        bool[]? weekMask = null,
-        Roll roll = Roll.Raise)
-    {
-        return AddBusinessDays(Polars.Lit(n), holidays, weekMask, roll);
-    }
-
-    /// <summary>
-    /// Add business days to the date column.
-    /// </summary>
     public Expr AddBusinessDays(
         Expr n,
         IEnumerable<DateOnly>? holidays = null,

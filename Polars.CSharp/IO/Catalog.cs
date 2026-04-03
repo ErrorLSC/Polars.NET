@@ -102,13 +102,13 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
     /// <param name="schemaName">The name of the schema/database (e.g., "default").</param>
     /// <param name="tableName">The name of the table to sink.</param>
     /// <param name="lf">The LazyFrame ready to be sinked.</param>
-    /// <inheritdoc cref="LazyFrame.SinkDelta(string, Selector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)"/>
+    /// <inheritdoc cref="LazyFrame.SinkDelta(string, IntoSelector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)"/>
     public void SinkCatalogTable(
         string catalogName,
         string schemaName,
         string tableName,
         LazyFrame lf,
-        Selector? partitionBy = null,
+        IntoSelector? partitionBy = null,
         DeltaSaveMode mode = DeltaSaveMode.Append,
         bool canEvolve=false,
         bool includeKeys = true,
@@ -128,7 +128,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
     {
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = 
             CloudOptions.ParseCloudOptions(cloudOptions);
-        using var partitionByH = partitionBy?.CloneHandle(); 
+        using var partitionByH = partitionBy?.Consume().CloneHandle(); 
         PolarsWrapper.SinkCatalogTable(
             Handle,
             catalogName,
@@ -677,14 +677,14 @@ public static class UnityCatalogExtensions
     /// <summary>
     /// Sinks the <see cref="LazyFrame"/> to a Unity Catalog table.
     /// </summary>
-    /// <inheritdoc cref="UnityCatalog.SinkCatalogTable(string, string, string, LazyFrame, Selector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)"/>
+    /// <inheritdoc cref="UnityCatalog.SinkCatalogTable(string, string, string, LazyFrame, IntoSelector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)"/>
     public static void SinkCatalogTable(
         this LazyFrame lf,
         UnityCatalog catalog,
         string catalogName,
         string schemaName,
         string tableName,
-        Selector? partitionBy = null,
+        IntoSelector? partitionBy = null,
         DeltaSaveMode mode = DeltaSaveMode.Append,
         bool canEvolve = false,
         bool includeKeys = true,
@@ -714,14 +714,14 @@ public static class UnityCatalogExtensions
     /// <summary>
     /// Writes the <see cref="DataFrame"/> into a Unity Catalog table by converting it to a <see cref="LazyFrame"/>.
     /// </summary>
-    /// <inheritdoc cref="UnityCatalog.SinkCatalogTable(string, string, string, LazyFrame, Selector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)"/>
+    /// <inheritdoc cref="UnityCatalog.SinkCatalogTable(string, string, string, LazyFrame, IntoSelector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)"/>
     public static void WriteCatalogTable(
         this DataFrame df,
         UnityCatalog catalog,
         string catalogName,
         string schemaName,
         string tableName,
-        Selector? partitionBy = null,
+        IntoSelector? partitionBy = null,
         DeltaSaveMode mode = DeltaSaveMode.Append,
         bool canEvolve = false,
         bool includeKeys = true,

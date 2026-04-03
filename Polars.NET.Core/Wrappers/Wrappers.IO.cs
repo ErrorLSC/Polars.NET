@@ -526,7 +526,7 @@ public readonly partial struct PolarsWrapper
             cloudValues,
             cloudLen
         );
-
+        partitionBy.TransferOwnership();
         lf.TransferOwnership();
         ErrorHelper.CheckVoid();
     }
@@ -754,6 +754,7 @@ public readonly partial struct PolarsWrapper
         );
 
         lf.TransferOwnership();
+        partitionBy.TransferOwnership();
         
         ErrorHelper.CheckVoid();
     }
@@ -1107,7 +1108,7 @@ public readonly partial struct PolarsWrapper
             cloudValues,
             cloudLen
         );
-
+        partitionBy.TransferOwnership();
         lf.TransferOwnership();
         ErrorHelper.CheckVoid();
     }
@@ -1387,7 +1388,7 @@ public readonly partial struct PolarsWrapper
             cloudValues,
             cloudLen
         );
-
+        partitionBy.TransferOwnership();
         lf.TransferOwnership();
         ErrorHelper.CheckVoid();
     }

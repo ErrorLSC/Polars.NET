@@ -59,10 +59,10 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <summary>
     /// Write a DataFrame into a delta table
     /// </summary>
-    /// <inheritdoc cref="LazyFrame.SinkDelta(string, Selector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)"/>
+    /// <inheritdoc cref="LazyFrame.SinkDelta(string, IntoSelector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)"/>
     public void WriteDelta(
         string path,
-        Selector? partitionBy = null,
+        IntoSelector? partitionBy = null,
         DeltaSaveMode mode = DeltaSaveMode.Append,
         bool canEvolve=false,
         bool includeKeys = true,
@@ -111,63 +111,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             cloudOptions
         );
     }
-    /// <inheritdoc cref="WriteDelta(string, Selector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)"/>
-    public void WriteDelta(
-        string path,
-        string[]? partitionBy,
-        DeltaSaveMode mode = DeltaSaveMode.Append,
-        bool canEvolve = false,
-        bool includeKeys = true,
-        bool keysPreGrouped = false,
-        int maxRowsPerFile = 0,
-        long approxBytesPerFile = 0,
-        ParquetCompression compression = ParquetCompression.Snappy,
-        int compressionLevel = -1,
-        bool statistics = true, 
-        uint rowGroupSize = 0,
-        uint dataPageSize = 0,
-        int compatLevel = -1,
-        bool maintainOrder = true,
-        SyncOnClose syncOnClose = SyncOnClose.None,
-        bool mkdir = false,
-        CloudOptions? cloudOptions = null)
-    {
-        using var selector = (partitionBy != null && partitionBy.Length > 0) 
-            ? Cs.ByName(partitionBy) 
-            : null;
-
-        WriteDelta(
-            path, selector, mode, canEvolve, includeKeys, keysPreGrouped, maxRowsPerFile, 
-            approxBytesPerFile, compression, compressionLevel, statistics, rowGroupSize, 
-            dataPageSize, compatLevel, maintainOrder, syncOnClose, mkdir, cloudOptions
-        );
-    }
-
-    /// <inheritdoc cref="WriteDelta(string, Selector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)"/>
-    public void WriteDelta(
-        string path,
-        string partitionBy,
-        DeltaSaveMode mode = DeltaSaveMode.Append,
-        bool canEvolve = false,
-        bool includeKeys = true,
-        bool keysPreGrouped = false,
-        int maxRowsPerFile = 0,
-        long approxBytesPerFile = 0,
-        ParquetCompression compression = ParquetCompression.Snappy,
-        int compressionLevel = -1,
-        bool statistics = true, 
-        uint rowGroupSize = 0,
-        uint dataPageSize = 0,
-        int compatLevel = -1,
-        bool maintainOrder = true,
-        SyncOnClose syncOnClose = SyncOnClose.None,
-        bool mkdir = false,
-        CloudOptions? cloudOptions = null)
-            => WriteDelta(
-                path, [partitionBy], mode, canEvolve, includeKeys, keysPreGrouped, 
-                maxRowsPerFile, approxBytesPerFile, compression, compressionLevel, statistics, 
-                rowGroupSize, dataPageSize, compatLevel, maintainOrder, syncOnClose, mkdir, cloudOptions
-            );
 
     /// <summary>
     /// Merge a DataFrame into a Delta Lake table with full SQL MERGE semantics.
