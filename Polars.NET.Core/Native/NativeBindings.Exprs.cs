@@ -673,6 +673,11 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial int pl_expr_meta_root_names(ExprHandle expr,out IntPtr rootNames);
     [LibraryImport(LibName)]
+    public static partial int pl_expr_meta_pop(IntPtr expr, out IntPtr outPtrs, out nuint outLen);
+
+    [LibraryImport(LibName)]
+    public static partial void pl_free_ptr_array(IntPtr ptr, nuint len);
+    [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_int_range(
         ExprHandle start,
         ExprHandle end,

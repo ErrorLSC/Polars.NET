@@ -2585,4 +2585,80 @@ TooShort,1990-05-20,1.60";
         
         Assert.Contains("not allowed in this context", ex.Message);
     }
+    [Fact]
+    [Trait("Expr", "MetaPopBinary")]
+    public void Test_Pop_BinaryExpression_ShouldReturnLeftAndRight()
+    {
+        var expr = Col("A") + Col("B");
+        
+        var children = expr.Meta.Pop();
+
+        Assert.Equal(2, children.Length);
+        
+        Assert.Contains("B", children[0].Meta.RootNames());
+        Assert.Contains("A", children[1].Meta.RootNames());
+        Assert.True(children[0].Meta.IsColumn());
+        Assert.True(children[1].Meta.IsColumn());
+    }
+
+    [Fact]
+    [Trait("Expr", "MetaPopInner")]
+    public void Test_Pop_Alias_ShouldReturnInnerExpression()
+    {
+        var expr = Col("A").Alias("B");
+        
+        var children = expr.Meta.Pop();
+
+        Assert.Single(children);
+        
+        Assert.True(children[0].Meta.IsColumn());
+        Assert.Equal("A", children[0].Meta.RootNames()[0]);
+    }
+
+    [Fact]
+    [Trait("Expr", "MetaPopLeaf")]
+    public void Test_Pop_LeafNodes_ShouldReturnEmpty()
+    {
+        var colExpr = Col("A");
+        var litExpr = Lit(42);
+
+        Assert.Empty(colExpr.Meta.Pop());
+        Assert.Empty(litExpr.Meta.Pop());
+    }
+
+    [Fact]
+    [Trait("Expr", "MetaPopNested")]
+    public void Test_Pop_DeepNesting_ShouldPeelOneLayer()
+    {
+        var expr = (Col("A") * Lit(2)).Alias("Result");
+
+        var level1 = expr.Meta.Pop();
+        Assert.Single(level1);
+
+        var level2 = level1[0].Meta.Pop();
+        Assert.Equal(2, level2.Length);
+        
+        Assert.Empty(level2[0].Meta.RootNames());
+        Assert.True(level2[0].Meta.IsLiteral());
+
+        Assert.Equal("A", level2[1].Meta.RootNames()[0]);
+        Assert.True(level2[1].Meta.IsColumn());
+    }
+
+    [Fact]
+    [Trait("Expr", "MetaPopSafety")]
+    public void Test_Pop_Safety_ShouldNotDestroyOriginalObject()
+    {
+        var expr = Col("A") + Lit(1);
+
+        var children1 = expr.Meta.Pop();
+        
+        var children2 = expr.Meta.Pop(); 
+
+        Assert.Equal(2, children1.Length);
+        Assert.Equal(2, children2.Length);
+
+        Assert.False(expr.Meta.IsLiteral());
+        Assert.Contains("binary: +", expr.Meta.FormatTree());
+    }
 }   

@@ -1155,6 +1155,30 @@ public readonly partial struct PolarsWrapper
 
         return ErrorHelper.CheckString(ptr);
     }
+    public static ExprHandle[] Pop(ExprHandle handle)
+    {
+        IntPtr rawPtr = handle.TransferOwnership();
+
+        int status = NativeBindings.pl_expr_meta_pop(rawPtr, out IntPtr ptrs, out nuint len);
+        ErrorHelper.CheckStatus(status);
+
+        if (ptrs == IntPtr.Zero || len == 0) return [];
+
+        try
+        {
+            var handles = new ExprHandle[(int)len];
+            for (int i = 0; i < (int)len; i++)
+            {
+                IntPtr p = Marshal.ReadIntPtr(ptrs, i * IntPtr.Size);
+                handles[i] = new ExprHandle(p); 
+            }
+            return handles;
+        }
+        finally
+        {
+            NativeBindings.pl_free_ptr_array(ptrs, len);
+        }
+    }
     public static string? ExprGetOutputName(ExprHandle expr)
     {
         int status = NativeBindings.pl_expr_get_output_name(expr, out IntPtr strPtr);

@@ -63,4 +63,19 @@ public readonly struct MetaOps
     /// Format the expression as a tree.
     /// </summary>
     public string FormatTree(bool displayAsDot = false,PolarsSchema? schema=null) => PolarsWrapper.FormatTree(_expr.Handle,displayAsDot,schema?.Handle);
+    /// <summary>
+    /// Pop the latest expression and return the input(s) of the popped expression.
+    /// </summary>
+    public Expr[] Pop()
+    {
+        ExprHandle[] handles = PolarsWrapper.Pop(_expr.CloneHandle());
+        
+        var result = new Expr[handles.Length];
+        for (int i = 0; i < handles.Length; i++)
+        {
+            result[i] = new Expr(handles[i]);
+        }
+        
+        return result;
+    }
 }

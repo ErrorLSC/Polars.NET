@@ -27,6 +27,12 @@ public class ExprHandle : PolarsHandle
         NativeBindings.pl_expr_free(handle);
         return true;
     }
+    internal ExprHandle(IntPtr ptr) => SetHandle(ptr);
+
+    public ExprHandle() 
+    { 
+    }
+    
 }
 
 // 3. DataFrame Handle

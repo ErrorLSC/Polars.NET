@@ -170,7 +170,6 @@ pub extern "C" fn pl_expr_meta_into_tree_formatter(
             Some(&schema_ctx.schema) 
         };
         
-        // 把解析好的 Option<&Schema> 喂进去！
         let formatter = ctx.inner.clone().meta().into_tree_formatter(display_as_dot, schema_opt.map(|v| &**v))?;
         
         let formatted_str = format!("{}", formatter);
