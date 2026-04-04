@@ -8,7 +8,7 @@ namespace Polars.CSharp;
 /// <summary>
 /// A Polars Expr
 /// </summary>
-public partial class Expr : IDisposable
+public partial class Expr : IDisposable,IEquatable<Expr>
 {
     internal ExprHandle Handle { get; }
 
@@ -1057,19 +1057,18 @@ public partial class Expr : IDisposable
         return PolarsWrapper.ExprToString(Handle);
     }
     /// <summary>
-    /// Decide whether two Expr objects are the same instance
+    /// Decide whether two Exprs are same
     /// </summary>
-    public override bool Equals(object? obj)
+    public bool Equals(Expr? other)
     {
-        if (ReferenceEquals(this, obj)) return true;
+        if (other is null) return false;
+        if (ReferenceEquals(this, other)) return true;
 
-        if (obj is not Expr other) return false;
-
-        if (Handle.IsInvalid || other.Handle.IsInvalid) return false;
-
-        return Handle.DangerousGetHandle() == other.Handle.DangerousGetHandle();
+        bool result = PolarsWrapper.ExprEquals(Handle, other.Handle);
+        return result;
     }
-
+    public override bool Equals(object? obj) 
+        => Equals(obj as Expr);
     /// <summary>
     /// Get hashcode based on handles
     /// </summary>
@@ -1077,8 +1076,10 @@ public partial class Expr : IDisposable
     {
         if (Handle.IsInvalid) return 0;
 
-        return Handle.DangerousGetHandle().GetHashCode();
+        var roots = string.Join(",", Meta.RootNames());
+        return roots.GetHashCode();
     }
+
 }
 
 

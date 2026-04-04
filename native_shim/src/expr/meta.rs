@@ -4,6 +4,21 @@ use polars_plan::utils::expr_to_leaf_column_names;
 use crate::types::{ExprContext, SchemaContext, SelectorContext};
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_meta_eq(
+    expr_ptr: *const ExprContext,
+    other_ptr: *const ExprContext,
+    out_val: *mut bool,
+) -> c_int {
+    ffi_eval_out_try!(out_val, {
+        let e1 = unsafe { &*expr_ptr };
+        let e2 = unsafe { &*other_ptr };
+        
+        Ok(e1.inner == e2.inner) 
+    })
+}
+
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_get_output_name(
     expr_ptr: *const ExprContext,
     out_str: *mut *mut c_char

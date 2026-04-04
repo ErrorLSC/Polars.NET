@@ -18,6 +18,8 @@ public unsafe delegate int UdfCallback(
 
 unsafe internal partial class NativeBindings
 {
+    [LibraryImport(LibName)]
+    public static partial int pl_expr_meta_eq(ExprHandle expr, ExprHandle other, [MarshalAs(UnmanagedType.I1)] out bool outVal);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_set_env_var(
     string key, 

@@ -78,4 +78,13 @@ public readonly struct MetaOps
         
         return result;
     }
+
+    /// <summary>
+    /// Indicate if this expression is the same as another expression.
+    /// </summary>
+    public bool Equals(Expr? expr) => _expr.Equals(expr);
+    /// <summary>
+    /// Indicate if this expression is NOT the same as another expression.
+    /// </summary>
+    public bool NotEquals(Expr? expr) => !_expr.Equals(expr);
 }

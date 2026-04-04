@@ -1338,4 +1338,10 @@ public readonly partial struct PolarsWrapper
         if (string.IsNullOrEmpty(joined)) return [];
         return joined.Split('\x1F');
     }
+    public static bool ExprEquals(ExprHandle expr,ExprHandle other)
+    {
+        int status = NativeBindings.pl_expr_meta_eq(expr,other, out bool result);
+        ErrorHelper.CheckStatus(status);
+        return result;
+    }
 }

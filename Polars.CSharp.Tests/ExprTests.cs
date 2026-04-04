@@ -2661,4 +2661,72 @@ TooShort,1990-05-20,1.60";
         Assert.False(expr.Meta.IsLiteral());
         Assert.Contains("binary: +", expr.Meta.FormatTree());
     }
+    [Fact]
+    [Trait("Expr", "Equality")]
+    public void Test_Equals_ReferenceAndNull_ShouldUseFastPath()
+    {
+        var expr = Col("A") * 2;
+        
+        Assert.True(expr.Equals(expr));
+
+        Assert.False(expr.Equals(null));
+    }
+
+    [Fact]
+    [Trait("Expr", "Equality")]
+    public void Test_Equals_StructuralEquivalence_ShouldMatch()
+    {
+        var expr1 = (Col("A") + Lit(10)).Alias("Result");
+        var expr2 = (Col("A") + Lit(10)).Alias("Result");
+
+        Assert.True(expr1.Equals(expr2));
+    }
+
+    [Fact]
+    [Trait("Expr", "Equality")]
+    public void Test_Equals_StructuralDifferences_ShouldNotMatch()
+    {
+        var baseExpr = Col("A") + Lit(10);
+
+        var diffCol = Col("B") + Lit(10);
+        Assert.False(baseExpr.Equals(diffCol));
+
+        var diffLit = Col("A") + Lit(99);
+        Assert.False(baseExpr.Equals(diffLit));
+
+        var diffOp = Col("A") * Lit(10);
+        Assert.False(baseExpr.Equals(diffOp));
+
+        var diffAlias = (Col("A") + Lit(10)).Alias("Result");
+        Assert.False(baseExpr.Equals(diffAlias));
+    }
+
+    [Fact]
+    [Trait("Expr", "Equality")]
+    public void Test_Equals_ObjectOverride_And_HashCode()
+    {
+        var expr1 = Col("Id").Sum();
+        var expr2 = Col("Id").Sum();
+
+        object obj2 = expr2;
+
+        Assert.True(expr1.Equals(obj2));
+
+        Assert.Equal(expr1.GetHashCode(), expr2.GetHashCode());
+    }
+
+    [Fact]
+    public void Test_Equals_InCollections_ShouldWorkNatively()
+    {
+        var target = Col("Score").Mean();
+        
+        var list = new List<Expr>
+        {
+            Col("A"),
+            Lit(1),
+            Col("Score").Mean() 
+        };
+
+        Assert.Contains(target, list);
+    }
 }   
