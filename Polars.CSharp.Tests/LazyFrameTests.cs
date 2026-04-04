@@ -975,4 +975,48 @@ David,40,80000";
         Assert.Equal(99.9, cValues[1]);
         Assert.Equal(99.9, cValues[2]);
     }
+    [Fact]
+    [Trait("LazyFrame", "MergeSorted")]
+    public void Test_LazyFrame_MergeSorted_ShouldMaintainOrder()
+    {
+        // Sorted by ID
+        // id: [1, 3, 5], value: ["A", "C", "E"]
+        using var dfLeft = DataFrame.FromColumns(new
+        {
+            id = new[] { 1, 3, 5 },
+            value = new[] { "A", "C", "E" }
+        });
+        using var lfLeft = dfLeft.Lazy();
+
+        // id: [2, 4, 6], value: ["B", "D", "F"]
+        using var dfRight = DataFrame.FromColumns(new
+        {
+            id = new[] { 2, 4, 6 },
+            value = new[] { "B", "D", "F" }
+        });
+        using var lfRight = dfRight.Lazy();
+
+        using var mergedLf = lfLeft.MergeSorted(lfRight, "id");
+        
+        using var resDf = mergedLf.Collect();
+
+        Assert.Equal(6, resDf.Height);
+        Assert.Equal(2, resDf.Width);
+
+        var idSeries = resDf["id"];
+        Assert.Equal(1, idSeries[0]);
+        Assert.Equal(2, idSeries[1]);
+        Assert.Equal(3, idSeries[2]);
+        Assert.Equal(4, idSeries[3]);
+        Assert.Equal(5, idSeries[4]);
+        Assert.Equal(6, idSeries[5]);
+
+        var valSeries = resDf["value"];
+        Assert.Equal("A", valSeries[0]);
+        Assert.Equal("B", valSeries[1]);
+        Assert.Equal("C", valSeries[2]);
+        Assert.Equal("D", valSeries[3]);
+        Assert.Equal("E", valSeries[4]);
+        Assert.Equal("F", valSeries[5]);
+    }
 }

@@ -454,6 +454,10 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         
         return JoinWhere(other, (IEnumerable<IntoExpr>)predicates);
     }
+
+    public LazyFrame MergeSorted(LazyFrame other, string key)
+        => new(PolarsWrapper.MergeSorted(CloneHandle(),other.CloneHandle(),key));
+
 }
 
 public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
@@ -815,5 +819,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         if (predicates.Length == 0) return this;
         
         return JoinWhere(other, (IEnumerable<IntoExpr>)predicates);
+    }
+    public DataFrame MergeSorted(DataFrame other, string key)
+    {
+        using var right = other.Lazy();  
+        using var left = Lazy();
+        return left.MergeSorted(right,key).Collect();
     }
 }

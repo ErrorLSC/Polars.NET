@@ -495,6 +495,16 @@ public readonly partial struct PolarsWrapper
         
         return ErrorHelper.Check(h);
     }
+    public static LazyFrameHandle MergeSorted(
+        LazyFrameHandle lf,
+        LazyFrameHandle other,
+        string key)
+    {
+        var h = NativeBindings.pl_lazyframe_merge_sorted(lf,other,key);
+        lf.TransferOwnership();
+        other.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     
     // Streaming Collect
     public static DataFrameHandle CollectStreaming(LazyFrameHandle lf)

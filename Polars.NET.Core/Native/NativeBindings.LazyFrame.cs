@@ -228,6 +228,11 @@ unsafe internal partial class NativeBindings
         byte[]? ovFloatCast,
         nuint ovLen
     );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LazyFrameHandle pl_lazyframe_merge_sorted(
+        LazyFrameHandle lf,
+        LazyFrameHandle other,
+        string key);
     // --- Streaming & Sink ---
     [LibraryImport(LibName)] 
     public static partial DataFrameHandle pl_lazy_collect_streaming(LazyFrameHandle lf);
