@@ -56,13 +56,6 @@ public readonly partial struct PolarsWrapper
     // --- Expr Ops ---
     // Leaf Nodes
     public static ExprHandle Col(string name) => ErrorHelper.Check(NativeBindings.pl_expr_col(name));
-    public static ExprHandle Cols(string[] names)
-    {
-        return UseUtf8StringArray(names, ptrs => 
-        {
-            return ErrorHelper.Check(NativeBindings.pl_expr_cols(ptrs, (UIntPtr)ptrs.Length));
-        });
-    }
     public static ExprHandle Lit(sbyte val) => ErrorHelper.Check(NativeBindings.pl_expr_lit_i8(val));
     public static ExprHandle Lit(byte val) => ErrorHelper.Check(NativeBindings.pl_expr_lit_u8(val));
     public static ExprHandle Lit(short val) => ErrorHelper.Check(NativeBindings.pl_expr_lit_i16(val));

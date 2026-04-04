@@ -13,16 +13,16 @@ unsafe internal partial class NativeBindings
     public static partial SelectorHandle pl_selector_clone(SelectorHandle sel);
     // Selectors
     [LibraryImport(LibName)] public static partial SelectorHandle pl_selector_all();
-    [LibraryImport(LibName)]
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
     public static partial SelectorHandle pl_selector_cols(
-        IntPtr[] names,
-        UIntPtr len
+        string[] names,
+        nuint len
     );
-    [LibraryImport(LibName)] 
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] 
     public static partial SelectorHandle pl_selector_exclude(
         SelectorHandle sel, 
-        IntPtr[] names,
-        UIntPtr len
+        string[] names,
+        nuint len
     );
     [LibraryImport(LibName)]
     public static partial SelectorHandle pl_selector_by_index(

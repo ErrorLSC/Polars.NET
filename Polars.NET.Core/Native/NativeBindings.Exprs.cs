@@ -32,8 +32,6 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_sql(string query);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
     public static partial ExprHandle pl_expr_col(string name);
-    [LibraryImport(LibName)] 
-    public static partial ExprHandle pl_expr_cols(IntPtr[] names, UIntPtr len);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lit_i8(sbyte val);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lit_u8(byte val);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lit_i16(short val);

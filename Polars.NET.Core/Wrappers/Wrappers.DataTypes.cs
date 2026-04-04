@@ -23,18 +23,11 @@ public readonly partial struct PolarsWrapper
         if (names.Length != types.Length) 
             throw new ArgumentException("Names and Types must have same length");
         var typePtrs = HandlesToPtrs(types);
+        var h = NativeBindings.pl_datatype_new_struct(names, typePtrs, (nuint)names.Length);
 
-        return UseUtf8StringArray(names, (namePtrs) => 
-        {
-            return ErrorHelper.Check(
-                NativeBindings.pl_datatype_new_struct(
-                    namePtrs, 
-                    typePtrs, 
-                    (UIntPtr)names.Length
-                )
-            );
-        });
+        return ErrorHelper.Check(h);
     }
+    
     /// <summary>
     /// Get Dtype String
     /// </summary>

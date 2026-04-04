@@ -375,7 +375,7 @@ unsafe internal partial class NativeBindings
     public static partial DataFrameHandle pl_read_json(
         string path,
         // columns (Option<Vec<String>>)
-        IntPtr[] columns, UIntPtr columnsLen,
+        string[]? columns, UIntPtr columnsLen,
         // schema (Option<Schema>)
         IntPtr schema, 
         // infer_schema_len (Option<usize>) -> pointer to usize
@@ -394,7 +394,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial DataFrameHandle pl_read_json_memory(
         IntPtr buffer, UIntPtr bufferLen,
-        IntPtr[] columns, UIntPtr columnsLen,
+        string[]? columns, UIntPtr columnsLen,
         IntPtr schema,
         IntPtr inferSchemaLen,
         IntPtr batchSize,

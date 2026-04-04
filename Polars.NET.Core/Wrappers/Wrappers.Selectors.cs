@@ -12,21 +12,13 @@ public readonly partial struct PolarsWrapper
     /// Select columns by name.
     /// </summary>
     public static SelectorHandle SelectorCols(string[] names)
-    {
-        return UseUtf8StringArray(names, ptrs => 
-        {
-            return ErrorHelper.Check(NativeBindings.pl_selector_cols(ptrs, (UIntPtr)ptrs.Length));
-        });
-    }
+        => ErrorHelper.Check(NativeBindings.pl_selector_cols(names, (nuint)names.Length));
 
     public static SelectorHandle SelectorExclude(SelectorHandle sel, string[] names)
     {
-        return UseUtf8StringArray(names, ptrs => 
-        {
-            var h = NativeBindings.pl_selector_exclude(sel, ptrs, (UIntPtr)ptrs.Length);
-            sel.TransferOwnership();
-            return ErrorHelper.Check(h);
-        });
+        var h = NativeBindings.pl_selector_exclude(sel, names, (nuint)names.Length);
+        sel.TransferOwnership();
+        return ErrorHelper.Check(h);
     }
 
     public static unsafe SelectorHandle SelectorByIndex(ReadOnlySpan<long> indices, bool strict)

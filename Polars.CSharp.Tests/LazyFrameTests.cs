@@ -917,10 +917,9 @@ David,40,80000";
     [Trait("LazyFrame", "MatchToSchema")]
     public void Test_LazyFrame_MatchToSchema_ComplexAlignment()
     {
-        // 1. 准备原始数据 (具有杂乱的 Schema)
         // a: Int32
         // b: Float64
-        // extra: String (我们不需要这列)
+        // extra: String 
         using var df = DataFrame.FromColumns(new
         {
             a = new[] { 1, 2, 3 },
@@ -929,10 +928,10 @@ David,40,80000";
         });
         using var lf = df.Lazy();
 
-        // 2. 定义目标 Schema (严谨、规范的终态)
-        // a: Int64 (要求向上转型)
-        // b: Float64 (保持不变)
-        // c: Float64 (原始数据中缺失这列，需要补齐)
+        // Target Schema
+        // a: Int64 (Upcast)
+        // b: Float64 (Keep)
+        // c: Float64 (Insert New)
         var schemaDict = new Dictionary<string, DataType>
         {
             { "a", DataType.Int64 }, 

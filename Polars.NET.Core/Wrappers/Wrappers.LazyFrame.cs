@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
@@ -435,28 +436,66 @@ public readonly partial struct PolarsWrapper
     
         return ErrorHelper.Check(h);
     }
+    public struct PlMatchToSchemaConfig
+    {
+        public PlMissingColumnsPolicyType MissingColumnsType;
+        public ExprHandle? MissingColumnsExpr; 
+        public PlMissingColumnsPolicy MissingStructFields;
+        public PlExtraColumnsPolicy ExtraStructFields;
+        public PlUpcastOrForbid IntegerCast;
+        public PlUpcastOrForbid FloatCast;
+    }
     public static LazyFrameHandle MatchToSchema(
-            LazyFrameHandle lf,
-            SchemaHandle schema,
-            PlExtraColumnsPolicy extraColumnsCode,
-            PlMatchToSchemaPerColumnC defaultConfig,
-            PlSchemaColumnOverrideC[]? overrides)
+        LazyFrameHandle lf,
+        SchemaHandle schema,
+        PlExtraColumnsPolicy extraColumnsCode,
+        PlMatchToSchemaConfig defaultConfig, 
+        IReadOnlyDictionary<string, PlMatchToSchemaConfig>? overrides)
+    {
+        int ovLen = overrides?.Count ?? 0;
+        
+        string[]? ovNames = ovLen > 0 ? new string[ovLen] : null; 
+        byte[]? ovMissingType = ovLen > 0 ? new byte[ovLen] : null;
+        IntPtr[]? ovMissingExprPtrs = ovLen > 0 ? new IntPtr[ovLen] : null;
+        byte[]? ovMissingStruct = ovLen > 0 ? new byte[ovLen] : null;
+        byte[]? ovExtraStruct = ovLen > 0 ? new byte[ovLen] : null;
+        byte[]? ovIntCast = ovLen > 0 ? new byte[ovLen] : null;
+        byte[]? ovFloatCast = ovLen > 0 ? new byte[ovLen] : null;
+
+        IntPtr defExprPtr = defaultConfig.MissingColumnsExpr?.TransferOwnership() ?? IntPtr.Zero;
+
+        if (overrides != null && ovLen > 0)
         {
-            UIntPtr overridesLen = overrides != null ? (UIntPtr)overrides.Length : UIntPtr.Zero;
-
-            var h = NativeBindings.pl_lazyframe_match_to_schema(
-                lf,
-                schema,
-                extraColumnsCode,
-                defaultConfig,
-                overrides,
-                overridesLen
-            );
-
-            lf.TransferOwnership();
-            
-            return ErrorHelper.Check(h);
+            int i = 0;
+            foreach (var kvp in overrides)
+            {
+                var cfg = kvp.Value;
+                
+                ovNames![i] = kvp.Key; 
+                ovMissingType![i] = (byte)cfg.MissingColumnsType;
+                ovMissingExprPtrs![i] = cfg.MissingColumnsExpr?.TransferOwnership() ?? IntPtr.Zero;
+                ovMissingStruct![i] = (byte)cfg.MissingStructFields;
+                ovExtraStruct![i] = (byte)cfg.ExtraStructFields;
+                ovIntCast![i] = (byte)cfg.IntegerCast;
+                ovFloatCast![i] = (byte)cfg.FloatCast;
+                i++;
+            }
         }
+
+        var h = NativeBindings.pl_lazyframe_match_to_schema(
+            lf, schema, (byte)extraColumnsCode,
+            (byte)defaultConfig.MissingColumnsType, defExprPtr,
+            (byte)defaultConfig.MissingStructFields, (byte)defaultConfig.ExtraStructFields,
+            (byte)defaultConfig.IntegerCast, (byte)defaultConfig.FloatCast,
+            ovNames, ovMissingType, ovMissingExprPtrs, ovMissingStruct, ovExtraStruct, ovIntCast, ovFloatCast,
+            (nuint)ovLen
+        );
+
+        lf.TransferOwnership();
+        
+        return ErrorHelper.Check(h);
+    }
+    
     // Streaming Collect
     public static DataFrameHandle CollectStreaming(LazyFrameHandle lf)
     {

@@ -12,9 +12,7 @@ public readonly partial struct PolarsWrapper
     /// Create Blank Schema
     /// </summary>
     public static SchemaHandle SchemaCreate()
-    {
-        return NewSchema([], []);
-    }
+        => NewSchema([], []);
 
     /// <summary>
     /// Build Schema from name and dtype
@@ -26,12 +24,9 @@ public readonly partial struct PolarsWrapper
 
         var typePtrs = HandlesToPtrs(types);
 
-        return UseUtf8StringArray(names, (namePtrs) => 
-        {
-            return ErrorHelper.Check(
-                NativeBindings.pl_schema_new(namePtrs, typePtrs, (UIntPtr)names.Length)
-            );
-        });
+        return ErrorHelper.Check(
+            NativeBindings.pl_schema_new(names, typePtrs, (UIntPtr)names.Length)
+        );
     }
     /// <summary>
     /// Get the length of Schema

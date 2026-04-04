@@ -18,37 +18,6 @@ public readonly partial struct PolarsWrapper
         }
         return ptrs;
     }
-
-    private static R UseUtf8StringArray<R>(string[]? strings, Func<IntPtr[], R> action)
-    {
-        if (strings == null || strings.Length == 0)
-        {
-            return action([]);
-        }
-
-        var ptrs = new IntPtr[strings.Length];
-        try
-        {
-            // Alloc memory
-            for (int i = 0; i < strings.Length; i++)
-            {
-                ptrs[i] = Marshal.StringToCoTaskMemUTF8(strings[i]);
-            }
-
-            return action(ptrs);
-        }
-        finally
-        {
-            // free memory
-            for (int i = 0; i < ptrs.Length; i++)
-            {
-                if (ptrs[i] != IntPtr.Zero)
-                {
-                    Marshal.FreeCoTaskMem(ptrs[i]);
-                }
-            }
-        }
-    }
     /// <summary>
     /// Lock a set of SafeHandles and get its raw pointer.
     /// Use ref struct for zero GC and stack only.

@@ -15,7 +15,7 @@ public class MissingColumnAction
     private MissingColumnAction(PlMissingColumnsPolicyType type, Expr? expr = null)
     {
         Type = type;
-        Expression = expr;
+        Expression = expr?.Clone();
     }
 
     /// <summary>
@@ -71,14 +71,10 @@ public record MatchSchemaConfig
     /// Defaults to <see cref="UpcastOrForbid.Forbid"/>.
     /// </summary>
     public UpcastOrForbid FloatCast { get; init; } = UpcastOrForbid.Forbid;
-
-    internal PlMatchToSchemaPerColumnC ToNative() => new()
+    internal PolarsWrapper.PlMatchToSchemaConfig ToCoreConfig() => new()
     {
-        MissingColumns = new PlMissingColumnsPolicyOrExprC
-        {
-            PolicyType = MissingColumns.Type,
-            ExprPtr = MissingColumns.Expression?.Handle.DangerousGetHandle() ?? IntPtr.Zero
-        },
+        MissingColumnsType = MissingColumns.Type,
+        MissingColumnsExpr = MissingColumns.Expression?.CloneHandle(),
         MissingStructFields = (PlMissingColumnsPolicy)MissingStructFields,
         ExtraStructFields = (PlExtraColumnsPolicy)ExtraStructFields,
         IntegerCast = (PlUpcastOrForbid)IntegerCast,
@@ -97,6 +93,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <param name="columnOverrides">Specific configuration overrides mapped by column name.</param>
     /// <returns>A new <see cref="LazyFrame"/> with the aligned schema.</returns>
     /// <exception cref="ArgumentNullException">Thrown when the provided schema is null.</exception>
+
     public LazyFrame MatchToSchema(
         PolarsSchema schema,
         ExtraColumnsPolicy extraColumns = ExtraColumnsPolicy.Raise,
@@ -105,50 +102,27 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     {
         ArgumentNullException.ThrowIfNull(schema);
 
-        defaultConfig ??= new MatchSchemaConfig();
-        var cDefaultConfig = defaultConfig.ToNative();
+        var coreDefault = (defaultConfig ?? new MatchSchemaConfig()).ToCoreConfig();
 
-        PlSchemaColumnOverrideC[]? cOverrides = null;
-        var ptrsToFree = new List<IntPtr>();
-
-        try
+        Dictionary<string,PolarsWrapper.PlMatchToSchemaConfig>? coreOverrides = null;
+        if (columnOverrides != null && columnOverrides.Count > 0)
         {
-            if (columnOverrides != null && columnOverrides.Count > 0)
+            coreOverrides = new Dictionary<string, PolarsWrapper.PlMatchToSchemaConfig>(columnOverrides.Count);
+            foreach (var kvp in columnOverrides)
             {
-                cOverrides = new PlSchemaColumnOverrideC[columnOverrides.Count];
-                int i = 0;
-                
-                foreach (var kvp in columnOverrides)
-                {
-                    var namePtr = Marshal.StringToCoTaskMemUTF8(kvp.Key);
-                    ptrsToFree.Add(namePtr);
-
-                    cOverrides[i] = new PlSchemaColumnOverrideC
-                    {
-                        ColName = namePtr,
-                        Config = kvp.Value.ToNative()
-                    };
-                    i++;
-                }
-            }
-
-            var handle = PolarsWrapper.MatchToSchema(
-                CloneHandle(),
-                schema.Handle,
-                (PlExtraColumnsPolicy)extraColumns,
-                cDefaultConfig,
-                cOverrides
-            );
-
-            return new LazyFrame(handle);
-        }
-        finally
-        {
-            foreach (var ptr in ptrsToFree)
-            {
-                Marshal.FreeCoTaskMem(ptr);
+                coreOverrides[kvp.Key] = kvp.Value.ToCoreConfig();
             }
         }
+
+        var handle = PolarsWrapper.MatchToSchema(
+            this.CloneHandle(),
+            schema.Handle,
+            (PlExtraColumnsPolicy)extraColumns,
+            coreDefault,
+            coreOverrides
+        );
+
+        return new LazyFrame(handle);
     }
 }
 

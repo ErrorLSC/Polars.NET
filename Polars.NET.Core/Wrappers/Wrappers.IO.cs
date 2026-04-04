@@ -811,34 +811,31 @@ public readonly partial struct PolarsWrapper
         bool ignoreErrors,
         PlJsonFormat jsonFormat)
     {
-        return UseUtf8StringArray(columns ?? [], colPtrs =>
+        unsafe
         {
-            unsafe
-            {
-                ulong inferVal = inferSchemaLen.GetValueOrDefault();
-                IntPtr inferPtr = inferSchemaLen.HasValue ? (IntPtr)(&inferVal) : IntPtr.Zero;
+            ulong inferVal = inferSchemaLen.GetValueOrDefault();
+            IntPtr inferPtr = inferSchemaLen.HasValue ? (IntPtr)(&inferVal) : IntPtr.Zero;
 
-                ulong batchVal = batchSize.GetValueOrDefault();
-                IntPtr batchPtr = batchSize.HasValue ? (IntPtr)(&batchVal) : IntPtr.Zero;
+            ulong batchVal = batchSize.GetValueOrDefault();
+            IntPtr batchPtr = batchSize.HasValue ? (IntPtr)(&batchVal) : IntPtr.Zero;
 
-                using var schemaLock = new SafeHandleLock<SchemaHandle>(
-                    schema != null ? new[] { schema } : null
-                );
-                IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
+            using var schemaLock = new SafeHandleLock<SchemaHandle>(
+                schema != null ? [schema] : null
+            );
+            IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
 
-                var h = NativeBindings.pl_read_json(
-                    path,
-                    colPtrs, (UIntPtr)(columns?.Length ?? 0),
-                    schemaPtr,
-                    inferPtr,
-                    batchPtr,
-                    ignoreErrors,
-                    jsonFormat // Enum 转 byte
-                );
+            var h = NativeBindings.pl_read_json(
+                path,
+                columns, (UIntPtr)(columns?.Length ?? 0),
+                schemaPtr,
+                inferPtr,
+                batchPtr,
+                ignoreErrors,
+                jsonFormat 
+            );
 
-                return ErrorHelper.Check(h);
-            }
-        });
+            return ErrorHelper.Check(h);
+        };
     }
 
     // ---------------------------------------------------------
@@ -853,37 +850,34 @@ public readonly partial struct PolarsWrapper
         bool ignoreErrors,
         PlJsonFormat jsonFormat)
     {
-        return UseUtf8StringArray(columns ?? [], colPtrs =>
+        unsafe
         {
-            unsafe
+            fixed (byte* pBuf = buffer)
             {
-                fixed (byte* pBuf = buffer)
-                {
-                    ulong inferVal = inferSchemaLen.GetValueOrDefault();
-                    IntPtr inferPtr = inferSchemaLen.HasValue ? (IntPtr)(&inferVal) : IntPtr.Zero;
+                ulong inferVal = inferSchemaLen.GetValueOrDefault();
+                IntPtr inferPtr = inferSchemaLen.HasValue ? (IntPtr)(&inferVal) : IntPtr.Zero;
 
-                    ulong batchVal = batchSize.GetValueOrDefault();
-                    IntPtr batchPtr = batchSize.HasValue ? (IntPtr)(&batchVal) : IntPtr.Zero;
+                ulong batchVal = batchSize.GetValueOrDefault();
+                IntPtr batchPtr = batchSize.HasValue ? (IntPtr)(&batchVal) : IntPtr.Zero;
 
-                    using var schemaLock = new SafeHandleLock<SchemaHandle>(
-                        schema != null ? new[] { schema } : null
-                    );
-                    IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
+                using var schemaLock = new SafeHandleLock<SchemaHandle>(
+                    schema != null ? [schema] : null
+                );
+                IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
 
-                    var h = NativeBindings.pl_read_json_memory(
-                        (IntPtr)pBuf, (UIntPtr)buffer.Length,
-                        colPtrs, (UIntPtr)(columns?.Length ?? 0),
-                        schemaPtr,
-                        inferPtr,
-                        batchPtr,
-                        ignoreErrors,
-                        jsonFormat
-                    );
+                var h = NativeBindings.pl_read_json_memory(
+                    (IntPtr)pBuf, (UIntPtr)buffer.Length,
+                    columns, (UIntPtr)(columns?.Length ?? 0),
+                    schemaPtr,
+                    inferPtr,
+                    batchPtr,
+                    ignoreErrors,
+                    jsonFormat
+                );
 
-                    return ErrorHelper.Check(h);
-                }
+                return ErrorHelper.Check(h);
             }
-        });
+        };
     }
 
     // ---------------------------------------------------------

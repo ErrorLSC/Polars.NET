@@ -37,9 +37,9 @@ unsafe internal partial class NativeBindings
         DataTypeHandle dtype,
         out uint width
     );
-    [LibraryImport(LibName)]
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial DataTypeHandle pl_datatype_new_struct(
-    [In] IntPtr[] names, 
+    string[] names, 
     [In] IntPtr[] types, 
     UIntPtr len
     );

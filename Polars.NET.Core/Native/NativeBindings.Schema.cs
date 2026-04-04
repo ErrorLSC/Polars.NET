@@ -8,9 +8,9 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial void pl_schema_free(IntPtr ptr);
 
-    [LibraryImport(LibName)]
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial SchemaHandle pl_schema_new(
-        IntPtr[] names, 
+        string[] names, 
         IntPtr[] dtypes, 
         UIntPtr len
     );

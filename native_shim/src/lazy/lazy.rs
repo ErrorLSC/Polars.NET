@@ -851,6 +851,31 @@ pub extern "C" fn pl_lazyframe_join_where(
         Ok(Box::into_raw(Box::new(LazyFrameContext { inner: res_lf })))
     })
 }
+
+// ==========================================
+// Merge Sorted
+// ==========================================
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazyframe_merge_sorted(
+    lf_ptr: *mut LazyFrameContext,
+    other_ptr: *mut LazyFrameContext,
+    key_ptr: *const std::os::raw::c_char,
+) -> *mut LazyFrameContext {
+    ffi_try!({
+        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+        let other_ctx = unsafe { Box::from_raw(other_ptr) };
+
+        let key_str = ptr_to_str(key_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+
+        let new_lf = lf_ctx.inner.merge_sorted(
+            other_ctx.inner, 
+            key_str
+        )?;
+
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
+    })
+}
 // ==========================================
 // Ops
 // ==========================================

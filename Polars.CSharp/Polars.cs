@@ -2,6 +2,7 @@
 using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Helpers;
+using Cs = Polars.CSharp.Polars.Selectors;
 namespace Polars.CSharp;
 
 /// <summary>
@@ -21,8 +22,7 @@ public readonly partial struct Polars
     /// </summary>
     /// <param name="names"></param>
     /// <returns></returns>
-    public static Expr Col(params string[] names)
-        => new(PolarsWrapper.Cols(names));
+    public static Expr Col(params string[] names) => Cs.ByName(names).ToExpr();
     /// <summary>
     /// Select all columns, same as Col("*")
     /// </summary>

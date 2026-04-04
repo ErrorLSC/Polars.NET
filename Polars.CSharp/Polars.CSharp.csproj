@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile> 
+    <LangVersion>latest</LangVersion>
 
     <PackageId>Polars.NET</PackageId> 
     <Title>Polars.NET - Blazing Fast DataFrames</Title>

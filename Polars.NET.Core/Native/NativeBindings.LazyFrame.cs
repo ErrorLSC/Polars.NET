@@ -206,14 +206,27 @@ unsafe internal partial class NativeBindings
         PlUniqueKeepStrategy keep,
         [MarshalAs(UnmanagedType.I1)] bool maintainOrder
     );
-    [LibraryImport(LibName)]
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_lazyframe_match_to_schema(
         LazyFrameHandle lf,
         SchemaHandle schema,
-        PlExtraColumnsPolicy extraColumnsCode,
-        PlMatchToSchemaPerColumnC defaultConfig,
-        PlSchemaColumnOverrideC[]? overrides,
-        UIntPtr overridesLen
+        byte extraColumnsCode,
+        
+        byte defMissingType,
+        IntPtr defMissingExpr,
+        byte defMissingStruct,
+        byte defExtraStruct,
+        byte defIntCast,
+        byte defFloatCast,
+        
+        string[]? ovNames,
+        byte[]? ovMissingType,
+        IntPtr[]? ovMissingExpr,
+        byte[]? ovMissingStruct,
+        byte[]? ovExtraStruct,
+        byte[]? ovIntCast,
+        byte[]? ovFloatCast,
+        nuint ovLen
     );
     // --- Streaming & Sink ---
     [LibraryImport(LibName)] 

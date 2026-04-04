@@ -1466,28 +1466,6 @@ pub extern "C" fn pl_expr_list_contains(
     })
 }
 
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_cols(
-    names_ptr: *const *const c_char,
-    len: usize
-) -> *mut ExprContext {
-    ffi_try!({
-        // Build Vec<String>
-        let mut names = Vec::with_capacity(len);
-        let slice = unsafe { std::slice::from_raw_parts(names_ptr, len) };
-        for &p in slice {
-            let s = ptr_to_str(p).unwrap();
-            names.push(s);
-        }
-
-        // polars::prelude::cols
-        let selection = cols(names);
-        let new_expr = selection.into();
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_list_reverse(expr_ptr: *mut ExprContext) -> *mut ExprContext {
     ffi_try!({
