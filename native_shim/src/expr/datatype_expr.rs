@@ -31,6 +31,41 @@ pub extern "C" fn pl_datatype_expr_clone(
 // DataType
 // ==========================================
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_datatype_expr_dtype_of(
+    expr_ptr: *mut ExprContext
+) -> *mut DataTypeExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        
+        let new_expr = DataTypeExpr::OfExpr(Box::new(ctx.inner));
+        
+        Ok(Box::into_raw(Box::new(DataTypeExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_datatype_expr_self_dtype() -> *mut DataTypeExprContext {
+    ffi_try!({
+        let new_expr = DataTypeExpr::SelfDtype; 
+        
+        Ok(Box::into_raw(Box::new(DataTypeExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_datatype_expr_from_datatype(
+    dtype_ptr: *mut DataTypeContext
+) -> *mut DataTypeExprContext {
+    ffi_try!({
+        let ctx = unsafe { &*dtype_ptr };
+        
+        let new_expr = DataTypeExpr::Literal(ctx.dtype.clone());
+        
+        Ok(Box::into_raw(Box::new(DataTypeExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_expr_into_datatype(
     ptr: *mut DataTypeExprContext,
     schema_ptr: *mut SchemaContext

@@ -325,7 +325,15 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// </summary>
     public static DataType Struct(params (string Name, DataType Type)[] fields)
         => Struct((IEnumerable<(string Name, DataType Type)>)fields);
-    
+    /// <summary>
+    /// Convert this DataType to a DataTypeExpr literal.
+    /// Equivalent to Python's polars.DataType.to_dtype_expr()
+    /// </summary>
+    public DataTypeExpr ToDataTypeExpr()
+    {
+        var h = PolarsWrapper.DataTypeExprFromDataType(this.Handle);
+        return new DataTypeExpr(h);
+    }
     public Type GetNetType() => ArrowTypeResolver.GetNetTypeFromArrowType(GetArrowType());
     public static DataType FromNetType<T>() => FromArrowType(ArrowTypeResolver.GetArrowTypeFromNetType(typeof(T)));
     /// <summary>

@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Runtime.InteropServices;
 using Polars.NET.Core.Native;
 
@@ -6,13 +7,6 @@ namespace Polars.NET.Core;
 public readonly partial struct PolarsWrapper
 {
     private static DataTypeExprHandle UnaryOpToDataTypeExpr(Func<DataTypeExprHandle, DataTypeExprHandle> op, DataTypeExprHandle dexpr)
-    {
-        var h = op(dexpr);
-        dexpr.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-
-    private static DataTypeHandle UnaryOpToDataType(Func<DataTypeExprHandle, DataTypeHandle> op, DataTypeExprHandle dexpr)
     {
         var h = op(dexpr);
         dexpr.TransferOwnership();
@@ -32,7 +26,30 @@ public readonly partial struct PolarsWrapper
         dexpr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static DataTypeHandle DataTypeExprIntoLiteral(DataTypeExprHandle dexpr) => UnaryOpToDataType(NativeBindings.pl_datatype_expr_into_literal,dexpr);
+    public static DataTypeExprHandle DataTypeExprDtypeOf(ExprHandle expr)
+    {
+        var h = NativeBindings.pl_datatype_expr_dtype_of(expr);
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static DataTypeExprHandle DataTypeExprSelfDtype()
+    {
+        var h = NativeBindings.pl_datatype_expr_self_dtype();
+        return ErrorHelper.Check(h);
+    }
+    public static DataTypeExprHandle DataTypeExprFromDataType(DataTypeHandle datatype)
+    {
+        var h = NativeBindings.pl_datatype_expr_from_datatype(datatype);
+        return ErrorHelper.Check(h);
+    }
+    public static DataTypeHandle DataTypeExprIntoLiteral(DataTypeExprHandle dexpr) 
+    {
+        var h = NativeBindings.pl_datatype_expr_into_literal(dexpr);
+        
+        dexpr.TransferOwnership();
+        ErrorHelper.CheckVoid();
+        return h;
+    }
     public static DataTypeExprHandle DataTypeExprInnerDtype(DataTypeExprHandle dexpr) => UnaryOpToDataTypeExpr(NativeBindings.pl_datatype_expr_inner_dtype,dexpr);
     public static ExprHandle DataTypeExprEquals(DataTypeExprHandle left,DataTypeExprHandle right)
     {

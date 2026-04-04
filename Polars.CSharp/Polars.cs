@@ -285,7 +285,25 @@ public readonly partial struct Polars
         }
         return current;
     }
+    /// <summary>
+    /// Gets the DataType of an expression.
+    /// Equivalent to Python's polars.dtype_of()
+    /// </summary>
+    public static DataTypeExpr DataTypeOf(Expr expr)
+    {
+        var h = PolarsWrapper.DataTypeExprDtypeOf(expr.CloneHandle());
+        return new DataTypeExpr(h);
+    }
 
+    /// <summary>
+    /// Represents the intrinsic data type of the current element.
+    /// Equivalent to Python's polars.self_dtype()
+    /// </summary>
+    public static DataTypeExpr SelfDataType()
+    {
+        var h = PolarsWrapper.DataTypeExprSelfDtype();
+        return new DataTypeExpr(h);
+    }
     // ---------------------------------------------------------
     // Selectors Entry Points
     // ---------------------------------------------------------
