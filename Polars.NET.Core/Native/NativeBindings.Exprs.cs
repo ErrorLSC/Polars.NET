@@ -653,6 +653,12 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial IntPtr pl_expr_to_string(ExprHandle expr);
     [LibraryImport(LibName)]
+    public static partial int pl_expr_meta_into_tree_formatter(
+        ExprHandle expr, 
+        [MarshalAs(UnmanagedType.I1)] bool displayAsDot, 
+        IntPtr schemaPtr,
+        out IntPtr outStr);
+    [LibraryImport(LibName)]
     public static partial int pl_expr_meta_is_column(ExprHandle expr,[MarshalAs(UnmanagedType.U1)]out bool result);
     [LibraryImport(LibName)]
     public static partial int pl_expr_meta_is_column_selection(ExprHandle expr,[MarshalAs(UnmanagedType.U1)] bool allowAliasing,[MarshalAs(UnmanagedType.U1)]out bool result);

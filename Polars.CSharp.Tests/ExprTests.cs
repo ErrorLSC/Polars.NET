@@ -1,4 +1,5 @@
 using Apache.Arrow;
+using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Helpers;
 using static Polars.CSharp.Polars;
@@ -2218,13 +2219,13 @@ TooShort,1990-05-20,1.60";
 
         using var res = df.Select(
             // --- ConcatString (Strict: any null makes result null) ---
-            Polars.ConcatString("-", false, Col("WordA"), Col("WordB")).Alias("concat_strict"),
+            ConcatString("-", false, Col("WordA"), Col("WordB")).Alias("concat_strict"),
             
             // --- ConcatString (Ignore Nulls: skips nulls seamlessly) ---
-            Polars.ConcatString("-", true, Col("WordA"), Col("WordB")).Alias("concat_ignore"),
+            ConcatString("-", true, Col("WordA"), Col("WordB")).Alias("concat_ignore"),
             
             // --- FormatString (Template formatting) ---
-            Polars.FormatString("[{}] + [{}] = ❤️", Col("WordA"), Col("WordB")).Alias("format_str")
+            FormatString("[{}] + [{}] = ❤️", Col("WordA"), Col("WordB")).Alias("format_str")
         );
 
         // shape: (4, 3)
@@ -2327,13 +2328,14 @@ TooShort,1990-05-20,1.60";
         );
 
         // 10 + col("a") + col("b") + col("c")
-        var exprs = new[] { Col("a"), Col("b"), Col("c") };
+        Expr[] exprs = [Col("a"), Col("b"), Col("c")];
         var foldExpr = Fold(
             acc: Lit(10), 
             f: (acc, x) => acc + x, 
             exprs: exprs
         ).Alias("folded_sum");
         Console.WriteLine(foldExpr);
+        Console.WriteLine(foldExpr.Meta.FormatTree());
         using var resultDf = df.Select(foldExpr);
 
         // 10 + 1 + 4 + 7 = 22
@@ -2526,5 +2528,61 @@ TooShort,1990-05-20,1.60";
         
         var litNames = Lit(42).Meta.RootNames();
         Assert.Empty(litNames);
+    }
+    [Fact]
+    [Trait("Expr", "MetaFormatTreeStandard")]
+    public void Test_FormatTree_StandardText_ShouldPrintHierarchy()
+    {
+        var expr = (Col("A") * Lit(2)) + Col("B");
+        var tree = expr.Meta.FormatTree();
+
+        Assert.False(string.IsNullOrWhiteSpace(tree));
+        Assert.Contains("binary: +", tree);
+        Assert.Contains("binary: *", tree);
+        Assert.Contains("col(A)", tree);
+        Assert.Contains("lit", tree);
+    }
+
+    [Fact]
+    [Trait("Expr", "MetaFormatTreeDot")]
+    public void Test_FormatTree_AsDot_ShouldOutputGraphviz()
+    {
+        var expr = Col("A").Sum().Alias("Total");
+        var dot = expr.Meta.FormatTree(displayAsDot: true);
+
+        Assert.False(string.IsNullOrWhiteSpace(dot));
+        Assert.Contains("graph {", dot);
+        Assert.Contains("label", dot);
+        Assert.Contains("sum", dot.ToLower()); 
+    }
+
+    [Fact]
+    [Trait("Expr", "MetaFormatTreeSchema")]
+    public void Test_FormatTree_WithSchema_ShouldExpandSelectors()
+    {
+        using var df = DataFrame.FromColumns(new
+        {
+            Price = new[] { 10.0, 20.0 }, 
+            Count = new[] { 1, 2 }
+        });
+        using var schema = df.Schema;
+
+        var expr = Col("Price") * Col("Count") + 100;
+
+        var treeWithoutSchema = expr.Meta.FormatTree();
+        Assert.Contains("binary: +", treeWithoutSchema);
+        Assert.Contains("col(Price)", treeWithoutSchema);
+
+        var treeWithSchema = expr.Meta.FormatTree(schema: schema);
+        Assert.Contains("col(Price)", treeWithSchema);
+        Assert.Contains("col(Count)", treeWithSchema);
+        
+        var invalidExpr = Cs.Numeric() * 2;
+        var ex = Assert.Throws<PolarsException>(() => 
+        {
+            invalidExpr.Meta.FormatTree(schema: schema);
+        });
+        
+        Assert.Contains("not allowed in this context", ex.Message);
     }
 }   

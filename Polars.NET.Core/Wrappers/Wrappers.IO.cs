@@ -918,7 +918,7 @@ public readonly partial struct PolarsWrapper
             IntPtr nRowsPtr = nRows.HasValue ? (IntPtr)(&nRowsVal) : IntPtr.Zero;
 
             using var schemaLock = new SafeHandleLock<SchemaHandle>(
-                schema != null ? new[] { schema } : null
+                schema != null ? [schema] : null
             );
             IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
 

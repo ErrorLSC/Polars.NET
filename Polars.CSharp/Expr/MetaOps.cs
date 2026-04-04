@@ -59,4 +59,8 @@ public readonly struct MetaOps
     /// Get a list with the root column name.
     /// </summary>
     public string[] RootNames() => PolarsWrapper.RootNames(_expr.Handle);
+    /// <summary>
+    /// Format the expression as a tree.
+    /// </summary>
+    public string FormatTree(bool displayAsDot = false,PolarsSchema? schema=null) => PolarsWrapper.FormatTree(_expr.Handle,displayAsDot,schema?.Handle);
 }

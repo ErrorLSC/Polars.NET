@@ -1144,6 +1144,17 @@ public readonly partial struct PolarsWrapper
         var h = NativeBindings.pl_expr_to_string(e);
         return ErrorHelper.CheckString(h);
     }
+    public static string FormatTree(ExprHandle expr,bool displayAsDot, SchemaHandle? schema)
+    {
+        using var schemaLock = new SafeHandleLock<SchemaHandle>(
+            schema != null ? [schema] : null
+        );
+        IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
+        int status = NativeBindings.pl_expr_meta_into_tree_formatter(expr, displayAsDot,schemaPtr, out IntPtr ptr);
+        ErrorHelper.CheckStatus(status);
+
+        return ErrorHelper.CheckString(ptr);
+    }
     public static string? ExprGetOutputName(ExprHandle expr)
     {
         int status = NativeBindings.pl_expr_get_output_name(expr, out IntPtr strPtr);

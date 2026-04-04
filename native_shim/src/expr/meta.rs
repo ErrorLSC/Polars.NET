@@ -1,7 +1,7 @@
 use std::ffi::{CString, c_char, c_int};
 use polars::prelude::*;
 use polars_plan::utils::expr_to_leaf_column_names;
-use crate::types::{ExprContext, SelectorContext};
+use crate::types::{ExprContext, SchemaContext, SelectorContext};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_get_output_name(
@@ -150,5 +150,34 @@ pub extern "C" fn pl_expr_meta_pop(
         std::mem::forget(ptrs);
         
         Ok(0) 
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_meta_into_tree_formatter(
+    expr_ptr: *const ExprContext,
+    display_as_dot: bool,
+    schema_ptr: *const SchemaContext,
+    out_str: *mut *mut c_char,
+) -> c_int {
+    ffi_eval_out_try!(out_str, {
+        let ctx = unsafe { &*expr_ptr };
+        
+        let schema_opt = if schema_ptr.is_null() {
+            None
+        } else {
+            let schema_ctx = unsafe { &*schema_ptr };
+            Some(&schema_ctx.schema) 
+        };
+        
+        // 把解析好的 Option<&Schema> 喂进去！
+        let formatter = ctx.inner.clone().meta().into_tree_formatter(display_as_dot, schema_opt.map(|v| &**v))?;
+        
+        let formatted_str = format!("{}", formatter);
+        
+        let c_str = CString::new(formatted_str)
+            .map_err(|e| PolarsError::ComputeError(format!("CString error: {}", e).into()))?;
+            
+        Ok(c_str.into_raw())
     })
 }
