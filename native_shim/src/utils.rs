@@ -1,4 +1,4 @@
-use std::ffi::{CStr, c_char};
+use std::ffi::{CStr, c_char, c_void};
 use polars::frame::UniqueKeepStrategy;
 use polars::prelude::{AsofStrategy, ClosedInterval, Expr, JoinBuildSide, JoinCoalesce, JoinType, JoinValidation, MaintainOrderJoin, ParallelStrategy, PlSmallStr, SchemaRef, TimeUnit};
 use polars::time::ClosedWindow;
@@ -12,6 +12,15 @@ use crate::types::{ExprContext,SchemaContext};
 pub extern "C" fn pl_free_string(ptr: *mut std::os::raw::c_char) {
     if !ptr.is_null() {
         unsafe { let _ = std::ffi::CString::from_raw(ptr); }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_free_ptr_array(ptr: *mut *mut c_void, len: usize) {
+    if !ptr.is_null() {
+        unsafe {
+            let _ = Vec::from_raw_parts(ptr, len, len);
+        }
     }
 }
 

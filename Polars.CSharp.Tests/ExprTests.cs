@@ -2422,4 +2422,109 @@ TooShort,1990-05-20,1.60";
 
         Assert.Equal(exactCount, approxCount); 
     }
+    [Fact]
+    [Trait("Expr", "Meta")]
+    public void Test_IsColumn_ShouldIdentifyPureColumns()
+    {
+        var pureCol = Col("id");
+        Assert.True(pureCol.Meta.IsColumn());
+
+        var computed = Col("id") * 2;
+        Assert.False(computed.Meta.IsColumn());
+
+        var regexCol = Col("^id.*$");
+        Assert.False(regexCol.Meta.IsColumn());
+    }
+
+    [Fact]
+    [Trait("Expr", "Meta")]
+    public void Test_IsRegexProjection_ShouldIdentifyRegex()
+    {
+        var regexCol = Col("^prefix_.*$");
+        Assert.True(regexCol.Meta.IsRegexProjection());
+
+        var normalCol = Col("prefix_name");
+        Assert.False(normalCol.Meta.IsRegexProjection());
+    }
+
+    [Fact]
+    [Trait("Expr", "Meta")]
+    public void Test_IsColumnSelection_TheUltimateSelectorGuard()
+    {
+        Assert.True(Col("name").Meta.IsColumnSelection());
+
+        Assert.True(Cs.Numeric().ToExpr().Meta.IsColumnSelection());
+
+        Assert.True(Col("A", "B").Meta.IsColumnSelection());
+
+        Assert.True(Col("^.*$").Meta.IsColumnSelection());
+
+        var aliased = Col("A").Alias("B");
+        Assert.False(aliased.Meta.IsColumnSelection(allowAliasing: false)); 
+        Assert.True(aliased.Meta.IsColumnSelection(allowAliasing: true)); 
+
+        var computed = Col("A") + 1;
+        Assert.False(computed.Meta.IsColumnSelection(allowAliasing: true));
+    }
+
+    [Fact]
+    [Trait("Expr", "Meta")]
+    public void Test_IsLiteral_ShouldIdentifyConstants()
+    {
+        var literalInt = Lit(42);
+        var literalString = Lit("hello");
+
+        Assert.True(literalInt.Meta.IsLiteral());
+        Assert.True(literalString.Meta.IsLiteral());
+
+        Assert.False(Col("A").Meta.IsLiteral());
+
+        var aliasedLiteral = Lit(100).Alias("Score");
+        Assert.False(aliasedLiteral.Meta.IsLiteral(allowAliasing: false));
+        Assert.True(aliasedLiteral.Meta.IsLiteral(allowAliasing: true));
+    }
+
+    [Fact]
+    [Trait("Expr", "Meta")]
+    public void Test_HasMultipleOutputs_ShouldIdentifyExpansions()
+    {
+        Assert.True(Col("*").Meta.HasMultipleOutputs());
+        Assert.True(Cs.Numeric().ToExpr().Meta.HasMultipleOutputs());
+        Assert.True(Col("A", "B").Meta.HasMultipleOutputs());
+
+        Assert.False(Col("A").Meta.HasMultipleOutputs());
+
+        Assert.False(Lit(1).Meta.HasMultipleOutputs());
+    }
+
+    [Fact]
+    [Trait("Expr", "Meta")]
+    public void Test_UndoAliases_ShouldStripAliasWrappers()
+    {
+        var expr = (Col("A") + 1).Alias("B");
+        
+        var stripped = expr.Meta.UndoAliases();
+
+        var roots = stripped.Meta.RootNames();
+        Assert.Single(roots);
+        Assert.Equal("A", roots[0]);
+    }
+
+    [Fact]
+    [Trait("Expr", "Meta")]
+    public void Test_RootNames_ShouldExtractAllLeafColumns()
+    {
+
+        var complexExpr = ((Col("A") * Col("B")) + Col("C").Sum()).Alias("Result");
+
+        var rootNames = complexExpr.Meta.RootNames();
+
+        Assert.Equal(3, rootNames.Length);
+        Assert.Contains("A", rootNames);
+        Assert.Contains("B", rootNames);
+        Assert.Contains("C", rootNames);
+        
+        var litNames = Lit(42).Meta.RootNames();
+        Assert.Empty(litNames);
+    }
 }   

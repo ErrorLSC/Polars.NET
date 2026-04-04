@@ -646,15 +646,26 @@ unsafe internal partial class NativeBindings
     );
     [LibraryImport(LibName)] public static partial SelectorHandle pl_expr_try_into_selector(ExprHandle expr);
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.U1)]
-    public static partial bool pl_expr_get_output_name(
+    public static partial int pl_expr_get_output_name(
         ExprHandle expr, 
         out IntPtr outStr
     );
     [LibraryImport(LibName)]
-    public static partial IntPtr pl_expr_to_string(
-        ExprHandle expr
-    );
+    public static partial IntPtr pl_expr_to_string(ExprHandle expr);
+    [LibraryImport(LibName)]
+    public static partial int pl_expr_meta_is_column(ExprHandle expr,[MarshalAs(UnmanagedType.U1)]out bool result);
+    [LibraryImport(LibName)]
+    public static partial int pl_expr_meta_is_column_selection(ExprHandle expr,[MarshalAs(UnmanagedType.U1)] bool allowAliasing,[MarshalAs(UnmanagedType.U1)]out bool result);
+    [LibraryImport(LibName)]
+    public static partial int pl_expr_meta_is_literal(ExprHandle expr,[MarshalAs(UnmanagedType.U1)] bool allowAliasing,[MarshalAs(UnmanagedType.U1)]out bool result);
+    [LibraryImport(LibName)]
+    public static partial int pl_expr_meta_is_regex_projection(ExprHandle expr,[MarshalAs(UnmanagedType.U1)]out bool result);
+    [LibraryImport(LibName)]
+    public static partial int pl_expr_meta_has_multiple_outputs(ExprHandle expr,[MarshalAs(UnmanagedType.U1)]out bool result);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_meta_undo_aliases(ExprHandle expr);
+    [LibraryImport(LibName)]
+    public static partial int pl_expr_meta_root_names(ExprHandle expr,out IntPtr rootNames);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_int_range(
         ExprHandle start,

@@ -63,12 +63,27 @@ public readonly struct IntoSelector
     public static implicit operator IntoSelector(string name) => new(Cs.ByName(name), ownsSelector: true);
     public static implicit operator IntoSelector(DataType dtype) => new(Cs.ByDtype(dtype), ownsSelector: true);
     public static implicit operator IntoSelector(Type type) => new(Cs.ByDtype(type), ownsSelector: true);
-    public static implicit operator IntoSelector(Expr expr) => new(expr.ToSelector(), ownsSelector: true);
+    public static implicit operator IntoSelector(Expr expr) 
+    {
+        ArgumentNullException.ThrowIfNull(expr);
+
+        if (!expr.Meta.IsColumnSelection(allowAliasing: true)) 
+        {
+            throw new ArgumentException(
+                "Invalid conversion to Selector. A Selector must strictly be a column selection " +
+                "(e.g., Pl.Col(\"name\"), Cs.Numeric(), or regex). " +
+                "Mathematical computations, aggregations, or literals cannot be used as Selectors."
+            );
+        }
+
+        return new(expr.ToSelector(), ownsSelector: true);
+    }
 
     private IntoSelector(Selector selector, bool ownsSelector)
     {
         _selector = selector;
         _ownsSelector = ownsSelector;
+        
     }
 
     public Selector Consume()

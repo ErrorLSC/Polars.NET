@@ -159,6 +159,7 @@ public readonly partial struct PolarsWrapper
         expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle UndoAlias(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_meta_undo_aliases,expr);
     // Reverse
     public static ExprHandle Reverse(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_reverse, e);
     // Aggregate
@@ -1145,10 +1146,11 @@ public readonly partial struct PolarsWrapper
     }
     public static string? ExprGetOutputName(ExprHandle expr)
     {
-        bool success = NativeBindings.pl_expr_get_output_name(expr, out IntPtr strPtr);
+        int status = NativeBindings.pl_expr_get_output_name(expr, out IntPtr strPtr);
 
-        if (!success || strPtr == IntPtr.Zero)
+        if (status != 0 || strPtr == IntPtr.Zero)
         {
+            ErrorHelper.CheckStatus(status);
             return null;
         }
 
@@ -1260,5 +1262,45 @@ public readonly partial struct PolarsWrapper
         end.TransferOwnership();
         numSamples.TransferOwnership();
         return ErrorHelper.Check(h);
+    }
+    public static bool IsColumn(ExprHandle expr)
+    {
+        int code = NativeBindings.pl_expr_meta_is_column(expr,out bool result);
+        ErrorHelper.CheckStatus(code);
+        return result;
+    }
+    public static bool IsColumnSelection(ExprHandle expr,bool allowAliasing)
+    {
+        int code = NativeBindings.pl_expr_meta_is_column_selection(expr,allowAliasing,out bool result);
+        ErrorHelper.CheckStatus(code);
+        return result;
+    }
+    public static bool IsLiteral(ExprHandle expr,bool allowAliasing)
+    {
+        int code = NativeBindings.pl_expr_meta_is_literal(expr,allowAliasing,out bool result);
+        ErrorHelper.CheckStatus(code);
+        return result;
+    }
+    public static bool IsRegexProjection(ExprHandle expr)
+    {
+        int code = NativeBindings.pl_expr_meta_is_regex_projection(expr,out bool result);
+        ErrorHelper.CheckStatus(code);
+        return result;
+    }
+    public static bool HasMultipleOutputs(ExprHandle expr)
+    {
+        int code = NativeBindings.pl_expr_meta_has_multiple_outputs(expr,out bool result);
+        ErrorHelper.CheckStatus(code);
+        return result;
+    }
+    public static string[] RootNames(ExprHandle expr)
+    {
+        int status = NativeBindings.pl_expr_meta_root_names(expr, out IntPtr ptr);
+        ErrorHelper.CheckStatus(status); 
+
+        string joined = ErrorHelper.CheckString(ptr); 
+        
+        if (string.IsNullOrEmpty(joined)) return [];
+        return joined.Split('\x1F');
     }
 }
