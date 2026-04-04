@@ -1333,10 +1333,50 @@ public readonly partial struct PolarsWrapper
         int status = NativeBindings.pl_expr_meta_root_names(expr, out IntPtr ptr);
         ErrorHelper.CheckStatus(status); 
 
-        string joined = ErrorHelper.CheckString(ptr); 
-        
-        if (string.IsNullOrEmpty(joined)) return [];
-        return joined.Split('\x1F');
+        if (ptr == IntPtr.Zero) return [];
+
+        try
+        {
+            unsafe
+            {
+                byte* p = (byte*)ptr;
+                
+                int len = 0;
+                while (p[len] != 0) len++;
+
+                if (len == 0) return [];
+
+                var span = new ReadOnlySpan<byte>(p, len);
+
+                int count = 1;
+                foreach (byte b in span)
+                {
+                    if (b == 0x1F) count++;
+                }
+
+                string[] result = new string[count];
+
+                int arrayIndex = 0;
+                int sliceStart = 0;
+                for (int i = 0; i <= span.Length; i++)
+                {
+                    if (i == span.Length || span[i] == 0x1F)
+                    {
+                        var slice = span[sliceStart..i];
+                        
+                        result[arrayIndex++] = System.Text.Encoding.UTF8.GetString(slice);
+                        
+                        sliceStart = i + 1;
+                    }
+                }
+
+                return result;
+            }
+        }
+        finally
+        {
+            NativeBindings.pl_free_string(ptr); 
+        }
     }
     public static bool ExprEquals(ExprHandle expr,ExprHandle other)
     {
