@@ -25,3 +25,7 @@ pub struct DataTypeContext {
 pub struct SchemaContext {
     pub schema: SchemaRef, 
 }
+
+pub struct DataTypeExprContext {
+    pub inner: DataTypeExpr, 
+}

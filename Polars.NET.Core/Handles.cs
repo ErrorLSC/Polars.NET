@@ -35,6 +35,21 @@ public class ExprHandle : PolarsHandle
     
 }
 
+public class DataTypeExprHandle : PolarsHandle
+{
+    protected override bool ReleaseHandle()
+    {
+        NativeBindings.pl_datatype_expr_free(handle);
+        return true;
+    }
+    internal DataTypeExprHandle(IntPtr ptr) => SetHandle(ptr);
+
+    public DataTypeExprHandle() 
+    { 
+    }
+    
+}
+
 // 3. DataFrame Handle
 public class DataFrameHandle : PolarsHandle
 {

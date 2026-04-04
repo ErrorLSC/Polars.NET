@@ -1,4 +1,3 @@
-using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 using Polars.NET.Core.Native;
 
