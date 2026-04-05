@@ -175,4 +175,19 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] bool nullEqual,
         [MarshalAs(UnmanagedType.U1)] out bool outResult
     );
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_dataframe_replace_column_at(
+        DataFrameHandle df,
+        nuint index,
+        SeriesHandle series
+    );
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_dataframe_replace(
+        DataFrameHandle df,
+        string name,
+        SeriesHandle series
+    );
 }

@@ -305,4 +305,15 @@ public readonly partial struct PolarsWrapper
         
         return result;
     }
+    public static void ReplaceColumnAt(DataFrameHandle df, int index, SeriesHandle series)
+    {
+        bool success = NativeBindings.pl_dataframe_replace_column_at(df, (UIntPtr)index, series);
+        ErrorHelper.CheckBool(success);
+    }
+
+    public static void Replace(DataFrameHandle df, string name, SeriesHandle series)
+    {
+        bool success = NativeBindings.pl_dataframe_replace(df, name, series);
+        ErrorHelper.CheckBool(success);
+    }
 }

@@ -4,6 +4,7 @@ using Apache.Arrow;
 using Apache.Arrow.Memory;
 using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
+using Polars.NET.Core;
 namespace Polars.CSharp.Tests;
 
 public class DataFrameTests
@@ -1517,16 +1518,87 @@ B,5";
     }
 
     [Fact]
+    [Trait("DataFrame","PartitionBy")]
     public void PartitionByAsDict_InvalidCombination_ShouldThrow()
     {
         // Arrange
         var df = DataFrame.FromColumns(new { A = new[] { 1, 2, 1 } });
 
         // Act & Assert
-        // Python Polars 抛 ValueError，我们在 C# 抛 ArgumentException
         var ex = Assert.Throws<ArgumentException>(() => 
             df.PartitionByAsDict(["A"],maintainOrder: false, includeKey: false));
             
         Assert.Contains("Group keys cannot be matched to partitions", ex.Message);
+    }
+    [Fact]
+    [Trait("DataFrame","ReplaceColumn")]
+    public void Replace_ByIndex_ShouldModifyInPlaceAndSupportChaining()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            Col1 = new[] { 1, 2, 3 },
+            Col2 = new[] { 4, 5, 6 },
+            Col3 = new[] { 7, 8, 9 }
+        });
+
+        var newSeries2 = Series.From("New_Col2", [40, 50, 60]);
+        var newSeries3 = Series.From("New_Col3", [70, 80, 90]);
+
+        df.ReplaceColumn(1, newSeries2)
+          .ReplaceColumn(-1, newSeries3);
+        // Assert
+        Assert.Equal(3, df.Width);
+        
+        Assert.Equal(40, df[1][0]!);
+        Assert.Equal(90, df[2][2]!);
+
+        Assert.Equal("New_Col2", df.Columns[1]);
+        Assert.Equal("New_Col3", df.Columns[2]);
+    }
+
+    [Fact]
+    [Trait("DataFrame","ReplaceColumn")]
+    public void Replace_ByName_ShouldModifyInPlace()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            A = new[] { 1, 2, 3 },
+            B = new[] { 4, 5, 6 }
+        });
+
+        var newColA = Series.From("A_Modified", [10, 20, 30]);
+
+        // Act
+        df.ReplaceColumn("A", newColA,keepName:false);
+        // Assert
+        Assert.Equal(10, (int)df["A_Modified"][0]!); 
+        Assert.DoesNotContain("A", df.Columns);
+    }
+
+    [Fact]
+    [Trait("DataFrame","ReplaceColumn")]
+    public void Replace_WithShapeMismatch_ShouldThrowPolarsException()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new { A = new[] { 1, 2, 3 } });
+        var badSeries = Series.From("A", [1, 2]); 
+
+        // Act & Assert
+        var ex = Assert.Throws<PolarsException>(() => df.ReplaceColumn("A", badSeries));
+        Assert.Contains("lengths don't match", ex.Message);
+    }
+
+    [Fact]
+    [Trait("DataFrame","ReplaceColumn")]
+    public void Replace_WithInvalidIndex_ShouldThrowArgumentOutOfRangeException()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new { A = new[] { 1, 2, 3 } });
+        var s = Series.From("A", [10, 20, 30]);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => df.ReplaceColumn(5, s));
+        Assert.Throws<ArgumentOutOfRangeException>(() => df.ReplaceColumn(-5, s)); 
     }
 }

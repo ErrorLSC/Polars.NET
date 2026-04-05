@@ -853,3 +853,39 @@ pub extern "C" fn pl_dataframe_equals(
         Ok(is_eq)
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_replace_column_at(
+    df_ptr: *mut DataFrameContext,
+    index: usize,
+    series_ptr: *mut SeriesContext,
+) -> bool {
+    ffi_bool_try!({
+        let ctx = unsafe { &mut *df_ptr };
+        let s_ctx = unsafe { &*series_ptr };
+        
+        let new_col = s_ctx.series.clone().into();
+        ctx.df.replace_column(index, new_col)?;
+        
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_replace(
+    df_ptr: *mut DataFrameContext,
+    name_ptr: *const std::os::raw::c_char,
+    series_ptr: *mut SeriesContext,
+) -> bool {
+    ffi_bool_try!({
+        let ctx = unsafe { &mut *df_ptr };
+        let s_ctx = unsafe { &*series_ptr };
+        
+        let col_name = unsafe { CStr::from_ptr(name_ptr).to_string_lossy() };
+        let new_col = s_ctx.series.clone().into();
+        
+        ctx.df.replace(&col_name, new_col)?;
+        
+        Ok(())
+    })
+}

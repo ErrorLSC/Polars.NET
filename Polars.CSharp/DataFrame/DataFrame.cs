@@ -303,7 +303,70 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
 
         return Select(cols.ToArray());
     }
+    /// <summary>
+    /// Replace a column by its index in-place.
+    /// Supports negative indexing (e.g., -1 replaces the last column).
+    /// </summary>
+    /// <param name="index">The index of the column to replace. Negative values count from the end.</param>
+    /// <param name="newColumn">The new Series to insert.</param>
+    /// <param name="keepName">If true, keeps the original column name. If false, uses the new Series's name. Default is false.</param>
+    /// <returns>The current DataFrame instance to support method chaining.</returns>
+    public DataFrame ReplaceColumn(int index, Series newColumn, bool keepName = false)
+    {
+        ArgumentNullException.ThrowIfNull(newColumn);
 
+        long width = Width; 
+        
+        if (index < 0)
+        {
+            index = (int)width + index;
+        }
+
+        if (index < 0 || index >= width)
+        {
+            throw new ArgumentOutOfRangeException(nameof(index), $"Column index {index} is out of bounds. DataFrame width is {width}.");
+        }
+
+        if (keepName)
+        {
+            string originalName = Columns[index];
+            PolarsWrapper.Replace(Handle, originalName, newColumn.Handle);
+        }
+        else
+        {
+            PolarsWrapper.ReplaceColumnAt(Handle, index, newColumn.Handle);
+        }
+        
+        return this;
+    }
+
+    /// <summary>
+    /// Replace a column by its name in-place.
+    /// </summary>
+    /// <param name="columnName">The name of the column to replace.</param>
+    /// <param name="newColumn">The new Series to insert.</param>
+    /// <param name="keepName">If true, keeps the original column name. If false, uses the new Series's name. Default is true.</param>
+    /// <returns>The current DataFrame instance to support method chaining.</returns>
+    public DataFrame ReplaceColumn(string columnName, Series newColumn, bool keepName = true)
+    {
+        ArgumentNullException.ThrowIfNull(newColumn);
+
+        if (keepName)
+        {
+            PolarsWrapper.Replace(Handle, columnName, newColumn.Handle);
+        }
+        else
+        {
+            int index = Array.IndexOf(Columns, columnName);
+            if (index == -1)
+            {
+                throw new ArgumentException($"Column '{columnName}' does not exist in the DataFrame.");
+            }
+            PolarsWrapper.ReplaceColumnAt(Handle, index, newColumn.Handle);
+        }
+
+        return this;
+    }
     // ==========================================
     // Stack Ops
     // ==========================================
