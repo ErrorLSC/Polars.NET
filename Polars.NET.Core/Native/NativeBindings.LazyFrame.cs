@@ -27,8 +27,9 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.I1)] bool includeBoundaries,
         PlClosedWindow closedWindow,
         PlStartBy startBy,
-        IntPtr[] keys, UIntPtr keysLen,
-        IntPtr[] aggs, UIntPtr aggsLen
+        nint[] keys, nuint keysLen,
+        nint[] aggs, nuint aggsLen,
+        nint havingExpr
     );
     [LibraryImport(LibName)] public static partial SchemaHandle pl_lazyframe_get_schema(LazyFrameHandle lf);
     [LibraryImport(LibName)] public static partial IntPtr pl_lazy_explain(LazyFrameHandle lf,[MarshalAs(UnmanagedType.U1)] bool optimized);
@@ -71,7 +72,8 @@ unsafe internal partial class NativeBindings
         LazyFrameHandle lf, 
         IntPtr[] keys, UIntPtr keysLen, 
         IntPtr[] aggs, UIntPtr aggsLen,
-        IntPtr havingExpr
+        IntPtr havingExpr,
+        [MarshalAs(UnmanagedType.U1)]bool maintainOrder
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_lazyframe_join(

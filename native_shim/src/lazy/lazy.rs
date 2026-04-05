@@ -246,14 +246,19 @@ pub extern "C" fn pl_lazy_groupby_agg(
     lf_ptr: *mut LazyFrameContext,
     keys_ptr: *const *mut ExprContext, keys_len: usize,
     aggs_ptr: *const *mut ExprContext, aggs_len: usize,
-    having_ptr: *mut ExprContext
+    having_ptr: *mut ExprContext,
+    maintain_order: bool 
 ) -> *mut LazyFrameContext {
     ffi_try!({
         let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
         let keys = unsafe { consume_exprs_array(keys_ptr, keys_len) };
         let aggs = unsafe { consume_exprs_array(aggs_ptr, aggs_len) };
 
-        let mut group_by = lf_ctx.inner.group_by_stable(keys);
+        let mut group_by = if maintain_order {
+            lf_ctx.inner.group_by_stable(keys)
+        } else {
+            lf_ctx.inner.group_by(keys)
+        };
 
         if !having_ptr.is_null() {
             let having_expr = unsafe { Box::from_raw(having_ptr).inner };
@@ -279,7 +284,8 @@ pub unsafe extern "C" fn pl_lazy_group_by_dynamic(
     start_by_idx: u8,      
     // --- Keys & Aggs ---
     keys_ptr: *const *mut ExprContext, keys_len: usize,
-    aggs_ptr: *const *mut ExprContext, aggs_len: usize
+    aggs_ptr: *const *mut ExprContext, aggs_len: usize,
+    having_ptr: *mut ExprContext
 ) -> *mut LazyFrameContext {
     ffi_try!({
         let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
@@ -325,16 +331,81 @@ pub unsafe extern "C" fn pl_lazy_group_by_dynamic(
         let keys = unsafe { consume_exprs_array(keys_ptr, keys_len) };
         let aggs = unsafe { consume_exprs_array(aggs_ptr, aggs_len) };
 
-        // group_by_dynamic(self, index_column: Expr, group_by: E, options: DynamicGroupOptions)
-        let new_lf = lf_ctx.inner
+        let mut group_by = lf_ctx.inner
             .group_by_dynamic(
                 col(index_col_str), 
                 keys, 
                 options
-            )
-            .agg(aggs);
+            );
+
+        if !having_ptr.is_null() {
+            let having_expr = unsafe { Box::from_raw(having_ptr).inner };
+            group_by = group_by.having(having_expr);
+        }
+        
+        let new_lf = group_by.agg(aggs);
         
         Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazy_rolling_agg(
+    lf_ptr: *mut LazyFrameContext,
+    index_column_ptr: *const c_char, 
+    period_ptr: *const c_char,
+    offset_ptr: *const c_char,
+    closed_code: u8,
+    by_ptr: *const *mut ExprContext, 
+    by_len: usize,
+    aggs_ptr: *const *mut ExprContext, 
+    aggs_len: usize,
+    having_ptr: *mut ExprContext
+) -> *mut LazyFrameContext {
+    ffi_try!({
+        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+        let by_exprs = unsafe { consume_exprs_array(by_ptr, by_len) };
+        let aggs_exprs = unsafe { consume_exprs_array(aggs_ptr, aggs_len) };
+
+        let index_col_str = ptr_to_str(index_column_ptr).unwrap_or("");
+        let period_str = ptr_to_str(period_ptr).unwrap_or("");
+        let offset_str = ptr_to_str(offset_ptr).unwrap_or("");
+
+        let defaults = RollingGroupOptions::default();
+
+        let period = if period_str.is_empty() {
+            defaults.period
+        } else {
+            Duration::parse(period_str)
+        };
+
+        let offset = if offset_str.is_empty() {
+            defaults.offset
+        } else {
+            Duration::parse(offset_str)
+        };
+
+        let closed_window = parse_closed_window(closed_code);
+
+        let options = RollingGroupOptions {
+            index_column: index_col_str.into(),
+            period,
+            offset,
+            closed_window,
+        };
+
+        let index_expr = col(index_col_str);
+ 
+        let mut group_by = lf_ctx.inner.rolling(index_expr, by_exprs, options);
+
+        if !having_ptr.is_null() {
+            let having_expr = unsafe { Box::from_raw(having_ptr).inner };
+            group_by = group_by.having(having_expr);
+        }
+        
+        let res_lf = group_by.agg(aggs_exprs);
+
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: res_lf })))
     })
 }
 

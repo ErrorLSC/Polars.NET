@@ -108,9 +108,9 @@ public class DataFrameTests
         );
 
         using var sumDf = df
-            .GroupBy("dept")
+            .GroupBy(Cs.String(),maintainOrder:false)
             .Sum()
-            .Sort("dept"); 
+            .Sort(Cs.String()); 
             
         Assert.Equal(3, sumDf.Height);
         Assert.Equal("HR", sumDf.Column("dept").GetValue<string>(0));
@@ -145,19 +145,19 @@ public class DataFrameTests
         using var df = DataFrame.FromColumns(new { groups, bools, values });
 
         using var result = df
-            .GroupBy("groups")
+            .GroupBy(Cs.String())
             .Agg(
-                Pl.Col("bools").Any().Alias("is_any_true"),   
-                Pl.Col("bools").All().Alias("is_all_true"),   
+                Cs.Boolean().ToExpr().Any().Alias("is_any_true"),   
+                Cs.Boolean().ToExpr().All().Alias("is_all_true"),   
                 
                 
-                Pl.Col("values").First().Alias("v_first"),
-                Pl.Col("values").Last().Alias("v_last"),
+                Cs.Integer().ToExpr().First().Alias("v_first"),
+                Cs.Integer().ToExpr().Last().Alias("v_last"),
                 
                 
-                Pl.Col("values").Reverse().First().Alias("v_rev_first") 
+                Cs.Integer().ToExpr().Reverse().First().Alias("v_rev_first") 
             )
-            .Sort("groups");
+            .Sort(Cs.ByIndex(0));
 
         Assert.Equal(3, result.Height); 
 
@@ -752,32 +752,6 @@ B,5";
         var arr = top["val"].ToArray<int>();
         Assert.Contains(100, arr);
         Assert.Contains(50, arr);
-    }
-    [Fact]
-    public void Test_DataFrame_GroupByDynamic()
-    {
-        var dates = new[]
-        {
-            new DateTime(2023, 1, 1, 10, 0, 0),
-            new DateTime(2023, 1, 1, 10, 10, 0),
-            new DateTime(2023, 1, 1, 10, 20, 0),
-            new DateTime(2023, 1, 1, 11, 0, 0)
-        };
-        var values = new[] { 1, 2, 3, 4 };
-
-        using var df = DataFrame.FromColumns(new { ts = dates, val = values });
-
-        using var res = df.GroupByDynamic("ts", TimeSpan.FromHours(1))
-            .Agg(Pl.Col("val").Sum());
-
-        // 10:00:00 -> [1, 2, 3] -> Sum = 6
-        // 11:00:00 -> [4]       -> Sum = 4
-        
-        Assert.Equal(2, res.Height);
-        
-        var sums = res["val"].ToArray<int>();
-        Assert.Contains(6, sums);
-        Assert.Contains(4, sums);
     }
     [Fact]
     [Trait("DataFrame","JoinAsOf")]

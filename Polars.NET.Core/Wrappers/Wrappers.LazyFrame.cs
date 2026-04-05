@@ -175,7 +175,7 @@ public readonly partial struct PolarsWrapper
         selector?.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static LazyFrameHandle LazyGroupByAgg(LazyFrameHandle lf, ExprHandle[] keys, ExprHandle[] aggs,ExprHandle? havingExpr)
+    public static LazyFrameHandle LazyGroupByAgg(LazyFrameHandle lf, ExprHandle[] keys, ExprHandle[] aggs,ExprHandle? havingExpr,bool maintainOrder)
     {
         var keyPtrs = HandlesToPtrs(keys);
         var aggPtrs = HandlesToPtrs(aggs);
@@ -184,7 +184,7 @@ public readonly partial struct PolarsWrapper
         var h = NativeBindings.pl_lazy_groupby_agg(
             lf, 
             keyPtrs, (UIntPtr)keyPtrs.Length, 
-            aggPtrs, (UIntPtr)aggPtrs.Length,havingExprPtr
+            aggPtrs, (UIntPtr)aggPtrs.Length,havingExprPtr,maintainOrder
         );
         
         lf.TransferOwnership();
@@ -204,10 +204,12 @@ public readonly partial struct PolarsWrapper
         PlClosedWindow closedWindow,
         PlStartBy startBy,
         ExprHandle[] keys,  
-        ExprHandle[] aggs)  
+        ExprHandle[] aggs,
+        ExprHandle? havingExpr)  
     {
         var keyPtrs = HandlesToPtrs(keys);
         var aggPtrs = HandlesToPtrs(aggs);
+        nint havingExprPtr = havingExpr?.TransferOwnership() ?? nint.Zero;
         var h = NativeBindings.pl_lazy_group_by_dynamic(
             lf,
             indexCol,
@@ -218,8 +220,9 @@ public readonly partial struct PolarsWrapper
             includeBoundaries,
             closedWindow,
             startBy,
-            keyPtrs, (UIntPtr)keys.Length,
-            aggPtrs, (UIntPtr)aggs.Length
+            keyPtrs, (nuint)keys.Length,
+            aggPtrs, (nuint)aggs.Length,
+            havingExprPtr
         );
         lf.TransferOwnership();
 

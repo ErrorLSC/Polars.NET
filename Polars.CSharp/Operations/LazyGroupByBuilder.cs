@@ -1,5 +1,7 @@
+#pragma warning disable CS1591 
 using Polars.NET.Core;
 using Cs = Polars.CSharp.Polars.Selectors;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 /// <summary>
@@ -11,19 +13,20 @@ public sealed class LazyGroupBy : IDisposable
     private readonly LazyFrameHandle _lfHandle;
     private readonly ExprHandle[] _ownedKeyHandles; 
     private readonly Expr[] _keys;
+    private readonly bool _maintainOrder;
     private bool _disposed;
 
     /// <summary>
     /// Count the number of values in each group.
     /// </summary>
     public LazyFrame Count()
-        => Agg(Polars.All().Count());
+        => Agg(Pl.All().Count());
 
     /// <summary>
     /// Aggregate all columns into lists. 
     /// </summary>
     public LazyFrame All()
-        => Agg(Polars.All()); 
+        => Agg(Pl.All()); 
     
     /// <summary>
     /// Aggregate the first values in the group.
@@ -32,7 +35,7 @@ public sealed class LazyGroupBy : IDisposable
     /// otherwise None is returned if no non-null value exists.</param>
     /// <returns></returns>
     public LazyFrame First(bool ignoreNulls=false)
-        => Agg(Polars.All().First(ignoreNulls)); 
+        => Agg(Pl.All().First(ignoreNulls)); 
     /// <summary>
     /// Aggregate the last values in the group.
     /// </summary>
@@ -40,13 +43,13 @@ public sealed class LazyGroupBy : IDisposable
     /// otherwise None is returned if no non-null value exists.</param>
     /// <returns></returns>
     public LazyFrame Last(bool ignoreNulls=false)
-        => Agg(Polars.All().Last(ignoreNulls)); 
+        => Agg(Pl.All().Last(ignoreNulls)); 
     /// <summary>
     /// Get the first n rows of each group.
     /// </summary>
     public LazyFrame Head(int n = 10)
     {
-        var aggregated = Agg(Polars.All().Head(n));
+        var aggregated = Agg(Pl.All().Head(n));
 
         string[] keyNames = _keys
             .Select(expr => expr.Meta.OutputName())
@@ -61,7 +64,7 @@ public sealed class LazyGroupBy : IDisposable
     /// </summary>
     public LazyFrame Tail(int n = 10)
     {
-        var aggregated = Agg(Polars.All().Tail(n));
+        var aggregated = Agg(Pl.All().Tail(n));
 
         string[] keyNames = _keys
             .Select(expr => expr.Meta.OutputName())
@@ -76,43 +79,43 @@ public sealed class LazyGroupBy : IDisposable
     /// <param name="name">Assign a name to the resulting column; if unset, defaults to “len”.</param>
     /// <returns></returns>
     public LazyFrame Len(string name="len")
-        => Agg(Polars.Len().Alias(name));
+        => Agg(Pl.Len().Alias(name));
     /// <summary>
     /// Reduce the groups to the maximal value.
     /// </summary>
     /// <returns></returns>
     public LazyFrame Max()
-        => Agg(Polars.All().Max());
+        => Agg(Pl.All().Max());
     /// <summary>
     /// Reduce the groups to the minimal value.
     /// </summary>
     /// <returns></returns>
     public LazyFrame Min()
-        => Agg(Polars.All().Min());
+        => Agg(Pl.All().Min());
     /// <summary>
     /// Reduce the groups to the median value.
     /// </summary>
     /// <returns></returns>
     public LazyFrame Median()
-        => Agg(Polars.All().Median()); 
+        => Agg(Pl.All().Median()); 
     /// <summary>
     /// Reduce the groups to the mean value.
     /// </summary>
     /// <returns></returns>
     public LazyFrame Mean()
-        => Agg(Polars.All().Mean()); 
+        => Agg(Pl.All().Mean()); 
     /// <summary>
     /// Count the unique values per group.
     /// </summary>
     /// <returns></returns>   
     public LazyFrame NUnique()
-        => Agg(Polars.All().NUnique());
+        => Agg(Pl.All().NUnique());
     /// <summary>
     /// Reduce the groups to the sum.
     /// </summary>
     /// <returns></returns>  
     public LazyFrame Sum()
-        => Agg(Polars.All().Sum());  
+        => Agg(Pl.All().Sum());  
     /// <summary>
     /// Compute the quantile per group.
     /// </summary>
@@ -120,11 +123,12 @@ public sealed class LazyGroupBy : IDisposable
     /// <param name="interpolation">Interpolation method.</param>
     /// <returns></returns>          
     public LazyFrame Quantile(double quantile,QuantileMethod interpolation = QuantileMethod.Linear)
-        => Agg(Polars.All().Quantile(quantile,interpolation));   
-    internal LazyGroupBy(LazyFrameHandle lfHandle, Expr[] keys)
+        => Agg(Pl.All().Quantile(quantile,interpolation));   
+    internal LazyGroupBy(LazyFrameHandle lfHandle, Expr[] keys,bool maintainOrder)
     {
         _lfHandle = lfHandle;
         _keys = keys;
+        _maintainOrder = maintainOrder;
 
         _ownedKeyHandles = new ExprHandle[keys.Length];
         for (int i = 0; i < keys.Length; i++)
@@ -171,7 +175,7 @@ public sealed class LazyGroupBy : IDisposable
             havingHandle = PolarsWrapper.CloneExpr(_havingExpr.Handle);
         }
         
-        var resHandle = PolarsWrapper.LazyGroupByAgg(_lfHandle, keysForRust, aggHandles, havingHandle);
+        var resHandle = PolarsWrapper.LazyGroupByAgg(_lfHandle, keysForRust, aggHandles, havingHandle,_maintainOrder);
         
         return new LazyFrame(resHandle);
     }
@@ -215,7 +219,65 @@ public class LazyDynamicGroupBy
     private readonly StartBy _startBy;
     private readonly bool _includeBoundaries;
     private readonly ClosedWindow _closedWindow;
+    private Expr? _havingExpr = null;
+    public LazyFrame Count() => Agg(Pl.All().Count());
+    
+    public LazyFrame All() => Agg(Pl.All()); 
+    
+    public LazyFrame First(bool ignoreNulls = false) => Agg(Pl.All().First(ignoreNulls)); 
+    
+    public LazyFrame Last(bool ignoreNulls = false) => Agg(Pl.All().Last(ignoreNulls)); 
+    
+    public LazyFrame Len(string name = "len") => Agg(Pl.Len().Alias(name));
+    
+    public LazyFrame Max() => Agg(Pl.All().Max());
+    
+    public LazyFrame Min() => Agg(Pl.All().Min());
+    
+    public LazyFrame Median() => Agg(Pl.All().Median()); 
+    
+    public LazyFrame Mean() => Agg(Pl.All().Mean());
 
+    public LazyFrame NUnique() => Agg(Pl.All().NUnique());
+
+    public LazyFrame Sum() => Agg(Pl.All().Sum());  
+    
+    public LazyFrame Quantile(double quantile, QuantileMethod interpolation = QuantileMethod.Linear)
+        => Agg(Pl.All().Quantile(quantile, interpolation));   
+
+    public LazyFrame Head(int n = 10)
+    {
+        var aggregated = Agg(Pl.All().Head(n));
+        var keyNames = (_keys ?? [])
+            .Select(expr => expr.Meta.OutputName())
+            .Where(name => !string.IsNullOrEmpty(name))
+            .ToList();
+        
+        keyNames.Add(_indexColumn);
+
+        return aggregated.Explode(Cs.All().Exclude(keyNames.ToArray()!)); 
+    }
+
+    public LazyFrame Tail(int n = 10)
+    {
+        var aggregated = Agg(Pl.All().Tail(n));
+        var keyNames = (_keys ?? [])
+            .Select(expr => expr.Meta.OutputName())
+            .Where(name => !string.IsNullOrEmpty(name))
+            .ToList();
+
+        keyNames.Add(_indexColumn);
+
+        return aggregated.Explode(Cs.All().Exclude(keyNames.ToArray()!));
+    }
+    /// <summary>
+    /// Filter groups with a predicate after aggregation.
+    /// </summary>
+    public LazyDynamicGroupBy Having(Expr predicate)
+    {
+        _havingExpr = predicate;
+        return this; 
+    }
     internal LazyDynamicGroupBy(
         LazyFrameHandle lfHandle,
         string indexColumn,
@@ -246,8 +308,14 @@ public class LazyDynamicGroupBy
     public LazyFrame Agg(params Expr[] aggs)
     {
         var keyHandles = _keys.Select(k => PolarsWrapper.CloneExpr(k.Handle)).ToArray();
-        
         var aggHandles = aggs.Select(a => PolarsWrapper.CloneExpr(a.Handle)).ToArray();
+
+        ExprHandle? havingHandle = null;
+        if (_havingExpr is not null)
+        {
+            havingHandle = PolarsWrapper.CloneExpr(_havingExpr.Handle);
+        }
+
         var newHandle = PolarsWrapper.LazyGroupByDynamic(
                 _lfHandle,
                 _indexColumn,
@@ -259,9 +327,10 @@ public class LazyDynamicGroupBy
                 _closedWindow.ToNative(),
                 _startBy.ToNative(),
                 keyHandles,
-                aggHandles
+                aggHandles,
+                havingHandle 
             );
 
-            return new LazyFrame(newHandle);
+        return new LazyFrame(newHandle);
     }
 }
