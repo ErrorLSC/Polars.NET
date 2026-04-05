@@ -925,8 +925,13 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle CloneExpr(ExprHandle expr)
         => ErrorHelper.Check(NativeBindings.pl_expr_clone(expr));
     public static ExprHandle Rechunk(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_len,e);
-    public static ExprHandle ExprCast(ExprHandle expr, DataTypeHandle dtype, bool strict)
-        => ErrorHelper.Check(NativeBindings.pl_expr_cast(expr, dtype, strict));
+    public static ExprHandle ExprCast(ExprHandle expr, DataTypeExprHandle dexpr, bool strict,bool wrapNumerical)
+    {
+        var h = NativeBindings.pl_expr_cast(expr, dexpr, strict,wrapNumerical);
+        expr.TransferOwnership();
+        dexpr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     // Shift
     public static ExprHandle Shift(ExprHandle e, long n)
     {

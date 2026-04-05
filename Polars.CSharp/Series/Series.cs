@@ -455,9 +455,21 @@ public partial class Series : IDisposable,IPolarsSeries
     // ==========================================
 
     /// <summary>
-    /// Cast the Series to a different DataType.
+    /// Cast Series to another DataType.
     /// </summary>
-    public Series Cast(DataType dtype)=> new(PolarsWrapper.SeriesCast(Handle, dtype.Handle));
+    /// <param name="dtype">The target type (can be Polars DataType or .NET Type)</param>
+    /// <param name="strict">Throws an error if conversion had overflows.</param>
+    /// <param name="wrapNumerical">Allows wrapping numerical overflow.</param>
+    public Series Cast(DataType dtype, bool strict = true, bool wrapNumerical = false)
+    {
+        if (strict && wrapNumerical)
+        {
+            throw new ArgumentException("Cannot set both 'strict' and 'wrapNumerical' to true.");
+        }
+
+        var h = PolarsWrapper.SeriesCast(this.Handle, dtype.Handle, strict, wrapNumerical);
+        return new Series(h);
+    }
     /// <summary>
     /// Get a slice of this Series.
     /// </summary>

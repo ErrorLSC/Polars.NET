@@ -10,6 +10,7 @@ use polars_arrow::array::PrimitiveArray;
 use polars_arrow::array::BooleanArray;
 use polars_arrow::bitmap::Bitmap;
 use crate::datatypes::parse_timeunit;
+use polars::chunked_array::cast::CastOptions;
 
 // ==========================================
 // Constructors 
@@ -855,13 +856,22 @@ pub unsafe extern "C" fn pl_arrow_to_series(
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_cast(
     ptr: *mut SeriesContext, 
-    dtype_ptr: *mut DataTypeContext
+    dtype_ptr: *mut DataTypeContext,
+    strict: bool,
+    wrap_numerical: bool
 ) -> *mut SeriesContext {
     ffi_try!({
         let ctx = unsafe { &*ptr };
         let target_dtype = unsafe { &(*dtype_ptr).dtype };
         
-        let s = ctx.series.cast(target_dtype)?;
+        let options = match (strict, wrap_numerical) {
+            (true, _) => CastOptions::Strict,
+            (false, true) => CastOptions::Overflowing,
+            (false, false) => CastOptions::NonStrict,
+        };
+
+        let s = ctx.series.cast_with_options(target_dtype, options)?;
+        
         Ok(Box::into_raw(Box::new(SeriesContext { series: s })))
     })
 }

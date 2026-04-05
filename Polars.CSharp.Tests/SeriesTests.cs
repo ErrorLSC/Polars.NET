@@ -279,7 +279,7 @@ public class SeriesTests
         using var s = Series.From("prices", new double?[] {10.5, 20.0, double.NaN, null,double.MaxValue});
 
         // Cast to Decimal(10, 2)
-        using var sDecimal = s.Cast(DataType.Decimal(10, 2));
+        using var sDecimal = s.Cast(DataType.Decimal(10, 2),strict:false);
 
         Assert.Equal(DataType.Decimal(10,2),sDecimal.DataType);
         Assert.Equal(10.50m,sDecimal[0]);

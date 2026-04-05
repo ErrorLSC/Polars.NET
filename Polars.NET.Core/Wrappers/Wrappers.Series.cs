@@ -1143,8 +1143,11 @@ public readonly partial struct PolarsWrapper
     /// </summary>
     public static unsafe SeriesHandle SeriesFromArrow(string name, CArrowArray* cArray, CArrowSchema* cSchema)
         => ErrorHelper.Check(NativeBindings.pl_arrow_to_series(name, cArray, cSchema));
-    public static SeriesHandle SeriesCast(SeriesHandle s, DataTypeHandle dtype)
-        => ErrorHelper.Check(NativeBindings.pl_series_cast(s, dtype));
+    public static SeriesHandle SeriesCast(SeriesHandle series, DataTypeHandle dtype, bool strict, bool wrapNumerical)
+    {
+        var h = NativeBindings.pl_series_cast(series, dtype, strict, wrapNumerical);
+        return ErrorHelper.Check(h); 
+    }
     public static SeriesHandle SeriesIsNull(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_null(s));
     public static SeriesHandle SeriesIsNotNull(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_not_null(s));
     public static SeriesHandle SeriesDropNulls(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_drop_nulls(s));

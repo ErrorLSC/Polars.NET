@@ -1,6 +1,6 @@
-use polars::{prelude::*, sql::sql_expr};
+use polars::{chunked_array::cast::CastOptions, prelude::*, sql::sql_expr};
 use std::{ffi::{CStr, CString}, os::raw::c_char};
-use crate::{datatypes::parse_timeunit, types::{DataTypeContext, ExprContext,SeriesContext}, utils::parse_closed_window};
+use crate::{datatypes::parse_timeunit, types::{DataTypeExprContext, ExprContext, SeriesContext}, utils::parse_closed_window};
 use std::ops::{Add, Sub, Mul, Div, Rem};
 use crate::utils::{consume_exprs_array, ptr_to_str};
 use polars_arrow::array::PrimitiveArray;
@@ -2300,22 +2300,26 @@ pub extern "C" fn pl_expr_over(
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_cast(
     expr_ptr: *mut ExprContext, 
-    dtype_ptr: *mut DataTypeContext,
-    strict: bool
+    dexpr_ptr: *mut DataTypeExprContext, 
+    strict: bool,
+    wrap_numerical: bool
 ) -> *mut ExprContext {
     ffi_try!({
-        let ctx = unsafe { &*expr_ptr };
-        let target_dtype = unsafe { &(*dtype_ptr).dtype };
+        let expr_ctx = unsafe { Box::from_raw(expr_ptr) };
+        let dexpr_ctx = unsafe { Box::from_raw(dexpr_ptr) };
 
-        let new_expr = if strict {
-            ctx.inner.clone().strict_cast(target_dtype.clone())
-        } else {
-            ctx.inner.clone().cast(target_dtype.clone())
+        let options = match (strict, wrap_numerical) {
+            (true, _) => CastOptions::Strict,
+            (false, true) => CastOptions::Overflowing,
+            (false, false) => CastOptions::NonStrict,
         };
+
+        let new_expr = expr_ctx.inner.cast_with_options(dexpr_ctx.inner, options);
 
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
+
 // --- Time Series: Shift / Diff ---
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_shift(

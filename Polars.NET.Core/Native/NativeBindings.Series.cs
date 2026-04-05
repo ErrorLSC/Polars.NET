@@ -394,7 +394,12 @@ unsafe internal partial class NativeBindings
     public static partial bool pl_series_extend(SeriesHandle s_ptr, SeriesHandle other_ptr);
     // --- Series Cast ---
     [LibraryImport(LibName)]
-    public static partial SeriesHandle pl_series_cast(SeriesHandle s, DataTypeHandle dtype);
+    public static partial SeriesHandle pl_series_cast(
+        SeriesHandle ptr, 
+        DataTypeHandle dtype_ptr, 
+        [MarshalAs(UnmanagedType.U1)] bool strict, 
+        [MarshalAs(UnmanagedType.U1)] bool wrap_numerical
+    );
     // Arithmetic
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_add(SeriesHandle s1, SeriesHandle s2);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_sub(SeriesHandle s1, SeriesHandle s2);

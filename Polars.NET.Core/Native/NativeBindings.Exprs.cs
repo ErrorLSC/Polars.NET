@@ -288,8 +288,13 @@ unsafe internal partial class NativeBindings
         CleanupCallback cleanup,
         IntPtr userData          
     );
-    [LibraryImport(LibName)] 
-    public static partial ExprHandle pl_expr_cast(ExprHandle expr, DataTypeHandle dtype, [MarshalAs(UnmanagedType.U1)] bool strict);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_cast(
+        ExprHandle expr_ptr, 
+        DataTypeExprHandle dexpr_ptr, 
+        [MarshalAs(UnmanagedType.U1)] bool strict, 
+        [MarshalAs(UnmanagedType.U1)] bool wrap_numerical
+    );
     // String Ops
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_concat_str(IntPtr[] exprs,nuint exprLen, string separator, [MarshalAs(UnmanagedType.U1)] bool ignoreNulls);

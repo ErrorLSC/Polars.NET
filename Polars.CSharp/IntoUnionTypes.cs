@@ -119,3 +119,98 @@ public readonly struct IntoDuration
         Value = value;
     }
 }
+
+/// <summary>
+/// A union type representing a Polars data type or type expression.
+/// Can be implicitly converted from a .NET Type, a Polars DataType, or a dynamic DataTypeExpr.
+/// </summary>
+public readonly struct IntoDataTypeExpr
+{
+    private readonly DataTypeExpr _expr;
+    private readonly bool _ownsExpr;
+
+    public static implicit operator IntoDataTypeExpr(DataTypeExpr expr) => new(expr, ownsExpr: false);
+
+    public static implicit operator IntoDataTypeExpr(DataType dtype) => new(dtype.ToDataTypeExpr(), ownsExpr: true);
+
+    public static implicit operator IntoDataTypeExpr(Type type) 
+    {
+        DataType dtype = type; 
+        
+        return new(dtype.ToDataTypeExpr(), ownsExpr: true);
+    }
+
+    private IntoDataTypeExpr(DataTypeExpr expr, bool ownsExpr)
+    {
+        ArgumentNullException.ThrowIfNull(expr);
+        _expr = expr;
+        _ownsExpr = ownsExpr;
+    }
+
+    /// <summary>
+    /// Consume generated DataTypeExpr
+    /// </summary>
+    public DataTypeExpr Consume()
+    {
+        if (_ownsExpr) 
+        {
+            return _expr;
+        }
+        else 
+        {
+            return _expr.Clone(); 
+        }
+    }
+}
+
+/// <summary>
+/// A union type representing a PolarsSchema.
+/// Can be implicitly converted from a PolarsSchema, DataFrame, or LazyFrame.
+/// </summary>
+public readonly struct IntoSchema
+{
+    private readonly PolarsSchema _schema;
+    private readonly bool _ownsSchema;
+
+    public static implicit operator IntoSchema(PolarsSchema schema) => new(schema, ownsSchema: false);
+
+    public static implicit operator IntoSchema(DataFrame df) 
+    {
+        ArgumentNullException.ThrowIfNull(df);
+        return new(df.Schema, ownsSchema: true);
+    }
+
+    public static implicit operator IntoSchema(LazyFrame lf) 
+    {
+        ArgumentNullException.ThrowIfNull(lf);
+        return new(lf.Schema, ownsSchema: true); 
+    }
+
+    private IntoSchema(PolarsSchema schema, bool ownsSchema)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        _schema = schema;
+        _ownsSchema = ownsSchema;
+    }
+
+    /// <summary>
+    /// Consume the schema. 
+    /// Note: Caller should NOT dispose the returned schema if ownsSchema is false, 
+    /// but for safe iteration to extract fields, returning the reference is fine.
+    /// </summary>
+    public PolarsSchema Consume()
+    {
+        return _schema;
+    }
+
+    /// <summary>
+    /// Automatically clean up if we generated a temporary schema (from DF/LF).
+    /// </summary>
+    public void DisposeTempSchema()
+    {
+        if (_ownsSchema)
+        {
+            _schema.Dispose();
+        }
+    }
+}

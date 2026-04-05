@@ -2,7 +2,7 @@
 using System.Numerics.Tensors;
 using Apache.Arrow;
 using Apache.Arrow.Memory;
-using static Polars.CSharp.Polars;
+using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
 namespace Polars.CSharp.Tests;
 
@@ -24,7 +24,7 @@ public class DataFrameTests
 
         using var resultDf = df.Select(
             "id", 
-            (Col("value") * 2.0).Alias("value_doubled")
+            (Pl.Col("value") * 2.0).Alias("value_doubled")
         );
 
         using var resultBatch = resultDf.ToArrow();
@@ -50,8 +50,8 @@ public class DataFrameTests
 
         using var grouped = df
             .GroupBy("dept")
-            .Having(Col("salary").Sum() > 100) 
-            .Agg(Col("salary").Sum().Alias("total_salary"))
+            .Having(Pl.Col("salary").Sum() > 100) 
+            .Agg(Pl.Col("salary").Sum().Alias("total_salary"))
             .Sort("total_salary", descending: true); 
         
         Assert.Equal(2, grouped.Height);
@@ -146,15 +146,15 @@ public class DataFrameTests
         using var result = df
             .GroupBy("groups")
             .Agg(
-                Col("bools").Any().Alias("is_any_true"),   
-                Col("bools").All().Alias("is_all_true"),   
+                Pl.Col("bools").Any().Alias("is_any_true"),   
+                Pl.Col("bools").All().Alias("is_all_true"),   
                 
                 
-                Col("values").First().Alias("v_first"),
-                Col("values").Last().Alias("v_last"),
+                Pl.Col("values").First().Alias("v_first"),
+                Pl.Col("values").Last().Alias("v_last"),
                 
                 
-                Col("values").Reverse().First().Alias("v_rev_first") 
+                Pl.Col("values").Reverse().First().Alias("v_rev_first") 
             )
             .Sort("groups");
 
@@ -191,7 +191,7 @@ public class DataFrameTests
 
         using var res = df.GroupBy("groups")
             .Agg(
-                Col("codes").Item().Alias("code_item")
+                Pl.Col("codes").Item().Alias("code_item")
             )
             .Sort("groups");
 
@@ -210,7 +210,7 @@ public class DataFrameTests
         );
 
         using var res = df.Select(
-            Col("nums").Reverse().Alias("nums_rev")
+            Pl.Col("nums").Reverse().Alias("nums_rev")
         );
 
         var revArr = res["nums_rev"].ToArray<int>();
@@ -382,13 +382,13 @@ public class DataFrameTests
 
         // --- Step 2: Custom Expr Pivot ---
         
-        using var dfWithF = df.WithColumns((Col("temp") * 1.8 + 32).Alias("temp_f"));
+        using var dfWithF = df.WithColumns((Pl.Col("temp") * 1.8 + 32).Alias("temp_f"));
         
         using var pivotedFahrenheit = dfWithF.Pivot(
             index: ["date"],
             on: ["city"],
             values: ["temp_f"],
-            aggregateExpr: Col("").First(),
+            aggregateExpr: Pl.Col("").First(),
             maintainOrder:true
         );
         // NY: 5 * 1.8 + 32 = 41
@@ -458,10 +458,10 @@ public class DataFrameTests
 
         Assert.Equal(9, summary.Height);
         
-        using var meanRow = summary.Filter(Col("statistic") == Lit("mean"));
+        using var meanRow = summary.Filter(Pl.Col("statistic") == Pl.Lit("mean"));
         Assert.Equal(3.0, meanRow.GetValue<double>(0, "val"));
         
-        using var minRow = summary.Filter(Col("statistic") == Lit("min"));
+        using var minRow = summary.Filter(Pl.Col("statistic") == Pl.Lit("min"));
         Assert.Equal(1.0, minRow.GetValue<double>(0, "val"));
     }
     // ==========================================
@@ -484,8 +484,8 @@ public class DataFrameTests
         // 10
         // 10,20 -> 15
         // 10,20,30 -> 20
-        var rollExpr = Col("val")
-            .RollingMeanBy(windowSize: new TimeSpan(3,0,0,0), by: Col("date"), closed: ClosedWindow.Left)
+        var rollExpr = Pl.Col("val")
+            .RollingMeanBy(windowSize: new TimeSpan(3,0,0,0), by: Pl.Col("date"), closed: ClosedWindow.Left)
             .Alias("roll_mean");
 
         using var res = df.Select(
@@ -512,15 +512,15 @@ B,5";
         using var df = DataFrame.ReadCsv(csv.Path);
 
         using var res = df
-            .GroupBy(Col("group"))
+            .GroupBy(Pl.Col("group"))
             .Agg(
-                Col("val").Alias("val_list") 
+                Pl.Col("val").Alias("val_list") 
             )
             .Select(
-                Col("group"),
-                Col("val_list").List.Sum().Name.Suffix("_sum"),
-                Col("val_list").List.Max().Name.Suffix("_max"),
-                Col("val_list").List.Contains(3).Alias("has_3")
+                Pl.Col("group"),
+                Pl.Col("val_list").List.Sum().Name.Suffix("_sum"),
+                Pl.Col("val_list").List.Max().Name.Suffix("_max"),
+                Pl.Col("val_list").List.Contains(3).Alias("has_3")
             )
             .Sort("group");
         // A (1,2) -> Sum=3, Max=2, Has3=false
@@ -606,8 +606,8 @@ B,5";
         // │ 3    ┆ ["3"]     │
         // └──────┴───────────┘
         using var dfWithList = df.Select(
-            Col("nums"),
-            Col("nums").Str.Split(",").Alias("list_vals")
+            Pl.Col("nums"),
+            Pl.Col("nums").Str.Split(",").Alias("list_vals")
         );
         // Explode for all Int32 list 
         using var exploded = dfWithList.Explode(Cs.List(Cs.String()));
@@ -653,6 +653,63 @@ B,5";
         Assert.Equal(3, count);
     }
     [Fact]
+    [Trait("DataFrame", "Cast")]
+    public void Test_Cast_With_Explicit_Schema()
+    {
+        using var df = Pl.DataFrame(
+            Pl.Series("Id", ["1", "2", "3"]), 
+            Pl.Series("IsActive", [1, 0, 1])  
+        );
+
+        using var targetSchema = new PolarsSchema()
+            .Add("Id", typeof(sbyte))       
+            .Add("IsActive", typeof(bool)); 
+
+        using var resultDf = df.Cast(targetSchema);
+
+        Assert.Equal(DataType.Int8, resultDf.Schema["Id"]);
+        Assert.Equal(DataType.Boolean, resultDf.Schema["IsActive"]);
+        Assert.Equal((sbyte)1, resultDf[0][0]);
+
+        Assert.True((bool)resultDf[1][0]);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "Cast")]
+    public void Test_Cast_With_Another_DataFrame_Implicitly()
+    {
+        using var masterDf = Pl.DataFrame(
+            Pl.Series("UserId", [101, 102]),          // Int32
+            Pl.Series("Score", [99.5, 88.0]),      // Float64
+            Pl.Series("Tag", ["A", "B"])           // String
+        );
+        using var targetDf = Pl.DataFrame(
+            Pl.Series("UserId", ["103", "104"]),   
+            Pl.Series("Score", [70, 60]),           
+            Pl.Series("Tag", ["C", "D"])         
+        );
+
+        using var resultDf = targetDf.Cast(masterDf);
+
+        Assert.Equal(DataType.Int32, resultDf.Schema["UserId"]);
+        Assert.Equal(DataType.Float64, resultDf.Schema["Score"]);
+        Assert.Equal(DataType.String, resultDf.Schema["Tag"]);
+
+        Assert.Equal(70.0, resultDf["Score"][0]); 
+    }
+
+    [Fact]
+    [Trait("DataFrame", "Cast")]
+    public void Test_Cast_With_Empty_Schema_Returns_Self()
+    {
+        using var df = Pl.DataFrame(Pl.Series("A", [1, 2, 3]));
+        using var emptySchema = new PolarsSchema();
+
+        using var resultDf = df.Cast(emptySchema);
+
+        Assert.Equal(DataType.Int32, resultDf.Schema["A"]);
+    }
+    [Fact]
     public void Test_DataFrame_Sort_Advanced()
     {
         // A: [1, 1, 2, 2]
@@ -672,7 +729,7 @@ B,5";
         // row 2: A=2, B=null
 
         using var sorted = df.Sort(
-            [Col("A"), Col("B")],
+            [Pl.Col("A"), Pl.Col("B")],
             descending: [false, true], // A asc, B desc
             nullsLast: [false, true]   // A normal, B nulls last
         );
@@ -710,7 +767,7 @@ B,5";
         using var df = DataFrame.FromColumns(new { ts = dates, val = values });
 
         using var res = df.GroupByDynamic("ts", TimeSpan.FromHours(1))
-            .Agg(Col("val").Sum());
+            .Agg(Pl.Col("val").Sum());
 
         // 10:00:00 -> [1, 2, 3] -> Sum = 6
         // 11:00:00 -> [4]       -> Sum = 4
@@ -801,7 +858,7 @@ B,5";
         Assert.Equal("b", df.Columns[1]);
 
         // Insert at index 1 -> [a, a_times_10, b]
-        using var df1 = df.InsertColumn(1, (Col("a") * 10).Alias("a_times_10"));
+        using var df1 = df.InsertColumn(1, (Pl.Col("a") * 10).Alias("a_times_10"));
         
         Assert.Equal(3, df1.Width);
         Assert.Equal("a_times_10", df1.Columns[1]);

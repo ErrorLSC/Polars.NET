@@ -828,10 +828,23 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     // ==========================================
 
     /// <summary>
-    /// Cast the expression to a different data type.
+    /// Cast expression to another data type.
     /// </summary>
-    public Expr Cast(DataType dtype, bool strict = false)
-        => new(PolarsWrapper.ExprCast(CloneHandle(), dtype.Handle, strict));
+    /// <param name="dtype">The target type (can be .NET Type, Polars DataType, or DataTypeExpr)</param>
+    /// <param name="strict">Throws an error if conversion had overflows.</param>
+    /// <param name="wrapNumerical">Allows wrapping numerical overflow.</param>
+    public Expr Cast(IntoDataTypeExpr dtype, bool strict = true, bool wrapNumerical = false)
+    {
+        if (strict && wrapNumerical)
+        {
+            throw new ArgumentException("Cannot set both 'strict' and 'wrapNumerical' to true.");
+        }
+
+        using var targetDTypeExpr = dtype.Consume();
+
+        var h = PolarsWrapper.ExprCast(this.CloneHandle(), targetDTypeExpr.Handle, strict, wrapNumerical);
+        return new Expr(h);
+    }
 
     // ==========================================
     // UDF / Map

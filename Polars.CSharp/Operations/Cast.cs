@@ -1,4 +1,4 @@
-#pragma warning disable CS1573
+#pragma warning disable CS1591
 using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
@@ -6,107 +6,111 @@ using Cs = Polars.CSharp.Polars.Selectors;
 namespace Polars.CSharp;
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
-    /// <summary> Cast all columns to the specified DataType. </summary>
-    public LazyFrame Cast(DataType dtype, bool strict = true)
-        => Select(Pl.All().Cast(dtype, strict));
+
+    /// <summary> Cast all columns to the specified target type. </summary>
+    public LazyFrame Cast(IntoDataTypeExpr dtype, bool strict = true,bool wrapNumerical = false)
+        => Select(Pl.All().Cast(dtype, strict,wrapNumerical));
 
     /// <summary> Cast a specific Expression, String, Selector, or Type to a DataType. </summary>
-    public LazyFrame Cast(IntoExpr expr, DataType dtype, bool strict = true)
-        => WithColumns(expr.Consume().Cast(dtype, strict));
+    public LazyFrame Cast(IntoExpr expr, IntoDataTypeExpr dtype, bool strict = true,bool wrapNumerical = false)
+        => WithColumns(expr.Consume().Cast(dtype, strict,wrapNumerical));
 
     /// <summary> 
-    /// Cast multiple targets using tuples.
-    /// Usage: lf.Cast( ("Age", DataType.Int32), (Cs.Numeric(), DataType.Float32), (DataType.Float64, DataType.Float32) )
+    /// Cast multiple targets using tuples. Supports String, Expr, Selector mixed with Type, DataType, or DataTypeExpr!
+    /// Usage: lf.Cast( ("Age", typeof(int)), (Cs.Numeric(), DataType.Float32), (DataType.Float64, DataType.Float32) )
     /// </summary>
-    public LazyFrame Cast(params (IntoExpr Expr, DataType Dtype)[] casts)
+    public LazyFrame Cast(params (IntoExpr Expr, IntoDataTypeExpr Dtype)[] casts)
     {
         if (casts.Length == 0) return this;
         var castExprs = new IntoExpr[casts.Length];
+        
         for (int i = 0; i < casts.Length; i++)
-            castExprs[i] = casts[i].Expr.Consume().Cast(casts[i].Dtype, strict: true);
+        {
+            castExprs[i] = casts[i].Expr.Consume().Cast(casts[i].Dtype, strict: true,wrapNumerical: false); 
+        }
+            
         return WithColumns(castExprs);
     }
-
-    /// <summary> Bridge for C# Type tuples (Prevents tuple implicit cast errors) </summary>
-    public LazyFrame Cast(params (IntoExpr Expr, Type Dtype)[] casts)
+    /// <summary> 
+    /// Cast columns to the types specified in a Schema, DataFrame, or LazyFrame.
+    /// </summary>
+    public LazyFrame Cast(IntoSchema schemaWrapper, bool strict = true, bool wrapNumerical = false)
     {
-        if (casts.Length == 0) return this;
-        var castExprs = new IntoExpr[casts.Length];
-        for (int i = 0; i < casts.Length; i++)
-            castExprs[i] = casts[i].Expr.Consume().Cast(casts[i].Dtype, strict: true); // Type 会在这里隐式转为 DataType
-        return WithColumns(castExprs);
-    }
+        var schema = schemaWrapper.Consume();
+        
+        try
+        {
+            if (schema == null || schema.Handle.IsInvalid || schema.Length == 0) 
+                return this;
 
-    /// <summary> Cast using a dictionary mapping. </summary>
-    public LazyFrame Cast(IDictionary<string, DataType> dtypes, bool strict = true)
-    {
-        var castExprs = new IntoExpr[dtypes.Count];
-        int i = 0;
-        foreach (var kvp in dtypes)
-            castExprs[i++] = Pl.Col(kvp.Key).Cast(kvp.Value, strict);
-        return WithColumns(castExprs);
-    }
+            var fields = schema.ToList();
+            var castExprs = new IntoExpr[fields.Count];
 
-    /// <summary> Bridge for C# Type dictionary </summary>
-    public LazyFrame Cast(IDictionary<string, Type> dtypes, bool strict = true)
-    {
-        var castExprs = new IntoExpr[dtypes.Count];
-        int i = 0;
-        foreach (var kvp in dtypes)
-            castExprs[i++] = Pl.Col(kvp.Key).Cast((DataType)kvp.Value, strict);
-        return WithColumns(castExprs);
+            for (int i = 0; i < fields.Count; i++)
+            {
+                castExprs[i] = Pl.Col(fields[i].Name).Cast(fields[i].Type, strict, wrapNumerical);
+            }
+
+            return WithColumns(castExprs);
+        }
+        finally
+        {
+            schemaWrapper.DisposeTempSchema();
+        }
     }
 }
 public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
 {
-    /// <summary> Cast all columns to the specified DataType. </summary>
-    public DataFrame Cast(DataType dtype, bool strict = true)
-        => Select(Pl.All().Cast(dtype, strict));
+    /// <summary> Cast all columns to the specified target type. </summary>
+    public DataFrame Cast(IntoDataTypeExpr dtype, bool strict = true,bool wrapNumerical = false)
+        => Select(Pl.All().Cast(dtype, strict,wrapNumerical));
 
     /// <summary> Cast a specific Expression, String, Selector, or Type to a DataType. </summary>
-    public DataFrame Cast(IntoExpr expr, DataType dtype, bool strict = true)
-        => WithColumns(expr.Consume().Cast(dtype, strict));
+    public DataFrame Cast(IntoExpr expr, IntoDataTypeExpr dtype, bool strict = true,bool wrapNumerical = false)
+        => WithColumns(expr.Consume().Cast(dtype, strict,wrapNumerical));
 
     /// <summary> 
-    /// Cast multiple targets using tuples.
-    /// Usage: lf.Cast( ("Age", DataType.Int32), (Cs.Numeric(), DataType.Float32), (DataType.Float64, DataType.Float32) )
+    /// Cast multiple targets using tuples. Supports String, Expr, Selector mixed with Type, DataType, or DataTypeExpr!
+    /// Usage: df.Cast( ("Age", typeof(int)), (Cs.Numeric(), DataType.Float32), (DataType.Float64, DataType.Float32) )
     /// </summary>
-    public DataFrame Cast(params (IntoExpr Expr, DataType Dtype)[] casts)
+    public DataFrame Cast(params (IntoExpr Expr, IntoDataTypeExpr Dtype)[] casts)
     {
         if (casts.Length == 0) return this;
         var castExprs = new IntoExpr[casts.Length];
+        
         for (int i = 0; i < casts.Length; i++)
-            castExprs[i] = casts[i].Expr.Consume().Cast(casts[i].Dtype, strict: true);
+        {
+            castExprs[i] = casts[i].Expr.Consume().Cast(casts[i].Dtype, strict: true,wrapNumerical: false); 
+        }
+            
         return WithColumns(castExprs);
     }
-
-    /// <summary> Bridge for C# Type tuples (Prevents tuple implicit cast errors) </summary>
-    public DataFrame Cast(params (IntoExpr Expr, Type Dtype)[] casts)
+    /// <summary> 
+    /// Cast columns to the types specified in a Schema, DataFrame, or LazyFrame.
+    /// </summary>
+    public DataFrame Cast(IntoSchema schemaWrapper, bool strict = true, bool wrapNumerical = false)
     {
-        if (casts.Length == 0) return this;
-        var castExprs = new IntoExpr[casts.Length];
-        for (int i = 0; i < casts.Length; i++)
-            castExprs[i] = casts[i].Expr.Consume().Cast(casts[i].Dtype, strict: true);
-        return WithColumns(castExprs);
-    }
+        var schema = schemaWrapper.Consume();
+        
+        try
+        {
+            if (schema == null || schema.Handle.IsInvalid || schema.Length == 0) 
+                return this;
 
-    /// <summary> Cast using a dictionary mapping. </summary>
-    public DataFrame Cast(IDictionary<string, DataType> dtypes, bool strict = true)
-    {
-        var castExprs = new IntoExpr[dtypes.Count];
-        int i = 0;
-        foreach (var kvp in dtypes)
-            castExprs[i++] = Pl.Col(kvp.Key).Cast(kvp.Value, strict);
-        return WithColumns(castExprs);
-    }
+            var fields = schema.ToList();
+            var castExprs = new IntoExpr[fields.Count];
 
-    /// <summary> Bridge for C# Type dictionary </summary>
-    public DataFrame Cast(IDictionary<string, Type> dtypes, bool strict = true)
-    {
-        var castExprs = new IntoExpr[dtypes.Count];
-        int i = 0;
-        foreach (var kvp in dtypes)
-            castExprs[i++] = Pl.Col(kvp.Key).Cast((DataType)kvp.Value, strict);
-        return WithColumns(castExprs);
+            for (int i = 0; i < fields.Count; i++)
+            {
+                castExprs[i] = Pl.Col(fields[i].Name).Cast(fields[i].Type, strict, wrapNumerical);
+            }
+
+            return WithColumns(castExprs);
+        }
+        finally
+        {
+            schemaWrapper.DisposeTempSchema();
+        }
     }
 }
+
