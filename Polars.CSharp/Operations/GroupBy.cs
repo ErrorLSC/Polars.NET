@@ -66,7 +66,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     ///   .Collect();
     /// </code>
     /// </example>
-    public LazyDynamicGroupBy GroupByDynamic(
+    public LazyGroupBy GroupByDynamic(
         IntoExpr indexColumn,
         IntoDuration every,
         IntoDuration? period = null,
@@ -82,10 +82,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 
         string? actualIndexCol = null;
 
-        // 1. Fast Path: 尝试直接从元数据获取名字 (适用于 "Time" 或 Pl.Col("Time"))
         try
         {
-            // 如果它明显是一个正则或者选择器，直接跳过 Fast Path 避免抛错性能损耗
             if (!idxExpr.Meta.IsRegexProjection())
             {
                 actualIndexCol = idxExpr.Meta.OutputName();
@@ -93,14 +91,12 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         }
         catch (PolarsException)
         {
-            // 捕获 Rust 底层抛出的异常 (如 'cs.temporal()' 找不到 root column)
-            // 没关系，我们有兜底方案
+
         }
 
-        // 2. Slow Path (Smart Fallback): 如果拿不到名字，说明它是个 Selector 或复杂表达式
+        // Slow Path (Smart Fallback):
         if (string.IsNullOrEmpty(actualIndexCol))
         {
-            // 使用你之前写的 ExpandSelector 去真实的 Schema 里查
             var expandedCols = Cs.ExpandSelector(this, idxExpr.ToSelector());
             
             if (expandedCols.Length != 1)
@@ -124,7 +120,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
             return expr;
         }).ToArray() ?? [];
 
-        return new LazyDynamicGroupBy(
+        return new LazyGroupBy(
             CloneHandle(),
             actualIndexCol,
             everyStr,
@@ -135,6 +131,59 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
             includeBoundaries,
             closedWindow,
             startBy
+        );
+    }
+    /// <summary>
+    /// Lazily group based on a time index using rolling windows.
+    /// </summary>
+    public LazyGroupBy Rolling(
+        IntoExpr indexColumn,
+        IntoDuration period,
+        IntoDuration? offset = null,
+        IEnumerable<IntoExpr>? groupBy = null,
+        ClosedWindow closedWindow = ClosedWindow.Right)
+    {
+        var idxExpr = indexColumn.Consume();
+        string? actualIndexCol = null;
+        string periodStr = period.Value;
+        string actualOffset = offset?.Value ?? $"-{periodStr}";
+        // Fast Path: 
+        try
+        {
+            if (!idxExpr.Meta.IsRegexProjection())
+            {
+                actualIndexCol = idxExpr.Meta.OutputName();
+            }
+        }
+        catch (PolarsException)
+        {
+            // Smart Fallback:
+        }
+
+        // 2. Slow Path (Smart Fallback):
+        if (string.IsNullOrEmpty(actualIndexCol))
+        {
+            var expandedCols = Cs.ExpandSelector(this, idxExpr.ToSelector());
+            
+            if (expandedCols.Length != 1)
+            {
+                throw new ArgumentException(
+                    $"The rolling indexColumn must resolve to exactly ONE column. " +
+                    $"But your expression resolved to {expandedCols.Length} column(s)."
+                );
+            }
+            actualIndexCol = expandedCols[0];
+        }
+
+        var keys = groupBy?.Select(k => k.Consume()).ToArray() ?? [];
+
+        return new LazyGroupBy(
+            CloneHandle(),
+            actualIndexCol, 
+            periodStr,
+            actualOffset,
+            keys,
+            closedWindow
         );
     }
 }
@@ -198,7 +247,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         var exprs = keys.Select(k => k.Consume()).ToArray();
         
-        return new GroupByBuilder(this, exprs, maintainOrder);
+        return new GroupByBuilder(Lazy().GroupBy(keys,maintainOrder));
     }
     /// <summary>
     /// Group based on a time index using dynamic windows (Rolling/Resampling).
@@ -215,7 +264,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="includeBoundaries">Whether to include the window boundaries in the output.</param>
     /// <param name="closedWindow">Which side of the window interval is closed (inclusive).</param>
     /// <param name="startBy">Strategy to determine the start of the first window.</param>
-    /// <returns>A <see cref="DynamicGroupBy"/> object to define aggregations.</returns>
+    /// <returns>A <see cref="GroupByBuilder"/> object to define aggregations.</returns>
     /// <example>
     /// <code>
     /// var df = DataFrame.FromColumns(new
@@ -255,7 +304,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// */
     /// </code>
     /// </example>
-    public DynamicGroupBy GroupByDynamic(
+    public GroupByBuilder GroupByDynamic(
         IntoExpr indexColumn,
         IntoDuration every,
         IntoDuration? period = null,
@@ -266,50 +315,25 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         ClosedWindow closedWindow = ClosedWindow.Left,
         StartBy startBy = StartBy.WindowBound
     )
+        => new(Lazy().GroupByDynamic(indexColumn,every,period,offset,groupBy,label,includeBoundaries,closedWindow,startBy));
+    /// <summary>
+    /// Group based on a time index using rolling windows.
+    /// </summary>
+    public GroupByBuilder Rolling(
+        IntoExpr indexColumn,
+        IntoDuration period,
+        IntoDuration? offset = null,
+        IEnumerable<IntoExpr>? groupBy = null,
+        ClosedWindow closedWindow = ClosedWindow.Left)
     {
-        var idxExpr = indexColumn.Consume();
-        string? actualIndexCol = null;
-
-        try
-        {
-            if (!idxExpr.Meta.IsRegexProjection())
-            {
-                actualIndexCol = idxExpr.Meta.OutputName();
-            }
-        }
-        catch (PolarsException)
-        {
-
-        }
-
-        if (string.IsNullOrEmpty(actualIndexCol))
-        {
-            var expandedCols = Cs.ExpandSelector(this, idxExpr.ToSelector());
-            
-            if (expandedCols.Length != 1)
-            {
-                throw new ArgumentException(
-                    $"The dynamic indexColumn must resolve to exactly ONE column. " +
-                    $"But your expression (e.g. Selector) resolved to {expandedCols.Length} column(s): " +
-                    $"[{(expandedCols.Length > 0 ? string.Join(", ", expandedCols) : "none")}]"
-                );
-            }
-            actualIndexCol = expandedCols[0];
-        }
-        string everyStr = every.Value;
-        string periodStr = period?.Value ?? everyStr;
-        string offsetStr = offset?.Value ?? "0s";
-        return new DynamicGroupBy(
-            this,
-            actualIndexCol,
-            everyStr,
-            periodStr,
-            offsetStr,
-            groupBy?.Select(x => x.Consume()).ToArray(), 
-            label,
-            includeBoundaries,
-            closedWindow,
-            startBy
+        return new GroupByBuilder(
+            Lazy().Rolling(
+                indexColumn, 
+                period, 
+                offset, 
+                groupBy, 
+                closedWindow
+            )
         );
     }
 }

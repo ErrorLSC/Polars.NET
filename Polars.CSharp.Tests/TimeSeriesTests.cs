@@ -118,7 +118,7 @@ public class TimeSeriesTests
     }
 
     [Fact]
-    [Trait("TimeSeries", "DynamicGroupBy")]
+    [Trait("TimeSeries", "DynamicGroupByHaving")]
     public void Test_GroupByDynamic_With_By_Column_And_Having()
     {
         var start = new DateTime(2024, 1, 1, 10, 0, 0);
@@ -144,7 +144,6 @@ public class TimeSeriesTests
                 Pl.Col("Val").First().Alias("FirstVal"),
                 Pl.Col("Val").Last().Alias("LastVal")
             );
-
         Assert.Equal(1, res.Height);
         
         Assert.Equal("B", res.GetValue<string>(0, "Symbol"));
@@ -204,5 +203,72 @@ public class TimeSeriesTests
 
         Assert.Equal(DataTypeKind.Datetime, res.Schema["dt_ms"].Kind);
         Assert.Equal(DataTypeKind.Datetime, res.Schema["dt_us"].Kind);
+    }
+    [Fact]
+    [Trait("TimeSeries", "RollingBasic")]
+    public void Test_GroupByRolling_Basic()
+    {
+        var start = new DateTime(2024, 1, 1, 10, 0, 0);
+        var end = new DateTime(2024, 1, 1, 10, 40, 0);
+        var values = new[] { 10, 20, 30, 40, 50 };
+
+        var df = DataFrame.FromColumns(new { Val = values })
+            .WithColumns(Pl.DatetimeRange(start, end, "10m").Alias("Time"));
+
+        var res = df
+            .Rolling(
+                indexColumn: "Time",
+                period: "20m",
+                closedWindow: ClosedWindow.Both 
+            )
+            .Agg(
+                Pl.Col("Val").Sum().Alias("SumVal"),
+                Pl.Col("Val").Count().Alias("Count")
+            );
+        Assert.Equal(5, res.Height);
+
+        Assert.Equal(10, res.GetValue<int>(0, "SumVal"));
+        Assert.Equal(1, res.GetValue<int>(0, "Count"));
+
+        Assert.Equal(30, res.GetValue<int>(1, "SumVal"));
+        Assert.Equal(2, res.GetValue<int>(1, "Count"));
+
+        Assert.Equal(60, res.GetValue<int>(2, "SumVal"));
+        Assert.Equal(3, res.GetValue<int>(2, "Count"));
+    }
+
+    [Fact]
+    [Trait("TimeSeries", "Rolling")]
+    public void Test_GroupByRolling_Advanced_Selector_And_By()
+    {
+        var start = new DateTime(2024, 1, 1, 10, 0, 0);
+        var dates = new[]
+        {
+            start, start.AddMinutes(10), start.AddMinutes(20), // Stock A
+            start, start.AddMinutes(10), start.AddMinutes(20)  // Stock B
+        };
+        var symbols = new[] { "A", "A", "A", "B", "B", "B" };
+        var values = new[] { 1, 2, 3, 100, 200, 300 };
+
+        var df = DataFrame.FromColumns(new { Time = dates, Symbol = symbols, Val = values });
+
+        var res = df
+            .Rolling(
+                indexColumn: Cs.Temporal(), 
+                period: TimeSpan.FromMinutes(30),
+                groupBy: ["Symbol"], 
+                closedWindow: ClosedWindow.Right 
+            )
+            .Agg(
+                Pl.Col("Val").Max().Alias("MaxVal")
+            );
+
+        Assert.Equal(6, res.Height);
+
+        Assert.Equal("A", res.GetValue<string>(2, "Symbol"));
+        Assert.Equal(3, res.GetValue<int>(2, "MaxVal"));
+
+        Assert.Equal("B", res.GetValue<string>(4, "Symbol"));
+        Assert.Equal(200, res.GetValue<int>(4, "MaxVal"));
     }
 }

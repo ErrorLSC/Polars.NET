@@ -228,7 +228,33 @@ public readonly partial struct PolarsWrapper
 
         return ErrorHelper.Check(h);
     }
-    
+    public static LazyFrameHandle LazyGroupByRolling(
+        LazyFrameHandle lf,
+        string indexCol,
+        string period,
+        string offset,
+        PlClosedWindow closedWindow,
+        ExprHandle[] keys,  
+        ExprHandle[] aggs,
+        ExprHandle? havingExpr)  
+    {
+        var keyPtrs = HandlesToPtrs(keys);
+        var aggPtrs = HandlesToPtrs(aggs);
+        nint havingExprPtr = havingExpr?.TransferOwnership() ?? nint.Zero;
+        var h = NativeBindings.pl_lazy_group_by_rolling(
+            lf,
+            indexCol,
+            period,
+            offset,
+            closedWindow,
+            keyPtrs, (nuint)keys.Length,
+            aggPtrs, (nuint)aggs.Length,
+            havingExprPtr
+        );
+        lf.TransferOwnership();
+
+        return ErrorHelper.Check(h);
+    }
     public static LazyFrameHandle LazyWithColumns(LazyFrameHandle lf, ExprHandle[] handles)
     {
         var raw = HandlesToPtrs(handles);

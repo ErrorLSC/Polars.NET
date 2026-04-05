@@ -4,17 +4,35 @@ using Cs = Polars.CSharp.Polars.Selectors;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
+
+internal enum GroupByType
+{
+    Standard,
+    Dynamic,
+    Rolling
+}
+
 /// <summary>
-/// Intermediate builder for LazyGroupBy operations.
-/// Holds the LazyFrame handle (ownership transferred to this builder) and grouping keys.
+/// A unified builder for Standard, Dynamic, and Rolling GroupBy operations.
 /// </summary>
 public sealed class LazyGroupBy : IDisposable
 {
     private readonly LazyFrameHandle _lfHandle;
-    private readonly ExprHandle[] _ownedKeyHandles; 
+    private readonly GroupByType _type;
     private readonly Expr[] _keys;
     private readonly bool _maintainOrder;
     private bool _disposed;
+    // --- Dynamic / Rolling ---
+    private readonly string? _indexColumn;
+    private readonly string? _period;
+    private readonly string? _offset;
+    private readonly ClosedWindow _closedWindow;
+
+    // --- Dynamic ---
+    private readonly string? _every;
+    private readonly Label _label; 
+    private readonly StartBy _startBy;
+    private readonly bool _includeBoundaries;
 
     /// <summary>
     /// Count the number of values in each group.
@@ -51,12 +69,18 @@ public sealed class LazyGroupBy : IDisposable
     {
         var aggregated = Agg(Pl.All().Head(n));
 
-        string[] keyNames = _keys
+        var keyNames = (_keys ?? [])
             .Select(expr => expr.Meta.OutputName())
             .Where(name => !string.IsNullOrEmpty(name))
-            .ToArray()!;
+            .Select(name => name!)
+            .ToList();
 
-        return aggregated.Explode(Cs.All().Exclude(keyNames)); 
+        if (!string.IsNullOrEmpty(_indexColumn))
+        {
+            keyNames.Add(_indexColumn);
+        }
+
+        return aggregated.Explode(Cs.All().Exclude(keyNames.ToArray())); 
     }
 
     /// <summary>
@@ -66,12 +90,18 @@ public sealed class LazyGroupBy : IDisposable
     {
         var aggregated = Agg(Pl.All().Tail(n));
 
-        string[] keyNames = _keys
+        var keyNames = (_keys ?? [])
             .Select(expr => expr.Meta.OutputName())
             .Where(name => !string.IsNullOrEmpty(name))
-            .ToArray()!;
+            .Select(name => name!)
+            .ToList();
 
-        return aggregated.Explode(Cs.All().Exclude(keyNames));
+        if (!string.IsNullOrEmpty(_indexColumn))
+        {
+            keyNames.Add(_indexColumn);
+        }
+
+        return aggregated.Explode(Cs.All().Exclude(keyNames.ToArray())); 
     }
     /// <summary>
     /// Return the number of rows in each group.
@@ -124,17 +154,42 @@ public sealed class LazyGroupBy : IDisposable
     /// <returns></returns>          
     public LazyFrame Quantile(double quantile,QuantileMethod interpolation = QuantileMethod.Linear)
         => Agg(Pl.All().Quantile(quantile,interpolation));   
-    internal LazyGroupBy(LazyFrameHandle lfHandle, Expr[] keys,bool maintainOrder)
+    internal LazyGroupBy(LazyFrameHandle lfHandle, Expr[] keys, bool maintainOrder)
     {
         _lfHandle = lfHandle;
+        _type = GroupByType.Standard;
         _keys = keys;
         _maintainOrder = maintainOrder;
+    }
 
-        _ownedKeyHandles = new ExprHandle[keys.Length];
-        for (int i = 0; i < keys.Length; i++)
-        {
-            _ownedKeyHandles[i] = PolarsWrapper.CloneExpr(keys[i].Handle);
-        }
+    internal LazyGroupBy(
+        LazyFrameHandle lfHandle, string indexColumn, string every, string? period, string? offset, 
+        Expr[] keys, Label label, bool includeBoundaries, ClosedWindow closedWindow, StartBy startBy)
+    {
+        _lfHandle = lfHandle;
+        _type = GroupByType.Dynamic;
+        _indexColumn = indexColumn;
+        _every = every;
+        _period = period;
+        _offset = offset;
+        _keys = keys;
+        _label = label;
+        _includeBoundaries = includeBoundaries;
+        _closedWindow = closedWindow;
+        _startBy = startBy;
+    }
+
+    internal LazyGroupBy(
+        LazyFrameHandle lfHandle, string indexColumn, string? period, string? offset, 
+        Expr[] keys, ClosedWindow closedWindow)
+    {
+        _lfHandle = lfHandle;
+        _type = GroupByType.Rolling;
+        _indexColumn = indexColumn;
+        _period = period;
+        _offset = offset;
+        _keys = keys;
+        _closedWindow = closedWindow;
     }
 
     /// <summary>
@@ -157,26 +212,23 @@ public sealed class LazyGroupBy : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, nameof(LazyGroupBy));
 
-        var aggHandles = new ExprHandle[aggs.Length];
-        for (int i = 0; i < aggs.Length; i++)
-        {
-            aggHandles[i] = PolarsWrapper.CloneExpr(aggs[i].Handle);
-        }
+        var aggHandles = aggs.Select(a => PolarsWrapper.CloneExpr(a.Handle)).ToArray();
+        ExprHandle? havingHandle = _havingExpr is not null ? PolarsWrapper.CloneExpr(_havingExpr.Handle) : null;
 
-        var keysForRust = new ExprHandle[_ownedKeyHandles.Length];
-        for(int i=0; i<_ownedKeyHandles.Length; i++)
+        var keysForRust = _keys.Select(k => PolarsWrapper.CloneExpr(k.Handle)).ToArray();
+        LazyFrameHandle resHandle = _type switch
         {
-            keysForRust[i] = PolarsWrapper.CloneExpr(_ownedKeyHandles[i]);
-        }
-        
-        ExprHandle? havingHandle = null;
-        if (_havingExpr is not null)
-        {
-            havingHandle = PolarsWrapper.CloneExpr(_havingExpr.Handle);
-        }
-        
-        var resHandle = PolarsWrapper.LazyGroupByAgg(_lfHandle, keysForRust, aggHandles, havingHandle,_maintainOrder);
-        
+            GroupByType.Standard => PolarsWrapper.LazyGroupByAgg(
+                                _lfHandle, keysForRust, aggHandles, havingHandle, _maintainOrder),
+            GroupByType.Dynamic => PolarsWrapper.LazyGroupByDynamic(
+                                _lfHandle, _indexColumn!, _every!, _period!, _offset!,
+                                _label.ToNative(), _includeBoundaries, _closedWindow.ToNative(), _startBy.ToNative(),
+                                keysForRust, aggHandles, havingHandle),
+            GroupByType.Rolling => PolarsWrapper.LazyGroupByRolling(
+                                _lfHandle, _indexColumn!, _period!, _offset!, _closedWindow.ToNative(),
+                                keysForRust, aggHandles, havingHandle),
+            _ => throw new InvalidOperationException("Unknown GroupBy mode."),
+        };
         return new LazyFrame(resHandle);
     }
     /// <summary>
@@ -186,9 +238,12 @@ public sealed class LazyGroupBy : IDisposable
     {
         if (!_disposed)
         {
-            foreach (var h in _ownedKeyHandles)
+            if (_keys != null)
             {
-                if (h != null && !h.IsInvalid) h.Dispose();
+                foreach (var k in _keys)
+                {
+                    k?.Dispose();
+                }
             }
             
             if (!_lfHandle.IsClosed) 
@@ -197,140 +252,7 @@ public sealed class LazyGroupBy : IDisposable
             }
 
             _disposed = true;
-            
         }
-        
         GC.SuppressFinalize(this);
-    }
-}
-
-/// <summary>
-/// Intermediate builder for LazyDynamicGroupBy operations.
-/// </summary>
-public class LazyDynamicGroupBy
-{
-    private readonly LazyFrameHandle _lfHandle;
-    private readonly Expr[] _keys;
-    private readonly string _indexColumn;
-    private readonly string _every;
-    private readonly string _period;
-    private readonly string _offset;
-    private readonly Label _label; 
-    private readonly StartBy _startBy;
-    private readonly bool _includeBoundaries;
-    private readonly ClosedWindow _closedWindow;
-    private Expr? _havingExpr = null;
-    public LazyFrame Count() => Agg(Pl.All().Count());
-    
-    public LazyFrame All() => Agg(Pl.All()); 
-    
-    public LazyFrame First(bool ignoreNulls = false) => Agg(Pl.All().First(ignoreNulls)); 
-    
-    public LazyFrame Last(bool ignoreNulls = false) => Agg(Pl.All().Last(ignoreNulls)); 
-    
-    public LazyFrame Len(string name = "len") => Agg(Pl.Len().Alias(name));
-    
-    public LazyFrame Max() => Agg(Pl.All().Max());
-    
-    public LazyFrame Min() => Agg(Pl.All().Min());
-    
-    public LazyFrame Median() => Agg(Pl.All().Median()); 
-    
-    public LazyFrame Mean() => Agg(Pl.All().Mean());
-
-    public LazyFrame NUnique() => Agg(Pl.All().NUnique());
-
-    public LazyFrame Sum() => Agg(Pl.All().Sum());  
-    
-    public LazyFrame Quantile(double quantile, QuantileMethod interpolation = QuantileMethod.Linear)
-        => Agg(Pl.All().Quantile(quantile, interpolation));   
-
-    public LazyFrame Head(int n = 10)
-    {
-        var aggregated = Agg(Pl.All().Head(n));
-        var keyNames = (_keys ?? [])
-            .Select(expr => expr.Meta.OutputName())
-            .Where(name => !string.IsNullOrEmpty(name))
-            .ToList();
-        
-        keyNames.Add(_indexColumn);
-
-        return aggregated.Explode(Cs.All().Exclude(keyNames.ToArray()!)); 
-    }
-
-    public LazyFrame Tail(int n = 10)
-    {
-        var aggregated = Agg(Pl.All().Tail(n));
-        var keyNames = (_keys ?? [])
-            .Select(expr => expr.Meta.OutputName())
-            .Where(name => !string.IsNullOrEmpty(name))
-            .ToList();
-
-        keyNames.Add(_indexColumn);
-
-        return aggregated.Explode(Cs.All().Exclude(keyNames.ToArray()!));
-    }
-    /// <summary>
-    /// Filter groups with a predicate after aggregation.
-    /// </summary>
-    public LazyDynamicGroupBy Having(Expr predicate)
-    {
-        _havingExpr = predicate;
-        return this; 
-    }
-    internal LazyDynamicGroupBy(
-        LazyFrameHandle lfHandle,
-        string indexColumn,
-        string every,
-        string period,
-        string offset,
-        Expr[] keys,
-        Label label, 
-        bool includeBoundaries,
-        ClosedWindow closedWindow,
-        StartBy startBy)
-    {
-        _lfHandle = lfHandle;
-        _indexColumn = indexColumn;
-        _every = every;
-        _period = period;
-        _offset = offset;
-        _keys = keys;
-        _label = label;
-        _includeBoundaries = includeBoundaries;
-        _closedWindow = closedWindow;
-        _startBy = startBy;
-    }
-    /// <summary>
-    /// Apply aggregations to the group.
-    /// This consumes the internal LazyFrame handle.
-    /// </summary>
-    public LazyFrame Agg(params Expr[] aggs)
-    {
-        var keyHandles = _keys.Select(k => PolarsWrapper.CloneExpr(k.Handle)).ToArray();
-        var aggHandles = aggs.Select(a => PolarsWrapper.CloneExpr(a.Handle)).ToArray();
-
-        ExprHandle? havingHandle = null;
-        if (_havingExpr is not null)
-        {
-            havingHandle = PolarsWrapper.CloneExpr(_havingExpr.Handle);
-        }
-
-        var newHandle = PolarsWrapper.LazyGroupByDynamic(
-                _lfHandle,
-                _indexColumn,
-                _every,
-                _period,
-                _offset,
-                _label.ToNative(),
-                _includeBoundaries,
-                _closedWindow.ToNative(),
-                _startBy.ToNative(),
-                keyHandles,
-                aggHandles,
-                havingHandle 
-            );
-
-        return new LazyFrame(newHandle);
     }
 }

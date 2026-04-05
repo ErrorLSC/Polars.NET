@@ -350,7 +350,7 @@ pub unsafe extern "C" fn pl_lazy_group_by_dynamic(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_lazy_rolling_agg(
+pub extern "C" fn pl_lazy_group_by_rolling(
     lf_ptr: *mut LazyFrameContext,
     index_column_ptr: *const c_char, 
     period_ptr: *const c_char,

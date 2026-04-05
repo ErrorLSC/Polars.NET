@@ -54,7 +54,7 @@ public class DataFrameTests
             .Having(Pl.Col("salary").Sum() > 100) 
             .Agg(Pl.Col("salary").Sum().Alias("total_salary"))
             .Sort("total_salary", descending: true); 
-        
+
         Assert.Equal(2, grouped.Height);
 
         Assert.Equal("IT", grouped.Column("dept").GetValue<string>(0));

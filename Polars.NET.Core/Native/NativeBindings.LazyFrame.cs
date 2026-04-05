@@ -31,6 +31,17 @@ unsafe internal partial class NativeBindings
         nint[] aggs, nuint aggsLen,
         nint havingExpr
     );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LazyFrameHandle pl_lazy_group_by_rolling(
+        LazyFrameHandle lf,
+        string indexCol,
+        string period,
+        string offset,
+        PlClosedWindow closedWindow,
+        nint[] keys, nuint keysLen,
+        nint[] aggs, nuint aggsLen,
+        nint havingExpr
+    );
     [LibraryImport(LibName)] public static partial SchemaHandle pl_lazyframe_get_schema(LazyFrameHandle lf);
     [LibraryImport(LibName)] public static partial IntPtr pl_lazy_explain(LazyFrameHandle lf,[MarshalAs(UnmanagedType.U1)] bool optimized);
     [LibraryImport(LibName)] 
