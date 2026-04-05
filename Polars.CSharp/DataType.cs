@@ -372,8 +372,8 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
             Decimal128Type d => Decimal(d.Precision, d.Scale),
             Decimal256Type d => Decimal(d.Precision, d.Scale),
 
-            StringType or StringViewType => String,
-            BinaryType or BinaryViewType => Binary,
+            StringType or StringViewType or LargeStringType => String,
+            BinaryType or BinaryViewType or LargeBinaryType => Binary,
 
             Date32Type => Date,
             Time64Type => Time,
@@ -404,6 +404,13 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
                 [.. s.Fields.Select(f => f.Name)],
                 [.. s.Fields.Select(f => FromArrowType(f.DataType))]
             ),
+
+            DictionaryType dict => Categorical,
+
+            MapType map => List(Struct(
+                ["key", "value"], 
+                [FromArrowType(map.KeyField.DataType), FromArrowType(map.ValueField.DataType)]
+            )),
 
             _ => throw new NotSupportedException($"ArrowType {arrowType.GetType().Name} is not supported yet.")
         };
