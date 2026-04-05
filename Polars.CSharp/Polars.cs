@@ -22,7 +22,11 @@ public readonly partial struct Polars
     /// </summary>
     /// <param name="names"></param>
     /// <returns></returns>
-    public static Expr Col(params string[] names) => Cs.ByName(names).ToExpr();
+    public static Expr Col(params string[] names) 
+    { 
+        using Selector sel = Cs.ByName(names);
+        return sel.ToExpr();
+    }
     /// <summary>
     /// Select all columns, same as Col("*")
     /// </summary>
@@ -119,13 +123,8 @@ public readonly partial struct Polars
     /// Similar to SQL's CASE WHEN ... THEN ... ELSE ... END.
     /// </summary>
     public static Expr IfElse(Expr predicate, Expr trueExpr, Expr falseExpr)
-    {
-        var p = PolarsWrapper.CloneExpr(predicate.Handle);
-        var t = PolarsWrapper.CloneExpr(trueExpr.Handle);
-        var f = PolarsWrapper.CloneExpr(falseExpr.Handle);
-        
-        return new Expr(PolarsWrapper.IfElse(p, t, f));
-    }
+        => new(PolarsWrapper.IfElse(predicate.CloneHandle(), trueExpr.CloneHandle(), falseExpr.CloneHandle()));
+
     // ==========================================
     // List Operations
     // ==========================================
@@ -317,25 +316,21 @@ public readonly partial struct Polars
         /// <summary>
         /// Select all columns.
         /// </summary>
-        public static Selector All() 
-            => new(PolarsWrapper.SelectorAll());
+        public static Selector All() => new(PolarsWrapper.SelectorAll());
         /// <summary>
         /// Select columns.
         /// </summary>
-        public static Selector ByName(params string[] columns) 
-            => new(PolarsWrapper.SelectorCols(columns));
+        public static Selector ByName(params string[] columns) => new(PolarsWrapper.SelectorCols(columns));
         /// <summary>
         /// Select columns by their index. 
         /// Usage: Cs.ByIndex(0, 2, 4)
         /// </summary>
-        public static Selector ByIndex(params ReadOnlySpan<long> indices) 
-            => ByIndex(indices, strict: true);
+        public static Selector ByIndex(params ReadOnlySpan<long> indices) => ByIndex(indices, strict: true);
 
         /// <summary>
         /// Select columns by their index with strictness control.
         /// </summary>
-        public static Selector ByIndex(ReadOnlySpan<long> indices, bool strict)
-            => new(PolarsWrapper.SelectorByIndex(indices, strict));
+        public static Selector ByIndex(ReadOnlySpan<long> indices, bool strict)=> new(PolarsWrapper.SelectorByIndex(indices, strict));
         /// <summary>
         /// Select columns by specific DataType.
         /// </summary>
@@ -363,19 +358,15 @@ public readonly partial struct Polars
         /// <summary>
         /// Select all columns EXCEPT the specified Selectors.
         /// </summary>
-        public static Selector Exclude(params ReadOnlySpan<Selector> selectors)
-            => All().Exclude(selectors);
-
+        public static Selector Exclude(params ReadOnlySpan<Selector> selectors) => All().Exclude(selectors);
         /// <summary>
         /// Select all columns EXCEPT the specified Data Types.
         /// </summary>
-        public static Selector Exclude(params ReadOnlySpan<DataType> dtypes)
-            => All().Exclude(dtypes);
+        public static Selector Exclude(params ReadOnlySpan<DataType> dtypes) => All().Exclude(dtypes);
         /// <summary>
         /// Select the first column.
         /// </summary>
         public static Selector First() => ByIndex([0L]);
-
         /// <summary>
         /// Select the last column.
         /// </summary>
@@ -384,17 +375,15 @@ public readonly partial struct Polars
         /// Select all numeric columns (Int, Float, etc.).
         /// </summary>
         public static Selector Numeric()  => new(PolarsWrapper.SelectorNumeric());
-
         /// <summary>
         /// Select all string/utf8 columns.
         /// </summary>
-        public static Selector String() => new(PolarsWrapper.SelectorByDtype(PlDataType.String));
-
+        public static Selector String() => ByDtype(DataType.String);
         /// <summary>
         /// Select all date columns.
         /// </summary>
-        public static Selector Date() => new(PolarsWrapper.SelectorByDtype(PlDataType.Date));
-        public static Selector Boolean() => new(PolarsWrapper.SelectorByDtype(PlDataType.Boolean));
+        public static Selector Date() => ByDtype(DataType.Date);
+        public static Selector Boolean() => ByDtype(DataType.Boolean);
         public static Selector Binary() => ByDtype(DataType.Binary);
         public static Selector Empty() => new(PolarsWrapper.SelectorEmpty());
         public static Selector Integer() => new(PolarsWrapper.SelectorInteger());
@@ -410,39 +399,27 @@ public readonly partial struct Polars
         /// Select list columns. Optionally filter by the inner data type.
         /// Example: Cs.List(Cs.Integer())
         /// </summary>
-        public static Selector List(Selector? inner = null)
-            => new(PolarsWrapper.SelectorList(inner?.CloneHandle()));
-        
+        public static Selector List(Selector? inner = null) => new(PolarsWrapper.SelectorList(inner?.CloneHandle()));
         /// <summary>
         /// Select array columns. Optionally filter by inner data type and fixed width.
         /// </summary>
-        public static Selector Array(Selector? inner = null, long? width = null)
-            => new(PolarsWrapper.SelectorArray(inner?.CloneHandle(), width));
-        
+        public static Selector Array(Selector? inner = null, long? width = null) => new(PolarsWrapper.SelectorArray(inner?.CloneHandle(), width));
         private static PlTimeUnit GetNativeTimeUnit(TimeUnit? unit)
-            => unit.HasValue ? unit.Value.ToNative() : (PlTimeUnit)100;
-
+            => unit.HasValue ? unit.Value.ToNative() : PlTimeUnit.All;
         private static Selector DatetimeInternal(TimeUnit? timeUnit, string? tzString)
             =>new (PolarsWrapper.SelectorDatetime(GetNativeTimeUnit(timeUnit), tzString));
-
         /// <summary>
         /// Select all datetime columns (both with and without timezones).
         /// </summary>
-        public static Selector Datetime(TimeUnit? timeUnit = null) 
-            => DatetimeInternal(timeUnit, null); // TimeZoneSet::Any
-
+        public static Selector Datetime(TimeUnit? timeUnit = null) => DatetimeInternal(timeUnit, null); // TimeZoneSet::Any
         /// <summary>
         /// Select ONLY timezone-naive datetime columns (no timezone set).
         /// </summary>
-        public static Selector DatetimeNaive(TimeUnit? timeUnit = null) 
-            => DatetimeInternal(timeUnit, "");
-
+        public static Selector DatetimeNaive(TimeUnit? timeUnit = null) => DatetimeInternal(timeUnit, "");
         /// <summary>
         /// Select ONLY timezone-aware datetime columns (any timezone).
         /// </summary>
-        public static Selector DatetimeAware(TimeUnit? timeUnit = null) 
-            => DatetimeInternal(timeUnit, "*"); 
-
+        public static Selector DatetimeAware(TimeUnit? timeUnit = null) => DatetimeInternal(timeUnit, "*"); 
         /// <summary>
         /// Select datetime columns matching a specific timezone (e.g., "UTC", "Asia/Shanghai").
         /// </summary>
@@ -454,38 +431,31 @@ public readonly partial struct Polars
         /// <summary>
         /// Select all duration columns. Optionally match a specific TimeUnit.
         /// </summary>
-        public static Selector Duration(TimeUnit? timeUnit = null)
-            => new (PolarsWrapper.SelectorDuration(GetNativeTimeUnit(timeUnit)));
-
+        public static Selector Duration(TimeUnit? timeUnit = null) => new (PolarsWrapper.SelectorDuration(GetNativeTimeUnit(timeUnit)));
         /// <summary>
         /// Select column whose name starts with given prefix.
         /// </summary>
         /// <param name="prefix"></param>
         /// <returns></returns>
-        public static Selector StartsWith(string prefix) 
-            => new(PolarsWrapper.SelectorStartsWith(prefix));
+        public static Selector StartsWith(string prefix) => new(PolarsWrapper.SelectorStartsWith(prefix));
         /// <summary>
         /// Select column whose name ends with given suffix.
         /// </summary>
         /// <param name="suffix"></param>
         /// <returns></returns>
-        public static Selector EndsWith(string suffix) 
-            => new(PolarsWrapper.SelectorEndsWith(suffix));
+        public static Selector EndsWith(string suffix) => new(PolarsWrapper.SelectorEndsWith(suffix));
         /// <summary>
         /// Select column whose name contains given string.
         /// </summary>
         /// <param name="str"></param>
         /// <returns></returns>
-        public static Selector Contains(string str) 
-            => new(PolarsWrapper.SelectorContains(str));
+        public static Selector Contains(string str) => new(PolarsWrapper.SelectorContains(str));
         /// <summary>
         /// Select column whose name matches given string.
         /// </summary>
         /// <param name="regex">Regular Expression</param>
         /// <returns></returns>
-        public static Selector Matches(string regex) 
-            => new(PolarsWrapper.SelectorMatch(regex));
-
+        public static Selector Matches(string regex) => new(PolarsWrapper.SelectorMatch(regex));
         /// <summary>
         /// Select all columns with alphabetic names.
         /// </summary>

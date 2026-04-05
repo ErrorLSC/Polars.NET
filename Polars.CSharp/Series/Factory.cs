@@ -117,5 +117,9 @@ public partial class Series : IDisposable,IPolarsSeries
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static Series FromSpan<T>(string name, ReadOnlySpan<T> data)
         => new(SeriesFactory.CreateSpan(name, data));
-
+    public static Series FromExpr(Expr expr)
+    {
+        using var df = new DataFrame().Select(expr);
+        return df[0];
+    }
 }

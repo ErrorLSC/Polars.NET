@@ -288,9 +288,9 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// </summary>
     /// <param name="inner">The data type of the elements.</param>
     /// <param name="width">The fixed length of the array.</param>
-    public static DataType Array(DataType inner, uint width)
+    public static DataType Array(DataType inner, int width)
     {
-        var h = PolarsWrapper.NewArrayType(inner.Handle, width);
+        var h = PolarsWrapper.NewArrayType(inner.Handle, (ulong)width);
         return new DataType(h,DataTypeKind.Array);
     }
     public static DataType Struct(string[] names, DataType[] types)
@@ -398,7 +398,7 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
 
             ListType l => List(FromArrowType(l.ValueDataType)),
             LargeListType l => List(FromArrowType(l.ValueDataType)),
-            FixedSizeListType l => Array(FromArrowType(l.ValueDataType), (uint)l.ListSize),
+            FixedSizeListType l => Array(FromArrowType(l.ValueDataType), l.ListSize),
             
             StructType s => Struct(
                 [.. s.Fields.Select(f => f.Name)],

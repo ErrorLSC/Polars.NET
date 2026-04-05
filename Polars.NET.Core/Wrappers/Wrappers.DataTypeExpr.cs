@@ -22,6 +22,11 @@ public readonly partial struct PolarsWrapper
     public static DataTypeExprHandle DataTypeExprClone(DataTypeExprHandle dexpr) => UnaryOpToDataTypeExpr(NativeBindings.pl_datatype_expr_clone,dexpr);
     public static DataTypeHandle DataTypeExprIntoDataType(DataTypeExprHandle dexpr,SchemaHandle schema)
     {
+        if (schema == null || schema.IsInvalid)
+        {
+            throw new ArgumentNullException(nameof(schema), "Schema cannot be null when collecting DataType.");
+        }
+        
         var h = NativeBindings.pl_datatype_expr_into_datatype(dexpr,schema);
         dexpr.TransferOwnership();
         return ErrorHelper.Check(h);

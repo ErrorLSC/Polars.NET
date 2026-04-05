@@ -72,6 +72,11 @@ pub extern "C" fn pl_datatype_expr_into_datatype(
 ) -> *mut DataTypeContext {
     ffi_try!({
         let ctx = unsafe { Box::from_raw(ptr) };
+        
+        if schema_ptr.is_null() {
+            polars_bail!(ComputeError: "schema pointer cannot be null in pl_datatype_expr_into_datatype");
+        }
+        
         let schema_ctx = unsafe { &*schema_ptr };
         
         let dt = ctx.inner.into_datatype(&schema_ctx.schema)?;

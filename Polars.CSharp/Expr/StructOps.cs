@@ -60,6 +60,11 @@ public readonly struct StructOps
     /// </summary>
     public Expr Field(int index)
         => new(PolarsWrapper.StructFieldByIndex(_expr.CloneHandle(), index));
+    
+    /// <inheritdoc cref="Field(int)"/>
+    public Expr this[int index] => Field(index);
+    /// <inheritdoc cref="Field(string)"/>
+    public Expr this[string name] => Field(name);
     /// <summary>
     /// Rename the fields of the struct.
     /// </summary>
@@ -77,6 +82,5 @@ public readonly struct StructOps
     /// Convert the struct column into a JSON string column.
     /// Useful for debugging or exporting to systems that support JSON strings.
     /// </summary>
-    public Expr JsonEncode()
-        => new(PolarsWrapper.StructJsonEncode(_expr.CloneHandle()));
+    public Expr JsonEncode() => new(PolarsWrapper.StructJsonEncode(_expr.CloneHandle()));
 }
