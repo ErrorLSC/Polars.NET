@@ -271,4 +271,38 @@ public class TimeSeriesTests
         Assert.Equal("B", res.GetValue<string>(4, "Symbol"));
         Assert.Equal(200, res.GetValue<int>(4, "MaxVal"));
     }
+    [Fact]
+    [Trait("TimeSeries", "DynamicGroupBy")]
+    public void Test_GroupByDynamic_Head_And_Tail()
+    {
+        var start = new DateTime(2024, 1, 1, 10, 0, 0);
+        var end = new DateTime(2024, 1, 1, 10, 50, 0); 
+        var values = new[] { 0, 1, 2, 3, 4, 5 };
+
+        var df = DataFrame.FromColumns(new { Val = values })
+            .WithColumns(Pl.DatetimeRange(start, end, "10m").Alias("Time"));
+
+        // Window 1 [10:00, 10:30): 10:00(0), 10:10(1), 10:20(2)
+        // Window 2 [10:30, 11:00): 10:30(3), 10:40(4), 10:50(5)
+        
+        var headRes = df
+            .GroupByDynamic("Time", "30m", closedWindow: ClosedWindow.Left)
+            .Head(2);
+
+        Assert.Equal(4, headRes.Height);
+        
+        Assert.Equal(0, headRes.GetValue<int>(0, "Val"));
+        Assert.Equal(1, headRes.GetValue<int>(1, "Val"));
+
+        Assert.Equal(3, headRes.GetValue<int>(2, "Val"));
+        Assert.Equal(4, headRes.GetValue<int>(3, "Val"));
+
+        var tailRes = df
+            .GroupByDynamic("Time", "30m", closedWindow: ClosedWindow.Left)
+            .Tail(1);
+
+        Assert.Equal(2, tailRes.Height);
+        Assert.Equal(2, tailRes.GetValue<int>(0, "Val")); 
+        Assert.Equal(5, tailRes.GetValue<int>(1, "Val")); 
+    }
 }

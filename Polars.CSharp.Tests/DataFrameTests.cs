@@ -64,6 +64,30 @@ public class DataFrameTests
         Assert.Equal(200L, grouped.Column("total_salary").GetValue<long>(1));
     }
     [Fact]
+    [Trait("DataFrame", "GroupBy")]
+    public void Test_GroupBy_Standard_Head_And_Tail()
+    {
+        var df = DataFrame.FromColumns(new
+        {
+            Group = new[] { "A", "A", "A", "B", "B" },
+            Val = new[] { 1, 2, 3, 4, 5 }
+        });
+
+        var headRes = df.GroupBy("Group").Head(2);
+        
+        Assert.Equal(4, headRes.Height);
+        Assert.Equal(1, headRes.GetValue<int>(0, "Val"));
+        Assert.Equal(2, headRes.GetValue<int>(1, "Val"));
+        Assert.Equal(4, headRes.GetValue<int>(2, "Val"));
+        Assert.Equal(5, headRes.GetValue<int>(3, "Val"));
+
+        var tailRes = df.GroupBy("Group").Tail(1);
+        
+        Assert.Equal(2, tailRes.Height);
+        Assert.Equal(3, tailRes.GetValue<int>(0, "Val"));
+        Assert.Equal(5, tailRes.GetValue<int>(1, "Val"));
+    }
+    [Fact]
     [Trait("DataFrame", "GroupBySugar1")]
     public void Test_DataFrame_GroupBy_Len()
     {
