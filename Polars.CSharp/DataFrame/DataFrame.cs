@@ -3,13 +3,14 @@ using Polars.NET.Core.Arrow;
 using System.Data;
 using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
+#pragma warning disable CS1591 
 
 namespace Polars.CSharp;
 
 /// <summary>
 /// DataFrame represents a 2-dimensional labeled data structure similar to a table or spreadsheet.
 /// </summary>
-public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
+public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<DataFrame>,IPolarsDataFrame
 {
     internal DataFrameHandle Handle { get; }
 
@@ -149,7 +150,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     // DataFrame Operations
     // ==========================================
 
-
     /// <summary>
     /// Return head lines from a DataFrame
     /// </summary>
@@ -215,6 +215,28 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         if (length < 0) throw new ArgumentOutOfRangeException(nameof(length), "Length must be non-negative.");
         return Slice(offset, (ulong)length);
+    }
+    /// <summary>
+    /// Returns an iterator over slices of this DataFrame.
+    /// </summary>
+    /// <param name="nRows">The number of rows per slice. Default is 10,000.</param>
+    /// <returns>An enumerable collection of DataFrame slices.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when nRows is less than or equal to zero.</exception>
+    public IEnumerable<DataFrame> IterSlices(int nRows = 10_000)
+    {
+        if (nRows <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(nRows), "Number of rows per slice must be greater than zero.");
+        }
+
+        long totalRows = Height;
+        for (long offset = 0; offset < totalRows; offset += nRows)
+        {
+            // Calculate the exact length for the current slice to prevent out-of-bounds on the last chunk
+            ulong currentLength = (ulong)Math.Min(nRows, totalRows - offset);
+            
+            yield return Slice(offset, currentLength);
+        }
     }
 
 
@@ -388,4 +410,53 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         }
         return rowData;
     }
+    // ==========================================
+    // Equality (IEquatable)
+    // ==========================================
+
+    /// <summary>
+    /// Check if this DataFrame is strictly equal to another DataFrame.
+    /// By default, missing (null) values are considered equal to other missing values.
+    /// </summary>
+    public bool Equals(DataFrame? other)
+    {
+        return Equals(other, nullEqual: true);
+    }
+
+    /// <summary>
+    /// Check if this DataFrame is strictly equal to another DataFrame.
+    /// </summary>
+    /// <param name="other">The other DataFrame to compare with.</param>
+    /// <param name="nullEqual">If true, null values are considered equal to other null values.</param>
+    public bool Equals(DataFrame? other, bool nullEqual=true)
+    {
+        if (other is null) return false;
+        if (ReferenceEquals(this, other)) return true;
+
+        if (Handle.IsInvalid || other.Handle.IsInvalid) return false;
+
+        return PolarsWrapper.DataFrameEquals(Handle, other.Handle, nullEqual);
+    }
+
+    /// <summary>
+    /// Object.Equals override.
+    /// </summary>
+    public override bool Equals(object? obj)
+    {
+        return Equals(obj as DataFrame);
+    }
+
+    /// <summary>
+    /// GetHashCode override.
+    /// </summary>
+    public override int GetHashCode() => throw new NotSupportedException("DataFrames are large data structures and cannot be hashed directly. Do not use them as keys in collections.");
+
+    public static bool operator ==(DataFrame? left, DataFrame? right)
+    {
+        if (left is null) return right is null;
+        return left.Equals(right);
+    }
+
+    public static bool operator !=(DataFrame? left, DataFrame? right) => !(left == right);
+
 }

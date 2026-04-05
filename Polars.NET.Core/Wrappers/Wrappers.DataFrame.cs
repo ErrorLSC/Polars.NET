@@ -263,4 +263,46 @@ public readonly partial struct PolarsWrapper
         => ErrorHelper.Check(NativeBindings.pl_dataframe_rechunk(df));
     public static DataFrameHandle DataFrameAlignChunks(DataFrameHandle df) 
         => ErrorHelper.Check(NativeBindings.pl_dataframe_align_chunks(df));
+    public static DataFrameHandle[] PartitionBy(
+        DataFrameHandle df, 
+        string[] byCols, 
+        bool maintainOrder, 
+        bool includeKey)
+    {
+        unsafe
+        {
+            IntPtr arrayPtr = NativeBindings.pl_dataframe_partition_by(
+                df, 
+                byCols, 
+                (nuint)byCols.Length, 
+                maintainOrder, 
+                includeKey, 
+                out nuint outLen
+            );
+
+            ErrorHelper.Check(arrayPtr); 
+
+            int len = (int)outLen;
+            var handles = new DataFrameHandle[len];
+
+            IntPtr* rawPointers = (IntPtr*)arrayPtr;
+            for (int i = 0; i < len; i++)
+            {
+                handles[i] = new DataFrameHandle(rawPointers[i]);
+            }
+
+            NativeBindings.pl_free_ptr_array(arrayPtr, outLen);
+
+            return handles;
+        }
+        ;
+    }
+    public static bool DataFrameEquals(DataFrameHandle df, DataFrameHandle other, bool nullEqual)
+    {
+        int status = NativeBindings.pl_dataframe_equals(df, other, nullEqual, out bool result);
+        
+        ErrorHelper.CheckStatus(status);
+        
+        return result;
+    }
 }

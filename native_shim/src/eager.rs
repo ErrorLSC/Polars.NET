@@ -1,6 +1,6 @@
 use polars::prelude::*;
 use polars_core::utils::concat_df;
-use std::ffi::CStr;
+use std::ffi::{CStr, c_int};
 use std::{ffi::CString, os::raw::c_char};
 use crate::types::*;
 use polars::functions::{concat_df_horizontal,concat_df_diagonal};
@@ -792,5 +792,64 @@ pub extern "C" fn pl_dataframe_align_chunks(df_ptr: *mut DataFrameContext) -> *m
         new_df.align_chunks_par();
 
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_partition_by(
+    df_ptr: *mut DataFrameContext,
+    cols_ptr: *const *const c_char,
+    cols_len: usize,
+    maintain_order: bool,
+    include_key: bool,
+    out_len: *mut usize,
+) -> *mut *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*df_ptr };
+        
+        let cols_slice = unsafe { std::slice::from_raw_parts(cols_ptr, cols_len) };
+        let cols: Vec<String> = cols_slice
+            .iter()
+            .map(|&p| unsafe { CStr::from_ptr(p).to_string_lossy().into_owned() })
+            .collect();
+
+        let partitions = if maintain_order {
+            ctx.df.partition_by_stable(cols, include_key)?
+        } else {
+            ctx.df.partition_by(cols, include_key)?
+        };
+
+        unsafe { *out_len = partitions.len() };
+
+        let mut out_ptrs: Vec<*mut DataFrameContext> = partitions
+            .into_iter()
+            .map(|df| Box::into_raw(Box::new(DataFrameContext { df })))
+            .collect();
+
+        let ptr = out_ptrs.as_mut_ptr();
+        std::mem::forget(out_ptrs);
+        
+        Ok(ptr)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_equals(
+    df_ptr: *mut DataFrameContext,
+    other_ptr: *mut DataFrameContext,
+    null_equal: bool,
+    out_result: *mut bool,
+) -> c_int {
+    ffi_eval_out_try!(out_result, {
+        let ctx = unsafe { &*df_ptr };
+        let other_ctx = unsafe { &*other_ptr };
+        
+        let is_eq = if null_equal {
+            ctx.df.equals_missing(&other_ctx.df)
+        } else {
+            ctx.df.equals(&other_ctx.df)
+        };
+        
+        Ok(is_eq)
     })
 }

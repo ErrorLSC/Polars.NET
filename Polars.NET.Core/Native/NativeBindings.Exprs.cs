@@ -64,7 +64,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_eq(ExprHandle left, ExprHandle right);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_eq_missing(ExprHandle left, ExprHandle right);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_neq(ExprHandle l, ExprHandle r);
-       [LibraryImport(LibName)] public static partial ExprHandle pl_expr_neq_missing(ExprHandle left, ExprHandle right);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_neq_missing(ExprHandle left, ExprHandle right);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_gt(ExprHandle left, ExprHandle right);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_gt_eq(ExprHandle l, ExprHandle r);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lt(ExprHandle l, ExprHandle r);

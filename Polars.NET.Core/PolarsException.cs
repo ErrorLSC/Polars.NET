@@ -13,6 +13,17 @@ public class PolarsException : Exception
 internal static class ErrorHelper
 {
     // =========================================================================
+    // 0.Raw Pointer Check
+    // =========================================================================
+    public static nint Check(nint ptr)
+    {
+        if (ptr == nint.Zero)
+        {
+            ThrowRustError();
+        }
+        return ptr;
+    }
+    // =========================================================================
     // 1. Handle Check
     // =========================================================================
     public static T Check<T>(T handle) where T : PolarsHandle

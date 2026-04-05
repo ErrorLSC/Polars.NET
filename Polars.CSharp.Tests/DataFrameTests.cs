@@ -1320,20 +1320,10 @@ B,5";
             Val = new int?[] { 10, 20, null, 40, 50 }
         });
 
-        // 2. 移除 Val > 25 的行
-        // 预期行为：
-        // 10 > 25 (False) -> Keep
-        // 20 > 25 (False) -> Keep
-        // null > 25 (Null) -> Keep
-        // 40 > 25 (True) -> Remove
-        // 50 > 25 (True) -> Remove
-        using var resultDf = df.Remove(Pl.Col("Val") > 25);
-
-        Assert.Equal(3, resultDf.Height);
-        Assert.Equal(1, resultDf["Id"][0]);
-        Assert.Equal(2, resultDf["Id"][1]);
-        Assert.Equal(3, resultDf["Id"][2]);
-        Assert.Null(resultDf["Val"][2]); 
+        using var resultDf = df.Remove((Pl.Col("Val") > 25) | (Pl.Col("Id")<3));
+        Assert.Equal(1, resultDf.Height);
+        Assert.Equal(3, resultDf["Id"][0]);
+        Assert.Null(resultDf["Val"][0]); 
     }
 
     [Fact]
@@ -1382,5 +1372,161 @@ B,5";
 
         var ex = Assert.Throws<InvalidOperationException>(() => df.Remove(invalidMask));
         Assert.Contains("non-boolean", ex.Message);
+    }
+    [Fact]
+    [Trait("DataFrame","IterSlices")]
+    public void IterSlices_ShouldYieldCorrectSlices()
+    {
+        var df = DataFrame.FromColumns(new
+        {
+            Id = Enumerable.Range(1, 25).ToArray(),
+            Name = Enumerable.Range(1, 25).Select(i => $"User_{i}").ToArray()
+        });
+
+        var slices = df.IterSlices(nRows: 10).ToList();
+
+        // Assert
+        Assert.Equal(3, slices.Count); 
+
+        Assert.Equal(10, slices[0].Height);
+        Assert.Equal(10, slices[1].Height);
+        Assert.Equal(5, slices[2].Height); 
+
+        var lastSliceIdSeries = slices[2]["Id"];
+        Assert.Equal(21, (int)lastSliceIdSeries[0]!); 
+        Assert.Equal(25, (int)lastSliceIdSeries[4]!); 
+    }
+
+    [Fact]
+    [Trait("DataFrame","IterSlices")]
+    public void IterSlices_WithInvalidNRows_ShouldThrowException()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new { Id = new[] { 1, 2, 3 } });
+
+        // Act & Assert
+        var ex1 = Assert.Throws<ArgumentOutOfRangeException>(() => df.IterSlices(0).ToList());
+        Assert.Contains("greater than zero", ex1.Message);
+
+        var ex2 = Assert.Throws<ArgumentOutOfRangeException>(() => df.IterSlices(-5).ToList());
+        Assert.Contains("greater than zero", ex2.Message);
+    }
+    [Fact]
+    [Trait("DataFrame","Equal")]
+    public void Equals_StrictAndMissing_ShouldWorkCorrectly()
+    {
+        // Arrange
+        var df1 = DataFrame.FromColumns(new 
+        { 
+            A = new int?[] { 1, null, 3 }, 
+            B = new[] { "x", "y", "z" } 
+        });
+        
+        var df2 = DataFrame.FromColumns(new 
+        { 
+            A = new int?[] { 1, null, 3 }, 
+            B = new[] { "x", "y", "z" } 
+        });
+        
+        var df3 = DataFrame.FromColumns(new 
+        { 
+            A = new int?[] { 1, 2, 3 }, // 不同的数据
+            B = new[] { "x", "y", "z" } 
+        });
+
+        // Act & Assert
+
+        Assert.True(df1.Equals(df2));
+        Assert.True(df1 == df2); 
+        Assert.False(df1 != df2);
+
+        Assert.False(df1.Equals(df3));
+        Assert.False(df1 == df3);
+        Assert.True(df1 != df3);
+
+        Assert.False(df1.Equals(df2, nullEqual: false));
+    }
+
+    [Fact]
+    [Trait("DataFrame","Equal")]
+    public void GetHashCode_ShouldThrowNotSupportedException()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new { Id = new[] { 1, 2, 3 } });
+
+        // Act & Assert
+        var ex = Assert.Throws<NotSupportedException>(() => df.GetHashCode());
+        Assert.Contains("cannot be hashed directly", ex.Message);
+        
+        var dict = new Dictionary<DataFrame, int>();
+        Assert.Throws<NotSupportedException>(() => dict.Add(df, 1));
+    }
+    [Fact]
+    [Trait("DataFrame","PartitionBy")]
+    public void PartitionBy_ShouldReturnCorrectArraySlices()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            Group = new[] { "A", "A", "B", "B", "C" },
+            Value = new[] { 1, 2, 3, 4, 5 }
+        });
+
+        // Act
+        var partitions = df.PartitionBy(Cs.String());
+
+        // Assert
+        Assert.Equal(3, partitions.Length);
+
+        Assert.Equal(2, partitions[0].Height);
+        Assert.Equal("A", (string)partitions[0]["Group"][0]!);
+
+        Assert.Equal(2, partitions[1].Height);
+        Assert.Equal("B", (string)partitions[1]["Group"][0]!);
+
+        Assert.Equal(1, partitions[2].Height);
+        Assert.Equal("C", (string)partitions[2]["Group"][0]!);
+    }
+
+    [Fact]
+    [Trait("DataFrame","PartitionBy")]
+    public void PartitionByAsDict_ShouldWorkCorrectlyWithArrayKeys()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            Region = new[] { "US", "US", "CN" },
+            Year   = new[] { 2023, 2023, 2024 },
+            Sales  = new[] { 100,  200,  300 }
+        });
+
+        // Act: 根据两列进行 Partition
+        var dict = df.PartitionByAsDict(["Region", "Year"],maintainOrder: true, includeKey: true);
+
+        // Assert
+        Assert.Equal(2, dict.Count);
+
+        var keyUS = new object?[] { "US", 2023 };
+        var keyCN = new object?[] { "CN", 2024 };
+
+        Assert.True(dict.ContainsKey(keyUS));
+        Assert.True(dict.ContainsKey(keyCN));
+
+        Assert.Equal(2, dict[keyUS].Height); 
+        Assert.Equal(1, dict[keyCN].Height); 
+    }
+
+    [Fact]
+    public void PartitionByAsDict_InvalidCombination_ShouldThrow()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new { A = new[] { 1, 2, 1 } });
+
+        // Act & Assert
+        // Python Polars 抛 ValueError，我们在 C# 抛 ArgumentException
+        var ex = Assert.Throws<ArgumentException>(() => 
+            df.PartitionByAsDict(["A"],maintainOrder: false, includeKey: false));
+            
+        Assert.Contains("Group keys cannot be matched to partitions", ex.Message);
     }
 }

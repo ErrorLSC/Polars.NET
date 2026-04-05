@@ -159,4 +159,20 @@ unsafe internal partial class NativeBindings
     public static partial SeriesHandle pl_dataframe_is_duplicated(DataFrameHandle handle);
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_dataframe_is_unique(DataFrameHandle handle);
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial IntPtr pl_dataframe_partition_by(
+        DataFrameHandle df,
+        string[] cols, 
+        nuint colsLen,
+        [MarshalAs(UnmanagedType.U1)] bool maintainOrder, 
+        [MarshalAs(UnmanagedType.U1)] bool includeKey,
+        out nuint outLen
+    );
+    [LibraryImport(LibName)]
+    public static partial int pl_dataframe_equals(
+        DataFrameHandle df,
+        DataFrameHandle other,
+        [MarshalAs(UnmanagedType.U1)] bool nullEqual,
+        [MarshalAs(UnmanagedType.U1)] out bool outResult
+    );
 }

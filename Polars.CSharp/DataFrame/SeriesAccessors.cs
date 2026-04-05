@@ -81,6 +81,10 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             yield return Column(i);
         }
     }
-
+    /// <summary>
+    /// Returns an iterator over the columns of this DataFrame.
+    /// </summary>
+    /// <returns></returns>
+    public IEnumerator<Series> IterColumns() => GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
