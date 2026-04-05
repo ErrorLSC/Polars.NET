@@ -157,6 +157,20 @@ public partial class Expr : IDisposable
         new(PolarsWrapper.Neq(left.CloneHandle(), MakeLit(right).Handle));
     public static Expr operator !=(object left, Expr right) =>
         new(PolarsWrapper.Neq(MakeLit(left).Handle, right.CloneHandle()));
+
+    /// <summary>
+    /// Check if this expression is NOT equal to another, treating nulls as valid values.
+    /// (e.g., Null != Null is False, 5 != Null is True)
+    /// </summary>
+    public Expr NeqMissing(IntoExpr other) 
+        => new(PolarsWrapper.NeqMissing(this.CloneHandle(), other.Consume().Handle));
+
+    /// <summary>
+    /// Check if this expression is equal to another, treating nulls as valid values.
+    /// (e.g., Null == Null is True, 5 == Null is False)
+    /// </summary>
+    public Expr EqMissing(IntoExpr other) 
+        => new(PolarsWrapper.EqMissing(this.CloneHandle(), other.Consume().Handle));
     // ==========================================
     // Arithmetic Operators
     // ==========================================

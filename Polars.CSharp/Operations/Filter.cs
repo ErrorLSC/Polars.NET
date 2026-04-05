@@ -1,4 +1,3 @@
-using System.Data;
 using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 
@@ -57,7 +56,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     {
         if (series.DataType != DataType.Boolean)
         {
-            throw new InvalidExpressionException("Can not filter by non-boolean series.");
+            throw new InvalidOperationException("Can not filter by non-boolean series.");
         }
         
         using var expr = Pl.Lit(series); 

@@ -541,7 +541,9 @@ public readonly partial struct PolarsWrapper
     }
     // Compare
     public static ExprHandle Eq(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_eq, l, r);
+    public static ExprHandle EqMissing(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_eq_missing, l, r);
     public static ExprHandle Neq(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_neq, l, r);
+    public static ExprHandle NeqMissing(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_neq_missing, l, r);
     public static ExprHandle Gt(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_gt, l, r);
     public static ExprHandle GtEq(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_gt_eq, l, r);
     public static ExprHandle Lt(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_lt, l, r);

@@ -1308,4 +1308,79 @@ B,5";
         Assert.Contains("C_0", unstacked.Columns);
         Assert.DoesNotContain("B_0", unstacked.Columns);
     }
+    [Fact]
+    [Trait("DataFrame", "Remove")]
+    public void Test_Remove_By_Expr_Keeps_Null_Conditions()
+    {
+        // Id:  [1, 2, 3, 4, 5]
+        // Val: [10, 20, null, 40, 50]
+        using var df = DataFrame.FromColumns(new 
+        {
+            Id = new[] { 1, 2, 3, 4, 5 },
+            Val = new int?[] { 10, 20, null, 40, 50 }
+        });
+
+        // 2. 移除 Val > 25 的行
+        // 预期行为：
+        // 10 > 25 (False) -> Keep
+        // 20 > 25 (False) -> Keep
+        // null > 25 (Null) -> Keep
+        // 40 > 25 (True) -> Remove
+        // 50 > 25 (True) -> Remove
+        using var resultDf = df.Remove(Pl.Col("Val") > 25);
+
+        Assert.Equal(3, resultDf.Height);
+        Assert.Equal(1, resultDf["Id"][0]);
+        Assert.Equal(2, resultDf["Id"][1]);
+        Assert.Equal(3, resultDf["Id"][2]);
+        Assert.Null(resultDf["Val"][2]); 
+    }
+
+    [Fact]
+    [Trait("DataFrame", "Remove")]
+    public void Test_Remove_By_Boolean_Series()
+    {
+        using var df = Pl.DataFrame(
+            Pl.Series("Id", [1, 2, 3, 4])
+        );
+
+        using var mask = Pl.Series("mask", [true, false, true, false]);
+
+        using var resultDf = df.Remove(mask);
+
+        Assert.Equal(2, resultDf.Height);
+        Assert.Equal(2, resultDf["Id"][0]);
+        Assert.Equal(4, resultDf["Id"][1]);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "Remove")]
+    public void Test_Remove_By_Boolean_Array()
+    {
+        using var df = Pl.DataFrame(
+            Pl.Series("Name", ["Alice", "Bob", "Charlie"])
+        );
+
+        bool[] mask = [false, false, true];
+
+        using var resultDf = df.Remove(mask);
+
+        Assert.Equal(2, resultDf.Height);
+        Assert.Equal("Alice", resultDf["Name"][0]);
+        Assert.Equal("Bob", resultDf["Name"][1]);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "Remove")]
+    public void Test_Remove_Throws_On_NonBoolean_Series()
+    {
+        using var df = Pl.DataFrame(
+            Pl.Series("Id", [1, 2, 3])
+        );
+
+        using var invalidMask = Pl.Series("mask", [1, 0, 1]);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => df.Remove(invalidMask));
+        Assert.Contains("non-boolean", ex.Message);
+    }
 }

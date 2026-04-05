@@ -351,7 +351,9 @@ gen_unary_op!(pl_expr_floor, floor); // flooring round
 
 // --- Group 4: Binary Ops ---
 gen_binary_op!(pl_expr_eq, eq); // ==
+gen_binary_op!(pl_expr_eq_missing, eq_missing); // ==
 gen_binary_op!(pl_expr_neq, neq); // !=
+gen_binary_op!(pl_expr_neq_missing, neq_missing); // !=
 gen_binary_op!(pl_expr_gt, gt); // >
 gen_binary_op!(pl_expr_gt_eq, gt_eq); // >=
 gen_binary_op!(pl_expr_lt, lt);       // <
