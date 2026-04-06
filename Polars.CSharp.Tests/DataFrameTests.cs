@@ -1702,10 +1702,7 @@ B,5";
             Value = new[] { 999.0, 888.0 }
         });
 
-        var resultDf = targetDf.Merge(sourceDf, on: Cs.StartsWith("Id"))
-            .WhenMatchedUpdate()
-            .WhenNotMatchedInsert()
-            .Execute();
+        var resultDf = targetDf.Merge(sourceDf, on: Cs.StartsWith("Id")).Execute();
 
         // Assert
         var id1Array = resultDf["Id1"].ToArray<int>();
@@ -1753,7 +1750,6 @@ B,5";
     [Trait("DataFrame", "MergeOrderAndExplain")]
     public void MergeBuilder_OrderSensitive_ShouldRespectFirstMatchAndExplain()
     {
-        // Arrange: 准备测试数据
         var targetDf = DataFrame.FromColumns(new
         {
             Id = new[] { 1, 2, 3 },
@@ -1766,35 +1762,61 @@ B,5";
             Score = new[] { 99, 15, 100 }
         });
 
-        // Act: 构建带有冲突条件的合并逻辑
         var mergeBuilder = targetDf.Merge(sourceDf, "Id")
-            // 动作 1：只要新来的 Score > 90，直接删掉！（Id=2 满足）
             .WhenMatchedDelete(Pl.Col("Score__TMP") > 90)
-            
-            // 动作 2：只要新来的 Score > 10，就更新。（Id=2 和 Id=3 都满足）
-            // 但是因为 Id=2 在上面已经被判了死刑，这里的更新条件对 Id=2 应该失效！
             .WhenMatchedUpdate(Pl.Col("Score__TMP") > 10)
-            
-            // 动作 3：无脑插入新数据 (Id=4)
-            .WhenNotMatchedInsert();
+            .WhenNotMatchedInsert().MaintainOrder(JoinMaintainOrder.Left);
 
-        // 【高能预警】调用 Explain 提取这 3 行代码在底层编译出的物理计划！
         string plan = mergeBuilder.Explain(optimized: true);
         Console.WriteLine(plan);
 
-        // 正式执行并排序
-        var resultDf = mergeBuilder.Execute().Sort("Id");
+        var resultDf = mergeBuilder.Execute();
 
-        // Assert: 验证数据生死
         var idArray = resultDf["Id"].ToArray<int>();
         var scoreArray = resultDf["Score"].ToArray<int>();
 
-        // 预期结果分析：
-        // Id = 1 : Target 独有，保留 (10)
-        // Id = 2 : 优先命中了 Delete(99 > 90)，所以直接消失！Update 没拦住。
-        // Id = 3 : 没命中 Delete(15 < 90)，命中了 Update(15 > 10)，被更新为 15。
-        // Id = 4 : Source 独有，触发 Insert，插入 (100)。
+        // Id = 1 : Target only，keep (10)
+        // Id = 2 : Delete(99 > 90)
+        // Id = 3 : Update(15 > 10, 15)
+        // Id = 4 : Insert(100)。
         Assert.Equal([1, 3, 4], idArray);
         Assert.Equal([10, 15, 100], scoreArray);
+    }
+    [Fact]
+    [Trait("DataFrame", "MergeIncludeNulls")]
+    public void MergeBuilder_IncludeNulls_ShouldControlNullOverwrite()
+    {
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
+            Score = new int?[] { 10, 20, 30 }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
+            Score = new int?[] { null, 99, null }
+        });
+
+        // Act 1: includeNulls = false
+        var resultWithoutNulls = targetDf.Merge(sourceDf, "Id")
+            .IncludeNulls(false) 
+            .Execute()
+            .Sort("Id");
+
+        // Act 2:includeNulls = true
+        var resultWithNulls = targetDf.Merge(sourceDf, "Id")
+            .IncludeNulls(true) 
+            .Execute(true)
+            .Sort("Id");
+
+        var scoreArrayWithoutNulls = resultWithoutNulls["Score"].ToArray<int?>();
+        var scoreArrayWithNulls = resultWithNulls["Score"].ToArray<int?>();
+
+        // includeNulls = false：
+        Assert.Equal([10, 99, 30], scoreArrayWithoutNulls);
+
+        // includeNulls = true：
+        Assert.Equal([null, 99, null], scoreArrayWithNulls);
     }
 }

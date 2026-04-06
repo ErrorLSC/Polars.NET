@@ -1,4 +1,5 @@
 #pragma warning disable CS1591
+using System.Runtime.Serialization;
 using Polars.NET.Core;
 using Cs = Polars.CSharp.Polars.Selectors;
 using Pl = Polars.CSharp.Polars;
@@ -204,7 +205,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         return Lazy().Update(right,on,how,leftOn,rightOn,includeNulls,maintainOrder).Collect();
     }
     /// <summary>
-    /// Initiates a Merge (Upsert) builder to seamlessly apply changes from a source DataFrame.
+    /// Initiates a Merge (Upsert) builder to apply changes from a source DataFrame.
     /// </summary>
     /// <param name="source">The source DataFrame containing updates/inserts.</param>
     /// <param name="on">The column names to merge on.</param>
@@ -393,7 +394,7 @@ public class DataFrameMergeBuilder : MergeBuilderBase<DataFrameMergeBuilder>
     /// <summary>
     /// Executes the merge operation eagerly and returns a materialized DataFrame.
     /// </summary>
-    public DataFrame Execute() => BuildAst().Collect();
+    public DataFrame Execute(bool streaming=false) => BuildAst().Collect(streaming);
     
 }
 
