@@ -229,33 +229,50 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 /// <summary>
 /// A builder for Polars Merge
 /// </summary>
-public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBase<TBuilder>
+public abstract class MergeBuilderBase<TBuilder>(LazyFrame target, LazyFrame source, string[] on) where TBuilder : MergeBuilderBase<TBuilder>
 {
-    protected readonly LazyFrame _target;
-    protected readonly LazyFrame _source;
-    protected readonly string[] _on;
+    protected readonly LazyFrame _target = target;
+    protected readonly LazyFrame _source = source;
+    protected readonly string[] _on = on;
 
-    protected bool _matchedUpdate = false;
-    protected bool _notMatchedInsert = false;
+    // --- Status and Conditions ---
+    protected bool _hasMatchedUpdate = false;
+    protected Expr? _matchedUpdateCond = null;
+
+    protected bool _hasMatchedDelete = false;
+    protected Expr? _matchedDeleteCond = null;
+
+    protected bool _hasNotMatchedInsert = false;
+    protected Expr? _notMatchedInsertCond = null;
+
     protected bool _includeNulls = false;
     protected JoinMaintainOrder _maintainOrder = JoinMaintainOrder.Left;
 
-    protected MergeBuilderBase(LazyFrame target, LazyFrame source, string[] on)
+    protected readonly List<(MergeActionType Type, Expr Condition)> _actions = [];
+    /// <summary>
+    /// Update the matched target row. Optionally filtered by a condition.
+    /// </summary>
+    public TBuilder WhenMatchedUpdate(Expr? condition = null)
     {
-        _target = target;
-        _source = source;
-        _on = on;
-    }
-
-    public TBuilder WhenMatchedUpdate()
-    {
-        _matchedUpdate = true;
+        _actions.Add((MergeActionType.MatchedUpdate, condition ?? Pl.Lit(true)));
         return (TBuilder)this;
     }
 
-    public TBuilder WhenNotMatchedInsert()
+    /// <summary>
+    /// Delete the matched target row if the condition is met.
+    /// </summary>
+    public TBuilder WhenMatchedDelete(Expr? condition = null)
     {
-        _notMatchedInsert = true;
+        _actions.Add((MergeActionType.MatchedDelete, condition ?? Pl.Lit(true)));
+        return (TBuilder)this;
+    }
+
+    /// <summary>
+    /// Insert a new row from the source if not matched. Optionally filtered.
+    /// </summary>
+    public TBuilder WhenNotMatchedInsert(Expr? condition = null)
+    {
+        _actions.Add((MergeActionType.NotMatchedInsert, condition ?? Pl.Lit(true)));
         return (TBuilder)this;
     }
 
@@ -270,24 +287,101 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
         _maintainOrder = order;
         return (TBuilder)this;
     }
+    /// <summary>
+    /// Generates the Abstract Syntax Tree (AST) for the merge operation and returns its execution plan.
+    /// </summary>
+    /// <param name="optimized">Whether to show the optimized physical plan or the unoptimized logical plan.</param>
+    /// <returns>A string representation of the Polars execution plan.</returns>
+    public string Explain(bool optimized = true)
+    {
+        using var ast = BuildAst();
+        
+        return ast.Explain(optimized);
+    }
 
+    // --- AST Compile Engine  ---
     protected LazyFrame BuildAst()
     {
-        if (!_matchedUpdate && !_notMatchedInsert)
+        if (_actions.Count == 0)
         {
-            _matchedUpdate = true;
-            _notMatchedInsert = true;
+            WhenMatchedUpdate();
+            WhenNotMatchedInsert();
         }
 
-        JoinType how = _notMatchedInsert ? JoinType.Outer : JoinType.Left;
+        string tgtVal = "__TGT", srcVal = "__SRC", tmpSfx = "__TMP", actionCol = "__ACTION";
+        
+        var tgt = _target.WithColumns(Pl.Lit(true).Alias(tgtVal));
+        var srcCols = _source.Schema.ColumnNames.Except(_on).ToList();
+        
+        var src = _source.Select(_on.Select(c => (IntoExpr)c)
+                 .Concat(srcCols.Select(c => (IntoExpr)Pl.Col(c).Alias(c + tmpSfx)))
+                 .Append(Pl.Lit(true).Alias(srcVal)));
 
-        return _target.Update(
-            other: _source,
-            on: _on,
-            how: how,
-            includeNulls: _includeNulls,
-            maintainOrder: _maintainOrder
-        );
+        var joined = tgt.Join(src, _on, 
+            how: _actions.Any(a => a.Type == MergeActionType.NotMatchedInsert) ? JoinType.Outer : JoinType.Left,
+            coalesce: JoinCoalesce.CoalesceColumns, 
+            maintainOrder: _maintainOrder);
+
+        var isMatched = Pl.Col(tgtVal).IsNotNull() & Pl.Col(srcVal).IsNotNull();
+        var isSourceOnly = Pl.Col(tgtVal).IsNull() & Pl.Col(srcVal).IsNotNull();
+        var isTargetOnly = Pl.Col(tgtVal).IsNotNull() & Pl.Col(srcVal).IsNull();
+
+        // =========================================================
+        // Build Action Mask Tree
+        // =========================================================
+        
+        // Fallback: Target only/Matched but no-op；Source Unmatched(4)
+        Expr actionExpr = Pl.When(isTargetOnly).Then(0)
+                            .When(isMatched).Then(0)
+                            .Otherwise(4);
+
+        // Iter backwards
+        for (int i = _actions.Count - 1; i >= 0; i--)
+        {
+            var action = _actions[i];
+            Expr cond = Pl.Lit(false);
+            int actionCode = 0;
+
+            if (action.Type == MergeActionType.MatchedDelete) { cond = isMatched & action.Condition; actionCode = 2; }
+            else if (action.Type == MergeActionType.MatchedUpdate) { cond = isMatched & action.Condition; actionCode = 1; }
+            else if (action.Type == MergeActionType.NotMatchedInsert) { cond = isSourceOnly & action.Condition; actionCode = 3; }
+
+            actionExpr = Pl.When(cond).Then(actionCode).Otherwise(actionExpr);
+        }
+
+        joined = joined.WithColumns(actionExpr.Alias(actionCol));
+
+        // =========================================================
+        // Update Columns
+        // =========================================================
+        var updateExprs = new List<IntoExpr>();
+        var doUpdate = (Pl.Col(actionCol) == 1) | (Pl.Col(actionCol) == 3);
+
+        foreach (var colName in srcCols)
+        {
+            var tgtCol = _target.Schema.ColumnNames.Contains(colName) ? Pl.Col(colName) : Pl.LitNull();
+            var srcColTmp = Pl.Col(colName + tmpSfx);
+
+            var finalUpdateCond = doUpdate;
+            if (!_includeNulls) finalUpdateCond &= srcColTmp.IsNotNull();
+
+            updateExprs.Add(
+                Pl.When(finalUpdateCond)
+                  .Then(srcColTmp)
+                  .Otherwise(tgtCol)
+                  .Alias(colName)
+            );
+        }
+        joined = joined.WithColumns(updateExprs);
+
+        // =========================================================
+        // Filter and Drop
+        // =========================================================
+        
+        // Drop all Delete(2) and Ignore(4) rows
+        joined = joined.Filter((Pl.Col(actionCol) != 2) & (Pl.Col(actionCol) != 4));
+
+        return joined.Drop([.. srcCols.Select(c => c + tmpSfx), tgtVal, srcVal, actionCol]);
     }
 }
 
@@ -311,8 +405,5 @@ public class LazyFrameMergeBuilder : MergeBuilderBase<LazyFrameMergeBuilder>
     /// <summary>
     /// Computes the merge execution plan and returns a LazyFrame.
     /// </summary>
-    public LazyFrame Execute()
-    {
-        return BuildAst();
-    }
+    public LazyFrame Execute() => BuildAst();
 }

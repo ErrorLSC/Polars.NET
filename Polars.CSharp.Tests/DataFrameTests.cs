@@ -1714,4 +1714,87 @@ B,5";
         Assert.Equal([1, 2, 3], id1Array);
         Assert.Equal(["A", "B_Updated", "C_New"], nameArray);
     }
+    [Fact]
+    [Trait("DataFrame", "MergeCondition")]
+    public void MergeBuilder_WithConditions_ShouldUpdateDeleteAndInsert()
+    {
+        // Arrange
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
+            Status = new[] { "Active", "Pending", "Obsolete" },
+            Score = new[] { 10, 20, 30 }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 2, 3, 4 },
+            Status = new[] { "Active", "Deleted", "Active" },
+            Score = new[] { 99, 0, 100 }
+        });
+
+        // Act
+        var resultDf = targetDf.Merge(sourceDf, "Id")
+            .WhenMatchedDelete(condition: Pl.Col("Status__TMP") == "Deleted")
+            .WhenMatchedUpdate(condition: Pl.Col("Score__TMP") > Pl.Col("Score"))
+            .WhenNotMatchedInsert(condition: Pl.Col("Status__TMP") == "Active")
+            .Execute(); 
+
+        resultDf = resultDf.Sort("Id");
+
+        var idArray = resultDf["Id"].ToArray<int>();
+        var scoreArray = resultDf["Score"].ToArray<int>();
+
+        Assert.Equal([1, 2, 4], idArray);
+        Assert.Equal([10, 99, 100], scoreArray);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "MergeOrderAndExplain")]
+    public void MergeBuilder_OrderSensitive_ShouldRespectFirstMatchAndExplain()
+    {
+        // Arrange: 准备测试数据
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
+            Score = new[] { 10, 20, 30 }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 2, 3, 4 },
+            Score = new[] { 99, 15, 100 }
+        });
+
+        // Act: 构建带有冲突条件的合并逻辑
+        var mergeBuilder = targetDf.Merge(sourceDf, "Id")
+            // 动作 1：只要新来的 Score > 90，直接删掉！（Id=2 满足）
+            .WhenMatchedDelete(Pl.Col("Score__TMP") > 90)
+            
+            // 动作 2：只要新来的 Score > 10，就更新。（Id=2 和 Id=3 都满足）
+            // 但是因为 Id=2 在上面已经被判了死刑，这里的更新条件对 Id=2 应该失效！
+            .WhenMatchedUpdate(Pl.Col("Score__TMP") > 10)
+            
+            // 动作 3：无脑插入新数据 (Id=4)
+            .WhenNotMatchedInsert();
+
+        // 【高能预警】调用 Explain 提取这 3 行代码在底层编译出的物理计划！
+        string plan = mergeBuilder.Explain(optimized: true);
+        Console.WriteLine(plan);
+
+        // 正式执行并排序
+        var resultDf = mergeBuilder.Execute().Sort("Id");
+
+        // Assert: 验证数据生死
+        var idArray = resultDf["Id"].ToArray<int>();
+        var scoreArray = resultDf["Score"].ToArray<int>();
+
+        // 预期结果分析：
+        // Id = 1 : Target 独有，保留 (10)
+        // Id = 2 : 优先命中了 Delete(99 > 90)，所以直接消失！Update 没拦住。
+        // Id = 3 : 没命中 Delete(15 < 90)，命中了 Update(15 > 10)，被更新为 15。
+        // Id = 4 : Source 独有，触发 Insert，插入 (100)。
+        Assert.Equal([1, 3, 4], idArray);
+        Assert.Equal([10, 15, 100], scoreArray);
+    }
 }

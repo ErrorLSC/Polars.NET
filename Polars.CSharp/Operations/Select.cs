@@ -27,6 +27,11 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         return new LazyFrame(PolarsWrapper.LazySelect(CloneHandle(), handles));
     }
     /// <summary>
+    /// Bridge overload to support IEnumerable IntoExpr exprs.
+    /// Usage: lf.Select(["Id", "Name", "Date"])
+    /// </summary>
+    public LazyFrame Select(params IEnumerable<IntoExpr> exprs) => Select(exprs.ToArray());
+    /// <summary>
     /// Bridge overload to support C# 12 collection expressions.
     /// Usage: lf.Select(["Id", "Name", "Date"])
     /// </summary>
@@ -133,4 +138,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Select columns by expressions (convenience overload).
     /// </summary>
     public DataFrame Select(IEnumerable<Expr> exprs) => Lazy().Select(exprs).Collect();
+    /// <summary>
+    /// Bridge overload to support IEnumerable IntoExpr exprs.
+    /// Usage: lf.Select(["Id", "Name", "Date"])
+    /// </summary>
+    public DataFrame Select(params IEnumerable<IntoExpr> exprs) => Lazy().Select(exprs).Collect();
 }

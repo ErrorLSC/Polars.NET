@@ -434,6 +434,8 @@ public partial class Expr : IDisposable
     /// <returns>A boolean expression that evaluates to the opposite truth value.</returns>
     public static Expr operator !(Expr expr)
         => new(PolarsWrapper.Not(expr.CloneHandle()));
+    public static Expr operator ~(Expr expr)
+        => new(PolarsWrapper.Not(expr.CloneHandle()));
     /// <summary>
     /// Creates an expression representing the logical XOR operation.
     /// </summary>

@@ -39,6 +39,7 @@ public readonly struct IntoExpr
     public static implicit operator IntoExpr(long l) => new(Pl.Lit(l), ownsExpr: true);
     public static implicit operator IntoExpr(decimal dm) => new(Pl.Lit(dm), ownsExpr: true);
     public static implicit operator IntoExpr(Int128 i128) => new(Pl.Lit(i128), ownsExpr: true);
+    public static implicit operator IntoExpr(bool bo) => new(Pl.Lit(bo), ownsExpr: true);
     // public static implicit operator IntoExpr(UInt128 u128) => new(Pl.Lit(u128), ownsExpr: true);
 
     private IntoExpr(Expr expr, bool ownsExpr) 
