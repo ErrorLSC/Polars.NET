@@ -5,11 +5,11 @@ namespace Polars.NET.Core;
 public readonly partial struct PolarsWrapper
 {
     // Helper : Transform Handles,used in move ptr to Rust
-    internal static IntPtr[] HandlesToPtrs(PolarsHandle[] handles)
+    internal static nint[] HandlesToPtrs(PolarsHandle[] handles)
     {
         if (handles == null || handles.Length == 0) return [];
         
-        var ptrs = new IntPtr[handles.Length];
+        var ptrs = new nint[handles.Length];
         for (int i = 0; i < handles.Length; i++)
         {
             // 1. Get original pointer for Rust

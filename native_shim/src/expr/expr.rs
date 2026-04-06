@@ -1377,27 +1377,23 @@ pub extern "C" fn pl_expr_lit_i128(
     high: i64 // C# split high part
 ) -> *mut ExprContext {
     ffi_try!({
-        // Rebuild i128 (Unscaled Value)
         let v = ((high as i128) << 64) | (low as i128);
-
-        let data_type = ArrowDataType::Int128;
-
-        let arrow_array = PrimitiveArray::new(
-            data_type,
-            vec![v].into(), 
-            None
-        );
-
-        let series = Series::from_arrow(
-            "literal".into(), 
-            Box::new(arrow_array)
-        ).unwrap();
-
-        let expr = lit(series);
-        
+        let expr = lit(v); 
         Ok(Box::into_raw(Box::new(ExprContext { inner: expr })))
     })
 }
+
+// #[unsafe(no_mangle)]
+// pub extern "C" fn pl_expr_lit_u128(
+//     low: u64,  
+//     high: u64   
+// ) -> *mut ExprContext {
+//     ffi_try!({
+//         let v = ((high as u128) << 64) | (low as u128);
+//         let expr = lit(v); 
+//         Ok(Box::into_raw(Box::new(ExprContext { inner: expr })))
+//     })
+// }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_lit_series(
@@ -2409,7 +2405,7 @@ pub extern "C" fn pl_expr_interpolate(
 
 // Logic: when(predicate).then(truthy).otherwise(falsy)
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_if_else(
+pub extern "C" fn pl_expr_ternary(
     pred_ptr: *mut ExprContext,
     true_ptr: *mut ExprContext,
     false_ptr: *mut ExprContext
@@ -2419,10 +2415,7 @@ pub extern "C" fn pl_expr_if_else(
         let truthy = unsafe { Box::from_raw(true_ptr) };
         let falsy = unsafe { Box::from_raw(false_ptr) };
 
-        // Polars DSL: when(...).then(...).otherwise(...)
-        let new_expr = when(pred.inner)
-            .then(truthy.inner)
-            .otherwise(falsy.inner);
+        let new_expr = ternary_expr(pred.inner, truthy.inner, falsy.inner);
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
@@ -2723,5 +2716,23 @@ pub extern "C" fn pl_expr_to_string(ptr: *mut ExprContext) -> *mut c_char {
         
         let c_str = CString::new(s).expect("String sanitization failed");
         Ok(c_str.into_raw())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_expr_coalesce(
+    expr_ptrs: *const *mut ExprContext,
+    len: usize,
+) -> *mut ExprContext {
+    ffi_try!({
+        if expr_ptrs.is_null() || len == 0 {
+            return Err(PolarsError::ComputeError("coalesce requires at least one expression".into()));
+        }
+
+        let exprs = unsafe {consume_exprs_array(expr_ptrs, len)};
+
+        let result_expr = polars::lazy::dsl::coalesce(&exprs);
+
+        Ok(Box::into_raw(Box::new(ExprContext { inner: result_expr })))
     })
 }

@@ -1019,4 +1019,183 @@ David,40,80000";
         Assert.Equal("E", valSeries[4]);
         Assert.Equal("F", valSeries[5]);
     }
+    [Fact]
+    [Trait("LazyFrame", "WithRowIndex")]
+    public void WithRowIndex_DefaultParameters_ShouldGenerateCorrectIndex()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            Value = new[] { "A", "B", "C" }
+        });
+
+        // Act
+        var result = df.Lazy().WithRowIndex().Collect();
+
+        // Assert
+        Assert.Equal(2, result.Width);
+        Assert.Equal("index", result.Columns[0]); 
+        Assert.Equal("Value", result.Columns[1]);
+
+        var indexArray = result["index"].ToArray<uint>();
+        Assert.Equal(new uint[] { 0, 1, 2 }, indexArray);
+    }
+
+    [Fact]
+    [Trait("LazyFrame", "WithRowIndex")]
+    public void WithRowIndex_CustomParameters_ShouldGenerateCorrectIndex()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            Value = new[] { "X", "Y", "Z", "W" }
+        });
+
+        // Act
+        // name="row_id", offset=10
+        var result = df.Lazy().WithRowIndex("row_id",10).Collect();
+
+        // Assert
+        Assert.Equal("row_id", result.Columns[0]);
+
+        var indexArray = result["row_id"].ToArray<uint>();
+        Assert.Equal(new uint[] { 10, 11, 12, 13 }, indexArray);
+    }
+
+    [Fact]
+    [Trait("LazyFrame", "WithRowIndex")]
+    public void WithRowIndex_NegativeOffset_ShouldThrowArgumentOutOfRangeException()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            Value = new[] { "A", "B" }
+        });
+
+        // Act & Assert
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        {
+            df.Lazy().WithRowIndex("id", -5);
+        });
+
+        Assert.Contains("cannot be negative", exception.Message);
+        Assert.Contains("-5", exception.Message);
+    }
+    private static DataFrame GetLeftData()
+    {
+        return DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
+            ValueA = new int?[] { 10, 20, 30 },
+            ValueB = new string[] { "x", "y", "z" }
+        });
+    }
+
+    private static DataFrame GetRightData()
+    {
+        return DataFrame.FromColumns(new
+        {
+            Id = new[] { 2, 3, 4 },
+            ValueA = new int?[] { 200, null, 400 }, 
+            ValueB = new string[] { "yy", "zz", "ww" }
+        });
+    }
+
+    [Fact]
+    [Trait("LazyFrame", "Update")]
+    public void Update_DefaultBehavior_ShouldCoalesceNulls()
+    {
+        // Arrange
+        var left = GetLeftData().Lazy();
+        var right = GetRightData().Lazy();
+
+        // Act
+        // Left Join, includeNulls = false
+        var result = left.Update(right, on: ["Id"]).Collect();
+
+        // Assert
+        var idArray = result["Id"].ToArray<int>();
+        var valAArray = result["ValueA"].ToArray<int?>();
+        var valBArray = result["ValueB"].ToArray<string>();
+
+        // Id: [1, 2, 3] (Left Join)
+        Assert.Equal([1, 2, 3], idArray);
+        
+        // 预期 ValueA: 
+        // Id 1: 10 
+        // Id 2: 200 
+        // Id 3: 30
+        Assert.Equal([10, 200, 30], valAArray);
+        
+        // 预期 ValueB:
+        Assert.Equal(new string[] { "x", "yy", "zz" }, valBArray);
+    }
+
+    [Fact]
+    [Trait("LazyFrame", "Update")]
+    public void Update_IncludeNullsTrue_ShouldOverwriteWithNulls()
+    {
+        // Arrange
+        var left = GetLeftData().Lazy();
+        var right = GetRightData().Lazy();
+
+        // Act
+        // Left Join, includeNulls = true
+        var result = left.Update(right, on: ["Id"], includeNulls: true).Collect();
+
+        var valAArray = result["ValueA"].ToArray<int?>();
+
+        // 预期 ValueA: 
+        // Id 1: 10
+        // Id 2: 200 
+        // Id 3: null 
+        Assert.Equal([10, 200, null], valAArray);
+    }
+
+    [Fact]
+    [Trait("LazyFrame", "Update")]
+    public void Update_HowOuter_ShouldAddNewRows()
+    {
+        // Arrange
+        var left = GetLeftData().Lazy();
+        var right = GetRightData().Lazy();
+
+        // Act
+        var result = left.Update(
+            right, 
+            on: ["Id"], 
+            how: JoinType.Outer,
+            maintainOrder: JoinMaintainOrder.Left
+        ).Collect();
+
+        // Assert
+        var idArray = result["Id"].ToArray<int>();
+        var valAArray = result["ValueA"].ToArray<int?>();
+
+        Assert.Equal([1, 2, 3, 4], idArray);
+
+        // Id 1: 10
+        // Id 2: 200 (updated)
+        // Id 3: 30  (keep)
+        // Id 4: 400 (added)
+        Assert.Equal([10, 200, 30, 400], valAArray);
+    }
+
+    [Fact]
+    [Trait("LazyFrame", "Update")]
+    public void Update_NoKeysProvided_ShouldUpdateByRowIndex()
+    {
+        // Arrange
+        var left = DataFrame.FromColumns(new { Val = new[] { 1, 2, 3 } }).Lazy();
+        var right = DataFrame.FromColumns(new { Val = new[] { 99, 88 } }).Lazy();
+
+        // Act
+        var result = left.Update(right).Collect();
+
+        // Assert
+        var valArray = result["Val"].ToArray<int>();
+
+        Assert.Equal([99, 88, 3], valArray);
+        Assert.DoesNotContain("__POLARS_ROW_INDEX", result.Columns);
+    }
 }

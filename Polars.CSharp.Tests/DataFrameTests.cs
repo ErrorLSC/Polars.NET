@@ -1599,4 +1599,86 @@ B,5";
         Assert.Throws<ArgumentOutOfRangeException>(() => df.ReplaceColumn(5, s));
         Assert.Throws<ArgumentOutOfRangeException>(() => df.ReplaceColumn(-5, s)); 
     }
+    [Fact]
+    [Trait("DataFrame", "WithRowIndex")]
+    public void WithRowIndex_DefaultParameters_ShouldGenerateCorrectIndex()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            Value = new[] { "A", "B", "C" }
+        });
+
+        // Act
+        var result = df.WithRowIndex();
+
+        // Assert
+        Assert.Equal(2, result.Width);
+        Assert.Equal("index", result.Columns[0]); 
+        Assert.Equal("Value", result.Columns[1]);
+
+        var indexArray = result["index"].ToArray<uint>();
+        Assert.Equal(new uint[] { 0, 1, 2 }, indexArray);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "WithRowIndex")]
+    public void WithRowIndex_CustomParameters_ShouldGenerateCorrectIndex()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            Value = new[] { "X", "Y", "Z", "W" }
+        });
+
+        // Act
+        // name="row_id", offset=10
+        var result = df.WithRowIndex("row_id",10);
+
+        // Assert
+        Assert.Equal("row_id", result.Columns[0]);
+
+        var indexArray = result["row_id"].ToArray<uint>();
+        Assert.Equal(new uint[] { 10, 11, 12, 13 }, indexArray);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "Update")]
+    public void Update_HowOuter_ShouldAddNewRows()
+    {
+        // Arrange
+        var left = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
+            ValueA = new int?[] { 10, 20, 30 },
+            ValueB = new string[] { "x", "y", "z" }
+        });
+    
+        var right =DataFrame.FromColumns(new
+        {
+            Id = new[] { 2, 3, 4 },
+            ValueA = new int?[] { 200, null, 400 }, 
+            ValueB = new string[] { "yy", "zz", "ww" }
+        });
+    
+        // Act
+        var result = left.Update(
+            right, 
+            on: ["Id"], 
+            how: JoinType.Outer,
+            maintainOrder: JoinMaintainOrder.Left
+        );
+
+        // Assert
+        var idArray = result["Id"].ToArray<int>();
+        var valAArray = result["ValueA"].ToArray<int?>();
+
+        Assert.Equal([1, 2, 3, 4], idArray);
+
+        // Id 1: 10
+        // Id 2: 200 (updated)
+        // Id 3: 30  (keep)
+        // Id 4: 400 (added)
+        Assert.Equal([10, 200, 30, 400], valAArray);
+    }
 }

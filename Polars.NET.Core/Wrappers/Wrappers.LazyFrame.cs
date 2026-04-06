@@ -524,6 +524,13 @@ public readonly partial struct PolarsWrapper
         
         return ErrorHelper.Check(h);
     }
+    public static LazyFrameHandle LazyFrameWithRowIndex(LazyFrameHandle lf, string name, int? offset = null)
+    {
+        long rustOffset = offset ?? -1L;
+        var h = NativeBindings.pl_lazyframe_with_row_index(lf, name, rustOffset);
+        lf.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     public static LazyFrameHandle MergeSorted(
         LazyFrameHandle lf,
         LazyFrameHandle other,

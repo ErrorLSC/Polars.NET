@@ -1050,6 +1050,35 @@ pub unsafe extern "C" fn pl_lazyframe_get_schema(lf_ptr: *mut LazyFrameContext) 
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_lazyframe_with_row_index(
+    lf_ptr: *mut LazyFrameContext,
+    name: *const c_char,
+    offset_val: i64, 
+) -> *mut LazyFrameContext {
+    ffi_try!({
+       
+        let ctx = unsafe { Box::from_raw(lf_ptr) };
+        
+        let name_str = if name.is_null() {
+            "index".to_string()
+        } else {
+            unsafe { CStr::from_ptr(name) }.to_string_lossy().into_owned()
+        };
+        
+        let offset = if offset_val < 0 {
+            None
+        } else {
+            Some(offset_val as u32)
+        };
+        
+        let new_lf = ctx.inner.with_row_index(name_str.as_str(), offset);
+        
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
+    })
+}
+
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_lazy_explain(lf_ptr: *mut LazyFrameContext, optimized: bool) -> *mut c_char {
     ffi_try!({
         let ctx = unsafe { &*lf_ptr };

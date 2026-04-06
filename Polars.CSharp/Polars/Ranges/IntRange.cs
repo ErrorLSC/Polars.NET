@@ -32,8 +32,7 @@ public readonly partial struct Polars
     public static Series IntRangeAsSeries(IntoExpr start, IntoExpr? end=null, long step = 1, string name = "int", DataType? dtype = null)
     {
         var expr = IntRange(start,end,step,dtype);
-        using var df = new DataFrame().WithColumns(expr);
-        var series = df[0];
+        Series series = Series(expr);
         series.Rename(name);
         return series;
     }
@@ -62,8 +61,7 @@ public readonly partial struct Polars
     public static Series IntRangesAsSeries(IntoExpr start, IntoExpr? end=null, IntoExpr? step = null, string name = "int", DataType? dtype = null)
     {
         var expr = IntRanges(start,end,step,dtype);
-        using var df = new DataFrame().WithColumns(expr);
-        var series = df[0];
+        Series series = Series(expr);
         series.Rename(name);
         return series;
     }

@@ -1,5 +1,4 @@
 using Polars.NET.Core;
-
 namespace Polars.CSharp;
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 {
@@ -23,6 +22,32 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         }
 
         return new LazyFrame(PolarsWrapper.LazyWithColumns(CloneHandle(), handles));
+    }
+    /// <summary>
+    /// Add or overwrite multiple columns from a collection of Expressions.
+    /// </summary>
+    public LazyFrame WithColumns(IEnumerable<Expr> exprs)
+    {
+        if (exprs == null) return this;
+        return WithColumns(exprs.Select(e => (IntoExpr)e).ToArray());
+    }
+
+    /// <summary>
+    /// Add or overwrite multiple columns from a collection of mixed IntoExpr types.
+    /// </summary>
+    public LazyFrame WithColumns(IEnumerable<IntoExpr> exprs)
+    {
+        if (exprs == null) return this;
+        return WithColumns(exprs.ToArray());
+    }
+
+    /// <summary>
+    /// Add or overwrite multiple columns from a collection of string column names.
+    /// </summary>
+    public LazyFrame WithColumns(IEnumerable<string> columns)
+    {
+        if (columns == null) return this;
+        return WithColumns(columns.Select(c => (IntoExpr)c).ToArray());
     }
 }
 
@@ -67,4 +92,18 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </code>
     /// </example>
     public DataFrame WithColumns(params IntoExpr[] exprs) => Lazy().WithColumns(exprs).Collect();
+    /// <summary>
+    /// Add or overwrite multiple columns from a collection of Expressions.
+    /// </summary>
+    public DataFrame WithColumns(IEnumerable<Expr> exprs) => Lazy().WithColumns(exprs).Collect();
+
+    /// <summary>
+    /// Add or overwrite multiple columns from a collection of mixed IntoExpr types.
+    /// </summary>
+    public DataFrame WithColumns(IEnumerable<IntoExpr> exprs) => Lazy().WithColumns(exprs).Collect();
+
+    /// <summary>
+    /// Add or overwrite multiple columns from a collection of string column names.
+    /// </summary>
+    public DataFrame WithColumns(IEnumerable<string> columns) => Lazy().WithColumns(columns).Collect();
 }

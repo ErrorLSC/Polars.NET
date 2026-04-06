@@ -73,6 +73,15 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(NativeBindings.pl_expr_lit_i128(lowPart, highPart));
     }
 
+    // public static ExprHandle Lit(UInt128 value)
+    // {
+    //     ulong low = (ulong)value;        
+    //     ulong high = (ulong)(value >> 64); 
+
+    //     var handle = NativeBindings.pl_expr_lit_u128(low, high);
+    //     return ErrorHelper.Check(handle);
+    // }
+
     public static ExprHandle Lit(string val) => ErrorHelper.Check(NativeBindings.pl_expr_lit_str(val));
     public static ExprHandle Lit(double val) => ErrorHelper.Check(NativeBindings.pl_expr_lit_f64(val));
     public static ExprHandle Lit(float val) => ErrorHelper.Check(NativeBindings.pl_expr_lit_f32(val));
@@ -629,7 +638,15 @@ public readonly partial struct PolarsWrapper
             }
         }
     }
+    public static ExprHandle Coalesce(ExprHandle[] handles)
+    {
+        if (handles == null || handles.Length == 0)
+            throw new ArgumentException("Coalesce requires at least one expression.");
 
+        nint[] ptrs = HandlesToPtrs(handles);
+
+        return NativeBindings.pl_expr_coalesce(ptrs, (nuint)ptrs.Length);
+    }
     // Null Handling
     public static ExprHandle FillNull(ExprHandle expr, ExprHandle fillValue) 
         => BinaryOp(NativeBindings.pl_expr_fill_null, expr, fillValue);
@@ -1051,7 +1068,7 @@ public readonly partial struct PolarsWrapper
     }
     public static ExprHandle IfElse(ExprHandle pred, ExprHandle ifTrue, ExprHandle ifFalse)
     {
-        var h = NativeBindings.pl_expr_if_else(pred, ifTrue, ifFalse);
+        var h = NativeBindings.pl_expr_ternary(pred, ifTrue, ifFalse);
         
         pred.TransferOwnership();
         ifTrue.TransferOwnership();

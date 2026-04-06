@@ -316,4 +316,10 @@ public readonly partial struct PolarsWrapper
         bool success = NativeBindings.pl_dataframe_replace(df, name, series);
         ErrorHelper.CheckBool(success);
     }
+    public static DataFrameHandle DataFrameWithRowIndex(DataFrameHandle df, string name, int? offset = null)
+    {
+        long rustOffset = offset ?? -1L;
+        var h = NativeBindings.pl_dataframe_with_row_index(df, name, rustOffset);
+        return ErrorHelper.Check(h);
+    }
 }

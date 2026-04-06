@@ -5,7 +5,7 @@ namespace Polars.CSharp;
 
 public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
 {
-       /// <summary>
+    /// <summary>
     /// Get a column as a Series by name.
     /// </summary>
     public Series Column(string name)

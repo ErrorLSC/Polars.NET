@@ -40,8 +40,7 @@ public readonly partial struct Polars
     {
         var expr = LinearSpace(start, end, numSamples, closed);
         
-        using var df = new DataFrame().WithColumns(expr);
-        var series = df[0];
+        Series series = Series(expr);
         series.Rename(name);
         
         return series;
@@ -90,9 +89,7 @@ public readonly partial struct Polars
         string name = "linear_spaces")
     {
         var expr = LinearSpaces(start, end, numSamples, closed, asArray);
-        
-        using var df = new DataFrame().WithColumns(expr);
-        var series = df[0];
+        Series series = Series(expr);
         series.Rename(name);
         
         return series;

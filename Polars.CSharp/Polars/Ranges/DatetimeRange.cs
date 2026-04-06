@@ -47,8 +47,7 @@ public readonly partial struct Polars
         string name="datetime")
     {
         var expr = DatetimeRange(start,end,interval,closed,unit,timeZone);
-        using var df = new DataFrame().WithColumns(expr);
-        var series = df[0];
+        Series series = Series(expr);
         series.Rename(name);
         return series;
     }
@@ -90,8 +89,7 @@ public readonly partial struct Polars
         string name="datetime")
     {
         var expr = DatetimeRanges(start,end,interval,closed,unit,timeZone);
-        using var df = new DataFrame().WithColumns(expr);
-        var series = df[0];
+        Series series = Series(expr);
         series.Rename(name);
         return series;
     }

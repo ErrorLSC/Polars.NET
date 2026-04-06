@@ -1102,4 +1102,12 @@ public class DataTypeTests
         Assert.Equal(99.5, unnestedDf.GetValue<double>(0, "Score"));
         Assert.True(unnestedDf.GetValue<bool>(0, "IsActive"));
     }
+    [Fact]
+    [Trait("DataType","128bytes")]
+    public void Test_Int128_UInt128()
+    {
+        Expr exprI128 = Lit(Int128.MinValue).Alias("i128");
+        var seriesI128 = Series.FromExpr(exprI128);
+        Assert.Equal(Int128.MinValue,seriesI128[0]);
+    }
 }

@@ -1,4 +1,3 @@
-#pragma warning disable CS1591 
 using Polars.NET.Core;
 using Cs = Polars.CSharp.Polars.Selectors;
 using Pl = Polars.CSharp.Polars;
@@ -214,18 +213,18 @@ public sealed class LazyGroupBy : IDisposable
 
         var aggHandles = aggs.Select(a => PolarsWrapper.CloneExpr(a.Handle)).ToArray();
         ExprHandle? havingHandle = _havingExpr is not null ? PolarsWrapper.CloneExpr(_havingExpr.Handle) : null;
-
+        LazyFrameHandle clonedLf = PolarsWrapper.LazyClone(_lfHandle);
         var keysForRust = _keys.Select(k => PolarsWrapper.CloneExpr(k.Handle)).ToArray();
         LazyFrameHandle resHandle = _type switch
         {
             GroupByType.Standard => PolarsWrapper.LazyGroupByAgg(
-                                _lfHandle, keysForRust, aggHandles, havingHandle, _maintainOrder),
+                                clonedLf, keysForRust, aggHandles, havingHandle, _maintainOrder),
             GroupByType.Dynamic => PolarsWrapper.LazyGroupByDynamic(
-                                _lfHandle, _indexColumn!, _every!, _period!, _offset!,
+                                clonedLf, _indexColumn!, _every!, _period!, _offset!,
                                 _label.ToNative(), _includeBoundaries, _closedWindow.ToNative(), _startBy.ToNative(),
                                 keysForRust, aggHandles, havingHandle),
             GroupByType.Rolling => PolarsWrapper.LazyGroupByRolling(
-                                _lfHandle, _indexColumn!, _period!, _offset!, _closedWindow.ToNative(),
+                                clonedLf, _indexColumn!, _period!, _offset!, _closedWindow.ToNative(),
                                 keysForRust, aggHandles, havingHandle),
             _ => throw new InvalidOperationException("Unknown GroupBy mode."),
         };

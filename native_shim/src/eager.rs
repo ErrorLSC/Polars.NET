@@ -889,3 +889,31 @@ pub extern "C" fn pl_dataframe_replace(
         Ok(())
     })
 }
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_dataframe_with_row_index(
+    df_ptr: *mut DataFrameContext,
+    name: *const c_char,
+    offset_val: i64, 
+) -> *mut DataFrameContext {
+    ffi_try!({
+       
+        let ctx = unsafe { &mut *df_ptr  };
+        
+        let name_str = if name.is_null() {
+            "index".to_string()
+        } else {
+            unsafe { CStr::from_ptr(name) }.to_string_lossy().into_owned()
+        };
+        
+        let offset = if offset_val < 0 {
+            None
+        } else {
+            Some(offset_val as u32)
+        };
+        
+        let new_df = ctx.df.with_row_index(name_str.into(), offset)?;
+        
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
+    })
+}

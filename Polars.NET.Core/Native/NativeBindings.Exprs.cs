@@ -43,6 +43,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lit_i64(long val);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lit_u64(ulong val);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lit_i128(ulong low,long high);
+    // [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lit_u128(ulong low,ulong high);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_lit_decimal(
         ulong low, 
@@ -90,6 +91,8 @@ unsafe internal partial class NativeBindings
         bool* descending, 
         UIntPtr desc_len
     );
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_coalesce(nint[] exprPtrs,nuint len);
     // Reverse
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_reverse(ExprHandle expr);
     // Arithmetic
@@ -595,7 +598,7 @@ unsafe internal partial class NativeBindings
         ExprHandle by,
         PlClosedWindow closed
     );
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_if_else(ExprHandle pred, ExprHandle ifTrue, ExprHandle ifFalse);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_ternary(ExprHandle pred, ExprHandle ifTrue, ExprHandle ifFalse);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_extend_constant(ExprHandle e, ExprHandle value, ExprHandle n);
     // Statistical
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_count(ExprHandle e);

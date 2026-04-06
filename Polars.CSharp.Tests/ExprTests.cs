@@ -2716,6 +2716,7 @@ TooShort,1990-05-20,1.60";
     }
 
     [Fact]
+    [Trait("Expr", "Equality")]
     public void Test_Equals_InCollections_ShouldWorkNatively()
     {
         var target = Col("Score").Mean();
@@ -2728,5 +2729,148 @@ TooShort,1990-05-20,1.60";
         };
 
         Assert.Contains(target, list);
+    }
+    [Fact]
+    [Trait("Expr", "When")]
+    public void Test_Chained_When_Then_Otherwise_Evaluates_Correctly()
+    {
+        var df = DataFrame.FromSeries(
+            Series.From("age", [15, 30, 75])
+        );
+
+        var resultDf = df.Select(
+            When(Col("age") < 18).Then(222)
+                .When(Col("age") < 65).Then(666)
+                .Otherwise(888)
+                .Alias("AgeGroup")
+        );
+
+        var resultSeries = resultDf["AgeGroup"];
+
+        Assert.Equal(3, resultSeries.Length);
+        
+        Assert.Equal(222, resultSeries[0]);
+        Assert.Equal(666, resultSeries[1]);
+        Assert.Equal(888, resultSeries[2]);
+    }
+    
+    [Fact]
+    [Trait("Expr", "When")]
+    public void Test_Single_When_Then_Otherwise()
+    {
+        var df = DataFrame.FromColumns(
+            Series.From("value", [1, 5, 10])
+        );
+
+        var resultDf = df.Select(
+            When(Col("value") > 5).Then(Lit("High"))
+                .Otherwise(Lit("Low"))
+                .Alias("Category")
+        );
+
+        var resultList = resultDf["Category"];
+
+        Assert.Equal("Low", resultList[0]);  // 1 <= 5
+        Assert.Equal("Low", resultList[1]);  // 5 <= 5
+        Assert.Equal("High", resultList[2]); // 10 > 5
+    }
+    private static DataFrame GetTestData()
+    {
+        return DataFrame.FromColumns(new
+        {
+            A = new int?[] { 1, null, 3, null, null },
+            B = new int?[] { null, 2, null, 4, null },
+            C = new int?[] { null, null, null, null, 5 }
+        });
+    }
+
+    [Fact]
+    [Trait("Expr", "Coalesce")]
+    public void Coalesce_StaticApi_ShouldMergeMultipleColumns()
+    {
+        // Arrange
+        var df = GetTestData();
+
+        // Act
+        // Polars.Coalesce("A", "B", "C")
+        var result = df.Select(
+            Coalesce("A", "B", "C").Alias("merged")
+        );
+
+        // Assert
+        var mergedArray = result["merged"].ToArray<int?>();
+        
+        // A, B, C 三列互补，最终应该合并出 1, 2, 3, 4, 5
+        Assert.Equal([1, 2, 3, 4, 5], mergedArray);
+    }
+
+    [Fact]
+    [Trait("Expr", "Coalesce")]
+    public void Coalesce_InstanceApi_ShouldMergeFluently()
+    {
+        // Arrange
+        var df = GetTestData();
+
+        // Act
+        // Col("A").Coalesce("B", "C")
+        var result = df.Select(
+            Col("A").Coalesce("B", "C").Alias("merged")
+        );
+
+        // Assert
+        var mergedArray = result["merged"].ToArray<int?>();
+        Assert.Equal([1, 2, 3, 4, 5], mergedArray);
+    }
+
+    [Fact]
+    [Trait("Expr", "Coalesce")]
+    public void Coalesce_WithLiteral_ShouldFallbackToScalar()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            A = new int?[] { 10, null, 30, null }
+        });
+
+        // Act
+        // Col("A").Coalesce(99)
+        var result = df.Select(
+            Col("A").Coalesce(99).Alias("filled")
+        );
+
+        // Assert
+        var filledArray = result["filled"].ToArray<int?>();
+        
+        Assert.Equal([10, 99, 30, 99], filledArray);
+    }
+
+    [Fact]
+    [Trait("Expr", "Coalesce")]
+    public void CoalesceEager_WithSeries_ShouldReturnEvaluatedSeries()
+    {
+        // Arrange
+        var df = GetTestData();
+        Series seriesA = df["A"];
+        Series seriesB = df["B"];
+        Series seriesC = df["C"];
+
+        // Act
+        var resultSeries = CoalesceAsSeries(seriesA, seriesB, seriesC);
+
+        // Assert
+        var resultArray = resultSeries.ToArray<int?>();
+        Assert.Equal([1, 2, 3, 4, 5], resultArray);
+    }
+
+    [Fact]
+    [Trait("Expr", "Coalesce")]
+    public void Coalesce_EmptyArguments_ShouldThrowArgumentException()
+    {
+        // Arrange & Act & Assert
+        var exception1 = Assert.Throws<ArgumentException>(() => Coalesce());
+        Assert.Contains("At least one expression must be provided", exception1.Message);
+
+        var exception2 = Assert.Throws<ArgumentException>(() => CoalesceAsSeries());
+        Assert.Contains("At least one expression must be provided", exception2.Message);
     }
 }   

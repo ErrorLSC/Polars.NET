@@ -26,10 +26,20 @@ public readonly struct IntoExpr
     public static implicit operator IntoExpr(TimeOnly time) => new(Pl.Lit(time), ownsExpr: true);
     public static implicit operator IntoExpr(TimeSpan ts) => new(Pl.Lit(ts), ownsExpr: true);
     public static implicit operator IntoExpr(DateTimeOffset dtoffset) => new(Pl.Lit(dtoffset), ownsExpr: true);
+    public static implicit operator IntoExpr(sbyte sb) => new(Pl.Lit(sb), ownsExpr: true);
+    public static implicit operator IntoExpr(byte b) => new(Pl.Lit(b), ownsExpr: true);
+    public static implicit operator IntoExpr(short sh) => new(Pl.Lit(sh), ownsExpr: true);
+    public static implicit operator IntoExpr(ushort ush) => new(Pl.Lit(ush), ownsExpr: true);
+    public static implicit operator IntoExpr(uint ui) => new(Pl.Lit(ui), ownsExpr: true);
     public static implicit operator IntoExpr(int i) => new(Pl.Lit(i), ownsExpr: true);
+    public static implicit operator IntoExpr(Half hf) => new(Pl.Lit(hf), ownsExpr: true);
     public static implicit operator IntoExpr(double d) => new(Pl.Lit(d), ownsExpr: true);
     public static implicit operator IntoExpr(float f) => new(Pl.Lit(f), ownsExpr: true);
+    public static implicit operator IntoExpr(ulong ul) => new(Pl.Lit(ul), ownsExpr: true);
     public static implicit operator IntoExpr(long l) => new(Pl.Lit(l), ownsExpr: true);
+    public static implicit operator IntoExpr(decimal dm) => new(Pl.Lit(dm), ownsExpr: true);
+    public static implicit operator IntoExpr(Int128 i128) => new(Pl.Lit(i128), ownsExpr: true);
+    // public static implicit operator IntoExpr(UInt128 u128) => new(Pl.Lit(u128), ownsExpr: true);
 
     private IntoExpr(Expr expr, bool ownsExpr) 
     {

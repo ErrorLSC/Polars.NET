@@ -1012,6 +1012,43 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </code>
     /// </example>
     public Expr Implode() => new(PolarsWrapper.Implode(CloneHandle()));
+    /// <summary>
+    /// Returns the first non-null value between this expression and other expressions.
+    /// Syntactic sugar for <c>Polars.Coalesce(this, others)</c>.
+    /// </summary>
+    /// <param name="others">Fallback expressions, column names, or literals.</param>
+    /// <returns>A new coalesced expression.</returns>
+    /// <example>
+    /// <code>
+    /// // Fill nulls in "val_a" with values from "val_b", and fallback to 0 if both are null
+    /// df.Select(
+    ///     Col("val_a").Coalesce("val_b", 0).Alias("merged_val")
+    /// );
+    /// </code>
+    /// </example>
+    public Expr Coalesce(params IntoExpr[] others)
+    {
+        if (others == null || others.Length == 0) return this;
+
+        var allExprs = new IntoExpr[others.Length + 1];
+        allExprs[0] = this; 
+        
+        for (int i = 0; i < others.Length; i++)
+        {
+            allExprs[i + 1] = others[i];
+        }
+
+        return Pl.Coalesce(allExprs);
+    }
+    internal static Expr Ternary(Expr predicate, Expr truthy, Expr falsy)
+        {
+            var handle = PolarsWrapper.IfElse(
+                predicate.CloneHandle(), 
+                truthy.CloneHandle(), 
+                falsy.CloneHandle());
+                
+            return new Expr(handle);
+        }
     // ==========================================
     // Namespaces
     // ==========================================

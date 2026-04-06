@@ -40,8 +40,7 @@ public readonly partial struct Polars
         string name = "time")
     {
         var expr = TimeRange(start,end,interval,closed);
-        using var df = new DataFrame().WithColumns(expr);
-        var series = df[0];
+        Series series = Series(expr);
         series.Rename(name);
         return series;
     }
@@ -79,8 +78,7 @@ public readonly partial struct Polars
         string name = "time")
     {
         var expr = TimeRanges(start,end,interval,closed);
-        using var df = new DataFrame().WithColumns(expr);
-        var series = df[0];
+        Series series = Series(expr);
         series.Rename(name);
         return series;
     }

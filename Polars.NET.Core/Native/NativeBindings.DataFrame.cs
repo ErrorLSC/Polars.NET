@@ -190,4 +190,10 @@ unsafe internal partial class NativeBindings
         string name,
         SeriesHandle series
     );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial DataFrameHandle pl_dataframe_with_row_index(
+        DataFrameHandle lf, 
+        string name, 
+        long offset
+    );
 }

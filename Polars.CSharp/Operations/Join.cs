@@ -190,7 +190,87 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
             maintainOrder.ToNative(), joinSide.ToNative(), nullsEqual, sliceOffset, sliceLen
         ));
     }
+    /// <summary>
+    /// Join using multiple shared expressions (or mixed strings/exprs via IntoExpr).
+    /// Usage: lf.Join(other, on: [Pl.Col("date"), Pl.Col("region")])
+    /// </summary>
+    public LazyFrame Join(
+        LazyFrame other,
+        IEnumerable<IntoExpr> on,
+        JoinType how = JoinType.Inner,
+        string? suffix = null,
+        JoinValidation validation = JoinValidation.ManyToMany,
+        JoinCoalesce coalesce = JoinCoalesce.JoinSpecific,
+        JoinMaintainOrder maintainOrder = JoinMaintainOrder.None,
+        JoinSide joinSide = JoinSide.LetPolarsDecide,
+        bool nullsEqual = false,
+        long? sliceOffset = null,
+        ulong sliceLen = 0)
+    {
+        var arr = on as IntoExpr[] ?? [.. on];
 
+        var lOn = new ExprHandle[arr.Length];
+        var rOn = new ExprHandle[arr.Length];
+
+        for (int i = 0; i < arr.Length; i++)
+        {
+            using var safeExpr = arr[i].Consume();
+            
+            lOn[i] = PolarsWrapper.CloneExpr(safeExpr.Handle);
+            rOn[i] = PolarsWrapper.CloneExpr(safeExpr.Handle);
+        }
+
+        return new LazyFrame(PolarsWrapper.Join(
+            CloneHandle(), other.CloneHandle(), lOn, rOn, 
+            how.ToNative(), suffix, validation.ToNative(), coalesce.ToNative(), 
+            maintainOrder.ToNative(), joinSide.ToNative(), nullsEqual, sliceOffset, sliceLen
+        ));
+    }
+    /// <summary>
+    /// Join using specific multiple expressions. (C# Array Covariance Helper)
+    /// Usage: lf.Join(other, leftOn: new[] { Pl.Col("A") }, rightOn: new[] { Pl.Col("B") })
+    /// </summary>
+    public LazyFrame Join(
+        LazyFrame other,
+        IEnumerable<Expr> leftOn,
+        IEnumerable<Expr> rightOn,
+        JoinType how = JoinType.Inner,
+        string? suffix = null,
+        JoinValidation validation = JoinValidation.ManyToMany,
+        JoinCoalesce coalesce = JoinCoalesce.JoinSpecific,
+        JoinMaintainOrder maintainOrder = JoinMaintainOrder.None,
+        JoinSide joinSide = JoinSide.LetPolarsDecide,
+        bool nullsEqual = false,
+        long? sliceOffset = null,
+        ulong sliceLen = 0)
+    {
+        var lArr = leftOn.Select(e => (IntoExpr)e).ToArray();
+        var rArr = rightOn.Select(e => (IntoExpr)e).ToArray();
+
+        return Join(other, lArr, rArr, how, suffix, validation, coalesce, maintainOrder, joinSide, nullsEqual, sliceOffset, sliceLen);
+    }
+
+    /// <summary>
+    /// Join using multiple shared expressions. (C# Array Covariance Helper)
+    /// Usage: lf.Join(other, on: new[] { Pl.Col("A"), Pl.Col("B") })
+    /// </summary>
+    public LazyFrame Join(
+        LazyFrame other,
+        IEnumerable<Expr> on,
+        JoinType how = JoinType.Inner,
+        string? suffix = null,
+        JoinValidation validation = JoinValidation.ManyToMany,
+        JoinCoalesce coalesce = JoinCoalesce.JoinSpecific,
+        JoinMaintainOrder maintainOrder = JoinMaintainOrder.None,
+        JoinSide joinSide = JoinSide.LetPolarsDecide,
+        bool nullsEqual = false,
+        long? sliceOffset = null,
+        ulong sliceLen = 0)
+    {
+        var onArr = on.Select(e => (IntoExpr)e).ToArray();
+
+        return Join(other, onArr, how, suffix, validation, coalesce, maintainOrder, joinSide, nullsEqual, sliceOffset, sliceLen);
+    }
     /// <summary>
     /// Perform an As-of join (also known as a time-series join).
     /// <para>
@@ -654,6 +734,101 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         return Lazy().Join(
             right, 
             on,
+            how, 
+            suffix, 
+            validation, 
+            coalesce, 
+            maintainOrder, 
+            joinSide,
+            nullsEqual, 
+            sliceOffset, 
+            sliceLen
+        ).Collect();
+    }
+    public DataFrame Join(
+        DataFrame other,
+        IEnumerable<IntoExpr> on,
+        JoinType how = JoinType.Inner,
+        string? suffix = null,
+        JoinValidation validation = JoinValidation.ManyToMany,
+        JoinCoalesce coalesce = JoinCoalesce.JoinSpecific,
+        JoinMaintainOrder maintainOrder = JoinMaintainOrder.None,
+        JoinSide joinSide = JoinSide.LetPolarsDecide,
+        bool nullsEqual = false,
+        long? sliceOffset = null,
+        ulong sliceLen = 0)
+    {
+        using var right = other.Lazy();
+        return Lazy().Join(
+            right, 
+            on,
+            how, 
+            suffix, 
+            validation, 
+            coalesce, 
+            maintainOrder, 
+            joinSide,
+            nullsEqual, 
+            sliceOffset, 
+            sliceLen
+        ).Collect();
+    }
+    /// <summary>
+    /// Join using specific multiple expressions. (C# Array Covariance Helper)
+    /// Usage: lf.Join(other, leftOn: [Pl.Col("A")], rightOn: [Pl.Col("B")])
+    /// </summary>
+    public DataFrame Join(
+        DataFrame other,
+        IEnumerable<Expr> leftOn,
+        IEnumerable<Expr> rightOn,
+        JoinType how = JoinType.Inner,
+        string? suffix = null,
+        JoinValidation validation = JoinValidation.ManyToMany,
+        JoinCoalesce coalesce = JoinCoalesce.JoinSpecific,
+        JoinMaintainOrder maintainOrder = JoinMaintainOrder.None,
+        JoinSide joinSide = JoinSide.LetPolarsDecide,
+        bool nullsEqual = false,
+        long? sliceOffset = null,
+        ulong sliceLen = 0)
+    {
+        using var right = other.Lazy();
+        return Lazy().Join(
+            right, 
+            leftOn, 
+            rightOn, 
+            how, 
+            suffix, 
+            validation, 
+            coalesce, 
+            maintainOrder, 
+            joinSide,
+            nullsEqual, 
+            sliceOffset, 
+            sliceLen
+        ).Collect();
+    }
+
+    /// <summary>
+    /// Join using multiple shared expressions. (C# Array Covariance Helper)
+    /// Usage: df.Join(other, on: [Pl.Col("A"), Pl.Col("B")])
+    /// </summary>
+    public DataFrame Join(
+        DataFrame other,
+        IEnumerable<Expr> on,
+        JoinType how = JoinType.Inner,
+        string? suffix = null,
+        JoinValidation validation = JoinValidation.ManyToMany,
+        JoinCoalesce coalesce = JoinCoalesce.JoinSpecific,
+        JoinMaintainOrder maintainOrder = JoinMaintainOrder.None,
+        JoinSide joinSide = JoinSide.LetPolarsDecide,
+        bool nullsEqual = false,
+        long? sliceOffset = null,
+        ulong sliceLen = 0)
+    {
+        using var right = other.Lazy();
+        return Lazy().Join(
+            right, 
+            on, 
             how, 
             suffix, 
             validation, 
