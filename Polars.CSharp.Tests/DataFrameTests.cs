@@ -1681,4 +1681,37 @@ B,5";
         // Id 4: 400 (added)
         Assert.Equal([10, 200, 30, 400], valAArray);
     }
+    [Fact]
+    [Trait("DataFrame", "Merge")]
+    public void MergeBuilder_WithSelector_ShouldResolveColumnsDynamically()
+    {
+        // Arrange
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id1 = new[] { 1, 2 },
+            Id2 = new[] { 10, 20 },
+            Name = new[] { "A", "B" },
+            Value = new[] { 100.0, 200.0 }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id1 = new[] { 2, 3 },
+            Id2 = new[] { 20, 30 },
+            Name = new[] { "B_Updated", "C_New" },
+            Value = new[] { 999.0, 888.0 }
+        });
+
+        var resultDf = targetDf.Merge(sourceDf, on: Cs.StartsWith("Id"))
+            .WhenMatchedUpdate()
+            .WhenNotMatchedInsert()
+            .Execute();
+
+        // Assert
+        var id1Array = resultDf["Id1"].ToArray<int>();
+        var nameArray = resultDf["Name"].ToArray<string>();
+
+        Assert.Equal([1, 2, 3], id1Array);
+        Assert.Equal(["A", "B_Updated", "C_New"], nameArray);
+    }
 }

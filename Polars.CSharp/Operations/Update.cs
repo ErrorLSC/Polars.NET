@@ -1,4 +1,4 @@
-using System.Security.AccessControl;
+#pragma warning disable CS1591
 using Polars.NET.Core;
 using Cs = Polars.CSharp.Polars.Selectors;
 using Pl = Polars.CSharp.Polars;
@@ -167,6 +167,25 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
 
         return result;
     }
+    /// <summary>
+    /// Initiates a Merge (Upsert) builder to seamlessly apply changes from a source DataFrame.
+    /// </summary>
+    public LazyFrameMergeBuilder Merge(LazyFrame source, params string[] on) => new(this, source, on);
+    /// <summary>
+    /// Initiates a Merge builder using a Selector or Column Expression.
+    /// Usage: lf.Merge(other, Cs.Numeric()) or lf.Merge(other, Pl.Col("^id_.*$"))
+    /// </summary>
+    public LazyFrameMergeBuilder Merge(LazyFrame source, IntoSelector on)
+    {
+        using var selector = on.Consume();
+        
+        string[] resolvedOn = Cs.ExpandSelector(this, selector);
+        
+        if (resolvedOn.Length == 0)
+            throw new ArgumentException("The provided selector/expression did not match any columns in the target frame.");
+
+        return new LazyFrameMergeBuilder(this, source, resolvedOn);
+    }
 }
 
 public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
@@ -183,5 +202,117 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         using var right = other.Lazy();
         return Lazy().Update(right,on,how,leftOn,rightOn,includeNulls,maintainOrder).Collect();
+    }
+    /// <summary>
+    /// Initiates a Merge (Upsert) builder to seamlessly apply changes from a source DataFrame.
+    /// </summary>
+    /// <param name="source">The source DataFrame containing updates/inserts.</param>
+    /// <param name="on">The column names to merge on.</param>
+    public DataFrameMergeBuilder Merge(DataFrame source, params string[] on)
+        =>new(Lazy(), source.Lazy(), on);
+    /// <summary>
+    /// Initiates an eager Merge builder using a Selector or Column Expression.
+    /// </summary>
+    public DataFrameMergeBuilder Merge(DataFrame source, IntoSelector on)
+    {
+        using var selector = on.Consume();
+        
+        string[] resolvedOn = Cs.ExpandSelector(this, selector);
+
+        if (resolvedOn.Length == 0)
+            throw new ArgumentException("The provided selector/expression did not match any columns in the target DataFrame.");
+
+        return new DataFrameMergeBuilder(Lazy(), source.Lazy(), resolvedOn);
+    }
+}
+
+/// <summary>
+/// A builder for Polars Merge
+/// </summary>
+public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBase<TBuilder>
+{
+    protected readonly LazyFrame _target;
+    protected readonly LazyFrame _source;
+    protected readonly string[] _on;
+
+    protected bool _matchedUpdate = false;
+    protected bool _notMatchedInsert = false;
+    protected bool _includeNulls = false;
+    protected JoinMaintainOrder _maintainOrder = JoinMaintainOrder.Left;
+
+    protected MergeBuilderBase(LazyFrame target, LazyFrame source, string[] on)
+    {
+        _target = target;
+        _source = source;
+        _on = on;
+    }
+
+    public TBuilder WhenMatchedUpdate()
+    {
+        _matchedUpdate = true;
+        return (TBuilder)this;
+    }
+
+    public TBuilder WhenNotMatchedInsert()
+    {
+        _notMatchedInsert = true;
+        return (TBuilder)this;
+    }
+
+    public TBuilder IncludeNulls(bool include = true)
+    {
+        _includeNulls = include;
+        return (TBuilder)this;
+    }
+
+    public TBuilder MaintainOrder(JoinMaintainOrder order)
+    {
+        _maintainOrder = order;
+        return (TBuilder)this;
+    }
+
+    protected LazyFrame BuildAst()
+    {
+        if (!_matchedUpdate && !_notMatchedInsert)
+        {
+            _matchedUpdate = true;
+            _notMatchedInsert = true;
+        }
+
+        JoinType how = _notMatchedInsert ? JoinType.Outer : JoinType.Left;
+
+        return _target.Update(
+            other: _source,
+            on: _on,
+            how: how,
+            includeNulls: _includeNulls,
+            maintainOrder: _maintainOrder
+        );
+    }
+}
+
+public class DataFrameMergeBuilder : MergeBuilderBase<DataFrameMergeBuilder>
+{
+    internal DataFrameMergeBuilder(LazyFrame target, LazyFrame source, string[] on) 
+        : base(target, source, on) { }
+
+    /// <summary>
+    /// Executes the merge operation eagerly and returns a materialized DataFrame.
+    /// </summary>
+    public DataFrame Execute() => BuildAst().Collect();
+    
+}
+
+public class LazyFrameMergeBuilder : MergeBuilderBase<LazyFrameMergeBuilder>
+{
+    internal LazyFrameMergeBuilder(LazyFrame target, LazyFrame source, string[] on) 
+        : base(target, source, on) { }
+
+    /// <summary>
+    /// Computes the merge execution plan and returns a LazyFrame.
+    /// </summary>
+    public LazyFrame Execute()
+    {
+        return BuildAst();
     }
 }
