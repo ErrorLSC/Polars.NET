@@ -63,6 +63,10 @@ public readonly partial struct Polars
         /// </summary>
         public static Selector Exclude(params ReadOnlySpan<DataType> dtypes) => All().Exclude(dtypes);
         /// <summary>
+        /// Select all columns EXCEPT the specified Column names.
+        /// </summary>
+        public static Selector Exclude(params string[] columns) => All().Exclude(columns);
+        /// <summary>
         /// Select the first column.
         /// </summary>
         public static Selector First() => ByIndex([0L]);

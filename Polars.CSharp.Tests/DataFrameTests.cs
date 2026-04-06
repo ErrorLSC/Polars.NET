@@ -1732,9 +1732,9 @@ B,5";
 
         // Act
         var resultDf = targetDf.Merge(sourceDf, "Id")
-            .WhenMatchedDelete(condition: Pl.Col("Status__TMP") == "Deleted")
-            .WhenMatchedUpdate(condition: Pl.Col("Score__TMP") > Pl.Col("Score"))
-            .WhenNotMatchedInsert(condition: Pl.Col("Status__TMP") == "Active")
+            .WhenMatchedDelete(m => m.Source("Status") == "Deleted")
+            .WhenMatchedUpdate(m => m.Source("Score") > m.Target("Score"))
+            .WhenNotMatchedInsert(m => m.Source("Status") == "Active")
             .Execute(); 
 
         resultDf = resultDf.Sort("Id");
@@ -1763,8 +1763,8 @@ B,5";
         });
 
         var mergeBuilder = targetDf.Merge(sourceDf, "Id")
-            .WhenMatchedDelete(Pl.Col("Score__TMP") > 90)
-            .WhenMatchedUpdate(Pl.Col("Score__TMP") > 10)
+            .WhenMatchedDelete(m => m.Source("Score") > 90)
+            .WhenMatchedUpdate(m => m.Source("Score") > 10)
             .WhenNotMatchedInsert().MaintainOrder(JoinMaintainOrder.Left);
 
         string plan = mergeBuilder.Explain(optimized: true);

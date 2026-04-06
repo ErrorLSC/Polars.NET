@@ -1,6 +1,6 @@
 using Polars.Integration.Tests.Fixtures;
 using Polars.CSharp;
-using static Polars.CSharp.Polars;
+using Pl = Polars.CSharp.Polars;
 using System.Text;
 using Minio;
 using Minio.DataModel.Args;
@@ -595,7 +595,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         
         // Predicate: (Year == '2024') & (Id == 4)
-        var predicateRewrite = (Col("Year") == Lit("2024")) & (Col("Id")==4);
+        var predicateRewrite = (Pl.Col("Year") == Pl.Lit("2024")) & (Pl.Col("Id")==4);
         
         Delta.Delete(rootUrl, predicateRewrite, cloudOptions: options);
 
@@ -610,7 +610,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
 
         
-        var predicateDrop = Col("Year") == Lit("2023");
+        var predicateDrop = Pl.Col("Year") == Pl.Lit("2023");
         
         Delta.Delete(rootUrl, predicateDrop, cloudOptions: options);
 
@@ -625,7 +625,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
 
         
-        var predicateNoOp = Col("Id") == 999;
+        var predicateNoOp = Pl.Col("Id") == 999;
         
         Delta.Delete(rootUrl, predicateNoOp, cloudOptions: options);
 
@@ -690,7 +690,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         int[] validIds = [0,2,4];
         
-        var predicate = Col("Id").IsIn(Lit(validIds).Implode());
+        var predicate = Pl.Col("Id").IsIn(Pl.Lit(validIds).Implode());
         
         Delta.Delete(rootUrl, predicate, cloudOptions: options);
 
@@ -784,22 +784,22 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         Assert.Equal(5, dfMerged.Height);
 
-        var row1 = dfMerged.Filter(Col("OrderId") == 1);
+        var row1 = dfMerged.Filter(Pl.Col("OrderId") == 1);
         Assert.Equal("Shipped", row1["Status"].ToArray<string>()[0]);
         Assert.Equal("2024-01-01", row1["Date"].ToArray<string>()[0]); 
 
-        var row4 = dfMerged.Filter(Col("OrderId") == 4);
+        var row4 = dfMerged.Filter(Pl.Col("OrderId") == 4);
         Assert.Equal("Paid", row4["Status"].ToArray<string>()[0]);
         Assert.Equal("2024-01-01", row4["Date"].ToArray<string>()[0]);
 
-        var row5 = dfMerged.Filter(Col("OrderId") == 5);
+        var row5 = dfMerged.Filter(Pl.Col("OrderId") == 5);
         Assert.Equal("New", row5["Status"].ToArray<string>()[0]);
         Assert.Equal("2024-01-03", row5["Date"].ToArray<string>()[0]);
 
-        var row2 = dfMerged.Filter(Col("OrderId") ==2 );
+        var row2 = dfMerged.Filter(Pl.Col("OrderId") ==2 );
         Assert.Equal("Pending", row2["Status"].ToArray<string>()[0]);
         
-        var row3 = dfMerged.Filter(Col("OrderId")==3);
+        var row3 = dfMerged.Filter(Pl.Col("OrderId")==3);
         Assert.Equal("Pending", row3["Status"].ToArray<string>()[0]);
 
         // ==========================================
@@ -810,10 +810,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         
         using var dfHistory = LazyFrame.ScanDelta(rootUrl, version: 1, cloudOptions: options).Collect().Sort("OrderId");
         
-        var row1Old = dfHistory.Filter(Col("OrderId")==1);
+        var row1Old = dfHistory.Filter(Pl.Col("OrderId")==1);
         Assert.Equal("Pending", row1Old["Status"].ToArray<string>()[0]);
 
-        Assert.Equal(0, dfHistory.Filter(Col("OrderId")==4).Height);
+        Assert.Equal(0, dfHistory.Filter(Pl.Col("OrderId")==4).Height);
 
     }
     [Fact]
@@ -1051,30 +1051,30 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         Assert.Equal(4, dfRes.Height);
 
         // Case 1: Conditional Update
-        var row1 = dfRes.Filter(Col("Id") == 1);
+        var row1 = dfRes.Filter(Pl.Col("Id") == 1);
         Assert.Equal(100, row1["Stock"].ToArray<int>()[0]);
 
         // Case 2: Conditional Update Skip (Keep Target)
-        var row2 = dfRes.Filter(Col("Id") == 2);
+        var row2 = dfRes.Filter(Pl.Col("Id") == 2);
         Assert.Equal(20, row2["Stock"].ToArray<int>()[0]); 
 
         // Case 3: Matched Delete
-        Assert.Equal(0, dfRes.Filter(Col("Id") == 3).Height);
+        Assert.Equal(0, dfRes.Filter(Pl.Col("Id") == 3).Height);
 
         // Case 4: Not Matched By Source Delete (Pruning)
-        Assert.Equal(0, dfRes.Filter(Col("Id") == 4).Height);
+        Assert.Equal(0, dfRes.Filter(Pl.Col("Id") == 4).Height);
 
         // Case 5: Not Matched By Source Keep
-        var row5 = dfRes.Filter(Col("Id") == 5);
+        var row5 = dfRes.Filter(Pl.Col("Id") == 5);
         Assert.Equal(50, row5["Stock"].ToArray<int>()[0]);
 
         // Case 6: Conditional Insert
-        var row6 = dfRes.Filter(Col("Id") == 6);
+        var row6 = dfRes.Filter(Pl.Col("Id") == 6);
         Assert.Equal(60, row6["Stock"].ToArray<int>()[0]);
         Assert.Equal("C", row6["Category"].ToArray<string>()[0]); 
 
         // Case 7: Conditional Insert Skip
-        Assert.Equal(0, dfRes.Filter(Col("Id") == 7).Height);
+        Assert.Equal(0, dfRes.Filter(Pl.Col("Id") == 7).Height);
         Delta.History(path:rootUrl,cloudOptions:options);
         // shape: (3, 16)
         // ┌───────────┬───────────┬───────────┬───────────┬───┬───────────┬───────────┬───────────┬──────────┐
@@ -1182,30 +1182,30 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         Assert.Equal(4, dfRes.Height);
 
         // Case 1: Conditional Update
-        var row1 = dfRes.Filter(Col("Id") == 1);
+        var row1 = dfRes.Filter(Pl.Col("Id") == 1);
         Assert.Equal(100, row1["Stock"].ToArray<int>()[0]);
 
         // Case 2: Conditional Update Skip (Keep Target)
-        var row2 = dfRes.Filter(Col("Id") == 2);
+        var row2 = dfRes.Filter(Pl.Col("Id") == 2);
         Assert.Equal(20, row2["Stock"].ToArray<int>()[0]);
 
         // Case 3: Matched Delete
-        Assert.Equal(0, dfRes.Filter(Col("Id") == 3).Height);
+        Assert.Equal(0, dfRes.Filter(Pl.Col("Id") == 3).Height);
 
         // Case 4: Not Matched By Source Delete
-        Assert.Equal(0, dfRes.Filter(Col("Id") == 4).Height);
+        Assert.Equal(0, dfRes.Filter(Pl.Col("Id") == 4).Height);
 
         // Case 5: Not Matched By Source Keep
-        var row5 = dfRes.Filter(Col("Id") == 5);
+        var row5 = dfRes.Filter(Pl.Col("Id") == 5);
         Assert.Equal(50, row5["Stock"].ToArray<int>()[0]);
 
         // Case 6: Conditional Insert
-        var row6 = dfRes.Filter(Col("Id") == 6);
+        var row6 = dfRes.Filter(Pl.Col("Id") == 6);
         Assert.Equal(60, row6["Stock"].ToArray<int>()[0]);
         Assert.Equal("C", row6["Category"].ToArray<string>()[0]);
 
         // Case 7: Conditional Insert Skip
-        Assert.Equal(0, dfRes.Filter(Col("Id") == 7).Height);
+        Assert.Equal(0, dfRes.Filter(Pl.Col("Id") == 7).Height);
 
         using var dfV1 = LazyFrame.ScanDelta(rootUrl, version: 1, cloudOptions: options).Collect();
         Assert.Equal(5, dfV1.Height);
@@ -1332,25 +1332,25 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         Assert.Equal(4, dfRes.Height);
 
         // Case 1: Composite Match Update
-        var row1 = dfRes.Filter(Col("Region") == "North" & Col("StoreId") == 101);
+        var row1 = dfRes.Filter(Pl.Col("Region") == "North" & Pl.Col("StoreId") == 101);
         Assert.Equal(100, row1["Stock"].ToArray<int>()[0]);
 
         // Case 2: Composite Match Skip
-        var row2 = dfRes.Filter(Col("Region") == "North" & Col("StoreId") == 102);
+        var row2 = dfRes.Filter(Pl.Col("Region") == "North" & Pl.Col("StoreId") == 102);
         Assert.Equal(20, row2["Stock"].ToArray<int>()[0]);
 
         // Case 3: Composite Match Delete (South/101)
-        Assert.Equal(0, dfRes.Filter(Col("Region") == "South" & Col("StoreId") == 101).Height);
+        Assert.Equal(0, dfRes.Filter(Pl.Col("Region") == "South" & Pl.Col("StoreId") == 101).Height);
 
         // Case 4: Not Matched By Source Delete
-        Assert.Equal(0, dfRes.Filter(Col("Region") == "South" & Col("StoreId") == 999).Height);
+        Assert.Equal(0, dfRes.Filter(Pl.Col("Region") == "South" & Pl.Col("StoreId") == 999).Height);
 
         // Case 5: Target Only Keep
-        var rowEast = dfRes.Filter(Col("Region") == "East");
+        var rowEast = dfRes.Filter(Pl.Col("Region") == "East");
         Assert.Equal(50, rowEast["Stock"].ToArray<int>()[0]);
 
         // Case 6: Insert
-        var rowWest = dfRes.Filter(Col("Region") == "West" & Col("StoreId") == 888);
+        var rowWest = dfRes.Filter(Pl.Col("Region") == "West" & Pl.Col("StoreId") == 888);
         Assert.Equal(60, rowWest["Stock"].ToArray<int>()[0]);
 
     }
@@ -1603,10 +1603,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
     using var result = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect();
 
-    int finalValue = (int)result.Filter(Col("Id") ==1)["Value"][0]!;
+    int finalValue = (int)result.Filter(Pl.Col("Id") ==1)["Value"][0]!;
     Assert.True(finalValue > 0, "Id=1 should be updated by someone");
 
-    var countNewRows = result.Filter(Col("Id") > 100).Height;
+    var countNewRows = result.Filter(Pl.Col("Id") > 100).Height;
     Assert.Equal(concurrency, countNewRows);
     }
     [Fact]
@@ -1681,7 +1681,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
 
         for (int i = 1; i <= concurrency; i++)
         {
-            var workerRowCount = result.Filter(Col("WorkerId") == i).Height;
+            var workerRowCount = result.Filter(Pl.Col("WorkerId") == i).Height;
             Assert.Equal(rowsPerWorker, workerRowCount);
         }
 
@@ -2001,7 +2001,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         Assert.Equal(98, afterDf.Height);
         var validIds = new[] {10,99};
         
-        var predicate = Col("Id").IsIn(Lit(validIds).Implode());
+        var predicate = Pl.Col("Id").IsIn(Pl.Lit(validIds).Implode());
         var deletedRows = afterDf.Filter(predicate);
         Assert.Equal(0, deletedRows.Height); 
 
@@ -2010,12 +2010,12 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         Assert.Equal("Even", afterDf["Category"][0]);
         
         // Row 49 (Id=49 is actually at index 48 now because Id=10 is gone)
-        var row49 = afterDf.Filter(Col("Id") == 49);
+        var row49 = afterDf.Filter(Pl.Col("Id") == 49);
         Assert.Equal(49, row49["Id"][0]);
         Assert.Equal("Odd", row49["Category"][0]); 
 
         // Row 98 (Last element, since 99 was deleted)
-        var lastRow = afterDf.Filter(Col("Id") == 98);
+        var lastRow = afterDf.Filter(Pl.Col("Id") == 98);
         Assert.Equal(98, lastRow["Id"][0]);
         Assert.Equal("Even", lastRow["Category"][0]);
         Assert.Equal(147.0, (double)lastRow["Val"][0]!); // 98 * 1.5
@@ -2170,25 +2170,25 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         Assert.Equal(4, dfRes.Height);
 
         // Case 1: Composite Match Update
-        var row1 = dfRes.Filter(Col("Region") == "North" & Col("StoreId") == 101);
+        var row1 = dfRes.Filter(Pl.Col("Region") == "North" & Pl.Col("StoreId") == 101);
         Assert.Equal(100, row1["Stock"].ToArray<int>()[0]);
 
         // Case 2: Composite Match Skip
-        var row2 = dfRes.Filter(Col("Region") == "North" & Col("StoreId") == 102);
+        var row2 = dfRes.Filter(Pl.Col("Region") == "North" & Pl.Col("StoreId") == 102);
         Assert.Equal(20, row2["Stock"].ToArray<int>()[0]);
 
         // Case 3: Composite Match Delete (South/101)
-        Assert.Equal(0, dfRes.Filter(Col("Region") == "South" & Col("StoreId") == 101).Height);
+        Assert.Equal(0, dfRes.Filter(Pl.Col("Region") == "South" & Pl.Col("StoreId") == 101).Height);
 
         // Case 4: Not Matched By Source Delete
-        Assert.Equal(0, dfRes.Filter(Col("Region") == "South" & Col("StoreId") == 999).Height);
+        Assert.Equal(0, dfRes.Filter(Pl.Col("Region") == "South" & Pl.Col("StoreId") == 999).Height);
 
         // Case 5: Target Only Keep
-        var rowEast = dfRes.Filter(Col("Region") == "East");
+        var rowEast = dfRes.Filter(Pl.Col("Region") == "East");
         Assert.Equal(50, rowEast["Stock"].ToArray<int>()[0]);
 
         // Case 6: Insert
-        var rowWest = dfRes.Filter(Col("Region") == "West" & Col("StoreId") == 888);
+        var rowWest = dfRes.Filter(Pl.Col("Region") == "West" & Pl.Col("StoreId") == 888);
         Assert.Equal(60, rowWest["Stock"].ToArray<int>()[0]);
 
     }
@@ -2368,25 +2368,25 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         Assert.Equal(4, dfRes.Height);
 
         // Case 1: Composite Match Update
-        var row1 = dfRes.Filter(Col("Region") == "North" & Col("StoreId") == 101);
+        var row1 = dfRes.Filter(Pl.Col("Region") == "North" & Pl.Col("StoreId") == 101);
         Assert.Equal(100, row1["Stock"].ToArray<int>()[0]);
 
         // Case 2: Composite Match Skip
-        var row2 = dfRes.Filter(Col("Region") == "North" & Col("StoreId") == 102);
+        var row2 = dfRes.Filter(Pl.Col("Region") == "North" & Pl.Col("StoreId") == 102);
         Assert.Equal(20, row2["Stock"].ToArray<int>()[0]);
 
         // Case 3: Composite Match Delete
-        Assert.Equal(0, dfRes.Filter(Col("Region") == "South" & Col("StoreId") == 101).Height);
+        Assert.Equal(0, dfRes.Filter(Pl.Col("Region") == "South" & Pl.Col("StoreId") == 101).Height);
 
         // Case 4: Not Matched By Source Delete
-        Assert.Equal(0, dfRes.Filter(Col("Region") == "South" & Col("StoreId") == 999).Height);
+        Assert.Equal(0, dfRes.Filter(Pl.Col("Region") == "South" & Pl.Col("StoreId") == 999).Height);
 
         // Case 5: Target Only Keep
-        var rowEast = dfRes.Filter(Col("Region") == "East");
+        var rowEast = dfRes.Filter(Pl.Col("Region") == "East");
         Assert.Equal(50, rowEast["Stock"].ToArray<int>()[0]);
 
         // Case 6: Insert
-        var rowWest = dfRes.Filter(Col("Region") == "West" & Col("StoreId") == 888);
+        var rowWest = dfRes.Filter(Pl.Col("Region") == "West" & Pl.Col("StoreId") == 888);
         Assert.Equal(60, rowWest["Stock"].ToArray<int>()[0]);
 
     }

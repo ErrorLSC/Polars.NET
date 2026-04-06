@@ -1,5 +1,5 @@
 using Polars.CSharp;
-using static Polars.CSharp.Polars;
+using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
 using Polars.NET.ML.CSharpExtensions;
 using Polars.NET.ML.DataView;
@@ -291,7 +291,7 @@ public class DataViewConversionTests
         
         // sepal length (cm), sepal width (cm), petal length (cm), petal width (cm)     
         using var cleanlf = lf.Cast((typeof(double),typeof(float)));
-        using var cleanDf = cleanlf.WithColumns(ConcatArray(Cs.Float().ToExpr().Alias("Features"))).Collect();
+        using var cleanDf = cleanlf.WithColumns(Pl.ConcatArray(Cs.Float().ToExpr().Alias("Features"))).Collect();
 
         cleanDf.Show();
         // ==========================================

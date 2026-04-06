@@ -554,6 +554,8 @@ public class DeltaMergeBuilder
     private readonly bool _canEvolve;
     private readonly CloudOptions? _cloudOptions;
 
+    private readonly MergeContext _ctx = new("_src_tmp");
+
     // Use a List to strictly preserve the exact order of method calls
     private readonly List<(MergeActionType ActionType, Expr Condition)> _actions = [];
 
@@ -637,7 +639,41 @@ public class DeltaMergeBuilder
         _actions.Add((MergeActionType.NotMatchedBySourceDelete, condition ?? Polars.Lit(true)));
         return this;
     }
+    /// <summary>
+    /// Update the matched target row with source data using a safe context builder.
+    /// </summary>
+    public DeltaMergeBuilder WhenMatchedUpdate(Func<MergeContext, Expr> conditionBuilder)
+    {
+        _actions.Add((MergeActionType.MatchedUpdate, conditionBuilder(_ctx)));
+        return this;
+    }
 
+    /// <summary>
+    /// Delete the matched target row using a safe context builder.
+    /// </summary>
+    public DeltaMergeBuilder WhenMatchedDelete(Func<MergeContext, Expr> conditionBuilder)
+    {
+        _actions.Add((MergeActionType.MatchedDelete, conditionBuilder(_ctx)));
+        return this;
+    }
+
+    /// <summary>
+    /// Insert a new row from the source data using a safe context builder.
+    /// </summary>
+    public DeltaMergeBuilder WhenNotMatchedInsert(Func<MergeContext, Expr> conditionBuilder)
+    {
+        _actions.Add((MergeActionType.NotMatchedInsert, conditionBuilder(_ctx)));
+        return this;
+    }
+
+    /// <summary>
+    /// Delete the target row when it does not exist in the source data using a safe context builder.
+    /// </summary>
+    public DeltaMergeBuilder WhenNotMatchedBySourceDelete(Func<MergeContext, Expr> conditionBuilder)
+    {
+        _actions.Add((MergeActionType.NotMatchedBySourceDelete, conditionBuilder(_ctx)));
+        return this;
+    }
     /// <summary>
     /// Executes the constructed merge operation against the Delta Table.
     /// </summary>
