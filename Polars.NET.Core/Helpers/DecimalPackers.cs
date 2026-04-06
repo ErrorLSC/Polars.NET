@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using Microsoft.FSharp.Core;
 
 namespace Polars.NET.Core.Helpers;
 

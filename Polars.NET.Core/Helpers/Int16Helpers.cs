@@ -19,7 +19,7 @@ public static partial class ArrayHelper
         // Padding
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF 
     );
-       [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static unsafe (short[] values, byte[]? validity) UnzipInt16SIMD(ReadOnlySpan<short?> data, short defaultValue)
     {
         int len = data.Length;
