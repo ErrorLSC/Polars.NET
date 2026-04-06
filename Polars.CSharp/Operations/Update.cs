@@ -11,7 +11,10 @@ namespace Polars.CSharp;
 public class MergeContext
 {
     private readonly string _sourceSuffix;
-
+    /// <summary>
+    /// Create a delta merge context
+    /// </summary>
+    public static readonly MergeContext Delta = new("_src_tmp");
     internal MergeContext(string sourceSuffix)
     {
         _sourceSuffix = sourceSuffix;

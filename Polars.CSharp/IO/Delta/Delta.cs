@@ -99,19 +99,17 @@ public static class Delta
     /// Represents a column from the incoming Source LazyFrame.
     /// (Internally maps to "{name}_src_tmp")
     /// </summary>
+    [Obsolete("Please use the Lambda context (m => m.Source(...)) instead.")]
     public static Expr Source(string columnName)
-    {
-        return Polars.Col($"{columnName}_src_tmp");
-    }
+        => Polars.Col($"{columnName}_src_tmp");
 
     /// <summary>
     /// Represents a column from the existing Target Delta Table.
     /// (Alias for standard Col(), adds semantic clarity)
     /// </summary>
+    [Obsolete("Please use the Lambda context (m => m.Target(...)) instead.")]
     public static Expr Target(string columnName)
-    {
-        return Polars.Col(columnName);
-    }
+        => Polars.Col(columnName);
     /// <summary>
     /// Deletes rows from a Delta Lake table that match a given predicate.
     /// <para>

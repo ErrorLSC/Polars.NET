@@ -1001,16 +1001,16 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // MERGE Expression
         // ==========================================
         // A. Update Condition: Source Stock > Target Stock
-        var updateCond = Delta.Source("Stock") > Delta.Target("Stock");
+        static Expr updateCond(MergeContext m) => m.Source("Stock") > m.Target("Stock");
 
         // B. Matched Delete Condition: Source Status set as 'DeleteMe'
-        var matchDeleteCond = Delta.Source("Status") == "DeleteMe";
+        static Expr matchDeleteCond(MergeContext m) => m.Source("Status") == "DeleteMe";
 
         // C. Insert Condition: Source Stock > 0 
-        var insertCond = Delta.Source("Stock") > 0;
+        static Expr insertCond(MergeContext m) => m.Source("Stock") > 0;
 
         // D. Source Delete (Target Only) Condition: Target Status is 'Obsolete'
-        var srcDeleteCond = Delta.Target("Status") == "Obsolete";
+        static Expr srcDeleteCond(MergeContext m) => m.Target("Status") == "Obsolete";
 
         // ==========================================
         // Full Merge
@@ -1156,10 +1156,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         // MERGE Expressions
         // ==========================================
-        var updateCond = Delta.Source("Stock") > Delta.Target("Stock");
-        var matchDeleteCond = Delta.Source("Status") == "DeleteMe";
-        var insertCond = Delta.Source("Stock") > 0;
-        var srcDeleteCond = Delta.Target("Status") == "Obsolete";
+        static Expr updateCond(MergeContext m) => m.Source("Stock") > m.Target("Stock");
+        static Expr matchDeleteCond(MergeContext m) => m.Source("Status") == "DeleteMe";
+        static Expr insertCond(MergeContext m) => m.Source("Stock") > 0;
+        static Expr srcDeleteCond(MergeContext m) => m.Target("Status") == "Obsolete";
 
 
         sourceDf.MergeDeltaOrdered(
@@ -1967,7 +1967,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
                 
                 cloudOptions: options
             )
-            .WhenMatchedDelete(Delta.Source("Action") == "DeleteMe")
+            .WhenMatchedDelete(m => m.Source("Action") == "DeleteMe")
             .Execute();
         }
 
@@ -2123,13 +2123,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
             Status = new[]  { "Active","Active","DeleteMe","New",   "Bad" }
         });
 
-        var updateCond = Delta.Source("Stock") > Delta.Target("Stock");
-
-        var matchDeleteCond = Delta.Source("Status") == "DeleteMe";
-
-        var insertCond = Delta.Source("Stock") > 0;
-
-        var srcDeleteCond = Delta.Target("Status") == "Obsolete";
+        static Expr updateCond(MergeContext m) => m.Source("Stock") > m.Target("Stock");
+        static Expr matchDeleteCond(MergeContext m) => m.Source("Status") == "DeleteMe";
+        static Expr insertCond(MergeContext m) => m.Source("Stock") > 0;
+        static Expr srcDeleteCond(MergeContext m) => m.Target("Status") == "Obsolete";
 
         sourceDf.MergeDeltaOrdered(
                 rootUrl,
@@ -2229,14 +2226,14 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
             Stock = new[] { 100 }, 
             Status = new[] { "DeleteMe" } 
         });
-
-        var updateCond = Delta.Source("Stock") > Delta.Target("Stock");
-        var deleteCond = Delta.Source("Status") == "DeleteMe";
+        var m = MergeContext.Delta;
+        var updateCond = m.Source("Stock") > m.Target("Stock");
+        var deleteCond = m.Source("Status") == "DeleteMe";
 
         // ==========================================
         // Delete First
         // ==========================================
-        sourceDf.Lazy().MergeDeltaOrdered(urlDeleteWins, mergeKeys: ["Id"], cloudOptions: options)
+        sourceDf.MergeDeltaOrdered(urlDeleteWins, mergeKeys: ["Id"], cloudOptions: options)
             .WhenMatchedDelete(deleteCond)  
             .WhenMatchedUpdate(updateCond)  
             .Execute();
@@ -2244,7 +2241,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         // Update First
         // ==========================================
-        sourceDf.Lazy().MergeDeltaOrdered(urlUpdateWins, mergeKeys: ["Id"], cloudOptions: options)
+        sourceDf.MergeDeltaOrdered(urlUpdateWins, mergeKeys: ["Id"], cloudOptions: options)
             .WhenMatchedUpdate(updateCond)  
             .WhenMatchedDelete(deleteCond)
             .Execute();
@@ -2328,10 +2325,10 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // │ West   ┆ 999     ┆ 0     ┆ Bad      │
         // └────────┴─────────┴───────┴──────────┘
 
-        var updateCond = Delta.Source("Stock") > Delta.Target("Stock");
-        var matchDeleteCond = Delta.Source("Status") == "DeleteMe";
-        var insertCond = Delta.Source("Stock") > 0;
-        var srcDeleteCond = Delta.Target("Status") == "Obsolete";
+        static Expr updateCond(MergeContext m) => m.Source("Stock") > m.Target("Stock");
+        static Expr matchDeleteCond(MergeContext m) => m.Source("Status") == "DeleteMe";
+        static Expr insertCond(MergeContext m) => m.Source("Stock") > 0;
+        static Expr srcDeleteCond(MergeContext m) => m.Target("Status") == "Obsolete";
 
         // ==========================================
         // Ordered Full Merge
