@@ -430,7 +430,7 @@ public enum AvroCompression: byte
 }
 
 /// <summary>
-/// Defines the type of action to perform during a Delta Merge operation.
+/// Defines the type of action to perform during a Merge operation.
 /// </summary>
 public enum MergeActionType : byte
 {

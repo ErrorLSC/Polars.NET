@@ -1,4 +1,5 @@
 #pragma warning disable CS1591
+using System.Text;
 using Polars.NET.Core;
 using Cs = Polars.CSharp.Polars.Selectors;
 using Pl = Polars.CSharp.Polars;
@@ -264,13 +265,9 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
 
     protected bool _includeNulls = false;
     protected JoinMaintainOrder _maintainOrder = JoinMaintainOrder.Left;
-
-    // --- 动态上下文与防碰撞设计 ---
     protected readonly string _tmpSfx = $"__TMP_{Guid.NewGuid().ToString("N")[..8]}";
     protected readonly string _actionCol = "__ACTION";
     protected readonly MergeContext _ctx;
-
-    // 动作队列 (只存评估好的 Expr，不用再存 Lambda)
     protected readonly List<(MergeActionType Type, Expr Condition)> _actions = [];
 
     protected MergeBuilderBase(LazyFrame target, LazyFrame source, string[] on)
@@ -306,6 +303,15 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
     {
         Expr cond = conditionBuilder != null ? conditionBuilder(_ctx) : Pl.Lit(true);
         _actions.Add((MergeActionType.NotMatchedInsert, cond));
+        return (TBuilder)this;
+    }
+    /// <summary>
+    /// Delete the target row if it does not match any row in the source. Optionally filtered by a condition.
+    /// </summary>
+    public TBuilder WhenNotMatchedBySourceDelete(Func<MergeContext, Expr>? conditionBuilder = null)
+    {
+        Expr cond = conditionBuilder != null ? conditionBuilder(_ctx) : Pl.Lit(true);
+        _actions.Add((MergeActionType.NotMatchedBySourceDelete, cond));
         return (TBuilder)this;
     }
 
@@ -344,7 +350,6 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
         string tgtVal = "__TGT", srcVal = "__SRC";
         
         var tgt = _target.WithColumns(Pl.Lit(true).Alias(tgtVal));
-        
         var srcCols = _source.Schema.ColumnNames.Except(_on).ToList();
         
         var src = _source.Select(
@@ -363,6 +368,7 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
         var isTargetOnly = Pl.Col(tgtVal).IsNotNull() & Pl.Col(srcVal).IsNull();
 
         Expr actionExpr = Pl.When(isTargetOnly).Then(0).When(isMatched).Then(0).Otherwise(4);
+        
         for (int i = _actions.Count - 1; i >= 0; i--)
         {
             var action = _actions[i];
@@ -372,6 +378,7 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
             if (action.Type == MergeActionType.MatchedDelete) { cond = isMatched & action.Condition; actionCode = 2; }
             else if (action.Type == MergeActionType.MatchedUpdate) { cond = isMatched & action.Condition; actionCode = 1; }
             else if (action.Type == MergeActionType.NotMatchedInsert) { cond = isSourceOnly & action.Condition; actionCode = 3; }
+            else if (action.Type == MergeActionType.NotMatchedBySourceDelete) { cond = isTargetOnly & action.Condition; actionCode = 5; }
 
             actionExpr = Pl.When(cond).Then(actionCode).Otherwise(actionExpr);
         }
@@ -393,7 +400,8 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
             );
         }
         joined = joined.WithColumns(updateExprs);
-        joined = joined.Filter((Pl.Col(_actionCol) != 2) & (Pl.Col(_actionCol) != 4));
+        
+        joined = joined.Filter((Pl.Col(_actionCol) != 2) & (Pl.Col(_actionCol) != 4) & (Pl.Col(_actionCol) != 5));
 
         return joined.Drop(
             Cs.EndsWith(_tmpSfx),
@@ -402,6 +410,141 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
             _actionCol
         );
     }
+    /// <summary>
+    /// Returns a formatted string describing the high-level logical merge plan.
+    /// </summary>
+    /// <param name="verbose">If true, uses format tree for complex expressions. Otherwise uses inline ToString().</param>
+    /// <param name="schema">Optional schema to pass to FormatTree for type resolution.</param>
+    /// <returns>A string representation of the merge strategy.</returns>
+    public string ToMergePlanString(bool verbose = false, PolarsSchema? schema = null)
+    {
+        var sb = new StringBuilder();
+
+        // 1. MERGE ON
+        sb.AppendLine($"MERGE ON: {string.Join(", ", _on)}");
+        sb.AppendLine();
+
+        // 2. MATCH STRATEGY
+        sb.AppendLine("MATCH STRATEGY:");
+        sb.AppendLine("  First Match Wins (Sequential Evaluation)");
+        sb.AppendLine();
+
+        var actionsToPrint = _actions.Count > 0 ? _actions :
+        [
+            (MergeActionType.MatchedUpdate, Pl.Lit(true)),
+            (MergeActionType.NotMatchedInsert, Pl.Lit(true))
+        ];
+
+        var matchedActions = actionsToPrint
+            .Where(a => a.Type == MergeActionType.MatchedUpdate || a.Type == MergeActionType.MatchedDelete)
+            .ToList();
+            
+        var notMatchedActions = actionsToPrint
+            .Where(a => a.Type == MergeActionType.NotMatchedInsert || a.Type == MergeActionType.NotMatchedBySourceDelete)
+            .ToList();
+
+        void PrintActions(List<(MergeActionType Type, Expr Condition)> acts)
+        {
+            for (int i = 0; i < acts.Count; i++)
+            {
+                var action = acts[i];
+                string actionName = action.Type switch
+                {
+                    MergeActionType.MatchedUpdate => "UPDATE",
+                    MergeActionType.MatchedDelete => "DELETE",
+                    MergeActionType.NotMatchedInsert => "INSERT",
+                    MergeActionType.NotMatchedBySourceDelete => "DELETE (By Source)",
+                    _ => action.Type.ToString()
+                };
+
+                string inlineCond = action.Condition.ToString().Replace(_tmpSfx, ".Source"); 
+                bool isAlwaysTrue = inlineCond.Equals("true", StringComparison.OrdinalIgnoreCase) || 
+                                    inlineCond.Equals("Literal(true)", StringComparison.OrdinalIgnoreCase);
+
+                if (!isAlwaysTrue)
+                {
+                    if (verbose)
+                    {
+                        string tree = action.Condition.Meta.FormatTree(displayAsDot: false, schema: schema);
+                        
+                        string replacement = ".Source".PadRight(_tmpSfx.Length);
+                        tree = tree.Replace(_tmpSfx, replacement); 
+                        
+                        string indentedTree = string.Join("\n", tree.Split('\n').Select(line => "      " + line)); 
+                        sb.AppendLine($"  [{i + 1}] {actionName} WHERE:");
+                        sb.AppendLine(indentedTree);
+                    }
+                    else
+                    {
+                        sb.AppendLine($"  [{i + 1}] {actionName} WHERE {inlineCond}");
+                    }
+                }
+                else
+                {
+                    sb.AppendLine($"  [{i + 1}] {actionName}");
+                }
+            }
+        }
+
+        // 3. WHEN MATCHED
+        if (matchedActions.Count > 0)
+        {
+            sb.AppendLine("WHEN MATCHED:");
+            PrintActions(matchedActions);
+            sb.AppendLine();
+        }
+
+        // 4. WHEN NOT MATCHED
+        if (notMatchedActions.Count > 0)
+        {
+            sb.AppendLine("WHEN NOT MATCHED:");
+            PrintActions(notMatchedActions);
+            sb.AppendLine();
+        }
+
+        // 5. JOIN STRATEGY
+        sb.AppendLine("JOIN STRATEGY:");
+        bool hasInsert = actionsToPrint.Any(a => a.Type == MergeActionType.NotMatchedInsert);
+        string joinReason = hasInsert ? "(Upgraded to Outer to support INSERT)" : "(Left join sufficient)";
+        JoinType expectedJoinType = hasInsert ? JoinType.Outer : JoinType.Left;
+        
+        sb.AppendLine($"  Type: {expectedJoinType} {joinReason}");
+        sb.AppendLine($"  MaintainOrder: {_maintainOrder}");
+
+        return sb.ToString().TrimEnd();
+    }
+    /// <summary>
+    /// Inspects the current logical merge plan by printing it, without breaking the method chain.
+    /// </summary>
+    /// <param name="verbose">If true, prints the detailed AST trees for conditions.</param>
+    /// <param name="logger">Optional custom logger. Defaults to Console.WriteLine if null.</param>
+    /// <returns>The current builder instance for further chaining.</returns>
+    public TBuilder InspectPlan(bool verbose = false, Action<string>? logger = null)
+    {
+        string plan = ToMergePlanString(verbose);
+        
+        string output = $"""
+            ========== POLARS.NET MERGE PLAN ==========
+            {plan}
+            ===========================================
+            """;
+
+        if (logger != null)
+        {
+            logger(output);
+        }
+        else
+        {
+            Console.WriteLine(output);
+        }
+
+        return (TBuilder)this;
+    }
+
+    /// <summary>
+    /// Returns the high-level logical merge plan (Clean mode). 
+    /// </summary>
+    public override string ToString() => ToMergePlanString(verbose: false);
 }
 
 public class DataFrameMergeBuilder : MergeBuilderBase<DataFrameMergeBuilder>

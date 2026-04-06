@@ -1713,37 +1713,54 @@ B,5";
     }
     [Fact]
     [Trait("DataFrame", "MergeCondition")]
-    public void MergeBuilder_WithConditions_ShouldUpdateDeleteAndInsert()
+    public void MergeBuilder_WithComplexConditions_ShouldHandleFullDataLifecycle()
     {
-        // Arrange
+        // Arrange: 
         var targetDf = DataFrame.FromColumns(new
         {
-            Id = new[] { 1, 2, 3 },
-            Status = new[] { "Active", "Pending", "Obsolete" },
-            Score = new[] { 10, 20, 30 }
+            Id = new[] { 1, 2, 3, 4, 5 },
+            Category = new[] { "Seasonal", "Core", "Core", "Tech", "Tech" },
+            Price = new[] { 10.0, 20.0, 30.0, 100.0, 200.0 },
+            IsDiscontinued = new[] { false, false, false, false, false }
         });
 
         var sourceDf = DataFrame.FromColumns(new
         {
-            Id = new[] { 2, 3, 4 },
-            Status = new[] { "Active", "Deleted", "Active" },
-            Score = new[] { 99, 0, 100 }
+            Id = new[] { 3, 4, 5, 6, 7 },
+            Category = new[] { "Core", "Tech", "Tech", "New", "Trash" },
+            Price = new[] { 30.0, 120.0, 190.0, 50.0, 0.0 },
+            IsDiscontinued = new[] { true, false, false, false, false } 
         });
 
-        // Act
         var resultDf = targetDf.Merge(sourceDf, "Id")
-            .WhenMatchedDelete(m => m.Source("Status") == "Deleted")
-            .WhenMatchedUpdate(m => m.Source("Score") > m.Target("Score"))
-            .WhenNotMatchedInsert(m => m.Source("Status") == "Active")
+            // If matched as IsDiscontinued delete
+            .WhenMatchedDelete(m => m.Source("IsDiscontinued") == true)
+            // If matched price up then update
+            .WhenMatchedUpdate(m => m.Source("Price") > m.Target("Price"))
+            // Only insert price > 0 in source table
+            .WhenNotMatchedInsert(m => m.Source("Price") > 0.0)
+            // If record in source table is missing then delete target
+            .WhenNotMatchedBySourceDelete(m => m.Target("Category") == "Seasonal")
+            // Inspect plan to console
+            .InspectPlan(verbose: false) 
             .Execute(); 
 
         resultDf = resultDf.Sort("Id");
 
         var idArray = resultDf["Id"].ToArray<int>();
-        var scoreArray = resultDf["Score"].ToArray<int>();
+        var priceArray = resultDf["Price"].ToArray<double>();
 
-        Assert.Equal([1, 2, 4], idArray);
-        Assert.Equal([10, 99, 100], scoreArray);
+        // Assert: 
+        // Id 1 (Target): Seasonal item missed in source table -> NotMatchedBySourceDelete -> Delete
+        // Id 2 (Target): Core item missed in source table -> Keep
+        // Id 3 (Both): IsDiscontinued=true -> MatchedDelete -> Delete
+        // Id 4 (Both): Source Price(120) > Target Price(100) -> WhenMatchedUpdate -> Price: 120.0
+        // Id 5 (Both): Source Price(190) < Target Price(200) -> Keep
+        // Id 6 (Source): New Item in source and price(50) > 0 -> WhenNotMatchedInsert -> Insert
+        // Id 7 (Source): New Item in source but price(0) is invalid -> Discard
+        
+        Assert.Equal([2, 4, 5, 6], idArray);
+        Assert.Equal([20.0, 120.0, 200.0, 50.0], priceArray);
     }
 
     [Fact]
@@ -1767,8 +1784,7 @@ B,5";
             .WhenMatchedUpdate(m => m.Source("Score") > 10)
             .WhenNotMatchedInsert().MaintainOrder(JoinMaintainOrder.Left);
 
-        string plan = mergeBuilder.Explain(optimized: true);
-        Console.WriteLine(plan);
+        Console.WriteLine(mergeBuilder);
 
         var resultDf = mergeBuilder.Execute();
 
@@ -1800,13 +1816,13 @@ B,5";
 
         // Act 1: includeNulls = false
         var resultWithoutNulls = targetDf.Merge(sourceDf, "Id")
-            .IncludeNulls(false) 
+            .IncludeNulls(false)
             .Execute()
             .Sort("Id");
 
         // Act 2:includeNulls = true
         var resultWithNulls = targetDf.Merge(sourceDf, "Id")
-            .IncludeNulls(true) 
+            .IncludeNulls(true)
             .Execute(true)
             .Sort("Id");
 
