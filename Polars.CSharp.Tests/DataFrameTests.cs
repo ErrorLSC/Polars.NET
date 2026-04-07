@@ -1967,17 +1967,15 @@ B,5";
             IsActive = new[] { true, true, true, false }
         });
 
-        // 外部平台发来的同步数据
         var sourceDf = DataFrame.FromColumns(new
         {
             TenantId = new[] { "T1", "T2", "T2" },
             UserId = new[] { 102, 101, 888 },
-            Role = new[] { "Editor", "Admin", "User" }, // T1-102升级为Editor, T2-101升级为Admin
+            Role = new[] { "Editor", "Admin", "User" }, 
             IsActive = new[] { true, true, true }
         });
-
-        // Act: 传入复合主键进行合并！
-        var resultDf = targetDf.Merge(sourceDf, Cs.EndsWith("Id")) 
+        Selector selector = Cs.EndsWith("Id");
+        var resultDf = targetDf.Merge(sourceDf, selector) 
             .WhenMatchedUpdate(
                 set: s => s
                     .Set("Role", (m, c) => m.Source("Role"))
@@ -1994,7 +1992,7 @@ B,5";
             .InspectPlan(verbose: false) 
             .Execute();
 
-        resultDf = resultDf.Sort(["TenantId", "UserId"]); 
+        resultDf = resultDf.Sort(selector); 
 
         var tIds = resultDf["TenantId"].ToArray<string>();
         var uIds = resultDf["UserId"].ToArray<int>();
