@@ -351,5 +351,20 @@ public readonly partial struct PolarsWrapper
         
         return ErrorHelper.Check(h);
     }
+    public static DataFrameHandle DataFrameToDummies(DataFrameHandle df, string[]? columns, string? separator, bool dropFirst,bool dropNulls)
+    {
+        nuint columnsLen = (nuint)(columns?.Length ?? 0);
+
+        var h = NativeBindings.pl_dataframe_to_dummies(
+            df, 
+            columns, 
+            columnsLen, 
+            separator, 
+            dropFirst,
+            dropNulls
+        );
+        
+        return ErrorHelper.Check(h);
+    }
 
 }

@@ -455,6 +455,48 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
 
         return new DataFrame(newHandle);
     }
+    /// <summary>
+    /// Convert categorical/string variables into dummy/indicator variables (One-Hot Encoding).
+    /// </summary>
+    /// <param name="columns">Optional. The columns to encode. Accepts strings, string arrays, or Selectors (e.g. Cs.String()). If null, all string/categorical columns are encoded.</param>
+    /// <param name="separator">The separator used in the generated column names.</param>
+    /// <param name="dropFirst">Whether to drop the first dummy variable to avoid collinearity (k-1 dummies).</param>
+    /// <param name="dropNulls">Whether to ignore null values when creating dummies.</param>
+    /// <returns>A new DataFrame with one-hot encoded columns.</returns>
+    public DataFrame ToDummies(
+        IntoSelector? columns = null, 
+        string separator = "_", 
+        bool dropFirst = false, 
+        bool dropNulls = false)
+    {
+        IntoSelector actualSelector = columns ?? (Cs.String() | Cs.ByDtype(DataType.Categorical) | Cs.Enum());
+
+        using var selector = actualSelector.Consume();
+        string[] columnsArray = Cs.ExpandSelector(this, selector);
+
+        // 安全性校验
+        if (columnsArray.Length == 0)
+        {
+            if (columns.HasValue)
+            {
+                throw new ArgumentException("The provided column selector did not match any columns in the DataFrame.");
+            }
+            else
+            {
+                return this.Clone();
+            }
+        }
+
+        var newHandle = PolarsWrapper.DataFrameToDummies(
+            Handle, 
+            columnsArray, 
+            separator, 
+            dropFirst, 
+            dropNulls
+        );
+
+        return new DataFrame(newHandle);
+    }
     // ==========================================
     // LifeCycle
     // ==========================================

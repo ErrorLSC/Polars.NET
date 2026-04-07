@@ -213,4 +213,13 @@ unsafe internal partial class NativeBindings
         nuint len,
         [MarshalAs(UnmanagedType.U1)]bool maintainOrder
     ); 
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial DataFrameHandle pl_dataframe_to_dummies(
+        DataFrameHandle df, 
+        string[]? columns, 
+        nuint len,
+        string? separator,
+        [MarshalAs(UnmanagedType.U1)]bool dropFirst,
+        [MarshalAs(UnmanagedType.U1)]bool dropNulls
+    ); 
 }

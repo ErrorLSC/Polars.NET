@@ -1000,3 +1000,40 @@ pub extern "C" fn pl_dataframe_upsample(
         Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_to_dummies(
+    df_ptr: *mut DataFrameContext,
+    columns_ptr: *const *const c_char,
+    columns_len: usize,
+    separator_ptr: *const c_char,
+    drop_first: bool,
+    drop_nulls: bool,
+) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*df_ptr };
+
+        let separator = if separator_ptr.is_null() {
+            None
+        } else {
+            Some(ptr_to_str(separator_ptr).unwrap_or("_"))
+        };
+
+        let res_df = if columns_ptr.is_null() || columns_len == 0 {
+            ctx.df.to_dummies(separator, drop_first, drop_nulls)?
+        } else {
+            let slice = unsafe { std::slice::from_raw_parts(columns_ptr, columns_len) };
+            
+            let mut cols: Vec<&str> = Vec::with_capacity(columns_len);
+            for &p in slice {
+                if let Ok(s) = ptr_to_str(p) {
+                    cols.push(s);
+                }
+            }
+            
+            ctx.df.columns_to_dummies(cols, separator, drop_first, drop_nulls)?
+        };
+
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
+    })
+}

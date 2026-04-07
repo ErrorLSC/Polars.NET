@@ -1933,4 +1933,43 @@ B,5";
         
         Assert.Equal(30, groupA.GetValue<int>(2, "val"));
     }
+    [Fact]
+    [Trait("DataFrame", "ToDummies")]
+    public void Test_DataFrame_ToDummies()
+    {
+        var ids = new[] { 1, 2, 3, 4 };
+        var groups = new[] { "A", "B", "A", "C" };
+        var colors = new[] { "Red", "Blue", "Red", "Red" };
+
+        using var df = DataFrame.FromColumns(new 
+        { 
+            id = ids, 
+            group = groups, 
+            color = colors 
+        });
+
+        using var dummiesAll = df.ToDummies();
+
+        Assert.Equal(6, dummiesAll.Width);
+        Assert.Contains("group_A", dummiesAll.ColumnNames);
+        Assert.Contains("group_C", dummiesAll.ColumnNames);
+        Assert.Contains("color_Red", dummiesAll.ColumnNames);
+
+        // 验证第一行 id=1, group=A, color=Red
+        Assert.Equal(1, dummiesAll.GetValue<byte>(0, "group_A"));
+        Assert.Equal(0, dummiesAll.GetValue<byte>(0, "group_B"));
+
+        using var dummiesSingle = df.ToDummies(columns: "group", dropFirst: true);
+        
+        Assert.Equal(4, dummiesSingle.Width);
+        Assert.Contains("color", dummiesSingle.ColumnNames); 
+        Assert.Contains("group_B", dummiesSingle.ColumnNames);
+        Assert.Contains("group_C", dummiesSingle.ColumnNames);
+        Assert.DoesNotContain("group_A", dummiesSingle.ColumnNames);
+
+        using var dummiesSelector = df.ToDummies(columns: Cs.String(), separator: "-");
+        
+        Assert.Contains("group-B", dummiesSelector.ColumnNames);
+        Assert.Contains("color-Blue", dummiesSelector.ColumnNames);
+    }
 }
