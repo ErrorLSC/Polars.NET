@@ -11,21 +11,25 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         => Select(Pl.All().Cast(dtype, strict,wrapNumerical));
 
     /// <summary> Cast a specific Expression, String, Selector, or Type to a DataType. </summary>
-    public LazyFrame Cast(IntoExpr expr, IntoDataTypeExpr dtype, bool strict = true,bool wrapNumerical = false)
-        => WithColumns(expr.Consume().Cast(dtype, strict,wrapNumerical));
+    public LazyFrame Cast(IntoSelector selector, IntoDataTypeExpr dtype, bool strict = true, bool wrapNumerical = false)
+    {
+        using var sel = selector.Consume();
+        return WithColumns(sel.ToExpr().Cast(dtype, strict, wrapNumerical));
+    }
 
     /// <summary> 
     /// Cast multiple targets using tuples. Supports String, Expr, Selector mixed with Type, DataType, or DataTypeExpr!
     /// Usage: lf.Cast( ("Age", typeof(int)), (Cs.Numeric(), DataType.Float32), (DataType.Float64, DataType.Float32) )
     /// </summary>
-    public LazyFrame Cast(params (IntoExpr Expr, IntoDataTypeExpr Dtype)[] casts)
+    public LazyFrame Cast(params (IntoSelector Selector, IntoDataTypeExpr Dtype)[] casts)
     {
         if (casts.Length == 0) return this;
         var castExprs = new IntoExpr[casts.Length];
         
         for (int i = 0; i < casts.Length; i++)
         {
-            castExprs[i] = casts[i].Expr.Consume().Cast(casts[i].Dtype, strict: true,wrapNumerical: false); 
+            using var sel = casts[i].Selector.Consume();
+            castExprs[i] = sel.ToExpr().Cast(casts[i].Dtype, strict: true, wrapNumerical: false); 
         }
             
         return WithColumns(castExprs);
@@ -65,21 +69,25 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         => Select(Pl.All().Cast(dtype, strict,wrapNumerical));
 
     /// <summary> Cast a specific Expression, String, Selector, or Type to a DataType. </summary>
-    public DataFrame Cast(IntoExpr expr, IntoDataTypeExpr dtype, bool strict = true,bool wrapNumerical = false)
-        => WithColumns(expr.Consume().Cast(dtype, strict,wrapNumerical));
+    public DataFrame Cast(IntoSelector selector, IntoDataTypeExpr dtype, bool strict = true, bool wrapNumerical = false)
+    {
+        using var sel = selector.Consume();
+        return WithColumns(sel.ToExpr().Cast(dtype, strict, wrapNumerical));
+    }
 
     /// <summary> 
     /// Cast multiple targets using tuples. Supports String, Expr, Selector mixed with Type, DataType, or DataTypeExpr!
     /// Usage: df.Cast( ("Age", typeof(int)), (Cs.Numeric(), DataType.Float32), (DataType.Float64, DataType.Float32) )
     /// </summary>
-    public DataFrame Cast(params (IntoExpr Expr, IntoDataTypeExpr Dtype)[] casts)
+    public DataFrame Cast(params (IntoSelector Selector, IntoDataTypeExpr Dtype)[] casts)
     {
         if (casts.Length == 0) return this;
         var castExprs = new IntoExpr[casts.Length];
         
         for (int i = 0; i < casts.Length; i++)
         {
-            castExprs[i] = casts[i].Expr.Consume().Cast(casts[i].Dtype, strict: true,wrapNumerical: false); 
+            using var sel = casts[i].Selector.Consume();
+            castExprs[i] = sel.ToExpr().Cast(casts[i].Dtype, strict: true, wrapNumerical: false); 
         }
             
         return WithColumns(castExprs);
