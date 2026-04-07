@@ -1835,4 +1835,66 @@ B,5";
         // includeNulls = true：
         Assert.Equal([null, 99, null], scoreArrayWithNulls);
     }
+    [Fact]
+    [Trait("DataFrame", "Transpose")]
+    public void Test_DataFrame_Transpose()
+    {
+        // ID="A1", Val1=10, Val2=100
+        // ID="B2", Val1=20, Val2=200
+        using var df = DataFrame.FromColumns(new 
+        {
+            ID = new[] { "A1", "B2" },
+            Val1 = new[] { 10, 20 },
+            Val2 = new[] { 100, 200 }
+        });
+
+        // ==============================================================
+        // Set a new column name
+        // ==============================================================
+        using var t1 = df.Transpose(columnName: "ID", includeHeader: true, headerName: "metrics");
+        
+        Assert.Equal(2, t1.Height);
+        Assert.Equal(3, t1.Width);
+
+        Assert.Equal("metrics", t1.ColumnNames[0]);
+        Assert.Equal("A1", t1.ColumnNames[1]);
+        Assert.Equal("B2", t1.ColumnNames[2]);
+
+        Assert.Equal("Val1", t1.GetValue<string>(0, "metrics"));
+        Assert.Equal("Val2", t1.GetValue<string>(1, "metrics"));
+        
+        Assert.Equal(10, t1.GetValue<int>(0, "A1"));   
+        Assert.Equal(100, t1.GetValue<int>(1, "A1"));  
+
+        // ==============================================================
+        // Default Column Names
+        // ==============================================================
+        using var t2 = df.Transpose(includeHeader: false);
+        
+        Assert.Equal(3, t2.Height);
+        Assert.Equal(2, t2.Width);
+        Assert.Equal("column_0", t2.ColumnNames[0]);
+        Assert.Equal("column_1", t2.ColumnNames[1]);
+
+        // Type Coercion: 
+        Assert.Equal("A1", t2.GetValue<string>(0, "column_0"));
+        Assert.Equal("10", t2.GetValue<string>(1, "column_0"));  
+        Assert.Equal("100", t2.GetValue<string>(2, "column_0"));
+
+        // ==============================================================
+        // CustomNames
+        // ==============================================================
+        using var t3 = df.Transpose(customNames: ["Row_Alpha", "Row_Beta"], includeHeader: true, headerName: "Original_Column");
+
+        Assert.Equal(3, t3.Height);
+        Assert.Equal(3, t3.Width);
+
+        Assert.Equal("Original_Column", t3.ColumnNames[0]);
+        Assert.Equal("Row_Alpha", t3.ColumnNames[1]);
+        Assert.Equal("Row_Beta", t3.ColumnNames[2]);
+
+        Assert.Equal("ID", t3.GetValue<string>(0, "Original_Column"));
+        Assert.Equal("Val1", t3.GetValue<string>(1, "Original_Column"));
+
+    }
 }

@@ -1,4 +1,5 @@
 use polars::prelude::*;
+use polars_arrow::Either;
 use polars_core::utils::concat_df;
 use std::ffi::{CStr, c_int};
 use std::{ffi::CString, os::raw::c_char};
@@ -915,5 +916,50 @@ pub unsafe extern "C" fn pl_dataframe_with_row_index(
         let new_df = ctx.df.with_row_index(name_str.into(), offset)?;
         
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_transpose(
+    df_ptr: *mut DataFrameContext,
+    keep_names_as_ptr: *const c_char,
+    
+    name_col_ptr: *const c_char,
+    
+    custom_names_ptr: *const *const c_char,
+    custom_names_len: usize,
+) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &mut *df_ptr };
+
+        // keep_names_as
+        let keep_names_as = if keep_names_as_ptr.is_null() {
+            None
+        } else {
+            Some(ptr_to_str(keep_names_as_ptr).unwrap_or(""))
+        };
+
+        // Either<String, Vec<String>>
+        let new_col_names = if !custom_names_ptr.is_null() && custom_names_len > 0 {
+            let slice = unsafe { std::slice::from_raw_parts(custom_names_ptr, custom_names_len) };
+            let vec_names: Vec<String> = slice
+                .iter()
+                .map(|&p| ptr_to_str(p).unwrap_or("").to_string())
+                .collect();
+                
+            Some(Either::Right(vec_names))
+            
+        } else if !name_col_ptr.is_null() {
+            let col_name = ptr_to_str(name_col_ptr).unwrap_or("").to_string();
+            
+            Some(Either::Left(col_name))
+            
+        } else {
+            None
+        };
+
+        let res_df = ctx.df.transpose(keep_names_as, new_col_names)?;
+
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
     })
 }

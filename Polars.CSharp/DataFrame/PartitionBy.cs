@@ -1,7 +1,4 @@
 using Polars.NET.Core;
-using Polars.NET.Core.Arrow;
-using System.Data;
-using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;

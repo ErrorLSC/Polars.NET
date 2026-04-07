@@ -322,4 +322,18 @@ public readonly partial struct PolarsWrapper
         var h = NativeBindings.pl_dataframe_with_row_index(df, name, rustOffset);
         return ErrorHelper.Check(h);
     }
+    public static DataFrameHandle DataFrameTranspose(DataFrameHandle df, string? keepNamesAs, string? columnName,string[]? customNames)
+    {
+        nuint customNamesLen = (nuint)(customNames?.Length ?? 0);
+
+        var h = NativeBindings.pl_dataframe_transpose(
+            df, 
+            keepNamesAs, 
+            columnName, 
+            customNames, 
+            customNamesLen
+        );
+        
+        return ErrorHelper.Check(h);
+    }
 }
