@@ -1508,5 +1508,31 @@ public class SeriesTests
 
         Assert.Equal(8f, heapTensor[1, 1, 1]);
     }
+    [Fact]
+    [Trait("Series", "SortedFlag")]
+    public void Test_Series_Sorted_Flags_And_Verification()
+    {
+        using var s = new Series("vals", [1, 2, 3, 4, 5]);
+        
+        Assert.Equal(SortStateFlags.NotSorted, s.SortedFlags);
+
+        Assert.True(s.IsSorted(descending: false));
+        Assert.False(s.IsSorted(descending: true));
+
+        using var sAsc = s.SetSorted(descending: false);
+        
+        Assert.True(sAsc.SortedFlags.HasFlag(SortStateFlags.IsSorted));
+        Assert.False(sAsc.SortedFlags.HasFlag(SortStateFlags.Descending));
+
+        using var sDesc = s.SetSorted(descending: true);
+
+        Assert.True(sDesc.SortedFlags.HasFlag(SortStateFlags.IsSorted));
+        Assert.True(sDesc.SortedFlags.HasFlag(SortStateFlags.Descending));
+
+
+        Assert.Equal(SortStateFlags.NotSorted, s.SortedFlags);
+
+        Assert.True(sDesc.IsSorted(descending: false)); 
+    }
 
 }

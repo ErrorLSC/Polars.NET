@@ -496,6 +496,15 @@ public enum MissingColumnsPolicy : byte { Raise = 0, Insert = 1 }
 public enum UpcastOrForbid : byte { Forbid = 0, Upcast = 1 }
 public enum ExtraColumnsPolicy : byte { Raise = 0, Ignore = 1 }
 
+[Flags]
+public enum SortStateFlags : byte
+{
+    NotSorted  = 0,
+    IsSorted   = 1 << 0, // 001 (1)
+    Descending = 1 << 1, // 010 (2)
+    NullsLast  = 1 << 2  // 100 (4)
+}
+
 internal static class EnumExtensions
 {
     internal static CoreEnums.PlDataType ToNative(this DataTypeKind kind) => kind switch

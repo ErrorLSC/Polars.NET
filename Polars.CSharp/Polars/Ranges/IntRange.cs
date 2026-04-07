@@ -20,12 +20,13 @@ public readonly partial struct Polars
         using Expr realStart = end is null ? Lit(0) : start.Consume();
         using Expr realEnd = end is null ? start.Consume() : end.Value.Consume();
 
-        return new(PolarsWrapper.IntRange(
+        Expr expr = new(PolarsWrapper.IntRange(
             realStart.CloneHandle(), 
             realEnd.CloneHandle(), 
             step, 
             actualDtypeExpr.Handle 
         ));
+        return expr.SetSorted(descending: step < 0);
     }
     /// <summary>
     /// Generate a range of integers as a Series.

@@ -1077,7 +1077,6 @@ pub unsafe extern "C" fn pl_lazyframe_with_row_index(
     })
 }
 
-
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_lazy_explain(lf_ptr: *mut LazyFrameContext, optimized: bool) -> *mut c_char {
     ffi_try!({
@@ -1107,3 +1106,5 @@ pub extern "C" fn pl_lazy_frame_free(ptr: *mut LazyFrameContext) {
         Ok(())
     })
 }
+
+

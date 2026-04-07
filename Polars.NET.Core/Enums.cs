@@ -348,3 +348,12 @@ public enum PlMissingColumnsPolicyType : byte { Insert = 0, Raise = 1, InsertWit
 public enum PlMissingColumnsPolicy : byte { Raise = 0, Insert = 1 }
 public enum PlUpcastOrForbid : byte { Forbid = 0, Upcast = 1 }
 public enum PlExtraColumnsPolicy : byte { Raise = 0, Ignore = 1 }
+
+[Flags]
+public enum PlSortStateFlags : byte
+{
+    NotSorted  = 0,
+    IsSorted   = 1 << 0, // 001 (1)
+    Descending = 1 << 1, // 010 (2)
+    NullsLast  = 1 << 2  // 100 (4)
+}

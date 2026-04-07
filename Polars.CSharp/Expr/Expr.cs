@@ -1041,14 +1041,23 @@ public partial class Expr : IDisposable,IEquatable<Expr>
         return Pl.Coalesce(allExprs);
     }
     internal static Expr Ternary(Expr predicate, Expr truthy, Expr falsy)
-        {
-            var handle = PolarsWrapper.IfElse(
-                predicate.CloneHandle(), 
-                truthy.CloneHandle(), 
-                falsy.CloneHandle());
-                
-            return new Expr(handle);
-        }
+    {
+        var handle = PolarsWrapper.IfElse(
+            predicate.CloneHandle(), 
+            truthy.CloneHandle(), 
+            falsy.CloneHandle());
+            
+        return new Expr(handle);
+    }
+
+    /// <summary>
+    /// Indicate that the expression is sorted.
+    /// This is a hint to the optimizer and does not actually sort the data.
+    /// </summary>
+    /// <param name="descending">Whether the column is sorted in descending order.</param>
+    /// <param name="nullsLast">Whether null values appear last. (Placeholder for Polars 0.54+)</param>
+    /// <returns>A new expression with the sorted flag set.</returns>
+    public Expr SetSorted(bool descending = false, bool nullsLast = false) => new(PolarsWrapper.ExprSetSorted(CloneHandle(), descending, nullsLast));
     // ==========================================
     // Namespaces
     // ==========================================

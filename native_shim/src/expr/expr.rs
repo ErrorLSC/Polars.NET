@@ -2736,3 +2736,24 @@ pub unsafe extern "C" fn pl_expr_coalesce(
         Ok(Box::into_raw(Box::new(ExprContext { inner: result_expr })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_set_sorted_flag(
+    expr_ptr: *mut ExprContext,
+    descending: bool,
+    _nulls_last: bool
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe {Box::from_raw(expr_ptr) };
+
+        let sorted_flag = if descending {
+            polars::series::IsSorted::Descending
+        } else {
+            polars::series::IsSorted::Ascending
+        };
+
+        let res_expr = ctx.inner.set_sorted_flag(sorted_flag);
+
+        Ok(Box::into_raw(Box::new(ExprContext { inner: res_expr })))
+    })
+}

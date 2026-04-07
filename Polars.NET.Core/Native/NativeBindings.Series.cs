@@ -440,8 +440,24 @@ unsafe internal partial class NativeBindings
     [MarshalAs(UnmanagedType.U1)] bool parallel,
     string name,
     [MarshalAs(UnmanagedType.U1)] bool normalize);
+    [LibraryImport(LibName)]
+    public static partial int pl_series_is_sorted(
+        SeriesHandle h,
+        [MarshalAs(UnmanagedType.U1)] bool descending,
+        [MarshalAs(UnmanagedType.U1)] bool nullsLast,
+        [MarshalAs(UnmanagedType.U1)] out bool flag);
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_set_sorted_flag(
+        SeriesHandle h,
+        [MarshalAs(UnmanagedType.U1)] bool descending);
+        // [MarshalAs(UnmanagedType.U1)] bool nullsLast);
+    [LibraryImport(LibName)]
+    public static partial int pl_series_get_sorted_flags(
+        SeriesHandle h,
+        out PlSortStateFlags flags);
     // --- Arrow Export ---
     [LibraryImport(LibName)]
     public static partial ArrowArrayContextHandle pl_series_to_arrow(SeriesHandle h);
     [LibraryImport(LibName)] public static partial IntPtr pl_series_to_string(SeriesHandle series);
+
 }

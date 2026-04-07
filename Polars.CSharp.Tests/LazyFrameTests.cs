@@ -1169,4 +1169,26 @@ David,40,80000";
         Assert.Equal([99, 88, 3], valArray);
         Assert.DoesNotContain("__POLARS_ROW_INDEX", result.Columns);
     }
+    [Fact]
+    [Trait("LazyFrame","SetSorted")]
+    public void Test_SetSorted_OptimizerHint()
+    {
+        var df = DataFrame.FromColumns(new 
+        { 
+            date = new[] { new DateTime(2024, 1, 1), new DateTime(2024, 1, 2) },
+            val = new[] { 10, 20 }
+        });
+
+        var lf = df.Lazy();
+
+        var optimizedLf = lf.SetSorted(Cs.Temporal(), descending: true, nullsLast: true);
+
+        string logicalPlan = optimizedLf.Explain(optimized:true);
+
+        Assert.Contains("set_sorted()", logicalPlan);
+        
+
+        using var resultDf = optimizedLf.Collect();
+        Assert.Equal(2, resultDf.Height);
+    }
 }

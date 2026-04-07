@@ -1237,9 +1237,21 @@ public readonly partial struct PolarsWrapper
             normalize
         ));
     }
-    public static string SeriesToString(SeriesHandle handle)
+    public static string SeriesToString(SeriesHandle handle) => ErrorHelper.CheckString(NativeBindings.pl_series_to_string(handle));
+    public static bool SeriesIsSorted(SeriesHandle handle,bool descending,bool nullsLast)
     {
-        var ptr = NativeBindings.pl_series_to_string(handle);
-        return ErrorHelper.CheckString(ptr);
+        int code = NativeBindings.pl_series_is_sorted(handle,descending,nullsLast,out bool state);
+        ErrorHelper.CheckStatus(code);
+        return state;
     }
+    public static SeriesHandle SeriesSetSortedFlag(SeriesHandle handle,bool descending) 
+        => ErrorHelper.Check(NativeBindings.pl_series_set_sorted_flag(handle,descending));
+    public static PlSortStateFlags SeriesGetSortedFlags(SeriesHandle handle)
+    {
+        int status = NativeBindings.pl_series_get_sorted_flags(handle, out PlSortStateFlags flags);
+        ErrorHelper.CheckStatus(status);
+        return flags;
+    }
+
+    
 }

@@ -474,7 +474,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
         using var selector = actualSelector.Consume();
         string[] columnsArray = Cs.ExpandSelector(this, selector);
 
-        // 安全性校验
         if (columnsArray.Length == 0)
         {
             if (columns.HasValue)

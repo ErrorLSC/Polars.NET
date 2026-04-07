@@ -780,4 +780,6 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_sum_horizontal(nint[] exprs,nuint len,[MarshalAs(UnmanagedType.U1)] bool ignoreNulls);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_mean_horizontal(nint[] exprs,nuint len,[MarshalAs(UnmanagedType.U1)] bool ignoreNulls);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_set_sorted_flag(ExprHandle expr,[MarshalAs(UnmanagedType.U1)] bool descending,[MarshalAs(UnmanagedType.U1)]  bool nullsLast);
 }

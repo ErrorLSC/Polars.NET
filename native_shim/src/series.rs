@@ -1,6 +1,6 @@
 use polars::prelude::*;
 use polars_arrow::array::{Array,FixedSizeListArray,ListArray, Utf8ViewArray, View};
-use std::ffi::{CStr, CString};
+use std::ffi::{CStr, CString, c_int};
 use std::os::raw::c_char;
 use crate::pl_io::arrow::ArrowArrayContext;
 use crate::types::{DataFrameContext, DataTypeContext, SeriesContext};
@@ -1570,3 +1570,86 @@ pub extern "C" fn pl_series_extend(s_ptr: *mut SeriesContext, other_ptr: *mut Se
         Ok(())
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_get_sorted_flags(
+    series_ptr: *mut SeriesContext,
+    out_flags: *mut u8,
+) -> c_int {
+    ffi_try_c_int!({
+        let ctx = unsafe { &*series_ptr };
+        
+        let mut flags: u8 = 0;
+        match ctx.series.is_sorted_flag() {
+            polars::series::IsSorted::Ascending => {
+                flags |= 1; // IsSorted
+            },
+            polars::series::IsSorted::Descending => {
+                flags |= 1; // IsSorted
+                flags |= 2; // Descending
+            },
+            _ => {}
+        }
+        // TODO for 0.54: 
+        // if ctx.series.nulls_last_flag() { flags |= 4; }
+
+        if !out_flags.is_null() {
+            unsafe { *out_flags = flags };
+        }
+        
+        Ok(0)
+    })
+}
+
+/// Check if the Series is actually sorted according to the given rules.
+/// Returns 0 on success, 1 on panic/error.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_is_sorted(
+    series_ptr: *mut SeriesContext,
+    descending: bool,
+    nulls_last: bool, // for polars 0.54
+    out_result: *mut bool,
+) -> c_int {
+    ffi_try_c_int!({
+        let ctx = unsafe { &*series_ptr };
+        
+        let opts = polars::prelude::SortOptions {
+            descending,
+            nulls_last,
+            ..Default::default()
+        };
+
+        let is_sorted = ctx.series.is_sorted(opts)?;
+
+        if !out_result.is_null() {
+            unsafe { *out_result = is_sorted };
+        }
+        
+        Ok(0)
+    })
+}
+
+/// Set the sorted flag of the Series.
+/// Returns a new SeriesContext.
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_set_sorted_flag(
+    series_ptr: *mut SeriesContext,
+    descending: bool,
+) -> *mut SeriesContext {
+    ffi_try!({
+        let ctx = unsafe { &*series_ptr };
+        
+        let mut s = ctx.series.clone();
+        
+        let sorted_flag = if descending {
+            polars::series::IsSorted::Descending
+        } else {
+            polars::series::IsSorted::Ascending
+        };
+        
+        s.set_sorted_flag(sorted_flag);
+
+        Ok(Box::into_raw(Box::new(SeriesContext { series: s })))
+    })
+}
+

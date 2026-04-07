@@ -129,6 +129,21 @@ public partial class Series : IDisposable,IPolarsSeries
     public bool IsContiguous => NChunks == 1L;
 
     /// <summary>
+    /// Gets the current metadata sortedness flags of this Series. (O(1) operation)
+    /// </summary>
+    public SortStateFlags SortedFlags => (SortStateFlags)PolarsWrapper.SeriesGetSortedFlags(Handle);
+    /// <summary>
+    /// Checks if the Series is sorted according to the given rules.
+    /// If the metadata flag matches, returns O(1). Otherwise, scans the data O(N).
+    /// </summary>
+    public bool IsSorted(bool descending = false, bool nullsLast = false) => PolarsWrapper.SeriesIsSorted(Handle, descending, nullsLast);
+    /// <summary>
+    /// Flags the Series as ‘sorted’. Enables downstream code to user fast paths for sorted arrays.
+    /// </summary>
+    /// <param name="descending">If the Series order is descending.</param>
+    /// <returns></returns>
+    public Series SetSorted(bool descending = false) => new(PolarsWrapper.SeriesSetSortedFlag(Handle,descending));
+    /// <summary>
     /// True if the Series is empty.
     /// </summary>
     public bool IsEmpty => Length == 0;

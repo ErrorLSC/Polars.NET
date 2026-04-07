@@ -1445,4 +1445,10 @@ public readonly partial struct PolarsWrapper
         var h = NativeBindings.pl_expr_mean_horizontal(ptrs,(nuint)ptrs.Length,ignoreNulls);
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle ExprSetSorted(ExprHandle expr,bool descending,bool nullsLast)
+    {
+        var h = NativeBindings.pl_expr_set_sorted_flag(expr,descending,nullsLast);
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
 }
