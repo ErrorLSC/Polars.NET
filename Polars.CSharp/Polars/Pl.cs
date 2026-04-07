@@ -26,17 +26,11 @@ public readonly partial struct Polars
         using Selector sel = Cs.ByName(names);
         return sel.ToExpr();
     }
-    /// <summary>
-    /// Select all columns, same as Col("*")
-    /// </summary>
-    /// <returns></returns>
-    public static Expr All()
-        => Col("*");
+ 
     /// <summary>
     /// Return the lines count of current context.
     /// </summary>
-    public static Expr Len()
-        => new(PolarsWrapper.Len());
+    public static Expr Len() => new(PolarsWrapper.Len());
     // --- Literals ---
     public static Expr Lit(string? value)
     {
@@ -177,6 +171,8 @@ public readonly partial struct Polars
         var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
         return new Expr(PolarsWrapper.ConcatExprs(handles,rechunk));
     }
+    /// <inheritdoc cref="ConcatExpr(bool,Expr[])"/>
+    public static Expr ConcatExpr(params Expr[] exprs) => ConcatExpr(false,exprs);
     // ==========================================
     // Struct Operations
     // ==========================================

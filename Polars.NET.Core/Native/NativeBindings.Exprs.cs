@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 using Apache.Arrow.C;
 
 namespace Polars.NET.Core.Native;
@@ -767,4 +768,16 @@ unsafe internal partial class NativeBindings
         PlClosedInterval closedWindow,
         [MarshalAs(UnmanagedType.U1)] bool asArray
     );
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_all_horizontal(nint[] exprs,nuint len);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_any_horizontal(nint[] exprs,nuint len);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_max_horizontal(nint[] exprs,nuint len);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_min_horizontal(nint[] exprs,nuint len);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_sum_horizontal(nint[] exprs,nuint len,[MarshalAs(UnmanagedType.U1)] bool ignoreNulls);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_mean_horizontal(nint[] exprs,nuint len,[MarshalAs(UnmanagedType.U1)] bool ignoreNulls);
 }

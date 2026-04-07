@@ -498,7 +498,7 @@ public static class SeriesFactory
             uint[,] v    => PolarsWrapper.SeriesNewFixedArray(name, v),
             long[,] v    => PolarsWrapper.SeriesNewFixedArray(name, v),
             ulong[,] v   => PolarsWrapper.SeriesNewFixedArray(name, v),
-            Half[,] v   => PolarsWrapper.SeriesNewFixedArray(name, v),
+            Half[,] v    => PolarsWrapper.SeriesNewFixedArray(name, v),
             float[,] v   => PolarsWrapper.SeriesNewFixedArray(name, v),
             double[,] v  => PolarsWrapper.SeriesNewFixedArray(name, v),
             decimal[,] v => PolarsWrapper.SeriesNewFixedArray(name, v),

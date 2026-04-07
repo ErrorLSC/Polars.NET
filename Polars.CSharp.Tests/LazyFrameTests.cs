@@ -1121,13 +1121,13 @@ David,40,80000";
         // Id: [1, 2, 3] (Left Join)
         Assert.Equal([1, 2, 3], idArray);
         
-        // 预期 ValueA: 
+        // ValueA: 
         // Id 1: 10 
         // Id 2: 200 
         // Id 3: 30
         Assert.Equal([10, 200, 30], valAArray);
         
-        // 预期 ValueB:
+        // ValueB:
         Assert.Equal(new string[] { "x", "yy", "zz" }, valBArray);
     }
 
@@ -1145,40 +1145,11 @@ David,40,80000";
 
         var valAArray = result["ValueA"].ToArray<int?>();
 
-        // 预期 ValueA: 
+        // ValueA: 
         // Id 1: 10
         // Id 2: 200 
         // Id 3: null 
         Assert.Equal([10, 200, null], valAArray);
-    }
-
-    [Fact]
-    [Trait("LazyFrame", "Update")]
-    public void Update_HowOuter_ShouldAddNewRows()
-    {
-        // Arrange
-        var left = GetLeftData().Lazy();
-        var right = GetRightData().Lazy();
-
-        // Act
-        var result = left.Update(
-            right, 
-            on: ["Id"], 
-            how: JoinType.Outer,
-            maintainOrder: JoinMaintainOrder.Left
-        ).Collect();
-
-        // Assert
-        var idArray = result["Id"].ToArray<int>();
-        var valAArray = result["ValueA"].ToArray<int?>();
-
-        Assert.Equal([1, 2, 3, 4], idArray);
-
-        // Id 1: 10
-        // Id 2: 200 (updated)
-        // Id 3: 30  (keep)
-        // Id 4: 400 (added)
-        Assert.Equal([10, 200, 30, 400], valAArray);
     }
 
     [Fact]

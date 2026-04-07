@@ -2873,4 +2873,174 @@ TooShort,1990-05-20,1.60";
         var exception2 = Assert.Throws<ArgumentException>(() => CoalesceAsSeries());
         Assert.Contains("At least one expression must be provided", exception2.Message);
     }
+    [Fact]
+    [Trait("Expr","Horizontal")]
+    public void Test_SumHorizontal_All_Overloads()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            a = new int?[] { 1, 2, null, 4 },
+            b = new int?[] { 4, null, 6, null }
+        });
+
+        // Act
+        var res = df.Select(
+            // 1. params IntoExpr[] 
+            SumHorizontal("a", "b").Alias("sum_default"),
+
+            // 2. bool, params IntoExpr[]
+            SumHorizontal(false, "a", "b").Alias("sum_strict"),
+
+            // 3. IEnumerable<IntoExpr>
+            SumHorizontal(new List<IntoExpr> { "a", "b" }).Alias("sum_list_into"),
+
+            // 4. IEnumerable<Expr>
+            SumHorizontal([Col("a"), Col("b")]).Alias("sum_list_expr")
+        );
+
+        // Assert
+        var sumDefault = res["sum_default"].ToArray<int?>();
+        var sumStrict = res["sum_strict"].ToArray<int?>();
+        var sumListInto = res["sum_list_into"].ToArray<int?>();
+        var sumListExpr = res["sum_list_expr"].ToArray<int?>();
+
+        // Ignore Null: [1+4, 2+0, 0+6, 4+0]
+        Assert.Equal([5, 2, 6, 4], sumDefault);
+        Assert.Equal([5, 2, 6, 4], sumListInto);
+        Assert.Equal([5, 2, 6, 4], sumListExpr);
+
+        // ignoreNulls = false:
+        Assert.Equal([5, null, null, null], sumStrict);
+    }
+
+    [Fact]
+    [Trait("Expr","Horizontal")]
+    public void Test_MeanHorizontal_All_Overloads()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            a = new double?[] { 10.0, 20.0, null, 40.0 },
+            b = new double?[] { 20.0, null, 60.0, null }
+        });
+
+        // Act
+        var res = df.Select(
+            MeanHorizontal("a", "b").Alias("mean_default"),
+            MeanHorizontal(false, "a", "b").Alias("mean_strict"),
+            MeanHorizontal(new List<Expr> { Col("a"), Col("b") }).Alias("mean_list")
+        );
+
+        // Assert
+        var meanDefault = res["mean_default"].ToArray<double?>();
+        var meanStrict = res["mean_strict"].ToArray<double?>();
+        var meanList = res["mean_list"].ToArray<double?>();
+
+        // [ (10+20)/2, 20/1, 60/1, 40/1 ]
+        Assert.Equal([15.0, 20.0, 60.0, 40.0], meanDefault);
+        Assert.Equal([15.0, 20.0, 60.0, 40.0], meanList);
+
+        Assert.Equal([15.0, null, null, null], meanStrict);
+    }
+
+    [Fact]
+    [Trait("Expr","Horizontal")]
+    public void Test_MaxMinHorizontal()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            a = new int?[] { 1, 5, null, 8 },
+            b = new int?[] { 3, 2, 6, null }
+        });
+
+        // Act
+        var res = df.Select(
+            MaxHorizontal("a", "b", 4).Alias("max_val"), 
+            MinHorizontal("a", "b", 4).Alias("min_val")  
+        );
+
+        // Assert
+        var maxVal = res["max_val"].ToArray<int?>();
+        var minVal = res["min_val"].ToArray<int?>();
+
+        // Max: Math.Max(a, b, 4) -> Null Ignored
+        Assert.Equal([4, 5, 6, 8], maxVal);
+
+        // Min: Math.Min(a, b, 4)
+        Assert.Equal([1, 2, 4, 4], minVal);
+    }
+
+    [Fact]
+    [Trait("Expr","Horizontal")]
+    public void Test_AllAnyHorizontal_BooleanLogic()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            c1 = new bool?[] { true, false, true, false, null },
+            c2 = new bool?[] { true, false, false, null, null }
+        });
+
+        // Act
+        var res = df.Select(
+            AllHorizontal("c1", "c2").Alias("all_h"),
+            AnyHorizontal("c1", "c2").Alias("any_h"),
+            AnyHorizontal(Col("c1"), true).Alias("any_with_literal") 
+        );
+
+        // Assert
+        var allH = res["all_h"].ToArray<bool?>();
+        var anyH = res["any_h"].ToArray<bool?>();
+        var anyLit = res["any_with_literal"].ToArray<bool?>();
+
+        // All: (true&true), (false&false), (true&false), (false&null), (null&null)
+        Assert.Equal([true, false, false, false, null], allH);
+
+        // Any: (true|true), (false|false), (true|false), (false|null), (null|null)
+        Assert.Equal([true, false, true, null, null], anyH);
+
+        // Any with Literal 'true' always true
+        Assert.Equal([true, true, true, true, true], anyLit);
+    }
+
+    [Fact]
+    [Trait("Expr","Horizontal")]
+    public void Test_Vertical_SyntacticSugar()
+    {
+        var df = DataFrame.FromColumns(new
+        {
+            a = new int[] { 1, 2, 3 },
+            b = new int[] { 10, 20, 30 }
+        });
+
+        // Act
+        var res = df.Select(
+            Sum("a", "b").Name.Suffix("_sum"),
+            Max("a", "b").Name.Suffix("_max"),
+            Min("a", "b").Name.Suffix("_min")
+        );
+        // Assert
+        Assert.Equal(1, res.Height); 
+        Assert.Equal(6, res.Width);  
+
+        Assert.Equal(6, res["a_sum"][0]);     
+        Assert.Equal(60, res["b_sum"][0]);    
+
+        Assert.Equal(3, res["a_max"][0]);     
+        Assert.Equal(30, res["b_max"][0]);    
+
+        Assert.Equal(1, res["a_min"][0]);     
+        Assert.Equal(10, res["b_min"][0]);
+    }
+
+    [Fact]
+    [Trait("Expr","Horizontal")]
+    public void Test_Horizontal_EmptyArgs_Throws()
+    {
+        Assert.Throws<ArgumentException>(() => SumHorizontal());
+        Assert.Throws<ArgumentException>(() => MeanHorizontal(new List<IntoExpr>()));
+        Assert.Throws<ArgumentException>(() => MaxHorizontal());
+    }
 }   

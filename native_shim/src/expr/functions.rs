@@ -299,3 +299,53 @@ pub extern "C" fn pl_expr_linear_spaces(
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
+
+macro_rules! impl_horizontal_expr_ffi {
+    ($name:ident, $func:path) => {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $name(
+            exprs_ptr: *const *mut ExprContext,
+            exprs_len: usize,
+        ) -> *mut ExprContext {
+            ffi_try!({
+                let exprs_slice = unsafe { std::slice::from_raw_parts(exprs_ptr, exprs_len) };
+                let mut exprs = Vec::with_capacity(exprs_len);
+                for &ptr in exprs_slice {
+                    let expr = unsafe { &*ptr }.inner.clone();
+                    exprs.push(expr);
+                }
+                
+                let new_expr = $func(&exprs)?;
+                Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+            })
+        }
+    };
+    
+    ($name:ident, $func:path, ignore_nulls) => {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $name(
+            exprs_ptr: *const *mut ExprContext,
+            exprs_len: usize,
+            ignore_nulls: bool,
+        ) -> *mut ExprContext {
+            ffi_try!({
+                let exprs_slice = unsafe { std::slice::from_raw_parts(exprs_ptr, exprs_len) };
+                let mut exprs = Vec::with_capacity(exprs_len);
+                for &ptr in exprs_slice {
+                    let expr = unsafe { &*ptr }.inner.clone();
+                    exprs.push(expr);
+                }
+                
+                let new_expr = $func(&exprs, ignore_nulls)?;
+                Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+            })
+        }
+    };
+}
+
+impl_horizontal_expr_ffi!(pl_expr_all_horizontal, polars::lazy::dsl::all_horizontal);
+impl_horizontal_expr_ffi!(pl_expr_any_horizontal, polars::lazy::dsl::any_horizontal);
+impl_horizontal_expr_ffi!(pl_expr_max_horizontal, polars::lazy::dsl::max_horizontal);
+impl_horizontal_expr_ffi!(pl_expr_min_horizontal, polars::lazy::dsl::min_horizontal);
+impl_horizontal_expr_ffi!(pl_expr_sum_horizontal, polars::lazy::dsl::sum_horizontal, ignore_nulls);
+impl_horizontal_expr_ffi!(pl_expr_mean_horizontal, polars::lazy::dsl::mean_horizontal, ignore_nulls);

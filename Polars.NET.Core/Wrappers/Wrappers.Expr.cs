@@ -1407,4 +1407,40 @@ public readonly partial struct PolarsWrapper
         ErrorHelper.CheckStatus(status);
         return result;
     }
+    public static ExprHandle ExprAllHorizontal(ExprHandle[] exprs)
+    {
+        var ptrs = HandlesToPtrs(exprs); 
+        var h = NativeBindings.pl_expr_all_horizontal(ptrs,(nuint)ptrs.Length);
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ExprAnyHorizontal(ExprHandle[] exprs)
+    {
+        var ptrs = HandlesToPtrs(exprs); 
+        var h = NativeBindings.pl_expr_any_horizontal(ptrs,(nuint)ptrs.Length);
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ExprMaxHorizontal(ExprHandle[] exprs)
+    {
+        var ptrs = HandlesToPtrs(exprs); 
+        var h = NativeBindings.pl_expr_max_horizontal(ptrs,(nuint)ptrs.Length);
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ExprMinHorizontal(ExprHandle[] exprs)
+    {
+        var ptrs = HandlesToPtrs(exprs); 
+        var h = NativeBindings.pl_expr_min_horizontal(ptrs,(nuint)ptrs.Length);
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ExprSumHorizontal(ExprHandle[] exprs,bool ignoreNulls)
+    {
+        var ptrs = HandlesToPtrs(exprs); 
+        var h = NativeBindings.pl_expr_sum_horizontal(ptrs,(nuint)ptrs.Length,ignoreNulls);
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ExprMeanHorizontal(ExprHandle[] exprs,bool ignoreNulls)
+    {
+        var ptrs = HandlesToPtrs(exprs); 
+        var h = NativeBindings.pl_expr_mean_horizontal(ptrs,(nuint)ptrs.Length,ignoreNulls);
+        return ErrorHelper.Check(h);
+    }
 }
