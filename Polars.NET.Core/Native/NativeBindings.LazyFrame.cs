@@ -148,7 +148,11 @@ unsafe internal partial class NativeBindings
         PlJoinMaintainOrder maintainOrder,
         [MarshalAs(UnmanagedType.U1)] bool nullsEqual);
     [LibraryImport(LibName)]
-    public static partial DataFrameHandle pl_lazy_collect(LazyFrameHandle lf,[MarshalAs(UnmanagedType.U1)] bool useStreaming);
+    public static partial DataFrameHandle pl_lazy_collect(
+        LazyFrameHandle lf, 
+        PlEngine engine, 
+        [MarshalAs(UnmanagedType.U1)] bool useStreaming
+    );
     [LibraryImport(LibName)]
     public static partial LazyFrameHandle pl_lazy_clone(LazyFrameHandle lf);
 
@@ -252,7 +256,4 @@ unsafe internal partial class NativeBindings
         LazyFrameHandle lf,
         LazyFrameHandle other,
         string key);
-    // --- Streaming & Sink ---
-    [LibraryImport(LibName)] 
-    public static partial DataFrameHandle pl_lazy_collect_streaming(LazyFrameHandle lf);
 }

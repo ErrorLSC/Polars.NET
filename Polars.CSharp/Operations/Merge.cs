@@ -469,7 +469,7 @@ public class DataFrameMergeBuilder : MergeBuilderBase<DataFrameMergeBuilder>
     /// <summary>
     /// Executes the merge operation eagerly and returns a materialized DataFrame.
     /// </summary>
-    public DataFrame Execute(bool streaming=false) => BuildAst().Collect(streaming);
+    public DataFrame Execute(Engine engine=Engine.Auto,bool streaming=false) => BuildAst().Collect(engine,streaming);
     
 }
 

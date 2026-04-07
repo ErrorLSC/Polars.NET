@@ -38,6 +38,11 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     }
     IPolarsSchema IPolarsLazyFrame.Schema => this.Schema;
     /// <summary>
+    /// Resolve the schema of this LazyFrame.
+    /// </summary>
+    /// <returns></returns>
+    public PolarsSchema CollectSchema() => Schema;
+    /// <summary>
     /// Prints the schema to the console.
     /// </summary>
     public void PrintSchema()
@@ -176,32 +181,26 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <summary>
     /// Execute the query plan and return a DataFrame.
     /// </summary>
-    public DataFrame Collect(bool useStreaming=false)
-        => new(PolarsWrapper.LazyCollect(Handle,useStreaming));
+    public DataFrame Collect(Engine engine=Engine.Auto,bool useStreaming=false)
+        => new(PolarsWrapper.LazyCollect(Handle,engine.ToNative(),useStreaming));
 
-    IPolarsDataFrame IPolarsLazyFrame.Collect(bool useStreaming)
-        => Collect(useStreaming);
-
-    /// <summary>
-    /// Execute the query plan using the streaming engine.
-    /// </summary>
-    public DataFrame CollectStreaming()
-        => new(PolarsWrapper.CollectStreaming(Handle));
+    IPolarsDataFrame IPolarsLazyFrame.Collect(PlEngine engine,bool useStreaming)
+        => Collect((Engine)engine, useStreaming);
     /// <summary>
     /// Execute the query plan asynchronously and return a DataFrame.
     /// </summary>
-    public async Task<DataFrame> CollectAsync(bool useStreaming = false, CancellationToken cancellationToken = default)
+    public async Task<DataFrame> CollectAsync(Engine engine=Engine.Auto,bool useStreaming = false, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var dfHandle = await PolarsWrapper.LazyCollectAsync(Handle, useStreaming, cancellationToken)
+        var dfHandle = await PolarsWrapper.LazyCollectAsync(Handle,engine.ToNative(), useStreaming, cancellationToken)
                                           .ConfigureAwait(false);
 
         return new DataFrame(dfHandle);
     }
 
-    async Task<IPolarsDataFrame> IPolarsLazyFrame.CollectAsync(bool useStreaming, CancellationToken cancellationToken)
-        => await CollectAsync(useStreaming, cancellationToken).ConfigureAwait(false);
+    async Task<IPolarsDataFrame> IPolarsLazyFrame.CollectAsync(PlEngine engine,bool useStreaming, CancellationToken cancellationToken)
+        => await CollectAsync((Engine)engine, useStreaming, cancellationToken).ConfigureAwait(false);
 
     /// <summary>
     /// Dispose the LazyFrame and release native resources.

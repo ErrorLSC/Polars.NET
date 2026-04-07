@@ -321,7 +321,7 @@ David,40,80000";
             strategy: AsofStrategy.Backward 
         );
 
-        using var df = joinedLf.Collect();
+        using var df = joinedLf.Collect(engine:Engine.Gpu);
         
         Assert.Equal(3, df.Height);
 

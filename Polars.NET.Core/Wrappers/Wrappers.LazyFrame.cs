@@ -24,9 +24,9 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(newLf);
     }
 
-    public static DataFrameHandle LazyCollect(LazyFrameHandle lf,bool useStreaming)
+    public static DataFrameHandle LazyCollect(LazyFrameHandle lf,PlEngine engine,bool useStreaming)
     {
-        var df = NativeBindings.pl_lazy_collect(lf,useStreaming);
+        var df = NativeBindings.pl_lazy_collect(lf,engine,useStreaming);
         lf.TransferOwnership();
         return ErrorHelper.Check(df);
     }
@@ -541,19 +541,12 @@ public readonly partial struct PolarsWrapper
         other.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    
-    // Streaming Collect
-    public static DataFrameHandle CollectStreaming(LazyFrameHandle lf)
-    {
-        var df = NativeBindings.pl_lazy_collect_streaming(lf);
-        lf.TransferOwnership();
-        return ErrorHelper.Check(df);
-    }
     public static Task<DataFrameHandle> LazyCollectAsync(
         LazyFrameHandle handle, 
+        PlEngine engine,
         bool useStreaming, 
         CancellationToken cancellationToken) 
-            => Task.Run(() => LazyCollect(handle, useStreaming), cancellationToken);
+            => Task.Run(() => LazyCollect(handle, engine,useStreaming), cancellationToken);
     // --- Clone Ops ---
     public static LazyFrameHandle LazyClone(LazyFrameHandle lf)
         => ErrorHelper.Check(NativeBindings.pl_lazy_clone(lf));

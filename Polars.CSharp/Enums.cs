@@ -67,6 +67,18 @@ public enum DataTypeKind
 }
 
 /// <summary>
+/// Execution engine for LazyFrame.Collect()
+/// </summary>
+public enum Engine : byte
+{
+    Auto = 0,
+    InMemory = 1,
+    Streaming = 2,
+    Gpu = 3
+}
+
+
+/// <summary>
 /// Defines which boundary of the window to use for the label.
 /// </summary>
 public enum Label
@@ -814,6 +826,14 @@ internal static class EnumExtensions
         ClosedInterval.Right => CoreEnums.PlClosedInterval.Right,
         ClosedInterval.None => CoreEnums.PlClosedInterval.None,
         _ => throw new ArgumentOutOfRangeException(nameof(closed), closed, null)
+    };
+    internal static CoreEnums.PlEngine ToNative(this Engine engine) => engine switch
+    {
+        Engine.Auto => CoreEnums.PlEngine.Auto,
+        Engine.Streaming => CoreEnums.PlEngine.Streaming,
+        Engine.Gpu => CoreEnums.PlEngine.Gpu,
+        Engine.InMemory => CoreEnums.PlEngine.InMemory,
+        _ => throw new ArgumentOutOfRangeException(nameof(engine), engine, null)
     };
 }
 

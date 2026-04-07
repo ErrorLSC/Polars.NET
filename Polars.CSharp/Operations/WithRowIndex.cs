@@ -23,12 +23,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
                 $"`offset` input for `WithRowIndex` cannot be {issue}, got {offset.Value}"
             );
         }
-
-        var lfClone = CloneHandle();
-        
-        var newHandle = PolarsWrapper.LazyFrameWithRowIndex(lfClone, name, offset);
-        
-        return new LazyFrame(newHandle);
+        return new LazyFrame(PolarsWrapper.LazyFrameWithRowIndex(CloneHandle(), name, offset));
     }
 }
 

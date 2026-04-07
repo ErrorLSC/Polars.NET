@@ -460,32 +460,26 @@ pub extern "C" fn pl_lazyframe_unnest(
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_lazy_collect(
     lf_ptr: *mut LazyFrameContext, 
+    engine_code: u8,
     use_streaming: bool
 ) -> *mut DataFrameContext {
     ffi_try!({
         let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
-        let lf = lf_ctx.inner;
+        let mut lf = lf_ctx.inner;
 
-        let df = if use_streaming {
-            lf.with_new_streaming(true).collect_with_engine(Engine::Streaming)?
-        } else {
-            lf.collect_with_engine(Engine::Auto)?
+        if use_streaming {
+            lf = lf.with_new_streaming(true);
+        }
+
+        let engine = match engine_code {
+            1 => Engine::InMemory,
+            2 => Engine::Streaming,
+            3 => Engine::Gpu,
+            _ => Engine::Auto,
         };
 
-        Ok(Box::into_raw(Box::new(DataFrameContext { df })))
-    })
-}
+        let df = lf.collect_with_engine(engine)?;
 
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_lazy_collect_streaming(lf_ptr: *mut LazyFrameContext) -> *mut DataFrameContext {
-    ffi_try!({
-        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
-        
-        // Polars 0.50+ API: with_streaming(true).collect()
-        let df = lf_ctx.inner
-            .with_new_streaming(true)
-            .collect_with_engine(Engine::Streaming)?;
-            
         Ok(Box::into_raw(Box::new(DataFrameContext { df })))
     })
 }

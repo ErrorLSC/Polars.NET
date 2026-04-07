@@ -86,6 +86,14 @@ public enum PlLabel
     DataPoint = 2
 }
 
+public enum PlEngine : byte
+{
+    Auto = 0,
+    InMemory = 1,
+    Streaming = 2,
+    Gpu = 3
+}
+
 public enum PlStartBy : byte
 {
     WindowBound = 0,

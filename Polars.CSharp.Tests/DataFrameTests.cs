@@ -1823,7 +1823,7 @@ B,5";
         // Act 2:includeNulls = true
         var resultWithNulls = targetDf.Merge(sourceDf, "Id")
             .IncludeNulls(true)
-            .Execute(true)
+            .Execute()
             .Sort("Id");
 
         var scoreArrayWithoutNulls = resultWithoutNulls["Score"].ToArray<int?>();
