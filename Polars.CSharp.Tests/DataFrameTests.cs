@@ -1895,6 +1895,42 @@ B,5";
 
         Assert.Equal("ID", t3.GetValue<string>(0, "Original_Column"));
         Assert.Equal("Val1", t3.GetValue<string>(1, "Original_Column"));
+    }
+    [Fact]
+    [Trait("DataFrame", "Upsample")]
+    public void Test_DataFrame_Upsample_With_Selectors()
+    {
+        var dates = new[]
+        {
+            new DateTime(2024, 1, 1),
+            new DateTime(2024, 1, 3),
+            new DateTime(2024, 1, 1),
+            new DateTime(2024, 1, 2)
+        };
+        var groups = new[] { "A", "A", "B", "B" };
+        var vals = new int?[] { 10, 30, 100, 200 };
 
+        using var df = DataFrame.FromColumns(new { ts = dates, grp = groups, val = vals });
+        using var sorted = df.Sort(["grp", "ts"]);
+
+        using var upsampled = sorted.Upsample(
+            timeColumn: Cs.Temporal(),  
+            every: TimeSpan.FromDays(1), 
+            groupBy: Cs.String(), 
+            maintainOrder: true
+        );
+        upsampled.Show();
+        Assert.Equal(5, upsampled.Height);
+        Assert.Equal(3, upsampled.Width);
+
+        using var groupA = upsampled.Filter(Pl.Col("grp") == Pl.Lit("A"));
+        Assert.Equal(3, groupA.Height);
+
+        Assert.Equal(10, groupA.GetValue<int>(0, "val"));
+
+        Assert.Equal(new DateTime(2024, 1, 2), groupA.GetValue<DateTime>(1, "ts"));
+        Assert.Null(groupA.GetValue<int?>(1, "val"));
+        
+        Assert.Equal(30, groupA.GetValue<int>(2, "val"));
     }
 }

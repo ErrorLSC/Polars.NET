@@ -1,5 +1,5 @@
+#pragma warning disable CS1573
 using Polars.NET.Core;
-using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
 
@@ -9,10 +9,10 @@ namespace Polars.CSharp;
 public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
 {
     /// <summary>
-    /// 
+    /// Transpose a DataFrame over the diagonal.
     /// </summary>
-    /// <param name="includeHeader"></param>
-    /// <param name="headerName"></param>
+    /// <param name="includeHeader">If set, the column names will be added as first column.</param>
+    /// <param name="headerName">If include_header is set, this determines the name of the column that will be inserted.</param>
     /// <returns></returns>
     public DataFrame Transpose(bool includeHeader = false, string headerName = "column")
     {
@@ -22,13 +22,10 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         return new DataFrame(newHandle);
     }
     /// <summary>
-    /// 
+    /// Transpose a DataFrame over the diagonal.
     /// </summary>
-    /// <param name="columnName"></param>
-    /// <param name="includeHeader"></param>
-    /// <param name="headerName"></param>
-    /// <returns></returns>
-    /// <exception cref="ArgumentException"></exception>
+    /// <param name="columnName">Optional iterable yielding strings or a string naming an existing column. These will name the value (non-header) columns in the transposed data.</param>
+    /// <inheritdoc cref="Transpose(bool,string)"/>
     public DataFrame Transpose(string columnName, bool includeHeader = false, string headerName = "column")
     {
         if (string.IsNullOrWhiteSpace(columnName))
@@ -40,12 +37,10 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         return new DataFrame(newHandle);
     }
     /// <summary>
-    /// 
+    /// Transpose a DataFrame over the diagonal.
     /// </summary>
-    /// <param name="customNames"></param>
-    /// <param name="includeHeader"></param>
-    /// <param name="headerName"></param>
-    /// <returns></returns>
+    /// <param name="customNames">Optional iterable yielding strings or a string naming an existing column. These will name the value (non-header) columns in the transposed data.</param>
+    /// <inheritdoc cref="Transpose(bool,string)"/>
     public DataFrame Transpose(IEnumerable<string> customNames, bool includeHeader = false, string headerName = "column")
     {
         ArgumentNullException.ThrowIfNull(customNames);

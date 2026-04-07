@@ -963,3 +963,40 @@ pub extern "C" fn pl_dataframe_transpose(
         Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_upsample(
+    df_ptr: *mut DataFrameContext,
+    time_column_ptr: *const c_char,
+    every_ptr: *const c_char,
+    group_by_ptr: *const *const c_char,
+    group_by_len: usize,
+    maintain_order: bool,
+) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*df_ptr };
+
+        let time_column = ptr_to_str(time_column_ptr).unwrap_or("");
+
+        let every_str = ptr_to_str(every_ptr).unwrap_or("1d");
+        let every = polars::time::Duration::parse(every_str);
+
+        let by: Vec<PlSmallStr> = if group_by_ptr.is_null() || group_by_len == 0 {
+            Vec::new()
+        } else {
+            let slice = unsafe { std::slice::from_raw_parts(group_by_ptr, group_by_len) };
+            slice
+                .iter()
+                .filter_map(|&p| ptr_to_str(p).ok().map(|s| PlSmallStr::from_str(s)))
+                .collect()
+        };
+
+        let res_df = if maintain_order {
+            ctx.df.upsample_stable(by, time_column, every)?
+        } else {
+            ctx.df.upsample(by, time_column, every)?
+        };
+
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
+    })
+}

@@ -336,4 +336,20 @@ public readonly partial struct PolarsWrapper
         
         return ErrorHelper.Check(h);
     }
+    public static DataFrameHandle DataFrameUpsample(DataFrameHandle df, string timeColumn, string? every,string[]? groupBy, bool maintainOrder)
+    {
+        nuint groupByLen = (nuint)(groupBy?.Length ?? 0);
+
+        var h = NativeBindings.pl_dataframe_upsample(
+            df, 
+            timeColumn, 
+            every, 
+            groupBy, 
+            groupByLen,
+            maintainOrder
+        );
+        
+        return ErrorHelper.Check(h);
+    }
+
 }

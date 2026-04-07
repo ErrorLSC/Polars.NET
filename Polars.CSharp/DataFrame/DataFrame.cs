@@ -407,6 +407,54 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
         PolarsWrapper.DataFrameExtend(Handle,other.Handle);
         return this;
     }
+    /// <summary>
+    /// Upsample a DataFrame at a regular frequency.
+    /// </summary>
+    /// <param name="timeColumn">The column used for the time/datetime index.</param>
+    /// <param name="every">The interval to upsample to (e.g., "1d", "1h", or a TimeSpan).</param>
+    /// <param name="groupBy">Optional. Group by these columns before upsampling. Accepts strings, Selectors, or Exprs.</param>
+    /// <param name="maintainOrder">If true, maintains the original order of the groups.</param>
+    /// <returns>A new DataFrame with missing time steps filled with nulls.</returns>
+    public DataFrame Upsample(
+        IntoSelector timeColumn, 
+        IntoDuration every, 
+        IntoSelector? groupBy = null, 
+        bool maintainOrder = false)
+    {
+        using var timeSelector = timeColumn.Consume();
+        string[] expandedTimeCols = Cs.ExpandSelector(this, timeSelector);
+
+        if (expandedTimeCols.Length != 1)
+        {
+            throw new ArgumentException(
+                $"The timeColumn selector must resolve to exactly one column, but it resolved to {expandedTimeCols.Length} columns: " +
+                (expandedTimeCols.Length > 0 ? string.Join(", ", expandedTimeCols) : "None")
+            );
+        }
+        string resolvedTimeColumn = expandedTimeCols[0];
+
+        string[]? groupByCols = null;
+        if (groupBy.HasValue)
+        {
+            using var groupSelector = groupBy.Value.Consume();
+            groupByCols = Cs.ExpandSelector(this, groupSelector);
+            
+            if (groupByCols.Length == 0)
+            {
+                groupByCols = null; 
+            }
+        }
+
+        var newHandle = PolarsWrapper.DataFrameUpsample(
+            Handle, 
+            resolvedTimeColumn, 
+            every.Value, 
+            groupByCols, 
+            maintainOrder
+        );
+
+        return new DataFrame(newHandle);
+    }
     // ==========================================
     // LifeCycle
     // ==========================================

@@ -204,4 +204,13 @@ unsafe internal partial class NativeBindings
         string[]? customNames,
         nuint len
     );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial DataFrameHandle pl_dataframe_upsample(
+        DataFrameHandle df, 
+        string timeColumn, 
+        string? every,
+        string[]? groupBy,
+        nuint len,
+        [MarshalAs(UnmanagedType.U1)]bool maintainOrder
+    ); 
 }
