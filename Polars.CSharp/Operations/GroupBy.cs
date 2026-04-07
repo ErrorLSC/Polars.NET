@@ -67,7 +67,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// </code>
     /// </example>
     public LazyGroupBy GroupByDynamic(
-        IntoExpr indexColumn,
+        IntoSelector indexColumn, 
         IntoDuration every,
         IntoDuration? period = null,
         IntoDuration? offset = null,
@@ -78,47 +78,25 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         StartBy startBy = StartBy.WindowBound
     )
     {
-        var idxExpr = indexColumn.Consume();
-
-        string? actualIndexCol = null;
-
-        try
+        using var idxSelector = indexColumn.Consume();
+        var expandedCols = Cs.ExpandSelector(this, idxSelector);
+        
+        if (expandedCols.Length != 1)
         {
-            if (!idxExpr.Meta.IsRegexProjection())
-            {
-                actualIndexCol = idxExpr.Meta.OutputName();
-            }
+            throw new ArgumentException(
+                $"The dynamic indexColumn must resolve to exactly ONE column. " +
+                $"But your expression/selector resolved to {expandedCols.Length} column(s): " +
+                $"[{(expandedCols.Length > 0 ? string.Join(", ", expandedCols) : "none")}]"
+            );
         }
-        catch (PolarsException)
-        {
-
-        }
-
-        // Slow Path (Smart Fallback):
-        if (string.IsNullOrEmpty(actualIndexCol))
-        {
-            var expandedCols = Cs.ExpandSelector(this, idxExpr.ToSelector());
-            
-            if (expandedCols.Length != 1)
-            {
-                throw new ArgumentException(
-                    $"The dynamic indexColumn must resolve to exactly ONE column. " +
-                    $"But your expression (e.g. Selector) resolved to {expandedCols.Length} column(s): " +
-                    $"[{(expandedCols.Length > 0 ? string.Join(", ", expandedCols) : "none")}]"
-                );
-            }
-            actualIndexCol = expandedCols[0];
-        }
+        
+        string actualIndexCol = expandedCols[0];
+        
         string everyStr = every.Value;
         string periodStr = period?.Value ?? everyStr;
         string offsetStr = offset?.Value ?? "0s";
 
-        var keys = groupBy?.Select(k => 
-        {
-            var expr = k.Consume();
-            
-            return expr;
-        }).ToArray() ?? [];
+        var keys = groupBy?.Select(k => k.Consume()).ToArray() ?? [];
 
         return new LazyGroupBy(
             CloneHandle(),
@@ -137,44 +115,27 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Lazily group based on a time index using rolling windows.
     /// </summary>
     public LazyGroupBy Rolling(
-        IntoExpr indexColumn,
+        IntoSelector indexColumn, 
         IntoDuration period,
         IntoDuration? offset = null,
         IEnumerable<IntoExpr>? groupBy = null,
         ClosedWindow closedWindow = ClosedWindow.Right)
     {
-        var idxExpr = indexColumn.Consume();
-        string? actualIndexCol = null;
+        using var idxSelector = indexColumn.Consume();
+        var expandedCols = Cs.ExpandSelector(this, idxSelector);
+        
+        if (expandedCols.Length != 1)
+        {
+            throw new ArgumentException(
+                $"The rolling indexColumn must resolve to exactly ONE column. " +
+                $"But your selector resolved to {expandedCols.Length} column(s)."
+            );
+        }
+        
+        string actualIndexCol = expandedCols[0];
+        
         string periodStr = period.Value;
         string actualOffset = offset?.Value ?? $"-{periodStr}";
-        // Fast Path: 
-        try
-        {
-            if (!idxExpr.Meta.IsRegexProjection())
-            {
-                actualIndexCol = idxExpr.Meta.OutputName();
-            }
-        }
-        catch (PolarsException)
-        {
-            // Smart Fallback:
-        }
-
-        // 2. Slow Path (Smart Fallback):
-        if (string.IsNullOrEmpty(actualIndexCol))
-        {
-            var expandedCols = Cs.ExpandSelector(this, idxExpr.ToSelector());
-            
-            if (expandedCols.Length != 1)
-            {
-                throw new ArgumentException(
-                    $"The rolling indexColumn must resolve to exactly ONE column. " +
-                    $"But your expression resolved to {expandedCols.Length} column(s)."
-                );
-            }
-            actualIndexCol = expandedCols[0];
-        }
-
         var keys = groupBy?.Select(k => k.Consume()).ToArray() ?? [];
 
         return new LazyGroupBy(
@@ -305,7 +266,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </code>
     /// </example>
     public GroupByBuilder GroupByDynamic(
-        IntoExpr indexColumn,
+        IntoSelector indexColumn,
         IntoDuration every,
         IntoDuration? period = null,
         IntoDuration? offset = null,
@@ -320,7 +281,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Group based on a time index using rolling windows.
     /// </summary>
     public GroupByBuilder Rolling(
-        IntoExpr indexColumn,
+        IntoSelector indexColumn,
         IntoDuration period,
         IntoDuration? offset = null,
         IEnumerable<IntoExpr>? groupBy = null,
