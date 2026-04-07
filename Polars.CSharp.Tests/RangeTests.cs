@@ -42,7 +42,7 @@ public class RangeTests
     [Trait("Range","Int")]
     public void IntRange_WithCustomDtype_ShouldCastCorrectly()
     {
-        var expr = Pl.IntRange(0, 3, dtype: DataType.Int32);
+        var expr = Pl.IntRange(0, 3, datatype: typeof(int));
         using var df = new DataFrame().Select(expr);
 
         // Assert

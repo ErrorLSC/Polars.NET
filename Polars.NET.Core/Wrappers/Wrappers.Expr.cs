@@ -1221,19 +1221,21 @@ public readonly partial struct PolarsWrapper
             NativeBindings.pl_free_string(strPtr);
         }
     }
-    public static ExprHandle IntRange(ExprHandle start,ExprHandle end,long step,DataTypeHandle dtype) 
+    public static ExprHandle IntRange(ExprHandle start,ExprHandle end,long step,DataTypeExprHandle dtypeExpr) 
     {
-        var h = NativeBindings.pl_expr_int_range(start,end,step,dtype);
+        var h = NativeBindings.pl_expr_int_range(start,end,step,dtypeExpr);
         start.TransferOwnership();
         end.TransferOwnership();
+        dtypeExpr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle IntRanges(ExprHandle start,ExprHandle end,ExprHandle step,DataTypeHandle dtype) 
+    public static ExprHandle IntRanges(ExprHandle start,ExprHandle end,ExprHandle step,DataTypeExprHandle dtypeExpr) 
     {
-        var h = NativeBindings.pl_expr_int_ranges(start,end,step,dtype);
+        var h = NativeBindings.pl_expr_int_ranges(start,end,step,dtypeExpr);
         start.TransferOwnership();
         end.TransferOwnership();
         step.TransferOwnership();
+        dtypeExpr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     public static ExprHandle DateRange(ExprHandle? start,ExprHandle? end,string? interval,ExprHandle? numSamples,PlClosedWindow closedWindow) 

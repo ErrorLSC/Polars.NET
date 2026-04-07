@@ -694,14 +694,14 @@ unsafe internal partial class NativeBindings
         ExprHandle start,
         ExprHandle end,
         long step,
-        DataTypeHandle datatype
+        DataTypeExprHandle dataTypeExpr
     );
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_int_ranges(
         ExprHandle start,
         ExprHandle end,
         ExprHandle step,
-        DataTypeHandle datatype
+        DataTypeExprHandle datatypeExpr
     );
     [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_date_range(

@@ -9,16 +9,23 @@ public readonly partial struct Polars
     /// <param name="start">Start of the range (inclusive).</param>
     /// <param name="end">End of the range (exclusive). If set to Null (default), the value of start is used and start is set to 0.</param>
     /// <param name="step">Step size of the range.</param>
-    /// <param name="dtype">Integer data type of the ranges. Defaults to Int64.</param>
+    /// <param name="datatype">Integer data type of the ranges. Defaults to Int64.</param>
     /// <returns>A Literal Expression containing the integer series.</returns>
-    public static Expr IntRange(IntoExpr start, IntoExpr? end = null, long step = 1, DataType? dtype = null)
+    public static Expr IntRange(IntoExpr start, IntoExpr? end = null, long step = 1, IntoDataTypeExpr? datatype = null)
     {
-        var actualDtype = dtype ?? DataType.Int64;
+        IntoDataTypeExpr resolvedDtype = datatype ?? DataType.Int64;
+        
+        using DataTypeExpr actualDtypeExpr = resolvedDtype.Consume();
         
         using Expr realStart = end is null ? Lit(0) : start.Consume();
         using Expr realEnd = end is null ? start.Consume() : end.Value.Consume();
 
-        return new(PolarsWrapper.IntRange(realStart.CloneHandle(), realEnd.CloneHandle(), step, actualDtype.Handle));
+        return new(PolarsWrapper.IntRange(
+            realStart.CloneHandle(), 
+            realEnd.CloneHandle(), 
+            step, 
+            actualDtypeExpr.Handle 
+        ));
     }
     /// <summary>
     /// Generate a range of integers as a Series.
@@ -29,7 +36,7 @@ public readonly partial struct Polars
     /// <param name="name">The name of generated series.</param>
     /// <param name="dtype">Integer data type of the ranges. Defaults to Int64.</param>
     /// <returns>A Literal Expression containing the integer series.</returns>
-    public static Series IntRangeAsSeries(IntoExpr start, IntoExpr? end=null, long step = 1, string name = "int", DataType? dtype = null)
+    public static Series IntRangeAsSeries(IntoExpr start, IntoExpr? end=null, long step = 1, string name = "int", IntoDataTypeExpr? dtype = null)
     {
         var expr = IntRange(start,end,step,dtype);
         Series series = Series(expr);
@@ -41,9 +48,11 @@ public readonly partial struct Polars
     /// Generate a range of integers for each row of the input columns.
     /// Resulting column is of dtype List(dtype).
     /// </summary>
-    public static Expr IntRanges(IntoExpr start, IntoExpr? end = null, IntoExpr? step = null, DataType? dtype = null)
+    public static Expr IntRanges(IntoExpr start, IntoExpr? end = null, IntoExpr? step = null, IntoDataTypeExpr? datatype = null)
     {
-        var actualDtype = dtype ?? DataType.Int64;
+        IntoDataTypeExpr resolvedDtype = datatype ?? DataType.Int64;
+
+        using DataTypeExpr actualDtypeExpr = resolvedDtype.Consume();
 
         using Expr realStart = end is null ? Lit(0) : start.Consume();
         using Expr realEnd = end is null ? start.Consume() : end.Value.Consume();
@@ -54,13 +63,13 @@ public readonly partial struct Polars
             realStart.CloneHandle(), 
             realEnd.CloneHandle(), 
             realStep.CloneHandle(), 
-            actualDtype.Handle 
+            actualDtypeExpr.Handle 
         ));
     }
     /// <inheritdoc cref="IntRanges"/>
-    public static Series IntRangesAsSeries(IntoExpr start, IntoExpr? end=null, IntoExpr? step = null, string name = "int", DataType? dtype = null)
+    public static Series IntRangesAsSeries(IntoExpr start, IntoExpr? end=null, IntoExpr? step = null, string name = "int", IntoDataTypeExpr? datatype = null)
     {
-        var expr = IntRanges(start,end,step,dtype);
+        var expr = IntRanges(start,end,step,datatype);
         Series series = Series(expr);
         series.Rename(name);
         return series;

@@ -2,7 +2,7 @@ use std::ffi::{CStr, c_char};
 use polars::lazy::dsl;
 use polars::prelude::*;
 
-use crate::types::ExprContext;
+use crate::types::{DataTypeExprContext, ExprContext};
 use crate::utils::{parse_closed_interval, parse_closed_window, parse_time_unit};
 
 #[unsafe(no_mangle)]
@@ -10,15 +10,15 @@ pub extern "C" fn pl_expr_int_range(
     start_ptr: *mut ExprContext,
     end_ptr: *mut ExprContext,
     step: i64,
-    dtype_ptr: *mut DataType, 
+    dtype_ptr: *mut DataTypeExprContext, 
 ) -> *mut ExprContext {
     ffi_try!({
         let start = unsafe { Box::from_raw(start_ptr) };
         let end = unsafe { Box::from_raw(end_ptr) };
         
-        let dtype = unsafe { &*dtype_ptr }.clone();
+        let dtype = unsafe {Box::from_raw(dtype_ptr) };
 
-        let new_expr = int_range(start.inner, end.inner, step, dtype);
+        let new_expr = int_range(start.inner, end.inner, step, dtype.inner);
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
@@ -29,16 +29,16 @@ pub extern "C" fn pl_expr_int_ranges(
     start_ptr: *mut ExprContext,
     end_ptr: *mut ExprContext,
     step_ptr: *mut ExprContext,
-    dtype_ptr: *mut DataType, 
+    dtype_ptr: *mut DataTypeExprContext, 
 ) -> *mut ExprContext {
     ffi_try!({
         let start = unsafe { Box::from_raw(start_ptr) };
         let end = unsafe { Box::from_raw(end_ptr) };
         let step = unsafe { Box::from_raw(step_ptr) };
         
-        let dtype = unsafe { &*dtype_ptr }.clone();
+        let dtype = unsafe { Box::from_raw(dtype_ptr)  };
 
-        let new_expr = int_ranges(start.inner, end.inner, step.inner, dtype);
+        let new_expr = int_ranges(start.inner, end.inner, step.inner, dtype.inner);
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
