@@ -552,7 +552,7 @@ public class DeltaMergeBuilder
     private readonly bool _canEvolve;
     private readonly CloudOptions? _cloudOptions;
 
-    private readonly MergeContext _ctx = new("_src_tmp");
+    private readonly MergeContext _ctx;
 
     // Use a List to strictly preserve the exact order of method calls
     private readonly List<(MergeActionType ActionType, Expr Condition)> _actions = [];
@@ -572,6 +572,7 @@ public class DeltaMergeBuilder
         _mergeKeys = mergeKeys;
         _canEvolve = canEvolve;
         _cloudOptions = cloudOptions;
+        _ctx = new MergeContext("_src_tmp", _mergeKeys);
     }
 
     /// <summary>
@@ -595,6 +596,7 @@ public class DeltaMergeBuilder
         _mergeKeys = mergeKeys;
         _canEvolve = canEvolve;
         _cloudOptions = cloudOptions;
+        _ctx = new MergeContext("_src_tmp", _mergeKeys);
     }
 
     /// <summary>

@@ -15,7 +15,6 @@ public readonly struct IntoExpr
     private readonly bool _ownsExpr;
 
     public static implicit operator IntoExpr(Expr expr) => new(expr, ownsExpr: false);
-
     public static implicit operator IntoExpr(Selector selector) => new(selector.ToExpr(), ownsExpr: true);
     public static implicit operator IntoExpr(string name) => new(Pl.Col(name), ownsExpr: true);
     public static implicit operator IntoExpr(Series series) => new(Pl.Lit(series), ownsExpr: true);
@@ -58,6 +57,7 @@ public readonly struct IntoExpr
         
         return new Expr(PolarsWrapper.CloneExpr(_expr.Handle));
     }
+    public override string ToString() => _expr.ToString();
 }
 
 /// <summary>
@@ -209,10 +209,7 @@ public readonly struct IntoSchema
     /// Note: Caller should NOT dispose the returned schema if ownsSchema is false, 
     /// but for safe iteration to extract fields, returning the reference is fine.
     /// </summary>
-    public PolarsSchema Consume()
-    {
-        return _schema;
-    }
+    public PolarsSchema Consume() => _schema;
 
     /// <summary>
     /// Automatically clean up if we generated a temporary schema (from DF/LF).

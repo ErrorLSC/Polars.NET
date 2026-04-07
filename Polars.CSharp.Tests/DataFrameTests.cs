@@ -1836,6 +1836,175 @@ B,5";
         Assert.Equal([null, 99, null], scoreArrayWithNulls);
     }
     [Fact]
+    [Trait("DataFrame", "MergePartialUpdate")]
+    public void MergeBuilder_WithSetters_ShouldPerformPartialColumnUpdates()
+    {
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
+            Name = new[] { "Apple", "Banana", "Orange" },
+            Price = new[] { 1.0, 2.0, 3.0 },
+            Stock = new[] { 100, 150, 200 }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 2, 3, 4 },
+            Name = new[] { "Banana_Ignored", "Orange_Ignored", "Grape" }, 
+            Price = new[] { 2.5, 2.5, 4.0 }, 
+            RestockQty = new[] { 50, 0, 200 }
+        });
+
+        var resultDf = targetDf.Merge(sourceDf, "Id")
+            .WhenMatchedUpdate(
+                condition: m => m.Source("Price") > m.Target("Price"),
+                set: s => s
+                    .Set("Price", m => m.Source("Price")) 
+                    .Set("Stock", m => m.Target("Stock") + m.Source("RestockQty")) 
+            )
+            .WhenNotMatchedInsert(
+                condition: null, 
+                set: s => s
+                    .Set("Id", m => m.Source("Id"))
+                    .Set("Name", m => m.Source("Name"))
+                    .Set("Price", m => m.Source("Price"))
+                    .Set("Stock", m => m.Source("RestockQty")) 
+            )
+            .InspectPlan(verbose: false) 
+            .Execute();
+
+        resultDf = resultDf.Sort("Id");
+
+        var idArray = resultDf["Id"].ToArray<int>();
+        var nameArray = resultDf["Name"].ToArray<string>();
+        var priceArray = resultDf["Price"].ToArray<double>();
+        var stockArray = resultDf["Stock"].ToArray<int>();
+
+        // Id 1: Target only -> Keep (Apple, 1.0, 100)
+        // Id 2: Matched & Hit(2.5 > 2.0) -> Price updated to 2.5, Stock updated (150+50)=200, Name keep "Banana"
+        // Id 3: Matched & Miss(2.5 < 3.0) -> Keep (Orange, 3.0, 200)
+        // Id 4: Source only -> Insert (Grape, 4.0, 200)
+        
+        Assert.Equal([1, 2, 3, 4], idArray);
+        Assert.Equal(["Apple", "Banana", "Orange", "Grape"], nameArray);
+        Assert.Equal([1.0, 2.5, 3.0, 4.0], priceArray);
+        Assert.Equal([100, 200, 200, 200], stockArray);
+    }
+    [Fact]
+    [Trait("DataFrame", "MergeSelectorUpdate")]
+    public void MergeBuilder_WithSelectors_ShouldPerformBatchColumnUpdates()
+    {
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
+            Name = new[] { "Hero", "Villain", "NPC" },
+            Stat_HP = new[] { 100, 100, 10 },    
+            Stat_MP = new[] { 50, 50, 0 },       
+            Score = new[] { 1000, 500, 0 },
+            Tag = new[] { "Old", "Old", "Old" }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 4 },
+            Name = new[] { "Hero_Ignored", "Villain", "Newbie" }, 
+            Stat_HP = new[] { 120, 0, 80 },
+            Stat_MP = new[] { 60, 0, 40 },
+            ScoreDelta = new[] { 200, 0, 50 },  
+            IsBanned = new[] { false, true, false }
+        });
+
+        var resultDf = targetDf.Merge(sourceDf, "Id")
+            .WhenMatchedDelete(m => m.Source("IsBanned")) 
+            .WhenMatchedUpdate(
+                condition: null, 
+                set: s => s
+                    .Set(Cs.StartsWith("Stat_"), (m, colName) => m.Source(colName))
+                    .Set("Score", m => m.Target("Score") + m.Source("ScoreDelta"))
+                    .Set("Tag", Pl.Lit("Updated"))
+            )
+            .WhenNotMatchedInsert(
+                condition: null,
+                set: s => s
+                    .Set("Id", m => m.Source("Id"))
+                    .Set("Name", m => m.Source("Name"))
+                    .Set(Cs.StartsWith("Stat_"), (m, colName) => m.Source(colName))
+                    .Set("Score", m => m.Source("ScoreDelta"))
+                    .Set("Tag", Pl.Lit("New"))
+            )
+            .InspectPlan(verbose: false) 
+            .Execute();
+
+        resultDf = resultDf.Sort("Id");
+
+        var idArray = resultDf["Id"].ToArray<int>();
+        var nameArray = resultDf["Name"].ToArray<string>();
+        var hpArray = resultDf["Stat_HP"].ToArray<int>();
+        var scoreArray = resultDf["Score"].ToArray<int>();
+        var tagArray = resultDf["Tag"].ToArray<string>();
+
+        // Id 1 (Hero):    Matched -> NotBanned -> Bulked update HP/MP, score 1000+200=1200, Tag -> Updated, name kept as Hero
+        // Id 2 (Villain): Matched -> IsBanned -> Deleted
+        // Id 3 (NPC):     Target Only -> Keep
+        // Id 4 (Newbie):  Source Only -> Insert
+
+        Assert.Equal([1, 3, 4], idArray);
+        Assert.Equal(["Hero", "NPC", "Newbie"], nameArray);
+        Assert.Equal([120, 10, 80], hpArray);
+        Assert.Equal([1200, 0, 50], scoreArray);
+        Assert.Equal(["Updated", "Old", "New"], tagArray);
+    }
+    [Fact]
+    [Trait("DataFrame", "MergeCompositeKeys")]
+    public void MergeBuilder_WithMultipleKeys_ShouldPerformCompositeKeyMerge()
+    {
+        //  Composite Keys: TenantId, UserId
+        var targetDf = DataFrame.FromColumns(new
+        {
+            TenantId = new[] { "T1", "T1", "T2", "T2" },
+            UserId = new[] { 101, 102, 101, 999 }, // 注意：T1和T2都有UserId=101，但他们是不同的人
+            Role = new[] { "Admin", "User", "User", "Guest" },
+            IsActive = new[] { true, true, true, false }
+        });
+
+        // 外部平台发来的同步数据
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            TenantId = new[] { "T1", "T2", "T2" },
+            UserId = new[] { 102, 101, 888 },
+            Role = new[] { "Editor", "Admin", "User" }, // T1-102升级为Editor, T2-101升级为Admin
+            IsActive = new[] { true, true, true }
+        });
+
+        // Act: 传入复合主键进行合并！
+        var resultDf = targetDf.Merge(sourceDf, Cs.EndsWith("Id")) 
+            .WhenMatchedUpdate(
+                set: s => s
+                    .Set("Role", (m, c) => m.Source("Role"))
+                    .Set("IsActive", true)
+            )
+            .WhenNotMatchedBySourceDelete()
+            .WhenNotMatchedInsert(
+                set: s => s
+                    .Set("TenantId", m => m.Source("TenantId"))
+                    .Set("UserId", m => m.Source("UserId"))
+                    .Set("Role", m => m.Source("Role"))
+                    .Set("IsActive", true)
+            )
+            .InspectPlan(verbose: false) 
+            .Execute();
+
+        resultDf = resultDf.Sort(["TenantId", "UserId"]); 
+
+        var tIds = resultDf["TenantId"].ToArray<string>();
+        var uIds = resultDf["UserId"].ToArray<int>();
+        var roles = resultDf["Role"].ToArray<string>();
+
+        Assert.Equal(["T1", "T2", "T2"], tIds);
+        Assert.Equal([102, 101, 888], uIds);
+        Assert.Equal(["Editor", "Admin", "User"], roles);
+    }
+    [Fact]
     [Trait("DataFrame", "Transpose")]
     public void Test_DataFrame_Transpose()
     {
