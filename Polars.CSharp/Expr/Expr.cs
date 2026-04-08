@@ -913,15 +913,21 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// */
     /// </code>
     /// </example>
-    public Expr Over(params Expr[] partitionBy)
-        => new (PolarsWrapper.Over(CloneHandle(), System.Array.ConvertAll(partitionBy, e => e.CloneHandle())));
+    public Expr Over(params IntoExpr[] partitionBy)
+        => Over((IEnumerable<IntoExpr>)partitionBy);
 
     /// <summary>
-    /// Window function: Apply aggregation over specific groups.
-    /// Example: Col("Amt").Sum().Over("Group", "Date")
+    /// Window function: Apply aggregation over specific groups from a collection.
     /// </summary>
-    public Expr Over(params string[] partitionBy)
-        => Over(System.Array.ConvertAll(partitionBy, Pl.Col));
+    public Expr Over(IEnumerable<IntoExpr> partitionBy)
+    {
+        var exprArray = partitionBy as IntoExpr[] ?? [.. partitionBy];
+        
+        if (exprArray.Length == 0) return this; 
+
+        var handles = System.Array.ConvertAll(exprArray, e => e.Consume().Handle);
+        return new Expr(PolarsWrapper.Over(CloneHandle(), handles));
+    }
     
     /// <summary>
     /// Shift values by the given number of indices.

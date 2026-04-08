@@ -2003,6 +2003,87 @@ B,5";
         Assert.Equal(["Editor", "Admin", "User"], roles);
     }
     [Fact]
+    [Trait("DataFrame", "MergeValidation")]
+    public void MergeBuilder_Validation_ThrowsOnTypeMismatch()
+    {
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
+            Value = new[] { 10, 20, 30 }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { "1", "2" }, 
+            Value = new[] { 100, 200 }
+        });
+
+        // Act & Assert
+        var ex = Assert.Throws<ArgumentException>(() =>
+        {
+            targetDf.Merge(sourceDf, "Id").Execute();
+        });
+        Assert.Contains("Merge Key Type Mismatch", ex.Message);
+        Assert.Contains("Source: str", ex.Message);
+        Assert.Contains("Target: i32", ex.Message);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "MergeValidation")]
+    public void MergeBuilder_Validation_ThrowsOnNullMergeKey()
+    {
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id = new int[] { 1, 2, 3 },
+            Value = new string[] { "A", "B", "C" }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new int?[] { 1, null, 3 }, 
+            Value = new string[] { "A1", "B1", "C1" }
+        });
+
+        // Act & Assert
+        var ex = Assert.Throws<InvalidDataException>(() =>
+        {
+            targetDf.Merge(sourceDf, "Id")
+                .WhenMatchedUpdate()
+                .Execute();
+        });
+        
+        Assert.Contains("CRITICAL ERROR: Null values detected in Merge Keys", ex.Message);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "MergeValidation")]
+    public void MergeBuilder_Validation_ThrowsOnDuplicateSourceKeys()
+    {
+        var targetDf = DataFrame.FromColumns(new
+        {
+            TenantId = new[] { "T1", "T2" },
+            UserId = new[] { 101, 102 },
+            Score = new[] { 10, 20 }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            TenantId = new[] { "T1", "T1", "T2" }, 
+            UserId = new[] { 101, 101, 102 },      
+            Score = new[] { 100, 999, 200 }
+        });
+
+        // Act & Assert
+        var ex = Assert.Throws<InvalidDataException>(() =>
+        {
+            targetDf.Merge(sourceDf, Cs.EndsWith("Id")) 
+                .WhenMatchedUpdate()
+                .Execute();
+        });
+        Assert.Contains("CRITICAL ERROR: Duplicate keys detected in SOURCE table", ex.Message);
+        Assert.Contains("duplicate_count", ex.Message);
+    }
+    [Fact]
     [Trait("DataFrame", "Transpose")]
     public void Test_DataFrame_Transpose()
     {

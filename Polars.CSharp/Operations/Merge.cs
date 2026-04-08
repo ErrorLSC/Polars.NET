@@ -1,4 +1,5 @@
 #pragma warning disable CS1591
+using System.Collections.Frozen;
 using System.Text;
 using Polars.NET.Core;
 using Cs = Polars.CSharp.Polars.Selectors;
@@ -80,6 +81,8 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
 {
     protected readonly LazyFrame _target;
     protected readonly LazyFrame _source;
+    protected FrozenDictionary<string, DataType>? _srcSchemaCache;
+    protected FrozenDictionary<string, DataType>? _tgtSchemaCache;
     protected readonly string[] _on;
 
     protected bool _includeNulls = false;
@@ -186,7 +189,71 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
         
         return ast.Explain(optimized);
     }
+    protected void ValidateMergePhase()
+    {
+        // =========================================================
+        // Schema Compatibility Check (Merge Keys Only)
+        // =========================================================
+        foreach (var key in _on)
+        {
+            if (!_srcSchemaCache!.TryGetValue(key, out var srcType))
+                throw new ArgumentException($"Merge Key '{key}' not found in SOURCE table schema.");
+                
+            if (!_tgtSchemaCache!.TryGetValue(key, out var tgtType))
+                throw new ArgumentException($"Merge Key '{key}' not found in TARGET table schema.");
 
+            if (srcType != tgtType)
+                throw new ArgumentException(
+                    $"Merge Key Type Mismatch for column '{key}'! \n" +
+                    $"Source: {srcType} \nTarget: {tgtType} \nMerge Keys must have identical types.");
+        }
+
+        // =========================================================
+        // Data Quality Check (Nulls & Duplicates) 
+        // =========================================================
+        var mergeKeyExprs = _on.Select(k => (IntoExpr)k);
+        
+        var hasNullExpr = Pl.AnyHorizontal(Cs.ByName(_on).ToExpr().IsNull()).Alias("has_null_key");
+
+        var checkLf = _source
+            .Select(
+                Pl.Len().Over(mergeKeyExprs).Alias("group_count"),
+                hasNullExpr
+            )
+            .Filter(Pl.Col("group_count") > 1 | Pl.Col("has_null_key"))
+            .Limit(1); 
+
+        using var checkDf = checkLf.Collect();
+
+        if (checkDf.Height > 0)
+        {
+            bool isNullError = checkDf.Select(Pl.Col("has_null_key")).Row(0)[0] as bool? ?? false;
+
+            if (isNullError)
+            {
+                throw new InvalidDataException(
+                    $"CRITICAL ERROR: Null values detected in Merge Keys! \n" +
+                    $"Merge Keys: [{string.Join(", ", _on)}]");
+            }
+            else
+            {
+                using var exampleDupes = _source
+                    .GroupBy(mergeKeyExprs) 
+                    .Agg(Pl.Len().Alias("duplicate_count")) 
+                    .Filter(Pl.Col("duplicate_count") > 1) 
+                    .Sort("duplicate_count", descending: true) 
+                    .Limit(5) 
+                    .Collect(); 
+
+                throw new InvalidDataException(
+                    $"CRITICAL ERROR: Duplicate keys detected in SOURCE table!\n" +
+                    $"Merge expects unique source keys per checking round.\n" +
+                    $"[Merge Keys]: [{string.Join(", ", _on)}]\n" +
+                    $"--- Duplicate Key Examples (Top 5) ---\n" +
+                    $"{exampleDupes}");
+            }
+        }
+    }
     // --- AST Compile Engine  ---
     protected LazyFrame BuildAst()
     {
@@ -196,14 +263,11 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
             WhenNotMatchedInsert();
         }
 
-        var targetCols = _target.Schema.ColumnNames.ToHashSet();
-        var sourceCols = _source.Schema.ColumnNames.ToHashSet();
+        var allCols = _tgtSchemaCache!.Keys.Union(_srcSchemaCache!.Keys).ToList();
 
         string tgtVal = "__TGT", srcVal = "__SRC";
         
         var tgt = _target.WithColumns(Pl.Lit(true).Alias(tgtVal));
-        
-        var allCols = targetCols.Union(sourceCols).ToList();
         
         var src = _source.Select(
             Pl.All().Name.Suffix(_tmpSfx),
@@ -213,7 +277,10 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
         var leftOn = _on.Select(Pl.Col);
         var rightOn = _on.Select(c => Pl.Col(c + _tmpSfx));
 
-        var joined = tgt.Join(other:src,leftOn:leftOn,rightOn: rightOn, 
+        var joined = tgt.Join(
+            other: src,
+            leftOn: leftOn,
+            rightOn: rightOn, 
             how: _actions.Any(a => a.Type == MergeActionType.NotMatchedInsert) ? JoinType.Outer : JoinType.Left,
             coalesce: JoinCoalesce.KeepColumns, 
             maintainOrder: _maintainOrder);
@@ -244,8 +311,9 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
 
         foreach (var colName in allCols)
         {
-            var tgtCol = targetCols.Contains(colName) ? Pl.Col(colName) : Pl.LitNull();
-            var srcColTmp = sourceCols.Contains(colName) ? Pl.Col(colName + _tmpSfx) : Pl.LitNull();
+            // 🚀 直接用 ContainsKey 查询字典缓存，O(1) 且零 FFI 交互
+            var tgtCol = _tgtSchemaCache!.ContainsKey(colName) ? Pl.Col(colName) : Pl.LitNull();
+            var srcColTmp = _srcSchemaCache!.ContainsKey(colName) ? Pl.Col(colName + _tmpSfx) : Pl.LitNull();
 
             Expr colUpdateExpr = tgtCol; 
 
@@ -263,7 +331,7 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
                                           .Otherwise(colUpdateExpr);
                     }
                     // Scenario B: Update all column
-                    else if (action.Setters == null && sourceCols.Contains(colName))
+                    else if (action.Setters == null && _srcSchemaCache.ContainsKey(colName))
                     {
                         var updateCond = Pl.Col(_actionCol) == action.ActionId;
                         if (!_includeNulls) updateCond &= srcColTmp.IsNotNull();
@@ -464,7 +532,13 @@ public class DataFrameMergeBuilder : MergeBuilderBase<DataFrameMergeBuilder>
     /// <summary>
     /// Executes the merge operation eagerly and returns a materialized DataFrame.
     /// </summary>
-    public DataFrame Execute(Engine engine=Engine.Auto,bool streaming=false) => BuildAst().Collect(engine,streaming);
+    public DataFrame Execute(Engine engine=Engine.Auto,bool streaming=false)
+    {   
+         _srcSchemaCache = _source.CollectSchema().ToFrozenDictionary();
+        _tgtSchemaCache = _target.Schema.ToFrozenDictionary();
+        ValidateMergePhase();
+        return BuildAst().Collect(engine,streaming);
+    }
     
 }
 
@@ -476,10 +550,15 @@ public class LazyFrameMergeBuilder : MergeBuilderBase<LazyFrameMergeBuilder>
     /// <summary>
     /// Computes the merge execution plan and returns a LazyFrame.
     /// </summary>
-    public LazyFrame Execute() => BuildAst();
+    public LazyFrame Execute()
+    {         
+        _srcSchemaCache = _source.CollectSchema().ToFrozenDictionary();
+        _tgtSchemaCache = _target.Schema.ToFrozenDictionary();
+        ValidateMergePhase();
+        return BuildAst();
+    }
 }
-
-public partial class LazyFrame : IDisposable, IPolarsLazyFrame
+public partial class LazyFrame
 {
     /// <summary>
     /// Initiates a Merge (Upsert) builder to seamlessly apply changes from a source DataFrame.

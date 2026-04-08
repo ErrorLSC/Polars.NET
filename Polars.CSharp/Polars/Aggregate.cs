@@ -82,6 +82,16 @@ public readonly partial struct Polars
         
         return new Expr(PolarsWrapper.ExprAnyHorizontal(handles));
     }
+    /// <inheritdoc cref="AnyHorizontal(IntoExpr[])"/>
+    public static Expr AnyHorizontal(IEnumerable<IntoExpr> exprs)
+    {
+        var exprArray = exprs.ToArray();
+        if (exprArray.Length == 0)
+            throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
+
+        var handles = Array.ConvertAll(exprArray, e => e.Consume().Handle);
+        return new Expr(PolarsWrapper.ExprAnyHorizontal(handles));
+    }
     /// <summary>
     /// Get the maximum value.
     /// Syntactic sugar for Col(names).Max().
