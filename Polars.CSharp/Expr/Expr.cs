@@ -222,7 +222,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <para>
     /// Behavior depends on context:
     /// <list type="bullet">
-    /// <item>In <see cref="DataFrame.GroupBy(IntoExpr[])"/>: Calculates the sum for each group.</item>
+    /// <item>In <see cref="DataFrame.GroupBy(IntoExpr,bool)"/>: Calculates the sum for each group.</item>
     /// <item>In <see cref="DataFrame.Select(IntoExpr[])"/>: Calculates the sum of the entire column (scalar result).</item>
     /// </list>
     /// </para>
@@ -869,7 +869,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Apply a window function over a subgroup.
     /// <para>
     /// This is similar to SQL's `OVER (PARTITION BY ...)` clause.
-    /// Unlike <see cref="DataFrame.GroupBy(IntoExpr[])"/>, this does not reduce the number of rows.
+    /// Unlike <see cref="DataFrame.GroupBy(IntoExpr,bool)"/>, this does not reduce the number of rows.
     /// The result is broadcasted back to the original rows.
     /// </para>
     /// </summary>

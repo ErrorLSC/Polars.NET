@@ -305,12 +305,12 @@ public class TimeSeriesTests
         Assert.Equal(2, tailRes.GetValue<int>(0, "Val")); 
         Assert.Equal(5, tailRes.GetValue<int>(1, "Val")); 
     }
-    public class DeptKey
+    public struct DeptKey
     {
         public string Department { get; set; }
     }
 
-    public class MultiKey
+    public struct MultiKey
     {
         public string Department { get; set; }
         public string Gender { get; set; }

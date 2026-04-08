@@ -10,6 +10,8 @@ using Microsoft.FSharp.Core;
 
 namespace Polars.NET.Core.Arrow;
 
+public delegate void RefRowAssigner<TElement>(ref TElement entity, int rowIndex);
+
 public static class ArrowReader
 {
     public static IEnumerable<T> ReadRecordBatch<T>(RecordBatch batch)
@@ -44,7 +46,7 @@ public static class ArrowReader
                                     .Where(p => p.CanWrite).ToArray();
         
         // Get strongtyped Setter closure
-        var setters = new Action<T, int>[properties.Length];
+        var setters = new RefRowAssigner<T>[properties.Length];
 
         for (int i = 0; i < properties.Length; i++)
         {
@@ -53,12 +55,12 @@ public static class ArrowReader
 
             if (col == null) 
             {
-                setters[i] = (entity, rowIdx) => { }; 
+                setters[i] = (ref T entity, int rowIdx) => { }; // 加了 ref T
                 continue; 
             }
 
             // Call FastAccessorBuilder
-            setters[i] = FastAccessorBuilder.BuildRowAssigner<T>(col, prop);
+            setters[i] = FastAccessorBuilder.BuildRefRowAssigner<T>(col, prop);
         }
 
         // Setter loop
@@ -81,7 +83,7 @@ public static class ArrowReader
 
             for (int i = 0; i < rowCount; i++)
             {
-                setter(batchItems[i], i);
+                setter(ref batchItems[i], i); 
             }
         }
 
@@ -572,29 +574,28 @@ internal static class FastAccessorBuilder
     /// <summary>
     /// Convert Runtime PropertyInfo to Strong typed generic invoke in Compile Time
     /// </summary>
-    public static Action<TEntity, int> BuildRowAssigner<TEntity>(IArrowArray array, PropertyInfo prop)
+    public static RefRowAssigner<TEntity> BuildRefRowAssigner<TEntity>(IArrowArray array, PropertyInfo prop)
     {
         // Get real type
         Type propType = prop.PropertyType;
 
-        // Dynamiclly call BuildRowAssignerInternal<TEntity, TProp>
         var method = typeof(FastAccessorBuilder)
             .GetMethod(nameof(BuildRowAssignerInternal), BindingFlags.NonPublic | BindingFlags.Static)!
             .MakeGenericMethod(typeof(TEntity), propType);
 
-        return (Action<TEntity, int>)method.Invoke(null, [array, prop])!;
+        return (RefRowAssigner<TEntity>)method.Invoke(null, [array, prop])!;
     }
 
     /// <summary>
     /// AST merger
     /// </summary>
-    private static Action<TEntity, int> BuildRowAssignerInternal<TEntity, TProp>(IArrowArray array, PropertyInfo prop)
+    private static RefRowAssigner<TEntity> BuildRowAssignerInternal<TEntity, TProp>(IArrowArray array, PropertyInfo prop)
     {
-        var entityParam = Expression.Parameter(typeof(TEntity), "entity");
+        var entityParam = Expression.Parameter(typeof(TEntity).MakeByRefType(), "entity");
         var rowIdxParam = Expression.Parameter(typeof(int), "rowIdx");
         
         // Get Strong Type Getter
-        Func<int, TProp> getter = CreateStrongGetter<TProp>(array);
+        Func<int, TProp> getter = CreateStrongGetter<TProp>(array); 
         
         // Set this delegate to AST as constant
         var getterConst = Expression.Constant(getter, typeof(Func<int, TProp>));
@@ -608,8 +609,7 @@ internal static class FastAccessorBuilder
         // entity.Property = getter.Invoke(rowIdx)
         var assignExp = Expression.Assign(propExp, valueExp);
 
-        // Compile
-        return Expression.Lambda<Action<TEntity, int>>(assignExp, entityParam, rowIdxParam).Compile();
+        return Expression.Lambda<RefRowAssigner<TEntity>>(assignExp, entityParam, rowIdxParam).Compile();
     }
 
     /// <summary>
