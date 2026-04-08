@@ -379,5 +379,7 @@ public readonly partial struct PolarsWrapper
         
         return ErrorHelper.Check(h);
     }
+    public static DataFrameHandle DataFrameTake(DataFrameHandle df, SeriesHandle indices)
+        => ErrorHelper.Check(NativeBindings.pl_dataframe_take(df,indices)); 
 
 }

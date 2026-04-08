@@ -389,6 +389,11 @@ unsafe internal partial class NativeBindings
         UIntPtr length
     );
     [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_take(
+        SeriesHandle series, 
+        SeriesHandle indices
+    ); 
+    [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)] 
     public static partial bool pl_series_append(SeriesHandle s_ptr, SeriesHandle other_ptr);
     [LibraryImport(LibName)]
@@ -411,7 +416,9 @@ unsafe internal partial class NativeBindings
 
     // Comparison
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_eq(SeriesHandle s1, SeriesHandle s2);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_eq_missing(SeriesHandle s1, SeriesHandle s2);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_neq(SeriesHandle s1, SeriesHandle s2);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_neq_missing(SeriesHandle s1, SeriesHandle s2);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_gt(SeriesHandle s1, SeriesHandle s2);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_lt(SeriesHandle s1, SeriesHandle s2);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_gt_eq(SeriesHandle s1, SeriesHandle s2);
@@ -422,6 +429,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_mean(SeriesHandle s);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_min(SeriesHandle s);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_max(SeriesHandle s);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_not(SeriesHandle s);
     // --- Arrow Export ---
     [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
     public static partial SeriesHandle pl_arrow_to_series(

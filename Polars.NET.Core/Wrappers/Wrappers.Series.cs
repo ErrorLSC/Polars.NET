@@ -1194,7 +1194,9 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesRem(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_rem(s1, s2));
 
     public static SeriesHandle SeriesEq(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_eq(s1, s2));
+    public static SeriesHandle SeriesEqMissing(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_eq_missing(s1, s2));
     public static SeriesHandle SeriesNeq(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_neq(s1, s2));
+    public static SeriesHandle SeriesNeqMissing(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_neq_missing(s1, s2));
     public static SeriesHandle SeriesGt(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_gt(s1, s2));
     public static SeriesHandle SeriesLt(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_lt(s1, s2));
     public static SeriesHandle SeriesGtEq(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_gt_eq(s1, s2));
@@ -1205,9 +1207,13 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesMean(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_mean(s));
     public static SeriesHandle SeriesMin(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_min(s));
     public static SeriesHandle SeriesMax(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_max(s));
+    public static SeriesHandle SeriesNot(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_not(s));
+    
     // Slice
     public static SeriesHandle SeriesSlice(SeriesHandle handle, long offset, long length)
         => ErrorHelper.Check(NativeBindings.pl_series_slice(handle, offset, (UIntPtr)length));
+    public static SeriesHandle SeriesTake(SeriesHandle series, SeriesHandle indices)
+        => ErrorHelper.Check(NativeBindings.pl_series_take(series,indices)); 
     // Sort
     public static SeriesHandle SeriesSort(
         SeriesHandle series, 

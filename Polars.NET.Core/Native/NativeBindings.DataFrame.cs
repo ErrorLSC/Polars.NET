@@ -223,4 +223,9 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)]bool dropFirst,
         [MarshalAs(UnmanagedType.U1)]bool dropNulls
     ); 
+    [LibraryImport(LibName)]
+    public static partial DataFrameHandle pl_dataframe_take(
+        DataFrameHandle df, 
+        SeriesHandle indices
+    ); 
 }

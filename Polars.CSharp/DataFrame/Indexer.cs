@@ -2,6 +2,7 @@
 using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
 using Polars.NET.Core;
+using Microsoft.FSharp.Core;
 
 namespace Polars.CSharp;
 
@@ -69,65 +70,88 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     /// <summary>
     /// e.g. df[df["Age"] > 18] 
     /// </summary>
-    public DataFrame this[Series rowMask]
+    public DataFrame this[Series maskOrIndices]
     {
-        get => Filter(rowMask);
+        get
+        {
+            if (maskOrIndices.DataType == DataType.Boolean)
+            {
+                return Filter(maskOrIndices);
+            }
+            
+            if (maskOrIndices.DataType.IsInteger) 
+            {
+                return Take(maskOrIndices);
+            }
+
+            throw new ArgumentException("Indexer only supports Boolean masks or Integer indices.");
+        }
     }
     /// <summary>
     /// e.g. var adultNames = df[df["Age"] >= 18, "Name"];
+    /// e.g. var specificNames = df[Polars.Series(new[] { 1, 3, 5 }), "Name"];
     /// </summary>
-    public Series this[Series rowMask, string columnName]
+    public Series this[Series maskOrIndices, string columnName]
     {
         get 
         {
-            if (rowMask.DataType != DataType.Boolean)
+            var targetSeries = this[columnName]; 
+
+            if (maskOrIndices.DataType == DataType.Boolean)
             {
-                throw new ArgumentException($"Indexer expected a boolean mask Series, but got {rowMask.DataType}.", nameof(rowMask));
+                return targetSeries.Filter(maskOrIndices);
             }
 
-            var targetSeries = this[columnName]; 
-            return targetSeries.Filter(rowMask);
+            if (maskOrIndices.DataType.IsInteger)
+            {
+                return targetSeries.Take(maskOrIndices); 
+            }
+
+            throw new ArgumentException($"Indexer expected a Boolean mask or Integer indices, but got {maskOrIndices.DataType}.", nameof(maskOrIndices));
         }
         set
         {
             throw new NotSupportedException(
-                "Not allowed to set DataFrame by boolean mask in the row position.\n\nConsider using `DataFrame.WithColumns` and `When.Then.Otherwise` expressions.");
+                "Not allowed to set DataFrame by boolean mask/indices in the row position.\n\nConsider using `DataFrame.WithColumns` and `When.Then.Otherwise` expressions.");
         }
     }
     /// <summary>
     /// e.g. df[df["Age"] > 18, ["Name", "Score"]]
+    /// e.g. df[Polars.Series(new[] { 1, 3, 5 }), ["Name", "Score"]]
     /// </summary>
-    public DataFrame this[Series rowMask, string[] columnNames]
+    public DataFrame this[Series maskOrIndices, string[] columnNames]
     {
         get
         {
-            if (rowMask.DataType.Kind != DataTypeKind.Boolean)
-            {
-                throw new ArgumentException($"Indexer expected a boolean mask Series, but got {rowMask.DataType.Kind}.", nameof(rowMask));
-            }
-    
             using var selectedDf = Select(columnNames);
-            return selectedDf.Filter(rowMask);
+
+            if (maskOrIndices.DataType.Kind == DataTypeKind.Boolean)
+            {
+                return selectedDf.Filter(maskOrIndices);
+            }
+
+            if (maskOrIndices.DataType.IsInteger)
+            {
+                return selectedDf.Take(maskOrIndices);
+            }
+
+            throw new ArgumentException($"Indexer expected a Boolean mask or Integer indices, but got {maskOrIndices.DataType.Kind}.", nameof(maskOrIndices));
         }
         set
         {
             throw new NotSupportedException(
-                "Not allowed to set DataFrame by boolean mask in the row position.\n\nConsider using `DataFrame.WithColumns` and `When.Then.Otherwise` expressions.");
+                "Not allowed to set DataFrame by boolean mask/indices in the row position.\n\nConsider using `DataFrame.WithColumns` and `When.Then.Otherwise` expressions.");
         }
     }
 
     /// <summary>
     /// e.g. df[df["Age"] > 18, Cs.Numeric()]
+    /// e.g. df[Pl.Series("index", [1, 3, 5]), Cs.Numeric()]
     /// </summary>
-    public DataFrame this[Series rowMask, IntoSelector columnSelector]
+    public DataFrame this[Series maskOrIndices, IntoSelector columnSelector]
     {
         get
         {
-            if (rowMask.DataType.Kind != DataTypeKind.Boolean)
-            {
-                throw new ArgumentException($"Indexer expected a boolean mask Series, but got {rowMask.DataType.Kind}.", nameof(rowMask));
-            }
-
             using var selector = columnSelector.Consume();
             string[] columns = Cs.ExpandSelector(this, selector);
 
@@ -137,12 +161,23 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
             }
 
             using var selectedDf = Select(columns);
-            return selectedDf.Filter(rowMask);
+
+            if (maskOrIndices.DataType.Kind == DataTypeKind.Boolean)
+            {
+                return selectedDf.Filter(maskOrIndices);
+            }
+
+            if (maskOrIndices.DataType.IsInteger)
+            {
+                return selectedDf.Take(maskOrIndices);
+            }
+
+            throw new ArgumentException($"Indexer expected a Boolean mask or Integer indices, but got {maskOrIndices.DataType.Kind}.", nameof(maskOrIndices));
         }
         set
         {
             throw new NotSupportedException(
-                "Not allowed to set DataFrame by boolean mask in the row position.\n\nConsider using `DataFrame.WithColumns` and `When.Then.Otherwise` expressions.");
+                "Not allowed to set DataFrame by boolean mask/indices in the row position.\n\nConsider using `DataFrame.WithColumns` and `When.Then.Otherwise` expressions.");
         }
     }
     #endregion

@@ -713,6 +713,24 @@ pub extern "C" fn pl_series_slice(series: *mut Series, offset: i64, length: usiz
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_series_take(
+    series_ptr: *mut SeriesContext,
+    indices_ptr: *mut SeriesContext,
+) -> *mut SeriesContext {
+    ffi_try!({
+        let ctx = unsafe { &*series_ptr };
+        let indices_series = unsafe { &(*indices_ptr).series };
+
+        let idx_series = indices_series.cast(&DataType::UInt32)?;
+        let idx_ca = idx_series.u32()?;
+
+        let taken_series = ctx.series.take(idx_ca)?;
+
+        Ok(Box::into_raw(Box::new(SeriesContext { series: taken_series })))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_series_dtype_str(s_ptr: *mut SeriesContext) -> *mut c_char {
     ffi_try!({
         let ctx = unsafe { &*s_ptr };
@@ -1417,7 +1435,9 @@ macro_rules! impl_series_comparison_op {
 }
 
 impl_series_comparison_op!(pl_series_eq, equal);
+impl_series_comparison_op!(pl_series_eq_missing, equal_missing);
 impl_series_comparison_op!(pl_series_neq, not_equal);
+impl_series_comparison_op!(pl_series_neq_missing, not_equal_missing);
 impl_series_comparison_op!(pl_series_gt, gt);
 impl_series_comparison_op!(pl_series_gt_eq, gt_eq);
 impl_series_comparison_op!(pl_series_lt, lt);
@@ -1467,6 +1487,22 @@ pub unsafe extern "C" fn pl_series_get_dtype(ptr: *mut Series) -> *mut DataType 
     ffi_try!({
         let s = unsafe {&*ptr};
         Ok(Box::into_raw(Box::new(s.dtype().clone())))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_not(s_ptr: *mut SeriesContext) -> *mut SeriesContext {
+    ffi_try!({
+        let ctx = unsafe { &*s_ptr };
+        
+        // Downcast to BooleanChunked. If it's not a boolean series, this will automatically 
+        // return a PolarsError which ffi_try! will catch and pass to the C# side safely.
+        let bool_ca = ctx.series.bool()?;
+        
+        // Apply logical NOT operation and convert back to Series
+        let res = (!bool_ca).into_series();
+        
+        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
     })
 }
 

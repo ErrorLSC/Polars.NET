@@ -78,11 +78,23 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <returns></returns>
     public Series Eq(Series other) => new(PolarsWrapper.SeriesEq(Handle, other.Handle));
     /// <summary>
+    /// Compare whether two Series is equal,This differs from the standard eq where null values are propagated.
+    /// </summary>
+    /// <param name="other"></param>
+    /// <returns></returns>
+    public Series EqMissing(Series other) => new(PolarsWrapper.SeriesEqMissing(Handle, other.Handle));
+    /// <summary>
     /// Compare whether two Series is not equal
     /// </summary>
     /// <param name="other"></param>
     /// <returns></returns>
     public Series Neq(Series other) => new(PolarsWrapper.SeriesNeq(Handle, other.Handle));
+    /// <summary>
+    /// Compare whether two Series is not equal,,This differs from the standard neq where null values are propagated.
+    /// </summary>
+    /// <param name="other"></param>
+    /// <returns></returns>
+    public Series NeqMissing(Series other) => new(PolarsWrapper.SeriesNeq(Handle, other.Handle));
     /// <summary>
     /// Compare whether left series is greater than right series
     /// </summary>
@@ -115,6 +127,11 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <returns></returns>
     public static Series operator <=(Series left, Series right) 
         => new(PolarsWrapper.SeriesLtEq(left.Handle, right.Handle));
+
+    public static Series operator ~ (Series booleanSeries)
+        => new(PolarsWrapper.SeriesNot(booleanSeries.Handle));
+    public static Series operator ! (Series booleanSeries)
+        => new(PolarsWrapper.SeriesNot(booleanSeries.Handle));
 
     /// <summary>
     /// Compare whether left series is greater than right series

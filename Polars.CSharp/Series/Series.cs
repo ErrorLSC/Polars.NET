@@ -33,10 +33,17 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Rename Series
     /// </summary>
     /// <param name="newName"></param>
-    public void Rename(string newName)
+    public Series Rename(string newName)
     {
         Name = newName;
+        return this;
     }
+    /// <summary>
+    /// Rename Series. Same as Rename.
+    /// </summary>
+    /// <param name="newName"></param>
+    /// <returns></returns>
+    public Series Alias(string newName) => Rename(newName);
 
     /// <summary>
     /// Reallocates the Series to ensure that all its underlying memory is physically contiguous.
@@ -268,10 +275,14 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Expr.Gather(Expr)"/>
     public Series Gather(Expr indices)
         => ApplyExpr(Polars.Col(Name).Gather(indices));
-
+    /// <inheritdoc cref="Expr.Gather(Expr)"/>
+    public Series Gather(Series indices) => Take(indices);
     /// <inheritdoc cref="Expr.Take(Expr)"/>
     public Series Take(Expr indices)
         => ApplyExpr(Polars.Col(Name).Take(indices));
+    /// <inheritdoc cref="Expr.Take(Expr)"/>
+    public Series Take(Series indices)
+        => new(PolarsWrapper.SeriesTake(Handle,indices.Handle));
 
     /// <inheritdoc cref="Expr.GatherEvery(ulong, ulong)"/>
     public Series GatherEvery(ulong n, ulong offset = 0)
@@ -373,6 +384,21 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Expr.All(bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> (boolean, length 1).</returns>
     public Series All(bool ignoreNulls = false) => ApplyExpr(Polars.Col(Name).All(ignoreNulls));
+
+    /// <summary>
+    /// <inheritdoc cref="Expr.Any(bool)" path="/summary"/>
+    /// </summary>
+    /// <inheritdoc cref="Expr.Any(bool)" path="/param"/>
+    /// <returns>A new <see cref="Series"/> (boolean, length 1).</returns>
+    public bool? AnyAsScalar(bool ignoreNulls = false) => (bool?)ApplyExpr(Polars.Col(Name).Any(ignoreNulls))[0];
+
+    /// <summary>
+    /// <inheritdoc cref="Expr.All(bool)" path="/summary"/>
+    /// </summary>
+    /// <inheritdoc cref="Expr.All(bool)" path="/param"/>
+    /// <returns>A new <see cref="Series"/> (boolean, length 1).</returns>
+    public bool? AllAsScalar(bool ignoreNulls = false) => (bool?)ApplyExpr(Polars.Col(Name).All(ignoreNulls))[0];
+
 
     // -------------------------------------------------------------------------
     // Aggregation

@@ -16,22 +16,22 @@ internal enum GroupByType
 /// </summary>
 public sealed class LazyGroupBy : IDisposable
 {
-    private readonly LazyFrameHandle _lfHandle;
-    private readonly GroupByType _type;
-    private readonly Expr[] _keys;
-    private readonly bool _maintainOrder;
-    private bool _disposed;
+    internal readonly LazyFrameHandle _lfHandle;
+    internal readonly GroupByType _type;
+    internal readonly Expr[] _keys;
+    internal readonly bool _maintainOrder;
+    internal bool _disposed;
     // --- Dynamic / Rolling ---
-    private readonly string? _indexColumn;
-    private readonly string? _period;
-    private readonly string? _offset;
-    private readonly ClosedWindow _closedWindow;
+    internal readonly string? _indexColumn;
+    internal readonly string? _period;
+    internal readonly string? _offset;
+    internal readonly ClosedWindow _closedWindow;
 
     // --- Dynamic ---
-    private readonly string? _every;
-    private readonly Label _label; 
-    private readonly StartBy _startBy;
-    private readonly bool _includeBoundaries;
+    internal readonly string? _every;
+    internal readonly Label _label; 
+    internal readonly StartBy _startBy;
+    internal readonly bool _includeBoundaries;
 
     /// <summary>
     /// Count the number of values in each group.

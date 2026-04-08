@@ -217,6 +217,13 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
         DataTypeKind.Int128 or DataTypeKind.UInt128 or DataTypeKind.Float16=> true,
         _ => false
     };
+    public bool IsInteger => Kind switch
+    {
+        DataTypeKind.Int8 or DataTypeKind.Int16 or DataTypeKind.Int32 or DataTypeKind.Int64 or
+        DataTypeKind.UInt8 or DataTypeKind.UInt16 or DataTypeKind.UInt32 or DataTypeKind.UInt64 or
+        DataTypeKind.Int128 or DataTypeKind.UInt128=> true,
+        _ => false
+    };
 
     // ==========================================
     // Primitive Factories (Static Properties)

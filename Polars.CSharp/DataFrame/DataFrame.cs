@@ -40,6 +40,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
             return new PolarsSchema(handle);
         }
     }
+    /// <summary>
+    /// Gets the Schema of the DataFrame.Same as Schema field.
+    /// </summary>
+    /// <returns></returns>
+    public PolarsSchema CollectSchema() => Schema;
     IPolarsSchema IPolarsDataFrame.Schema => Schema;
     /// <summary>
     /// Prints the schema of the DataFrame to the standard output.
@@ -283,6 +288,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
             yield return Slice(offset, currentLength);
         }
     }
+
+    public DataFrame Take(Series indices) => new(PolarsWrapper.DataFrameTake(Handle,indices.Handle));
 
     // ==========================================
     // Sampling
@@ -592,7 +599,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     }
  
     /// <summary>
-    /// Get data foir selected row.
+    /// Get data for selected row.
     /// </summary>
     public object?[] Row(int index)
     {

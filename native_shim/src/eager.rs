@@ -38,6 +38,24 @@ pub extern "C" fn pl_dataframe_slice(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_take(
+    df_ptr: *mut DataFrameContext,
+    indices_ptr: *mut SeriesContext,
+) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*df_ptr };
+        let indices_series = unsafe { &(*indices_ptr).series };
+
+        let idx_series = indices_series.cast(&DataType::UInt32)?;
+        let idx_ca = idx_series.u32()?;
+
+        let taken_df = ctx.df.take(idx_ca)?;
+
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: taken_df })))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_from_schema(
     schema_ptr: *mut SchemaContext,
     length: usize

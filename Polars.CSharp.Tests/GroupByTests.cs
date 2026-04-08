@@ -305,4 +305,92 @@ public class TimeSeriesTests
         Assert.Equal(2, tailRes.GetValue<int>(0, "Val")); 
         Assert.Equal(5, tailRes.GetValue<int>(1, "Val")); 
     }
+    public class DeptKey
+    {
+        public string Department { get; set; }
+    }
+
+    public class MultiKey
+    {
+        public string Department { get; set; }
+        public string Gender { get; set; }
+    }
+
+    [Fact]
+    public void Test_GroupBy_Iterator_StronglyTyped()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Id", [1, 2, 3, 4, 5, 6]),
+            Series.From("Department", ["IT", "HR", "IT", "Finance", "HR", "IT"]),
+            Series.From("Salary", [5000, 4000, 6000, 7000, 4500, 5500])
+        ]);
+
+        var groups = df.GroupBy("Department").GetGroups<DeptKey>().ToList();
+
+        Assert.Equal(3, groups.Count);
+
+        var (Key, Group) = groups.First(g => g.Key.Department == "IT");
+        Assert.NotNull(Group);
+        Assert.Equal(3, Group.Height); 
+
+        var ids = Group["Id"].ToArray<int>();
+        Assert.True(ids.SequenceEqual([1, 3, 6]));
+
+        foreach (var g in groups)
+        {
+            g.Group.Dispose();
+        }
+    }
+
+    [Fact]
+    public void Test_GroupBy_Iterator_WeaklyTyped_Foreach()
+    {
+        using DataFrame df = DataFrame.FromColumns(
+        [
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David"]),
+            Series.From("Gender", ["F", "M", "M", "M"])
+        ]);
+
+        int groupCount = 0;
+        foreach (var (key, groupDf) in df.GroupBy("Gender"))
+        {
+            groupCount++;
+            string genderKey = (string)key[0];
+
+            if (genderKey == "F")
+            {
+                Assert.Equal(1, groupDf.Height);
+            }
+            else if (genderKey == "M")
+            {
+                Assert.Equal(3, groupDf.Height);
+            }
+            
+            groupDf.Dispose(); 
+        }
+
+        Assert.Equal(2, groupCount);
+    }
+    
+    [Fact]
+    public void Test_GroupBy_With_MultiKeys()
+    {
+        using var df = DataFrame.FromColumns(
+        [
+            Series.From("Department", ["IT", "IT", "HR"]),
+            Series.From("Gender", ["M", "M", "F"]),
+            Series.From("Salary", [5000, 6000, 4000])
+        ]);
+
+        var groups = df.GroupBy(["Department", "Gender"]).GetGroups<MultiKey>().ToList();
+
+        Assert.Equal(2, groups.Count);
+        
+        var (Key, Group) = groups.FirstOrDefault(g => g.Key.Department == "IT" && g.Key.Gender == "M");
+        Assert.NotNull(Group);
+        Assert.Equal(2, Group.Height);
+        
+        foreach (var g in groups) { g.Group.Dispose(); }
+    }
 }

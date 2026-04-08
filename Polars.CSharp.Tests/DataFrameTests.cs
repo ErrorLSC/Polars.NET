@@ -780,7 +780,7 @@ B,5";
             Series.From("Score", [88.5, 92.0, 85.5, 70.0])               
         );
 
-        using var resultDf = df[df["Age"] >= 18, Cs.Numeric()];
+        using var resultDf = df[~(df["Age"] < 18), Cs.Numeric()];
 
         Assert.Equal(2, resultDf.Height);
         Assert.Equal(2, resultDf.Width);

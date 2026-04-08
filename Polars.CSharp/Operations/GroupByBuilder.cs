@@ -1,4 +1,5 @@
 #pragma warning disable CS1591 
+using System.Collections;
 using Cs = Polars.CSharp.Polars.Selectors;
 using Pl = Polars.CSharp.Polars;
 
@@ -6,12 +7,14 @@ namespace Polars.CSharp;
 /// <summary>
 /// Unified builder for DataFrame GroupBy operations (Standard, Dynamic, Rolling)
 /// </summary>
-public class GroupByBuilder
+public class GroupByBuilder:IEnumerable<(object[] Key, DataFrame Group)>
 {
+    private readonly DataFrame _df;
     private readonly LazyGroupBy _lazyGrouped;
 
-    internal GroupByBuilder(LazyGroupBy lazyGrouped)
+    internal GroupByBuilder(DataFrame df, LazyGroupBy lazyGrouped)
     {
+        _df = df;
         _lazyGrouped = lazyGrouped;
     }
 
@@ -114,5 +117,93 @@ public class GroupByBuilder
     /// <returns>A new aggregated DataFrame</returns>
     public DataFrame Agg(params Expr[] aggs)
         => _lazyGrouped.Agg(aggs).Collect();
-    
+
+    private (DataFrame GroupsDf, string IndicesColName) BuildGroupsDataFrame()
+    {
+        string rowIdxCol = "__POLARS_GB_ROW_INDEX";
+        string tempCol = "__POLARS_GB_GROUP_INDICES";
+
+        var lazyWithIndex = _df.Lazy().WithRowIndex(rowIdxCol);
+        var intoKeys = _lazyGrouped._keys.Select(k => (IntoExpr)k).ToArray();
+
+        LazyGroupBy newLazyGrouped = _lazyGrouped._type switch
+        {
+            GroupByType.Dynamic => lazyWithIndex.GroupByDynamic(
+                indexColumn: _lazyGrouped._indexColumn!,
+                every: _lazyGrouped._every!,
+                period: _lazyGrouped._period!,
+                offset: _lazyGrouped._offset!,
+                label: _lazyGrouped._label,
+                includeBoundaries: _lazyGrouped._includeBoundaries,
+                closedWindow: _lazyGrouped._closedWindow,
+                startBy: _lazyGrouped._startBy,
+                groupBy: intoKeys),
+
+            GroupByType.Rolling => lazyWithIndex.Rolling(
+                indexColumn: _lazyGrouped._indexColumn!,
+                period: _lazyGrouped._period!,
+                offset: _lazyGrouped._offset!,
+                closedWindow: _lazyGrouped._closedWindow,
+                groupBy: intoKeys),
+
+            _ => lazyWithIndex.GroupBy(intoKeys, _lazyGrouped._maintainOrder)
+        };
+
+        var groupsDf = newLazyGrouped
+            .Agg(Pl.Col(rowIdxCol).Implode().Alias(tempCol))
+            .Collect();
+
+        return (groupsDf, tempCol);
+    }
+
+    /// <summary>
+    /// Allows iteration over the groups of the group by operation.(Strong Typed)
+    /// </summary>
+    public IEnumerable<(TKey Key, DataFrame Group)> GetGroups<TKey>() where TKey : new()
+    {
+        var (groupsDf, tempCol) = BuildGroupsDataFrame();
+        
+        using (groupsDf)
+        using (var indicesCol = groupsDf[tempCol])
+        using (var keysDf = groupsDf.Drop(tempCol))
+        {
+            var typedKeys = keysDf.Rows<TKey>().ToArray();
+
+            for (int i = 0; i < typedKeys.Length; i++)
+            {
+                using var slicedList = indicesCol.Slice(i, 1);
+                using var indices = slicedList.Explode(); 
+                
+                var groupDf = _df[indices]; 
+
+                yield return (typedKeys[i], groupDf);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Allows iteration over the groups of the group by operation.
+    /// </summary>
+    public IEnumerator<(object[] Key, DataFrame Group)> GetEnumerator()
+    {
+        var (groupsDf, tempCol) = BuildGroupsDataFrame();
+
+        using (groupsDf)
+        using (var indicesCol = groupsDf[tempCol])
+        using (var keysDf = groupsDf.Drop(tempCol))
+        {
+            for (int i = 0; i < keysDf.Height; i++)
+            {
+                object[] keyObjects = keysDf.Row(i)!;
+                
+                using var slicedList = indicesCol.Slice(i, 1);
+                using var indices = slicedList.Explode(); 
+                
+                var groupDf = _df[indices];
+
+                yield return (keyObjects, groupDf);
+            }
+        }
+    }
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }

@@ -10,7 +10,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Default behavior: maintains group order.
     /// </summary>
     /// <remarks>
-    /// Unlike <see cref="DataFrame.GroupBy(IntoExpr[])"/> which returns a <see cref="GroupByBuilder"/>,
+    /// Unlike <see cref="DataFrame.GroupBy(IntoExpr,bool)"/> which returns a <see cref="GroupByBuilder"/>,
     /// this returns a <see cref="LazyGroupBy"/> object which allows constructing the aggregation plan.
     /// </remarks>
     /// <example>
@@ -33,18 +33,6 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// */
     /// </code>
     /// </example>
-    public LazyGroupBy GroupBy(params IntoExpr[] keys)
-        => GroupBy(keys, maintainOrder: true);
-
-    /// <summary>
-    /// Group by a single key with explicit control over maintainOrder.
-    /// </summary>
-    public LazyGroupBy GroupBy(IntoExpr key, bool maintainOrder = true)
-        => GroupBy([key], maintainOrder);
-    /// <summary>
-    /// The core GroupBy implementation. 
-    /// All other overloads route here.
-    /// </summary>
     public LazyGroupBy GroupBy(IEnumerable<IntoExpr> keys, bool maintainOrder = true)
     {
         var exprs = keys.Select(k => k.Consume()).ToArray();
@@ -52,12 +40,16 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         return new LazyGroupBy(CloneHandle(), exprs, maintainOrder);
     }
     /// <summary>
+    /// Group by a single key with explicit control over maintainOrder.
+    /// </summary>
+    public LazyGroupBy GroupBy(IntoExpr key, bool maintainOrder = true)
+        => GroupBy([key], maintainOrder);
+    /// <summary>
     /// Lazily group based on a time index using dynamic windows.
     /// <para>
     /// This defines a dynamic groupby in the query plan.
     /// </para>
     /// </summary>
-    /// <seealso cref="DataFrame.GroupByDynamic"/>
     /// <example>
     /// <code>
     /// df.Lazy()
@@ -192,8 +184,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// */
     /// </code>
     /// </example>
-    public GroupByBuilder GroupBy(params IntoExpr[] keys)
-        => GroupBy(keys, maintainOrder: true);
+
 
     /// <summary>
     /// Group by a single key with explicit control over maintainOrder.
@@ -208,7 +199,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     {
         var exprs = keys.Select(k => k.Consume()).ToArray();
         
-        return new GroupByBuilder(Lazy().GroupBy(keys,maintainOrder));
+        return new GroupByBuilder(this,Lazy().GroupBy(keys,maintainOrder));
     }
     /// <summary>
     /// Group based on a time index using dynamic windows (Rolling/Resampling).
@@ -276,7 +267,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         ClosedWindow closedWindow = ClosedWindow.Left,
         StartBy startBy = StartBy.WindowBound
     )
-        => new(Lazy().GroupByDynamic(indexColumn,every,period,offset,groupBy,label,includeBoundaries,closedWindow,startBy));
+        => new(this,Lazy().GroupByDynamic(indexColumn,every,period,offset,groupBy,label,includeBoundaries,closedWindow,startBy));
     /// <summary>
     /// Group based on a time index using rolling windows.
     /// </summary>
@@ -288,7 +279,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         ClosedWindow closedWindow = ClosedWindow.Left)
     {
         return new GroupByBuilder(
-            Lazy().Rolling(
+            this,Lazy().Rolling(
                 indexColumn, 
                 period, 
                 offset, 
