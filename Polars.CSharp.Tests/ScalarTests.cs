@@ -101,4 +101,162 @@ public class ScalarTests
 
         Assert.Equal(targetType ,res.Schema["Ts_Tokyo"]); 
     }
+    [Fact]
+    public void Test_DataFrame_GetItem_SingleCell()
+    {
+        // Arrange
+        using var s1 = Series.From("Id", [1, 2, 3]);
+        using var s2 = Series.From("Name", ["Alice", "Bob", "Charlie"]);
+        using var df = new DataFrame(s1, s2);
+
+        // Act & Assert
+        Assert.Equal(2, df[1, "Id"]);
+        Assert.Equal("Charlie", df[2, "Name"]);
+    }
+
+    [Fact]
+    public void Test_DataFrame_SetItem_SingleCell()
+    {
+        // Arrange
+        using var s1 = Series.From("Id", [1, 2, 3]);
+        using var s2 = Series.From("Name", ["Alice", "Bob", "Charlie"]);
+        using var df = new DataFrame(s1, s2);
+
+        // Act 
+        df[1, "Name"] = "Bobby";
+        df[1, "Id"] = 99;
+
+        // Assert
+        Assert.Equal("Bobby", df[1, "Name"]);
+        Assert.Equal(99, df[1, "Id"]);
+
+        Assert.Equal("Alice", df[0, "Name"]);
+        Assert.Equal(3, df[2, "Id"]);
+    }
+
+    [Fact]
+    public void Test_DataFrame_SetItem_SingleCell_Throws_On_InvalidColumn()
+    {
+        // Arrange
+        using var s1 = Series.From("Id", [1, 2, 3]);
+        using var df = new DataFrame(s1);
+
+        Assert.ThrowsAny<Exception>(() => {
+            df[0, "NonExistent"] = 100;
+        });
+    }
+
+    [Fact]
+    public void Test_DataFrame_GetItem_MultiColumn()
+    {
+        // Arrange
+        using var s1 = Series.From("A", [1, 2]);
+        using var s2 = Series.From("B", [3, 4]);
+        using var s3 = Series.From("C", [5, 6]);
+        using var df = new DataFrame(s1, s2, s3);
+
+        // Act
+        using var resultDf = df[["C", "A"]];
+
+        // Assert
+        Assert.Equal(2, resultDf.Width);
+        Assert.Equal(["C", "A"], resultDf.Columns);
+        Assert.Equal([5, 6], resultDf["C"].ToArray<int>());
+    }
+
+    [Fact]
+    public void Test_DataFrame_SetItem_MultiColumn_UpdateExisting()
+    {
+        // Arrange
+        using var s1 = Series.From("A", [1, 2, 3]);
+        using var s2 = Series.From("B", [10, 20, 30]);
+        using var df = new DataFrame(s1, s2);
+
+        df[["A", "B"]] = [
+            Series.From("A", [99, 88, 77]),
+            Series.From("B", [999, 888, 777])
+        ];
+
+        // Assert
+        Assert.Equal([99, 88, 77], df["A"].ToArray<int>());
+        Assert.Equal([999, 888, 777], df["B"].ToArray<int>());
+    }
+
+    [Fact]
+    public void Test_DataFrame_SetItem_MultiColumn_AppendNew()
+    {
+        // Arrange
+        using var s1 = Series.From("A", [1, 2, 3]);
+        using var df = new DataFrame(s1);
+
+        df[["NewCol1", "NewCol2"]] = [
+            Series.From("NewCol1", ["X", "Y", "Z"]),
+            Series.From("NewCol2", [10.5, 20.5, 30.5])
+        ];
+
+        // Assert
+        Assert.Equal(3, df.Width);
+        Assert.Equal(["A", "NewCol1", "NewCol2"], df.Columns);
+        Assert.Equal(["X", "Y", "Z"], df["NewCol1"].ToArray<string>());
+        Assert.Equal([10.5, 20.5, 30.5], df["NewCol2"].ToArray<double>());
+    }
+
+    [Fact]
+    [Trait("Scalar","DataFrame")]
+    public void Test_DataFrame_SetItem_MultiColumn_MixedUpdateAndAppend()
+    {
+        // Arrange
+        using var s1 = Series.From("A", [1, 2]);
+        using var s2 = Series.From("B", ["old1", "old2"]);
+        using var df = new DataFrame(s1, s2);
+
+        df[["A", "C"]] = [
+            Series.From("A", [99, 88]),
+            Series.From("C", ["new1", "new2"])
+        ];
+
+        // Assert
+        Assert.Equal(3, df.Width);
+        Assert.Equal(["A", "B", "C"], df.Columns);
+        Assert.Equal([99, 88], df["A"].ToArray<int>());           
+        Assert.Equal(["old1", "old2"], df["B"].ToArray<string>());
+        Assert.Equal(["new1", "new2"], df["C"].ToArray<string>());
+    }
+
+    [Fact]
+    [Trait("Scalar","DimensionMismatch")]
+    public void Test_DataFrame_SetItem_MultiColumn_Throws_On_DimensionMismatch()
+    {
+        // Arrange
+        using var s1 = Series.From("A", [1, 2]);
+        using var df = new DataFrame(s1);
+
+        // Act & Assert 
+        var ex = Assert.Throws<ArgumentException>(() => {
+            df[["A"]] = [
+                Series.From("A", [10, 20]),
+                Series.From("B", [30, 40])
+            ];
+        });
+
+        Assert.Contains("Provided DataFrame/Collection has 2", ex.Message); 
+    }
+
+    // ==========================================
+    // Python 拦截测试 (Block invalid operations)
+    // ==========================================
+
+    [Fact]
+    public void Test_DataFrame_SetItem_ColumnIndexer_IsBlocked()
+    {
+        // Arrange
+        using var df = new DataFrame(Series.From("A", [1, 2]));
+        using var newSeries = Series.From("B", [3, 4]);
+
+        var ex = Assert.Throws<NotSupportedException>(() => {
+            df["B"] = newSeries;
+        });
+        
+        Assert.Contains("Use `DataFrame.WithColumns`", ex.Message);
+    }
 }

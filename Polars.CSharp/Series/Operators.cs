@@ -1,3 +1,4 @@
+#pragma warning disable CS1591 
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
@@ -139,4 +140,69 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <param name="other"></param>
     /// <returns></returns>
     public Series LtEq(Series other) => this <= other;
+    // ==========================================
+    // Scalar Comparisons
+    // ==========================================
+
+    // ---------------- int ----------------
+    public static Series operator >(Series left, int right)
+    {
+        using var rightSeries = Series.From("val", [right]);
+        return left > rightSeries;
+    }
+
+    public static Series operator <(Series left, int right)
+    {
+        using var rightSeries = Series.From("val", [right]);
+        return left < rightSeries;
+    }
+
+    public static Series operator >=(Series left, int right)
+    {
+        using var rightSeries = Series.From("val", [right]);
+        return left >= rightSeries;
+    }
+
+    public static Series operator <=(Series left, int right)
+    {
+        using var rightSeries = Series.From("val", [right]);
+        return left <= rightSeries;
+    }
+
+    public static Series operator >(int left, Series right)
+    {
+        using var leftSeries = Series.From("val", [left]);
+        return leftSeries > right;
+    }
+    public static Series operator <(int left, Series right)
+    {
+        using var leftSeries = Series.From("val", [left]);
+        return leftSeries < right;
+    }
+
+    // ---------------- double ----------------
+
+    public static Series operator >(Series left, double right)
+    {
+        using var rightSeries = Series.From("val", [right]);
+        return left > rightSeries;
+    }
+
+    public static Series operator <(Series left, double right)
+    {
+        using var rightSeries = Series.From("val", [right]);
+        return left < rightSeries;
+    }
+
+    public static Series operator >=(Series left, double right)
+    {
+        using var rightSeries = Series.From("val", [right]);
+        return left >= rightSeries;
+    }
+
+    public static Series operator <=(Series left, double right)
+    {
+        using var rightSeries = Series.From("val", [right]);
+        return left <= rightSeries;
+    }
 }

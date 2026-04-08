@@ -1244,6 +1244,10 @@ public readonly partial struct PolarsWrapper
         ErrorHelper.CheckStatus(code);
         return state;
     }
+    public static SeriesHandle SeriesSetWithMask(SeriesHandle series,SeriesHandle mask, SeriesHandle value)
+        => ErrorHelper.Check(NativeBindings.pl_series_set_with_mask(series,mask,value));
+    public static SeriesHandle SeriesSetWithMIndex(SeriesHandle series,SeriesHandle index, SeriesHandle value)
+        => ErrorHelper.Check(NativeBindings.pl_series_scatter_indices(series,index,value));
     public static SeriesHandle SeriesSetSortedFlag(SeriesHandle handle,bool descending) 
         => ErrorHelper.Check(NativeBindings.pl_series_set_sorted_flag(handle,descending));
     public static PlSortStateFlags SeriesGetSortedFlags(SeriesHandle handle)

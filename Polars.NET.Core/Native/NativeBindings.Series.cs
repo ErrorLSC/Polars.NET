@@ -455,6 +455,19 @@ unsafe internal partial class NativeBindings
     public static partial int pl_series_get_sorted_flags(
         SeriesHandle h,
         out PlSortStateFlags flags);
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_set_with_mask(
+        SeriesHandle series,
+        SeriesHandle mask,
+        SeriesHandle value
+    );
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_scatter_indices(
+        SeriesHandle series,
+        SeriesHandle index,
+        SeriesHandle value
+    );
+
     // --- Arrow Export ---
     [LibraryImport(LibName)]
     public static partial ArrowArrayContextHandle pl_series_to_arrow(SeriesHandle h);

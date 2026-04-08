@@ -1,8 +1,11 @@
 using System.Collections;
+using System.Runtime.CompilerServices;
 using Polars.NET.Core;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
+[CollectionBuilder(typeof(DataFrame), nameof(FromSeries))]
 public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
 {
     /// <summary>
@@ -13,15 +16,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         var sHandle = PolarsWrapper.DataFrameGetColumn(Handle, name);
         
         return new Series(name, sHandle);
-    }
-
-    /// <summary>
-    /// Get a column as a Series by name (Indexer syntax).
-    /// Usage: var s = df["age"];
-    /// </summary>
-    public Series this[string columnName]
-    {
-        get => Column(columnName);
     }
 
     /// <exception cref="IndexOutOfRangeException"></exception>
@@ -50,26 +44,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         
         return cols;
     }
-    
-    /// <summary>
-    /// Indexer to get a column by position.
-    /// Usage: var s = df[0];
-    /// </summary>
-    public Series this[int index] => Column(index);
-    /// <summary>
-    /// Syntax Sugar
-    /// </summary>
-    /// <param name="rowIndex"></param>
-    /// <param name="columnIndex"></param>
-    /// <returns></returns>
-    public object? this[int rowIndex, int columnIndex]
-    {
-        get
-        {
-            var series = Column(columnIndex);
-            return series[rowIndex];
-        }
-    }
     /// <summary>
     /// Enable foreach (var series in df) { ... }
     /// </summary>
@@ -87,4 +61,28 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <returns></returns>
     public IEnumerator<Series> IterColumns() => GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    /// <summary>
+    /// Appends a new column to the end of the DataFrame, or replaces an existing column if the name already exists.
+    /// </summary>
+    /// <remarks>
+    /// This method enables the C# collection initializer syntax (e.g., <c>var df = new DataFrame { s1, s2 };</c>).
+    /// If the DataFrame already contains a column with the same name as the provided <paramref name="series"/>, 
+    /// it performs an highly efficient in-place replacement. Otherwise, it appends the new column to the right.
+    /// </remarks>
+    /// <param name="series">The Series to add or update. The column name is determined by the Series name.</param>
+    /// <exception cref="ArgumentNullException">Thrown when the provided series is null.</exception>
+    public void Add(Series series)
+    {
+        ArgumentNullException.ThrowIfNull(series);
+
+        if (System.Array.IndexOf(Columns, series.Name) >= 0)
+        {
+            ReplaceColumn(series.Name, series, keepName: true);
+        }
+        else
+        {
+            using var appendedDf = InsertColumn((int)Width, Pl.Lit(series));
+            ReplaceInnerHandle(PolarsWrapper.CloneDataFrame(appendedDf.Handle));
+        }
+    }
 }

@@ -1653,3 +1653,88 @@ pub extern "C" fn pl_series_set_sorted_flag(
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_set_with_mask(
+    s_ptr: *mut SeriesContext,
+    mask_ptr: *mut SeriesContext,
+    value_ptr: *mut SeriesContext
+) -> *mut SeriesContext {
+    ffi_try!({
+        let s = unsafe { &(*s_ptr).series };
+        let mask = unsafe { &(*mask_ptr).series };
+        let value_s = unsafe { &(*value_ptr).series };
+
+        let mask_bool = mask.bool().map_err(|_| {
+            polars_err!(ComputeError: "Mask must be a boolean series")
+        })?;
+        
+        let casted_value = value_s.cast(s.dtype())?;
+        
+        let broadcasted_value = if casted_value.len() == 1 && s.len() > 1 {
+            casted_value.new_from_index(0, s.len())
+        } else {
+            casted_value.clone()
+        };
+
+        let result = broadcasted_value.zip_with(mask_bool, s)?;
+        
+        Ok(Box::into_raw(Box::new(SeriesContext { series: result })))
+    })
+}
+
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_scatter_indices(
+    s_ptr: *mut SeriesContext,
+    idx_ptr: *mut SeriesContext,
+    value_ptr: *mut SeriesContext
+) -> *mut SeriesContext {
+    ffi_try!({
+        let s = unsafe { &(*s_ptr).series };
+        let idx_s = unsafe { &(*idx_ptr).series };
+        let value_s = unsafe { &(*value_ptr).series };
+
+        let idx_u32 = idx_s.cast(&DataType::UInt32)?;
+        let idx_ca = idx_u32.u32()?;
+        
+        let casted_value = value_s.cast(s.dtype())?;
+        let is_scalar = casted_value.len() == 1;
+
+        if !is_scalar && casted_value.len() != idx_ca.len() {
+            polars_bail!(ComputeError: "Value length must match indices length, or be a scalar");
+        }
+
+        let result = if is_scalar {
+            let mut mask_vec = vec![false; s.len()];
+            for opt_idx in idx_ca.into_iter() {
+                if let Some(idx) = opt_idx {
+                    let idx_usize = idx as usize;
+                    if idx_usize < s.len() {
+                        mask_vec[idx_usize] = true;
+                    } else {
+                        polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
+                    }
+                }
+            }
+            let mask_bool = BooleanChunked::from_slice("mask".into(), &mask_vec);
+            
+            let broadcasted_value = casted_value.new_from_index(0, s.len());
+            broadcasted_value.zip_with(&mask_bool, s)?
+        } else {
+            let mut s_vec: Vec<AnyValue> = s.iter().collect();
+            for (i, opt_idx) in idx_ca.into_iter().enumerate() {
+                if let Some(idx) = opt_idx {
+                    let idx_usize = idx as usize;
+                    if idx_usize < s.len() {
+                        s_vec[idx_usize] = casted_value.get(i)?;
+                    } else {
+                        polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
+                    }
+                }
+            }
+            Series::new(s.name().clone(), &s_vec).cast(s.dtype())?
+        };
+        
+        Ok(Box::into_raw(Box::new(SeriesContext { series: result })))
+    })
+}

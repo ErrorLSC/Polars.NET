@@ -1,5 +1,7 @@
 using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
+using Pl = Polars.CSharp.Polars;
+using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
 
@@ -76,15 +78,12 @@ public partial class Series : IDisposable,IPolarsSeries
             return (T?)(object?)PolarsWrapper.SeriesGetDuration(Handle, index);
         if (underlying == typeof(DateTime))
         {
-            // 拿到豪华版元组 (DateTime, string?)
+
             var dtTuple = PolarsWrapper.SeriesGetDatetime(Handle, index);
-            
-            // 如果底层是 null，直接返回泛型默认值 (对于 DateTime? 来说就是 null)
+
             if (!dtTuple.HasValue) 
                 return default;
             
-            // 解包！dtTuple.Value 是元组，dtTuple.Value.Value 是里面的 DateTime 
-            // 顺便做一下装箱拆箱操作，满足泛型 T 的要求
             return (T)(object)dtTuple.Value.Value;
         }
         if (underlying == typeof(ValueTuple<DateTime, string>))
@@ -93,8 +92,6 @@ public partial class Series : IDisposable,IPolarsSeries
             if (!dtTuple.HasValue) 
                 return default;
 
-            // 这里注意，由于 C# 的元组在反射时没有可空注解，
-            // 元组的值就是 dtTuple.Value
             return (T)(object)dtTuple.Value;
         }
 
@@ -173,5 +170,85 @@ public partial class Series : IDisposable,IPolarsSeries
                 _ => throw new NotSupportedException($"Indexer not supported for type {DataType.Kind}")
             };
         }
+        set
+        {
+            if (index < 0 || index >= Length)
+                throw new IndexOutOfRangeException($"Index {index} is out of bounds for length {Length}.");
+            if (value is null)
+                throw new ArgumentNullException(nameof(value), "Cannot set null via indexer currently.");
+
+            using var idxSeries = Series.From("idx", [(uint)index]);
+
+            var valArray = System.Array.CreateInstance(value.GetType(), 1);
+            valArray.SetValue(value, 0);
+            
+            using var valSeries = Series.From("val", (dynamic)valArray);
+
+            var newHandle = PolarsWrapper.SeriesSetWithMIndex(Handle, idxSeries.Handle, valSeries.Handle);
+            ReplaceInnerHandle(newHandle);
+        }
+    }
+    /// <summary>
+    /// e.g. s[s > 5] = 10;
+    /// </summary>
+    public object? this[Series key]
+    {
+        get
+        {
+            if (key.DataType == DataType.Boolean)
+                return Filter(key); 
+            if (key.DataType == DataType.UInt32) return Take(Pl.Lit(key));
+            throw new NotSupportedException($"Getter not supported for Series key type: {key.DataType}");
+        }
+        set
+        {
+            ArgumentNullException.ThrowIfNull(key);
+
+            var valArray = System.Array.CreateInstance(value!.GetType(), 1);
+            valArray.SetValue(value, 0);
+            using var valSeries = Series.From("val", (dynamic)valArray);
+
+            if (key.DataType == DataType.Boolean)
+            {
+                var newHandle = PolarsWrapper.SeriesSetWithMask(Handle, key.Handle, valSeries.Handle);
+                ReplaceInnerHandle(newHandle);
+            }
+            else if (key.DataType.Kind is DataTypeKind.UInt32 or DataTypeKind.UInt64)
+            {
+                var newHandle = PolarsWrapper.SeriesSetWithMIndex(Handle, key.Handle, valSeries.Handle);
+                ReplaceInnerHandle(newHandle);
+            }
+            else
+            {
+                throw new ArgumentException($"Cannot set Series with key of dtype: {key.DataType}. Use Boolean or UInt32.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// e.g. s[0, 2, 5] = 99;
+    /// </summary>
+    public object? this[int[] indices]
+    {
+        get 
+        {
+           return Take(Pl.Lit(indices));
+        }
+        set
+        {
+            uint[] uIndices = [.. indices.Select(i => (uint)i)];
+            using var idxSeries = Series.From("idx", uIndices);
+            
+            this[idxSeries] = value;
+        }
+    }
+    
+    /// <summary>
+    /// Range Indexer (__getitem__ for slices)
+    /// e.g. s[1..5] / s[..^1]
+    /// </summary>
+    public Series this[Range range]
+    {
+        get => Slice(range);
     }
 }

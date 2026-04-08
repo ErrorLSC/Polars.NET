@@ -13,8 +13,13 @@ namespace Polars.CSharp;
 /// </summary>
 public partial class Series : IDisposable,IPolarsSeries
 {
-    internal SeriesHandle Handle { get; }
-
+    internal SeriesHandle Handle { get; private set; }
+    private void ReplaceInnerHandle(SeriesHandle newHandle)
+    {
+        var oldHandle = Handle;
+        Handle = newHandle;
+        oldHandle?.Dispose(); 
+    }
     internal Series(SeriesHandle handle)
     {
         Handle = handle;
@@ -482,7 +487,7 @@ public partial class Series : IDisposable,IPolarsSeries
             throw new ArgumentException("Cannot set both 'strict' and 'wrapNumerical' to true.");
         }
 
-        var h = PolarsWrapper.SeriesCast(this.Handle, dtype.Handle, strict, wrapNumerical);
+        var h = PolarsWrapper.SeriesCast(Handle, dtype.Handle, strict, wrapNumerical);
         return new Series(h);
     }
     /// <summary>
@@ -492,6 +497,31 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <param name="length">Length of the slice.</param>
     public Series Slice(long offset, long length)
         => new(PolarsWrapper.SeriesSlice(Handle, offset, length));
+    /// <inheritdoc cref="Slice(long,long)"/>
+    public Series Slice(Range range)
+    {
+        long length = Length;
+        
+        long start = range.Start.IsFromEnd 
+            ? length - range.Start.Value 
+            : range.Start.Value;
+            
+        long end = range.End.IsFromEnd 
+            ? length - range.End.Value 
+            : range.End.Value;
+
+        start = Math.Max(0, Math.Min(start, length));
+        end = Math.Max(0, Math.Min(end, length));
+        
+        long sliceLength = end - start;
+        
+        if (sliceLength <= 0)
+        {
+            return Slice(0, 0); 
+        }
+
+        return Slice(start, sliceLength);
+    }
     /// <summary>
     /// <inheritdoc cref="Expr.Reverse" path="/summary"/>
     /// </summary>
@@ -883,10 +913,13 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <br/>
     /// Mostly useful in <c>group_by</c> context or when you want to filter an expression based on another expression within a <c>Select</c> context.
     /// </summary>
-    /// <param name="predicate">Boolean expression used to filter the current expression.</param>
+    /// <param name="predicate">Boolean expression/Series used to filter the current expression.</param>
     /// <returns>A new series with filtered values.</returns>
     public Series Filter(Expr predicate) 
         => ApplyExpr(Polars.Col(Name).Filter(predicate));
+    /// <inheritdoc cref="Filter(Expr)"/>
+    public Series Filter(Series predicate) 
+        => ApplyExpr(Polars.Col(Name).Filter(Polars.Lit(predicate)));
     // ==========================================
     // Common Ops 
     // ==========================================

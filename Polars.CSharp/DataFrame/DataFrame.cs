@@ -12,13 +12,18 @@ namespace Polars.CSharp;
 /// </summary>
 public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<DataFrame>,IPolarsDataFrame
 {
-    internal DataFrameHandle Handle { get; }
+    internal DataFrameHandle Handle { get; private set; }
 
     internal DataFrame(DataFrameHandle handle)
     {
         Handle = handle;
     }
-
+    private void ReplaceInnerHandle(DataFrameHandle newHandle)
+    {
+        var oldHandle = Handle;
+        Handle = newHandle;
+        oldHandle?.Dispose(); 
+    }
     // ==========================================
     // Metadata
     // ==========================================
@@ -217,6 +222,33 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
         return Slice(offset, (ulong)length);
     }
     /// <summary>
+    /// e.g. df.Slice(1..5) 或 df.Slice(..^10)
+    /// </summary>
+    public DataFrame Slice(Range range)
+    {
+        long height = Height;
+        
+        long start = range.Start.IsFromEnd 
+            ? height - range.Start.Value 
+            : range.Start.Value;
+            
+        long end = range.End.IsFromEnd 
+            ? height - range.End.Value 
+            : range.End.Value;
+
+        start = Math.Max(0, Math.Min(start, height));
+        end = Math.Max(0, Math.Min(end, height));
+        
+        long length = end - start;
+        
+        if (length <= 0)
+        {
+            return Slice(0, 0); 
+        }
+
+        return Slice(start, (ulong)length);
+    }
+    /// <summary>
     /// Returns an iterator over slices of this DataFrame.
     /// </summary>
     /// <param name="nRows">The number of rows per slice. Default is 10,000.</param>
@@ -238,7 +270,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
             yield return Slice(offset, currentLength);
         }
     }
-
 
     // ==========================================
     // Sampling

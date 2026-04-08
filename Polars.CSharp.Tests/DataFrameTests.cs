@@ -644,8 +644,88 @@ B,5";
         Assert.Equal("3", exploded.GetValue<string>("list_vals",2));
 
         Assert.Equal("1,2", exploded.GetValue<string>(0, "nums"));
-        Assert.Equal("1,2", exploded["nums",1]);
+        Assert.Equal("1,2", exploded[1,"nums"]);
         Assert.Equal("3",   exploded[2,0]);
+    }
+    [Fact]
+    [Trait("DataFrame","SliceIndexer")]
+    public void Test_DataFrame_Slice_With_Range_Indexer()
+    {
+        // Arrange
+        using var s1 = Series.From("A", [10, 20, 30, 40, 50]);
+        using var s2 = Series.From("B", ["a", "b", "c", "d", "e"]);
+        using var df = new DataFrame(s1, s2);
+
+        using var slice1 = df[1..4];
+        Assert.Equal(3, slice1.Height);
+        Assert.Equal([20, 30, 40], slice1["A"].ToArray<int>());
+
+        using var slice2 = df[..^2];
+        Assert.Equal(3, slice2.Height);
+        Assert.Equal(["a", "b", "c"], slice2["B"].ToArray<string>());
+
+        using var slice3 = df[1..3, ["B"]];
+        Assert.Equal(2, slice3.Height);
+        Assert.Equal(1, slice3.Width);
+        Assert.Equal(["b", "c"], slice3["B"].ToArray<string>());
+    }
+    [Fact]
+    [Trait("DataFrame","SliceIndexer")]
+    public void Test_DataFrame_Slice_With_IntoSelector_KillerMove()
+    {
+        // Arrange
+        using var s1 = Series.From("Id", [1, 2, 3, 4, 5]);
+        using var s2 = Series.From("Score", [99.5, 88.0, 76.5, 100.0, 59.9]);
+        using var s3 = Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve"]);
+        using var s4 = Series.From("IsActive", [true, false, true, true, false]);
+        using var df = new DataFrame(s1, s2, s3, s4);
+
+        using var sliceByType = df[1..4, typeof(double)];
+        Assert.Equal(["Score"], sliceByType.Columns);
+        Assert.Equal(3, sliceByType.Height);
+        Assert.Equal([88.0, 76.5, 100.0], sliceByType["Score"].ToArray<double>());
+
+        using Series sliceByString = df[..2, "Name"];
+        Assert.Equal("Name", sliceByString.Name);
+        Assert.Equal(2, sliceByString.Length);
+
+        using var sliceByExpr = df[..^1, Pl.Col("Id")];
+        Assert.Equal(["Id"], sliceByExpr.Columns);
+        Assert.Equal(4, sliceByExpr.Height);
+
+        using var sliceBySelector = df[2..4, Cs.Numeric()];
+        Assert.Equal(["Id", "Score"], sliceBySelector.Columns); 
+        Assert.Equal(2, sliceBySelector.Height);
+    }
+    [Fact]
+    [Trait("DataFrame","SelectorIndexer")]
+    public void Test_DataFrame_ColumnIndexer_With_IntoSelector_Sugar()
+    {
+        // Arrange
+        using var s1 = Series.From("Id", [1, 2, 3]);
+        using var s2 = Series.From("Score", [99.5, 88.0, 76.5]);
+        using var s3 = Series.From("Name", ["Alice", "Bob", "Charlie"]);
+        using var df = new DataFrame(s1, s2, s3);
+
+        using var nameSeries = df["Name"];
+        Assert.IsType<Series>(nameSeries);
+        Assert.Equal("Name", nameSeries.Name);
+
+        using DataFrame multiColDf = df[["Id", "Score"]];
+        Assert.IsType<DataFrame>(multiColDf);
+        Assert.Equal(2, multiColDf.Width);
+
+        using var dfByType = df[typeof(double)];
+        Assert.IsType<DataFrame>(dfByType);
+        Assert.Equal(["Score"], dfByType.Columns);
+
+        using var dfByExpr = df[Pl.Col("Id")];
+        Assert.IsType<DataFrame>(dfByExpr);
+        Assert.Equal(["Id"], dfByExpr.Columns);
+
+        using var dfBySelector = df[Cs.Numeric()];
+        Assert.IsType<DataFrame>(dfBySelector);
+        Assert.Equal(["Id", "Score"], dfBySelector.Columns);
     }
     [Fact]
     public void Test_Column_ByIndex_And_Iteration()

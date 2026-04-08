@@ -7,11 +7,31 @@ using System.Reflection;
 using Polars.NET.Core.Helpers;
 using Apache.Arrow.Ipc;
 using System.Diagnostics.CodeAnalysis;
+using System.Buffers;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
 public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
 {
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="series"></param>
+    public void Add(Series series)
+    {
+        ArgumentNullException.ThrowIfNull(series);
+
+        if (System.Array.IndexOf(Columns, series.Name) >= 0)
+        {
+            ReplaceColumn(series.Name, series, keepName: true);
+        }
+        else
+        {
+            using var appendedDf = InsertColumn((int)Width, Pl.Lit(series));
+            ReplaceInnerHandle(PolarsWrapper.CloneDataFrame(appendedDf.Handle));
+        }
+    }
     // ==========================================
     // Object Mapping (From Records)
     // ==========================================
@@ -59,7 +79,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </example>
     public static DataFrame From<T>(IEnumerable<T> data)
     {
-        if (data == null) return new DataFrame();
+        if (data == null) return [];
         Type type = typeof(T);
 
         // =========================================================
@@ -83,7 +103,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     private static DataFrame FromPocoManual<T>(IEnumerable<T> data, Type type)
     {
         var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
-        if (props.Length == 0) return new DataFrame();
+        if (props.Length == 0) return [];
 
         int capacity = data is ICollection<T> c ? c.Count : 16;
         var buffers = new IColumnBuffer[props.Length];
@@ -231,7 +251,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         }
     }
     /// <summary>
-    /// Create a DataFrame from a list of Series.
+    /// Create a DataFrame from a collection of Series.
     /// </summary>
     public DataFrame(params Series[] series)
     {
@@ -245,6 +265,32 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         
         Handle = PolarsWrapper.DataFrameNew(handles);
     }
+    /// <inheritdoc cref="DataFrame(Series[])"/>
+    public DataFrame(ReadOnlySpan<Series> series)
+    {
+        if (series.Length == 0)
+        {
+            Handle = PolarsWrapper.DataFrameNew([]);
+            return;
+        }
+
+        var pool = ArrayPool<SeriesHandle>.Shared;
+        SeriesHandle[] rentedArray = pool.Rent(series.Length);
+
+        try
+        {
+            for (int i = 0; i < series.Length; i++)
+            {
+                rentedArray[i] = series[i].Handle;
+            }
+
+            Handle = PolarsWrapper.DataFrameNew(new ReadOnlySpan<SeriesHandle>(rentedArray, 0, series.Length));
+        }
+        finally
+        {
+            pool.Return(rentedArray, clearArray: true);
+        }
+    }
     /// <summary>
     /// Create a DataFrame from a collection of Series.
     /// <para>
@@ -257,8 +303,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <exception cref="ArgumentException">Thrown if series have different lengths.</exception>
     /// <example>
     /// <code>
-    /// var s1 = new Series("id", new[] { 1, 2, 3 });
-    /// var s2 = new Series("name", new[] { "Alice", "Bob", "Charlie" });
+    /// var s1 = new Series("id", [1, 2, 3]);
+    /// var s2 = new Series("name", ["Alice", "Bob", "Charlie"]);
     /// 
     /// var df = DataFrame.FromSeries(s1, s2);
     /// Console.WriteLine(df);
@@ -266,20 +312,16 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </example>
     public static DataFrame FromSeries(params Series[] series)
         => new(series);
-    /// <summary>
-    /// Create a DataFrame from a collection of Series.
-    /// <para>
-    /// This is the syntax sugar for FromSeries().
-    /// </para>
-    /// </summary>
+    /// <inheritdoc cref="FromSeries(Series[])"/>
     public static DataFrame FromColumns(params Series[] series)
         => new(series);
-    /// <summary>
-    /// Create a DataFrame from a collection of Series.
-    /// </summary>
-    /// <param name="series">The series to combine.</param>
+    /// <inheritdoc cref="FromSeries(Series[])"/>
     public static DataFrame FromSeries(IEnumerable<Series> series)
         => new([.. series]);
+    /// <inheritdoc cref="FromSeries(Series[])"/>
+    public static DataFrame FromSeries(ReadOnlySpan<Series> series)
+        => new(series);
+    
     /// <summary>
     /// Stream C# objects into Polars.
     /// </summary>

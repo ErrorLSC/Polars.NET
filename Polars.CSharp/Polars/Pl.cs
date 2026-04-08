@@ -280,6 +280,10 @@ public readonly partial struct Polars
         }
         return current;
     }
+
+    public static Expr Arange(IntoExpr start, IntoExpr? end = null, long step = 1, IntoDataTypeExpr? datatype = null)
+        => IntRange(start,end,step,datatype);
+
     /// <summary>
     /// Gets the DataType of an expression.
     /// Equivalent to Python's polars.dtype_of()

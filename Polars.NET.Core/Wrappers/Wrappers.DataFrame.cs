@@ -231,16 +231,24 @@ public readonly partial struct PolarsWrapper
         }
         return sh;
     }
-    public static DataFrameHandle DataFrameNew(SeriesHandle[] series)
+    public static DataFrameHandle DataFrameNew(ReadOnlySpan<SeriesHandle> series)
     {
-        if (series == null || series.Length == 0)
-            {
-                return ErrorHelper.Check(NativeBindings.pl_dataframe_new([], UIntPtr.Zero));
-            }
+        if (series.Length == 0)
+        {
+            return ErrorHelper.Check(NativeBindings.pl_dataframe_new([], nuint.Zero));
+        }
 
-        using var locker = new SafeHandleLock<SeriesHandle>(series);
+        Span<nint> pointers = series.Length <= 512 
+            ? stackalloc nint[series.Length] 
+            : new nint[series.Length];
 
-        return ErrorHelper.Check(NativeBindings.pl_dataframe_new(locker.Pointers, (UIntPtr)series.Length));
+        Span<bool> locks = series.Length <= 512 
+            ? stackalloc bool[series.Length] 
+            : new bool[series.Length];
+
+        using var locker = new SafeHandleSpanLock<SeriesHandle>(series, pointers, locks);
+
+        return ErrorHelper.Check(NativeBindings.pl_dataframe_new(pointers, (nuint)series.Length));
     }
     public static unsafe DataFrameHandle DataFrameNewFromStream(Arrow.CArrowArrayStream* stream)
     {
