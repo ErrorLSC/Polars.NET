@@ -55,6 +55,18 @@ pub extern "C" fn pl_dataframe_from_schema(
 // ==========================================
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_shrink_to_fit(df_ptr: *mut DataFrameContext) {
+    ffi_try_void!({
+        if !df_ptr.is_null() {
+            let ctx = unsafe { &mut *df_ptr };
+            // Shrink the memory footprint of the DataFrame in-place
+            ctx.df.shrink_to_fit();
+        }
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_height(
     ptr: *mut DataFrameContext,
     out_height: *mut usize 

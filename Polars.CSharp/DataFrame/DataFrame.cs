@@ -146,11 +146,24 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     /// </summary>
     public DataFrame Rechunk() => new(PolarsWrapper.DataFrameRechunk(Handle));
     /// <summary>
-    /// 
+    /// Align chunks
     /// </summary>
     /// <returns></returns>
     public DataFrame AlignChunks() => new(PolarsWrapper.DataFrameAlignChunks(Handle));
-    
+    /// <summary>
+    /// Shrink DataFrame memory usage.This won't return a new DataFrame
+    /// </summary>
+    public void ShrinkToFitInplace() => PolarsWrapper.DataFrameShrinkToFit(Handle);
+    /// <summary>
+    /// Shrink DataFrame memory usage.
+    /// </summary>
+    /// <returns>A new DataFrame</returns>
+    public DataFrame ShrinkToFit() 
+    {
+        var newDf = Clone();
+        PolarsWrapper.DataFrameShrinkToFit(newDf.Handle);
+        return newDf;
+    }
     // ==========================================
     // DataFrame Operations
     // ==========================================

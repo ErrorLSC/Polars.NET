@@ -14,24 +14,7 @@ namespace Polars.CSharp;
 
 public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
 {
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="series"></param>
-    public void Add(Series series)
-    {
-        ArgumentNullException.ThrowIfNull(series);
 
-        if (System.Array.IndexOf(Columns, series.Name) >= 0)
-        {
-            ReplaceColumn(series.Name, series, keepName: true);
-        }
-        else
-        {
-            using var appendedDf = InsertColumn((int)Width, Pl.Lit(series));
-            ReplaceInnerHandle(PolarsWrapper.CloneDataFrame(appendedDf.Handle));
-        }
-    }
     // ==========================================
     // Object Mapping (From Records)
     // ==========================================

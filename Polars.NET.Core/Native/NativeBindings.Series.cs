@@ -12,6 +12,8 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_rechunk(SeriesHandle handle);
     [LibraryImport(LibName)]
+    public static partial void pl_series_shrink_to_fit(SeriesHandle df);
+    [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_chunk_count(SeriesHandle handle, out uint count);
     [LibraryImport(LibName)]

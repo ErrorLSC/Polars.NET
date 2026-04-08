@@ -110,9 +110,6 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <summary>
     /// Get an item at the specified index as object (boxed).
     /// </summary>
-    /// <summary>
-    /// Syntax sugar: s[index]
-    /// </summary>
     /// <param name="index"></param>
     /// <returns></returns>
     /// <exception cref="NotSupportedException"></exception>
@@ -154,7 +151,7 @@ public partial class Series : IDisposable,IPolarsSeries
 
                     // DateTime
                     DataTypeKind.Date => GetValue<DateOnly?>(index), 
-                    DataTypeKind.Datetime => string.IsNullOrEmpty(this.DataType.TimeZone) 
+                    DataTypeKind.Datetime => string.IsNullOrEmpty(DataType.TimeZone) 
                         ? GetValue<DateTime?>(index)      
                         : (object?)GetValue<DateTimeOffset?>(index),
 
@@ -184,7 +181,7 @@ public partial class Series : IDisposable,IPolarsSeries
             
             using var valSeries = Series.From("val", (dynamic)valArray);
 
-            var newHandle = PolarsWrapper.SeriesSetWithMIndex(Handle, idxSeries.Handle, valSeries.Handle);
+            var newHandle = PolarsWrapper.SeriesSetWithIndex(Handle, idxSeries.Handle, valSeries.Handle);
             ReplaceInnerHandle(newHandle);
         }
     }
@@ -215,7 +212,7 @@ public partial class Series : IDisposable,IPolarsSeries
             }
             else if (key.DataType.Kind is DataTypeKind.UInt32 or DataTypeKind.UInt64)
             {
-                var newHandle = PolarsWrapper.SeriesSetWithMIndex(Handle, key.Handle, valSeries.Handle);
+                var newHandle = PolarsWrapper.SeriesSetWithIndex(Handle, key.Handle, valSeries.Handle);
                 ReplaceInnerHandle(newHandle);
             }
             else

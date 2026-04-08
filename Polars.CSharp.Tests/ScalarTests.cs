@@ -241,22 +241,4 @@ public class ScalarTests
 
         Assert.Contains("Provided DataFrame/Collection has 2", ex.Message); 
     }
-
-    // ==========================================
-    // Python 拦截测试 (Block invalid operations)
-    // ==========================================
-
-    [Fact]
-    public void Test_DataFrame_SetItem_ColumnIndexer_IsBlocked()
-    {
-        // Arrange
-        using var df = new DataFrame(Series.From("A", [1, 2]));
-        using var newSeries = Series.From("B", [3, 4]);
-
-        var ex = Assert.Throws<NotSupportedException>(() => {
-            df["B"] = newSeries;
-        });
-        
-        Assert.Contains("Use `DataFrame.WithColumns`", ex.Message);
-    }
 }

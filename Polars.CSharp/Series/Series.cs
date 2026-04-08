@@ -49,7 +49,20 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <returns>A new Series instance backed by contiguous memory.</returns>
     public Series Rechunk()
         => new(PolarsWrapper.SeriesRechunk(Handle));
-
+    /// <summary>
+    /// Shrink Series memory usage.This won't return a new Series
+    /// </summary>
+    public void ShrinkToFitInplace() => PolarsWrapper.SeriesShrinkToFit(Handle);
+    /// <summary>
+    /// Shrink Series memory usage.
+    /// </summary>
+    /// <returns>A new Series</returns>
+    public Series ShrinkToFit() 
+    {
+        var newS = Clone();
+        PolarsWrapper.SeriesShrinkToFit(newS.Handle);
+        return newS;
+    }
     /// <summary>
     /// Date Ops
     /// </summary>
@@ -490,6 +503,16 @@ public partial class Series : IDisposable,IPolarsSeries
         var h = PolarsWrapper.SeriesCast(Handle, dtype.Handle, strict, wrapNumerical);
         return new Series(h);
     }
+    /// <summary>
+    /// Cast the series to a specific .NET type.
+    /// </summary>
+    /// <typeparam name="T">Target .NET type (e.g., int, double, string).</typeparam>
+    /// <param name="strict">If true, throw an error if the cast fails; if false, invalid values become null.</param>
+    /// <param name="wrapNumerical">If true, wrap numerical values instead of saturating.</param>
+    /// <returns>A new Series of the target type.</returns>
+    public Series Cast<T>(bool strict = true, bool wrapNumerical = false)
+        => Cast(DataType.FromNetType<T>(), strict, wrapNumerical);
+    
     /// <summary>
     /// Get a slice of this Series.
     /// </summary>

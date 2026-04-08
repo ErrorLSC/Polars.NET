@@ -2,6 +2,7 @@ using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
 using System.Text;
 using Apache.Arrow.Types;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
@@ -11,6 +12,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// True if the DataFrame contains no rows.
     /// </summary>
     public bool IsEmpty => Height == 0;
+    /// <summary>
+    /// True if the DataFrame has no columns and no rows (0x0).
+    /// Represents a completely uninitialized or structurally void DataFrame.
+    /// </summary>
+    public bool IsVoid => Width == 0;
     /// <summary>
     /// Get a mask of all duplicated rows in this DataFrame.
     /// </summary>
@@ -129,7 +135,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         var cols = schema.ToList();
 
         using var headDf = Head((int)limit);
-        using var strDf = headDf.Select(Expr.All().Cast(DataType.String));
+        using var strDf = headDf.Select(Pl.All().Cast(DataType.String));
 
         var rowInfos = new List<(string Name, string DType, string Values)>(cols.Count);
         int maxNameLen = 0;
@@ -200,7 +206,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         var cols = Schema.ToList();
         
         using var headDf = Head(limit);
-        using var strDf = headDf.Select(Expr.All().Cast(DataType.String));
+        using var strDf = headDf.Select(Pl.All().Cast(DataType.String));
 
         var outColNames = new string[cols.Count];
         var outDtypes = new string[cols.Count];

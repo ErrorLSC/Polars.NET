@@ -1553,6 +1553,18 @@ pub extern "C" fn pl_series_append(s_ptr: *mut SeriesContext, other_ptr: *mut Se
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_series_shrink_to_fit(ptr: *mut SeriesContext) {
+    ffi_try_void!({
+        if !ptr.is_null() {
+            let ctx = unsafe { &mut *ptr };
+            // Shrink the memory footprint of the Series in-place
+            ctx.series.shrink_to_fit();
+        }
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_series_extend(s_ptr: *mut SeriesContext, other_ptr: *mut SeriesContext) -> bool {
     ffi_bool_try!({
         if s_ptr.is_null() {

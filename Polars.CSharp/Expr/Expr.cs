@@ -26,18 +26,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     // ==========================================
     // Columns
     // ==========================================
-
-    /// <summary>
-    /// Column Exprs (name: string)
-    /// </summary>
-    /// <param name="names"></param>
-    /// <returns></returns>
-    public static Expr Col(params string[] names) => Pl.Col(names);
-    /// <summary>
-    /// Select all columns, same as Col("*")
-    /// </summary>
-    /// <returns></returns>
-    public static Expr All() => Col("*");
     public Expr Exclude(params string[] names) => ToSelector().Exclude(names).ToExpr();
 
     // ==========================================
@@ -790,7 +778,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Check if the value is in given collection.
     /// </summary>
     public Expr IsIn(Expr other, bool nullsEqual = false)
-     => new(PolarsWrapper.IsIn(CloneHandle(),other.CloneHandle(),nullsEqual));
+        => new(PolarsWrapper.IsIn(CloneHandle(),other.CloneHandle(),nullsEqual));
     /// <summary>
     /// Filter a single column.
     /// <br/>
@@ -845,6 +833,9 @@ public partial class Expr : IDisposable,IEquatable<Expr>
         var h = PolarsWrapper.ExprCast(this.CloneHandle(), targetDTypeExpr.Handle, strict, wrapNumerical);
         return new Expr(h);
     }
+    /// <inheritdoc cref="Cast"/>
+    public Expr Cast<T>( bool strict = true, bool wrapNumerical = false)
+        => Cast(DataType.FromNetType<T>(),strict,wrapNumerical);
 
     // ==========================================
     // UDF / Map

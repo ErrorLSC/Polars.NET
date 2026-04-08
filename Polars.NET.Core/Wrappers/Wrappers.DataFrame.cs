@@ -269,6 +269,11 @@ public readonly partial struct PolarsWrapper
     }
     public static DataFrameHandle DataFrameRechunk(DataFrameHandle df) 
         => ErrorHelper.Check(NativeBindings.pl_dataframe_rechunk(df));
+    public static void DataFrameShrinkToFit(DataFrameHandle df) 
+    {
+        NativeBindings.pl_dataframe_shrink_to_fit(df);
+        ErrorHelper.CheckVoid();
+    }
     public static DataFrameHandle DataFrameAlignChunks(DataFrameHandle df) 
         => ErrorHelper.Check(NativeBindings.pl_dataframe_align_chunks(df));
     public static DataFrameHandle[] PartitionBy(

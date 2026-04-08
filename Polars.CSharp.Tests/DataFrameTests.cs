@@ -728,6 +728,86 @@ B,5";
         Assert.Equal(["Id", "Score"], dfBySelector.Columns);
     }
     [Fact]
+    [Trait("DataFrame","SelectorIndexer")]
+    public void Test_DataFrame_SingleRow_MultiColumn_Indexer()
+    {
+        // Arrange
+        using var s1 = Series.From("Id", [1, 2, 3, 4]);
+        using var s2 = Series.From("Score", [99.5, 88.0, 76.5, 100.0]);
+        using var s3 = Series.From("Name", ["Alice", "Bob", "Charlie", "David"]);
+        using var df = new DataFrame(s1, s2, s3);
+
+        using var row1 = df[1, ["Id", "Name"]];
+        Assert.IsType<DataFrame>(row1);
+        Assert.Equal(1, row1.Height);
+        Assert.Equal(["Id", "Name"], row1.Columns);
+        Assert.Equal(2, row1[0, "Id"]);        
+        Assert.Equal("Bob", row1[0, "Name"]);
+
+        using var lastRow = df[^1, typeof(double)];
+        Assert.IsType<DataFrame>(lastRow);
+        Assert.Equal(1, lastRow.Height);
+        Assert.Equal(["Score"], lastRow.Columns);
+        Assert.Equal(100.0, lastRow[0, "Score"]); 
+    }
+    [Fact]
+    [Trait("DataFrame","SelectorIndexer")]
+    public void Test_DataFrame_Selector_Setter()
+    {
+        // Arrange
+        using var df = new DataFrame(
+            Series.From("Id", ["A", "B"]),     // String
+            Series.From("Val1", [1.0, 2.0]),   // Double
+            Series.From("Val2", [10.0, 20.0])  // Double
+        );
+        
+        df[Cs.Numeric()] *= 2;
+
+        // Assert
+        Assert.Equal(3, df.Width);
+        Assert.Equal(["Id", "Val1", "Val2"], df.Columns);
+        Assert.Equal([2.0, 4.0], df["Val1"].ToArray<double>());
+        Assert.Equal([20.0, 40.0], df["Val2"].ToArray<double>());
+        Assert.Equal(["A", "B"], df["Id"].ToArray<string>()); 
+    }
+    [Fact]
+    [Trait("DataFrame","SelectorIndexer")]
+    public void Test_DataFrame_Indexer_RowMask_And_ColumnSelector_HappyPath()
+    {
+        using var df = new DataFrame(
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David"]),
+            Series.From("Age", [15, 22, 25, 17]),                        
+            Series.From("Score", [88.5, 92.0, 85.5, 70.0])               
+        );
+
+        using var resultDf = df[df["Age"] >= 18, Cs.Numeric()];
+
+        Assert.Equal(2, resultDf.Height);
+        Assert.Equal(2, resultDf.Width);
+
+        Assert.Equal(["Age", "Score"], resultDf.Columns);
+
+        Assert.Equal([22, 25], resultDf["Age"].ToArray<int>());
+        Assert.Equal([92.0, 85.5], resultDf["Score"].ToArray<double>());
+    }
+
+    [Fact]
+    [Trait("DataFrame","SelectorIndexer")]
+    public void Test_DataFrame_Indexer_RowMask_And_Selector_EmptyMatch()
+    {
+        using var df = new DataFrame(
+            Series.From("Name", ["Alice", "Bob"]),
+            Series.From("City", ["New York", "London"])
+        ); 
+
+        using var mask = Series.From("mask", [true, true]); 
+
+        using var resultDf = df[mask, Cs.Numeric()];
+
+        Assert.NotNull(resultDf);
+        Assert.True(resultDf.IsVoid);
+    }
+    [Fact]
     public void Test_Column_ByIndex_And_Iteration()
     {
         var df = DataFrame.FromColumns(new 
@@ -894,6 +974,7 @@ B,5";
         Assert.Equal(30, rVals[1]); // 10:02 matched 10:01 (closest previous)
     }
     [Fact]
+    [Trait("DataFrame","Slice")]
     public void Test_DataFrame_Slice()
     {
         var df = DataFrame.FromSeries(
@@ -2299,5 +2380,24 @@ B,5";
         
         Assert.Contains("group-B", dummiesSelector.ColumnNames);
         Assert.Contains("color-Blue", dummiesSelector.ColumnNames);
+    }
+    [Fact]
+    [Trait("DataFrame", "ShrinkToFit")]
+    public void Test_DataFrame_ShrinkToFit_MemoryReduction()
+    {
+        using var idExpr = Pl.IntRange(0, 100_000).Alias("id");
+        using var idSeries = Series.FromExpr(idExpr);
+
+        using var valSeries = Series.FromExpr((idExpr.Cast<double>() * 1.1).Alias("value"));
+
+        using var df = new DataFrame(idSeries, valSeries);
+
+        using var slicedDf = df.Slice(0..10);
+
+        slicedDf.ShrinkToFitInplace();
+        
+        var idArray = slicedDf["id"].ToArray<int>();
+        Assert.Equal(0, idArray[0]);
+        Assert.Equal(9, idArray[^1]);
     }
 }

@@ -13,12 +13,9 @@ unsafe internal partial class NativeBindings
 {
     [LibraryImport(LibName)]
     public static partial void pl_dataframe_free(IntPtr ptr);
+    [LibraryImport(LibName)]
+    public static partial void pl_dataframe_shrink_to_fit(DataFrameHandle df);
 
-    // [LibraryImport(LibName)]
-    // public static partial DataFrameHandle pl_dataframe_new(
-    //     IntPtr[] columns, 
-    //     UIntPtr len
-    // );
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_dataframe_new(
         ReadOnlySpan<nint> columns, 

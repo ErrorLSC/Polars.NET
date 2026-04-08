@@ -12,6 +12,11 @@ public readonly partial struct PolarsWrapper
     // --- chunks ---
     public static SeriesHandle SeriesRechunk(SeriesHandle handle)
         => NativeBindings.pl_series_rechunk(handle);
+    public static void SeriesShrinkToFit(SeriesHandle s) 
+    {
+        NativeBindings.pl_series_shrink_to_fit(s);
+        ErrorHelper.CheckVoid();
+    }
     public static nuint SeriesChunkCounts(SeriesHandle handle)
     {
         bool success = NativeBindings.pl_series_chunk_count(handle,out uint count);
@@ -1246,7 +1251,7 @@ public readonly partial struct PolarsWrapper
     }
     public static SeriesHandle SeriesSetWithMask(SeriesHandle series,SeriesHandle mask, SeriesHandle value)
         => ErrorHelper.Check(NativeBindings.pl_series_set_with_mask(series,mask,value));
-    public static SeriesHandle SeriesSetWithMIndex(SeriesHandle series,SeriesHandle index, SeriesHandle value)
+    public static SeriesHandle SeriesSetWithIndex(SeriesHandle series,SeriesHandle index, SeriesHandle value)
         => ErrorHelper.Check(NativeBindings.pl_series_scatter_indices(series,index,value));
     public static SeriesHandle SeriesSetSortedFlag(SeriesHandle handle,bool descending) 
         => ErrorHelper.Check(NativeBindings.pl_series_set_sorted_flag(handle,descending));
