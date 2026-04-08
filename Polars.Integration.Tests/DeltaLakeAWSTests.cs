@@ -2191,6 +2191,7 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
     }
     [Fact]
     [Trait("DeltaLake", "MergeOrderSemantics")]
+    [Obsolete("Test old api")]
     public void Test_Merge_Delta_Action_Order_Matters()
     {
 

@@ -34,8 +34,8 @@ public static class CSharpLinqExtensions
     /// <summary>
     /// Translates and eagerly executes the LINQ query, materializing the results into a fully computed Polars DataFrame.
     /// </summary>
-    public static Polars.CSharp.DataFrame ToDataFrame<T>(this IQueryable<T> query,bool useStreaming=false)
-        => query.ToLazyFrame().Collect(useStreaming);
+    public static Polars.CSharp.DataFrame ToDataFrame<T>(this IQueryable<T> query,Engine engine=Engine.Auto,bool useStreaming=false)
+        => query.ToLazyFrame().Collect(engine,useStreaming);
 
     /// <summary>
     /// Asynchronously translates the LINQ query into a Polars LazyFrame. 
@@ -58,11 +58,12 @@ public static class CSharpLinqExtensions
     /// </summary>
     public static async Task<Polars.CSharp.DataFrame> ToDataFrameAsync<T>(
         this IQueryable<T> query, 
+        Engine engine=Engine.Auto,
         bool useStreaming = false,
         CancellationToken cancellationToken = default)
     {
         IPolarsDataFrame coreInterface = await PolarsQueryableExtensions
-            .ToIDataFrameAsync(query, useStreaming, cancellationToken)
+            .ToIDataFrameAsync(query, (PlEngine)engine, useStreaming, cancellationToken)
             .ConfigureAwait(false);
             
         return coreInterface.AsDataFrame();

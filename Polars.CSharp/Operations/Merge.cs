@@ -12,26 +12,19 @@ namespace Polars.CSharp;
 public class MergeContext
 {
     private readonly string _sourceSuffix;
-    private readonly string[] _on;
 
-    internal MergeContext(string sourceSuffix, string[] on)
+    [Obsolete("Please use the lambda parameter (m => m.Source(...)) provided by the builder. This static context cannot protect Join Keys from suffix errors.", error: false)]
+    public static readonly MergeContext Delta = new("_src_tmp");
+    internal MergeContext(string sourceSuffix)
     {
         _sourceSuffix = sourceSuffix;
-        _on = on;
     }
 
     /// <summary>
     /// References a column from the incoming Source DataFrame.
     /// </summary>
-    public Expr Source(string columnName)
-    {
-        if (_on.Contains(columnName))
-        {
-            return Pl.Col(columnName);
-        }
-        
-        return Pl.Col(columnName + _sourceSuffix);
-    }
+    public Expr Source(string columnName) => Pl.Col(columnName + _sourceSuffix);
+    
 
     /// <summary>
     /// References a column from the existing Target DataFrame.
@@ -106,7 +99,7 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
         _target = target;
         _source = source;
         _on = on;
-        _ctx = new MergeContext(_tmpSfx, _on); 
+        _ctx = new MergeContext(_tmpSfx); 
     }
  
     /// <summary>
@@ -203,21 +196,26 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
             WhenNotMatchedInsert();
         }
 
+        var targetCols = _target.Schema.ColumnNames.ToHashSet();
+        var sourceCols = _source.Schema.ColumnNames.ToHashSet();
+
         string tgtVal = "__TGT", srcVal = "__SRC";
         
         var tgt = _target.WithColumns(Pl.Lit(true).Alias(tgtVal));
         
-        var allCols = _target.Schema.ColumnNames.Union(_source.Schema.ColumnNames).Distinct().ToList();
+        var allCols = targetCols.Union(sourceCols).ToList();
         
         var src = _source.Select(
-            Cs.ByName(_on),                               
-            Cs.Exclude(_on).ToExpr().Name.Suffix(_tmpSfx),          
-            Pl.Lit(true).Alias(srcVal)                     
+            Pl.All().Name.Suffix(_tmpSfx),
+            Pl.Lit(true).Alias(srcVal)
         );
 
-        var joined = tgt.Join(src, _on, 
+        var leftOn = _on.Select(Pl.Col);
+        var rightOn = _on.Select(c => Pl.Col(c + _tmpSfx));
+
+        var joined = tgt.Join(other:src,leftOn:leftOn,rightOn: rightOn, 
             how: _actions.Any(a => a.Type == MergeActionType.NotMatchedInsert) ? JoinType.Outer : JoinType.Left,
-            coalesce: JoinCoalesce.CoalesceColumns, 
+            coalesce: JoinCoalesce.KeepColumns, 
             maintainOrder: _maintainOrder);
 
         var isMatched = Pl.Col(tgtVal).IsNotNull() & Pl.Col(srcVal).IsNotNull();
@@ -242,14 +240,12 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
         joined = joined.WithColumns(actionExpr.Alias(_actionCol));
 
         // Column-level Update Arbitration
-        var updateExprs = new List<IntoExpr>();
+        var updateExprs = new List<IntoExpr>(allCols.Count);
 
         foreach (var colName in allCols)
         {
-            var tgtCol = _target.Schema.ColumnNames.Contains(colName) ? Pl.Col(colName) : Pl.LitNull();
-            var srcColTmp = _on.Contains(colName) 
-                ? Pl.Col(colName) 
-                : (_source.Schema.ColumnNames.Contains(colName) ? Pl.Col(colName + _tmpSfx) : Pl.LitNull());
+            var tgtCol = targetCols.Contains(colName) ? Pl.Col(colName) : Pl.LitNull();
+            var srcColTmp = sourceCols.Contains(colName) ? Pl.Col(colName + _tmpSfx) : Pl.LitNull();
 
             Expr colUpdateExpr = tgtCol; 
 
@@ -266,8 +262,8 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
                                           .Then(userExpr) 
                                           .Otherwise(colUpdateExpr);
                     }
-                    // Scenario A: Update all column
-                    else if (action.Setters == null && _source.Schema.ColumnNames.Contains(colName))
+                    // Scenario B: Update all column
+                    else if (action.Setters == null && sourceCols.Contains(colName))
                     {
                         var updateCond = Pl.Col(_actionCol) == action.ActionId;
                         if (!_includeNulls) updateCond &= srcColTmp.IsNotNull();
@@ -282,7 +278,6 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
             updateExprs.Add(colUpdateExpr.Alias(colName));
         }
         joined = joined.WithColumns(updateExprs);
-
 
         // Garbage Collection & Filtering
         var deleteIds = _actions.Where(a => a.Type == MergeActionType.MatchedDelete || a.Type == MergeActionType.NotMatchedBySourceDelete)

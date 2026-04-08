@@ -91,15 +91,16 @@ public static class PolarsQueryableExtensions
     /// This triggers the actual data processing: LINQ -> SQL -> LazyFrame -> <see cref="IPolarsDataFrame"/>.
     /// </summary>
     /// <typeparam name="T">The record or class type being queried.</typeparam>
+    /// <param name="engine">Execution engine for Polars collect</param>
     /// <param name="query">The <see cref="IQueryable{T}"/> source.</param>
     /// <param name="useStreaming">
     /// If set to <see langword="true"/>, enables Polars' streaming execution engine for memory-intensive computations.
     /// </param>
     /// <returns>A materialized <see cref="IPolarsDataFrame"/> containing the query results.</returns>
-    public static IPolarsDataFrame ToIDataFrame<T>(this IQueryable<T> query, bool useStreaming = false)
+    public static IPolarsDataFrame ToIDataFrame<T>(this IQueryable<T> query,PlEngine engine=PlEngine.Auto, bool useStreaming = false)
     {
         var lf = query.ToILazyFrame();
-        return lf.Collect(useStreaming);
+        return lf.Collect(engine,useStreaming);
     }
     /// <summary>
     /// Asynchronously executes the Polars query and materializes the result into a DataFrame.
@@ -107,6 +108,7 @@ public static class PolarsQueryableExtensions
     /// </summary>
     public static async Task<IPolarsDataFrame> ToIDataFrameAsync<T>(
         this IQueryable<T> query, 
+        PlEngine engine=PlEngine.Auto,
         bool useStreaming = false,
         CancellationToken cancellationToken = default)
     {
@@ -114,7 +116,7 @@ public static class PolarsQueryableExtensions
 
         try
         {
-            return await lazyFrame.CollectAsync(useStreaming, cancellationToken)
+            return await lazyFrame.CollectAsync(engine,useStreaming, cancellationToken)
                                   .ConfigureAwait(false);
         }
         finally
@@ -172,7 +174,7 @@ public static class PolarsQueryableExtensions
         string seriesName = "",
         CancellationToken cancellationToken = default)
     {
-        using var df = await query.ToIDataFrameAsync(false, cancellationToken).ConfigureAwait(false);
+        using var df = await query.ToIDataFrameAsync(PlEngine.InMemory, false,cancellationToken).ConfigureAwait(false);
         var series = df.Column(0);
         
         if (!string.IsNullOrEmpty(seriesName))

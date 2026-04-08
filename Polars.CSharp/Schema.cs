@@ -1,4 +1,5 @@
 #pragma warning disable CS1591
+using System.Collections.Frozen;
 using System.Reflection.Metadata;
 using System.Text;
 using Polars.NET.Core;
@@ -69,11 +70,12 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>
     }
 
     /// <summary>
-    /// Convert the native Schema back to a Dictionary for inspection.
+    /// Converts the Schema to a standard read-only dictionary.
+    /// Fast creation, standard read performance.
     /// </summary>
-    public Dictionary<string, DataType> ToDictionary()
+    public IReadOnlyDictionary<string, DataType> ToDictionary()
     {
-        if (Handle.IsInvalid) return [];
+        if (Handle.IsInvalid) return new Dictionary<string, DataType>();
 
         ulong len = PolarsWrapper.GetSchemaLen(Handle);
         var result = new Dictionary<string, DataType>((int)len);
@@ -86,8 +88,27 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>
 
         return result;
     }
+    /// <summary>
+    /// Converts the Schema to a FrozenDictionary.
+    /// Slower creation time, but blazing fast read performance. Ideal for caching.
+    /// </summary>
+    public FrozenDictionary<string, DataType> ToFrozenDictionary()
+    {
+        if (Handle.IsInvalid) return FrozenDictionary<string, DataType>.Empty;
 
-    Dictionary<string, IPolarsDataType> IPolarsSchema.ToDictionary()
+        ulong len = PolarsWrapper.GetSchemaLen(Handle);
+        
+        var pairs = new KeyValuePair<string, DataType>[len];
+
+        for (ulong i = 0; i < len; i++)
+        {
+            PolarsWrapper.GetSchemaFieldAt(Handle, i, out string name, out DataTypeHandle dtHandle);
+            pairs[i] = new KeyValuePair<string, DataType>(name, new DataType(dtHandle));
+        }
+
+        return pairs.ToFrozenDictionary(); 
+    }
+    IReadOnlyDictionary<string, IPolarsDataType> IPolarsSchema.ToDictionary()
     {
         return ToDictionary()
                     .ToDictionary(kvp => kvp.Key, kvp => (IPolarsDataType)kvp.Value);

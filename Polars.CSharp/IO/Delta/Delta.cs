@@ -572,7 +572,7 @@ public class DeltaMergeBuilder
         _mergeKeys = mergeKeys;
         _canEvolve = canEvolve;
         _cloudOptions = cloudOptions;
-        _ctx = new MergeContext("_src_tmp", _mergeKeys);
+        _ctx = new MergeContext("_src_tmp");
     }
 
     /// <summary>
@@ -596,7 +596,7 @@ public class DeltaMergeBuilder
         _mergeKeys = mergeKeys;
         _canEvolve = canEvolve;
         _cloudOptions = cloudOptions;
-        _ctx = new MergeContext("_src_tmp", _mergeKeys);
+        _ctx = new MergeContext("_src_tmp");
     }
 
     /// <summary>

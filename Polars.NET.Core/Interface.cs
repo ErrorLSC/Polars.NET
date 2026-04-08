@@ -53,5 +53,5 @@ public interface IPolarsSchema : IDisposable
     List<string> ColumnNames { get; }
     
     IPolarsDataType this[string name] { get; } 
-    Dictionary<string,IPolarsDataType> ToDictionary();
+    IReadOnlyDictionary<string,IPolarsDataType> ToDictionary();
 }
