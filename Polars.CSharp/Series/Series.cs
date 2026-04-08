@@ -275,14 +275,33 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Expr.Gather(Expr)"/>
     public Series Gather(Expr indices)
         => ApplyExpr(Polars.Col(Name).Gather(indices));
-    /// <inheritdoc cref="Expr.Gather(Expr)"/>
+    /// <inheritdoc cref="Take(Series)"/>
     public Series Gather(Series indices) => Take(indices);
     /// <inheritdoc cref="Expr.Take(Expr)"/>
     public Series Take(Expr indices)
         => ApplyExpr(Polars.Col(Name).Take(indices));
-    /// <inheritdoc cref="Expr.Take(Expr)"/>
+    /// <summary>
+    /// Take elements by physical integer indices.
+    /// Note: Negative indices are not supported. All values must be >= 0.
+    /// </summary>
     public Series Take(Series indices)
-        => new(PolarsWrapper.SeriesTake(Handle,indices.Handle));
+    {
+        if (!indices.DataType.IsInteger)
+        {
+            throw new ArgumentException($"Take requires an integer Series, but got {indices.DataType.Kind}.", nameof(indices));
+        }
+
+        try
+        {
+            return new Series(PolarsWrapper.SeriesTake(Handle, indices.Handle));
+        }
+        catch (Exception ex) when (ex.Message.Contains("OutOfBounds") || ex.Message.Contains("out of bounds"))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(indices), 
+                "Index out of bounds. Please ensure no negative indices are used and all values are within the Series length.");
+        }
+    }
 
     /// <inheritdoc cref="Expr.GatherEvery(ulong, ulong)"/>
     public Series GatherEvery(ulong n, ulong offset = 0)
