@@ -6,6 +6,33 @@ namespace Polars.CSharp;
 
 public partial class Series : IDisposable,IPolarsSeries
 {
+
+    internal T? ExtractObject<T>(Expr expr) where T : class
+    {
+        using var tempSeries = ApplyExpr(expr);
+        return ExtractObjectFromSeries<T>(tempSeries);
+    }
+
+
+    internal T? ExtractObject<T>(Func<Series> seriesProvider) where T : class
+    {
+        using var tempSeries = seriesProvider();
+        return ExtractObjectFromSeries<T>(tempSeries);
+    }
+
+    private T? ExtractObjectFromSeries<T>(Series tempSeries) where T : class
+    {
+        if (tempSeries is null || tempSeries.Len() == 0)
+        {
+            return null;
+        }
+        if (tempSeries.IsNullAt(0)) 
+        {
+            return null;
+        }
+
+        return tempSeries.GetValue<T>(0);
+    }
     internal T? ExtractScalar<T>(Expr expr) where T : struct
     {
         using var tempSeries = ApplyExpr(expr);
@@ -99,6 +126,14 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
     public T? Max<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Max());
+    /// <inheritdoc cref="Expr.NanMax"/>
+    public T? NanMax<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).NanMax());
+    /// <inheritdoc cref="Expr.NanMin"/>
+    public T? NanMin<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).NanMin());
+    /// <inheritdoc cref="Expr.NanMax"/>
+    public string? NanMaxString() => ExtractObject<string>(Pl.Col(Name).NanMax());
+    /// <inheritdoc cref="Expr.NanMin"/>
+    public string? NanMinString() => ExtractObject<string>(Pl.Col(Name).NanMin());
     /// <summary>
     /// Get the maximum value in this Series, ordered by an expression.
     /// </summary>
@@ -171,4 +206,24 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Result is a Series with 1 row containing a List of all values.
     /// </summary>
     public Series Implode() => new(PolarsWrapper.SeriesImplode(Handle));
+    /// <inheritdoc cref="Expr.BitwiseAnd"/>
+    public Series BitwiseAnd() => ApplyExpr(Pl.Col(Name).BitwiseAnd());
+    /// <inheritdoc cref="Expr.BitwiseOr"/>
+    public Series BitwiseOr() => ApplyExpr(Pl.Col(Name).BitwiseOr());
+    /// <inheritdoc cref="Expr.BitwiseXor"/>
+    public Series BitwiseXor() => ApplyExpr(Pl.Col(Name).BitwiseXor());
+    /// <summary>
+    /// Perform an aggregation of bitwise ANDs across all elements.
+    /// </summary>
+    public T? BitwiseAnd<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).BitwiseAnd());
+    
+    /// <summary>
+    /// Perform an aggregation of bitwise ORs across all elements.
+    /// </summary>
+    public T? BitwiseOr<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).BitwiseOr());
+    
+    /// <summary>
+    /// Perform an aggregation of bitwise XORs across all elements.
+    /// </summary>
+    public T? BitwiseXor<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).BitwiseXor());
 }

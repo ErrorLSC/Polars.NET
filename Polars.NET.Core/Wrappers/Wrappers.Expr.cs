@@ -243,6 +243,17 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle Sum(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_sum, e);
     public static ExprHandle Mean(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_mean, e);
     public static ExprHandle Max(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_max, e);
+    public static ExprHandle NanMax(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_nan_max, e);
+    public static ExprHandle NanMin(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_nan_min, e);
+    public static ExprHandle BitwiseAnd(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_bitwise_and, e);
+    public static ExprHandle BitwiseOr(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_bitwise_or, e);
+    public static ExprHandle BitwiseXor(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_bitwise_xor, e);
+    public static ExprHandle BitwiseCountOnes(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_bitwise_count_ones, e);
+    public static ExprHandle BitwiseCountZeros(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_bitwise_count_zeros, e);
+    public static ExprHandle BitwiseLeadingOnes(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_bitwise_leading_ones, e);
+    public static ExprHandle BitwiseLeadingZeros(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_bitwise_leading_zeros, e);
+    public static ExprHandle BitwiseTrailingOnes(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_bitwise_trailing_ones, e);
+    public static ExprHandle BitwiseTrailingZeros(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_bitwise_trailing_zeros, e);
     public static ExprHandle MaxBy(ExprHandle expr, ExprHandle by) 
         => BinaryOp(NativeBindings.pl_expr_max_by, expr, by);
     public static ExprHandle MinBy(ExprHandle expr, ExprHandle by) 

@@ -94,16 +94,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     public Expr ArgUnique() => new(PolarsWrapper.ArgUnique(CloneHandle()));
 
     /// <summary>
-    /// Get the index of the maximum value.
-    /// </summary>
-    public Expr ArgMax() => new(PolarsWrapper.ArgMax(CloneHandle()));
-
-    /// <summary>
-    /// Get the index of the minimum value.
-    /// </summary>
-    public Expr ArgMin() => new(PolarsWrapper.ArgMin(CloneHandle()));
-
-    /// <summary>
     /// Get the index values that would sort this expression.
     /// </summary>
     /// <param name="descending">If true, sort in descending order. Default is false.</param>
@@ -152,54 +142,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <returns></returns>
     public Expr Rechunk() => new(PolarsWrapper.Rechunk(CloneHandle()));
-
-    // ==========================================
-    // Aggregation
-    // ==========================================
-    /// <summary>
-    /// Get the first value of the group/series.
-    /// </summary>
-    /// <returns>A new expression representing the first value.</returns>
-    public Expr First(bool ignoreNulls = false) => new(PolarsWrapper.First(CloneHandle(),ignoreNulls));
-    /// <summary>
-    /// Get the last value of the group/series.
-    /// </summary>
-    /// <returns>A new expression representing the last value.</returns>
-    public Expr Last(bool ignoreNulls = false) => new(PolarsWrapper.Last(CloneHandle(),ignoreNulls));
-
-    /// <summary>
-    /// Get the first n rows.
-    /// </summary>
-    /// <param name="n">Number of rows to return.</param>
-    /// <returns></returns>
-    public Expr Head(int n = 10) => new(PolarsWrapper.Head(CloneHandle(),n));
-    /// <summary>
-    /// Get the last n rows.
-    /// </summary>
-    /// <param name="n">Number of rows to return.</param>
-    /// <returns></returns>
-    public Expr Tail(int n = 10) => new(PolarsWrapper.Tail(CloneHandle(),n));
-
-    /// <summary>
-    /// Check if <b>all</b> values in the boolean expression are <c>true</c>.
-    /// <para>This is a boolean aggregation.</para>
-    /// </summary>
-    /// <param name="ignoreNulls">
-    /// If <c>true</c>, null values are ignored. 
-    /// If <c>false</c> (default), the result propagates nulls (i.e., if there is a null and no false, the result might be null).
-    /// </param>
-    /// <returns>A new expression representing the boolean result.</returns>
-    public Expr All(bool ignoreNulls=false) => new(PolarsWrapper.All(CloneHandle(),ignoreNulls));
-    /// <summary>
-    /// Check if <b>any</b> value in the boolean expression is <c>true</c>.
-    /// <para>This is a boolean aggregation.</para>
-    /// </summary>
-    /// <param name="ignoreNulls">
-    /// If <c>true</c>, null values are ignored. 
-    /// If <c>false</c> (default), the result propagates nulls.
-    /// </param>
-    /// <returns>A new expression representing the boolean result.</returns>
-    public Expr Any(bool ignoreNulls=false) => new(PolarsWrapper.Any(CloneHandle(),ignoreNulls));
     /// <summary>
     /// Return the single value in the group or series.
     /// <para>
@@ -216,95 +158,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </param>
     /// <returns>A new expression representing the single item.</returns>
     public Expr Item(bool allowEmpty=true) => new(PolarsWrapper.Item(CloneHandle(),allowEmpty));
-
-    /// <summary>
-    /// Calculate the sum of the values in the group or column.
-    /// <para>
-    /// Behavior depends on context:
-    /// <list type="bullet">
-    /// <item>In <see cref="DataFrame.GroupBy(IntoExpr,bool)"/>: Calculates the sum for each group.</item>
-    /// <item>In <see cref="DataFrame.Select(IntoExpr[])"/>: Calculates the sum of the entire column (scalar result).</item>
-    /// </list>
-    /// </para>
-    /// </summary>
-    /// <example>
-    /// <code>
-    /// var df = DataFrame.FromColumns(new
-    /// {
-    ///     group = new[] { "A", "A", "B", "B" },
-    ///     val = new[] { 1, 2, 3, 4 }
-    /// });
-    /// 
-    /// // 1. GroupBy Aggregation
-    /// df.GroupBy("group").Agg(
-    ///     Col("val").Sum().Alias("sum"),
-    ///     Col("val").Mean().Alias("mean")
-    /// ).Show();
-    /// /* Output:
-    /// shape: (2, 3)
-    /// ┌───────┬─────┬──────┐
-    /// │ group ┆ sum ┆ mean │
-    /// │ ---   ┆ --- ┆ ---  │
-    /// │ str   ┆ i32 ┆ f64  │
-    /// ╞═══════╪═════╪══════╡
-    /// │ A     ┆ 3   ┆ 1.5  │
-    /// │ B     ┆ 7   ┆ 3.5  │
-    /// └───────┴─────┴──────┘
-    /// */
-    /// 
-    /// // 2. Global Aggregation (Select)
-    /// df.Select(
-    ///     Col("val").Sum().Alias("total_sum"),
-    ///     Col("val").Count().Alias("total_count")
-    /// ).Show();
-    /// /* Output:
-    /// shape: (1, 2)
-    /// ┌───────────┬─────────────┐
-    /// │ total_sum ┆ total_count │
-    /// │ ---       ┆ ---         │
-    /// │ i32       ┆ u32         │
-    /// ╞═══════════╪═════════════╡
-    /// │ 10        ┆ 4           │
-    /// └───────────┴─────────────┘
-    /// */
-    /// </code>
-    /// </example>
-    public Expr Sum() => new(PolarsWrapper.Sum(CloneHandle()));
-
-    /// <summary>
-    /// Compute the mean of an expression
-    /// </summary>
-    public Expr Mean() => new(PolarsWrapper.Mean(CloneHandle()));
-
-    /// <summary>
-    /// Compute the max of an expression
-    /// </summary>
-    public Expr Max() => new(PolarsWrapper.Max(CloneHandle()));
-
-    /// <summary>
-    /// Compute the min of an expression
-    /// </summary>
-    public Expr Min() => new(PolarsWrapper.Min(CloneHandle()));
-    /// <summary>
-    /// Count the number of null.
-    /// </summary>
-    public Expr NullCount() => new(PolarsWrapper.NullCount(CloneHandle()));
-    /// <summary>
-    /// Count unique values.
-    /// Notes: Null is considered to be a unique value for the purposes of this operation.
-    /// </summary>
-    public Expr NUnique() => new(PolarsWrapper.NUnique(CloneHandle()));
-    /// <summary>
-    /// Approximate count of unique values.
-    /// This is done using the HyperLogLog++ algorithm for cardinality estimation.
-    /// </summary>
-    /// <returns></returns>
-    public Expr ApproxNUnique() => new(PolarsWrapper.ApproxNUnique(CloneHandle()));
-    /// <summary>
-    /// Compute the product of an expression
-    /// </summary>
-    /// <returns></returns>
-    public Expr Product() => new(PolarsWrapper.Product(CloneHandle()));
     /// <summary>
     /// Calculate the lower bound.
     /// Returns a unit Series with the lowest value possible for the dtype of this expression.
@@ -315,118 +168,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Returns a unit Series with the highest value possible for the dtype of this expression.
     /// </summary>
     public Expr UpperBound() => new(PolarsWrapper.UpperBound(CloneHandle()));
-    /// <summary>
-    /// Get maximum value, ordered by another expression.
-    /// If the by expression has multiple values equal to the maximum it is not defined which value will be chosen.
-    /// </summary>
-    /// <param name="by">Column used to determine the largest element. Accepts expression input. Strings are parsed as column names.</param>
-    public Expr MaxBy(IntoExpr by)
-    {
-        Expr realBy = by.Consume();
-        return new(PolarsWrapper.MaxBy(CloneHandle(),realBy.Handle));
-    }
-    /// <summary>
-    /// Get minimum value, ordered by another expression.
-    /// If the by expression has multiple values equal to the minimum it is not defined which value will be chosen.
-    /// </summary>
-    /// <param name="by">Column used to determine the smallest element. Accepts expression input. Strings are parsed as column names.</param>
-    public Expr MinBy(IntoExpr by)
-    {
-        Expr realBy = by.Consume();
-        return new(PolarsWrapper.MinBy(CloneHandle(),realBy.Handle));
-    }
-    
-    // ==========================================
-    // Math
-    // ==========================================
-
-    /// <summary>
-    /// Calculate the absolute value of the expression.
-    /// </summary>
-    public Expr Abs() => new(PolarsWrapper.Abs(CloneHandle()));
-
-    /// <summary>
-    /// Calculate the square root of the expression.
-    /// </summary>
-    public Expr Sqrt() => new(PolarsWrapper.Sqrt(CloneHandle()));
-
-    /// <summary>
-    /// Calculate the cube root of the expression.
-    /// </summary>
-    public Expr Cbrt() => new(PolarsWrapper.Cbrt(CloneHandle()));
-
-    /// <summary>
-    /// Calculate the power of the expression with a given exponent expression.
-    /// </summary>
-    public Expr Pow(Expr exponent) => new(PolarsWrapper.Pow(CloneHandle(), exponent.CloneHandle()));
-
-    /// <summary>
-    /// Calculate the power of the expression with a given numeric exponent.
-    /// </summary>
-    public Expr Pow(double exponent) => new(PolarsWrapper.Pow(CloneHandle(), PolarsWrapper.Lit(exponent)));
-    /// <summary>
-    /// Compute the dot/inner product between two expressions.
-    /// <para>
-    /// The dot product is the sum of the products of the corresponding entries of the two sequences of numbers.
-    /// </para>
-    /// </summary>
-    /// <param name="other">The other expression to compute the dot product with.</param>
-    /// <returns>A scalar expression representing the dot product result.</returns>
-    /// <example>
-    /// <code>
-    /// var df = DataFrame.FromColumns(new 
-    /// {
-    ///     a = new[] { 1, 2, 3 },
-    ///     b = new[] { 4, 5, 6 }
-    /// });
-    /// 
-    /// // (1*4) + (2*5) + (3*6) = 4 + 10 + 18 = 32
-    /// df.Select(Col("a").Dot(Col("b"))).Show();
-    /// </code>
-    /// </example>
-    public Expr Dot(Expr other) => new(PolarsWrapper.Dot(CloneHandle(), other.CloneHandle()));
-    /// <summary>
-    /// Calculate the power of the Euler's number.
-    /// </summary>
-    public Expr Exp() => new(PolarsWrapper.Exp(CloneHandle()));
-
-    /// <summary>
-    /// Calculate the ln of Number 
-    /// </summary>
-    /// <param name="baseVal"></param>
-    /// <returns></returns>
-    public Expr Ln(double baseVal = Math.E) => new(PolarsWrapper.Log(CloneHandle(), baseVal));
-
-    // ==========================================
-    // Trigonometry
-    // ==========================================
-
-    /// <summary>Compute the element-wise sine.</summary>
-    public Expr Sin() => new(PolarsWrapper.Sin(CloneHandle()));
-
-    /// <summary>Compute the element-wise cosine.</summary>
-    public Expr Cos() => new(PolarsWrapper.Cos(CloneHandle()));
-
-    /// <summary>Compute the element-wise tangent.</summary>
-    public Expr Tan() => new(PolarsWrapper.Tan(CloneHandle()));
-
-    /// <summary>Compute the element-wise inverse sine.</summary>
-    public Expr ArcSin() => new(PolarsWrapper.ArcSin(CloneHandle()));
-
-    /// <summary>Compute the element-wise inverse cosine.</summary>
-    public Expr ArcCos() => new(PolarsWrapper.ArcCos(CloneHandle()));
-
-    /// <summary>Compute the element-wise inverse tangent.</summary>
-    public Expr ArcTan() => new(PolarsWrapper.ArcTan(CloneHandle()));
-
-    // Hyperbolic
-    public Expr Sinh() => new(PolarsWrapper.Sinh(CloneHandle()));
-    public Expr Cosh() => new(PolarsWrapper.Cosh(CloneHandle()));
-    public Expr Tanh() => new(PolarsWrapper.Tanh(CloneHandle()));
-
-    public Expr ArcSinh() => new(PolarsWrapper.ArcSinh(CloneHandle()));
-    public Expr ArcCosh() => new(PolarsWrapper.ArcCosh(CloneHandle()));
-    public Expr ArcTanh() => new(PolarsWrapper.ArcTanh(CloneHandle()));
 
     // ==========================================
     // Rounding & Sign
@@ -619,42 +360,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     // ==========================================
     // Statistical Ops
     // ==========================================
-
-    /// <summary>
-    /// Return the number of non-null elements in the column.
-    /// </summary>
-    public Expr Count() => new(PolarsWrapper.Count(CloneHandle()));
-    /// <summary>
-    /// Return the number of elements in the column.
-    /// Null values count towards the total.
-    /// </summary>
-    /// <returns></returns>
-    public Expr Len() => new(PolarsWrapper.ExprLen(CloneHandle()));
-
-    /// <summary>
-    /// Get the standard deviation.
-    /// </summary>
-    /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
-    /// <returns>A series which length is 1</returns>
-    public Expr Std(int ddof = 1) => new(PolarsWrapper.Std(CloneHandle(), ddof));
-
-    /// <summary>
-    /// Get the variance.
-    /// </summary>
-    /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
-    /// <returns>A series which length is 1</returns>
-    public Expr Var(int ddof = 1) => new(PolarsWrapper.Var(CloneHandle(), ddof));
-
-    /// <summary>
-    /// Get the median value.
-    /// </summary>
-    /// <returns>A series which length is 1</returns>
-    public Expr Median() => new(PolarsWrapper.Median(CloneHandle()));
-    /// <summary>
-    /// Get the mode value.
-    /// </summary>
-    /// <returns>A series which length is 1</returns>
-    public Expr Mode() => new(PolarsWrapper.Mode(CloneHandle()));
     /// <summary>
     /// Compute the sample skewness of a data set.
     /// </summary>
@@ -668,14 +373,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="bias">If False, the calculations are corrected for statistical bias.</param>
     /// <returns>A series which length is 1</returns>
     public Expr Kurtosis(bool fisher = true, bool bias = true) => new(PolarsWrapper.Kurtosis(CloneHandle(), fisher, bias));
-    /// <summary>
-    /// Get the quantile value.
-    /// </summary>
-    /// <param name="quantile">Quantile between 0.0 and 1.0.</param>
-    /// <param name="method">['nearest’, ‘higher’, ‘lower’, ‘midpoint’, ‘linear’] Interpolation method.</param>
-    /// <returns>A series which length is 1</returns>
-    public Expr Quantile(double quantile, QuantileMethod method = QuantileMethod.Linear)
-        => new(PolarsWrapper.Quantile(CloneHandle(), quantile, method.ToNative()));
     /// <summary>
     /// Computes percentage change between values.
     /// Percentage change (as fraction) between current element and most-recent non-null element at least n period(s) before the current element.
@@ -1013,32 +710,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </code>
     /// </example>
     public Expr Explode(bool emptyAsNull=true,bool keepNulls=true) => new(PolarsWrapper.Explode(CloneHandle(),emptyAsNull,keepNulls));
-    /// <summary>
-    /// Aggregate values into a list.
-    /// <para>
-    /// This is the opposite of <see cref="Explode"/>. It collects values from multiple rows into a single list.
-    /// </para>
-    /// </summary>
-    /// <example>
-    /// <code>
-    /// // Collect all IDs and Tags into single lists
-    /// df.Select(
-    ///     Col("id").Implode().Alias("all_ids"), 
-    ///     Col("tags").Implode().Alias("nested_tags")
-    /// ).Show();
-    /// /* Output:
-    /// shape: (1, 2)
-    /// ┌───────────┬─────────────────────┐
-    /// │ all_ids   ┆ nested_tags         │
-    /// │ ---       ┆ ---                 │
-    /// │ list[i32] ┆ list[list[str]]     │
-    /// ╞═══════════╪═════════════════════╡
-    /// │ [1, 2]    ┆ [["a", "b"], ["c"]] │
-    /// └───────────┴─────────────────────┘
-    /// */
-    /// </code>
-    /// </example>
-    public Expr Implode() => new(PolarsWrapper.Implode(CloneHandle()));
     /// <summary>
     /// Returns the first non-null value between this expression and other expressions.
     /// Syntactic sugar for <c>Polars.Coalesce(this, others)</c>.

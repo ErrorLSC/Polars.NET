@@ -1901,7 +1901,6 @@ public class SeriesTests
         var mean = dtSeries.Mean<DateTime>();
         Assert.Equal(new DateTime(2024, 1, 1, 12, 0, 0), mean);
     }
-
     [Fact]
     [Trait("Series","DateOnlyStatistics")]
     public void Test_Series_DateOnly_Statistics()
@@ -1920,7 +1919,6 @@ public class SeriesTests
         var mean = dateSeries.Mean<DateTime>();
         Assert.Equal(new DateTime(2024, 1, 3), mean);
     }
-
     [Fact]
     [Trait("Series","TimeOnlyStatistics")]
     public void Test_Series_TimeOnly_Statistics()
@@ -1938,5 +1936,82 @@ public class SeriesTests
         Assert.Equal(new TimeOnly(9, 30), median);
         var mean = timeSeries.Mean<TimeOnly>();
         Assert.Equal(new TimeOnly(9, 30), mean);
+    }
+    [Fact]
+    [Trait("Series","NanMaxString")]
+    public void Test_Series_NanMax_String_Lexicographical()
+    {
+        // Arrange
+        var strSeries = Pl.Series("words", ["apple", "zebra", null, "banana"]);
+
+        // Act
+        var maxStr = strSeries.NanMaxString();
+        var minStr = strSeries.NanMinString();
+
+        // Assert
+        Assert.Equal("zebra", maxStr);
+        Assert.Equal("apple", minStr);
+    }
+    [Fact]
+    [Trait("Series","NanMax")]
+    public void Test_Series_NanMax_Float_Ignores_NaN()
+    {
+        // Arrange
+        var floatSeries = Pl.Series("floats", new double?[] { 10.5, double.NaN, null, 42.0, 3.14 });
+
+        var normalMax = floatSeries.Max<double>();
+
+        var nanMax = floatSeries.NanMax<double>();
+        var nanMin = floatSeries.NanMin<double>();
+
+        // Assert
+        Assert.Equal(42.0, normalMax);                 
+        Assert.Equal(double.NaN, nanMax);        
+        Assert.Equal(double.NaN, nanMin);              
+    }
+    [Fact]
+    [Trait("Series","Bitwise")]
+    public void Test_Bitwise_Aggregations_Return_Scalar()
+    {
+        // Arrange
+        // 15 = 1111
+        // 11 = 1011
+        // 13 = 1101
+        var series = Pl.Series("flags", [15, 11, 13]);
+        
+        // Act
+        var andAgg = series.BitwiseAnd<int>();
+        var orAgg  = series.BitwiseOr<int>();
+        var xorAgg = series.BitwiseXor<int>();
+
+        // AND : 1111 & 1011 & 1101 = 1001 (9)
+        Assert.Equal(9, andAgg); 
+
+        // OR : 1111 | 1011 | 1101 = 1111 (15)
+        Assert.Equal(15, orAgg);
+
+        // XOR : 1111 ^ 1011 ^ 1101 = 1001 (9)
+        Assert.Equal(9, xorAgg);
+    }
+
+    [Fact]
+    [Trait("Series","Bitwise")]
+    public void Test_Bitwise_ElementWise_Transformations()
+    {
+        // Arrange
+        // 0: 00000000 
+        // 5: 00000101 
+        // 7: 00000111 
+        var series = Pl.Series("nums", [0, 5, 7]);
+
+        // Act
+        using var countOnes = series.BitwiseCountOnes();
+        using var trailingZeros = series.BitwiseTrailingZeros();
+
+        // Assert
+        Assert.Equal(3, countOnes.Len());
+
+        var onesResult = countOnes.ToArray<uint>(); 
+        Assert.Equal(new uint[] { 0, 2, 3 }, onesResult);
     }
 }
