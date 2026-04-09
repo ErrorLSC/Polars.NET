@@ -305,6 +305,8 @@ gen_unary_op!(pl_expr_first_non_null, first_non_null);
 gen_unary_op!(pl_expr_last_non_null, last_non_null);
 gen_unary_op!(pl_expr_last, last);
 gen_unary_op!(pl_expr_reverse, reverse);
+gen_unary_op!(pl_expr_upper_bound, upper_bound);
+gen_unary_op!(pl_expr_lower_bound, lower_bound);
 gen_unary_op_arg_bool!(pl_expr_any, any);
 gen_unary_op_arg_bool!(pl_expr_all, all);
 gen_unary_op_arg_bool!(pl_expr_item, item);

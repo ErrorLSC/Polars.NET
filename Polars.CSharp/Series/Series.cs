@@ -527,23 +527,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Check whether indexed value is null。
     /// </summary>
     public bool IsNullAt(long index) => PolarsWrapper.SeriesIsNullAt(Handle, index);
-    /// <summary>
-    /// Return a Boolean series, where null value will be masked as true.
-    /// </summary>
-    public Series IsNull()
-    {
-        var newHandle = PolarsWrapper.SeriesIsNull(Handle);
-        return new Series(newHandle);
-    }
 
-    /// <summary>
-    /// Return a Boolean series, where null value will be masked as false.
-    /// </summary>
-    public Series IsNotNull()
-    {
-        var newHandle = PolarsWrapper.SeriesIsNotNull(Handle);
-        return new Series(newHandle);
-    }
     // ==========================================
     // Drop Nulls and Nans
     // ==========================================
@@ -807,11 +791,6 @@ public partial class Series : IDisposable,IPolarsSeries
     /// </summary>
     /// <returns>Approximate count of unique values.</returns>
     public long ApproxNUnique() => PolarsWrapper.SeriesApproxNUnique(Handle);
-    
-    /// <summary>
-    /// Count the number of unique values in this Series.
-    /// </summary>
-    public long NUnique() => PolarsWrapper.SeriesNUnique(Handle);
 
     /// <summary>
     /// Get the unique elements of this Series.

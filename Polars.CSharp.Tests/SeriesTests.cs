@@ -1745,5 +1745,46 @@ public class SeriesTests
         var boolsTrue = resultTrue.ToArray<bool>();
         Assert.Equal([false, true, false], boolsTrue);
     }
+    [Fact]
+    [Trait("Series","Bound")]
+    public void Test_Series_LowerBound_And_UpperBound_Int32()
+    {
+        // Arrange
+        var series = Pl.Series("test_int32", [1, 50, 100]);
+
+        // Act
+        using var lowerBoundSeries = series.LowerBound();
+        using var upperBoundSeries = series.UpperBound();
+
+        // Assert
+        Assert.Equal(1, lowerBoundSeries.Len());
+        Assert.Equal(1, upperBoundSeries.Len());
+
+        var lowerVal = lowerBoundSeries.ToArray<int>()[0];
+        var upperVal = upperBoundSeries.ToArray<int>()[0];
+
+        Assert.Equal(int.MinValue, lowerVal); // -2147483648
+        Assert.Equal(int.MaxValue, upperVal); //  2147483647
+    }
+
+    [Fact]
+    [Trait("Series","Bound")]
+    public void Test_Series_LowerBound_And_UpperBound_UInt8()
+    {
+        // Arrange
+        var series = Pl.Series("test_uint8", new byte[] { 10, 20 });
+
+        // Act
+        using var lowerBoundSeries = series.LowerBound();
+        using var upperBoundSeries = series.UpperBound();
+
+        // Assert
+        var lowerVal = lowerBoundSeries.ToArray<byte>()[0];
+        var upperVal = upperBoundSeries.ToArray<byte>()[0];
+
+        // Byte / UInt8 lower bound is , upper bound is 255
+        Assert.Equal(byte.MinValue, lowerVal); // 0
+        Assert.Equal(byte.MaxValue, upperVal); // 255
+    }
 
 }

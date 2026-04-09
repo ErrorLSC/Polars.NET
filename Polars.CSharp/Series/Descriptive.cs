@@ -1,5 +1,5 @@
 using Polars.NET.Core;
-
+using Pl = Polars.CSharp.Polars;
 namespace Polars.CSharp;
 
 public partial class Series : IDisposable,IPolarsSeries
@@ -57,16 +57,6 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Determines if the Series memory is physically contiguous (i.e., consists of a single chunk).
     /// </summary>
     public bool IsContiguous => NChunks == 1L;
-    /// <summary>
-    /// Check whether this series is NaN
-    /// </summary>
-    /// <returns></returns>
-    public Series IsNan() => new(PolarsWrapper.SeriesIsNan(Handle));
-    /// <summary>
-    /// Check whether this series is not NaN
-    /// </summary>
-    /// <returns></returns>
-    public Series IsNotNan() => new(PolarsWrapper.SeriesIsNotNan(Handle));
     /// <summary>
     /// Check whether this series is finite
     /// </summary>
@@ -126,5 +116,35 @@ public partial class Series : IDisposable,IPolarsSeries
         using var other = From("__TEMP_FOR_ISIN",collection);
         return IsIn(other,nullsEqual);
     }
-    
+    /// <summary>
+    /// Return a Boolean series, where null value will be masked as true.
+    /// </summary>
+    public Series IsNull() => new(PolarsWrapper.SeriesIsNull(Handle));
+    /// <summary>
+    /// Return a Boolean series, where null value will be masked as false.
+    /// </summary>
+    public Series IsNotNull() => new(PolarsWrapper.SeriesIsNotNull(Handle));
+    /// <summary>
+    /// Check whether this series is NaN
+    /// </summary>
+    /// <returns></returns>
+    public Series IsNan() => new(PolarsWrapper.SeriesIsNan(Handle));
+    /// <summary>
+    /// Check whether this series is not NaN
+    /// </summary>
+    /// <returns></returns>
+    public Series IsNotNan() => new(PolarsWrapper.SeriesIsNotNan(Handle));
+    /// <summary>
+    /// Count the number of unique values in this Series.
+    /// </summary>
+    public long NUnique() => PolarsWrapper.SeriesNUnique(Handle);
+    /// <summary>
+    /// Return the lower bound of this Series’ dtype as a unit Series.
+    /// </summary>
+    public Series LowerBound() => ApplyExpr(Pl.Col(Name).LowerBound());
+    /// <summary>
+    /// Return the upper bound of this Series’ dtype as a unit Series.
+    /// </summary>
+    /// <returns></returns>
+    public Series UpperBound() => ApplyExpr(Pl.Col(Name).UpperBound());
 }

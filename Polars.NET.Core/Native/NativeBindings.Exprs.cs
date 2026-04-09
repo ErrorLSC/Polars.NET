@@ -94,6 +94,8 @@ unsafe internal partial class NativeBindings
     );
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_coalesce(nint[] exprPtrs,nuint len);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lower_bound(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_upper_bound(ExprHandle expr);
     // Reverse
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_reverse(ExprHandle expr);
     // Arithmetic

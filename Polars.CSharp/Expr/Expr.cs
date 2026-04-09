@@ -305,6 +305,16 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <returns></returns>
     public Expr Product() => new(PolarsWrapper.Product(CloneHandle()));
+    /// <summary>
+    /// Calculate the lower bound.
+    /// Returns a unit Series with the lowest value possible for the dtype of this expression.
+    /// </summary>
+    public Expr LowerBound() => new(PolarsWrapper.LowerBound(CloneHandle()));
+    /// <summary>
+    /// Calculate the upper bound.
+    /// Returns a unit Series with the highest value possible for the dtype of this expression.
+    /// </summary>
+    public Expr UpperBound() => new(PolarsWrapper.UpperBound(CloneHandle()));
     
     // ==========================================
     // Math

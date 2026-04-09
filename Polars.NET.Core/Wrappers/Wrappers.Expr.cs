@@ -168,6 +168,8 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(h);
     }
     public static ExprHandle UndoAlias(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_meta_undo_aliases,expr);
+    public static ExprHandle UpperBound(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_upper_bound, e);
+    public static ExprHandle LowerBound(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_lower_bound, e);
     // Reverse
     public static ExprHandle Reverse(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_reverse, e);
     // Aggregate
