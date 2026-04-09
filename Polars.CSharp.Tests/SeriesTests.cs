@@ -1692,5 +1692,58 @@ public class SeriesTests
         Assert.True((bool)firstDistinct[0]!);
         Assert.False((bool)firstDistinct[3]!);
     }
+    [Fact]
+    [Trait("Series","IsInSeries")]
+    public void Test_IsIn_With_Another_Series()
+    {
+        // Arrange
+        var s1 = Pl.Series("s1", [1, 2, 3, 4, 5]);
+        var s2 = Pl.Series("s2", [2, 4, 6]);
+        // Act
+        using var result = s2.IsIn(s1);
+
+        // Assert
+        Assert.Equal(3, result.Len());
+
+        var boolResult = result.ToArray<bool>(); 
+        
+        Assert.Equal([true, true, false], boolResult);
+    }
+
+    [Fact]
+    [Trait("Series","IsInCollection")]
+    public void Test_IsIn_With_IEnumerable()
+    {
+        // Arrange
+        var s1 = Pl.Series("fruits", ["apple", "banana", "cherry"]);
+        var collection = new List<string> { "banana", "date", "apple" };
+
+        // Act
+        using var result = s1.IsIn(collection);
+
+        // Assert
+        var boolResult = result.ToArray<bool>(); 
+        Assert.Equal([true, true, false], boolResult);
+    }
+
+    [Fact]
+    [Trait("Series","IsInNull")]
+    public void Test_IsIn_With_NullsEqual()
+    {
+        // Arrange
+        var s1 = Pl.Series("with_nulls", new int?[] { 1, null, 3 });
+        var s2 = Pl.Series("lookup", new int?[] { null, 2 });
+
+        // Act
+        // nullsEqual = false (null != null)
+        using var resultFalse = s1.IsIn(s2, nullsEqual: false);
+        var boolsFalse = resultFalse.ToArray<bool>();
+        Assert.Equal([false, false, false], boolsFalse);
+
+        // nullsEqual = true (null == null)
+        using var resultTrue = s1.IsIn(s2, nullsEqual: true);
+        var boolsTrue = resultTrue.ToArray<bool>();
+        Assert.Equal([false, true, false], boolsTrue);
+    }
 
 }

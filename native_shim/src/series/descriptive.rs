@@ -198,3 +198,19 @@ impl_series_unary_bool_op!(pl_series_is_nan, is_nan);
 impl_series_unary_bool_op!(pl_series_is_not_nan, is_not_nan);
 impl_series_unary_bool_op!(pl_series_is_finite, is_finite);
 impl_series_unary_bool_op!(pl_series_is_infinite, is_infinite);
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_is_in(
+    ptr: *mut SeriesContext,
+    other_ptr: *mut SeriesContext,
+    nulls_equal: bool,
+) -> *mut SeriesContext {
+    ffi_try!({
+        let ctx = unsafe { &*ptr };
+        let other_ctx = unsafe { &*other_ptr };
+        
+        let res = polars::prelude::is_in(&ctx.series, &other_ctx.series, nulls_equal)?.into_series();
+        
+        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
+    })
+}

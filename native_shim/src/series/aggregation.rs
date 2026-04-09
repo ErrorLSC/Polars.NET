@@ -18,3 +18,12 @@ impl_series_reduce_op!(pl_series_sum, sum_reduce);
 impl_series_reduce_op!(pl_series_min, min_reduce);
 impl_series_reduce_op!(pl_series_max, max_reduce);
 impl_series_reduce_op!(pl_series_mean, mean_reduce);
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_implode(ptr: *mut SeriesContext) -> *mut SeriesContext {
+    ffi_try!({
+        let ctx = unsafe { &*ptr };
+        let res = ctx.series.implode()?.into_series();
+        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
+    })
+}

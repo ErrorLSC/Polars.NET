@@ -833,11 +833,6 @@ public partial class Series : IDisposable,IPolarsSeries
     public Series IsBetween(Expr lower, Expr upper) 
         => ApplyExpr(Polars.Col(Name).IsBetween(lower, upper));
     /// <summary>
-    /// Check if the value is in given collection.
-    /// </summary>
-    public Series IsIn(Expr other, bool nullsEqual = false)
-        => ApplyExpr(Polars.Col(Name).IsIn(other,nullsEqual));
-    /// <summary>
     /// Filter a series.
     /// <br/>
     /// Mostly useful in <c>group_by</c> context or when you want to filter an expression based on another expression within a <c>Select</c> context.

@@ -95,5 +95,5 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Aggregate values into a list.
     /// Result is a Series with 1 row containing a List of all values.
     /// </summary>
-    public Series Implode() => ApplyExpr(Polars.Col(Name).Implode());
+    public Series Implode() => new(PolarsWrapper.SeriesImplode(Handle));
 }

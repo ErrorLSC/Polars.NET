@@ -95,4 +95,36 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <para>Implemented via DataFrame expression composition.</para>
     /// </summary>
     public Series IsDuplicated() => new(PolarsWrapper.SeriesIsDuplicated(Handle));
+    /// <summary>
+    /// Check if elements of this Series are in the other Series.
+    /// </summary>
+    public Series IsIn(Series other, bool nullsEqual = false)
+    {
+        DataType dtype = other.DataType;
+
+        bool isNested = dtype.Kind == DataTypeKind.List || dtype.Kind == DataTypeKind.Array;
+
+        if (isNested)
+        {
+            return new(PolarsWrapper.SeriesIsIn(Handle, other.Handle, nullsEqual));
+        }
+        else
+        {
+            using var implodedOther = other.Implode();
+            return new(PolarsWrapper.SeriesIsIn(Handle, implodedOther.Handle, nullsEqual));
+        }
+    }
+    /// <summary>
+    /// Check if elements of this Series are in the collections.
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="collection"></param>
+    /// <param name="nullsEqual"></param>
+    /// <returns></returns>
+    public Series IsIn<T>(IEnumerable<T?> collection,bool nullsEqual=false)
+    {
+        using var other = From("__TEMP_FOR_ISIN",collection);
+        return IsIn(other,nullsEqual);
+    }
+    
 }

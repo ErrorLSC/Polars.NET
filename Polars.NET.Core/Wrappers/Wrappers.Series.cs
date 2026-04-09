@@ -60,6 +60,9 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesIsLastDistinct(SeriesHandle series) => ErrorHelper.Check(NativeBindings.pl_series_is_last_distinct(series));
     public static SeriesHandle SeriesIsUnique(SeriesHandle series) => ErrorHelper.Check(NativeBindings.pl_series_is_unique(series));
     public static SeriesHandle SeriesIsDuplicated(SeriesHandle series) => ErrorHelper.Check(NativeBindings.pl_series_is_duplicated(series));
+    public static SeriesHandle SeriesIsIn(SeriesHandle series, SeriesHandle other, bool nullsLast) 
+        => ErrorHelper.Check(NativeBindings.pl_series_is_in(series,other, nullsLast));
+    public static SeriesHandle SeriesImplode(SeriesHandle series) => ErrorHelper.Check(NativeBindings.pl_series_implode(series));
     // --- Constructors ---
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SeriesHandle SeriesNew(string name, ReadOnlySpan<sbyte> data, ReadOnlySpan<byte> validity = default)
