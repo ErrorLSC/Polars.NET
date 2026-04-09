@@ -27,7 +27,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     public Series IsUnique() => new(PolarsWrapper.DataFrameIsUnique(Handle));
     /// <summary>
-    /// Return an estimation of the total (heap) allocated size of the DataFrame.
+    /// Return an estimation of the total (heap) allocated size of the Series/DataFrame.
     /// Estimated size is given in the specified unit (bytes by default).
     /// </summary>
     /// <param name="unit">Scale the returned size to the given unit (uses 1024 base).</param>
@@ -73,15 +73,15 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         // 2. Define statistical metrics
         var metrics = new List<(string Name, Func<string, Expr> Op)>
         {
-            ("count",      c => Polars.Col(c).Count().Cast(DataType.Float64)),
-            ("null_count", c => Polars.Col(c).IsNull().Sum().Cast(DataType.Float64)),
-            ("mean",       c => Polars.Col(c).Mean()),
-            ("std",        c => Polars.Col(c).Std()),
-            ("min",        c => Polars.Col(c).Min().Cast(DataType.Float64)),
-            ("25%",        c => Polars.Col(c).Quantile(0.25, QuantileMethod.Nearest).Cast(DataType.Float64)),
-            ("50%",        c => Polars.Col(c).Median().Cast(DataType.Float64)),
-            ("75%",        c => Polars.Col(c).Quantile(0.75, QuantileMethod.Nearest).Cast(DataType.Float64)),
-            ("max",        c => Polars.Col(c).Max().Cast(DataType.Float64))
+            ("count",      c => Pl.Col(c).Count().Cast(DataType.Float64)),
+            ("null_count", c => Pl.Col(c).IsNull().Sum().Cast(DataType.Float64)),
+            ("mean",       c => Pl.Col(c).Mean()),
+            ("std",        c => Pl.Col(c).Std()),
+            ("min",        c => Pl.Col(c).Min().Cast(DataType.Float64)),
+            ("25%",        c => Pl.Col(c).Quantile(0.25, QuantileMethod.Nearest).Cast(DataType.Float64)),
+            ("50%",        c => Pl.Col(c).Median().Cast(DataType.Float64)),
+            ("75%",        c => Pl.Col(c).Quantile(0.75, QuantileMethod.Nearest).Cast(DataType.Float64)),
+            ("max",        c => Pl.Col(c).Max().Cast(DataType.Float64))
         };
 
         var rowFrames = new List<DataFrame>();
@@ -92,7 +92,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             {
                 var exprs = new List<Expr>
                 {
-                    Polars.Lit(statName).Alias("statistic")
+                    Pl.Lit(statName).Alias("statistic")
                 };
 
                 foreach (var col in numericCols)

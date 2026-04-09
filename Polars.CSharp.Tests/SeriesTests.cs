@@ -3,7 +3,7 @@
 using System.Numerics.Tensors;
 using Apache.Arrow;
 using Apache.Arrow.Types;
-using static Polars.CSharp.Polars;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;
 
@@ -176,8 +176,8 @@ public class SeriesTests
         Assert.Equal(DataTypeKind.Struct, s.DataType.Kind);
         
         using var res = df.Select(
-            Col("my_struct").Struct.Field("Name"),
-            Col("my_struct").Struct.Field("Scores")
+            Pl.Col("my_struct").Struct.Field("Name"),
+            Pl.Col("my_struct").Struct.Field("Scores")
         );
         
         Assert.Equal("Alice", res.GetValue<string>(0, "Name"));
@@ -471,7 +471,7 @@ public class SeriesTests
         // Row 1: [3, 4]
         var data = new[] { [1, 2], new[] { 3, 4 } };
         using var df = DataFrame.FromColumns(new { raw = data })
-            .Select(Col("raw").Cast(DataType.Array(DataType.Int32, 2)).Alias("arr"));
+            .Select(Pl.Col("raw").Cast(DataType.Array(DataType.Int32, 2)).Alias("arr"));
 
         var arrSeries = df["arr"];
 
@@ -562,7 +562,7 @@ public class SeriesTests
     {
         var s = new Series("words", ["a", "ccc", "bb"]);
 
-        var byLength = Col("words").Str.Len();
+        var byLength = Pl.Col("words").Str.Len();
 
         var top2 = s.TopKBy(2, byLength);
         
@@ -730,7 +730,7 @@ public class SeriesTests
 
         // Case 1: HalfLife = "1d"
         var resDecay = df.Select(
-            Col("val").EwmMeanBy(Col("tm"), halfLife: "1d").Alias("ewm")
+            Pl.Col("val").EwmMeanBy(Pl.Col("tm"), halfLife: "1d").Alias("ewm")
         );
         
         var arrDecay = resDecay["ewm"].ToArray<double>();
@@ -738,7 +738,7 @@ public class SeriesTests
 
         // Case 2: HalfLife = "100d" 
         var resStable = df.Select(
-            Col("val").EwmMeanBy(Col("tm"), halfLife: "100d").Alias("ewm")
+            Pl.Col("val").EwmMeanBy(Pl.Col("tm"), halfLife: "100d").Alias("ewm")
         );
         var arrStable = resStable["ewm"].ToArray<double>();
         Assert.True(arrStable[1] < 19.0);
@@ -766,9 +766,9 @@ public class SeriesTests
         // Mean = (10 + 20) / 2 = 15.0
         // ---------------------------------------------------
         var resLeft = df.Select(
-            Col("val").RollingMeanBy(
+            Pl.Col("val").RollingMeanBy(
                 windowSize: TimeSpan.FromHours(2), 
-                by: Col("tm"), 
+                by: Pl.Col("tm"), 
                 closed: ClosedWindow.Left          
             ).Alias("mean_left")
         );
@@ -787,9 +787,9 @@ public class SeriesTests
         // Mean = (10+20+30) / 3 = 20.0
         // ---------------------------------------------------
         var resBoth = df.Select(
-            Col("val").RollingMeanBy(
+            Pl.Col("val").RollingMeanBy(
                 windowSize: TimeSpan.FromHours(2), 
-                by: Col("tm"), 
+                by: Pl.Col("tm"), 
                 closed: ClosedWindow.Both
             ).Alias("mean_both")
         );
@@ -811,11 +811,11 @@ public class SeriesTests
         // Median of {2,3,4,5} -> (3+4)/2 = 3.5 (Linear interpolation)
         
         var res = df.Select(
-            Col("val").RollingQuantileBy(
+            Pl.Col("val").RollingQuantileBy(
                 quantile: 0.5,
                 method: QuantileMethod.Linear,
                 windowSize: TimeSpan.FromSeconds(3), // "3s"
-                by: Col("tm"),
+                by: Pl.Col("tm"),
                 closed: ClosedWindow.Both
             ).Alias("q50")
         );
@@ -1657,6 +1657,27 @@ public class SeriesTests
         using var slice2 = s[..^2];
         Assert.Equal(4, slice2.Length);
         Assert.Equal([10, 20, 30, 40], slice2.ToArray<int>());
+    }
+    [Fact]
+    [Trait("Series","ChunkLengths")]
+    public void Test_Series_ChunkLengths_ReturnsCorrectLengths()
+    {
+        int[] data = [10, 20, 30, 40, 50];
+        
+        var series = Pl.Series("test_chunk_lengths", data);
+
+        long[] chunkLengths = series.ChunkLengths();
+
+        Assert.NotNull(chunkLengths);
+        
+        Assert.Single(chunkLengths); 
+        
+        Assert.Equal(5L, chunkLengths[0]); 
+
+        Assert.True(series.EstimatedSize(SizeUnit.Bytes)>0);
+        
+        long totalLength = chunkLengths.Sum();
+        Assert.Equal(series.Len(), totalLength);
     }
 
 }

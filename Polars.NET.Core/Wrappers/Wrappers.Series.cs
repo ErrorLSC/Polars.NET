@@ -25,6 +25,31 @@ public readonly partial struct PolarsWrapper
         
         return count;
     }
+    public static nuint[] SeriesChunkLengths(SeriesHandle handle)
+    {
+        NativeBindings.pl_series_chunk_count(handle,out uint count);
+
+        if (count == 0)
+        {
+            return [];
+        }
+
+        nuint[] lengths = new nuint[count];
+
+        bool success = NativeBindings.pl_series_chunk_lengths(handle, ref lengths[0]);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return lengths;
+    }
+    public static long SeriesEstimatedSize(SeriesHandle series)
+    {
+        bool success = NativeBindings.pl_series_estimated_size(series,out nuint size);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return (long)size;
+    }
     // --- Constructors ---
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SeriesHandle SeriesNew(string name, ReadOnlySpan<sbyte> data, ReadOnlySpan<byte> validity = default)
