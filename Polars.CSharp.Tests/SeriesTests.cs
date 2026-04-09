@@ -588,14 +588,11 @@ public class SeriesTests
         // ---------------------------------------------------
         var s1 = new Series("s1", [1, 2, 3, 4, 5]);
 
-        var varSeries = s1.Var(ddof: 1);
-        Assert.Equal(2.5, (double)varSeries[0]!, precision: 5);
+        Assert.Equal(2.5, (double)s1.Var<double>(ddof: 1)!, precision: 5);
 
-        var stdSeries = s1.Std(ddof: 1);
-        Assert.Equal(1.58114, (double)stdSeries[0]!, precision: 5);
+        Assert.Equal(1.58114, (double)s1.Std<double>(ddof: 1)!, precision: 5);
 
-        var medianSeries = s1.Median();
-        Assert.Equal(3.0, medianSeries[0]);
+        Assert.Equal(3.0, s1.Median<double>());
 
         // ---------------------------------------------------
         // Quantile
@@ -1827,7 +1824,6 @@ public class SeriesTests
         Assert.Null(maxByResult);
         Assert.Null(minByResult);
     }
-    
     [Fact]
     [Trait("Series","MaxBy")]
     public void Test_Series_MaxBy_With_Expression()
@@ -1840,5 +1836,107 @@ public class SeriesTests
 
         // Assert
         Assert.Equal(-10, maxByAbsResult);
+    }
+    [Fact]
+    [Trait("Series","Mode")]
+    public void Test_Series_Mode_Returns_Multiple_Values()
+    {
+        // Arrange
+        var series = Pl.Series("multi_mode", [10, 20, 10, 20, 30]);
+
+        // Act
+        using var modeSeries = series.Mode();
+
+        // Assert
+        Assert.Equal(2, modeSeries.Len());
+
+        var resultVals = modeSeries.ToArray<int>();
+        
+        Assert.Contains(10, resultVals);
+        Assert.Contains(20, resultVals);
+        Assert.DoesNotContain(30, resultVals);
+    }
+    [Fact]
+    [Trait("Series","TimeSpanStatistics")]
+    public void Test_Series_TimeSpan_Statistics()
+    {
+        // Arrange (准备阶段)
+        // 构造一个间隔均匀的延迟时间序列 (100ms, 120ms, 140ms)
+        var latencies = Pl.Series("latency",
+        [
+            TimeSpan.FromMilliseconds(100), 
+            TimeSpan.FromMilliseconds(120), 
+            TimeSpan.FromMilliseconds(140) 
+        ]);
+
+        // Act (执行阶段)
+        TimeSpan? meanVal = latencies.Mean<TimeSpan>();
+        
+        TimeSpan? medianVal = latencies.Median<TimeSpan>();
+
+        // 4. Std (标准差, ddof=1)
+        TimeSpan? stdVal = latencies.Std<TimeSpan>();
+
+        // Assert (断言阶段)
+        Assert.Equal(TimeSpan.FromMilliseconds(120), meanVal);
+        Assert.Equal(TimeSpan.FromMilliseconds(120), medianVal);
+        // Assert.Equal(TimeSpan.FromMilliseconds(400), varVal);
+        Assert.Equal(TimeSpan.FromMilliseconds(20), stdVal);
+    }
+    [Fact]
+    [Trait("Series","DateTimeStatistics")]
+    public void Test_Series_DateTime_Statistics()
+    {
+        // Arrange
+        var dtSeries = Pl.Series("datetimes",
+        [
+            new DateTime(2024, 1, 1, 10, 0, 0),
+            new DateTime(2024, 1, 1, 12, 0, 0),
+            new DateTime(2024, 1, 1, 14, 0, 0)
+        ]);
+
+        // Act & Assert
+        var median = dtSeries.Median<DateTime>();
+        Assert.Equal(new DateTime(2024, 1, 1, 12, 0, 0), median);
+        var mean = dtSeries.Mean<DateTime>();
+        Assert.Equal(new DateTime(2024, 1, 1, 12, 0, 0), mean);
+    }
+
+    [Fact]
+    [Trait("Series","DateOnlyStatistics")]
+    public void Test_Series_DateOnly_Statistics()
+    {
+        // Arrange
+        var dateSeries = Pl.Series("dates",
+        [
+            new DateOnly(2024, 1, 1),
+            new DateOnly(2024, 1, 3),
+            new DateOnly(2024, 1, 5)
+        ]);
+
+        // Act & Assert
+        var median = dateSeries.Median<DateTime>();
+        Assert.Equal(new DateTime(2024, 1, 3), median);
+        var mean = dateSeries.Mean<DateTime>();
+        Assert.Equal(new DateTime(2024, 1, 3), mean);
+    }
+
+    [Fact]
+    [Trait("Series","TimeOnlyStatistics")]
+    public void Test_Series_TimeOnly_Statistics()
+    {
+        // Arrange
+        var timeSeries = Pl.Series("times",
+        [
+            new TimeOnly(9, 0),
+            new TimeOnly(9, 30),
+            new TimeOnly(10, 0)
+        ]);
+
+        // Act & Assert
+        var median = timeSeries.Median<TimeOnly>();
+        Assert.Equal(new TimeOnly(9, 30), median);
+        var mean = timeSeries.Mean<TimeOnly>();
+        Assert.Equal(new TimeOnly(9, 30), mean);
     }
 }

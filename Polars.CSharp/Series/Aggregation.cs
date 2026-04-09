@@ -141,7 +141,31 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Returns null if the Series is empty or contains only null values.
     /// </summary>
     public long? ArgMin() => ExtractScalar<long>(Pl.Col(Name).ArgMin());
-    
+    /// <summary>
+    /// Compute the most occurring value(s).Can return multiple Values.
+    /// </summary>
+    /// <param name="maintainOrder">Maintain order of data. This requires more work.</param>
+    /// <returns></returns>
+    public Series Mode(bool maintainOrder=false) => new(PolarsWrapper.SeriesMode(Handle,maintainOrder));
+    /// <summary>
+    /// <inheritdoc cref="Expr.Count()" path="/summary"/>
+    /// </summary>
+    /// <returns>A new <see cref="Series"/> containing the count of non-null values.</returns>
+    public long Count() => ExtractScalar<long>(Pl.Col(Name).Count()) ?? 0L;
+    /// <summary>
+    /// Get the standard deviation of this Series.
+    /// </summary>
+    /// <param name="ddof">Delta Degrees of Freedom. The divisor used in calculations is N - ddof.</param>
+    public T? Std<T>(int ddof = 1) where T : struct => ExtractScalar<T>(Pl.Col(Name).Std(ddof));
+    /// <summary>
+    /// Get the variance of this Series.
+    /// </summary>
+    /// <param name="ddof">Delta Degrees of Freedom. The divisor used in calculations is N - ddof.</param>
+    public T? Var<T>(int ddof = 1) where T : struct => ExtractScalar<T>(Pl.Col(Name).Var(ddof));
+    /// <summary>
+    /// <inheritdoc cref="Expr.Median()" path="/summary"/>
+    /// </summary>
+    public T? Median<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Median());
     /// <summary>
     /// Aggregate values into a list.
     /// Result is a Series with 1 row containing a List of all values.

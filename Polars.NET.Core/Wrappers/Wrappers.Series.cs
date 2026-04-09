@@ -1246,7 +1246,9 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesMean(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_mean(s));
     public static SeriesHandle SeriesMin(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_min(s));
     public static SeriesHandle SeriesMax(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_max(s));
+    public static SeriesHandle SeriesMode(SeriesHandle s,bool maintainOrder) => ErrorHelper.Check(NativeBindings.pl_series_mode(s,maintainOrder));
     public static SeriesHandle SeriesNot(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_not(s));
+
     
     // Slice
     public static SeriesHandle SeriesSlice(SeriesHandle handle, long offset, long length)

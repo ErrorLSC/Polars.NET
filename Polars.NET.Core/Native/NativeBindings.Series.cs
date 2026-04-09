@@ -442,6 +442,7 @@ unsafe internal partial class NativeBindings
     // Aggregation
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_sum(SeriesHandle s);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_mean(SeriesHandle s);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_mode(SeriesHandle s,[MarshalAs(UnmanagedType.U1)]bool maintainOrder);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_min(SeriesHandle s);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_max(SeriesHandle s);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_not(SeriesHandle s);

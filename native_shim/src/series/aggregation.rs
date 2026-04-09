@@ -27,3 +27,17 @@ pub extern "C" fn pl_series_implode(ptr: *mut SeriesContext) -> *mut SeriesConte
         Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_mode(
+    ptr: *mut SeriesContext, 
+    maintain_order: bool
+) -> *mut SeriesContext {
+    ffi_try!({
+        let ctx = unsafe { &*ptr };
+        
+        let res = mode::mode(&ctx.series, maintain_order)?;
+        
+        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
+    })
+}

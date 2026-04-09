@@ -609,36 +609,6 @@ public partial class Series : IDisposable,IPolarsSeries
     // ==========================================
     // Statistical Ops
     // ==========================================
-    /// <summary>
-    /// <inheritdoc cref="Expr.Count()" path="/summary"/>
-    /// </summary>
-    /// <returns>A new <see cref="Series"/> containing the count of non-null values.</returns>
-    public Series Count() => ApplyExpr(Pl.Col(Name).Count());
-
-    /// <summary>
-    /// <inheritdoc cref="Expr.Std(int)" path="/summary"/>
-    /// </summary>
-    /// <inheritdoc cref="Expr.Std(int)" path="/param"/>
-    /// <returns>A new <see cref="Series"/> containing the standard deviation (length 1).</returns>
-    public Series Std(int ddof = 1) => ApplyExpr(Pl.Col(Name).Std(ddof));
-
-    /// <summary>
-    /// <inheritdoc cref="Expr.Var(int)" path="/summary"/>
-    /// </summary>
-    /// <inheritdoc cref="Expr.Var(int)" path="/param"/>
-    /// <returns>A new <see cref="Series"/> containing the variance (length 1).</returns>
-    public Series Var(int ddof = 1) => ApplyExpr(Pl.Col(Name).Var(ddof));
-
-    /// <summary>
-    /// <inheritdoc cref="Expr.Median()" path="/summary"/>
-    /// </summary>
-    /// <returns>A new <see cref="Series"/> containing the median value (length 1).</returns>
-    public Series Median() => ApplyExpr(Pl.Col(Name).Median());
-    /// <summary>
-    /// <inheritdoc cref="Expr.Median()" path="/summary"/>
-    /// </summary>
-    /// <returns>A new <see cref="Series"/> containing the mode value (length 1).</returns>
-    public Series Mode() => ApplyExpr(Pl.Col(Name).Mode());
 
     /// <summary>
     /// <inheritdoc cref="Expr.Skew(bool)" path="/summary"/>
