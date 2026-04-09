@@ -243,6 +243,10 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle Sum(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_sum, e);
     public static ExprHandle Mean(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_mean, e);
     public static ExprHandle Max(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_max, e);
+    public static ExprHandle MaxBy(ExprHandle expr, ExprHandle by) 
+        => BinaryOp(NativeBindings.pl_expr_max_by, expr, by);
+    public static ExprHandle MinBy(ExprHandle expr, ExprHandle by) 
+        => BinaryOp(NativeBindings.pl_expr_min_by, expr, by);
     public static ExprHandle Min(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_min, e);
     public static ExprHandle Abs(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_abs, e);
     public static ExprHandle NullCount(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_null_count, e);

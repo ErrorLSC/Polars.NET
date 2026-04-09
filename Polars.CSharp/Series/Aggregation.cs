@@ -1,96 +1,147 @@
 #pragma warning disable CS1591 
 using Polars.NET.Core;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
 public partial class Series : IDisposable,IPolarsSeries
 {
+    internal T? ExtractScalar<T>(Expr expr) where T : struct
+    {
+        using var tempSeries = ApplyExpr(expr);
+        return ExtractScalarFromSeries<T>(tempSeries);
+    }
+
+    internal T? ExtractScalar<T>(Func<Series> seriesProvider) where T : struct
+    {
+        using var tempSeries = seriesProvider();
+        return ExtractScalarFromSeries<T>(tempSeries);
+    }
+
+    private T? ExtractScalarFromSeries<T>(Series tempSeries) where T : struct
+    {
+        if (tempSeries is null || tempSeries.Len() == 0)
+        {
+            return null; 
+        }
+
+        if (tempSeries.IsNullAt(0)) 
+        {
+            return null;
+        }
+
+        return tempSeries.GetValue<T>(0);
+    }
+    
     /// <summary>
     /// <inheritdoc cref="Expr.First" path="/summary"/>
     /// </summary>
     /// <returns>A new <see cref="Series"/> containing the first value (length 1).</returns>
-    public Series First() => ApplyExpr(Polars.Col(Name).First());
-
+    public Series First() => ApplyExpr(Pl.Col(Name).First());
+    /// <summary>
+    /// First series into scalar
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public T? First<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).First());
     /// <summary>
     /// <inheritdoc cref="Expr.Last" path="/summary"/>
     /// </summary>
     /// <returns>A new <see cref="Series"/> containing the last value (length 1).</returns>
-    public Series Last() => ApplyExpr(Polars.Col(Name).Last());
+    public Series Last() => ApplyExpr(Pl.Col(Name).Last());
+    /// <summary>
+    /// Last series into scalar
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public T? Last<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Last());
     /// <summary>
     /// Sum series into 1 length series(Scalar)
     /// </summary>
     /// <returns></returns>
     public Series Sum() => new(PolarsWrapper.SeriesSum(Handle));
     /// <summary>
+    /// Sum series into scalar
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public T? Sum<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Sum());
+    /// <summary>
     /// Mean series into 1 length series(Scalar)
     /// </summary>
     /// <returns></returns>
     public Series Mean() => new(PolarsWrapper.SeriesMean(Handle));
+    /// <summary>
+    /// Mean series into scalar
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public T? Mean<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Mean());
     /// <summary>
     /// Min series into 1 length series(Scalar)
     /// </summary>
     /// <returns></returns>
     public Series Min() => new(PolarsWrapper.SeriesMin(Handle));
     /// <summary>
+    /// Min series into scalar
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <returns></returns>
+    public T? Min<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Min());
+    /// <summary>
     /// Max series into 1 length series(Scalar)
     /// </summary>
     /// <returns></returns>
     public Series Max() => new(PolarsWrapper.SeriesMax(Handle));
     /// <summary>
-    /// Product series into 1 length series(Scalar)
-    /// </summary>
-    /// <returns></returns>
-    public Series Product() => ApplyExpr(Polars.Col(Name).Product());
-    /// <inheritdoc cref="Expr.ArgMax()"/>
-    public Series ArgMax()
-        => ApplyExpr(Polars.Col(Name).ArgMax());
-
-    /// <inheritdoc cref="Expr.ArgMin()"/>
-    public Series ArgMin()
-        => ApplyExpr(Polars.Col(Name).ArgMin());
-
-    /// <summary>
-    /// First series element into scalar
-    /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <returns></returns>
-    public T? First<T>() => First().GetValue<T>(0);
-    /// <summary>
-    /// Last series into scalar
-    /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <returns></returns>
-    public T? Last<T>() => Last().GetValue<T>(0);
-    /// <summary>
-    /// Sum series into scalar
-    /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <returns></returns>
-    public T? Sum<T>() => Sum().GetValue<T>(0);
-    /// <summary>
-    /// Mean series into scalar
-    /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <returns></returns>
-    public T? Mean<T>() => Mean().GetValue<T>(0);
-    /// <summary>
-    /// Min series into scalar
-    /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <returns></returns>
-    public T? Min<T>() => Min().GetValue<T>(0);
-    /// <summary>
     /// Max series into scalar
     /// </summary>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
-    public T? Max<T>() => Max().GetValue<T>(0);
+    public T? Max<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Max());
+    /// <summary>
+    /// Get the maximum value in this Series, ordered by an expression.
+    /// </summary>
+    /// <param name="by">Column used to determine the largest element. Accepts expression input.</param>
+    public Series MaxBy(IntoExpr by) => ApplyBinaryExpr(by, (left, right) => left.MaxBy(right));
+    /// <summary>
+    /// Get the maximum value in this Series, ordered by an expression.
+    /// </summary>
+    /// <param name="by">Column used to determine the largest element. Accepts expression input.</param>
+    public T? MaxBy<T>(IntoExpr by) where T : struct => ExtractScalar<T>(() => ApplyBinaryExpr(by, (left, right) => left.MaxBy(right)));
+    /// <summary>
+    /// Get the minimum value in this Series, ordered by an expression.
+    /// </summary>
+    /// <param name="by">Column used to determine the largest element. Accepts expression input.</param>
+    public Series MinBy(IntoExpr by) => ApplyBinaryExpr(by, (left, right) => left.MinBy(right));
+    /// <summary>
+    /// Get the minimum value in this Series, ordered by an expression.
+    /// </summary>
+    /// <param name="by">Column used to determine the smallest element. Accepts expression input.</param>
+    public T? MinBy<T>(IntoExpr by) where T : struct => ExtractScalar<T>(() => ApplyBinaryExpr(by, (left, right) => left.MinBy(right)));
+    /// <summary>
+    /// Product series into 1 length series(Scalar)
+    /// </summary>
+    /// <returns></returns>
+    public Series Product() => ApplyExpr(Pl.Col(Name).Product());
     /// <summary>
     /// Product series into scalar
     /// </summary>
     /// <typeparam name="T"></typeparam>
     /// <returns></returns>
-    public T? Product<T>() => Product().GetValue<T>(0);
+    public T? Product<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Product());
+    /// <summary>
+    /// Get the index of the maximum value.
+    /// Returns null if the Series is empty or contains only null values.
+    /// </summary>
+    public long? ArgMax() => ExtractScalar<long>(Pl.Col(Name).ArgMax());
+
+    /// <summary>
+    /// Get the index of the minimum value.
+    /// Returns null if the Series is empty or contains only null values.
+    /// </summary>
+    public long? ArgMin() => ExtractScalar<long>(Pl.Col(Name).ArgMin());
+    
     /// <summary>
     /// Aggregate values into a list.
     /// Result is a Series with 1 row containing a List of all values.

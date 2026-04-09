@@ -1,6 +1,7 @@
 using Polars.NET.Core;
 using Apache.Arrow;
 using Polars.NET.Core.Arrow;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
@@ -97,7 +98,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <returns></returns>
     public Series Clone() => new(PolarsWrapper.CloneSeries(Handle));
 
-    internal Series ApplyExpr(Expr expr)
+    internal Series ApplyExpr(IntoExpr expr)
     {
         using var df = new DataFrame(this);
 
@@ -106,39 +107,13 @@ public partial class Series : IDisposable,IPolarsSeries
         return dfRes[0];
     }
 
-    internal Series ApplyBinaryExpr(Series other, Func<Expr, Expr, Expr> op)
+    internal Series ApplyBinaryExpr(IntoExpr other, Func<Expr, Expr, Expr> op)
     {
-        string leftName = this.Name;
-        string rightName = other.Name;
+        using Expr rightExpr = other.Consume();
         
-        Series? tempRight = null;
-
-        try
-        {
-            Series rightSeries;
-            
-            if (leftName == rightName)
-            {
-                rightName = "__other_temp__";
-                tempRight = other.Clone();
-                tempRight.Name = rightName;
-                rightSeries = tempRight;
-            }
-            else
-            {
-                rightSeries = other;
-            }
-
-            using var df = new DataFrame([this, rightSeries]);
-
-            using var resDf = df.Select(op(Polars.Col(leftName), Polars.Col(rightName)));
-
-            return resDf[0];
-        }
-        finally
-        {
-            tempRight?.Dispose();
-        }
+        using Expr combinedExpr = op(Pl.Col(Name), rightExpr);
+        
+        return ApplyExpr(combinedExpr);
     }
     // ==========================================
     // Metadata
@@ -185,31 +160,31 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Calculate absolute value.
     /// <para>Implemented via Expr composition.</para>
     /// </summary>
-    public Series Abs() => ApplyExpr(Polars.Col(Name).Abs());
+    public Series Abs() => ApplyExpr(Pl.Col(Name).Abs());
     /// <summary>
     /// Calculate square value.
     /// <para>Implemented via Expr composition.</para>
     /// </summary>
-    public Series Sqrt() => ApplyExpr(Polars.Col(Name).Sqrt());
+    public Series Sqrt() => ApplyExpr(Pl.Col(Name).Sqrt());
     /// <summary>
     /// Calculate the cube root of the expression.
     /// </summary>
-    public Series Cbrt() => ApplyExpr(Polars.Col(Name).Cbrt());
+    public Series Cbrt() => ApplyExpr(Pl.Col(Name).Cbrt());
     /// <summary>
     /// Calculate exponent value.
     /// <para>Implemented via Expr composition.</para>
     /// </summary>
-    public Series Pow(double exponent) => ApplyExpr(Polars.Col(Name).Pow(exponent));
+    public Series Pow(double exponent) => ApplyExpr(Pl.Col(Name).Pow(exponent));
     /// <summary>
     /// Calculate the power of the Euler's number.
     /// </summary>
-    public Series Exp() =>  ApplyExpr(Polars.Col(Name).Exp());
+    public Series Exp() =>  ApplyExpr(Pl.Col(Name).Exp());
     /// <summary>
     /// Calculate the ln of Number 
     /// </summary>
     /// <param name="baseVal"></param>
     /// <returns></returns>
-    public Series Ln(double baseVal = Math.E) => ApplyExpr(Polars.Col(Name).Ln(baseVal));
+    public Series Ln(double baseVal = Math.E) => ApplyExpr(Pl.Col(Name).Ln(baseVal));
     // ==========================================
     // Linear Algebra (Dot Product)
     // ==========================================
@@ -236,15 +211,15 @@ public partial class Series : IDisposable,IPolarsSeries
     /// </summary>
     /// <param name="decimals"></param>
     /// <returns></returns>
-    public Series Round(uint decimals) => ApplyExpr(Polars.Col(Name).Round(decimals));
+    public Series Round(uint decimals) => ApplyExpr(Pl.Col(Name).Round(decimals));
     /// <summary>Compute the element-wise sign (-1, 0, 1).</summary>
-    public Series Sign() => ApplyExpr(Polars.Col(Name).Sign());
+    public Series Sign() => ApplyExpr(Pl.Col(Name).Sign());
 
     /// <summary>Rounds up to the nearest integer.</summary>
-    public Series Ceil() => ApplyExpr(Polars.Col(Name).Ceil());
+    public Series Ceil() => ApplyExpr(Pl.Col(Name).Ceil());
 
     /// <summary>Rounds down to the nearest integer.</summary>
-    public Series Floor() => ApplyExpr(Polars.Col(Name).Floor());
+    public Series Floor() => ApplyExpr(Pl.Col(Name).Floor());
 
     // ==========================================
     // Indexing & Searching (Forwarded to Expr)
@@ -252,20 +227,20 @@ public partial class Series : IDisposable,IPolarsSeries
 
     /// <inheritdoc cref="Expr.Get(Expr, bool)"/>
     public Series Get(Expr index, bool nullOnOutOfBounds = false)
-        => ApplyExpr(Polars.Col(Name).Get(index, nullOnOutOfBounds));
+        => ApplyExpr(Pl.Col(Name).Get(index, nullOnOutOfBounds));
 
     /// <inheritdoc cref="Expr.Get(ulong, bool)"/>
     public Series Get(ulong index, bool nullOnOutOfBounds = false)
-        => ApplyExpr(Polars.Col(Name).Get(index, nullOnOutOfBounds));
+        => ApplyExpr(Pl.Col(Name).Get(index, nullOnOutOfBounds));
 
     /// <inheritdoc cref="Expr.Gather(Expr)"/>
     public Series Gather(Expr indices)
-        => ApplyExpr(Polars.Col(Name).Gather(indices));
+        => ApplyExpr(Pl.Col(Name).Gather(indices));
     /// <inheritdoc cref="Take(Series)"/>
     public Series Gather(Series indices) => Take(indices);
     /// <inheritdoc cref="Expr.Take(Expr)"/>
     public Series Take(Expr indices)
-        => ApplyExpr(Polars.Col(Name).Take(indices));
+        => ApplyExpr(Pl.Col(Name).Take(indices));
     /// <summary>
     /// Take elements by physical integer indices.
     /// Note: Negative indices are not supported. All values must be >= 0.
@@ -291,77 +266,77 @@ public partial class Series : IDisposable,IPolarsSeries
 
     /// <inheritdoc cref="Expr.GatherEvery(ulong, ulong)"/>
     public Series GatherEvery(ulong n, ulong offset = 0)
-        => ApplyExpr(Polars.Col(Name).GatherEvery(n, offset));
+        => ApplyExpr(Pl.Col(Name).GatherEvery(n, offset));
 
     /// <inheritdoc cref="Expr.ArgUnique()"/>
     public Series ArgUnique()
-        => ApplyExpr(Polars.Col(Name).ArgUnique());
+        => ApplyExpr(Pl.Col(Name).ArgUnique());
 
 
     /// <inheritdoc cref="Expr.ArgSort(bool, bool)"/>
     public Series ArgSort(bool descending = false, bool nullsLast = false)
-        => ApplyExpr(Polars.Col(Name).ArgSort(descending, nullsLast));
+        => ApplyExpr(Pl.Col(Name).ArgSort(descending, nullsLast));
 
     /// <inheritdoc cref="Expr.IndexOf(Expr)"/>
     public Series IndexOf(Expr element)
-        => ApplyExpr(Polars.Col(Name).IndexOf(element));
+        => ApplyExpr(Pl.Col(Name).IndexOf(element));
 
     /// <inheritdoc cref="Expr.SearchSorted(Expr, SearchSortedSide, bool)"/>
     public Series SearchSorted(Expr element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
-        => ApplyExpr(Polars.Col(Name).SearchSorted(element, side, descending));
+        => ApplyExpr(Pl.Col(Name).SearchSorted(element, side, descending));
     
     // ==========================================
     // Trigonometry
     // ==========================================
 
     /// <summary>Compute the element-wise sine.</summary>
-    public Series Sin() => ApplyExpr(Polars.Col(Name).Sin());
+    public Series Sin() => ApplyExpr(Pl.Col(Name).Sin());
 
     /// <summary>Compute the element-wise cosine.</summary>
-    public Series Cos() => ApplyExpr(Polars.Col(Name).Cos());
+    public Series Cos() => ApplyExpr(Pl.Col(Name).Cos());
 
     /// <summary>Compute the element-wise tangent.</summary>
-    public Series Tan() => ApplyExpr(Polars.Col(Name).Tan());
+    public Series Tan() => ApplyExpr(Pl.Col(Name).Tan());
 
     /// <summary>Compute the element-wise inverse sine.</summary>
-    public Series ArcSin() => ApplyExpr(Polars.Col(Name).ArcSin());
+    public Series ArcSin() => ApplyExpr(Pl.Col(Name).ArcSin());
 
     /// <summary>Compute the element-wise inverse cosine.</summary>
-    public Series ArcCos() => ApplyExpr(Polars.Col(Name).ArcCos());
+    public Series ArcCos() => ApplyExpr(Pl.Col(Name).ArcCos());
 
     /// <summary>Compute the element-wise inverse tangent.</summary>
-    public Series ArcTan() => ApplyExpr(Polars.Col(Name).ArcTan());
+    public Series ArcTan() => ApplyExpr(Pl.Col(Name).ArcTan());
 
     // Hyperbolic
     /// <summary>
     /// Compute the element-wise hyperbolic sine.
     /// </summary>
-    public Series Sinh() => ApplyExpr(Polars.Col(Name).Sinh());
+    public Series Sinh() => ApplyExpr(Pl.Col(Name).Sinh());
 
     /// <summary>
     /// Compute the element-wise hyperbolic cosine.
     /// </summary>
-    public Series Cosh() => ApplyExpr(Polars.Col(Name).Cosh());
+    public Series Cosh() => ApplyExpr(Pl.Col(Name).Cosh());
 
     /// <summary>
     /// Compute the element-wise hyperbolic tangent.
     /// </summary>
-    public Series Tanh() => ApplyExpr(Polars.Col(Name).Tanh());
+    public Series Tanh() => ApplyExpr(Pl.Col(Name).Tanh());
 
     /// <summary>
     /// Compute the element-wise inverse hyperbolic sine.
     /// </summary>
-    public Series ArcSinh() => ApplyExpr(Polars.Col(Name).ArcSinh());
+    public Series ArcSinh() => ApplyExpr(Pl.Col(Name).ArcSinh());
 
     /// <summary>
     /// Compute the element-wise inverse hyperbolic cosine.
     /// </summary>
-    public Series ArcCosh() => ApplyExpr(Polars.Col(Name).ArcCosh());
+    public Series ArcCosh() => ApplyExpr(Pl.Col(Name).ArcCosh());
 
     /// <summary>
     /// Compute the element-wise inverse hyperbolic tangent.
     /// </summary>
-    public Series ArcTanh() => ApplyExpr(Polars.Col(Name).ArcTanh());
+    public Series ArcTanh() => ApplyExpr(Pl.Col(Name).ArcTanh());
 
  
 
@@ -374,28 +349,28 @@ public partial class Series : IDisposable,IPolarsSeries
     /// </summary>
     /// <inheritdoc cref="Expr.Any(bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> (boolean, length 1).</returns>
-    public Series Any(bool ignoreNulls = false) => ApplyExpr(Polars.Col(Name).Any(ignoreNulls));
+    public Series Any(bool ignoreNulls = false) => ApplyExpr(Pl.Col(Name).Any(ignoreNulls));
 
     /// <summary>
     /// <inheritdoc cref="Expr.All(bool)" path="/summary"/>
     /// </summary>
     /// <inheritdoc cref="Expr.All(bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> (boolean, length 1).</returns>
-    public Series All(bool ignoreNulls = false) => ApplyExpr(Polars.Col(Name).All(ignoreNulls));
+    public Series All(bool ignoreNulls = false) => ApplyExpr(Pl.Col(Name).All(ignoreNulls));
 
     /// <summary>
     /// <inheritdoc cref="Expr.Any(bool)" path="/summary"/>
     /// </summary>
     /// <inheritdoc cref="Expr.Any(bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> (boolean, length 1).</returns>
-    public bool? AnyAsScalar(bool ignoreNulls = false) => (bool?)ApplyExpr(Polars.Col(Name).Any(ignoreNulls))[0];
+    public bool? AnyAsScalar(bool ignoreNulls = false) => (bool?)ApplyExpr(Pl.Col(Name).Any(ignoreNulls))[0];
 
     /// <summary>
     /// <inheritdoc cref="Expr.All(bool)" path="/summary"/>
     /// </summary>
     /// <inheritdoc cref="Expr.All(bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> (boolean, length 1).</returns>
-    public bool? AllAsScalar(bool ignoreNulls = false) => (bool?)ApplyExpr(Polars.Col(Name).All(ignoreNulls))[0];
+    public bool? AllAsScalar(bool ignoreNulls = false) => (bool?)ApplyExpr(Pl.Col(Name).All(ignoreNulls))[0];
 
   
 
@@ -491,7 +466,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Expr.Reverse" path="/summary"/>
     /// </summary>
     /// <returns>A new <see cref="Series"/> with the order reversed.</returns>
-    public Series Reverse() => ApplyExpr(Polars.Col(Name).Reverse());
+    public Series Reverse() => ApplyExpr(Pl.Col(Name).Reverse());
     /// <summary>
     /// Append a Series to this one.
     /// The resulting series will consist of multiple chunks.
@@ -515,9 +490,9 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <param name="value">A constant literal value or a unit expression with which to extend the expression result Series; can pass None to extend with nulls.</param>
     /// <param name="n">The number of additional values that will be added.</param>
     /// <returns></returns>
-    public Series ExtendConstant(Expr value,Expr n) => ApplyExpr(Polars.Col(Name).ExtendConstant(value,n));
+    public Series ExtendConstant(Expr value,Expr n) => ApplyExpr(Pl.Col(Name).ExtendConstant(value,n));
     /// <inheritdoc cref="ExtendConstant(Expr,Expr)"/>
-    public Series ExtendConstant(object value,int n) => ApplyExpr(Polars.Col(Name).ExtendConstant(value,n));
+    public Series ExtendConstant(object value,int n) => ApplyExpr(Pl.Col(Name).ExtendConstant(value,n));
 
     // ==========================================
     // Null Checks & Boolean Masks
@@ -543,28 +518,28 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Drop Nan Values
     /// </summary>
     public Series DropNans()
-        => ApplyExpr(Polars.Col(Name).DropNans());
+        => ApplyExpr(Pl.Col(Name).DropNans());
     // ==========================================
     // Fill Ops
     // ==========================================
     /// <summary>
     /// Fill null values with a specified value.
     /// </summary>
-    public Series FillNull(object value) => ApplyExpr(Polars.Col(Name).FillNull(value));
+    public Series FillNull(object value) => ApplyExpr(Pl.Col(Name).FillNull(value));
     /// <summary>
     /// Fill null values with a specific strategy (Forward).
     /// </summary>
-    public Series ForwardFill(uint? limit = null) => ApplyExpr(Polars.Col(Name).ForwardFill(limit));
+    public Series ForwardFill(uint? limit = null) => ApplyExpr(Pl.Col(Name).ForwardFill(limit));
     /// <summary>
     /// Fill null values with a specific strategy (Backward).
     /// </summary>
-    public Series BackwardFill(uint? limit = null) => ApplyExpr(Polars.Col(Name).BackwardFill(limit));
+    public Series BackwardFill(uint? limit = null) => ApplyExpr(Pl.Col(Name).BackwardFill(limit));
     /// <summary>
     /// Interpolate intermediate values.
     /// </summary>
     /// <inheritdoc cref="Expr.Interpolate(InterpolationMethod)"/>
     public Series Interpolate(InterpolationMethod method = InterpolationMethod.Linear)
-        => ApplyExpr(Polars.Col(Name).Interpolate(method));
+        => ApplyExpr(Pl.Col(Name).Interpolate(method));
     /// <summary>
     /// Interpolate intermediate values based on the values of another Series.
     /// <para>
@@ -579,33 +554,33 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Fill floating point NaN values with a specified value.
     /// Note: This is different from FillNull. It only handles IEEE 754 NaN.
     /// </summary>
-    public Series FillNan(object value) => ApplyExpr(Polars.Col(Name).FillNan(value));
+    public Series FillNan(object value) => ApplyExpr(Pl.Col(Name).FillNan(value));
     // ==========================================
     // Top-K & Bottom-K
     // ==========================================
     /// <summary>
     /// Get the top k values.
     /// </summary>
-    public Series TopK(int k) => ApplyExpr(Polars.Col(Name).TopK(k));
+    public Series TopK(int k) => ApplyExpr(Pl.Col(Name).TopK(k));
 
     /// <summary>
     /// Get the bottom k values.
     /// </summary>
-    public Series BottomK(int k) => ApplyExpr(Polars.Col(Name).BottomK(k));
+    public Series BottomK(int k) => ApplyExpr(Pl.Col(Name).BottomK(k));
     /// <summary>
     /// <inheritdoc cref="Expr.TopKBy(int, Expr[], bool[])" path="/summary"/>
     /// </summary>
     /// <inheritdoc cref="Expr.TopKBy(int, Expr[], bool[])" path="/param"/>
     /// <returns>A new <see cref="Series"/> containing the top k elements.</returns>
     public Series TopKBy(int k, Expr[] by, bool[] reverse)
-        => ApplyExpr(Polars.Col(Name).TopKBy(k, by, reverse));
+        => ApplyExpr(Pl.Col(Name).TopKBy(k, by, reverse));
     /// <summary>
     /// <inheritdoc cref="Expr.BottomKBy(int, Expr[], bool[])" path="/summary"/>
     /// </summary>
     /// <inheritdoc cref="Expr.BottomKBy(int, Expr[], bool[])" path="/param"/>
     /// <returns>A new <see cref="Series"/> containing the bottom k elements.</returns>
     public Series BottomKBy(int k, Expr[] by, bool[] reverse)
-        => ApplyExpr(Polars.Col(Name).BottomKBy(k, by, reverse));
+        => ApplyExpr(Pl.Col(Name).BottomKBy(k, by, reverse));
     /// <summary>
     /// <inheritdoc cref="Expr.TopKBy(int, Expr[], bool[])" path="/summary"/>
     /// </summary>
@@ -624,12 +599,12 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Get the top k values sorted by another Series.
     /// </summary>
     public Series TopKBy(int k, Series by, bool reverse = false)
-        => ApplyExpr(Polars.Col(Name).TopKBy(k, Polars.Lit(by), reverse));
+        => ApplyExpr(Pl.Col(Name).TopKBy(k, Pl.Lit(by), reverse));
     /// <summary>
     /// Get the bottom k values sorted by another Series.
     /// </summary>
     public Series BottomKBy(int k, Series by, bool reverse = false)
-        => ApplyExpr(Polars.Col(Name).BottomKBy(k, Polars.Lit(by), reverse));
+        => ApplyExpr(Pl.Col(Name).BottomKBy(k, Pl.Lit(by), reverse));
 
     // ==========================================
     // Statistical Ops
@@ -638,39 +613,39 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Expr.Count()" path="/summary"/>
     /// </summary>
     /// <returns>A new <see cref="Series"/> containing the count of non-null values.</returns>
-    public Series Count() => ApplyExpr(Polars.Col(Name).Count());
+    public Series Count() => ApplyExpr(Pl.Col(Name).Count());
 
     /// <summary>
     /// <inheritdoc cref="Expr.Std(int)" path="/summary"/>
     /// </summary>
     /// <inheritdoc cref="Expr.Std(int)" path="/param"/>
     /// <returns>A new <see cref="Series"/> containing the standard deviation (length 1).</returns>
-    public Series Std(int ddof = 1) => ApplyExpr(Polars.Col(Name).Std(ddof));
+    public Series Std(int ddof = 1) => ApplyExpr(Pl.Col(Name).Std(ddof));
 
     /// <summary>
     /// <inheritdoc cref="Expr.Var(int)" path="/summary"/>
     /// </summary>
     /// <inheritdoc cref="Expr.Var(int)" path="/param"/>
     /// <returns>A new <see cref="Series"/> containing the variance (length 1).</returns>
-    public Series Var(int ddof = 1) => ApplyExpr(Polars.Col(Name).Var(ddof));
+    public Series Var(int ddof = 1) => ApplyExpr(Pl.Col(Name).Var(ddof));
 
     /// <summary>
     /// <inheritdoc cref="Expr.Median()" path="/summary"/>
     /// </summary>
     /// <returns>A new <see cref="Series"/> containing the median value (length 1).</returns>
-    public Series Median() => ApplyExpr(Polars.Col(Name).Median());
+    public Series Median() => ApplyExpr(Pl.Col(Name).Median());
     /// <summary>
     /// <inheritdoc cref="Expr.Median()" path="/summary"/>
     /// </summary>
     /// <returns>A new <see cref="Series"/> containing the mode value (length 1).</returns>
-    public Series Mode() => ApplyExpr(Polars.Col(Name).Mode());
+    public Series Mode() => ApplyExpr(Pl.Col(Name).Mode());
 
     /// <summary>
     /// <inheritdoc cref="Expr.Skew(bool)" path="/summary"/>
     /// </summary>
     /// <inheritdoc cref="Expr.Skew(bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> containing the skewness (length 1).</returns>
-    public Series Skew(bool bias = true) => ApplyExpr(Polars.Col(Name).Skew(bias));
+    public Series Skew(bool bias = true) => ApplyExpr(Pl.Col(Name).Skew(bias));
 
     /// <summary>
     /// <inheritdoc cref="Expr.Kurtosis(bool, bool)" path="/summary"/>
@@ -678,7 +653,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Expr.Kurtosis(bool, bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> containing the kurtosis (length 1).</returns>
     public Series Kurtosis(bool fisher = true, bool bias = true) 
-        => ApplyExpr(Polars.Col(Name).Kurtosis(fisher, bias));
+        => ApplyExpr(Pl.Col(Name).Kurtosis(fisher, bias));
 
     /// <summary>
     /// <inheritdoc cref="Expr.Quantile(double, QuantileMethod)" path="/summary"/>
@@ -686,21 +661,21 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Expr.Quantile(double, QuantileMethod)" path="/param"/>
     /// <returns>A new <see cref="Series"/> containing the quantile value (length 1).</returns>
     public Series Quantile(double quantile, QuantileMethod method = QuantileMethod.Linear)
-        => ApplyExpr(Polars.Col(Name).Quantile(quantile, method));
+        => ApplyExpr(Pl.Col(Name).Quantile(quantile, method));
 
     /// <summary>
     /// <inheritdoc cref="Expr.PctChange(int)" path="/summary"/>
     /// </summary>
     /// <inheritdoc cref="Expr.PctChange(int)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the percentage change.</returns>
-    public Series PctChange(int n = 1) => ApplyExpr(Polars.Col(Name).PctChange(n));
+    public Series PctChange(int n = 1) => ApplyExpr(Pl.Col(Name).PctChange(n));
     /// <summary>
     /// <inheritdoc cref="Expr.Rank(RankMethod, bool, ulong?)" path="/summary"/>
     /// </summary>
     /// <inheritdoc cref="Expr.Rank(RankMethod, bool, ulong?)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the ranks.</returns>
     public Series Rank(RankMethod method = RankMethod.Average, bool descending = false, ulong? seed = null)
-        => ApplyExpr(Polars.Col(Name).Rank(method, descending, seed));
+        => ApplyExpr(Pl.Col(Name).Rank(method, descending, seed));
     // ==========================================
     // Cumulative Functions
     // ==========================================
@@ -710,7 +685,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Expr.CumSum(bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the cumulative sum.</returns>
     public Series CumSum(bool reverse = false) 
-        => ApplyExpr(Polars.Col(Name).CumSum(reverse));
+        => ApplyExpr(Pl.Col(Name).CumSum(reverse));
 
     /// <summary>
     /// <inheritdoc cref="Expr.CumMax(bool)" path="/summary"/>
@@ -718,7 +693,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Expr.CumMax(bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the cumulative maximum.</returns>
     public Series CumMax(bool reverse = false) 
-        => ApplyExpr(Polars.Col(Name).CumMax(reverse));
+        => ApplyExpr(Pl.Col(Name).CumMax(reverse));
 
     /// <summary>
     /// <inheritdoc cref="Expr.CumMin(bool)" path="/summary"/>
@@ -726,7 +701,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Expr.CumMin(bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the cumulative minimum.</returns>
     public Series CumMin(bool reverse = false) 
-        => ApplyExpr(Polars.Col(Name).CumMin(reverse));
+        => ApplyExpr(Pl.Col(Name).CumMin(reverse));
 
     /// <summary>
     /// <inheritdoc cref="Expr.CumProd(bool)" path="/summary"/>
@@ -734,7 +709,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Expr.CumProd(bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the cumulative product.</returns>
     public Series CumProd(bool reverse = false) 
-        => ApplyExpr(Polars.Col(Name).CumProd(reverse));
+        => ApplyExpr(Pl.Col(Name).CumProd(reverse));
 
     /// <summary>
     /// <inheritdoc cref="Expr.CumCount(bool)" path="/summary"/>
@@ -742,7 +717,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Expr.CumCount(bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the cumulative count.</returns>
     public Series CumCount(bool reverse = false) 
-        => ApplyExpr(Polars.Col(Name).CumCount(reverse));
+        => ApplyExpr(Pl.Col(Name).CumCount(reverse));
     // ==========================================
     // EWM Functions
     // ==========================================
@@ -752,7 +727,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Expr.EwmMean(double, bool, bool, int, bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the EWM mean.</returns>
     public Series EwmMean(double alpha, bool adjust = true, bool bias = true, int minPeriods = 1, bool ignoreNulls = false)
-        => ApplyExpr(Polars.Col(Name).EwmMean(alpha, adjust, bias, minPeriods, ignoreNulls));
+        => ApplyExpr(Pl.Col(Name).EwmMean(alpha, adjust, bias, minPeriods, ignoreNulls));
 
     /// <summary>
     /// <inheritdoc cref="Expr.EwmStd(double, bool, bool, int, bool)" path="/summary"/>
@@ -760,7 +735,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Expr.EwmStd(double, bool, bool, int, bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the EWM standard deviation.</returns>
     public Series EwmStd(double alpha, bool adjust = true, bool bias = true, int minPeriods = 1, bool ignoreNulls = false)
-        => ApplyExpr(Polars.Col(Name).EwmStd(alpha, adjust, bias, minPeriods, ignoreNulls));
+        => ApplyExpr(Pl.Col(Name).EwmStd(alpha, adjust, bias, minPeriods, ignoreNulls));
 
     /// <summary>
     /// <inheritdoc cref="Expr.EwmVar(double, bool, bool, int, bool)" path="/summary"/>
@@ -768,7 +743,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Expr.EwmVar(double, bool, bool, int, bool)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the EWM variance.</returns>
     public Series EwmVar(double alpha, bool adjust = true, bool bias = true, int minPeriods = 1, bool ignoreNulls = false)
-        => ApplyExpr(Polars.Col(Name).EwmVar(alpha, adjust, bias, minPeriods, ignoreNulls));
+        => ApplyExpr(Pl.Col(Name).EwmVar(alpha, adjust, bias, minPeriods, ignoreNulls));
     
     // -------------------------------------------------------------------------
     // EWM By (Time/Index based)
@@ -780,7 +755,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Expr.EwmMeanBy(Expr, string)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the time/index-based EWM mean.</returns>
     public Series EwmMeanBy(Expr by, string halfLife)
-        => ApplyExpr(Polars.Col(Name).EwmMeanBy(by, halfLife));
+        => ApplyExpr(Pl.Col(Name).EwmMeanBy(by, halfLife));
 
     // ==========================================
     // Unique Ops and Boolean Mask
@@ -805,12 +780,12 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Check if values are between lower and upper bounds.
     /// </summary>
     public Series IsBetween(object lower, object upper) 
-        => ApplyExpr(Polars.Col(Name).IsBetween(Expr.MakeLit(lower), Expr.MakeLit(upper)));
+        => ApplyExpr(Pl.Col(Name).IsBetween(Expr.MakeLit(lower), Expr.MakeLit(upper)));
     /// <summary>
     /// Check if values are between lower and upper bounds.
     /// </summary>
     public Series IsBetween(Expr lower, Expr upper) 
-        => ApplyExpr(Polars.Col(Name).IsBetween(lower, upper));
+        => ApplyExpr(Pl.Col(Name).IsBetween(lower, upper));
     /// <summary>
     /// Filter a series.
     /// <br/>
@@ -819,10 +794,10 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <param name="predicate">Boolean expression/Series used to filter the current expression.</param>
     /// <returns>A new series with filtered values.</returns>
     public Series Filter(Expr predicate) 
-        => ApplyExpr(Polars.Col(Name).Filter(predicate));
+        => ApplyExpr(Pl.Col(Name).Filter(predicate));
     /// <inheritdoc cref="Filter(Expr)"/>
     public Series Filter(Series predicate) 
-        => ApplyExpr(Polars.Col(Name).Filter(Polars.Lit(predicate)));
+        => ApplyExpr(Pl.Col(Name).Filter(Pl.Lit(predicate)));
     // ==========================================
     // Common Ops 
     // ==========================================
@@ -852,49 +827,13 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Explode a list column into multiple rows.
     /// The resulting Series will be longer than the original.
     /// </summary>
-    public Series Explode(bool emptyAsNull=true,bool keepNulls=true) => ApplyExpr(Polars.Col(Name).Explode(emptyAsNull,keepNulls));
+    public Series Explode(bool emptyAsNull=true,bool keepNulls=true) => ApplyExpr(Pl.Col(Name).Explode(emptyAsNull,keepNulls));
     /// <summary>
     /// Unnest a Struct column into a DataFrame.
     /// Shortcut for <see cref="SeriesStructOps.Unnest"/>.
     /// </summary>
     public DataFrame Unnest() => Struct.Unnest();
-    /// <summary>
-    /// Count the occurrences of unique values.
-    /// <para>
-    /// Similar to SQL <c>GROUP BY val COUNT(*)</c>.
-    /// </para>
-    /// </summary>
-    /// <param name="sort">Sort the output by count in descending order. Default is true.</param>
-    /// <param name="parallel">Execute in parallel. Default is true.</param>
-    /// <param name="name">The name of the count column. Default is "count".</param>
-    /// <param name="normalize">If true, the count column will contain probabilities (fractions) instead of absolute counts. Default is false.</param>
-    /// <returns>A DataFrame with the series values and their counts.</returns>
-    /// <example>
-    /// <code>
-    /// var s = Series.From("fruit", new[] { "apple", "apple", "banana" });
-    /// 
-    /// // Default: sorted, absolute counts
-    /// s.ValueCounts().Show();
-    /// 
-    /// // Normalized (percentage)
-    /// s.ValueCounts(normalize: true, name: "prob").Show();
-    /// // Result
-    /// ┌────────┬───────┐
-    /// │ fruit  ┆ count │
-    /// │ ---    ┆ ---   │
-    /// │ str    ┆ u32   │
-    /// ╞════════╪═══════╡
-    /// │ apple  ┆ 3     │
-    /// │ orange ┆ 2     │
-    /// │ banana ┆ 1     │
-    /// └────────┴───────┘
-    /// </code>
-    /// </example>
-    public DataFrame ValueCounts(bool sort = true, bool parallel = true, string name = "count", bool normalize = false)
-    {
-        var dfHandle = PolarsWrapper.SeriesValueCounts(Handle, sort, parallel, name, normalize);
-        return new DataFrame(dfHandle);
-    }
+
     // ==========================================
     // Conversions
     // ==========================================
@@ -920,12 +859,12 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <summary>
     /// Calculate the difference with the previous value (n-th lag).
     /// </summary>
-    public Series Diff(long n = 1) => ApplyExpr(Polars.Col(Name).Diff(n));
+    public Series Diff(long n = 1) => ApplyExpr(Pl.Col(Name).Diff(n));
 
     /// <summary>
     /// Shift values by the given number of indices.
     /// </summary>
-    public Series Shift(long n = 1) => ApplyExpr(Polars.Col(Name).Shift(n));
+    public Series Shift(long n = 1) => ApplyExpr(Pl.Col(Name).Shift(n));
 
     // ==========================================
     // UDF
@@ -935,12 +874,12 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <para>Warning: This is slower than native expressions because it runs in the .NET runtime.</para>
     /// </summary>
     public Series Map<TInput, TOutput>(Func<TInput, TOutput> function, DataType outputType)
-        => ApplyExpr(Polars.Col(Name).Map(function, outputType));
+        => ApplyExpr(Pl.Col(Name).Map(function, outputType));
     /// <summary>
     /// Apply a raw Arrow-to-Arrow UDF.
     /// </summary>
     public Series Map(Func<IArrowArray, IArrowArray> function, DataType outputType)
-        => ApplyExpr(Polars.Col(Name).Map(function, outputType));
+        => ApplyExpr(Pl.Col(Name).Map(function, outputType));
     // ==========================================
     // Display (Show)
     // ==========================================

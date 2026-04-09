@@ -1796,5 +1796,49 @@ public class SeriesTests
 
         Assert.Equal([1,2,3],uc.ToArray<int>());
     }
+    [Fact]
+    [Trait("Series","MaxBy")]
+    public void Test_Series_MaxBy_And_MinBy_With_Series()
+    {
+        var target = Pl.Series("values", [10, 20, 30, 40]);
+        
+        var bySeries = Pl.Series("weights", [2.5, 9.9, 3.2, 0.5]);
 
+        int? maxByResult = target.MaxBy<int>(bySeries);
+
+        int? minByResult = target.MinBy<int>(bySeries);
+
+        Assert.Equal(20, maxByResult);
+        Assert.Equal(40, minByResult);
+    }
+
+    [Fact]
+    [Trait("Series","MaxByNull")]
+    public void Test_Series_MaxBy_Empty_Returns_Null()
+    {
+        // Arrange
+        var target = Pl.Series("empty_vals", System.Array.Empty<int>());
+        var bySeries = Pl.Series("empty_weights", System.Array.Empty<int>());
+        // // Act
+        int? maxByResult = target.MaxBy<int>(bySeries);
+        int? minByResult = target.MinBy<int>(bySeries);
+
+        // Assert
+        Assert.Null(maxByResult);
+        Assert.Null(minByResult);
+    }
+    
+    [Fact]
+    [Trait("Series","MaxBy")]
+    public void Test_Series_MaxBy_With_Expression()
+    {
+        // Arrange
+        var target = Pl.Series("values", [-5, 2, -10, 8]);
+
+        // Act
+        int? maxByAbsResult = target.MaxBy<int>(Pl.Col("values").Abs());
+
+        // Assert
+        Assert.Equal(-10, maxByAbsResult);
+    }
 }

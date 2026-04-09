@@ -130,7 +130,9 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_sum(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_mean(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_max(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_max_by(ExprHandle expr, ExprHandle by);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_min(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_min_by(ExprHandle expr, ExprHandle by);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_abs(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_null_count(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_n_unique(ExprHandle expr);

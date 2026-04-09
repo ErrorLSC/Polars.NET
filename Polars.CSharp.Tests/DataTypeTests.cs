@@ -617,7 +617,7 @@ public class DataTypeTests
         // Index 100 Null
         Assert.Null(s.GetValue<Half?>(100));
 
-        double sum = s.Cast(DataType.Float64).Sum<double>(); 
+        double? sum = s.Cast<double>().Sum<double>(); 
         
         Assert.Equal(49_500_000.0, sum);
     }

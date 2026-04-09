@@ -315,6 +315,26 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Returns a unit Series with the highest value possible for the dtype of this expression.
     /// </summary>
     public Expr UpperBound() => new(PolarsWrapper.UpperBound(CloneHandle()));
+    /// <summary>
+    /// Get maximum value, ordered by another expression.
+    /// If the by expression has multiple values equal to the maximum it is not defined which value will be chosen.
+    /// </summary>
+    /// <param name="by">Column used to determine the largest element. Accepts expression input. Strings are parsed as column names.</param>
+    public Expr MaxBy(IntoExpr by)
+    {
+        Expr realBy = by.Consume();
+        return new(PolarsWrapper.MaxBy(CloneHandle(),realBy.Handle));
+    }
+    /// <summary>
+    /// Get minimum value, ordered by another expression.
+    /// If the by expression has multiple values equal to the minimum it is not defined which value will be chosen.
+    /// </summary>
+    /// <param name="by">Column used to determine the smallest element. Accepts expression input. Strings are parsed as column names.</param>
+    public Expr MinBy(IntoExpr by)
+    {
+        Expr realBy = by.Consume();
+        return new(PolarsWrapper.MinBy(CloneHandle(),realBy.Handle));
+    }
     
     // ==========================================
     // Math

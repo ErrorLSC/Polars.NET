@@ -362,6 +362,9 @@ gen_binary_op!(pl_expr_lt, lt);       // <
 gen_binary_op!(pl_expr_lt_eq, lt_eq); // <=
 gen_binary_op!(pl_expr_filter,filter);
 
+gen_binary_op!(pl_expr_max_by, max_by); 
+gen_binary_op!(pl_expr_min_by, min_by); 
+
 // Arithmetic
 gen_binary_op!(pl_expr_add, add); // +
 gen_binary_op!(pl_expr_sub, sub); // -

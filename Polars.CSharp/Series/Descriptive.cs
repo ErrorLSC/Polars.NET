@@ -150,4 +150,41 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Return a count of the unique values in the order of appearance.
     /// </summary>
     public Series UniqueCounts() => new(PolarsWrapper.SeriesUniqueCounts(Handle));
+    /// <summary>
+    /// Count the occurrences of unique values.
+    /// <para>
+    /// Similar to SQL <c>GROUP BY val COUNT(*)</c>.
+    /// </para>
+    /// </summary>
+    /// <param name="sort">Sort the output by count in descending order. Default is true.</param>
+    /// <param name="parallel">Execute in parallel. Default is true.</param>
+    /// <param name="name">The name of the count column. Default is "count".</param>
+    /// <param name="normalize">If true, the count column will contain probabilities (fractions) instead of absolute counts. Default is false.</param>
+    /// <returns>A DataFrame with the series values and their counts.</returns>
+    /// <example>
+    /// <code>
+    /// var s = Series.From("fruit", new[] { "apple", "apple", "banana" });
+    /// 
+    /// // Default: sorted, absolute counts
+    /// s.ValueCounts().Show();
+    /// 
+    /// // Normalized (percentage)
+    /// s.ValueCounts(normalize: true, name: "prob").Show();
+    /// // Result
+    /// ┌────────┬───────┐
+    /// │ fruit  ┆ count │
+    /// │ ---    ┆ ---   │
+    /// │ str    ┆ u32   │
+    /// ╞════════╪═══════╡
+    /// │ apple  ┆ 3     │
+    /// │ orange ┆ 2     │
+    /// │ banana ┆ 1     │
+    /// └────────┴───────┘
+    /// </code>
+    /// </example>
+    public DataFrame ValueCounts(bool sort = true, bool parallel = true, string name = "count", bool normalize = false)
+    {
+        var dfHandle = PolarsWrapper.SeriesValueCounts(Handle, sort, parallel, name, normalize);
+        return new DataFrame(dfHandle);
+    }
 }
