@@ -145,6 +145,9 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <summary>
     /// Return the upper bound of this Series’ dtype as a unit Series.
     /// </summary>
-    /// <returns></returns>
     public Series UpperBound() => ApplyExpr(Pl.Col(Name).UpperBound());
+    /// <summary>
+    /// Return a count of the unique values in the order of appearance.
+    /// </summary>
+    public Series UniqueCounts() => new(PolarsWrapper.SeriesUniqueCounts(Handle));
 }

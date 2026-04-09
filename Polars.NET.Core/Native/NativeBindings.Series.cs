@@ -30,6 +30,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_duplicated(SeriesHandle handle);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_in(SeriesHandle handle, SeriesHandle other,[MarshalAs(UnmanagedType.U1)] bool nullsEqual);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_implode(SeriesHandle handle);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_unique_counts(SeriesHandle handle);
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_approx_n_unique(

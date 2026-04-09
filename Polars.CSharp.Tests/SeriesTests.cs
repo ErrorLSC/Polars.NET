@@ -1786,5 +1786,15 @@ public class SeriesTests
         Assert.Equal(byte.MinValue, lowerVal); // 0
         Assert.Equal(byte.MaxValue, upperVal); // 255
     }
+    [Fact]
+    [Trait("Series","UniqueCounts")]
+    public void Test_Series_UniqueCounts()
+    {
+        var series = Pl.Series("id", ["a", "b", "b", "c", "c", "c"]);
+
+        var uc = series.UniqueCounts();
+
+        Assert.Equal([1,2,3],uc.ToArray<int>());
+    }
 
 }

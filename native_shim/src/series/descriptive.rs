@@ -215,3 +215,14 @@ pub extern "C" fn pl_series_is_in(
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_unique_counts(ptr: *mut SeriesContext) -> *mut SeriesContext {
+    ffi_try!({
+        let ctx = unsafe { &*ptr };
+        
+        // 开启了 "unique_counts" feature 后，即可在 prelude 中调用
+        let res = polars::prelude::unique_counts(&ctx.series)?;
+        
+        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
+    })
+}
