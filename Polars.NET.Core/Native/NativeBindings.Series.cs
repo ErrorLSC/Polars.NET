@@ -23,6 +23,12 @@ unsafe internal partial class NativeBindings
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_estimated_size(SeriesHandle handle, out nuint size); 
     [LibraryImport(LibName)]
+    public static partial int pl_series_has_nulls(SeriesHandle handle,[MarshalAs(UnmanagedType.U1)] out bool result);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_first_distinct(SeriesHandle handle);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_last_distinct(SeriesHandle handle);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_unique(SeriesHandle handle);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_duplicated(SeriesHandle handle);
+    [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_approx_n_unique(
         SeriesHandle series, 

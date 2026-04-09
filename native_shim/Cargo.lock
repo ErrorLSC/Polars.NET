@@ -2664,6 +2664,7 @@ dependencies = [
  "polars-buffer",
  "polars-core",
  "polars-io",
+ "polars-ops",
  "polars-plan",
  "polars-utils",
  "rand 0.10.0",

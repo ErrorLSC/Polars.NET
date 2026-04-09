@@ -50,6 +50,16 @@ public readonly partial struct PolarsWrapper
         
         return (long)size;
     }
+    public static bool SeriesHasNulls(SeriesHandle series)
+    {
+        int status = NativeBindings.pl_series_has_nulls(series,out bool result);
+        ErrorHelper.CheckStatus(status);
+        return result;
+    }
+    public static SeriesHandle SeriesIsFirstDistinct(SeriesHandle series) => ErrorHelper.Check(NativeBindings.pl_series_is_first_distinct(series));
+    public static SeriesHandle SeriesIsLastDistinct(SeriesHandle series) => ErrorHelper.Check(NativeBindings.pl_series_is_last_distinct(series));
+    public static SeriesHandle SeriesIsUnique(SeriesHandle series) => ErrorHelper.Check(NativeBindings.pl_series_is_unique(series));
+    public static SeriesHandle SeriesIsDuplicated(SeriesHandle series) => ErrorHelper.Check(NativeBindings.pl_series_is_duplicated(series));
     // --- Constructors ---
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SeriesHandle SeriesNew(string name, ReadOnlySpan<sbyte> data, ReadOnlySpan<byte> validity = default)

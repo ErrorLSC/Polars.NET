@@ -1135,7 +1135,7 @@ public class SeriesTests
     {
         int?[] dataWithNulls = [1, 2, null, 4];
         var series = Series.From("test_nulls", dataWithNulls);
-
+        Assert.True(series.HasNulls());
         var exception = Assert.Throws<InvalidOperationException>(() => 
         {
             series.AsReadOnlySpan<int>();
@@ -1678,6 +1678,19 @@ public class SeriesTests
         
         long totalLength = chunkLengths.Sum();
         Assert.Equal(series.Len(), totalLength);
+    }
+    [Fact]
+    [Trait("Series","IsFirstDistinct")]
+    public void Test_Series_IsFirstDistinct()
+    {
+        int[] data = [114514,1919,810,114514];
+        
+        var series = Pl.Series("Yajyusenpai", data);
+        var firstDistinct = series.IsFirstDistinct();
+        var lastDistinct = series.IsLastDistinct();
+        Assert.True((bool)firstDistinct.Eq(~lastDistinct)[0]!);
+        Assert.True((bool)firstDistinct[0]!);
+        Assert.False((bool)firstDistinct[3]!);
     }
 
 }

@@ -1,6 +1,6 @@
 use std::ffi::{CStr, c_char, c_int};
-
 use polars::prelude::*;
+
 
 use crate::types::{DataFrameContext, SeriesContext};
 
@@ -50,6 +50,42 @@ pub extern "C" fn pl_series_estimated_size(ptr: *mut SeriesContext,out_size: *mu
         Ok(())
     })
 }
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_series_has_nulls(
+    ptr: *mut SeriesContext, 
+    out_has_nulls: *mut bool
+) -> c_int {
+    ffi_try_c_int!({
+        let ctx = unsafe { &*ptr };
+        
+        unsafe {
+            *out_has_nulls = ctx.series.has_nulls();
+        }
+        
+        Ok(0)
+    })
+}
+
+macro_rules! impl_series_ops_bool {
+    ($ffi_name:ident, $op_name:ident) => {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $ffi_name(ptr: *mut SeriesContext) -> *mut SeriesContext {
+            ffi_try!({
+                let ctx = unsafe { &*ptr };
+                
+                let res = polars_ops::series::$op_name(&ctx.series)?.into_series();
+                
+                Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
+            })
+        }
+    };
+}
+
+impl_series_ops_bool!(pl_series_is_first_distinct, is_first_distinct);
+impl_series_ops_bool!(pl_series_is_last_distinct, is_last_distinct);
+impl_series_ops_bool!(pl_series_is_duplicated, is_duplicated);
+impl_series_ops_bool!(pl_series_is_unique, is_unique);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_is_null(s_ptr: *mut SeriesContext) -> *mut SeriesContext {

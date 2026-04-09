@@ -143,15 +143,6 @@ public partial class Series : IDisposable,IPolarsSeries
     // ==========================================
     // Metadata
     // ==========================================
-    /// <summary>
-    /// Gets the number of underlying Arrow memory chunks.
-    /// </summary>
-    public long NChunks => (long)PolarsWrapper.SeriesChunkCounts(Handle);
-
-    /// <summary>
-    /// Determines if the Series memory is physically contiguous (i.e., consists of a single chunk).
-    /// </summary>
-    public bool IsContiguous => NChunks == 1L;
 
     /// <summary>
     /// Gets the current metadata sortedness flags of this Series. (O(1) operation)
@@ -168,11 +159,6 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <param name="descending">If the Series order is descending.</param>
     /// <returns></returns>
     public Series SetSorted(bool descending = false) => new(PolarsWrapper.SeriesSetSortedFlag(Handle,descending));
-    /// <summary>
-    /// True if the Series is empty.
-    /// </summary>
-    public bool IsEmpty => Length == 0;
-
     /// <summary>
     /// Get the string representation of the Series data type (e.g. "i64", "str", "datetime(μs)").
     /// </summary>
@@ -813,30 +799,6 @@ public partial class Series : IDisposable,IPolarsSeries
         => ApplyExpr(Polars.Col(Name).EwmMeanBy(by, halfLife));
 
     // ==========================================
-    // Float Checks
-    // ==========================================
-    /// <summary>
-    /// Check whether this series is NaN
-    /// </summary>
-    /// <returns></returns>
-    public Series IsNan() => new(PolarsWrapper.SeriesIsNan(Handle));
-    /// <summary>
-    /// Check whether this series is not NaN
-    /// </summary>
-    /// <returns></returns>
-    public Series IsNotNan() => new(PolarsWrapper.SeriesIsNotNan(Handle));
-    /// <summary>
-    /// Check whether this series is finite
-    /// </summary>
-    /// <returns></returns>
-    public Series IsFinite() => new(PolarsWrapper.SeriesIsFinite(Handle));
-    /// <summary>
-    /// Check whether this series is infinite
-    /// </summary>
-    /// <returns></returns>
-    public Series IsInfinite() => new(PolarsWrapper.SeriesIsInfinite(Handle));
-
-    // ==========================================
     // Unique Ops and Boolean Mask
     // ==========================================
     /// <summary>
@@ -860,18 +822,6 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Get the unique elements of this Series, maintaining the order of appearance.
     /// </summary>
     public Series UniqueStable() => new(PolarsWrapper.SeriesUniqueStable(Handle));
-
-    /// <summary>
-    /// Get a boolean mask indicating which values are unique.
-    /// <para>Implemented via DataFrame expression composition.</para>
-    /// </summary>
-    public Series IsUnique() => ApplyExpr(Polars.Col(Name).IsUnique());
-
-    /// <summary>
-    /// Get a boolean mask indicating which values are duplicated.
-    /// <para>Implemented via DataFrame expression composition.</para>
-    /// </summary>
-    public Series IsDuplicated() => ApplyExpr(Polars.Col(Name).IsDuplicated());
     /// <summary>
     /// Check if values are between lower and upper bounds.
     /// </summary>
