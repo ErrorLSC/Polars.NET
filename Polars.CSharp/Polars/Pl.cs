@@ -26,7 +26,10 @@ public readonly partial struct Polars
         using Selector sel = Cs.ByName(names);
         return sel.ToExpr();
     }
- 
+    /// <summary>
+    /// Alias for an element being evaluated in an eval or filter expression.
+    /// </summary>
+    public static Expr Element() => Col("");
     /// <summary>
     /// Return the lines count of current context.
     /// </summary>

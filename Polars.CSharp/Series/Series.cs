@@ -349,7 +349,11 @@ public partial class Series : IDisposable,IPolarsSeries
     /// The resulting series will consist of multiple chunks.
     /// </summary>
     /// <param name="other">Series to append.</param>
-    public void Append(Series other) => PolarsWrapper.SeriesAppend(Handle,other.Handle);    
+    public Series Append(Series other)
+    {
+        PolarsWrapper.SeriesAppend(Handle,other.Handle);    
+        return this;
+    }
     /// <summary>
     /// Extend the memory backed by this Series with the values from another.
     /// Different from append, which adds the chunks from other to the chunks of this series, extend appends the data from other to the underlying memory locations and thus may cause a reallocation (which is expensive).

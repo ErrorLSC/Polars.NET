@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Marshalling;
+using System.Text.Unicode;
 using Apache.Arrow.C;
 
 namespace Polars.NET.Core.Native;
@@ -417,6 +418,10 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_array_max(ExprHandle expr);
     [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_array_len(ExprHandle expr);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_array_n_unique(ExprHandle expr);
+    [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_array_min(ExprHandle expr);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_array_sum(ExprHandle expr);
@@ -442,8 +447,22 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_array_std(ExprHandle expr, byte ddof);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_array_var(ExprHandle expr, byte ddof);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_array_count_matches(ExprHandle expr, ExprHandle item);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_array_agg(ExprHandle expr, ExprHandle agg);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_array_shift(ExprHandle expr, ExprHandle shift);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_array_head(ExprHandle expr, ExprHandle num,[MarshalAs(UnmanagedType.U1)]bool asArray);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_array_tail(ExprHandle expr, ExprHandle num,[MarshalAs(UnmanagedType.U1)]bool asArray);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_array_eval(ExprHandle expr, ExprHandle other,[MarshalAs(UnmanagedType.U1)]bool asList);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_array_slice(ExprHandle expr, ExprHandle offset,ExprHandle length,[MarshalAs(UnmanagedType.U1)]bool asList);
 
-    // [New] Boolean
+    // Boolean
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_array_any(ExprHandle expr);
     [LibraryImport(LibName)]
@@ -478,14 +497,12 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] bool keepNulls);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_array_to_list(ExprHandle expr);
-    [LibraryImport(LibName)]
-    public static partial ExprHandle pl_expr_array_to_struct(ExprHandle expr);
-
+    [LibraryImport(LibName,StringMarshalling=StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_array_to_struct(ExprHandle expr,string[]? fieldNames,nuint len);
 
     // Naming
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_prefix(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string prefix);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_suffix(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string suffix);
-
 
     // Expr Len
     [LibraryImport(LibName)] 

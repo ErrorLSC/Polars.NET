@@ -12,6 +12,18 @@ public readonly struct SeriesArrayOps
         => _series.ApplyExpr(op(Polars.Col(_series.Name)));
 
     // --- Aggregations ---
+    /// <summary>
+    /// Get the first value of the sub-arrays.
+    /// </summary>
+    public Series First() => Get(0,true);
+    /// <summary>
+    /// Get the last value of the sub-arrays.
+    /// </summary>
+    public Series Last() => Get(-1,true);
+    /// <summary>
+    /// Return the number of elements in each array.
+    /// </summary>
+    public Series Len() => Apply(e => e.Array.Len());
     
     /// <summary>Compute the max value of every sub-array.</summary>
     public Series Max() => Apply(e => e.Array.Max());
@@ -27,7 +39,28 @@ public readonly struct SeriesArrayOps
 
     /// <summary>Compute the median of every sub-array.</summary>
     public Series Median() => Apply(e => e.Array.Median());
-
+    /// <summary>
+    /// Count the number of unique values in every sub-arrays.
+    /// </summary>
+    public Series NUnique() => Apply(e => e.Array.NUnique());
+    /// <summary>
+    /// Run any polars aggregation expression against the arrays’ elements.
+    /// </summary>
+    /// <returns></returns>
+    public Series Agg(Expr expr) => Apply(e => e.Array.Agg(expr));
+    /// <summary>
+    /// Count how often the value produced by element occurs.
+    /// </summary>
+    /// <param name="element">An expression that produces a single value</param>
+    /// <returns></returns>
+    public Series CountMatches(Expr element) => Apply(e => e.Array.CountMatches(element));
+    /// <summary>
+    /// Run any polars expression against the arrays’ elements.
+    /// </summary>
+    /// <param name="expr">Expression to run. Note that you can select an element with pl.element()</param>
+    /// <param name="asList">Collect the resulting data as a list. This allows for expressions which output a variable amount of data.</param>
+    /// <returns></returns>
+    public Series Eval(Expr expr, bool asList=false) => Apply(e => e.Array.Eval(expr,asList));
     /// <summary>Compute the standard deviation of every sub-array.</summary>
     public Series Std(byte ddof = 1) => Apply(e => e.Array.Std(ddof));
 
@@ -60,7 +93,7 @@ public readonly struct SeriesArrayOps
     // --- Structure ---
 
     /// <summary>Get element at index from every sub-array.</summary>
-    public Series Get(int index, bool nullOnOob = true) 
+    public Series Get(Expr index, bool nullOnOob = true) 
         => Apply(e => e.Array.Get(index, nullOnOob));
 
     /// <summary>Join elements with a separator.</summary>
@@ -76,8 +109,9 @@ public readonly struct SeriesArrayOps
     /// <summary>
     /// Convert array to struct. Useful for splitting embeddings into feature columns.
     /// </summary>
-    public Series ToStruct() => Apply(e => e.Array.ToStruct());
-
+    public Series ToStruct(string[]? fields=null) => Apply(e => e.Array.ToStruct(fields));
+    /// <inheritdoc cref="ArrayOps.ToStruct(Func{int,string},int)"/>
+    public Series ToStruct(Func<int,string>nameGenerator,int fieldCount) => Apply(e => e.Array.ToStruct(nameGenerator,fieldCount));
     /// <summary>
     /// Cast to variable-size List.
     /// </summary>
@@ -87,12 +121,6 @@ public readonly struct SeriesArrayOps
 
     /// <summary>Check if sub-array contains a specific item.</summary>
     public Series Contains(int item, bool nullsEqual = false) 
-        => Apply(e => e.Array.Contains(item, nullsEqual));
-    /// <summary>Check if sub-array contains a specific item.</summary>
-    public Series Contains(double item, bool nullsEqual = false) 
-        => Apply(e => e.Array.Contains(item, nullsEqual));
-    /// <summary>Check if sub-array contains a specific item.</summary>   
-    public Series Contains(Expr item, bool nullsEqual = false) 
         => Apply(e => e.Array.Contains(item, nullsEqual));
 
     /// <summary>Get unique elements in every sub-array.</summary>
