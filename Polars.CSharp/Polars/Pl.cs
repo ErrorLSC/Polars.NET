@@ -1,4 +1,5 @@
 #pragma warning disable 1591
+#pragma warning disable 0618
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
 using Cs = Polars.CSharp.Polars.Selectors;
@@ -183,11 +184,26 @@ public readonly partial struct Polars
     /// <summary>
     /// Combine multiple expressions into a Struct expression.
     /// </summary>
-    public static Expr AsStruct(params Expr[] exprs)
+    [Obsolete("Renamed to Struct to align with pypolars API name")]
+    public static Expr AsStruct(params IntoExpr[] exprs)
     {
-        var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
+        if (exprs == null || exprs.Length == 0)
+        {
+            throw new ArgumentException("Struct requires at least one expression to be combined.");
+        }
+
+        var handles = exprs.Select(e => e.Consume().Handle).ToArray();
+        
         return new Expr(PolarsWrapper.AsStruct(handles));
     }
+    /// <summary>
+    /// Collect several expressions and combine them into a single Struct column.
+    /// </summary>
+    public static Expr Struct(params IntoExpr[] exprs) => AsStruct(exprs);
+    /// <summary>
+    /// Collect several expressions and combine them into a single Struct Series
+    /// </summary>
+    public static Series StructSeries(params IntoExpr[] exprs) => CSharp.Series.FromExpr(Struct(exprs));
     // ==========================================
     // SQL
     // ==========================================

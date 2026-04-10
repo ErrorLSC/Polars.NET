@@ -53,7 +53,7 @@ public readonly struct StructOps
     /// */
     /// </code>
     /// </example>
-    public Expr Field(string name)
+    public Expr Field(params string[] name)
         => new(PolarsWrapper.StructFieldByName(_expr.CloneHandle(), name));
     /// <summary>
     /// Retrieve a field by its index.
@@ -63,8 +63,8 @@ public readonly struct StructOps
     
     /// <inheritdoc cref="Field(int)"/>
     public Expr this[int index] => Field(index);
-    /// <inheritdoc cref="Field(string)"/>
-    public Expr this[string name] => Field(name);
+    /// <inheritdoc cref="Field(string[])"/>
+    public Expr this[string[] name] => Field(name);
     /// <summary>
     /// Rename the fields of the struct.
     /// </summary>
@@ -83,4 +83,25 @@ public readonly struct StructOps
     /// Useful for debugging or exporting to systems that support JSON strings.
     /// </summary>
     public Expr JsonEncode() => new(PolarsWrapper.StructJsonEncode(_expr.CloneHandle()));
+    /// <summary>
+    /// Expand the struct into its individual fields.Alias for Expr.struct.field("*").
+    /// </summary>
+    /// <returns></returns>
+    public Expr Unnest() => Field("*");
+
+    public Expr WithFields(params IntoExpr[] fields)
+    {
+        if (fields == null || fields.Length == 0)
+        {
+            return new Expr(PolarsWrapper.StructWithFields(_expr.Handle, []));
+        }
+
+        var handles = new ExprHandle[fields.Length];
+        for (int i = 0; i < fields.Length; i++)
+        {
+            handles[i] = fields[i].Consume().Handle; 
+        }
+
+        return new Expr(PolarsWrapper.StructWithFields(_expr.Handle, handles));
+    }
 }

@@ -943,9 +943,9 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(NativeBindings.pl_expr_as_struct(raw, (UIntPtr)raw.Length));
     }
 
-    public static ExprHandle StructFieldByName(ExprHandle e, string name)
+    public static ExprHandle StructFieldByName(ExprHandle e, string[] name)
     {
-        var h = NativeBindings.pl_expr_struct_field_by_name(e, name);
+        var h = NativeBindings.pl_expr_struct_field_by_names(e, name,(nuint)name.Length);
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
@@ -968,6 +968,14 @@ public readonly partial struct PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle StructWithFields(ExprHandle e, ExprHandle[] fields)
+    {
+        var ptrs = HandlesToPtrs(fields);
+        var h = NativeBindings.pl_expr_struct_with_fields(e,ptrs,(nuint)ptrs.Length);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    
     // Naming
     public static ExprHandle Prefix(ExprHandle e, string p)
     {

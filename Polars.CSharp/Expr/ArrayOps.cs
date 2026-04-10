@@ -1,5 +1,6 @@
 #pragma warning disable CS1591
 using Polars.NET.Core;
+using Polars.NET.Core.Helpers;
 
 namespace Polars.CSharp;
 
@@ -46,7 +47,7 @@ public readonly struct ArrayOps
     // --- Structure ---
     public Expr Get(Expr index, bool nullOnOob = true)
         => new(PolarsWrapper.ArrayGet(_expr.CloneHandle(), index.CloneHandle(), nullOnOob));
-    
+
     public Expr Join(string separator, bool ignoreNulls = true)
         => new(PolarsWrapper.ArrayJoin(_expr.CloneHandle(), separator, ignoreNulls));
     

@@ -16,7 +16,7 @@ public readonly partial struct Polars
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static DataFrame DataFrame(params Series[] series)
-        => new(series);
+        => [.. series];
 
     /// <summary>
     /// Create a DataFrame from a collection of strongly-typed objects (POCOs).

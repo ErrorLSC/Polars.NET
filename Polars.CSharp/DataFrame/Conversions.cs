@@ -19,7 +19,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <returns></returns>
     public Series ToStruct(string name="")
     {
-        using var df = Select(Pl.AsStruct(Pl.All()));
+        using var df = Select(Pl.Struct(Pl.All()));
         var series = df[0];
         series.Rename(name);
         return series;

@@ -545,6 +545,90 @@ public class SeriesTests
         Assert.Equal([20, 40], lastElements.ToArray<int>());
     }
     [Fact]
+    [Trait("Series", "StructFunctions")]
+    public void Test_Series_Struct_WithFields()
+    {
+        // Row 0: [1, 2] -> { "a": 1, "b": 2 }
+        // Row 1: [3, 4] -> { "a": 3, "b": 4 }
+        int[,] data = { { 1, 2 }, { 3, 4 } };
+        using Series arrSeries = Pl.Series("array", data);
+        using Series structSeries = arrSeries.Array.ToStruct(["a", "b"]);
+
+        using Series newStructSeries = structSeries.Struct.WithFields(
+            Pl.Col("array").Struct.Field("a") * 10,           
+            Pl.Lit(99).Alias("c")       
+        );
+        newStructSeries.Show();
+        using DataFrame unnestedDf = newStructSeries.Struct.Unnest();
+
+        Assert.Equal(3, unnestedDf.Width);
+        Assert.True(unnestedDf.Columns.Contains("a"));
+        Assert.True(unnestedDf.Columns.Contains("b"));
+        Assert.True(unnestedDf.Columns.Contains("c"));
+
+        Assert.Equal([10, 30], unnestedDf["a"].ToArray<int>());
+
+        Assert.Equal([2, 4], unnestedDf["b"].ToArray<int>());
+
+        Assert.Equal([99, 99], unnestedDf["c"].ToArray<int>());
+    }
+    [Fact]
+    [Trait("Series", "StructFunctions")]
+    public void Test_Series_Struct_Properties_And_Indexers()
+    {
+        // 1. 构建测试用的 Struct Series
+        // Row 0: { "a": 10, "b": 20, "c": 30 }
+        // Row 1: { "a": 40, "b": 50, "c": 60 }
+        int[,] data = { { 10, 20, 30 }, { 40, 50, 60 } };
+        using Series arrSeries = Pl.Series("array", data);
+        using Series structSeries = arrSeries.Array.ToStruct(["a", "b", "c"]);
+
+        // ----------------------------------------------------
+        // 测试 1：Fields 属性 (纯 C# DType 解析)
+        // ----------------------------------------------------
+        string[] fields = structSeries.Struct.Fields;
+        Assert.Equal(["a", "b", "c"], fields);
+
+        // ----------------------------------------------------
+        // 测试 2：Schema 属性 (纯 C# DType 解析)
+        // ----------------------------------------------------
+        var schema = structSeries.Struct.Schema.ToDictionary();
+        Assert.NotNull(schema);
+        Assert.True(schema.ContainsKey("a"));
+        Assert.True(schema.ContainsKey("b"));
+        Assert.True(schema.ContainsKey("c"));
+        // 注: 这里可以根据你的 DataType 具体实现断言，如：
+        // Assert.Equal(DataTypeKind.Int32, schema["a"].Kind);
+
+        // ----------------------------------------------------
+        // 测试 3：字符串单索引器 this[string]
+        // ----------------------------------------------------
+        using Series colA = structSeries.Struct["a"];
+        Assert.Equal("a", colA.Name);
+        Assert.Equal([10, 40], colA.ToArray<int>());
+
+        // ----------------------------------------------------
+        // 测试 4：整数单索引器 this[int]
+        // ----------------------------------------------------
+        using Series colC = structSeries.Struct[2]; 
+        Assert.Equal("c", colC.Name);
+        Assert.Equal([30, 60], colC.ToArray<int>());
+
+        // ----------------------------------------------------
+        // 测试 5：字符串数组索引器 this[string[]] (提取结构体子集)
+        // ----------------------------------------------------
+        using Series subStruct = structSeries.Struct[["c", "a"]];
+        
+        // 验证返回的依然是 Struct，并且字段顺序按照我们指定的来
+        Assert.Equal(["c", "a"], subStruct.Struct.Fields);
+        
+        // 展平后验证具体数据
+        using DataFrame unnested = subStruct.Struct.Unnest();
+        Assert.Equal(2, unnested.Width);
+        Assert.Equal([30, 60], unnested["c"].ToArray<int>());
+        Assert.Equal([10, 40], unnested["a"].ToArray<int>());
+    }
+    [Fact]
     [Trait("Series", "BitShift")]
     public void Test_Series_Bitwise_Shift()
     {

@@ -453,7 +453,7 @@ TooShort,1990-05-20,1.60";
 
         using var res = df
             .WithColumns(
-                AsStruct(Col("score1"), Col("score2"))
+                Struct(Col("score1"), Col("score2"))
                 .Alias("scores_struct")
             )
             .WithColumns(
@@ -587,7 +587,7 @@ TooShort,1990-05-20,1.60";
 
         var q = df.Lazy()
             .Select(
-                AsStruct(Col("A","B"))
+                Struct(Col("A","B"))
                     .Struct.RenameFields("First", "Second")
                     .Alias("MyStruct")
             );
@@ -1676,7 +1676,7 @@ TooShort,1990-05-20,1.60";
         // .IsIn(): Check whether struct is in the validCombinations
         var res = df.Select(
             Col("id"),
-            AsStruct(Col("region"), Col("dept"))
+            Struct(Col("region"), Col("dept"))
                 .IsIn(Lit(validCombinations).Implode()) 
                 .Alias("is_valid")
         ).Filter(Col("is_valid")); 

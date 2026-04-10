@@ -4,3 +4,4 @@ pub mod meta;
 pub mod datatype_expr;
 pub mod array;
 pub mod list;
+pub mod struct_ops;

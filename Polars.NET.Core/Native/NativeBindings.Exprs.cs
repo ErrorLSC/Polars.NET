@@ -514,7 +514,12 @@ unsafe internal partial class NativeBindings
 
     // Struct
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_as_struct(IntPtr[] exprs, UIntPtr len);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_struct_field_by_name(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_struct_field_by_names(
+        ExprHandle expr, 
+        string[] names, 
+        nuint namesLen
+    );
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_struct_field_by_index(ExprHandle e, long index);
 
@@ -526,6 +531,11 @@ unsafe internal partial class NativeBindings
         UIntPtr len
     );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_struct_json_encode(ExprHandle e);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_struct_with_fields(
+        ExprHandle expr,
+        nint[] fields, 
+        nuint fieldsLen);
     // Window
     [LibraryImport(LibName)] 
     public static partial ExprHandle pl_expr_over(

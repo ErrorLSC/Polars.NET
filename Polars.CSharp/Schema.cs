@@ -44,6 +44,22 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>
     }
 
     /// <summary>
+    /// Create a schema from a collection of named fields.
+    /// </summary>
+    public static PolarsSchema From(IEnumerable<(string Name, DataType Type)> fields)
+    {
+        var schema = new PolarsSchema();
+        if (fields != null)
+        {
+            foreach (var field in fields)
+            {
+                schema.Add(field.Name, field.Type);
+            }
+        }
+        return schema;
+    }
+
+    /// <summary>
     /// Create a Schema directly from a .NET type (e.g., a record or class).
     /// </summary>
     /// <typeparam name="T">The record or class type.</typeparam>

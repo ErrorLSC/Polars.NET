@@ -1,3 +1,4 @@
+using Pl = Polars.CSharp.Polars;
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
@@ -17,7 +18,7 @@ public readonly struct SeriesStructOps
     /// Retrieve a field from the struct by name.
     /// Returns a new Series of that field's type.
     /// </summary>
-    public Series Field(string name) => Apply(e => e.Struct.Field(name));
+    public Series Field(params string[] name) => Apply(e => e.Struct.Field(name));
 
     /// <summary>
     /// Retrieve a field from the struct by index.
@@ -37,9 +38,66 @@ public readonly struct SeriesStructOps
     /// Unnest the struct column into a DataFrame.
     /// Each field of the struct becomes a separate column.
     /// </summary>
-    public DataFrame Unnest()
+    public DataFrame Unnest() => new(PolarsWrapper.SeriesStructUnnest(_series.Handle));
+
+    /// <summary>
+    /// Add or overwrite fields of this struct.This is similar to with_columns on DataFrame.
+    /// </summary>
+    /// <param name="expr">Field(s) to add, specified as positional arguments. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
+    /// <returns></returns>
+    public Series WithFields(params IntoExpr[] expr) => Apply(e => e.Struct.WithFields(expr));
+
+    /// <inheritdoc cref="Field(int)"/>
+    public Series this[int index] => Field(index);
+
+    /// <summary>
+    /// Retrieve one of the fields of this Struct as a new Series.
+    /// </summary>
+    public Series this[string name] => Field(name);
+
+    /// <inheritdoc cref="Field(string[])"/>
+    public Series this[string[] names] 
     {
-        var dfHandle = PolarsWrapper.SeriesStructUnnest(_series.Handle);
-        return new DataFrame(dfHandle);
+        get
+        {
+            return Apply(e => 
+            {
+                var exprs = names.Select(name => (IntoExpr)e.Struct.Field(name)).ToArray();
+                return Pl.Struct(exprs);
+            });
+        }
+    }
+    /// <summary>
+    /// Get the struct definition as a name/dtype schema.
+    /// </summary>
+    public PolarsSchema Schema
+    {
+        get
+        {
+            var fields = _series.DataType.StructFields;
+            if (fields == null)
+            {
+                return new PolarsSchema(); 
+            }
+            
+            return PolarsSchema.From(fields);
+        }
+    }
+
+    /// <summary>
+    /// Get the names of the fields.
+    /// </summary>
+    public string[] Fields
+    {
+        get
+        {
+            var fields = _series.DataType.StructFields;
+            if (fields == null)
+            {
+                return [];
+            }
+
+            return [.. fields.Select(f => f.Name)];
+        }
     }
 }
