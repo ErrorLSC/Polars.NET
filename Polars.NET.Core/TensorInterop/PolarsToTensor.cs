@@ -78,12 +78,12 @@ public static partial class ArrowTensorInterop
         
         return heapTensor;
     }
-    public static unsafe (IntPtr Pointer, long[] Shape) GetNativePointers<T>(this SeriesHandle handle) where T : unmanaged
+    public static unsafe (nint Pointer, long[] Shape) GetNativePointers<T>(this SeriesHandle handle) where T : unmanaged
     {
         ReadOnlySpan<T> flatSpan = handle.AsReadOnlySpan<T>();
 
         ref T refData = ref MemoryMarshal.GetReference(flatSpan);
-        IntPtr ptr = (IntPtr)Unsafe.AsPointer(ref refData);
+        nint ptr = (nint)Unsafe.AsPointer(ref refData);
 
         var metadataSpan = handle.AsTensorSpan<T>();
         long[] shape = new long[metadataSpan.Rank];
@@ -94,11 +94,11 @@ public static partial class ArrowTensorInterop
 
         return (ptr, shape);
     }
-    public static unsafe (IntPtr Pointer, long[] Shape) GetNativePointers<T>(this SeriesHandle handle, ReadOnlySpan<nint> shape) where T : unmanaged
+    public static unsafe (nint Pointer, long[] Shape) GetNativePointers<T>(this SeriesHandle handle, ReadOnlySpan<nint> shape) where T : unmanaged
     {
         ReadOnlySpan<T> flatSpan = handle.AsReadOnlySpan<T>();
         ref T refData = ref MemoryMarshal.GetReference(flatSpan);
-        IntPtr ptr = (IntPtr)Unsafe.AsPointer(ref refData);
+        nint ptr = (nint)Unsafe.AsPointer(ref refData);
 
         long totalElements = 1;
         long[] returnShape = new long[shape.Length];

@@ -101,14 +101,14 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Designed for zero-copy integrations with native C++ Machine Learning backends like ONNX Runtime or TorchSharp.
     /// </summary>
     /// <remarks>
-    /// DANGER (LIFECYCLE WARNING): This is a zero-copy operation. The returned <see cref="IntPtr"/> points 
+    /// DANGER (LIFECYCLE WARNING): This is a zero-copy operation. The returned <see cref="nint"/> points 
     /// directly to native memory managed by the Rust Polars engine. It is ONLY valid as long as this <see cref="Series"/> 
     /// instance remains alive. You MUST ensure the Series is not garbage collected or explicitly disposed. Considering use GC.KeepAlive(series) 
     /// while the native pointer is still in use by an external FFI library, otherwise it will result in a fatal segmentation fault.
     /// </remarks>
     /// <typeparam name="T">The unmanaged primitive type.</typeparam>
-    /// <returns>A tuple containing the raw <see cref="IntPtr"/> to the first element, and a <c>long[]</c> representing the tensor shape.</returns>
-    public (IntPtr DataPointer, long[] Shape) AsDangerousUnmanagedTensor<T>() where T : unmanaged
+    /// <returns>A tuple containing the raw <see cref="nint"/> to the first element, and a <c>long[]</c> representing the tensor shape.</returns>
+    public (nint DataPointer, long[] Shape) AsDangerousUnmanagedTensor<T>() where T : unmanaged
     {
         if (!IsContiguous)
         {
@@ -124,7 +124,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// </summary>
     /// <param name="shape">The target tensor shape. Total elements must strictly match the memory length.</param>
     /// <inheritdoc cref="AsDangerousUnmanagedTensor()"/>
-    public (IntPtr DataPointer, long[] Shape) AsDangerousUnmanagedTensor<T>(ReadOnlySpan<nint> shape) where T : unmanaged
+    public (nint DataPointer, long[] Shape) AsDangerousUnmanagedTensor<T>(ReadOnlySpan<nint> shape) where T : unmanaged
     {
         if (!IsContiguous)
         {

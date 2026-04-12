@@ -1,5 +1,5 @@
 use polars::{chunked_array::cast::CastOptions, prelude::*, series::ops::NullBehavior, sql::sql_expr};
-use std::{ffi::{CStr, CString}, os::raw::c_char};
+use std::{ffi::{CStr, CString}, os::raw::c_char, slice::from_raw_parts};
 use crate::{datatypes::parse_timeunit, types::{DataTypeExprContext, ExprContext, SeriesContext}, utils::parse_closed_window};
 use std::ops::{Add, Sub, Mul, Div, Rem};
 use crate::utils::{consume_exprs_array, ptr_to_str};
@@ -502,6 +502,23 @@ pub extern "C" fn pl_expr_tail(
     ffi_try!({
         let ctx = unsafe { Box::from_raw(expr_ptr) };
         let new_expr = ctx.inner.tail(Some(length));
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_reshape(
+    expr_ptr: *mut ExprContext,
+    dims_ptr: *const i64,
+    dims_len: usize,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        
+        let dims = unsafe { from_raw_parts(dims_ptr, dims_len) };
+        
+        let new_expr = ctx.inner.reshape(dims);
+        
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }

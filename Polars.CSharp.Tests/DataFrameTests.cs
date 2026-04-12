@@ -2123,7 +2123,7 @@ B,5";
         var targetDf = DataFrame.FromColumns(new
         {
             TenantId = new[] { "T1", "T1", "T2", "T2" },
-            UserId = new[] { 101, 102, 101, 999 }, // 注意：T1和T2都有UserId=101，但他们是不同的人
+            UserId = new[] { 101, 102, 101, 999 },
             Role = new[] { "Admin", "User", "User", "Guest" },
             IsActive = new[] { true, true, true, false }
         });

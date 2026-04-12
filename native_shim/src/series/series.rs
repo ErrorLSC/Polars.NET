@@ -2,6 +2,7 @@ use polars::prelude::*;
 use polars_arrow::array::{Array,ListArray};
 use std::ffi::{CStr, CString, c_int};
 use std::os::raw::c_char;
+use std::slice::from_raw_parts;
 use crate::pl_io::arrow::ArrowArrayContext;
 use crate::types::{DataFrameContext, DataTypeContext, SeriesContext};
 use polars_arrow::datatypes::ArrowDataType;
@@ -928,6 +929,34 @@ pub extern "C" fn pl_series_sort(
         let out = ctx.series.sort(options)?;
         
         Ok(Box::into_raw(Box::new(SeriesContext { series: out })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_reshape(
+    series_ptr: *const Series,
+    dims_ptr: *const i64,
+    dims_len: usize,
+) -> *mut Series {
+    ffi_try!({
+        let s = unsafe { &*series_ptr };
+        
+        let raw_dims = unsafe { from_raw_parts(dims_ptr, dims_len) };
+        
+        let mut dimensions = Vec::with_capacity(dims_len);
+        for &d in raw_dims {
+            if d == -1 {
+                dimensions.push(ReshapeDimension::Infer);
+            } else if d > 0 {
+                dimensions.push(ReshapeDimension::Specified(Dimension::new(d as u64)));
+            } else {
+                polars_bail!(InvalidOperation: "dimension size must be > 0 or -1 (infer)");
+            }
+}
+        
+        let reshaped = s.reshape_array(&dimensions)?;
+        
+        Ok(Box::into_raw(Box::new(reshaped)))
     })
 }
 

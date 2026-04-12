@@ -768,7 +768,12 @@ public readonly partial struct PolarsWrapper
         upper.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    
+    public static ExprHandle ExprReshape(ExprHandle expr, ReadOnlySpan<long> dimensions)
+    {
+        var h = NativeBindings.pl_expr_reshape(expr, dimensions, (nuint)dimensions.Length);
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     public static ExprHandle ListGet(ExprHandle e, ExprHandle index,bool nullOnOob)
     {
         var h = NativeBindings.pl_expr_list_get(e, index,nullOnOob);

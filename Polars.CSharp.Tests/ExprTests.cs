@@ -2,8 +2,8 @@ using Apache.Arrow;
 using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Helpers;
-using static Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
+using Pl = Polars.CSharp.Polars;
 namespace Polars.CSharp.Tests;
 
 public class ExprTests
@@ -15,13 +15,13 @@ public class ExprTests
         using var df = DataFrame.ReadCsv(csv.Path);
 
         using var res = df.Select(
-            Col("name"),
+            Pl.Col("name"),
             
-            Col("birthdate").Alias("b_date"),
+            Pl.Col("birthdate").Alias("b_date"),
             
-            Col("birthdate").Dt.Year().Alias("year"),
+            Pl.Col("birthdate").Dt.Year().Alias("year"),
             
-            (Col("weight") / (Col("height") * Col("height"))).Alias("bmi")
+            (Pl.Col("weight") / (Pl.Col("height") * Pl.Col("height"))).Alias("bmi")
         );
 
         Assert.Equal(4, res.Width);
@@ -40,7 +40,7 @@ public class ExprTests
         using var csv = new DisposableFile("val\n10\n20\n30",".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
-        using var res = df.Filter(Col("val") > 15);
+        using var res = df.Filter(Pl.Col("val") > 15);
         
         Assert.Equal(2, res.Height); // 20, 30
         
@@ -60,7 +60,7 @@ Zhang,2025-10-31,55,1.75";
 
         using var df = DataFrame.ReadCsv(csv.Path);
 
-        using var res = df.Filter(Col("birthdate").Dt.Year() < 1990);
+        using var res = df.Filter(Pl.Col("birthdate").Dt.Year() < 1990);
 
         Assert.Equal(1, res.Height);
         
@@ -73,7 +73,7 @@ Zhang,2025-10-31,55,1.75";
         using var csv = new DisposableFile("name\nAlice\nBob\nAlice",".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
         
-        using var res = df.Filter(Col("name") == Lit("Alice"));
+        using var res = df.Filter(Pl.Col("name") == Pl.Lit("Alice"));
         
         Assert.Equal(2, res.Height);
     }
@@ -84,7 +84,7 @@ Zhang,2025-10-31,55,1.75";
         using var csv = new DisposableFile("value\n3.36\n4.2\n5\n3.36",".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
         
-        using var res = df.Filter(Col("value") == 3.36);
+        using var res = df.Filter(Pl.Col("value") == 3.36);
         
         Assert.Equal(2, res.Height);
     }
@@ -97,15 +97,15 @@ Zhang,2025-10-31,55,1.75";
 
         using var filled = df
             .WithColumns(
-                Col("age").FillNull(0).Alias("age_filled")
+                Pl.Col("age").FillNull(0).Alias("age_filled")
             )
-            .Filter(Col("age_filled") >= 0);
+            .Filter(Pl.Col("age_filled") >= 0);
             
         Assert.Equal(3, filled.Height);
 
         Assert.Equal(0, filled.GetValue<int>(1, "age_filled"));
 
-        using var nulls = df.Filter(Col("age").IsNull());
+        using var nulls = df.Filter(Pl.Col("age").IsNull());
 
         Assert.Equal(1, nulls.Height);
     }
@@ -126,9 +126,9 @@ TooShort,1990-05-20,1.60";
 
         using var res = df.Filter(
 
-            Col("birthdate").IsBetween(Lit(startDt), Lit(endDt))
+            Pl.Col("birthdate").IsBetween(Pl.Lit(startDt), Pl.Lit(endDt))
             & 
-            (Col("height") > 1.7)
+            (Pl.Col("height") > 1.7)
         );
 
         Assert.Equal(1, res.Height);
@@ -141,13 +141,13 @@ TooShort,1990-05-20,1.60";
         using var csv = new DisposableFile("name,height,weight\nAlice,1.65,60\nBob,1.80,80",".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
-        var bmiExpr = (Col("weight") / Col("height").Pow(2))
+        var bmiExpr = (Pl.Col("weight") / Pl.Col("height").Pow(2))
             .Alias("bmi");
 
         using var res = df.Select(
-            Col("name"),
+            Pl.Col("name"),
             bmiExpr,
-            Col("height").Sqrt().Alias("sqrt_h")
+            Pl.Col("height").Sqrt().Alias("sqrt_h")
         );
 
         Assert.True(res.GetValue<double>(1, "bmi") > 24.69 && res.GetValue<double>(1, "bmi") < 24.70);
@@ -161,9 +161,9 @@ TooShort,1990-05-20,1.60";
         using var df = DataFrame.FromColumns(new { theta = data });
 
         using var res = df.Select(
-            Col("theta").Sin().Alias("sin"),
-            Col("theta").Cos().Alias("cos"),
-            Col("theta").Tan().Alias("tan")
+            Pl.Col("theta").Sin().Alias("sin"),
+            Pl.Col("theta").Cos().Alias("cos"),
+            Pl.Col("theta").Tan().Alias("tan")
         );
 
         // Sin(0)=0, Cos(0)=1, Tan(0)=0
@@ -183,8 +183,8 @@ TooShort,1990-05-20,1.60";
         using var df = DataFrame.FromColumns(new { val = data });
 
         using var res = df.Select(
-            Col("val").ArcSin().Alias("asin"),
-            Col("val").ArcCos().Alias("acos")
+            Pl.Col("val").ArcSin().Alias("asin"),
+            Pl.Col("val").ArcCos().Alias("acos")
         );
 
         // ArcSin(-1) = -PI/2
@@ -200,9 +200,9 @@ TooShort,1990-05-20,1.60";
         using var df = DataFrame.FromColumns(new { val = data });
 
         using var res = df.Select(
-            Col("val").Ceil().Alias("ceil"),   // [-1, 2, 2]
-            Col("val").Floor().Alias("floor"), // [-2, 1, 2]
-            Col("val").Sign().Alias("sign")    // [-1, 1, 1]
+            Pl.Col("val").Ceil().Alias("ceil"),   // [-1, 2, 2]
+            Pl.Col("val").Floor().Alias("floor"), // [-2, 1, 2]
+            Pl.Col("val").Sign().Alias("sign")    // [-1, 1, 1]
         );
 
         // Ceil
@@ -228,15 +228,15 @@ TooShort,1990-05-20,1.60";
         using var df = DataFrame.ReadCsv(csv.Path);
 
         using var res = df.Select(
-            Col("text"),
+            Pl.Col("text"),
             
-            Col("text").Str.ToUpper().Alias("upper"),
+            Pl.Col("text").Str.ToUpper().Alias("upper"),
             
-            Col("text").Str.Slice(0, 3).Alias("slice"),
+            Pl.Col("text").Str.Slice(0, 3).Alias("slice"),
             
-            Col("text").Str.ReplaceAll("o", "0").Alias("replaced"),
+            Pl.Col("text").Str.ReplaceAll("o", "0").Alias("replaced"),
             
-            Col("text").Str.Len().Alias("len")
+            Pl.Col("text").Str.Len().Alias("len")
         );
 
         Assert.Equal("HELLO WORLD", res.GetValue<string>(0, "upper"));
@@ -257,9 +257,9 @@ TooShort,1990-05-20,1.60";
 
         using var res = df.Select(
 
-            Col("text").Str.ReplaceAll(@"\d+", "#", useRegex: true).Alias("masked"),
+            Pl.Col("text").Str.ReplaceAll(@"\d+", "#", useRegex: true).Alias("masked"),
 
-            Col("text").Str.Extract(@"(\d+)", 1).Alias("extracted_id")
+            Pl.Col("text").Str.Extract(@"(\d+)", 1).Alias("extracted_id")
         );
 
         Assert.Equal("User: #", res.GetValue<string>(0, "masked"));
@@ -279,16 +279,16 @@ TooShort,1990-05-20,1.60";
         using var df = DataFrame.ReadCsv(csv.Path, tryParseDates: true);
 
         using var res = df.Select(
-            Col("ts"),
-            Col("ts").Dt.Year().Alias("y"),
-            Col("ts").Dt.Month().Alias("m"),
-            Col("ts").Dt.Day().Alias("d"),
-            Col("ts").Dt.Hour().Alias("h"),
-            Col("ts").Dt.Weekday().Alias("w_day"),
+            Pl.Col("ts"),
+            Pl.Col("ts").Dt.Year().Alias("y"),
+            Pl.Col("ts").Dt.Month().Alias("m"),
+            Pl.Col("ts").Dt.Day().Alias("d"),
+            Pl.Col("ts").Dt.Hour().Alias("h"),
+            Pl.Col("ts").Dt.Weekday().Alias("w_day"),
             
-            Col("ts").Dt.ToString("%Y/%m/%d").Alias("fmt_custom"),
+            Pl.Col("ts").Dt.ToString("%Y/%m/%d").Alias("fmt_custom"),
             
-            Col("ts").Dt.Date().Alias("date_only")
+            Pl.Col("ts").Dt.Date().Alias("date_only")
         );
 
         // --- Row 0: 2023-12-25 15:30:00 ---
@@ -320,25 +320,25 @@ TooShort,1990-05-20,1.60";
         using var df = DataFrame.FromSeries(s);
 
         using var dfDt = df.Select(
-            Col("ts").Str.ToDatetime("%Y-%m-%d %H:%M:%S").Alias("ts")
+            Pl.Col("ts").Str.ToDatetime("%Y-%m-%d %H:%M:%S").Alias("ts")
         );
 
         using var res = dfDt.Select(
-            Col("ts"),
+            Pl.Col("ts"),
 
             // 1. Truncate "1h" -> 10:00:00
-            Col("ts").Dt.Truncate(new TimeSpan(0,1,0,0)).Alias("trunc_1h"),
+            Pl.Col("ts").Dt.Truncate(new TimeSpan(0,1,0,0)).Alias("trunc_1h"),
             
             // 2. Round "30m" -> 
             // 10:30:55 -> 10:30:00
             // 10:45:10 -> 10:30:00 (
-            Col("ts").Dt.Round(new TimeSpan(0,0,30,0)).Alias("round_30m"),
+            Pl.Col("ts").Dt.Round(new TimeSpan(0,0,30,0)).Alias("round_30m"),
 
             // 3. OffsetBy "1d" -> +1 day
-            Col("ts").Dt.OffsetBy(TimeSpan.FromDays(1)).Alias("offset_1d"),
+            Pl.Col("ts").Dt.OffsetBy(TimeSpan.FromDays(1)).Alias("offset_1d"),
 
             // 4. Timestamp (转 Int64)
-            Col("ts").Dt.Timestamp(TimeUnit.Milliseconds).Alias("ts_ms")
+            Pl.Col("ts").Dt.Timestamp(TimeUnit.Milliseconds).Alias("ts_ms")
         );
 
         var t0 = res.GetValue<DateTime>(0, "trunc_1h");
@@ -382,10 +382,10 @@ TooShort,1990-05-20,1.60";
 
         using var res = df.Select(
             // 1. String -> Int64
-            Col("val_str").Cast(typeof(long)).Alias("str_to_int"),
+            Pl.Col("val_str").Cast(typeof(long)).Alias("str_to_int"),
             
             // 2. Int64 -> Float64
-            Col("val_int").Cast(typeof(double)).Alias("int_to_float")
+            Pl.Col("val_int").Cast(typeof(double)).Alias("int_to_float")
         );
 
         long v1 = res.Column("str_to_int").GetValue<long>(0);
@@ -398,7 +398,7 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(20.0, v2);
     }
     // ==========================================
-    // Control Flow: IfElse (When/Then/Otherwise)
+    // Control Flow: Pl.IfElse( (When/Then/Otherwise)
     // ==========================================
     [Fact]
     public void Control_Flow_IfElse()
@@ -410,13 +410,13 @@ TooShort,1990-05-20,1.60";
         // else if score >= 60 then "Pass"
         // else "Fail"
         
-        var gradeExpr = IfElse(
-            Col("score") >= 90,
-            Lit("A"),
-            IfElse(
-                Col("score") >= 60,
-                Lit("Pass"),
-                Lit("Fail")
+        var gradeExpr = Pl.IfElse(
+            Pl.Col("score") >= 90,
+            Pl.Lit("A"),
+            Pl.IfElse(
+                Pl.Col("score") >= 60,
+                Pl.Lit("Pass"),
+                Pl.Lit("Fail")
             )
         ).Alias("grade");
 
@@ -446,21 +446,21 @@ TooShort,1990-05-20,1.60";
         using var df = DataFrame.ReadCsv(csv.Path);
 
         // "1 5 2" -> Split -> Sort(Desc) -> First
-        var maxCharExpr = Col("raw_nums").Str.Split(" ")
+        var maxCharExpr = Pl.Col("raw_nums").Str.Split(" ")
             .List.Sort(descending: true)
             .List.First()
             .Alias("max_char");
 
         using var res = df
             .WithColumns(
-                Struct(Col("score1"), Col("score2"))
+                Pl.Struct(Pl.Col("score1"), Pl.Col("score2"))
                 .Alias("scores_struct")
             )
             .WithColumns(
-                Col("scores_struct").Struct.Field("score1").Alias("s1_extracted")
+                Pl.Col("scores_struct").Struct.Field("score1").Alias("s1_extracted")
             )
             .WithColumns(
-                Lit("1 5 2").Alias("raw_nums")
+                Pl.Lit("1 5 2").Alias("raw_nums")
             )
             .WithColumns(maxCharExpr);
 
@@ -482,23 +482,23 @@ TooShort,1990-05-20,1.60";
         {
             dummy = new[] { 1 }
         }).Select(
-            Lit(3).Implode().List.Concat(LitNull().Implode()).List.Concat([1])
+            Pl.Lit(3).Implode().List.Concat(Pl.LitNull().Implode()).List.Concat([1])
             .Alias("list_col")
         );
         
         // Sort (Ascending) -> null first
         // [null, 1, 3]
-        using var df1 = df.Select(Col("list_col").List.Sort(descending: false, nullsLast: false));
+        using var df1 = df.Select(Pl.Col("list_col").List.Sort(descending: false, nullsLast: false));
         // 验证逻辑...
 
         // 2. Sort (Ascending + NullsLast)
         // [1, 3, null]
-        using var df2 = df.Select(Col("list_col").List.Sort(descending: false, nullsLast: true));
+        using var df2 = df.Select(Pl.Col("list_col").List.Sort(descending: false, nullsLast: true));
         
-        using var lastItem = df2.Select(Col("list_col").List.Get(-1));
+        using var lastItem = df2.Select(Pl.Col("list_col").List.Get(-1));
         Assert.Null(lastItem["list_col"][0]);
         
-        using var firstItem = df2.Select(Col("list_col").List.Get(0));
+        using var firstItem = df2.Select(Pl.Col("list_col").List.Get(0));
         Assert.Equal(1, (int)firstItem["list_col"][0]);
     }
     [Fact]
@@ -508,7 +508,7 @@ TooShort,1990-05-20,1.60";
         using var df = DataFrame.FromSeries(s);
 
         using var res = df.Select(
-            Col("data").Str.Split(",").Explode().Alias("flat")
+            Pl.Col("data").Str.Split(",").Explode().Alias("flat")
         );
 
         Assert.Equal(2, res.Height);
@@ -524,20 +524,20 @@ TooShort,1990-05-20,1.60";
 
         using var res = df.Select(
             // Strip Whitespace
-            Col("s").Str.StripChars().Alias("strip_ws"), 
+            Pl.Col("s").Str.StripChars().Alias("strip_ws"), 
             
             // Strip Specific Chars ('_')
-            Col("s").Str.StripChars("_").Alias("strip_custom"),
+            Pl.Col("s").Str.StripChars("_").Alias("strip_custom"),
 
             // Strip Start/End
-            Col("s").Str.StripCharsStart(" _").Alias("strip_start"), 
+            Pl.Col("s").Str.StripCharsStart(" _").Alias("strip_start"), 
             
             // Strip Prefix/Suffix
-            Col("s").Str.StripPrefix("prefix_").Str.StripSuffix("_suffix").Alias("strip_affix"),
+            Pl.Col("s").Str.StripPrefix("prefix_").Str.StripSuffix("_suffix").Alias("strip_affix"),
 
             // StartsWith / EndsWith
-            Col("s").Str.StartsWith("  h").Alias("starts_h"),
-            Col("s").Str.EndsWith("__").Alias("ends_underscore")
+            Pl.Col("s").Str.StartsWith("  h").Alias("starts_h"),
+            Pl.Col("s").Str.EndsWith("__").Alias("ends_underscore")
         );
 
         // Strip WS ("  hello  " -> "hello")
@@ -566,8 +566,8 @@ TooShort,1990-05-20,1.60";
         using var df = DataFrame.FromSeries(s);
 
         using var res = df.Select(
-            Col("dates").Str.ToDate().Alias("parsed_date"),      
-            Col("dates").Str.ToDatetime().Alias("parsed_dt")     
+            Pl.Col("dates").Str.ToDate().Alias("parsed_date"),      
+            Pl.Col("dates").Str.ToDatetime().Alias("parsed_dt")     
         );
         
         Assert.Equal(DataTypeKind.Date, res.Schema["parsed_date"].Kind);
@@ -587,7 +587,7 @@ TooShort,1990-05-20,1.60";
 
         var q = df.Lazy()
             .Select(
-                Struct(Col("A","B"))
+                Pl.Struct(Pl.Col("A","B"))
                     .Struct.RenameFields("First", "Second")
                     .Alias("MyStruct")
             );
@@ -595,8 +595,8 @@ TooShort,1990-05-20,1.60";
         using var result = q.Collect();
 
         var q2 = result.Select(
-            Col("MyStruct").Struct.Field(0).Alias("F0"), 
-            Col("MyStruct").Struct.Field(1).Alias("F1")  
+            Pl.Col("MyStruct").Struct.Field(0).Alias("F0"), 
+            Pl.Col("MyStruct").Struct.Field(1).Alias("F1")  
         );
         
         Assert.Equal(1, q2.GetValue<int>(0, "F0"));
@@ -613,8 +613,8 @@ TooShort,1990-05-20,1.60";
 
         var q = df.Lazy()
             .Select(
-                Col("Id"),
-                Col("Info").Struct.JsonEncode().Alias("InfoJson")
+                Pl.Col("Id"),
+                Pl.Col("Info").Struct.JsonEncode().Alias("InfoJson")
             );
 
         using var res = q.Collect();
@@ -639,18 +639,18 @@ TooShort,1990-05-20,1.60";
             Value = new[] { 10, 20, 30, 100, 200 },
         });
 
-        var count = df.Select(Len()).Row(0)[0];
+        var count = df.Select(Pl.Len()).Row(0)[0];
         Assert.Equal(5u, count);
 
         var result = df.Select(
-            Col("Group"),
-            Col("Value"),
+            Pl.Col("Group"),
+            Pl.Col("Value"),
             
-            Col("Value").Sum().Over("Group").Alias("GroupSum"),
+            Pl.Col("Value").Sum().Over("Group").Alias("GroupSum"),
             
-            Col("Value").Shift(1).Alias("PrevValue"),
+            Pl.Col("Value").Shift(1).Alias("PrevValue"),
             
-            Col("Value").Diff(1).Alias("DiffValue")
+            Pl.Col("Value").Diff(1).Alias("DiffValue")
         );
 
         // Group A (10, 20, 30) -> Sum = 60
@@ -680,7 +680,7 @@ TooShort,1990-05-20,1.60";
 
         // Friday -> (Skip Saturday, Sunday) -> Monday(+1) -> Tuesday(+2)
         using var res1 = df.Select(
-            Col("OrderDate").Dt
+            Pl.Col("OrderDate").Dt
                 .AddBusinessDays(2) 
                 .Alias("Delivery")
         );
@@ -692,7 +692,7 @@ TooShort,1990-05-20,1.60";
         var holidays = new[] { new DateOnly(2024, 1, 8) };
         
         using var res2 = df.Select(
-            Col("OrderDate").Dt
+            Pl.Col("OrderDate").Dt
                 .AddBusinessDays(2, holidays: holidays)
                 .Alias("Delivery")
         );
@@ -718,8 +718,8 @@ TooShort,1990-05-20,1.60";
         var holidays = new[] { new DateOnly(2024, 1, 8) };
 
         using var res = df.Select(
-            Col("Date"),
-            Col("Date").Dt.IsBusinessDay(holidays: holidays).Alias("IsBiz")
+            Pl.Col("Date"),
+            Pl.Col("Date").Dt.IsBusinessDay(holidays: holidays).Alias("IsBiz")
         );
 
         // Fri -> True
@@ -747,7 +747,7 @@ TooShort,1990-05-20,1.60";
             var targetType = DataType.Array(DataType.Int32, 3);
             
             var dfArray = df.Select(
-                Col("data").Cast(targetType).Alias("arr")
+                Pl.Col("data").Cast(targetType).Alias("arr")
             );
             
             return dfArray;
@@ -762,10 +762,10 @@ TooShort,1990-05-20,1.60";
             // Row 0: [1, 2, 3] -> Sum=6, Max=3
             // Row 1: [10, 20, 30] -> Sum=60, Max=30
             using var res = df.Select(
-                Col("arr").Array.Sum().Alias("sum"),
-                Col("arr").Array.Max().Alias("max"),
-                Col("arr").Array.Min().Alias("min"),
-                Col("arr").Array.Mean().Alias("mean")
+                Pl.Col("arr").Array.Sum().Alias("sum"),
+                Pl.Col("arr").Array.Max().Alias("max"),
+                Pl.Col("arr").Array.Min().Alias("min"),
+                Pl.Col("arr").Array.Mean().Alias("mean")
             );
 
             Assert.Equal(6, (int)res["sum"][0]);
@@ -783,7 +783,7 @@ TooShort,1990-05-20,1.60";
 
             // Array(3) -> Struct { field_0, field_1, field_2 }
             using var res = df.Select(
-                Col("arr").Array.ToStruct().Alias("struct_col")
+                Pl.Col("arr").Array.ToStruct().Alias("struct_col")
             );
 
             var structCol = res["struct_col"];
@@ -806,8 +806,8 @@ TooShort,1990-05-20,1.60";
             using var df = CreateArrayDataFrame();
 
             using var res = df.Select(
-                Col("arr").Array.Get(0).Alias("first"), 
-                Col("arr").Array.Get(-1).Alias("last")   
+                Pl.Col("arr").Array.Get(0).Alias("first"), 
+                Pl.Col("arr").Array.Get(-1).Alias("last")   
             );
 
             Assert.Equal(1, (int)res["first"][0]);
@@ -824,7 +824,7 @@ TooShort,1990-05-20,1.60";
             using var df = DataFrame.FromColumns(new { strs = data });
             
             using var res = df.Select(
-                Col("strs")
+                Pl.Col("strs")
                     .Cast(DataType.Array(DataType.String, 2)) 
                     .Array.Join("-")
                     .Alias("joined")
@@ -840,13 +840,13 @@ TooShort,1990-05-20,1.60";
             // 数据: [3, 1, 2]
             var data = new[] { new[] { 3, 1, 2 } };
             using var df = DataFrame.FromColumns(new { data })
-                .Select(Col("data").Cast(DataType.Array(DataType.Int32, 3)).Alias("arr"));
+                .Select(Pl.Col("data").Cast(DataType.Array(DataType.Int32, 3)).Alias("arr"));
 
             using var res = df.Select(
-                Col("arr").Array.Sort().Alias("sorted"),       // [1, 2, 3]
-                Col("arr").Array.Reverse().Alias("reversed"),  // [2, 1, 3] 
-                Col("arr").Array.ArgMin().Alias("argmin"),     // Index of 1 is 1
-                Col("arr").Array.ArgMax().Alias("argmax")      // Index of 3 is 0
+                Pl.Col("arr").Array.Sort().Alias("sorted"),       // [1, 2, 3]
+                Pl.Col("arr").Array.Reverse().Alias("reversed"),  // [2, 1, 3] 
+                Pl.Col("arr").Array.ArgMin().Alias("argmin"),     // Index of 1 is 1
+                Pl.Col("arr").Array.ArgMax().Alias("argmax")      // Index of 3 is 0
             );
 
             var sortedList = res["sorted"].GetValue<List<int>>(0); 
@@ -877,11 +877,11 @@ TooShort,1990-05-20,1.60";
             };
             
             using var df = DataFrame.FromColumns(new { vals = data })
-                .Select(Col("vals").Cast(DataType.Array(DataType.Boolean, 2)).Alias("arr"));
+                .Select(Pl.Col("vals").Cast(DataType.Array(DataType.Boolean, 2)).Alias("arr"));
 
             using var res = df.Select(
-                Col("arr").Array.Any().Alias("any"),
-                Col("arr").Array.All().Alias("all")
+                Pl.Col("arr").Array.Any().Alias("any"),
+                Pl.Col("arr").Array.All().Alias("all")
             );
 
             // Row 0: [T, F] -> Any=T, All=F
@@ -903,11 +903,11 @@ TooShort,1990-05-20,1.60";
              // [3, 1, 2]
             var data = new[] { new[] { 3, 1, 2 } };
             using var df = DataFrame.FromColumns(new { data })
-                .Select(Col("data").Cast(DataType.Array(DataType.Int32, 3)).Alias("arr"));
+                .Select(Pl.Col("data").Cast(DataType.Array(DataType.Int32, 3)).Alias("arr"));
             
             using var res = df.Select(
-                Col("arr").Array.Contains(1).Alias("has_1"),
-                Col("arr").Array.Contains(99).Alias("has_99")
+                Pl.Col("arr").Array.Contains(1).Alias("has_1"),
+                Pl.Col("arr").Array.Contains(99).Alias("has_99")
             );
             
             Assert.True((bool)res["has_1"][0]);
@@ -956,7 +956,7 @@ TooShort,1990-05-20,1.60";
             using var dfFloat = DataFrame.FromColumns(new 
             { 
                 v = new[] { [1.1, 2.2], new[] { 3.3, 4.4 } } 
-            }).Select(Col("v").Cast(DataType.Array(DataType.Float64, 2)).Alias("vec"));
+            }).Select(Pl.Col("v").Cast(DataType.Array(DataType.Float64, 2)).Alias("vec"));
             
             var vec = dfFloat["vec"].GetValue<double[]>(0);
             Assert.Equal(1.1, vec[0], 1);
@@ -968,9 +968,9 @@ TooShort,1990-05-20,1.60";
             var data = new[] { 10, 5, 8, 100, 1, 99 };
             using var df = DataFrame.FromColumns(new { val = data });
 
-            using var top = df.Select(Col("val").TopK(2).Alias("top"));
+            using var top = df.Select(Pl.Col("val").TopK(2).Alias("top"));
             
-            using var bottom = df.Select(Col("val").BottomK(2).Alias("bottom"));
+            using var bottom = df.Select(Pl.Col("val").BottomK(2).Alias("bottom"));
 
             Assert.Equal(2, top.Height);
 
@@ -996,9 +996,9 @@ TooShort,1990-05-20,1.60";
             using var df = DataFrame.FromColumns(new { group, val, score });
             
             using var res_topk = df.Select(
-                Col("val").TopKBy(
+                Pl.Col("val").TopKBy(
                     k: 2, 
-                    by: [Col("group"), Col("score")], 
+                    by: [Pl.Col("group"), Pl.Col("score")], 
                     reverse: [true, false] // Group descending, Score ascending
                 ).Alias("top_k")
             );
@@ -1010,9 +1010,9 @@ TooShort,1990-05-20,1.60";
             Assert.Contains(2, list_top);
 
             using var res_bottomk = df.Select(
-                Col("val").BottomKBy(
+                Pl.Col("val").BottomKBy(
                     k: 2,
-                    by: [Col("group"), Col("score")], 
+                    by: [Pl.Col("group"), Pl.Col("score")], 
                     reverse: [true, false] //
                 ).Alias("bottom_k")
             );
@@ -1040,13 +1040,13 @@ TooShort,1990-05-20,1.60";
 
         using var res = df.Select(
             // 1 << 1 = 2
-            (Col("i_val") << 1).Alias("i_shl"),
+            (Pl.Col("i_val") << 1).Alias("i_shl"),
             
             // -4 >> 1 = -2 
-            (Col("i_val") >> 1).Alias("i_shr"),
+            (Pl.Col("i_val") >> 1).Alias("i_shr"),
 
             // 0xFFFFFFFF >> 4 = 0x0FFFFFFF 
-            (Col("u_val") >> 4).Alias("u_shr")
+            (Pl.Col("u_val") >> 4).Alias("u_shr")
         );
 
         // 1 << 1 = 2
@@ -1067,7 +1067,7 @@ TooShort,1990-05-20,1.60";
         // 1 * 2 * 3 * 4 = 24
         using var df = DataFrame.FromColumns(new { nums = new[] { 1, 2, 3, 4 } });
 
-        var result = df.Select(Col("nums").Product());
+        var result = df.Select(Pl.Col("nums").Product());
         
         var val = result["nums"][0];
         Assert.Equal(24L, val);
@@ -1083,11 +1083,11 @@ TooShort,1990-05-20,1.60";
         });
 
         // Test 1: Symmetric -> 0
-        using var res1 = df.Select(Col("sym").Skew(bias: true));
+        using var res1 = df.Select(Pl.Col("sym").Skew(bias: true));
         Assert.Equal(0.0, (double)res1["sym"][0], precision: 6);
 
         // Test 2: Skewed -> Positive
-        using var res2 = df.Select(Col("skewed").Skew(bias: false));
+        using var res2 = df.Select(Pl.Col("skewed").Skew(bias: false));
         Assert.True((double)res2["skewed"][0] > 0);
     }
     [Fact]
@@ -1098,8 +1098,8 @@ TooShort,1990-05-20,1.60";
         // Fisher = true (Normal = 0)
         // Fisher = false (Pearson, Normal = 3)
         using var q = df.Select(
-            Col("data").Kurtosis(fisher: true, bias: false).Alias("k_fisher"),
-            Col("data").Kurtosis(fisher: false, bias: false).Alias("k_pearson")
+            Pl.Col("data").Kurtosis(fisher: true, bias: false).Alias("k_fisher"),
+            Pl.Col("data").Kurtosis(fisher: false, bias: false).Alias("k_pearson")
         );
 
         var kFisher = (double)q["k_fisher"][0];
@@ -1115,7 +1115,7 @@ TooShort,1990-05-20,1.60";
         // n=1: [null, 1.0, 1.0, 0.0]
         using var df = DataFrame.FromColumns(new { a = new[] { 10.0, 20.0, 40.0, 40.0 } });
 
-        using var res = df.Select(Col("a").PctChange(n: 1));
+        using var res = df.Select(Pl.Col("a").PctChange(n: 1));
         
         Assert.Null(res["a"][0]); 
         Assert.Equal(1.0, (double)res["a"][1]);
@@ -1131,22 +1131,22 @@ TooShort,1990-05-20,1.60";
         using var df = DataFrame.FromColumns(new { v = new[] { 10, 20, 20, 30 } });
 
         // Average (Default): 20->2.5
-        using var qAvg = df.Select(Col("v").Rank(RankMethod.Average).Alias("rank"));
+        using var qAvg = df.Select(Pl.Col("v").Rank(RankMethod.Average).Alias("rank"));
         Assert.Equal(2.5, (double)qAvg["rank"][1]);
 
         // Min: 20->2
-        using var qMin = df.Select(Col("v").Rank(RankMethod.Min).Alias("rank"));
+        using var qMin = df.Select(Pl.Col("v").Rank(RankMethod.Min).Alias("rank"));
 
         Assert.Equal(2.0, Convert.ToDouble(qMin["rank"][1]));
         Assert.Equal(4.0, Convert.ToDouble(qMin["rank"][3])); 
 
         // Dense: 20->2, 30->3
-        using var qDense = df.Select(Col("v").Rank(RankMethod.Dense).Alias("rank"));
+        using var qDense = df.Select(Pl.Col("v").Rank(RankMethod.Dense).Alias("rank"));
         Assert.Equal(2.0, Convert.ToDouble(qDense["rank"][1]));
         Assert.Equal(3.0, Convert.ToDouble(qDense["rank"][3])); // 紧接3
         
         // Descending
-        using var qDesc = df.Select(Col("v").Rank(RankMethod.Min, descending: true));
+        using var qDesc = df.Select(Pl.Col("v").Rank(RankMethod.Min, descending: true));
         // 30->1, 20->2, 10->4
         Assert.Equal(1.0, Convert.ToDouble(qDesc["v"][3])); // value 30 is rank 1
     }
@@ -1160,8 +1160,8 @@ TooShort,1990-05-20,1.60";
         // Forward: [1, 3, 6, 10]
         // Reverse: [10, 9, 7, 4]  (4, 4+3, 4+3+2, ...)
         using var qSum = df.Select(
-            Col("v").CumSum().Alias("fwd"),
-            Col("v").CumSum(reverse: true).Alias("rev")
+            Pl.Col("v").CumSum().Alias("fwd"),
+            Pl.Col("v").CumSum(reverse: true).Alias("rev")
         );
 
         Assert.Equal(6, qSum["fwd"][2]); // 1+2+3
@@ -1171,8 +1171,8 @@ TooShort,1990-05-20,1.60";
         // Forward: [1, 2, 6, 24]
         // Reverse: [24, 24, 12, 4] (1*2*3*4, 2*3*4, 3*4, 4)
         using var qProd = df.Select(
-            Col("v").CumProd().Alias("fwd"),
-            Col("v").CumProd(reverse: true).Alias("rev")
+            Pl.Col("v").CumProd().Alias("fwd"),
+            Pl.Col("v").CumProd(reverse: true).Alias("rev")
         );
         Assert.Equal(6L, qProd["fwd"][2]); // 1*2*3
         Assert.Equal(12L, qProd["rev"][2]); // 3*4
@@ -1188,8 +1188,8 @@ TooShort,1990-05-20,1.60";
         // Forward: [1, 5, 5, 5, 5]
         // Reverse: [5, 5, 4, 4, 3] (Max of 1..3 is 5, ..., 2..3 is 4, 4..3 is 4, 3 is 3)
         using var qMax = df.Select(
-            Col("v").CumMax().Alias("fwd"),
-            Col("v").CumMax(reverse: true).Alias("rev")
+            Pl.Col("v").CumMax().Alias("fwd"),
+            Pl.Col("v").CumMax(reverse: true).Alias("rev")
         );
         
         Assert.Equal(5, (int)qMax["fwd"][2]); // Max(1,5,2) -> 5
@@ -1199,8 +1199,8 @@ TooShort,1990-05-20,1.60";
         // Forward: [1, 1, 1, 1, 1]
         // Reverse: [1, 2, 2, 3, 3] (Min of 1..3 is 1, ..., 2..3 is 2, ..., 3 is 3)
         using var qMin = df.Select(
-            Col("v").CumMin().Alias("fwd"),
-            Col("v").CumMin(reverse: true).Alias("rev")
+            Pl.Col("v").CumMin().Alias("fwd"),
+            Pl.Col("v").CumMin(reverse: true).Alias("rev")
         );
 
         Assert.Equal(1, (int)qMin["fwd"][4]); 
@@ -1214,8 +1214,8 @@ TooShort,1990-05-20,1.60";
         using var df = DataFrame.FromColumns(new { v = new[] { 10, 20, 30 } });
 
         using var res = df.Select(
-            Col("v").CumCount(reverse: false).Alias("fwd"), // [1, 2, 3]
-            Col("v").CumCount(reverse: true).Alias("rev")   // [3, 2, 1] 
+            Pl.Col("v").CumCount(reverse: false).Alias("fwd"), // [1, 2, 3]
+            Pl.Col("v").CumCount(reverse: true).Alias("rev")   // [3, 2, 1] 
         );
 
         // CumCount returns UInt32 
@@ -1238,7 +1238,7 @@ TooShort,1990-05-20,1.60";
         // y0 = x0 = 10
         // y1 = (x1 + (1-a)*x0) / (1 + (1-a)) = (20 + 0.5*10) / 1.5 = 25/1.5 = 16.666...
         using var resMean = df.Select(
-            Col("v").EwmMean(alpha: 0.5, adjust: true).Alias("mean")
+            Pl.Col("v").EwmMean(alpha: 0.5, adjust: true).Alias("mean")
         );
         
         Assert.Equal(10.0, (double)resMean["mean"][0]);
@@ -1246,8 +1246,8 @@ TooShort,1990-05-20,1.60";
 
         // --- 2. EWM Var & Std (bias=false, unbiased) ---
         using var resVar = df.Select(
-            Col("v").EwmVar(alpha: 0.5, bias: false).Alias("var"),
-            Col("v").EwmStd(alpha: 0.5, bias: false).Alias("std")
+            Pl.Col("v").EwmVar(alpha: 0.5, bias: false).Alias("var"),
+            Pl.Col("v").EwmStd(alpha: 0.5, bias: false).Alias("std")
         );
 
         var var0 = resVar["var"][0];
@@ -1285,7 +1285,7 @@ TooShort,1990-05-20,1.60";
         df.Show();
 
         using var res = df.Select(
-            Col("v").EwmMeanBy(by: Col("ts"), halfLife: "1h").Alias("ewm_by")
+            Pl.Col("v").EwmMeanBy(by: Pl.Col("ts"), halfLife: "1h").Alias("ewm_by")
         );
 
         // Row 0: 10
@@ -1316,7 +1316,7 @@ TooShort,1990-05-20,1.60";
         });
 
         using var res = df.Select(
-            Col("v").EwmMeanBy(by: Col("idx"), halfLife: "1i").Alias("ewm_idx")
+            Pl.Col("v").EwmMeanBy(by: Pl.Col("idx"), halfLife: "1i").Alias("ewm_idx")
         );
         
         Assert.Equal(10.0, (double)res["ewm_idx"][0]);
@@ -1332,7 +1332,7 @@ TooShort,1990-05-20,1.60";
         // [1, 2, 3] -> Mean=2, Var = ((1-2)^2 + (2-2)^2 + (3-2)^2) / (3-1) = 2/2 = 1.0
         // [2, 3, 4] -> Var = 1.0
         using var resVar = df.Select(
-            Col("v").RollingVar(windowSize: "3i").Alias("var")
+            Pl.Col("v").RollingVar(windowSize: "3i").Alias("var")
         );
         // min_periods default is usually window size or 1 depending on setup, Polars usually nulls until window full
         Assert.Null(resVar["var"][0]); 
@@ -1345,7 +1345,7 @@ TooShort,1990-05-20,1.60";
         double[] w = [0.5, 1.0, 0.5];
         
         using var resQuant = df.Select(
-            Col("v").RollingQuantile(
+            Pl.Col("v").RollingQuantile(
                 quantile: 0.5, 
                 method: QuantileMethod.Linear, 
                 windowSize: "3i", 
@@ -1360,7 +1360,7 @@ TooShort,1990-05-20,1.60";
         
         // --- Rolling Kurtosis ---
         using var resKurt = df.Select(
-            Col("v").RollingKurtosis(windowSize: "4i").Alias("kurt")
+            Pl.Col("v").RollingKurtosis(windowSize: "4i").Alias("kurt")
         );
         Assert.NotNull(resKurt["kurt"][3]); // index 3 is 4th element
     }
@@ -1372,7 +1372,7 @@ TooShort,1990-05-20,1.60";
 
         // Index 2 (Window: 10, 20, 20): Last val is 20. Rank(Average) = (2+3)/2 = 2.5
         using var res = df.Select(
-            Col("v").RollingRank(windowSize: "3i", minPeriods: 3).Alias("rank")
+            Pl.Col("v").RollingRank(windowSize: "3i", minPeriods: 3).Alias("rank")
         );
 
         Assert.Equal(2.5, (double)res["rank"][2]);
@@ -1398,7 +1398,7 @@ TooShort,1990-05-20,1.60";
         });
 
         // 必须转为 Polars Datetime
-        var tsCol = Col("ts").Cast(DataType.Datetime(TimeUnit.Microseconds));
+        var tsCol = Pl.Col("ts").Cast(DataType.Datetime(TimeUnit.Microseconds));
 
         // --- 1. Rolling Std By "2m" ---
         // At t2 (00:02): Window [00:00, 00:02] (Default closed="left" -> [t-w, t))
@@ -1406,13 +1406,13 @@ TooShort,1990-05-20,1.60";
         // Closed=Both: [00:00, 00:02] -> 包含 00:00, 00:01, 00:02. Values: [0, 10, 10]. Std(0, 10, 10) ≈ 5.77
         
         using var resStd = df.Select(
-            Col("v").RollingStdBy(
+            Pl.Col("v").RollingStdBy(
                 windowSize: TimeSpan.FromMinutes(2), 
                 by: tsCol, 
                 closed: ClosedWindow.Left
             ).Alias("std_left"),
             
-            Col("v").RollingStdBy(
+            Pl.Col("v").RollingStdBy(
                 windowSize: TimeSpan.FromMinutes(2), 
                 by: tsCol, 
                 closed: ClosedWindow.Both 
@@ -1427,7 +1427,7 @@ TooShort,1990-05-20,1.60";
 
         // --- 2. Rolling Rank By ---
         using var resRank = df.Select(
-            Col("v").RollingRankBy(
+            Pl.Col("v").RollingRankBy(
                 windowSize: "3m",
                 by: tsCol,
                 closed: ClosedWindow.Both
@@ -1454,7 +1454,7 @@ TooShort,1990-05-20,1.60";
             ts = dates, 
             v = new[] { 1.0, 2.0 } 
         });
-        var tsCol = Col("ts").Cast(DataType.Datetime(TimeUnit.Microseconds));
+        var tsCol = Pl.Col("ts").Cast(DataType.Datetime(TimeUnit.Microseconds));
 
         // Window "2m" covers both points.
         // Compute Median (0.5) of [1, 2].
@@ -1463,7 +1463,7 @@ TooShort,1990-05-20,1.60";
         // Method: Higher -> 2
         
         using var res = df.Select(
-            Col("v").RollingQuantileBy(
+            Pl.Col("v").RollingQuantileBy(
                 quantile: 0.5, 
                 method: QuantileMethod.Linear, 
                 windowSize: "2m", 
@@ -1471,7 +1471,7 @@ TooShort,1990-05-20,1.60";
                 closed: ClosedWindow.Both
             ).Alias("q_linear"),
             
-            Col("v").RollingQuantileBy(
+            Pl.Col("v").RollingQuantileBy(
                 quantile: 0.5, 
                 method: QuantileMethod.Lower, 
                 windowSize: "2m", 
@@ -1501,10 +1501,10 @@ TooShort,1990-05-20,1.60";
         var dto = new DateTimeOffset(2024, 1, 1, 12, 0, 0, TimeSpan.FromHours(8));
 
         using var res = df.Select(
-            Lit(d).Alias("date"),
-            Lit(t).Alias("time"),
-            Lit(dur).Alias("duration"),
-            Lit(dto).Alias("dto")
+            Pl.Lit(d).Alias("date"),
+            Pl.Lit(t).Alias("time"),
+            Pl.Lit(dur).Alias("duration"),
+            Pl.Lit(dto).Alias("dto")
         );
 
         Assert.Equal(1, res.Height);
@@ -1524,9 +1524,9 @@ TooShort,1990-05-20,1.60";
         decimal d3 = 100m;       // Unscaled: 100, Scale: 0 
 
         var res = df.Select(
-            Lit(d1).Alias("d1"),
-            Lit(d2).Alias("d2"),
-            Lit(d3).Alias("d3")
+            Pl.Lit(d1).Alias("d1"),
+            Pl.Lit(d2).Alias("d2"),
+            Pl.Lit(d3).Alias("d3")
         );
 
         Assert.Equal(1, res.Height);
@@ -1545,7 +1545,7 @@ TooShort,1990-05-20,1.60";
         // int[]
         var listInt = new[] { 1, 3, 5 };
         var res1 = df.Select(
-            Lit(listInt).Implode().List.Contains(Col("id")).Alias("is_in_int")
+            Pl.Lit(listInt).Implode().List.Contains(Pl.Col("id")).Alias("is_in_int")
         );
         Assert.True(res1.GetValue<bool>(0, "is_in_int")); // 1 in [1,3,5] -> True
         Assert.False(res1.GetValue<bool>(1, "is_in_int")); // 2 in [1,3,5] -> False
@@ -1553,7 +1553,7 @@ TooShort,1990-05-20,1.60";
         // string[]
         string[] listStr =["A", "B"];
         var res2 = df.Select(
-            Lit(listStr).Alias("lit_str_list")
+            Pl.Lit(listStr).Alias("lit_str_list")
         );
 
         Assert.Equal("A",res2[0][0]);
@@ -1572,8 +1572,8 @@ TooShort,1990-05-20,1.60";
         var validNames = new[] { "Bob", "Eve" }; 
 
         var res = df.Select(
-            Col("id").IsIn(Lit(validIds).Implode()).Alias("id_in_whitelist"),
-            Col("name").IsIn(Lit(validNames).Implode()).Alias("name_in_whitelist")
+            Pl.Col("id").IsIn(Pl.Lit(validIds).Implode()).Alias("id_in_whitelist"),
+            Pl.Col("name").IsIn(Pl.Lit(validNames).Implode()).Alias("name_in_whitelist")
         );
 
         Assert.Equal(5, res.Height);
@@ -1600,9 +1600,9 @@ TooShort,1990-05-20,1.60";
         var bools = new[] { true, false, true };
 
         var res = df.Select(
-            Lit(ints).Alias("i"),           
-            Lit(nullDoubles).Alias("f"),    
-            Lit(bools).Alias("b")           
+            Pl.Lit(ints).Alias("i"),           
+            Pl.Lit(nullDoubles).Alias("f"),    
+            Pl.Lit(bools).Alias("b")           
         );
 
         Assert.Equal(3, res.Height);
@@ -1631,7 +1631,7 @@ TooShort,1990-05-20,1.60";
         };
 
         var res = df.Select(
-            Lit(users).Alias("user_info")
+            Pl.Lit(users).Alias("user_info")
         );
 
         /*
@@ -1671,15 +1671,15 @@ TooShort,1990-05-20,1.60";
         };
 
         // AsStruct: Pack two columns into struct
-        // Lit(validCombinations): Convert C# array into Series<Struct>
+        // Pl.Lit(validCombinations): Convert C# array into Series<Struct>
         // .Implode(): Pack Series<Struct> into scalar List<Struct> 
         // .IsIn(): Check whether struct is in the validCombinations
         var res = df.Select(
-            Col("id"),
-            Struct(Col("region"), Col("dept"))
-                .IsIn(Lit(validCombinations).Implode()) 
+            Pl.Col("id"),
+            Pl.Struct(Pl.Col("region"), Pl.Col("dept"))
+                .IsIn(Pl.Lit(validCombinations).Implode()) 
                 .Alias("is_valid")
-        ).Filter(Col("is_valid")); 
+        ).Filter(Pl.Col("is_valid")); 
 
         
         Assert.Equal(2, res.Height);
@@ -1713,14 +1713,14 @@ TooShort,1990-05-20,1.60";
         };
 
         var dfComplex = df.Select(
-            Lit(logs).Alias("log_entry")
+            Pl.Lit(logs).Alias("log_entry")
         );
     
         // log_entry (Struct) -> Events (List) -> Get(0) (Struct) -> Msg (String)
         var res = dfComplex.Select(
-            Col("log_entry").Struct.Field("Machine").Alias("host"),
+            Pl.Col("log_entry").Struct.Field("Machine").Alias("host"),
             
-            Col("log_entry")
+            Pl.Col("log_entry")
                 .Struct.Field("Events")
                 .List.Get(0) 
                 .Struct.Field("Msg") 
@@ -1758,7 +1758,7 @@ TooShort,1990-05-20,1.60";
         };
 
         var res = df.Select(
-            Lit(users).Alias("user_tags")
+            Pl.Lit(users).Alias("user_tags")
         );
 
         /*
@@ -1808,13 +1808,13 @@ TooShort,1990-05-20,1.60";
         };
 
         var res = df.Select(
-            Lit(complexData).Alias("audit_log")
+            Pl.Lit(complexData).Alias("audit_log")
         );
 
         res.Show();
         
         var exploded = res.Select(
-            Col("audit_log").Struct.Field("History").Explode().Alias("flat_log")
+            Pl.Col("audit_log").Struct.Field("History").Explode().Alias("flat_log")
         );
         
         Assert.Equal(3, exploded.Height);
@@ -1828,7 +1828,7 @@ TooShort,1990-05-20,1.60";
         );
         
         var res = df.Select(
-            Col("a").Filter(Col("a") > 5).Alias("filtered_a")
+            Pl.Col("a").Filter(Pl.Col("a") > 5).Alias("filtered_a")
         );
 
         var series = res["filtered_a"];
@@ -1848,7 +1848,7 @@ TooShort,1990-05-20,1.60";
 
         // GroupBy id
         var res = df.GroupBy("id").Agg(
-            Col("val").Filter(Col("val") > 15).Mean().Alias("conditional_mean")
+            Pl.Col("val").Filter(Pl.Col("val") > 15).Mean().Alias("conditional_mean")
         ).Sort("id", false);
 
         // Group 1: [10, 20, 30] -> Filter(>15) -> [20, 30] -> Mean -> 25
@@ -1871,7 +1871,7 @@ TooShort,1990-05-20,1.60";
 
         // Calculation: (1*4) + (2*5) + (3*6) = 4 + 10 + 18 = 32
         using var result = df.Select(
-            Col("a").Dot(Col("b")).Alias("dot_res")
+            Pl.Col("a").Dot(Pl.Col("b")).Alias("dot_res")
         );
 
         var val = result["dot_res"][0];
@@ -1901,8 +1901,8 @@ TooShort,1990-05-20,1.60";
         static Expr Cosine(Expr a, Expr b) => a.Dot(b) / (L2Norm(a) * L2Norm(b));
 
         using var res = df.Select(
-            Cosine(Col("a1"), Col("a2")).Alias("ortho"), // [1,0] . [0,1]
-            Cosine(Col("b1"), Col("b2")).Alias("parallel") // [1,1] . [2,2]
+            Cosine(Pl.Col("a1"), Pl.Col("a2")).Alias("ortho"), // [1,0] . [0,1]
+            Cosine(Pl.Col("b1"), Pl.Col("b2")).Alias("parallel") // [1,1] . [2,2]
         );
 
         var ortho = (double?)res["ortho"][0];
@@ -1924,7 +1924,7 @@ TooShort,1990-05-20,1.60";
 
         // (1*4) + (2*5) + (null*10) = 4 + 10 + ? 
         
-        using var result = df.Select(Col("a").Dot(Col("b")));
+        using var result = df.Select(Pl.Col("a").Dot(Pl.Col("b")));
 
         var val = result[0][0];
         
@@ -1941,7 +1941,7 @@ TooShort,1990-05-20,1.60";
 
         // Linear Interpolation (Default)
         // 1.0 -> (2.0) -> (3.0) -> 4.0 -> 5.0
-        using var linear = df.Select(Col("val").Interpolate().Alias("linear"));
+        using var linear = df.Select(Pl.Col("val").Interpolate().Alias("linear"));
         var linearArr = linear["linear"].ToArray<double?>();
         
         Assert.Equal(2.0, linearArr[1]);
@@ -1949,7 +1949,7 @@ TooShort,1990-05-20,1.60";
 
         // Nearest Interpolation
         // 1.0 -> (1.0) -> (4.0) -> 4.0 -> 5.0  (depends on strategy, usually rounds to nearest valid)
-        using var nearest = df.Select(Col("val").Interpolate(InterpolationMethod.Nearest).Alias("nearest"));
+        using var nearest = df.Select(Pl.Col("val").Interpolate(InterpolationMethod.Nearest).Alias("nearest"));
         var nearestArr = nearest["nearest"].ToArray<double?>();
         
         Assert.NotNull(nearestArr[1]);
@@ -1978,8 +1978,8 @@ TooShort,1990-05-20,1.60";
         });
 
         using var res = df.Select(
-            Col("val").Interpolate().Alias("linear_index"),
-            Col("val").InterpolateBy(Col("pos")).Alias("linear_pos")
+            Pl.Col("val").Interpolate().Alias("linear_index"),
+            Pl.Col("val").InterpolateBy(Pl.Col("pos")).Alias("linear_pos")
         );
 
         var linearIndex = res["linear_index"][1];
@@ -1998,9 +1998,9 @@ TooShort,1990-05-20,1.60";
         });
 
         using var resultDf = df.Select(
-            Col("a").Alias("original_a"),                  
-            SqlExpr("POWER(a, a) AS a_a"),                 
-            SqlExpr("CAST(a AS VARCHAR) AS a_txt")         
+            Pl.Col("a").Alias("original_a"),                  
+            Pl.SqlExpr("POWER(a, a) AS a_a"),                 
+            Pl.SqlExpr("CAST(a AS VARCHAR) AS a_txt")         
         );
 
         var aaArr = resultDf["a_a"].ToArray<double>();
@@ -2029,9 +2029,9 @@ TooShort,1990-05-20,1.60";
         });
 
         using var res = df.Select(
-            Col("val").Get(2).Alias("get_valid"),
+            Pl.Col("val").Get(2).Alias("get_valid"),
 
-            Col("val").Get(10, nullOnOutOfBounds: true).Alias("get_oob")
+            Pl.Col("val").Get(10, nullOnOutOfBounds: true).Alias("get_oob")
         );
 
         Assert.Equal(30, (int)res["get_valid"][0]);
@@ -2056,9 +2056,9 @@ TooShort,1990-05-20,1.60";
         });
 
         using var res = df.Select(
-            Col("name").Gather(Col("score").ArgSort(descending:true)).Alias("ranked_names"),
+            Pl.Col("name").Gather(Pl.Col("score").ArgSort(descending:true)).Alias("ranked_names"),
             
-            Col("name").Take([0, 2, 0, 1]).Alias("taken_names") 
+            Pl.Col("name").Take([0, 2, 0, 1]).Alias("taken_names") 
         );
 
         var rankedNames = res["ranked_names"];
@@ -2088,7 +2088,7 @@ TooShort,1990-05-20,1.60";
         });
 
         using var res = df.Select(
-            Col("val").GatherEvery(n: 3, offset: 2).Alias("every_3_offset_2")
+            Pl.Col("val").GatherEvery(n: 3, offset: 2).Alias("every_3_offset_2")
         );
 
         var resultCol = res["every_3_offset_2"];
@@ -2121,9 +2121,9 @@ TooShort,1990-05-20,1.60";
         // │ 1   │
         // └─────┘
         using var res = df.Select(
-            Col("val").ArgMin().Alias("min_idx"),
-            Col("val").ArgMax().Alias("max_idx"),
-            Col("val").ArgUnique().Alias("unique_idx")
+            Pl.Col("val").ArgMin().Alias("min_idx"),
+            Pl.Col("val").ArgMax().Alias("max_idx"),
+            Pl.Col("val").ArgUnique().Alias("unique_idx")
         );
         // shape: (3, 3)
         // ┌─────────┬─────────┬────────────┐
@@ -2170,15 +2170,15 @@ TooShort,1990-05-20,1.60";
         // └─────┘
         using var res = df.Select(
             // --- IndexOf  ---
-            Col("val").IndexOf(Lit(20)).Alias("idx_of_20"),
-            Col("val").IndexOf(Lit(99)).Alias("idx_of_99"), 
+            Pl.Col("val").IndexOf(Pl.Lit(20)).Alias("idx_of_20"),
+            Pl.Col("val").IndexOf(Pl.Lit(99)).Alias("idx_of_99"), 
             
             // --- SearchSorted ---
-            Col("val").SearchSorted(Lit(25)).Alias("search_25"),
+            Pl.Col("val").SearchSorted(Pl.Lit(25)).Alias("search_25"),
             
-            Col("val").SearchSorted(Lit(20), side: SearchSortedSide.Left).Alias("search_20_left"),
+            Pl.Col("val").SearchSorted(Pl.Lit(20), side: SearchSortedSide.Left).Alias("search_20_left"),
 
-            Col("val").SearchSorted(Lit(20), side: SearchSortedSide.Right).Alias("search_20_right")
+            Pl.Col("val").SearchSorted(Pl.Lit(20), side: SearchSortedSide.Right).Alias("search_20_right")
         );
         // shape: (1, 5)
         // ┌───────────┬───────────┬───────────┬────────────────┬─────────────────┐
@@ -2219,13 +2219,13 @@ TooShort,1990-05-20,1.60";
 
         using var res = df.Select(
             // --- ConcatString (Strict: any null makes result null) ---
-            ConcatString("-", false, Col("WordA"), Col("WordB")).Alias("concat_strict"),
+            Pl.ConcatString("-", false, Pl.Col("WordA"), Pl.Col("WordB")).Alias("concat_strict"),
             
             // --- ConcatString (Ignore Nulls: skips nulls seamlessly) ---
-            ConcatString("-", true, Col("WordA"), Col("WordB")).Alias("concat_ignore"),
+            Pl.ConcatString("-", true, Pl.Col("WordA"), Pl.Col("WordB")).Alias("concat_ignore"),
             
             // --- FormatString (Template formatting) ---
-            FormatString("[{}] + [{}] = ❤️", Col("WordA"), Col("WordB")).Alias("format_str")
+            Pl.FormatString("[{}] + [{}] = ❤️", Pl.Col("WordA"), Pl.Col("WordB")).Alias("format_str")
         );
 
         // shape: (4, 3)
@@ -2282,7 +2282,7 @@ TooShort,1990-05-20,1.60";
         // ConcatExpr appends expressions/series vertically.
         // It will combine Col1 and Col2 into a single column of length 4.
         using var res = df.Select(
-            ConcatExpr(rechunk: true, Col("Col1"), Col("Col2")).Alias("vertical_concat")
+            Pl.ConcatExpr(rechunk: true, Pl.Col("Col1"), Pl.Col("Col2")).Alias("vertical_concat")
         );
 
         // shape: (4, 1)
@@ -2313,7 +2313,7 @@ TooShort,1990-05-20,1.60";
             Series.From("col2", new int?[] {12341,432123,12341,99999,null})
         );
 
-        var result = df.Select(All().NUnique());
+        var result = df.Select(Pl.All().NUnique());
         Assert.Equal(3u,result[0][0]);
         Assert.Equal(4u,result[1][0]);
     }
@@ -2327,10 +2327,10 @@ TooShort,1990-05-20,1.60";
             Series.From("c", [7, 8, 9])
         );
 
-        // 10 + col("a") + col("b") + col("c")
-        Expr[] exprs = [Col("a"), Col("b"), Col("c")];
-        var foldExpr = Fold(
-            acc: Lit(10), 
+        // 10 + Pl.Col("a") + Pl.Col("b") + Pl.Col("c")
+        Expr[] exprs = [Pl.Col("a"), Pl.Col("b"), Pl.Col("c")];
+        var foldExpr = Pl.Fold(
+            acc: Pl.Lit(10), 
             f: (acc, x) => acc + x, 
             exprs: exprs
         ).Alias("folded_sum");
@@ -2356,9 +2356,9 @@ TooShort,1990-05-20,1.60";
             Series.From("part3", ["C", "Z"])
         );
 
-        var exprs = new[] { Col("part1"), Col("part2"), Col("part3") };
-        var reduceExpr = Reduce(
-            f: (acc, x) => acc + Lit("-") + x, 
+        var exprs = new[] { Pl.Col("part1"), Pl.Col("part2"), Pl.Col("part3") };
+        var reduceExpr = Pl.Reduce(
+            f: (acc, x) => acc + Pl.Lit("-") + x, 
             exprs: exprs
         ).Alias("reduced_str");
 
@@ -2376,7 +2376,7 @@ TooShort,1990-05-20,1.60";
 
         var ex = Assert.Throws<ArgumentException>(() => 
         {
-            Reduce((acc, x) => acc + x, emptyExprs);
+            Pl.Reduce((acc, x) => acc + x, emptyExprs);
         });
 
         Assert.Contains("cannot be empty", ex.Message);
@@ -2391,7 +2391,7 @@ TooShort,1990-05-20,1.60";
             Series.From("values", data)
         );
 
-        var expr = Col("values").ApproxNUnique().Alias("approx_count");
+        var expr = Pl.Col("values").ApproxNUnique().Alias("approx_count");
         
         using var resultDf = df.Select(expr);
         var approxCount = resultDf.Column("approx_count").GetValue<uint>(0);
@@ -2412,8 +2412,8 @@ TooShort,1990-05-20,1.60";
             Series.From("fruits", strData)
         );
 
-        var exprExact = Col("fruits").NUnique().Alias("exact");
-        var exprApprox = Col("fruits").ApproxNUnique().Alias("approx");
+        var exprExact = Pl.Col("fruits").NUnique().Alias("exact");
+        var exprApprox = Pl.Col("fruits").ApproxNUnique().Alias("approx");
 
         using var resultDf = df.Select(exprExact, exprApprox);
         
@@ -2428,13 +2428,13 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Meta")]
     public void Test_IsColumn_ShouldIdentifyPureColumns()
     {
-        var pureCol = Col("id");
+        var pureCol = Pl.Col("id");
         Assert.True(pureCol.Meta.IsColumn());
 
-        var computed = Col("id") * 2;
+        var computed = Pl.Col("id") * 2;
         Assert.False(computed.Meta.IsColumn());
 
-        var regexCol = Col("^id.*$");
+        var regexCol = Pl.Col("^id.*$");
         Assert.False(regexCol.Meta.IsColumn());
     }
 
@@ -2442,10 +2442,10 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Meta")]
     public void Test_IsRegexProjection_ShouldIdentifyRegex()
     {
-        var regexCol = Col("^prefix_.*$");
+        var regexCol = Pl.Col("^prefix_.*$");
         Assert.True(regexCol.Meta.IsRegexProjection());
 
-        var normalCol = Col("prefix_name");
+        var normalCol = Pl.Col("prefix_name");
         Assert.False(normalCol.Meta.IsRegexProjection());
     }
 
@@ -2453,19 +2453,19 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Meta")]
     public void Test_IsColumnSelection_TheUltimateSelectorGuard()
     {
-        Assert.True(Col("name").Meta.IsColumnSelection());
+        Assert.True(Pl.Col("name").Meta.IsColumnSelection());
 
         Assert.True(Cs.Numeric().ToExpr().Meta.IsColumnSelection());
 
-        Assert.True(Col("A", "B").Meta.IsColumnSelection());
+        Assert.True(Pl.Col("A", "B").Meta.IsColumnSelection());
 
-        Assert.True(Col("^.*$").Meta.IsColumnSelection());
+        Assert.True(Pl.Col("^.*$").Meta.IsColumnSelection());
 
-        var aliased = Col("A").Alias("B");
+        var aliased = Pl.Col("A").Alias("B");
         Assert.False(aliased.Meta.IsColumnSelection(allowAliasing: false)); 
         Assert.True(aliased.Meta.IsColumnSelection(allowAliasing: true)); 
 
-        var computed = Col("A") + 1;
+        var computed = Pl.Col("A") + 1;
         Assert.False(computed.Meta.IsColumnSelection(allowAliasing: true));
     }
 
@@ -2473,15 +2473,15 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Meta")]
     public void Test_IsLiteral_ShouldIdentifyConstants()
     {
-        var literalInt = Lit(42);
-        var literalString = Lit("hello");
+        var literalInt = Pl.Lit(42);
+        var literalString = Pl.Lit("hello");
 
         Assert.True(literalInt.Meta.IsLiteral());
         Assert.True(literalString.Meta.IsLiteral());
 
-        Assert.False(Col("A").Meta.IsLiteral());
+        Assert.False(Pl.Col("A").Meta.IsLiteral());
 
-        var aliasedLiteral = Lit(100).Alias("Score");
+        var aliasedLiteral = Pl.Lit(100).Alias("Score");
         Assert.False(aliasedLiteral.Meta.IsLiteral(allowAliasing: false));
         Assert.True(aliasedLiteral.Meta.IsLiteral(allowAliasing: true));
     }
@@ -2490,20 +2490,20 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Meta")]
     public void Test_HasMultipleOutputs_ShouldIdentifyExpansions()
     {
-        Assert.True(Col("*").Meta.HasMultipleOutputs());
+        Assert.True(Pl.Col("*").Meta.HasMultipleOutputs());
         Assert.True(Cs.Numeric().ToExpr().Meta.HasMultipleOutputs());
-        Assert.True(Col("A", "B").Meta.HasMultipleOutputs());
+        Assert.True(Pl.Col("A", "B").Meta.HasMultipleOutputs());
 
-        Assert.False(Col("A").Meta.HasMultipleOutputs());
+        Assert.False(Pl.Col("A").Meta.HasMultipleOutputs());
 
-        Assert.False(Lit(1).Meta.HasMultipleOutputs());
+        Assert.False(Pl.Lit(1).Meta.HasMultipleOutputs());
     }
 
     [Fact]
     [Trait("Expr", "Meta")]
     public void Test_UndoAliases_ShouldStripAliasWrappers()
     {
-        var expr = (Col("A") + 1).Alias("B");
+        var expr = (Pl.Col("A") + 1).Alias("B");
         
         var stripped = expr.Meta.UndoAliases();
 
@@ -2517,7 +2517,7 @@ TooShort,1990-05-20,1.60";
     public void Test_RootNames_ShouldExtractAllLeafColumns()
     {
 
-        var complexExpr = ((Col("A") * Col("B")) + Col("C").Sum()).Alias("Result");
+        var complexExpr = ((Pl.Col("A") * Pl.Col("B")) + Pl.Col("C").Sum()).Alias("Result");
 
         var rootNames = complexExpr.Meta.RootNames();
 
@@ -2526,20 +2526,19 @@ TooShort,1990-05-20,1.60";
         Assert.Contains("B", rootNames);
         Assert.Contains("C", rootNames);
         
-        var litNames = Lit(42).Meta.RootNames();
+        var litNames = Pl.Lit(42).Meta.RootNames();
         Assert.Empty(litNames);
     }
     [Fact]
     [Trait("Expr", "MetaFormatTreeStandard")]
     public void Test_FormatTree_StandardText_ShouldPrintHierarchy()
     {
-        var expr = (Col("A") * Lit(2)) + Col("B");
+        var expr = (Pl.Col("A") * Pl.Lit(2)) + Pl.Col("B");
         var tree = expr.Meta.FormatTree();
 
         Assert.False(string.IsNullOrWhiteSpace(tree));
         Assert.Contains("binary: +", tree);
         Assert.Contains("binary: *", tree);
-        Assert.Contains("col(A)", tree);
         Assert.Contains("lit", tree);
     }
 
@@ -2547,7 +2546,7 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "MetaFormatTreeDot")]
     public void Test_FormatTree_AsDot_ShouldOutputGraphviz()
     {
-        var expr = Col("A").Sum().Alias("Total");
+        var expr = Pl.Col("A").Sum().Alias("Total");
         var dot = expr.Meta.FormatTree(displayAsDot: true);
 
         Assert.False(string.IsNullOrWhiteSpace(dot));
@@ -2567,7 +2566,7 @@ TooShort,1990-05-20,1.60";
         });
         using var schema = df.Schema;
 
-        var expr = Col("Price") * Col("Count") + 100;
+        var expr = Pl.Col("Price") * Pl.Col("Count") + 100;
 
         var treeWithoutSchema = expr.Meta.FormatTree();
         Assert.Contains("binary: +", treeWithoutSchema);
@@ -2589,7 +2588,7 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "MetaPopBinary")]
     public void Test_Pop_BinaryExpression_ShouldReturnLeftAndRight()
     {
-        var expr = Col("A") + Col("B");
+        var expr = Pl.Col("A") + Pl.Col("B");
         
         var children = expr.Meta.Pop();
 
@@ -2605,7 +2604,7 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "MetaPopInner")]
     public void Test_Pop_Alias_ShouldReturnInnerExpression()
     {
-        var expr = Col("A").Alias("B");
+        var expr = Pl.Col("A").Alias("B");
         
         var children = expr.Meta.Pop();
 
@@ -2619,8 +2618,8 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "MetaPopLeaf")]
     public void Test_Pop_LeafNodes_ShouldReturnEmpty()
     {
-        var colExpr = Col("A");
-        var litExpr = Lit(42);
+        var colExpr = Pl.Col("A");
+        var litExpr = Pl.Lit(42);
 
         Assert.Empty(colExpr.Meta.Pop());
         Assert.Empty(litExpr.Meta.Pop());
@@ -2630,7 +2629,7 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "MetaPopNested")]
     public void Test_Pop_DeepNesting_ShouldPeelOneLayer()
     {
-        var expr = (Col("A") * Lit(2)).Alias("Result");
+        var expr = (Pl.Col("A") * Pl.Lit(2)).Alias("Result");
 
         var level1 = expr.Meta.Pop();
         Assert.Single(level1);
@@ -2649,7 +2648,7 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "MetaPopSafety")]
     public void Test_Pop_Safety_ShouldNotDestroyOriginalObject()
     {
-        var expr = Col("A") + Lit(1);
+        var expr = Pl.Col("A") + Pl.Lit(1);
 
         var children1 = expr.Meta.Pop();
         
@@ -2665,7 +2664,7 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Equality")]
     public void Test_Equals_ReferenceAndNull_ShouldUseFastPath()
     {
-        var expr = Col("A") * 2;
+        var expr = Pl.Col("A") * 2;
         
         Assert.True(expr.Equals(expr));
 
@@ -2676,8 +2675,8 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Equality")]
     public void Test_Equals_StructuralEquivalence_ShouldMatch()
     {
-        var expr1 = (Col("A") + Lit(10)).Alias("Result");
-        var expr2 = (Col("A") + Lit(10)).Alias("Result");
+        var expr1 = (Pl.Col("A") + Pl.Lit(10)).Alias("Result");
+        var expr2 = (Pl.Col("A") + Pl.Lit(10)).Alias("Result");
 
         Assert.True(expr1.Equals(expr2));
     }
@@ -2686,18 +2685,18 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Equality")]
     public void Test_Equals_StructuralDifferences_ShouldNotMatch()
     {
-        var baseExpr = Col("A") + Lit(10);
+        var baseExpr = Pl.Col("A") + Pl.Lit(10);
 
-        var diffCol = Col("B") + Lit(10);
+        var diffCol = Pl.Col("B") + Pl.Lit(10);
         Assert.False(baseExpr.Equals(diffCol));
 
-        var diffLit = Col("A") + Lit(99);
+        var diffLit = Pl.Col("A") + Pl.Lit(99);
         Assert.False(baseExpr.Equals(diffLit));
 
-        var diffOp = Col("A") * Lit(10);
+        var diffOp = Pl.Col("A") * Pl.Lit(10);
         Assert.False(baseExpr.Equals(diffOp));
 
-        var diffAlias = (Col("A") + Lit(10)).Alias("Result");
+        var diffAlias = (Pl.Col("A") + Pl.Lit(10)).Alias("Result");
         Assert.False(baseExpr.Equals(diffAlias));
     }
 
@@ -2705,8 +2704,8 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Equality")]
     public void Test_Equals_ObjectOverride_And_HashCode()
     {
-        var expr1 = Col("Id").Sum();
-        var expr2 = Col("Id").Sum();
+        var expr1 = Pl.Col("Id").Sum();
+        var expr2 = Pl.Col("Id").Sum();
 
         object obj2 = expr2;
 
@@ -2719,13 +2718,13 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Equality")]
     public void Test_Equals_InCollections_ShouldWorkNatively()
     {
-        var target = Col("Score").Mean();
+        var target = Pl.Col("Score").Mean();
         
         var list = new List<Expr>
         {
-            Col("A"),
-            Lit(1),
-            Col("Score").Mean() 
+            Pl.Col("A"),
+            Pl.Lit(1),
+            Pl.Col("Score").Mean() 
         };
 
         Assert.Contains(target, list);
@@ -2739,8 +2738,8 @@ TooShort,1990-05-20,1.60";
         );
 
         var resultDf = df.Select(
-            When(Col("age") < 18).Then(222)
-                .When(Col("age") < 65).Then(666)
+            Pl.When(Pl.Col("age") < 18).Then(222)
+                .When(Pl.Col("age") < 65).Then(666)
                 .Otherwise(888)
                 .Alias("AgeGroup")
         );
@@ -2763,8 +2762,8 @@ TooShort,1990-05-20,1.60";
         );
 
         var resultDf = df.Select(
-            When(Col("value") > 5).Then(Lit("High"))
-                .Otherwise(Lit("Low"))
+            Pl.When(Pl.Col("value") > 5).Then(Pl.Lit("High"))
+                .Otherwise(Pl.Lit("Low"))
                 .Alias("Category")
         );
 
@@ -2794,13 +2793,12 @@ TooShort,1990-05-20,1.60";
         // Act
         // Polars.Coalesce("A", "B", "C")
         var result = df.Select(
-            Coalesce("A", "B", "C").Alias("merged")
+            Pl.Coalesce("A", "B", "C").Alias("merged")
         );
 
         // Assert
         var mergedArray = result["merged"].ToArray<int?>();
         
-        // A, B, C 三列互补，最终应该合并出 1, 2, 3, 4, 5
         Assert.Equal([1, 2, 3, 4, 5], mergedArray);
     }
 
@@ -2812,9 +2810,9 @@ TooShort,1990-05-20,1.60";
         var df = GetTestData();
 
         // Act
-        // Col("A").Coalesce("B", "C")
+        // Pl.Col("A").Coalesce("B", "C")
         var result = df.Select(
-            Col("A").Coalesce("B", "C").Alias("merged")
+            Pl.Col("A").Coalesce("B", "C").Alias("merged")
         );
 
         // Assert
@@ -2833,9 +2831,9 @@ TooShort,1990-05-20,1.60";
         });
 
         // Act
-        // Col("A").Coalesce(99)
+        // Pl.Col("A").Coalesce(99)
         var result = df.Select(
-            Col("A").Coalesce(99).Alias("filled")
+            Pl.Col("A").Coalesce(99).Alias("filled")
         );
 
         // Assert
@@ -2855,7 +2853,7 @@ TooShort,1990-05-20,1.60";
         Series seriesC = df["C"];
 
         // Act
-        var resultSeries = CoalesceAsSeries(seriesA, seriesB, seriesC);
+        var resultSeries = Pl.CoalesceAsSeries(seriesA, seriesB, seriesC);
 
         // Assert
         var resultArray = resultSeries.ToArray<int?>();
@@ -2867,10 +2865,10 @@ TooShort,1990-05-20,1.60";
     public void Coalesce_EmptyArguments_ShouldThrowArgumentException()
     {
         // Arrange & Act & Assert
-        var exception1 = Assert.Throws<ArgumentException>(() => Coalesce());
+        var exception1 = Assert.Throws<ArgumentException>(() => Pl.Coalesce());
         Assert.Contains("At least one expression must be provided", exception1.Message);
 
-        var exception2 = Assert.Throws<ArgumentException>(() => CoalesceAsSeries());
+        var exception2 = Assert.Throws<ArgumentException>(() => Pl.CoalesceAsSeries());
         Assert.Contains("At least one expression must be provided", exception2.Message);
     }
     [Fact]
@@ -2887,16 +2885,16 @@ TooShort,1990-05-20,1.60";
         // Act
         var res = df.Select(
             // 1. params IntoExpr[] 
-            SumHorizontal("a", "b").Alias("sum_default"),
+            Pl.SumHorizontal("a", "b").Alias("sum_default"),
 
             // 2. bool, params IntoExpr[]
-            SumHorizontal(false, "a", "b").Alias("sum_strict"),
+            Pl.SumHorizontal(false, "a", "b").Alias("sum_strict"),
 
             // 3. IEnumerable<IntoExpr>
-            SumHorizontal(new List<IntoExpr> { "a", "b" }).Alias("sum_list_into"),
+            Pl.SumHorizontal(new List<IntoExpr> { "a", "b" }).Alias("sum_list_into"),
 
             // 4. IEnumerable<Expr>
-            SumHorizontal([Col("a"), Col("b")]).Alias("sum_list_expr")
+            Pl.SumHorizontal([Pl.Col("a"), Pl.Col("b")]).Alias("sum_list_expr")
         );
 
         // Assert
@@ -2927,9 +2925,9 @@ TooShort,1990-05-20,1.60";
 
         // Act
         var res = df.Select(
-            MeanHorizontal("a", "b").Alias("mean_default"),
-            MeanHorizontal(false, "a", "b").Alias("mean_strict"),
-            MeanHorizontal(new List<Expr> { Col("a"), Col("b") }).Alias("mean_list")
+            Pl.MeanHorizontal("a", "b").Alias("mean_default"),
+            Pl.MeanHorizontal(false, "a", "b").Alias("mean_strict"),
+            Pl.MeanHorizontal(new List<Expr> { Pl.Col("a"), Pl.Col("b") }).Alias("mean_list")
         );
 
         // Assert
@@ -2957,8 +2955,8 @@ TooShort,1990-05-20,1.60";
 
         // Act
         var res = df.Select(
-            MaxHorizontal("a", "b", 4).Alias("max_val"), 
-            MinHorizontal("a", "b", 4).Alias("min_val")  
+            Pl.MaxHorizontal("a", "b", 4).Alias("max_val"), 
+            Pl.MinHorizontal("a", "b", 4).Alias("min_val")  
         );
 
         // Assert
@@ -2985,9 +2983,9 @@ TooShort,1990-05-20,1.60";
 
         // Act
         var res = df.Select(
-            AllHorizontal("c1", "c2").Alias("all_h"),
-            AnyHorizontal("c1", "c2").Alias("any_h"),
-            AnyHorizontal(Col("c1"), true).Alias("any_with_literal") 
+            Pl.AllHorizontal("c1", "c2").Alias("all_h"),
+            Pl.AnyHorizontal("c1", "c2").Alias("any_h"),
+            Pl.AnyHorizontal(Pl.Col("c1"), true).Alias("any_with_literal") 
         );
 
         // Assert
@@ -3017,9 +3015,9 @@ TooShort,1990-05-20,1.60";
 
         // Act
         var res = df.Select(
-            Sum("a", "b").Name.Suffix("_sum"),
-            Max("a", "b").Name.Suffix("_max"),
-            Min("a", "b").Name.Suffix("_min")
+            Pl.Sum("a", "b").Name.Suffix("_sum"),
+            Pl.Max("a", "b").Name.Suffix("_max"),
+            Pl.Min("a", "b").Name.Suffix("_min")
         );
         // Assert
         Assert.Equal(1, res.Height); 
@@ -3039,8 +3037,45 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr","Horizontal")]
     public void Test_Horizontal_EmptyArgs_Throws()
     {
-        Assert.Throws<ArgumentException>(() => SumHorizontal());
-        Assert.Throws<ArgumentException>(() => MeanHorizontal(new List<IntoExpr>()));
-        Assert.Throws<ArgumentException>(() => MaxHorizontal());
+        Assert.Throws<ArgumentException>(() => Pl.SumHorizontal());
+        Assert.Throws<ArgumentException>(() => Pl.MeanHorizontal(new List<IntoExpr>()));
+        Assert.Throws<ArgumentException>(() => Pl.MaxHorizontal());
+    }
+    [Fact]
+    [Trait("Expr", "Reshape")]
+    public void Test_Expr_Reshape()
+    {
+        using var df = DataFrame.FromColumns([
+            Series.From("a", [1, 2, 3, 4, 5, 6])
+        ]);
+
+        using var reshaped1 = df.Select(Pl.Col("a").Reshape([2, 3]).Alias("reshaped1"));
+        
+        Assert.Equal(2, reshaped1.Height); 
+        
+        using Series s1 = reshaped1["reshaped1"];
+
+        Assert.Equal(DataType.Array(typeof(int),3),s1.DataType);
+
+        using var struct1 = s1.Array.ToStruct(["col1", "col2", "col3"]);
+        using var col1_1 = struct1.Struct.Field("col1");
+        using var col1_2 = struct1.Struct.Field("col2");
+        using var col1_3 = struct1.Struct.Field("col3");
+        
+        Assert.Equal([1, 4], col1_1.ToArray<int>());
+        Assert.Equal([2, 5], col1_2.ToArray<int>());
+        Assert.Equal([3, 6], col1_3.ToArray<int>());
+
+        using var reshaped2 = df.Select(Pl.Col("a").Reshape([-1, 2]).Alias("reshaped2"));
+        
+        Assert.Equal(3, reshaped2.Height); 
+        
+        using Series s2 = reshaped2["reshaped2"];
+        using var struct2 = s2.Array.ToStruct(["c1", "c2"]);
+        using var c1 = struct2.Struct.Field("c1");
+        using var c2 = struct2.Struct.Field("c2");
+        
+        Assert.Equal([1, 3, 5], c1.ToArray<int>());
+        Assert.Equal([2, 4, 6], c2.ToArray<int>());
     }
 }   

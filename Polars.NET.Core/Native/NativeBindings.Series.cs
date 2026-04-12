@@ -414,6 +414,12 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)] 
     public static partial bool pl_series_extend(SeriesHandle s_ptr, SeriesHandle other_ptr);
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_reshape(
+        SeriesHandle series,         
+        ReadOnlySpan<long> dims_ptr,
+        nuint dims_len
+    );
     // --- Series Cast ---
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_cast(

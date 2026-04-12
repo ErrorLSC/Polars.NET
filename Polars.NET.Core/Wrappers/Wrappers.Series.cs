@@ -1225,6 +1225,9 @@ public readonly partial struct PolarsWrapper
         
         return count;
     }
+    public static SeriesHandle SeriesReshape(SeriesHandle series, ReadOnlySpan<long> dimensions)
+        => ErrorHelper.Check(NativeBindings.pl_series_reshape(series, dimensions, (nuint)dimensions.Length));
+    
     // Ops
     public static SeriesHandle SeriesAdd(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_add(s1, s2));
     public static SeriesHandle SeriesSub(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_sub(s1, s2));

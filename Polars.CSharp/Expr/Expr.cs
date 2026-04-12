@@ -764,6 +764,12 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="nullsLast">Whether null values appear last. (Placeholder for Polars 0.54+)</param>
     /// <returns>A new expression with the sorted flag set.</returns>
     public Expr SetSorted(bool descending = false, bool nullsLast = false) => new(PolarsWrapper.ExprSetSorted(CloneHandle(), descending, nullsLast));
+    /// <summary>
+    /// Reshape the column into a multi-dimensional array.
+    /// </summary>
+    /// <param name="dimensions">Tuple of the dimension sizes. If a -1 is used, that dimension is inferred.</param>
+    public Expr Reshape(ReadOnlySpan<long> dimensions) => new (PolarsWrapper.ExprReshape(CloneHandle(), dimensions));
+    
     // ==========================================
     // Namespaces
     // ==========================================

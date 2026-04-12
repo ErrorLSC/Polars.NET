@@ -2,6 +2,7 @@ using Polars.NET.Core;
 using Apache.Arrow;
 using Polars.NET.Core.Arrow;
 using Pl = Polars.CSharp.Polars;
+using Microsoft.FSharp.Quotations;
 
 namespace Polars.CSharp;
 
@@ -155,6 +156,12 @@ public partial class Series : IDisposable,IPolarsSeries
         }
     }
     IPolarsDataType IPolarsSeries.DataType => DataType;
+
+    /// <summary>
+    /// Shape of this Series. 
+    /// In Polars, a Series is always 1D, so this returns an array of length 1.
+    /// </summary>
+    public long[] Shape => [Length];
 
     // ==========================================
     // Indexing & Searching (Forwarded to Expr)
@@ -374,7 +381,13 @@ public partial class Series : IDisposable,IPolarsSeries
     public Series ExtendConstant(Expr value,Expr n) => ApplyExpr(Pl.Col(Name).ExtendConstant(value,n));
     /// <inheritdoc cref="ExtendConstant(Expr,Expr)"/>
     public Series ExtendConstant(object value,int n) => ApplyExpr(Pl.Col(Name).ExtendConstant(value,n));
-
+    /// <summary>
+    /// Reshape this Series to a flat Series or an Array Series.
+    /// </summary>
+    /// <param name="dimensions">Tuple of the dimension sizes. If a -1 is used in any of the dimensions, that dimension is inferred.</param>
+    /// <returns>Tuple of the dimension sizes. If a -1 is used in any of the dimensions, that dimension is inferred.</returns>
+    public Series Reshape(ReadOnlySpan<long> dimensions) => new(PolarsWrapper.SeriesReshape(Handle, dimensions));
+    
     // ==========================================
     // Null Checks & Boolean Masks
     // ==========================================

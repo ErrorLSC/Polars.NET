@@ -3,6 +3,7 @@
 using System.Numerics.Tensors;
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;
@@ -123,7 +124,7 @@ public class SeriesTests
 
         // B: "Scores" (ListArray<i64>)
         // Row 0: [10, 20]
-        // Row 1: null (或者 [])
+        // Row 1: null ([])
         // Row 2: [30]
         
         // Values
@@ -1869,5 +1870,63 @@ public class SeriesTests
 
         var onesResult = countOnes.ToArray<uint>(); 
         Assert.Equal(new uint[] { 0, 2, 3 }, onesResult);
+    }
+    [Fact]
+    [Trait("Series", "ReshapeExplicit")]
+    public void Test_Series_Reshape_Explicit_Dimensions()
+    {
+        using Series s = Pl.Series("a", [1, 2, 3, 4, 5, 6]);
+
+        using Series reshaped = s.Reshape([2, 3]);
+        
+        Assert.Equal(2, reshaped.Len());
+        
+        Assert.Equal(DataType.Array(typeof(int), 3), reshaped.DataType);
+
+        using Series structSeries = reshaped.Array.ToStruct(["c1", "c2", "c3"]);
+        using Series c1 = structSeries.Struct.Field("c1");
+        using Series c2 = structSeries.Struct.Field("c2");
+        using Series c3 = structSeries.Struct.Field("c3");
+        
+        Assert.Equal([1, 4], c1.ToArray<int>());
+        Assert.Equal([2, 5], c2.ToArray<int>());
+        Assert.Equal([3, 6], c3.ToArray<int>());
+
+        using Series backed = reshaped.Reshape([-1]);
+        Assert.Equal([1,2,3,4,5,6],backed.ToArray<int>());
+    }
+
+    [Fact]
+    [Trait("Series", "ReshapeInferred")]
+    public void Test_Series_Reshape_Inferred_Dimensions()
+    {
+        using Series s = Pl.Series("a", [1, 2, 3, 4, 5, 6]);
+
+        using Series reshaped = s.Reshape([-1, 2]);
+        
+        Assert.Equal(3, reshaped.Len());
+        Assert.Equal(DataType.Array(typeof(int), 2), reshaped.DataType);
+
+        using Series structSeries = reshaped.Array.ToStruct(["c1", "c2"]);
+        using Series c1 = structSeries.Struct.Field("c1");
+        using Series c2 = structSeries.Struct.Field("c2");
+        
+        Assert.Equal([1, 3, 5], c1.ToArray<int>());
+        Assert.Equal([2, 4, 6], c2.ToArray<int>());
+    }
+
+    [Fact]
+    [Trait("Series", "ReshapeError")]
+    public void Test_Series_Reshape_Mismatch_Throws()
+    {
+        using Series s = Pl.Series("a", [1, 2, 3, 4, 5, 6]);
+
+        
+        var ex = Assert.Throws<PolarsException>(() => 
+        {
+            using Series badReshape = s.Reshape([5, 5]); 
+        });
+
+        Assert.Contains("cannot reshape", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 }

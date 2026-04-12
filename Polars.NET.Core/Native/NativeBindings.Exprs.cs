@@ -241,7 +241,12 @@ unsafe internal partial class NativeBindings
 
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_alias(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
-
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_reshape(
+        ExprHandle expr,
+        ReadOnlySpan<long> dims_ptr, 
+        nuint dims_len              
+    );
     // Temporal
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_year(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_quarter(ExprHandle expr);
