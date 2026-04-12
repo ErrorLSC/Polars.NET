@@ -115,6 +115,20 @@ public enum PlClosedWindow: byte
     None = 3
 }
 
+public enum PlNullBehavior: byte
+{
+    Ignore = 0,
+    Drop = 1,
+}
+
+public enum PlSetOperation: byte
+{
+    Union = 0,
+    Difference = 1,
+    Intersection =2,
+    SymmetricDifference=3
+}
+
 /// <summary>
 /// Strategy to handle dates that land on non-business days (weekends or holidays).
 /// </summary>

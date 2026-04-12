@@ -111,6 +111,12 @@ public readonly partial struct Polars
         if (values is T[] arr) return Lit(arr);
         return Lit(values.ToArray());
     }
+
+    public static Expr Lit<T>(ReadOnlySpan<T> values)
+    {
+        using var s = CSharp.Series.FromSpan("", values);
+        return Lit(s);
+    }
     
     // ==========================================
     // Control Flow

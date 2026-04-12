@@ -386,29 +386,109 @@ unsafe internal partial class NativeBindings
     );
 
     // List Ops
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_first(ExprHandle expr);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_get(ExprHandle expr, long index);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_get(ExprHandle expr, ExprHandle index,[MarshalAs(UnmanagedType.U1)]bool nullsOnOob);
     [LibraryImport(LibName)] 
     public static partial ExprHandle pl_expr_explode(
         ExprHandle expr,
         [MarshalAs(UnmanagedType.U1)] bool emptyAsNull,
         [MarshalAs(UnmanagedType.U1)] bool keepNulls);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_implode(ExprHandle expr);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_join(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string sep);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_join(
+        ExprHandle expr, 
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string sep,
+        [MarshalAs(UnmanagedType.U1)]bool ignoreNulls);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_len(ExprHandle expr);
     // List Aggs
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_all(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_any(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_sum(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_min(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_max(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_mean(ExprHandle expr);
-    
-    // List Other
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_median(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_drop_nulls(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_n_unique(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_arg_max(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_arg_min(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_unique(ExprHandle expr,[MarshalAs(UnmanagedType.U1)]bool maintainOrder);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_gather(
+        ExprHandle expr,
+        ExprHandle index,
+        [MarshalAs(UnmanagedType.U1)]bool nullOnOob
+    );
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_gather_every(
+        ExprHandle expr,
+        ExprHandle n,
+        ExprHandle offset
+    );    
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_slice(
+        ExprHandle expr,
+        ExprHandle offset,
+        ExprHandle length
+    );    
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_head(
+        ExprHandle expr,
+        ExprHandle n
+    );        
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_tail(
+        ExprHandle expr,
+        ExprHandle n
+    );     
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_count_matches(
+        ExprHandle expr,
+        ExprHandle item
+    );       
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_agg(
+        ExprHandle expr,
+        ExprHandle agg
+    );      
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_shift(
+        ExprHandle expr,
+        ExprHandle shift
+    );   
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_std(
+        ExprHandle expr,
+        byte ddof
+    );  
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_var(
+        ExprHandle expr,
+        byte ddof
+    );    
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_to_array(
+        ExprHandle expr,
+        nuint width
+    );   
+    [LibraryImport(LibName,StringMarshalling =StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_list_to_struct(
+        ExprHandle expr,
+        string[]? names,
+        nuint len
+    );   
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_diff(
+        ExprHandle expr,
+        long n,
+        PlNullBehavior nullBehavior
+    );   
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_sample(
+        ExprHandle expr,
+        ExprHandle nFrac,
+        [MarshalAs(UnmanagedType.U1)] bool isFraction,
+        [MarshalAs(UnmanagedType.U1)] bool withReplacement,
+        [MarshalAs(UnmanagedType.U1)] bool shuffle,
+        [MarshalAs(UnmanagedType.U1)] bool hasSeed,
+        ulong seed
+    );   
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_set_operation(
+        ExprHandle expr,
+        ExprHandle other,
+        PlSetOperation setOperation
+    );   
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_sort(
         ExprHandle expr,
         [MarshalAs(UnmanagedType.U1)] bool descending,
         [MarshalAs(UnmanagedType.U1)] bool nulls_last,
         [MarshalAs(UnmanagedType.U1)] bool maintain_order
     );
+
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_list_contains(ExprHandle expr, ExprHandle item, [MarshalAs(UnmanagedType.U1)] bool nulls_equal);
     [LibraryImport(LibName)] public static partial ExprHandle pl_concat_list(IntPtr[] exprs,nuint exprLen);
     [LibraryImport(LibName)]
@@ -544,8 +624,8 @@ unsafe internal partial class NativeBindings
         UIntPtr len
     );
     // Shift / Diff
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_shift(ExprHandle expr, long n);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_diff(ExprHandle expr, long n);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_shift(ExprHandle expr, ExprHandle n);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_diff(ExprHandle expr, ExprHandle n, PlNullBehavior nullBehavior);
 
     // Fill
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_forward_fill(ExprHandle expr, uint limit);

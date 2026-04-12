@@ -482,7 +482,7 @@ TooShort,1990-05-20,1.60";
         {
             dummy = new[] { 1 }
         }).Select(
-            Lit(3).Implode().List.Concat(LitNull().Implode()).List.Concat(Lit(1).Implode())
+            Lit(3).Implode().List.Concat(LitNull().Implode()).List.Concat([1])
             .Alias("list_col")
         );
         
@@ -1983,10 +1983,10 @@ TooShort,1990-05-20,1.60";
         );
 
         var linearIndex = res["linear_index"][1];
-        Assert.Equal(50.0, (double)linearIndex!);
+        Assert.Equal(50.0, (double)linearIndex);
 
         var linearPos = res["linear_pos"][1];
-        Assert.Equal(20.0, (double)linearPos!);
+        Assert.Equal(20.0, (double)linearPos);
     }
     [Fact]
     [Trait("Expr","SqlExpr")]
@@ -2034,7 +2034,7 @@ TooShort,1990-05-20,1.60";
             Col("val").Get(10, nullOnOutOfBounds: true).Alias("get_oob")
         );
 
-        Assert.Equal(30, (int)res["get_valid"][0]!);
+        Assert.Equal(30, (int)res["get_valid"][0]);
 
         Assert.Null(res["get_oob"][0]);
     }
@@ -2058,22 +2058,22 @@ TooShort,1990-05-20,1.60";
         using var res = df.Select(
             Col("name").Gather(Col("score").ArgSort(descending:true)).Alias("ranked_names"),
             
-            Col("name").Take(Lit([0, 2, 0,1])).Alias("taken_names") 
+            Col("name").Take([0, 2, 0, 1]).Alias("taken_names") 
         );
 
         var rankedNames = res["ranked_names"];
         Assert.Equal(4, rankedNames.Length);
-        Assert.Equal("David",   (string)rankedNames[0]!); 
-        Assert.Equal("Bob",     (string)rankedNames[1]!); 
-        Assert.Equal("Alice",   (string)rankedNames[2]!); 
-        Assert.Equal("Charlie", (string)rankedNames[3]!); 
+        Assert.Equal("David",   (string)rankedNames[0]); 
+        Assert.Equal("Bob",     (string)rankedNames[1]); 
+        Assert.Equal("Alice",   (string)rankedNames[2]); 
+        Assert.Equal("Charlie", (string)rankedNames[3]); 
 
         var takenNames = res["taken_names"];
         Assert.Equal(4, takenNames.Length);
-        Assert.Equal("Alice",   (string)takenNames[0]!);
-        Assert.Equal("Charlie", (string)takenNames[1]!);
-        Assert.Equal("Alice",   (string)takenNames[2]!);
-        Assert.Equal("Bob",     (string)takenNames[3]!);
+        Assert.Equal("Alice",   (string)takenNames[0]);
+        Assert.Equal("Charlie", (string)takenNames[1]);
+        Assert.Equal("Alice",   (string)takenNames[2]);
+        Assert.Equal("Bob",     (string)takenNames[3]);
     }
 
     [Fact]
@@ -2094,9 +2094,9 @@ TooShort,1990-05-20,1.60";
         var resultCol = res["every_3_offset_2"];
         
         Assert.Equal(3, resultCol.Length);
-        Assert.Equal(20, (int)resultCol[0]!);
-        Assert.Equal(50, (int)resultCol[1]!);
-        Assert.Equal(80, (int)resultCol[2]!);
+        Assert.Equal(20, (int)resultCol[0]);
+        Assert.Equal(50, (int)resultCol[1]);
+        Assert.Equal(80, (int)resultCol[2]);
     }
     [Fact]
     [Trait("Expr","Arg")]
@@ -2135,15 +2135,15 @@ TooShort,1990-05-20,1.60";
         // │ 4       ┆ 2       ┆ 2          │
         // │ 4       ┆ 2       ┆ 4          │
         // └─────────┴─────────┴────────────┘
-        Assert.Equal(4u, (uint)res["min_idx"][0]!);
+        Assert.Equal(4u, (uint)res["min_idx"][0]);
 
-        Assert.Equal(2u, (uint)res["max_idx"][0]!);
+        Assert.Equal(2u, (uint)res["max_idx"][0]);
 
         var uniqueIdx = res["unique_idx"];
         Assert.Equal(3, uniqueIdx.Length);
-        Assert.Equal(0u, (uint)uniqueIdx[0]!); 
-        Assert.Equal(2u, (uint)uniqueIdx[1]!); 
-        Assert.Equal(4u, (uint)uniqueIdx[2]!); 
+        Assert.Equal(0u, (uint)uniqueIdx[0]); 
+        Assert.Equal(2u, (uint)uniqueIdx[1]); 
+        Assert.Equal(4u, (uint)uniqueIdx[2]); 
     }
     [Fact]
     [Trait("Expr","IndexSearch")]
@@ -2188,13 +2188,13 @@ TooShort,1990-05-20,1.60";
         // ╞═══════════╪═══════════╪═══════════╪════════════════╪═════════════════╡
         // │ 1         ┆ null      ┆ 3         ┆ 1              ┆ 3               │
         // └───────────┴───────────┴───────────┴────────────────┴─────────────────┘
-        Assert.Equal(1u, (uint)res["idx_of_20"][0]!); 
+        Assert.Equal(1u, (uint)res["idx_of_20"][0]); 
         Assert.Null(res["idx_of_99"][0]);
 
-        Assert.Equal(3u, (uint)res["search_25"][0]!); 
+        Assert.Equal(3u, (uint)res["search_25"][0]); 
 
-        Assert.Equal(1u, (uint)res["search_20_left"][0]!);
-        Assert.Equal(3u, (uint)res["search_20_right"][0]!);
+        Assert.Equal(1u, (uint)res["search_20_left"][0]);
+        Assert.Equal(3u, (uint)res["search_20_right"][0]);
     }
     [Fact]
     [Trait("Expr", "StringManipulation")]
@@ -2241,23 +2241,23 @@ TooShort,1990-05-20,1.60";
         // └───────────────┴───────────────┴────────────────────────┘
 
         // Row 0: Full data
-        Assert.Equal("apple-pie", (string)res["concat_strict"][0]!);
-        Assert.Equal("apple-pie", (string)res["concat_ignore"][0]!);
-        Assert.Equal("[apple] + [pie] = ❤️", (string)res["format_str"][0]!);
+        Assert.Equal("apple-pie", (string)res["concat_strict"][0]);
+        Assert.Equal("apple-pie", (string)res["concat_ignore"][0]);
+        Assert.Equal("[apple] + [pie] = ❤️", (string)res["format_str"][0]);
 
         // Row 1: WordB is null
         Assert.Null(res["concat_strict"][1]);
-        Assert.Equal("banana", (string)res["concat_ignore"][1]!); // ignoreNulls skipped WordB
+        Assert.Equal("banana", (string)res["concat_ignore"][1]); // ignoreNulls skipped WordB
         Assert.Null(res["format_str"][1]);
 
         // Row 2: WordA is null
         Assert.Null(res["concat_strict"][2]);
-        Assert.Equal("split", (string)res["concat_ignore"][2]!); // ignoreNulls skipped WordA
+        Assert.Equal("split", (string)res["concat_ignore"][2]); // ignoreNulls skipped WordA
         Assert.Null(res["format_str"][2]);
         
         // Row 3: Normal strings
-        Assert.Equal("hello-world", (string)res["concat_strict"][3]!);
-        Assert.Equal("[hello] + [world] = ❤️", (string)res["format_str"][3]!);
+        Assert.Equal("hello-world", (string)res["concat_strict"][3]);
+        Assert.Equal("[hello] + [world] = ❤️", (string)res["format_str"][3]);
     }
 
     [Fact]
@@ -2299,10 +2299,10 @@ TooShort,1990-05-20,1.60";
 
         Assert.Equal(4L, res.Height);
         
-        Assert.Equal(10, (int)res["vertical_concat"][0]!);
-        Assert.Equal(20, (int)res["vertical_concat"][1]!);
-        Assert.Equal(30, (int)res["vertical_concat"][2]!);
-        Assert.Equal(40, (int)res["vertical_concat"][3]!);
+        Assert.Equal(10, (int)res["vertical_concat"][0]);
+        Assert.Equal(20, (int)res["vertical_concat"][1]);
+        Assert.Equal(30, (int)res["vertical_concat"][2]);
+        Assert.Equal(40, (int)res["vertical_concat"][3]);
     }
     [Fact]
     [Trait("Expr", "NUnique")]

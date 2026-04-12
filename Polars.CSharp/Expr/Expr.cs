@@ -75,14 +75,15 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <summary>
     /// Gather values by an index expression.
     /// </summary>
-    public Expr Gather(Expr indices)
-        => new(PolarsWrapper.Gather(CloneHandle(), indices.CloneHandle()));
-
+    public Expr Gather(IntoExpr indices)
+        => new(PolarsWrapper.Gather(CloneHandle(), indices.Consume().Handle));
+    public Expr Gather(ReadOnlySpan<int> indices) => Gather(Pl.Lit(indices));
     /// <summary>
     /// LINQ-like alias for Gather.
     /// </summary>
-    public Expr Take(Expr indices) => Gather(indices);
-
+    public Expr Take(IntoExpr indices) => Gather(indices);
+    public Expr Take(ReadOnlySpan<int> indices) => Take(Pl.Lit(indices));
+    
     /// <summary>
     /// Take every nth value starting from an offset.
     /// </summary>
@@ -651,13 +652,20 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Shift values by the given number of indices.
     /// Positive values shift downstream, negative values shift upstream.
     /// </summary>
-    public Expr Shift(long n = 1) => new(PolarsWrapper.Shift(CloneHandle(), n));
+    public Expr Shift(Expr n) => new(PolarsWrapper.Shift(CloneHandle(), n.CloneHandle()));
+    /// <summary>
+    /// Shift values by 1 index downstream.
+    /// </summary>
+    public Expr Shift() => Shift(1);
 
     /// <summary>
     /// Calculate the difference with the previous value (n-th lag).
-    /// Null values are propagated.
     /// </summary>
-    public Expr Diff(long n = 1) => new(PolarsWrapper.Diff(CloneHandle(), n));
+    public Expr Diff(Expr n,NullBehavior nullBehavior=NullBehavior.Ignore) => new(PolarsWrapper.Diff(CloneHandle(), n.CloneHandle(),nullBehavior.ToNative()));
+    /// <summary>
+    /// Calculate the difference with the previous value (1-st lag).
+    /// </summary>
+    public Expr Diff(NullBehavior nullBehavior = NullBehavior.Ignore) => Diff(1, nullBehavior);
 
     #endregion
 

@@ -1,4 +1,4 @@
-use polars::{chunked_array::cast::CastOptions, prelude::*, sql::sql_expr};
+use polars::{chunked_array::cast::CastOptions, prelude::*, series::ops::NullBehavior, sql::sql_expr};
 use std::{ffi::{CStr, CString}, os::raw::c_char};
 use crate::{datatypes::parse_timeunit, types::{DataTypeExprContext, ExprContext, SeriesContext}, utils::parse_closed_window};
 use std::ops::{Add, Sub, Mul, Div, Rem};
@@ -1427,44 +1427,6 @@ pub extern "C" fn pl_expr_lit_series(
 // ==========================================
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_concat_array(
-    exprs_ptr: *const *mut ExprContext,
-    exprs_len: usize
-) -> *mut ExprContext {
-    ffi_try!({
-        let mut exprs = Vec::with_capacity(exprs_len);
-        let ptr_slice = unsafe { std::slice::from_raw_parts(exprs_ptr, exprs_len) };
-        for &ptr in ptr_slice {
-            let expr_ctx = unsafe { Box::from_raw(ptr) };
-            exprs.push(expr_ctx.inner);
-        }
-
-        let new_expr = concat_arr(exprs)?;
-        
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_concat_list(
-    exprs_ptr: *const *mut ExprContext,
-    exprs_len: usize
-) -> *mut ExprContext {
-    ffi_try!({
-        let mut exprs = Vec::with_capacity(exprs_len);
-        let ptr_slice = unsafe { std::slice::from_raw_parts(exprs_ptr, exprs_len) };
-        for &ptr in ptr_slice {
-            let expr_ctx = unsafe { Box::from_raw(ptr) };
-            exprs.push(expr_ctx.inner);
-        }
-
-        let new_expr = concat_list(exprs)?;
-        
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn pl_concat_str(
     exprs_ptr: *const *mut ExprContext,
     exprs_len: usize,
@@ -1938,12 +1900,13 @@ pub extern "C" fn pl_expr_cast(
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_shift(
     expr_ptr: *mut ExprContext,
-    n: i64
+    n_ptr: *mut ExprContext
 ) -> *mut ExprContext {
     ffi_try!({
         let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let n = unsafe { Box::from_raw(n_ptr) };
         // shift(n)
-        let new_expr = ctx.inner.shift(lit(n)); 
+        let new_expr = ctx.inner.shift(n.inner); 
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
@@ -1951,12 +1914,18 @@ pub extern "C" fn pl_expr_shift(
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_diff(
     expr_ptr: *mut ExprContext,
-    n: i64
+    n_ptr: *mut ExprContext,
+    null_behavior_code:u8
 ) -> *mut ExprContext {
     ffi_try!({
         let ctx = unsafe { Box::from_raw(expr_ptr) };
-        // diff(n, null_behavior)
-        let new_expr = ctx.inner.diff(n.into(), Default::default());
+        let n = unsafe { Box::from_raw(n_ptr) };
+        let behavior = match null_behavior_code {
+            0 => NullBehavior::Ignore,
+            1 => NullBehavior::Drop,
+            _ => NullBehavior::Ignore
+        };
+        let new_expr = ctx.inner.diff(n.inner,behavior);
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }

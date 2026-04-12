@@ -1,3 +1,4 @@
+using System.Reflection.Metadata;
 using System.Runtime.InteropServices;
 using Polars.NET.Core.Native;
 
@@ -767,14 +768,12 @@ public readonly partial struct PolarsWrapper
         upper.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-
-    // List
-    public static ExprHandle ListFirst(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_first, e);
     
-    public static ExprHandle ListGet(ExprHandle e, long index)
+    public static ExprHandle ListGet(ExprHandle e, ExprHandle index,bool nullOnOob)
     {
-        var h = NativeBindings.pl_expr_list_get(e, index);
+        var h = NativeBindings.pl_expr_list_get(e, index,nullOnOob);
         e.TransferOwnership();
+        index.TransferOwnership();
         return ErrorHelper.Check(h);
     }
 
@@ -786,9 +785,9 @@ public readonly partial struct PolarsWrapper
     } 
     public static ExprHandle Implode(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_implode, e);
     
-    public static ExprHandle ListJoin(ExprHandle e, string sep)
+    public static ExprHandle ListJoin(ExprHandle e, string sep,bool ignoreNulls)
     {
-        var h = NativeBindings.pl_expr_list_join(e, sep);
+        var h = NativeBindings.pl_expr_list_join(e, sep,ignoreNulls);
         e.TransferOwnership(); 
         return ErrorHelper.Check(h);
     }
@@ -799,7 +798,156 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle ListMin(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_min, e);
     public static ExprHandle ListMax(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_max, e);
     public static ExprHandle ListMean(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_mean, e);
+    public static ExprHandle ListMedian(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_median, e);
+    public static ExprHandle ListAll(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_all, e);
+    public static ExprHandle ListAny(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_any, e);
+    public static ExprHandle ListDropNulls(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_drop_nulls, e);
+    public static ExprHandle ListNUnique(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_n_unique, e);
+    public static ExprHandle ListArgMax(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_arg_max, e);
+    public static ExprHandle ListArgMin(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_arg_min, e);
+    public static ExprHandle ListUnique(ExprHandle e,bool maintainOrder)
+    {
+        var h = NativeBindings.pl_expr_list_unique(e, maintainOrder);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ListStd(ExprHandle e,byte ddof)
+    {
+        var h = NativeBindings.pl_expr_list_std(e, ddof);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ListVar(ExprHandle e,byte ddof)
+    {
+        var h = NativeBindings.pl_expr_list_var(e, ddof);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ListToArray(ExprHandle e,long width)
+    {
+        var h = NativeBindings.pl_expr_list_to_array(e,(nuint)width);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ListToStruct(ExprHandle e,string[]? fields)
+    {
+        nuint len = fields == null ? nuint.Zero : (nuint)fields.Length;
+        var h = NativeBindings.pl_expr_list_to_struct(e,fields,len);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }  
+    public static ExprHandle ListGather(ExprHandle listExpr, ExprHandle index, bool nullOnOob)
+    {
+        var h = NativeBindings.pl_expr_list_gather(listExpr, index, nullOnOob);
+        listExpr.TransferOwnership();
+        index.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ListGatherEvery(ExprHandle listExpr, ExprHandle n, ExprHandle offset)
+    {
+        var h = NativeBindings.pl_expr_list_gather_every(listExpr, n, offset);
+        listExpr.TransferOwnership();
+        n.TransferOwnership();
+        offset.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ListSlice(ExprHandle listExpr, ExprHandle offset, ExprHandle length)
+    {
+        var h = NativeBindings.pl_expr_list_slice(listExpr, offset, length);
+        listExpr.TransferOwnership();
+        offset.TransferOwnership();
+        length.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ListHead(ExprHandle listExpr, ExprHandle n) => BinaryOp(NativeBindings.pl_expr_list_head,listExpr,n);
+    public static ExprHandle ListTail(ExprHandle listExpr, ExprHandle n) => BinaryOp(NativeBindings.pl_expr_list_tail,listExpr,n);
+    public static ExprHandle ListCountMatches(ExprHandle listExpr, ExprHandle item) => BinaryOp(NativeBindings.pl_expr_list_count_matches,listExpr,item);
+    public static ExprHandle ListAgg(ExprHandle listExpr, ExprHandle agg) => BinaryOp(NativeBindings.pl_expr_list_agg,listExpr,agg);    
+    public static ExprHandle ListShift(ExprHandle listExpr, ExprHandle shift)=> BinaryOp(NativeBindings.pl_expr_list_shift,listExpr,shift);
+    public static ExprHandle ListDiff(ExprHandle listExpr, long n, PlNullBehavior nullBehavior)
+    {
+        var h = NativeBindings.pl_expr_list_diff(listExpr, n,nullBehavior);
+        listExpr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ListSampleN(
+        ExprHandle listExpr,
+        ExprHandle n,
+        bool withReplacement,
+        bool shuffle,
+        ulong? seed)
+    {
+        bool hasSeed = seed.HasValue;
+        ulong seedValue = seed.GetValueOrDefault();
 
+        var h = NativeBindings.pl_expr_list_sample(
+            listExpr,
+            n,
+            false, 
+            withReplacement,
+            shuffle,
+            hasSeed,
+            seedValue
+        );
+
+        listExpr.TransferOwnership();
+        n.TransferOwnership();
+
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ListSampleFraction(
+        ExprHandle listExpr,
+        ExprHandle fraction,
+        bool withReplacement,
+        bool shuffle,
+        ulong? seed)
+    {
+        bool hasSeed = seed.HasValue;
+        ulong seedValue = seed.GetValueOrDefault();
+
+        var h = NativeBindings.pl_expr_list_sample(
+            listExpr,
+            fraction,
+            true, 
+            withReplacement,
+            shuffle,
+            hasSeed,
+            seedValue
+        );
+
+        listExpr.TransferOwnership();
+        fraction.TransferOwnership();
+
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ListSetUnion(ExprHandle expr,ExprHandle other)
+    {
+        var h = NativeBindings.pl_expr_list_set_operation(expr,other,PlSetOperation.Union);
+        expr.TransferOwnership();
+        other.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ListSetDifference(ExprHandle expr,ExprHandle other)
+    {
+        var h = NativeBindings.pl_expr_list_set_operation(expr,other,PlSetOperation.Difference);
+        expr.TransferOwnership();
+        other.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ListSetIntersection(ExprHandle expr,ExprHandle other)
+    {
+        var h = NativeBindings.pl_expr_list_set_operation(expr,other,PlSetOperation.Intersection);
+        expr.TransferOwnership();
+        other.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ListSetSymmetricDifference(ExprHandle expr,ExprHandle other)
+    {
+        var h = NativeBindings.pl_expr_list_set_operation(expr,other,PlSetOperation.SymmetricDifference);
+        expr.TransferOwnership();
+        other.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     // --- List Other ---
     public static ExprHandle ListSort(ExprHandle e, bool descending, bool nullsLast, bool maintainOrder)
     {
@@ -1017,17 +1165,19 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(h);
     }
     // Shift
-    public static ExprHandle Shift(ExprHandle e, long n)
+    public static ExprHandle Shift(ExprHandle e, ExprHandle n)
     {
         var h = NativeBindings.pl_expr_shift(e, n);
         e.TransferOwnership();
+        n.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     // Diff
-    public static ExprHandle Diff(ExprHandle e, long n)
+    public static ExprHandle Diff(ExprHandle e, ExprHandle n, PlNullBehavior nullBehavior)
     {
-        var h = NativeBindings.pl_expr_diff(e, n);
+        var h = NativeBindings.pl_expr_diff(e, n,nullBehavior);
         e.TransferOwnership();
+        n.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     // Fill

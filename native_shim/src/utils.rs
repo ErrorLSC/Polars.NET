@@ -82,6 +82,23 @@ pub(crate) unsafe fn ptr_to_pl_str(ptr: *const c_char, default: &str) -> PlSmall
     }
 }
 
+pub unsafe fn ptr_to_vec_pl_string_with_default(
+    ptr: *const *const c_char, 
+    len: usize, 
+    default: &str
+) -> Vec<PlSmallStr> {
+    if ptr.is_null() || len == 0 {
+        return Vec::new();
+    }
+    
+    let mut res = Vec::with_capacity(len);
+    for i in 0..len {
+        let c_str =unsafe{ *ptr.add(i)};
+        res.push(unsafe{ptr_to_pl_str(c_str, default)});
+    }
+    res
+}
+
 pub(crate) fn map_jointype(code: u8) -> JoinType {
     match code {
         0 => JoinType::Inner,

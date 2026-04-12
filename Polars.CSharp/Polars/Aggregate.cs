@@ -1,6 +1,5 @@
 #pragma warning disable 1591
 using Polars.NET.Core;
-using Polars.NET.Core.Helpers;
 using Cs = Polars.CSharp.Polars.Selectors;
 namespace Polars.CSharp;
 
@@ -263,5 +262,27 @@ public readonly partial struct Polars
         if (names is null || names.Length == 0)
             throw new ArgumentException("Please at least input one column", nameof(names));
         return Col(names).Count();
+    }
+    /// <summary>
+    /// Get the first column or value.
+    /// </summary>
+    /// <param name="columns">One or more column names.</param>
+    /// <returns></returns>
+    public static Expr First(params string[] columns)
+    {   
+        if (columns is null || columns.Length == 0) 
+            return Cs.First().ToExpr();
+        else return Col(columns).First();
+    }
+    /// <summary>
+    /// Get the last column or value.
+    /// </summary>
+    /// <param name="columns">One or more column names.</param>
+    /// <returns></returns>
+    public static Expr Last(params string[] columns)
+    {   
+        if (columns is null || columns.Length == 0) 
+            return Cs.Last().ToExpr();
+        else return Col(columns).Last();
     }
 }

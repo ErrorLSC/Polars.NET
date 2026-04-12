@@ -115,6 +115,13 @@ public enum ClosedWindow
     None
 }
 
+public enum NullBehavior: byte
+{
+    Ignore = 0,
+    Drop = 1,
+}
+
+
 /// <summary>
 /// Strategy to handle dates that land on non-business days (weekends or holidays).
 /// </summary>
@@ -834,6 +841,12 @@ internal static class EnumExtensions
         Engine.Gpu => CoreEnums.PlEngine.Gpu,
         Engine.InMemory => CoreEnums.PlEngine.InMemory,
         _ => throw new ArgumentOutOfRangeException(nameof(engine), engine, null)
+    };
+    internal static CoreEnums.PlNullBehavior ToNative(this NullBehavior nullBehavior) => nullBehavior switch
+    {
+        NullBehavior.Ignore => CoreEnums.PlNullBehavior.Ignore,
+        NullBehavior.Drop => CoreEnums.PlNullBehavior.Drop,
+        _ => throw new ArgumentOutOfRangeException(nameof(nullBehavior), nullBehavior, null)
     };
 }
 

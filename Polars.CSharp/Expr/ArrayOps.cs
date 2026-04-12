@@ -45,8 +45,9 @@ public readonly struct ArrayOps
     public Expr ArgMax() => Wrap(PolarsWrapper.ArrayArgMax); 
 
     // --- Structure ---
-    public Expr Get(Expr index, bool nullOnOob = true)
+    internal Expr Get(Expr index, bool nullOnOob = true)
         => new(PolarsWrapper.ArrayGet(_expr.CloneHandle(), index.CloneHandle(), nullOnOob));
+    public Expr Get(long index,bool nullOnOob = true) => Get((Expr)index,nullOnOob);
 
     public Expr Join(string separator, bool ignoreNulls = true)
         => new(PolarsWrapper.ArrayJoin(_expr.CloneHandle(), separator, ignoreNulls));
@@ -55,9 +56,10 @@ public readonly struct ArrayOps
         => new(PolarsWrapper.ArrayExplode(_expr.CloneHandle(),emptyAsNull,keepNulls)); 
     
     /// <summary>
-    /// Convert array to struct. Fields will be named field_0, field_1, etc.
+    /// Convert array to struct.
     /// </summary>
-    public Expr ToStruct(string[]? fields=null)
+    /// <param name="fields">Desired field names</param>
+    public Expr ToStruct(params string[] fields)
         => new(PolarsWrapper.ArrayToStruct(_expr.CloneHandle(),fields)); 
     /// <summary>
     /// Convert array to a struct using a function to generate field names dynamically.

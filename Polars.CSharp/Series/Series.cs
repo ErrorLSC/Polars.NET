@@ -168,14 +168,14 @@ public partial class Series : IDisposable,IPolarsSeries
     public Series Get(ulong index, bool nullOnOutOfBounds = false)
         => ApplyExpr(Pl.Col(Name).Get(index, nullOnOutOfBounds));
 
-    /// <inheritdoc cref="Expr.Gather(Expr)"/>
-    public Series Gather(Expr indices)
-        => ApplyExpr(Pl.Col(Name).Gather(indices));
+    /// <inheritdoc cref="Expr.Gather(IntoExpr)"/>
+    public Series Gather(IntoExpr indices) => ApplyExpr(Pl.Col(Name).Gather(indices));
     /// <inheritdoc cref="Take(Series)"/>
-    public Series Gather(Series indices) => Take(indices);
-    /// <inheritdoc cref="Expr.Take(Expr)"/>
-    public Series Take(Expr indices)
-        => ApplyExpr(Pl.Col(Name).Take(indices));
+    public Series Gather(ReadOnlySpan<int> indices) => ApplyExpr(Pl.Col(Name).Gather(indices));
+    /// <inheritdoc cref="Expr.Take(IntoExpr)"/>
+    public Series Take(IntoExpr indices) => Gather(indices);
+    /// <inheritdoc cref="Expr.Take(IntoExpr)"/>
+    public Series Take(ReadOnlySpan<int> indices) => Gather(indices);
     /// <summary>
     /// Take elements by physical integer indices.
     /// Note: Negative indices are not supported. All values must be >= 0.

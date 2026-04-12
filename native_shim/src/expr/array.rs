@@ -249,3 +249,22 @@ pub extern "C" fn pl_expr_array_to_struct(
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_concat_array(
+    exprs_ptr: *const *mut ExprContext,
+    exprs_len: usize
+) -> *mut ExprContext {
+    ffi_try!({
+        let mut exprs = Vec::with_capacity(exprs_len);
+        let ptr_slice = unsafe { std::slice::from_raw_parts(exprs_ptr, exprs_len) };
+        for &ptr in ptr_slice {
+            let expr_ctx = unsafe { Box::from_raw(ptr) };
+            exprs.push(expr_ctx.inner);
+        }
+
+        let new_expr = concat_arr(exprs)?;
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}

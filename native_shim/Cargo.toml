@@ -9,7 +9,8 @@ polars = { version = "0.53.0", features = ["lazy", "csv","parquet","strings","re
 "abs","round_series","dtype-full","array_any_all","array_to_struct","pivot","sql","diff","rolling_window","rolling_window_by","avro",
 "json","ipc","asof_join","diagonal_concat","top_k","rank","moment","pct_change","ewma","ewma_by","product","new_streaming",
 "aws","azure","gcp","http","dynamic_group_by","business","search_sorted","bitwise","index_of","simd","row_hash","approx_unique","merge_sorted","partition_by",
-"to_dummies","is_first_distinct","is_last_distinct","unique_counts","propagate_nans","array_count"] }
+"to_dummies","is_first_distinct","is_last_distinct","unique_counts","propagate_nans","array_count","list_count","list_drop_nulls","list_sample","list_any_all",
+"list_gather","list_to_struct","list_sets"] }
 polars-core = { version = "0.53.0" }
 polars-arrow = { version = "0.53.0" }
 polars-io = { version = "0.53.0",features =["file_cache","catalog"] }

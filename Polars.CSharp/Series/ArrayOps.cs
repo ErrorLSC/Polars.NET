@@ -93,7 +93,7 @@ public readonly struct SeriesArrayOps
     // --- Structure ---
 
     /// <summary>Get element at index from every sub-array.</summary>
-    public Series Get(Expr index, bool nullOnOob = true) 
+    public Series Get(long index, bool nullOnOob = true) 
         => Apply(e => e.Array.Get(index, nullOnOob));
 
     /// <summary>Join elements with a separator.</summary>
@@ -109,7 +109,7 @@ public readonly struct SeriesArrayOps
     /// <summary>
     /// Convert array to struct. Useful for splitting embeddings into feature columns.
     /// </summary>
-    public Series ToStruct(string[]? fields=null) => Apply(e => e.Array.ToStruct(fields));
+    public Series ToStruct(params string[] fields) => Apply(e => e.Array.ToStruct(fields));
     /// <inheritdoc cref="ArrayOps.ToStruct(Func{int,string},int)"/>
     public Series ToStruct(Func<int,string>nameGenerator,int fieldCount) => Apply(e => e.Array.ToStruct(nameGenerator,fieldCount));
     /// <summary>
@@ -120,7 +120,7 @@ public readonly struct SeriesArrayOps
     // --- Logic / Set ---
 
     /// <summary>Check if sub-array contains a specific item.</summary>
-    public Series Contains(int item, bool nullsEqual = false) 
+    public Series Contains(Expr item, bool nullsEqual = false) 
         => Apply(e => e.Array.Contains(item, nullsEqual));
 
     /// <summary>Get unique elements in every sub-array.</summary>
