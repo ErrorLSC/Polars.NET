@@ -5,3 +5,4 @@ pub mod datatype_expr;
 pub mod array;
 pub mod list;
 pub mod struct_ops;
+pub mod name_ops;

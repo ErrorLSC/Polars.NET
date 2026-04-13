@@ -588,6 +588,34 @@ unsafe internal partial class NativeBindings
     // Naming
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_prefix(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string prefix);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_suffix(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string suffix);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_name_prefix_fields(ExprHandle expr,[MarshalAs(UnmanagedType.LPUTF8Str)] string prefix); 
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_name_suffix_fields(ExprHandle expr,[MarshalAs(UnmanagedType.LPUTF8Str)] string suffix);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_name_to_uppercase(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_name_to_lowercase(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_name_keep(ExprHandle expr);
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+     public static partial ExprHandle pl_expr_name_replace(
+        ExprHandle expr,
+        string pattern,
+        string value,
+        [MarshalAs(UnmanagedType.U1)]bool literal
+    );
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate IntPtr MapStringCallback(IntPtr name);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void FreeStringCallback(IntPtr ptr);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate void FreeHandleCallback(IntPtr gcHandlePtr);
+
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_name_map(
+        ExprHandle expr, MapStringCallback callback, FreeStringCallback freeStringCb, IntPtr gcHandlePtr, FreeHandleCallback freeHandleCb);
+
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_name_map_fields(
+        ExprHandle expr, MapStringCallback callback, FreeStringCallback freeStringCb, IntPtr gcHandlePtr, FreeHandleCallback freeHandleCb);
 
     // Expr Len
     [LibraryImport(LibName)] 

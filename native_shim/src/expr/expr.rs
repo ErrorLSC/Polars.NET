@@ -1533,33 +1533,6 @@ pub extern "C" fn pl_len() -> *mut ExprContext {
     })
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_prefix(
-    expr_ptr: *mut ExprContext, 
-    prefix_ptr: *const c_char
-) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let prefix = ptr_to_str(prefix_ptr).unwrap();
-        let new_expr = ctx.inner.name().prefix(prefix);
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_suffix(
-    expr_ptr: *mut ExprContext, 
-    suffix_ptr: *const c_char
-) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let suffix = ptr_to_str(suffix_ptr).unwrap();
-        let new_expr = ctx.inner.name().suffix(suffix);
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-
 
 // --- Rolling Var ---
 #[unsafe(no_mangle)]

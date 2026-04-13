@@ -1130,6 +1130,15 @@ public readonly partial struct PolarsWrapper
     }
     
     // Naming
+    public static ExprHandle NameKeep(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_name_keep,e);
+    public static ExprHandle NameToUpperCase(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_name_to_uppercase,e);
+    public static ExprHandle NameToLowerCase(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_name_to_lowercase,e);
+    public static ExprHandle NameReplace(ExprHandle e, string pattern,string value,bool literal)
+    {
+        var h = NativeBindings.pl_expr_name_replace(e, pattern,value,literal);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     public static ExprHandle Prefix(ExprHandle e, string p)
     {
         var h = NativeBindings.pl_expr_prefix(e, p);
@@ -1143,6 +1152,68 @@ public readonly partial struct PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle FieldPrefix(ExprHandle e, string p)
+    {
+        var h = NativeBindings.pl_expr_name_prefix_fields(e, p);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle FieldSuffix(ExprHandle e, string s)
+    {
+        var h = NativeBindings.pl_expr_name_suffix_fields(e, s);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    private static readonly NativeBindings.FreeStringCallback _freeStringCb = Marshal.FreeCoTaskMem;
+    private static readonly NativeBindings.FreeHandleCallback _freeHandleCb = FreeGcHandle;
+
+    private static void FreeGcHandle(IntPtr gcHandlePtr)
+    {
+        if (gcHandlePtr != IntPtr.Zero)
+        {
+            var handle = GCHandle.FromIntPtr(gcHandlePtr);
+            if (handle.IsAllocated) handle.Free();
+        }
+    }
+    private delegate ExprHandle NativeMapFunc(
+        ExprHandle expr, 
+        NativeBindings.MapStringCallback callback, 
+        NativeBindings.FreeStringCallback freeStringCb, 
+        IntPtr gcHandlePtr, 
+        NativeBindings.FreeHandleCallback freeHandleCb);
+
+    private static ExprHandle MapWithCallback(
+        ExprHandle expr, 
+        Func<string, string> function, 
+        NativeMapFunc nativeCall)
+    {
+        NativeBindings.MapStringCallback callbackDelegate = ptr =>
+        {
+            string name = Marshal.PtrToStringUTF8(ptr) ?? string.Empty;
+            string result = function(name);
+            return Marshal.StringToCoTaskMemUTF8(result);
+        };
+
+        var gcHandle = GCHandle.Alloc(callbackDelegate);
+        IntPtr gcHandlePtr = GCHandle.ToIntPtr(gcHandle);
+
+        var h = nativeCall(
+            expr, 
+            callbackDelegate, 
+            _freeStringCb, 
+            gcHandlePtr, 
+            _freeHandleCb
+        );
+
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+
+    public static ExprHandle MapName(ExprHandle expr, Func<string, string> function) => MapWithCallback(expr, function, NativeBindings.pl_expr_name_map);
+
+    public static ExprHandle StructMapFields(ExprHandle expr, Func<string, string> function) => MapWithCallback(expr, function, NativeBindings.pl_expr_name_map_fields);
+    
+
     // Window
     public static ExprHandle Over(ExprHandle expr, ExprHandle[] partitionBy)
     {

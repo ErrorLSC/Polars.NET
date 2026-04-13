@@ -4,7 +4,8 @@ using Polars.NET.Linq.CSharpExtensions;
 using LinqToDB;
 using LinqToDB.Async;
 using Polars.NET.Linq;
-using LinqToDB.Mapping; 
+using LinqToDB.Mapping;
+using System.Security.Cryptography.Xml;
 
 namespace Polars.Integration.Tests;
 
