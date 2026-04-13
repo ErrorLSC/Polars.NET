@@ -230,13 +230,13 @@ TooShort,1990-05-20,1.60";
         using var res = df.Select(
             Pl.Col("text"),
             
-            Pl.Col("text").Str.ToUpper().Alias("upper"),
+            Pl.Col("text").Str.ToUpperCase().Alias("upper"),
             
             Pl.Col("text").Str.Slice(0, 3).Alias("slice"),
             
             Pl.Col("text").Str.ReplaceAll("o", "0").Alias("replaced"),
             
-            Pl.Col("text").Str.Len().Alias("len")
+            Pl.Col("text").Str.LenBytes().Alias("len")
         );
 
         Assert.Equal("HELLO WORLD", res.GetValue<string>(0, "upper"));

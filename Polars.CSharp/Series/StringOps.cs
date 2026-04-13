@@ -15,29 +15,30 @@ public readonly struct SeriesStrOps
     /// Transfer String to UpperClass.
     /// </summary>
     /// <returns></returns>
-    public Series ToUpper() => Apply(e => e.Str.ToUpper());
+    public Series ToUpper() => Apply(e => e.Str.ToUpperCase());
     /// <summary>
     /// Transfer String to LowerClass.
     /// </summary>
     /// <returns></returns>
-    public Series ToLower() => Apply(e => e.Str.ToLower());
+    public Series ToLower() => Apply(e => e.Str.ToLowerCase());
     /// <summary>
     /// Get length in bytes.
     /// </summary>
-    public Series Len() => Apply(e => e.Str.Len());
+    public Series Len() => Apply(e => e.Str.LenBytes());
     /// <summary>
     /// Check if the string contains a substring that matches a pattern.
     /// </summary>
-    /// <param name="pattern"></param>
+    /// <param name="pattern">A valid regular expression pattern, compatible with the regex crate.</param>
+    /// <param name="strict">Raise an error if the underlying pattern is not a valid regex, otherwise mask out with a null value.</param>
     /// <returns></returns>
-    public Series Contains(string pattern) => Apply(e => e.Str.Contains(pattern));
+    public Series Contains(string pattern,bool strict=true ) => Apply(e => e.Str.Contains(pattern,strict));
     /// <summary>
     /// Slice string by length.
     /// </summary>
     /// <param name="offset"></param>
     /// <param name="length"></param>
     /// <returns></returns>
-    public Series Slice(long offset, ulong length) => Apply(e => e.Str.Slice(offset, length));
+    public Series Slice(IntoExpr offset, IntoExpr? length=null) => Apply(e => e.Str.Slice(offset, length));
     /// <summary>
     /// Split the string by a substring.
     /// </summary>

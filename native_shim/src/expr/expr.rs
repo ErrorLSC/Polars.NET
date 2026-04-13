@@ -245,6 +245,26 @@ macro_rules! gen_ewm_op {
     };
 }
 
+#[macro_export]
+macro_rules! impl_expr_namespace_expr_arg {
+    ($ffi_name:ident, $namespace:ident, $method:ident) => {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $ffi_name(
+            expr_ptr: *mut ExprContext, 
+            arg_ptr: *mut ExprContext
+        ) -> *mut ExprContext {
+            ffi_try!({
+                let ctx = unsafe { Box::from_raw(expr_ptr) };
+                let arg = unsafe { Box::from_raw(arg_ptr) };
+                
+                let new_expr = ctx.inner.$namespace().$method(arg.inner);
+                
+                Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+            })
+        }
+    };
+}
+
 // ==========================================
 // Boilerplate Killer
 // ==========================================
@@ -430,9 +450,7 @@ gen_namespace_unary!(pl_expr_dt_nanosecond, dt, nanosecond);
 gen_namespace_unary!(pl_expr_dt_date, dt, date); // convert to Date
 gen_namespace_unary!(pl_expr_dt_time, dt, time); // convert to Time 
 // String Namespace
-gen_namespace_unary!(pl_expr_str_to_uppercase, str, to_uppercase);
-gen_namespace_unary!(pl_expr_str_to_lowercase, str, to_lowercase);
-gen_namespace_unary!(pl_expr_str_len_bytes, str, len_bytes);
+
 // 
 gen_rolling_op!(pl_expr_rolling_mean, rolling_mean);
 gen_rolling_op!(pl_expr_rolling_sum, rolling_sum);
@@ -794,274 +812,6 @@ pub extern "C" fn pl_format_str(
         }
 
         let new_expr = format_str(format_template, exprs)?;
-        
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_str_contains(
-    expr_ptr: *mut ExprContext, 
-    pat_ptr: *const c_char
-) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let pat = ptr_to_str(pat_ptr).unwrap();
-        
-        let new_expr = ctx.inner.str().contains(lit(pat), false);
-        
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-// offset: start position , length: offset length
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_str_slice(
-    expr_ptr: *mut ExprContext, 
-    offset: i64, 
-    length: u64
-) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        // Polars API: str().slice(offset, length)
-        let new_expr = ctx.inner.str().slice(offset.into(), length.into());
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-// extract (Regex)
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_str_extract(
-    expr_ptr: *mut ExprContext, 
-    pat_ptr: *const c_char,
-    group_index: usize
-) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let pat = ptr_to_str(pat_ptr).unwrap();
-        
-        // str.extract(pattern, group_index)
-        let new_expr = ctx.inner.str().extract(lit(pat), group_index);
-        
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-// Replace All
-// pat: matching pattern, val: replace value
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_str_replace_all(
-    expr_ptr: *mut ExprContext, 
-    pat_ptr: *const c_char,
-    val_ptr: *const c_char,
-    use_regex: bool 
-) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let pat = ptr_to_str(pat_ptr).unwrap();
-        let val = ptr_to_str(val_ptr).unwrap();
-
-        let new_expr = ctx.inner.str().replace_all(lit(pat), lit(val), !use_regex);
-        
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_str_split(
-    expr_ptr: *mut ExprContext, 
-    pat_ptr: *const c_char
-) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let pat = ptr_to_str(pat_ptr).unwrap();
-        let new_expr = ctx.inner.str().split(lit(pat));
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-// Helper: Convert C String into Polars Literal Expr
-// if ptr is null，return lit(Null)
-unsafe fn str_or_null_lit(ptr: *const c_char) -> Expr {
-    if ptr.is_null() {
-        lit(NULL) 
-    } else {
-        let s = unsafe { CStr::from_ptr(ptr).to_string_lossy() };
-        lit(s.as_ref() as &str)
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_str_strip_chars(
-    expr_ptr: *mut ExprContext, 
-    matches: *const c_char
-) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let match_expr = unsafe { str_or_null_lit(matches) };
-        
-        let new_expr = ctx.inner.str().strip_chars(match_expr);
-        
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-// Strip Chars Start (LTrim)
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_str_strip_chars_start(
-    expr_ptr: *mut ExprContext, 
-    matches: *const c_char
-) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe {Box::from_raw(expr_ptr) };
-        let match_expr = unsafe { str_or_null_lit(matches) };
-        
-        let new_expr = ctx.inner.str().strip_chars_start(match_expr);
-        
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-// Strip Chars End (RTrim)
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_str_strip_chars_end(
-    expr_ptr: *mut ExprContext, 
-    matches: *const c_char
-) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr)};
-        let match_expr = unsafe { str_or_null_lit(matches) };
-        
-        let new_expr = ctx.inner.str().strip_chars_end(match_expr);
-        
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-// Strip Prefix
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_str_strip_prefix(
-    expr_ptr: *mut ExprContext, 
-    prefix: *const c_char
-) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let prefix_str = unsafe { CStr::from_ptr(prefix).to_string_lossy() };
-        
-        let new_expr = ctx.inner.str().strip_prefix(lit(prefix_str.as_ref() as &str));
-        
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-// Strip Suffix
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_str_strip_suffix(
-    expr_ptr: *mut ExprContext, 
-    suffix: *const c_char
-) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr)};
-        let suffix_str = unsafe { CStr::from_ptr(suffix).to_string_lossy() };
-        
-        let new_expr = ctx.inner.str().strip_suffix(lit(suffix_str.as_ref()as &str));
-        
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-// Anchors
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_str_starts_with(expr_ptr: *mut ExprContext, prefix: *const c_char) -> *mut ExprContext {
-    let ctx = unsafe { Box::from_raw(expr_ptr) };
-    let p = unsafe { CStr::from_ptr(prefix).to_string_lossy() };
-    
-    let new_expr = ctx.inner.str().starts_with(lit(p.as_ref()as &str));
-    Box::into_raw(Box::new(ExprContext { inner: new_expr }))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_str_ends_with(expr_ptr: *mut ExprContext, suffix: *const c_char) -> *mut ExprContext {
-    let ctx = unsafe {Box::from_raw(expr_ptr)};
-    let s = unsafe { CStr::from_ptr(suffix).to_string_lossy() };
-    
-    let new_expr = ctx.inner.str().ends_with(lit(s.as_ref()as &str));
-    Box::into_raw(Box::new(ExprContext { inner: new_expr }))
-}
-
-// Parsing (String -> Date/Time)
-// format: e.g. "%Y-%m-%d"
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_str_to_date(
-    expr_ptr: *mut ExprContext,
-    format: *const c_char,
-    strict: bool,
-    exact: bool,
-    cache: bool,
-) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-
-        let format_opt = if format.is_null() {
-            None
-        } else {
-            let fmt_str = unsafe { CStr::from_ptr(format).to_string_lossy() };
-            Some(fmt_str.into())
-        };
-
-        let options = StrptimeOptions {
-            format: format_opt,
-            strict,
-            exact,
-            cache,
-        };
-
-        let new_expr = ctx.inner.str().to_date(options);
-        
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_str_to_datetime(
-    expr_ptr: *mut ExprContext,
-    time_unit: u8, // 0: Nano, 1: Micro, 2: Milli, -1: None
-    time_zone: *const c_char,
-    format: *const c_char,
-    strict: bool,
-    exact: bool,
-    cache: bool,
-) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        
-        let tu_opt = match time_unit {
-            0 => Some(TimeUnit::Nanoseconds),
-            1 => Some(TimeUnit::Microseconds),
-            2 => Some(TimeUnit::Milliseconds),
-            _ => None, 
-        };
-
-        let tz_opt = if time_zone.is_null() {
-            None
-        } else {
-            let tz_str = unsafe { CStr::from_ptr(time_zone).to_string_lossy() };
-            TimeZone::opt_try_new(Some(tz_str.as_ref()))?
-        };
-
-        let format_opt = if format.is_null() {
-            None
-        } else {
-            let fmt_str = unsafe { CStr::from_ptr(format).to_string_lossy() };
-            Some(fmt_str.into())
-        };
-
-        let options = StrptimeOptions {
-            format: format_opt,
-            strict,
-            exact,
-            cache,
-        };
-
-        let new_expr = ctx.inner.str().to_datetime(tu_opt, tz_opt, options, lit("raise"));
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })

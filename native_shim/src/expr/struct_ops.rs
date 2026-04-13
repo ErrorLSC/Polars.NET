@@ -21,7 +21,7 @@ pub extern "C" fn pl_expr_as_struct(
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_struct_field_by_names(
     expr_ptr: *mut ExprContext,
-    names_ptr: *const *const std::os::raw::c_char,
+    names_ptr: *const *const c_char,
     names_len: usize,
 ) -> *mut ExprContext {
     ffi_try!({

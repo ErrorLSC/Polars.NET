@@ -327,7 +327,10 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_concat_str(IntPtr[] exprs,nuint exprLen, string separator, [MarshalAs(UnmanagedType.U1)] bool ignoreNulls);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_format_str(string format,IntPtr[] exprs,UIntPtr exprLen);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_contains(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string pat);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_contains(
+        ExprHandle expr, 
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string pat,
+        [MarshalAs(UnmanagedType.U1)]bool strict);
 
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_to_uppercase(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_to_lowercase(ExprHandle expr);
@@ -373,7 +376,7 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] bool cache);
     
     [LibraryImport(LibName)] 
-    public static partial ExprHandle pl_expr_str_slice(ExprHandle expr, long offset, ulong length);
+    public static partial ExprHandle pl_expr_str_slice(ExprHandle expr, ExprHandle offset, ExprHandle length);
     [LibraryImport(LibName)] 
     public static partial ExprHandle pl_expr_str_split(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string pat);
     [LibraryImport(LibName)] 

@@ -542,7 +542,7 @@ public class SeriesTests
     {
         var s = new Series("words", ["a", "ccc", "bb"]);
 
-        var byLength = Pl.Col("words").Str.Len();
+        var byLength = Pl.Col("words").Str.LenBytes();
 
         var top2 = s.TopKBy(2, byLength);
         

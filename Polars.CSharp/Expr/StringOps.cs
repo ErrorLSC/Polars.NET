@@ -1,10 +1,5 @@
-#pragma warning disable CS1591
-#pragma warning disable CS1573
-using Apache.Arrow;
-using Microsoft.FSharp.Core;
 using Polars.NET.Core;
-using Polars.NET.Core.Helpers;
-
+using Pl = Polars.CSharp.Polars;
 namespace Polars.CSharp;
 
 // ==========================================
@@ -30,16 +25,16 @@ public readonly struct StringOps
     /// df.Select(Col("text").Str.ToUpper());
     /// </code>
     /// </example>
-    public Expr ToUpper() => Wrap(PolarsWrapper.StrToUpper);
+    public Expr ToUpperCase() => Wrap(PolarsWrapper.StrToUpper);
     /// <summary>
     /// Convert String to LowerClass.
     /// </summary>
-    public Expr ToLower() => Wrap(PolarsWrapper.StrToLower);
+    public Expr ToLowerCase() => Wrap(PolarsWrapper.StrToLower);
     /// <summary>
     /// Get length in bytes.
     /// <para>Note: Multi-byte characters (like emojis or CJK) count as > 1 byte.</para>
     /// </summary>
-    public Expr Len() => Wrap(PolarsWrapper.StrLenBytes);
+    public Expr LenBytes() => Wrap(PolarsWrapper.StrLenBytes);
     /// <summary>
     /// Slice the string by offset and length.
     /// </summary>
@@ -77,10 +72,17 @@ public readonly struct StringOps
     /// */
     /// </code>
     /// </example>
-    public Expr Slice(long offset, ulong length)
+    public Expr Slice(IntoExpr offset, IntoExpr? length = null)
     {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.StrSlice(h, offset, length));
+        Expr offsetExpr = offset.Consume();
+
+        Expr lengthExpr = length.HasValue ? length.Value.Consume() : Pl.LitNull();
+
+        return new Expr(PolarsWrapper.StrSlice(
+            _expr.CloneHandle(), 
+            offsetExpr.CloneHandle(), 
+            lengthExpr.CloneHandle()
+        ));
     }
     /// <summary>
     /// Replace all occurrences of a pattern with a value.
@@ -139,10 +141,10 @@ public readonly struct StringOps
     /// */
     /// </code>
     /// </example>
-    public Expr Contains(string pattern)
+    public Expr Contains(string pattern,bool strict=true)
     {
         var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.StrContains(h, pattern));
+        return new Expr(PolarsWrapper.StrContains(h, pattern,strict));
     }
     /// <summary>
     /// Split the string by a separator. Returns a List&lt;String&gt;.

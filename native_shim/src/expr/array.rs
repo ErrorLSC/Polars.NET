@@ -1,6 +1,6 @@
 use polars::prelude::*;
 use std::os::raw::c_char;
-use crate::gen_namespace_unary;
+use crate::{gen_namespace_unary, impl_expr_namespace_expr_arg};
 use crate::types::ExprContext;
 use crate::utils::ptr_to_str;
 
@@ -18,6 +18,10 @@ gen_namespace_unary!(pl_expr_array_n_unique, arr, n_unique);
 gen_namespace_unary!(pl_expr_array_to_list, arr, to_list);
 gen_namespace_unary!(pl_expr_array_reverse, arr, reverse);
 
+impl_expr_namespace_expr_arg!(pl_expr_array_count_matches, arr, count_matches);
+impl_expr_namespace_expr_arg!(pl_expr_array_agg, arr, agg);
+impl_expr_namespace_expr_arg!(pl_expr_array_shift, arr, shift);
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_array_unique(expr_ptr: *mut ExprContext, stable: bool) -> *mut ExprContext {
     ffi_try!({
@@ -30,37 +34,6 @@ pub extern "C" fn pl_expr_array_unique(expr_ptr: *mut ExprContext, stable: bool)
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_array_count_matches(expr_ptr: *mut ExprContext, item_ptr: *mut ExprContext) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let item = unsafe { Box::from_raw(item_ptr) };
-        let new_expr = ctx.inner.arr().count_matches(item.inner);
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_array_agg(expr_ptr: *mut ExprContext, agg_ptr: *mut ExprContext) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let agg = unsafe { Box::from_raw(agg_ptr) };
-        let new_expr = ctx.inner.arr().agg(agg.inner);
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_array_shift(expr_ptr: *mut ExprContext, shift_ptr: *mut ExprContext) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let shift = unsafe { Box::from_raw(shift_ptr) };
-        let new_expr = ctx.inner.arr().shift(shift.inner);
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_array_head(expr_ptr: *mut ExprContext, head_ptr: *mut ExprContext, as_list :bool) -> *mut ExprContext {

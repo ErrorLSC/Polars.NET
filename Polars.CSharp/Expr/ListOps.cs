@@ -1,5 +1,4 @@
 #pragma warning disable CS1591
-using Microsoft.FSharp.Data.UnitSystems.SI.UnitNames;
 using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 

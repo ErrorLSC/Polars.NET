@@ -1,7 +1,7 @@
 use polars::prelude::*;
 use polars::series::ops::NullBehavior;
 use std::os::raw::c_char;
-use crate::gen_namespace_unary;
+use crate::{gen_namespace_unary, impl_expr_namespace_expr_arg};
 use crate::types::ExprContext;
 use crate::utils::{ptr_to_str, ptr_to_vec_pl_string_with_default};
 
@@ -18,6 +18,12 @@ gen_namespace_unary!(pl_expr_list_reverse, list, reverse);
 gen_namespace_unary!(pl_expr_list_len, list, len);
 gen_namespace_unary!(pl_expr_list_drop_nulls, list, drop_nulls);
 gen_namespace_unary!(pl_expr_list_n_unique, list, n_unique);
+
+impl_expr_namespace_expr_arg!(pl_expr_list_head, list, head);
+impl_expr_namespace_expr_arg!(pl_expr_list_tail, list, tail);
+impl_expr_namespace_expr_arg!(pl_expr_list_count_matches, list, count_matches);
+impl_expr_namespace_expr_arg!(pl_expr_list_agg, list, agg);
+impl_expr_namespace_expr_arg!(pl_expr_list_shift, list, shift);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_list_unique(expr_ptr: *mut ExprContext, stable: bool) -> *mut ExprContext {
@@ -138,56 +144,6 @@ pub extern "C" fn pl_expr_list_slice(expr_ptr: *mut ExprContext,offset_ptr: *mut
         let offset = unsafe { Box::from_raw(offset_ptr) };
         let length = unsafe {Box::from_raw(length_ptr)};
         let new_expr = ctx.inner.list().slice(offset.inner,length.inner);
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_list_head(expr_ptr: *mut ExprContext, head_ptr: *mut ExprContext) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let head = unsafe { Box::from_raw(head_ptr) };
-        let new_expr = ctx.inner.list().head(head.inner);
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_list_tail(expr_ptr: *mut ExprContext, tail_ptr: *mut ExprContext) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let tail = unsafe { Box::from_raw(tail_ptr) };
-        let new_expr = ctx.inner.list().tail(tail.inner);
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_list_count_matches(expr_ptr: *mut ExprContext, item_ptr: *mut ExprContext) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let item = unsafe { Box::from_raw(item_ptr) };
-        let new_expr = ctx.inner.list().count_matches(item.inner);
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_list_agg(expr_ptr: *mut ExprContext, agg_ptr: *mut ExprContext) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let agg = unsafe { Box::from_raw(agg_ptr) };
-        let new_expr = ctx.inner.list().agg(agg.inner);
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_list_shift(expr_ptr: *mut ExprContext, shift_ptr: *mut ExprContext) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let shift = unsafe { Box::from_raw(shift_ptr) };
-        let new_expr = ctx.inner.list().shift(shift.inner);
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }

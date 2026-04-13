@@ -486,9 +486,9 @@ public readonly partial struct PolarsWrapper
             format,ptrs,(UIntPtr)exprs.Length         
         ));
     }
-    public static ExprHandle StrContains(ExprHandle e, string pat) 
+    public static ExprHandle StrContains(ExprHandle e, string pat,bool strict) 
     {
-        var h = NativeBindings.pl_expr_str_contains(e, pat);
+        var h = NativeBindings.pl_expr_str_contains(e, pat,strict);
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
@@ -497,10 +497,12 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle StrToLower(ExprHandle e) => UnaryStrOp(NativeBindings.pl_expr_str_to_lowercase, e);
     public static ExprHandle StrLenBytes(ExprHandle e) => UnaryStrOp(NativeBindings.pl_expr_str_len_bytes, e);
     
-    public static ExprHandle StrSlice(ExprHandle e, long offset, ulong length)
+    public static ExprHandle StrSlice(ExprHandle e, ExprHandle offset, ExprHandle length)
     {
         var h = NativeBindings.pl_expr_str_slice(e, offset, length);
         e.TransferOwnership();
+        offset.TransferOwnership();
+        length.TransferOwnership();
         return ErrorHelper.Check(h);
     }
 
