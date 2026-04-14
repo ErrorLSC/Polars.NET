@@ -79,7 +79,7 @@ public enum PlConcatType : byte
     Diagonal = 2
 }
 
-public enum PlLabel
+public enum PlLabel: byte
 {
     Left = 0,
     Right = 1,
@@ -132,7 +132,7 @@ public enum PlSetOperation: byte
 /// <summary>
 /// Strategy to handle dates that land on non-business days (weekends or holidays).
 /// </summary>
-public enum PlRoll
+public enum PlRoll :byte
 {
     /// <summary>
     /// Raise an error if the result is not a business day.
@@ -302,7 +302,7 @@ public enum PlQuoteStyle : byte
     Never = 3
 }
 
-public enum PlInterpolationMethod
+public enum PlInterpolationMethod: byte
 {
     Linear = 0,
     Nearest = 1

@@ -240,16 +240,16 @@ pub extern "C" fn pl_expr_str_replace_many(
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_str_replace_all(
     expr_ptr: *mut ExprContext, 
-    pat_ptr: *const c_char,
-    val_ptr: *const c_char,
-    use_regex: bool 
+    pat_ptr: *mut ExprContext,
+    val_ptr: *mut ExprContext,
+    literal: bool 
 ) -> *mut ExprContext {
     ffi_try!({
         let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let pat = ptr_to_str(pat_ptr).unwrap();
-        let val = ptr_to_str(val_ptr).unwrap();
+        let pat = unsafe { Box::from_raw(pat_ptr) };
+        let val = unsafe { Box::from_raw(val_ptr) };
 
-        let new_expr = ctx.inner.str().replace_all(lit(pat), lit(val), !use_regex);
+        let new_expr = ctx.inner.str().replace_all(pat.inner, val.inner, literal);
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
@@ -417,16 +417,16 @@ pub extern "C" fn pl_expr_str_to_integer(
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_str_normalize(
     expr_ptr: *mut ExprContext,
-    code: u8,
+    code: i32,
 ) -> *mut ExprContext {
     ffi_try!({
         let ctx = unsafe { Box::from_raw(expr_ptr) };
 
         let form = match code {
-            0 => UnicodeForm::NFC,
-            1 => UnicodeForm::NFKC,
+            1 => UnicodeForm::NFC,
+            5 => UnicodeForm::NFKC,
             2 => UnicodeForm::NFD, 
-            3 => UnicodeForm::NFKD, 
+            6 => UnicodeForm::NFKD, 
             _ => UnicodeForm::NFC
         };
 

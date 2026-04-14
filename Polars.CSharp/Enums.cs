@@ -511,6 +511,14 @@ public enum ClosedInterval
     Left,Right,Both,None
 }
 
+public enum AmbiguousStrategy
+{
+    Raise,
+    Earliest,
+    Latest,
+    Null
+}
+
 public enum MissingColumnsPolicy : byte { Raise = 0, Insert = 1 }
 public enum UpcastOrForbid : byte { Forbid = 0, Upcast = 1 }
 public enum ExtraColumnsPolicy : byte { Raise = 0, Ignore = 1 }

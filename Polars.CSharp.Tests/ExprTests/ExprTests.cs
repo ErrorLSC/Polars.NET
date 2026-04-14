@@ -222,6 +222,7 @@ TooShort,1990-05-20,1.60";
     // ==========================================
 
     [Fact]
+    [Trait("Expr","StringOps")]
     public void String_Operations_Case_Slice_Replace()
     {
         using var csv = new DisposableFile("text\nHello World\nfoo BAR",".csv");
@@ -230,7 +231,7 @@ TooShort,1990-05-20,1.60";
         using var res = df.Select(
             Pl.Col("text"),
             
-            Pl.Col("text").Str.ToUpperCase().Alias("upper"),
+            Pl.Col("text").Str.ToUppercase().Alias("upper"),
             
             Pl.Col("text").Str.Slice(0, 3).Alias("slice"),
             
@@ -250,6 +251,7 @@ TooShort,1990-05-20,1.60";
     }
 
     [Fact]
+    [Trait("Expr","StringOps")]
     public void String_Regex_Replace_And_Extract()
     {
         using var csv = new DisposableFile("text\nUser: 12345\nID: 999",".csv");
@@ -257,7 +259,7 @@ TooShort,1990-05-20,1.60";
 
         using var res = df.Select(
 
-            Pl.Col("text").Str.ReplaceAll(@"\d+", "#", useRegex: true).Alias("masked"),
+            Pl.Col("text").Str.ReplaceAll(@"\d+", "#", literal: false).Alias("masked"),
 
             Pl.Col("text").Str.Extract(@"(\d+)", 1).Alias("extracted_id")
         );
@@ -271,6 +273,7 @@ TooShort,1990-05-20,1.60";
     // Temporal Ops (Components, Format, Cast)
     // ==========================================
     [Fact]
+    [Trait("Expr","DtOps")]
     public void Temporal_Ops_Components_Format_Cast()
     {
         var csvContent = "ts\n2023-12-25 15:30:00\n2024-01-01 00:00:00";
@@ -312,6 +315,7 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(0, res.GetValue<int>(1, "h"));
     }
     [Fact]
+    [Trait("Expr","DtOps")]
     public void Test_Dt_Ops_Advanced()
     {
         // Row 0: 10:30:55
@@ -356,6 +360,7 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(DataTypeKind.Int64, res.Schema["ts_ms"].Kind);
     }
     [Fact]
+    [Trait("Expr","DtOps")]
     public void Test_Duration_Formatter_HighPrecision()
     {
         var us = TimeSpan.FromMicroseconds(10);

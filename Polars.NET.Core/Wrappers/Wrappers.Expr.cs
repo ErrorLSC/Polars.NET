@@ -1,4 +1,3 @@
-using System.Reflection.Metadata;
 using System.Runtime.InteropServices;
 using Polars.NET.Core.Native;
 
@@ -21,20 +20,10 @@ public readonly partial struct PolarsWrapper
         r.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    private static ExprHandle UnaryStrOp(Func<ExprHandle, ExprHandle> op, ExprHandle expr) 
-    => UnaryOp(op, expr);
     private static ExprHandle UnaryStrOp(Func<ExprHandle, string, ExprHandle> func, ExprHandle e, string arg)
     {
         var h = func(e, arg);
         e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-    private static ExprHandle UnaryStrOpNullable(Func<ExprHandle, string?, ExprHandle> func, ExprHandle e, string? arg)
-    {
-        var h = func(e, arg);
-        
-        e.TransferOwnership();
-        
         return ErrorHelper.Check(h);
     }
     private static ExprHandle UnaryDtOp(Func<ExprHandle, ExprHandle> op, ExprHandle expr) 
@@ -486,88 +475,7 @@ public readonly partial struct PolarsWrapper
             format,ptrs,(UIntPtr)exprs.Length         
         ));
     }
-    public static ExprHandle StrContains(ExprHandle e, string pat,bool strict) 
-    {
-        var h = NativeBindings.pl_expr_str_contains(e, pat,strict);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-
-    public static ExprHandle StrToUpper(ExprHandle e) => UnaryStrOp(NativeBindings.pl_expr_str_to_uppercase, e);
-    public static ExprHandle StrToLower(ExprHandle e) => UnaryStrOp(NativeBindings.pl_expr_str_to_lowercase, e);
-    public static ExprHandle StrLenBytes(ExprHandle e) => UnaryStrOp(NativeBindings.pl_expr_str_len_bytes, e);
-    
-    public static ExprHandle StrSlice(ExprHandle e, ExprHandle offset, ExprHandle length)
-    {
-        var h = NativeBindings.pl_expr_str_slice(e, offset, length);
-        e.TransferOwnership();
-        offset.TransferOwnership();
-        length.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-
-    public static ExprHandle StrReplaceAll(ExprHandle e, string pat, string val,bool useRegex = false)
-    {
-        var h = NativeBindings.pl_expr_str_replace_all(e, pat, val,useRegex);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-    public static ExprHandle StrSplit(ExprHandle e, string pat) 
-    {
-        var h = NativeBindings.pl_expr_str_split(e, pat);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-    public static ExprHandle StrExtract(ExprHandle e, string pat, uint groupIndex)
-    {
-        var h = NativeBindings.pl_expr_str_extract(e, pat, groupIndex);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-    public static ExprHandle StrStripChars(ExprHandle e, string? matches = null)
-        => UnaryStrOpNullable(NativeBindings.pl_expr_str_strip_chars, e, matches);
-
-    public static ExprHandle StrStripCharsStart(ExprHandle e, string? matches = null)
-        => UnaryStrOpNullable(NativeBindings.pl_expr_str_strip_chars_start, e, matches);
-
-    public static ExprHandle StrStripCharsEnd(ExprHandle e, string? matches = null)
-        => UnaryStrOpNullable(NativeBindings.pl_expr_str_strip_chars_end, e, matches);
-    public static ExprHandle StrStripPrefix(ExprHandle e, string prefix)
-        => UnaryStrOp(NativeBindings.pl_expr_str_strip_prefix, e, prefix);
-
-    public static ExprHandle StrStripSuffix(ExprHandle e, string suffix)
-        => UnaryStrOp(NativeBindings.pl_expr_str_strip_suffix, e, suffix);
-    public static ExprHandle StrStartsWith(ExprHandle e, string prefix)
-        => UnaryStrOp(NativeBindings.pl_expr_str_starts_with, e, prefix);
-
-    public static ExprHandle StrEndsWith(ExprHandle e, string suffix)
-        => UnaryStrOp(NativeBindings.pl_expr_str_ends_with, e, suffix);
-
-    public static ExprHandle StrToDate(        
-        ExprHandle e,
-        string? format,
-        [MarshalAs(UnmanagedType.U1)] bool strict,
-        [MarshalAs(UnmanagedType.U1)] bool exact,
-        [MarshalAs(UnmanagedType.U1)] bool cache)
-    {
-        var h = NativeBindings.pl_expr_str_to_date(e,format,strict,exact,cache);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-
-    public static ExprHandle StrToDatetime(        
-        ExprHandle e,
-        PlTimeUnit unit,
-        string? timeZone,
-        string? format,
-        [MarshalAs(UnmanagedType.U1)] bool strict,
-        [MarshalAs(UnmanagedType.U1)] bool exact,
-        [MarshalAs(UnmanagedType.U1)] bool cache)
-    {
-        var h = NativeBindings.pl_expr_str_to_datetime(e,unit,timeZone,format,strict,exact,cache);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
+ 
     // Compare
     public static ExprHandle Eq(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_eq, l, r);
     public static ExprHandle EqMissing(ExprHandle l, ExprHandle r) => BinaryOp(NativeBindings.pl_expr_eq_missing, l, r);
@@ -1191,9 +1099,18 @@ public readonly partial struct PolarsWrapper
     {
         NativeBindings.MapStringCallback callbackDelegate = ptr =>
         {
-            string name = Marshal.PtrToStringUTF8(ptr) ?? string.Empty;
-            string result = function(name);
-            return Marshal.StringToCoTaskMemUTF8(result);
+            try
+            {
+                string name = Marshal.PtrToStringUTF8(ptr) ?? string.Empty;
+                
+                string result = function(name);
+                
+                return Marshal.StringToCoTaskMemUTF8(result ?? string.Empty);
+            }
+            catch (Exception)
+            {
+                return IntPtr.Zero;
+            }
         };
 
         var gcHandle = GCHandle.Alloc(callbackDelegate);

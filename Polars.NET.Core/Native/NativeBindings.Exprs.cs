@@ -1,6 +1,4 @@
 using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.Marshalling;
-using System.Text.Unicode;
 using Apache.Arrow.C;
 
 namespace Polars.NET.Core.Native;
@@ -321,76 +319,6 @@ unsafe internal partial class NativeBindings
         DataTypeExprHandle dexpr_ptr, 
         [MarshalAs(UnmanagedType.U1)] bool strict, 
         [MarshalAs(UnmanagedType.U1)] bool wrap_numerical
-    );
-    // String Ops
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial ExprHandle pl_concat_str(IntPtr[] exprs,nuint exprLen, string separator, [MarshalAs(UnmanagedType.U1)] bool ignoreNulls);
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial ExprHandle pl_format_str(string format,IntPtr[] exprs,UIntPtr exprLen);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_contains(
-        ExprHandle expr, 
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string pat,
-        [MarshalAs(UnmanagedType.U1)]bool strict);
-
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_to_uppercase(ExprHandle expr);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_to_lowercase(ExprHandle expr);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_len_bytes(ExprHandle expr);
-    // String Cleaning
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial ExprHandle pl_expr_str_strip_chars(ExprHandle e, string? matches);
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial ExprHandle pl_expr_str_strip_chars_start(ExprHandle e, string? matches);
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial ExprHandle pl_expr_str_strip_chars_end(ExprHandle e, string? matches);
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial ExprHandle pl_expr_str_strip_prefix(ExprHandle e, string prefix);
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial ExprHandle pl_expr_str_strip_suffix(ExprHandle e, string suffix);
-
-    // Anchors
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial ExprHandle pl_expr_str_starts_with(ExprHandle e, string prefix);
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial ExprHandle pl_expr_str_ends_with(ExprHandle e, string suffix);
-    // Parsing
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial ExprHandle pl_expr_str_to_date(        
-        ExprHandle e,
-        string? format,
-        [MarshalAs(UnmanagedType.U1)] bool strict,
-        [MarshalAs(UnmanagedType.U1)] bool exact,
-        [MarshalAs(UnmanagedType.U1)] bool cache);
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial ExprHandle pl_expr_str_to_datetime(
-        ExprHandle e,
-        PlTimeUnit unit,
-        string? timeZone,
-        string? format,
-        [MarshalAs(UnmanagedType.U1)] bool strict,
-        [MarshalAs(UnmanagedType.U1)] bool exact,
-        [MarshalAs(UnmanagedType.U1)] bool cache);
-    
-    [LibraryImport(LibName)] 
-    public static partial ExprHandle pl_expr_str_slice(ExprHandle expr, ExprHandle offset, ExprHandle length);
-    [LibraryImport(LibName)] 
-    public static partial ExprHandle pl_expr_str_split(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string pat);
-    [LibraryImport(LibName)] 
-    public static partial ExprHandle pl_expr_str_replace_all(
-        ExprHandle expr, 
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string pat, 
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string val,
-        [MarshalAs(UnmanagedType.U1)] bool useRegex
-    );
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
-    public static partial ExprHandle pl_expr_str_extract(
-        ExprHandle expr, 
-        string pat, 
-        UIntPtr groupIndex
     );
 
     // List Ops

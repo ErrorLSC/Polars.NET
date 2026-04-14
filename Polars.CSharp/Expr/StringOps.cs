@@ -1,3 +1,4 @@
+#pragma warning disable CS1591 // 缺少对公共可见类型或成员的 XML 注释
 using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 namespace Polars.CSharp;
@@ -25,11 +26,11 @@ public readonly struct StringOps
     /// df.Select(Col("text").Str.ToUpper());
     /// </code>
     /// </example>
-    public Expr ToUpperCase() => Wrap(PolarsWrapper.StrToUpper);
+    public Expr ToUppercase() => Wrap(PolarsWrapper.StrToUpper);
     /// <summary>
     /// Convert String to LowerClass.
     /// </summary>
-    public Expr ToLowerCase() => Wrap(PolarsWrapper.StrToLower);
+    public Expr ToLowercase() => Wrap(PolarsWrapper.StrToLower);
     /// <summary>
     /// Get length in bytes.
     /// <para>Note: Multi-byte characters (like emojis or CJK) count as > 1 byte.</para>
@@ -89,21 +90,21 @@ public readonly struct StringOps
     /// </summary>
     /// <param name="pattern">The pattern to search for.</param>
     /// <param name="value">The value to replace with.</param>
-    /// <param name="useRegex">Whether to interpret the pattern as a Regex.</param>
-    public Expr ReplaceAll(string pattern, string value, bool useRegex = false)
+    /// <param name="literal">Whether to interpret the pattern as literal value(not Regex).</param>
+    public Expr ReplaceAll(StringOrExpr pattern, StringOrExpr value, bool literal = false)
     {
         var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.StrReplaceAll(h, pattern, value, useRegex));
+        return new Expr(PolarsWrapper.StrReplaceAll(h, pattern.Expression.CloneHandle(), value.Expression.CloneHandle(), literal));
     }
     /// <summary>
     /// Extract the first match of a regex pattern.
     /// </summary>
     /// <param name="pattern">Regex pattern with capture groups.</param>
     /// <param name="groupIndex">The index of the capture group to extract (usually 1).</param>
-    public Expr Extract(string pattern, uint groupIndex)
+    public Expr Extract(StringOrExpr pattern, int groupIndex=1)
     {
         var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.StrExtract(h, pattern, groupIndex));
+        return new Expr(PolarsWrapper.StrExtract(h, pattern.Expression.CloneHandle(), groupIndex));
     }
     /// <summary>
     /// Check if the string contains a substring or regex pattern.
@@ -141,18 +142,18 @@ public readonly struct StringOps
     /// */
     /// </code>
     /// </example>
-    public Expr Contains(string pattern,bool strict=true)
+    public Expr Contains(StringOrExpr pattern,bool strict=true)
     {
         var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.StrContains(h, pattern,strict));
+        return new Expr(PolarsWrapper.StrContains(h, pattern.Expression.CloneHandle(),strict));
     }
     /// <summary>
     /// Split the string by a separator. Returns a List&lt;String&gt;.
     /// </summary>
-    public Expr Split(string separator)
+    public Expr Split(StringOrExpr separator,bool inclusive=false,bool literal=true,bool strict=true)
     {
         var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.StrSplit(h, separator));
+        return new Expr(PolarsWrapper.StrSplit(h, separator.Expression.CloneHandle(),inclusive,literal,strict));
     }
     // ==========================================
     // Strip / Clean
@@ -161,7 +162,9 @@ public readonly struct StringOps
     /// Remove leading and trailing characters.
     /// If matches is null, whitespace is removed.
     /// </summary>
-    /// <param name="matches">The set of characters to be removed.</param>
+    /// <param name="characters">The set of characters to be removed. 
+    /// All combinations of this set of characters will be stripped from the start and end of the string. 
+    /// If set to None (default), all leading and trailing whitespace is removed instead.</param>
     /// <example>
     /// <code>
     /// df.Select(
@@ -172,48 +175,49 @@ public readonly struct StringOps
     /// );
     /// </code>
     /// </example>
-    public Expr StripChars(string? matches = null)
+    public Expr StripChars(StringOrExpr? characters = null)
     {
         var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.StrStripChars(h, matches));
+        
+        Expr charsExpr = characters.HasValue ? characters.Value.Expression : Pl.LitNull();
+        
+        return new Expr(PolarsWrapper.StrStripChars(h, charsExpr.CloneHandle()));
     }
-
     /// <summary>
     /// Remove leading characters.
     /// If matches is null, whitespace is removed.
     /// </summary>
-    public Expr StripCharsStart(string? matches = null)
+    public Expr StripCharsStart(StringOrExpr? characters = null)
     {
         var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.StrStripCharsStart(h, matches));
+        Expr charsExpr = characters.HasValue ? characters.Value.Expression : Pl.LitNull();
+        return new Expr(PolarsWrapper.StrStripCharsStart(h, charsExpr.CloneHandle()));
     }
-
     /// <summary>
     /// Remove trailing characters.
     /// If matches is null, whitespace is removed.
     /// </summary>
-    public Expr StripCharsEnd(string? matches = null)
+    public Expr StripCharsEnd(StringOrExpr? characters = null)
     {
         var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.StrStripCharsEnd(h, matches));
+        Expr charsExpr = characters.HasValue ? characters.Value.Expression : Pl.LitNull();
+        return new Expr(PolarsWrapper.StrStripCharsEnd(h, charsExpr.CloneHandle()));
     }
-
     /// <summary>
     /// Remove a specific prefix string.
     /// </summary>
-    public Expr StripPrefix(string prefix)
+    public Expr StripPrefix(StringOrExpr prefix)
     {
         var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.StrStripPrefix(h, prefix));
+        return new Expr(PolarsWrapper.StrStripPrefix(h, prefix.Expression.CloneHandle()));
     }
-
     /// <summary>
     /// Remove a specific suffix string.
     /// </summary>
-    public Expr StripSuffix(string suffix)
+    public Expr StripSuffix(StringOrExpr suffix)
     {
         var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.StrStripSuffix(h, suffix));
+        return new Expr(PolarsWrapper.StrStripSuffix(h, suffix.Expression.CloneHandle()));
     }
 
     // ==========================================
@@ -223,19 +227,18 @@ public readonly struct StringOps
     /// <summary>
     /// Check if the string starts with the given prefix.
     /// </summary>
-    public Expr StartsWith(string prefix)
+    public Expr StartsWith(StringOrExpr prefix)
     {
         var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.StrStartsWith(h, prefix));
+        return new Expr(PolarsWrapper.StrStartsWith(h, prefix.Expression.CloneHandle()));
     }
-
     /// <summary>
     /// Check if the string ends with the given suffix.
     /// </summary>
-    public Expr EndsWith(string suffix)
+    public Expr EndsWith(StringOrExpr suffix)
     {
         var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.StrEndsWith(h, suffix));
+        return new Expr(PolarsWrapper.StrEndsWith(h, suffix.Expression.CloneHandle()));
     }
 
     // ==========================================
@@ -304,15 +307,23 @@ public readonly struct StringOps
     /// <param name="strict">If true, raises an error on parsing failure. If false, returns nulls.</param>
     /// <param name="exact">If true, requires an exact match. If false, allows matching substrings.</param>
     /// <param name="cache">Use a cache of unique converted dates to speed up parsing.</param>
+    /// <param name="ambiguous">Determine how to deal with ambiguous datetimes:
+    /// 'raise' (default): raise
+    /// 'earliest': use the earliest datetime
+    /// 'latest': use the latest datetime
+    /// 'null': set to null</param>
     public Expr ToDatetime(
         string? format = null,
         TimeUnit? timeUnit = null,
         string? timeZone = null,
         bool strict = true,
         bool exact = true,
-        bool cache = true)
+        bool cache = true,
+        AmbiguousArg? ambiguous = null) 
     {
-        PlTimeUnit tu = timeUnit.HasValue ? timeUnit.Value.ToNative() : (PlTimeUnit)100;
+        PlTimeUnit tu = timeUnit.HasValue ? timeUnit.Value.ToNative() : PlTimeUnit.All;
+        
+        Expr amExpr = ambiguous.HasValue ? ambiguous.Value.Expression : Pl.Lit("raise"); 
         
         var h = PolarsWrapper.StrToDatetime(
             PolarsWrapper.CloneExpr(_expr.Handle), 
@@ -321,9 +332,43 @@ public readonly struct StringOps
             format, 
             strict, 
             exact, 
-            cache
+            cache,
+            amExpr.CloneHandle()
         );
         
         return new Expr(h);
     }
+}
+
+public readonly struct AmbiguousArg
+
+{
+    internal readonly Expr Expression;
+
+    private AmbiguousArg(Expr expr) 
+    {
+        Expression = expr;
+    }
+
+    public static implicit operator AmbiguousArg(AmbiguousStrategy strategy) 
+        => new(Pl.Lit(strategy.ToString().ToLower()));
+
+    public static implicit operator AmbiguousArg(Expr expr) 
+        => new(expr);
+}
+
+public readonly struct StringOrExpr
+{
+    internal readonly Expr Expression;
+
+    private StringOrExpr(Expr expr) 
+    {
+        Expression = expr;
+    }
+
+    public static implicit operator StringOrExpr(string value) 
+        => new(Pl.Lit(value));
+
+    public static implicit operator StringOrExpr(Expr expr) 
+        => new(expr);
 }
