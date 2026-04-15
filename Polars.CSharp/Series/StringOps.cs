@@ -1,3 +1,4 @@
+using System.Text;
 using Pl = Polars.CSharp.Polars;
 namespace Polars.CSharp;
 
@@ -187,4 +188,7 @@ public readonly struct SeriesStrOps
     /// <inheritdoc cref="StringOps.ToInteger"/>
     public Series ToInteger(IntOrExpr? radix=null,DataType? dtype=null,bool strict=true) 
         => Apply(e => e.Str.ToInteger(radix,dtype,strict));
+    /// <inheritdoc cref="StringOps.Normalize"/>
+    public Series Normalize(NormalizationForm form=NormalizationForm.FormC) 
+        => Apply(e => e.Str.Normalize(form));
 }

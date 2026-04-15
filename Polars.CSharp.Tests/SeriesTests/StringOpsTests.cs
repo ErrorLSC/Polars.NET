@@ -1,3 +1,4 @@
+using System.Text;
 using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 
@@ -872,5 +873,43 @@ public class SeriesStringOpsTests
         {
             sInv.Str.ToInteger(strict: true);
         });
+    }
+    [Fact]
+    [Trait("Series", "StringNormalize")]
+    public void Test_Series_String_Normalize()
+    {
+        // 1. "\u00E9"   -> é (NFC len 1)
+        // 2. "e\u0301"  -> e (NFD len 2)
+        // 3. "\uFB01"   -> ﬁ (len 1)
+        // 4. null
+        string[] data = [
+            "\u00E9", 
+            "e\u0301", 
+            "\uFB01", 
+            null
+        ];
+        using Series s = Pl.Series("unicode_str", data);
+
+        using Series nfd = s.Str.Normalize(NormalizationForm.FormD);
+        
+        Assert.Equal(DataTypeKind.String, nfd.DataType.Kind);
+        Assert.Equal(["e\u0301", "e\u0301", "\uFB01", null], nfd.ToArray<string>());
+
+        using Series nfdLen = nfd.Str.LenChars();
+        Assert.Equal([2u, 2u, 1u, null], nfdLen.ToArray<uint?>());
+
+        using Series nfc = s.Str.Normalize(NormalizationForm.FormC);
+        
+        Assert.Equal(["\u00E9", "\u00E9", "\uFB01", null], nfc.ToArray<string>());
+
+        using Series nfcLen = nfc.Str.LenChars();
+        Assert.Equal([1u, 1u, 1u, null], nfcLen.ToArray<uint?>());
+
+        using Series nfkc = s.Str.Normalize(NormalizationForm.FormKC);
+
+        Assert.Equal(["\u00E9", "\u00E9", "fi", null], nfkc.ToArray<string>());
+
+        using Series nfkcLen = nfkc.Str.LenChars();
+        Assert.Equal([1u, 1u, 2u, null], nfkcLen.ToArray<uint?>());
     }
 }

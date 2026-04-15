@@ -1,4 +1,5 @@
 #pragma warning disable CS1591 
+using System.Text;
 using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 namespace Polars.CSharp;
@@ -649,6 +650,12 @@ public readonly struct StringOps
         
         return new Expr(h);
     }
+    /// <summary>
+    /// Returns the Unicode normal form of the string values.
+    /// </summary>
+    /// <param name="form">Unicode form to use.</param>
+    /// <returns></returns>
+    public Expr Normalize(NormalizationForm form) => new(PolarsWrapper.StrNormalize(_expr.CloneHandle(),form));
 }
 
 public readonly struct AmbiguousArg
