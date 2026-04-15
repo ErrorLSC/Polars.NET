@@ -10,7 +10,7 @@ public readonly struct SeriesStrOps
     internal SeriesStrOps(Series series) { _series = series; }
 
     private Series Apply(Func<Expr, Expr> op) 
-        => _series.ApplyExpr(op(Polars.Col(_series.Name)));
+        => _series.ApplyExpr(op(Pl.Col(_series.Name)));
     /// <inheritdoc cref="StringOps.ToUppercase()"/>
     public Series ToUppercase() => Apply(e => e.Str.ToUppercase());
     /// <inheritdoc cref="StringOps.ToLowercase()"/>
@@ -41,7 +41,7 @@ public readonly struct SeriesStrOps
         => Apply(e => e.Str.ReplaceMany(mapping,asciiCaseInsensitive,leftmost));
     /// <inheritdoc cref="StringOps.ReplaceMany(IntoExpr,IntoExpr,bool,bool)"/>
     public Series ReplaceMany(IEnumerable<string> patterns,IEnumerable<string> replaceWith, bool asciiCaseInsensitive = false,bool leftmost=false)
-        => Apply(e => e.Str.ReplaceMany(Pl.Lit(patterns),Pl.Lit(replaceWith),asciiCaseInsensitive,leftmost));
+        => Apply(e => e.Str.ReplaceMany(Pl.Lit(patterns).Implode(),Pl.Lit(replaceWith).Implode(),asciiCaseInsensitive,leftmost));
     /// <inheritdoc cref="StringOps.Extract"/>
     public Series Extract(StringOrExpr pattern, int groupIndex=1)
         => Apply(e => e.Str.Extract(pattern, groupIndex));
@@ -50,7 +50,7 @@ public readonly struct SeriesStrOps
         => Apply(e => e.Str.ExtractMany(pattern, asciiCaseInsensitive,overlapping,leftmost));
     /// <inheritdoc cref="StringOps.ExtractMany"/>
     public Series ExtractMany(IEnumerable<string> pattern, bool asciiCaseInsensitive=false,bool overlapping=false,bool leftmost=false)
-        => Apply(e => e.Str.ExtractMany(Pl.Lit(pattern), asciiCaseInsensitive,overlapping,leftmost));
+        => Apply(e => e.Str.ExtractMany(Pl.Lit(pattern).Implode(), asciiCaseInsensitive,overlapping,leftmost));
     /// <inheritdoc cref="StringOps.ExtractAll"/>
     public Series ExtractAll(Series pattern)
         => Apply(e => e.Str.ExtractAll(Pl.Lit(pattern)));
@@ -179,7 +179,7 @@ public readonly struct SeriesStrOps
     public Series ToDatetime(string? format = null,TimeUnit unit=TimeUnit.Microseconds,string? timeZone=null, bool strict = true, bool exact = true, bool cache = true,AmbiguousStrategy ambiguous=AmbiguousStrategy.Raise)
         => Apply(e => e.Str.ToDatetime(format,unit,timeZone,strict,exact,cache,ambiguous));
     /// <inheritdoc cref="StringOps.Strptime"/>
-    public Series Strptime(DataTypeExpr dtype, string? format = null, bool strict = true, bool exact = true, bool cache = true)
+    public Series Strptime(IntoDataTypeExpr dtype, string? format = null, bool strict = true, bool exact = true, bool cache = true)
         => Apply(e => e.Str.Strptime(dtype,format,strict,exact,cache));
     /// <inheritdoc cref="StringOps.ToDecimal"/>
     public Series ToDecimal(int scale) 

@@ -139,8 +139,8 @@ public readonly struct StringOps
         string[] keys = [.. mapping.Keys];
         string[] values = [.. mapping.Values];
 
-        using var patSeries = Pl.Series("patterns", keys);
-        using var valSeries = Pl.Series("replacements", values);
+        using var patSeries = Pl.Series("patterns", keys).Implode();
+        using var valSeries = Pl.Series("replacements", values).Implode();
 
         return ReplaceMany(patSeries, valSeries, asciiCaseInsensitive, leftmost);
     }
@@ -595,7 +595,7 @@ public readonly struct StringOps
     /// 'latest': use the latest datetime
     /// 'null': set to null</param>
     public Expr Strptime(
-        DataTypeExpr dtype,
+        IntoDataTypeExpr dtype,
         string? format = null,
         bool strict = true,
         bool exact = true,
@@ -606,7 +606,7 @@ public readonly struct StringOps
         
         var h = PolarsWrapper.Strptime(
             _expr.CloneHandle(),  
-            dtype.CloneHandle(),
+            dtype.Consume().Handle,
             format, 
             strict, 
             exact, 

@@ -170,7 +170,7 @@ impl_expr_str_to_simple_time!(pl_expr_str_to_date, to_date);
 impl_expr_str_to_simple_time!(pl_expr_str_to_time, to_time);
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_json_decode(
+pub extern "C" fn pl_expr_str_json_decode(
     expr_ptr: *mut ExprContext,
     dtype_ptr: *mut DataTypeExprContext,
 ) -> *mut ExprContext {
