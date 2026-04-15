@@ -519,6 +519,12 @@ public enum AmbiguousStrategy
     Null
 }
 
+public enum TransferEncoding
+{
+    Hex,
+    Base64
+}
+
 public enum MissingColumnsPolicy : byte { Raise = 0, Insert = 1 }
 public enum UpcastOrForbid : byte { Forbid = 0, Upcast = 1 }
 public enum ExtraColumnsPolicy : byte { Raise = 0, Ignore = 1 }

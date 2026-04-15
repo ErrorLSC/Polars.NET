@@ -27,6 +27,7 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle StrLenBytes(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_str_len_bytes, e);
     public static ExprHandle StrLenChars(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_str_len_chars, e); 
     public static ExprHandle StrEscapeRegex(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_str_escape_regex, e); 
+    public static ExprHandle StrReverse(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_str_reverse, e); 
     public static ExprHandle StrSlice(ExprHandle e, ExprHandle offset, ExprHandle length)
     {
         var h = NativeBindings.pl_expr_str_slice(e, offset, length);
@@ -217,23 +218,23 @@ public readonly partial struct PolarsWrapper
     }
     public static ExprHandle StrZfill(ExprHandle e, ExprHandle length)
         => BinaryOp(NativeBindings.pl_expr_str_zfill, e, length);
-    public static ExprHandle StrPadStart(ExprHandle e, ExprHandle length,string separator)
+    public static ExprHandle StrPadStart(ExprHandle e, ExprHandle length,string fillChar)
     {
-        var h = NativeBindings.pl_expr_str_pad_start(e,length,separator);
+        var h = NativeBindings.pl_expr_str_pad_start(e,length,fillChar);
         e.TransferOwnership();
         length.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle StrPadEnd(ExprHandle e, ExprHandle length,string separator)
+    public static ExprHandle StrPadEnd(ExprHandle e, ExprHandle length,string fillChar)
     {
-        var h = NativeBindings.pl_expr_str_pad_end(e,length,separator);
+        var h = NativeBindings.pl_expr_str_pad_end(e,length,fillChar);
         e.TransferOwnership();
         length.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle StrJoin(ExprHandle e, string separator,bool ignoreNulls)
+    public static ExprHandle StrJoin(ExprHandle e, string delimiter,bool ignoreNulls)
     {
-        var h = NativeBindings.pl_expr_str_join(e,separator,ignoreNulls);
+        var h = NativeBindings.pl_expr_str_join(e,delimiter,ignoreNulls);
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }

@@ -26,6 +26,7 @@ internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_len_bytes(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_len_chars(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_escape_regex(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_reverse(ExprHandle expr);
     // String Cleaning
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_str_strip_chars(ExprHandle e, ExprHandle matches);

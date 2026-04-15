@@ -11,6 +11,7 @@ gen_namespace_unary!(pl_expr_str_len_bytes, str, len_bytes);
 gen_namespace_unary!(pl_expr_str_len_chars, str, len_chars);
 gen_namespace_unary!(pl_expr_str_escape_regex, str, escape_regex);
 gen_namespace_unary!(pl_expr_str_to_titlecase, str, to_titlecase);
+gen_namespace_unary!(pl_expr_str_reverse, str, reverse);
 
 impl_expr_namespace_expr_arg!(pl_expr_str_split, str,split);
 impl_expr_namespace_expr_arg!(pl_expr_str_split_inclusive, str,split_inclusive);
