@@ -21,20 +21,15 @@ public readonly struct StringOps
     /// <summary>
     /// Convert string to uppercase.
     /// </summary>
-    /// <example>
-    /// <code>
-    /// df.Select(Col("text").Str.ToUpper());
-    /// </code>
-    /// </example>
     public Expr ToUppercase() => Wrap(PolarsWrapper.StrToUpper);
     /// <summary>
-    /// Convert String to LowerClass.
+    /// Convert string to lowercase.
     /// </summary>
     public Expr ToLowercase() => Wrap(PolarsWrapper.StrToLower);
     /// <summary>
     /// Modify strings to their titlecase equivalent.
     /// <para>This is a form of case transform where the first letter of each word is capitalized, with the rest of the word in lowercase.
-    ///  Non-alphanumeric characters define the word boundaries.
+    /// Non-alphanumeric characters define the word boundaries.
     /// </para>
     /// </summary>
     /// <returns></returns>
@@ -111,7 +106,7 @@ public readonly struct StringOps
     /// <param name="literal">Treat pattern as a literal string, not a regex.</param>
     /// <param name="n">Number of matches to replace.</param>
     /// <returns></returns>
-    public Expr Replace(StringOrExpr pattern,StringOrExpr value,bool literal, int n=1)
+    public Expr Replace(StringOrExpr pattern,StringOrExpr value,bool literal=false, int n=1)
         => new(PolarsWrapper.StrReplace(_expr.CloneHandle(), pattern.Expression.CloneHandle(),value.Expression.CloneHandle(),literal,n));
     /// <summary>
     /// Replace all occurrences of a pattern with a value.
@@ -125,7 +120,7 @@ public readonly struct StringOps
     /// Use the Aho-Corasick algorithm to replace many matches.
     /// </summary>
     /// <param name="patterns">Expression yielding string patterns to search and replace.</param>
-    /// <param name="replaceWith">Expression yielding strings to replace where a pattern was a match.</param>
+    /// <param name="replaceWith">Strings to replace where a pattern was a match. Length must match the length of patterns or have length 1. This can be broadcasted, so it supports many:one and many:many.</param>
     /// <param name="asciiCaseInsensitive">Enable ASCII-aware case-insensitive matching.</param>
     /// <param name="leftmost">Guarantees in case there are overlapping matches that the leftmost match is used.</param>
     public Expr ReplaceMany(IntoExpr patterns, IntoExpr replaceWith, bool asciiCaseInsensitive = false, bool leftmost = false)
@@ -190,13 +185,13 @@ public readonly struct StringOps
     /// });
     /// 
     /// df.Select(
-    ///     Col("code"),
+    ///     Pl.Col("code"),
     ///     // Replace "-" with "_"
-    ///     Col("code").Str.ReplaceAll("-", "_").Alias("replaced"),
+    ///     Pl.Col("code").Str.ReplaceAll("-", "_").Alias("replaced"),
     ///     // Extract numbers using Regex group 1
-    ///     Col("code").Str.Extract(@"(\d+)", 1).Alias("extracted_num"),
+    ///     Pl.Col("code").Str.Extract(@"(\d+)", 1).Alias("extracted_num"),
     ///     // Check if text contains "a"
-    ///     Col("text").Str.Contains("a").Alias("has_a")
+    ///     Pl.Col("text").Str.Contains("a").Alias("has_a")
     /// ).Show();
     /// /* Output:
     /// shape: (5, 4)
@@ -214,17 +209,17 @@ public readonly struct StringOps
     /// */
     /// </code>
     /// </example>
-    public Expr Contains(StringOrExpr pattern,bool strict=true) 
-        => new(PolarsWrapper.StrContains(_expr.CloneHandle(), pattern.Expression.CloneHandle(),strict));
+    public Expr Contains(StringOrExpr pattern,bool literal=false,bool strict=true) 
+        => new(PolarsWrapper.StrContains(_expr.CloneHandle(), pattern.Expression.CloneHandle(),literal,strict));
     /// <summary>
     /// Use the Aho-Corasick algorithm to find matches.
     /// Determines if any of the patterns are contained in the string.
     /// </summary>
-    /// <param name="pattern">String patterns to search.</param>
+    /// <param name="patterns">String patterns to search.</param>
     /// <param name="asciiCaseInsensitive">Enable ASCII-aware case-insensitive matching. When this option is enabled, searching will be performed without respect to case for ASCII letters (a-z and A-Z) only.</param>
     /// <returns></returns>
-    public Expr ContainsAny(StringOrExpr pattern,bool asciiCaseInsensitive=false) 
-        => new(PolarsWrapper.StrContainsAny(_expr.CloneHandle(),pattern.Expression.CloneHandle(),asciiCaseInsensitive));
+    public Expr ContainsAny(StringOrExpr patterns,bool asciiCaseInsensitive=false) 
+        => new(PolarsWrapper.StrContainsAny(_expr.CloneHandle(),patterns.Expression.CloneHandle(),asciiCaseInsensitive));
     /// <summary>
     /// Split the string by a substring.
     /// </summary>
@@ -232,7 +227,7 @@ public readonly struct StringOps
     /// <param name="inclusive">If True, include the split character/string in the results.</param>
     /// <param name="literal">Treat by as a literal string, not as a regular expression.</param>
     /// <param name="strict">Raise an error if the underlying pattern is not a valid regex, otherwise mask out with a null value.</param>
-    /// <returns>Expression of data type String.</returns>
+    /// <returns>Expression/Series of data type String.</returns>
     public Expr Split(StringOrExpr by,bool inclusive=false,bool literal=true,bool strict=true)
         => new(PolarsWrapper.StrSplit(_expr.CloneHandle(), by.Expression.CloneHandle(),inclusive,literal,strict));
     /// <summary>
@@ -243,7 +238,7 @@ public readonly struct StringOps
     /// </summary>
     /// <param name="by">Substring to split by.</param>
     /// <param name="n">Max number of items to return.</param>
-    /// <returns>Expression of data type Struct with fields of data type String.</returns>
+    /// <returns>Expression/Series of data type Struct with fields of data type String.</returns>
     public Expr SplitN(StringOrExpr by,int n)
         => new(PolarsWrapper.StrSplitN(_expr.CloneHandle(),by.Expression.CloneHandle(),n));
     /// <summary>
@@ -254,7 +249,7 @@ public readonly struct StringOps
     /// <param name="by">Substring to split by.</param>
     /// <param name="n">Number of splits to make.</param>
     /// <param name="inclusive">If True, include the split character/string in the results.</param>
-    /// <returns>Expression of data type Struct with fields of data type String.</returns>
+    /// <returns>Expression/Series of data type Struct with fields of data type String.</returns>
     public Expr SplitExact(StringOrExpr by,int n, bool inclusive=false)
         => new(PolarsWrapper.StrSplitExact(_expr.CloneHandle(),by.Expression.CloneHandle(),n,inclusive));
     /// <summary>
@@ -368,7 +363,7 @@ public readonly struct StringOps
     /// <para>When the n input is negative, head returns characters up to the n`th from the end of the string.
     /// For example, if `n = -3, then all characters except the last three are returned.</para></param>
     /// <returns>Expression of data type String.</returns>
-    public Expr Head(IntoExpr n) => new(PolarsWrapper.StrHead(_expr.CloneHandle(),n.Consume().Handle));
+    public Expr Head(IntOrExpr n) => new(PolarsWrapper.StrHead(_expr.CloneHandle(),n.Expression.CloneHandle()));
     /// <summary>
     /// Return the last n characters of each string in a String Series.
     /// </summary>
@@ -376,7 +371,7 @@ public readonly struct StringOps
     /// <para>When the n input is negative, head returns characters up to the n`th from the start of the string.
     /// For example, if `n = -3, then all characters except the first three are returned.</para></param>
     /// <returns>Expression of data type String.</returns>
-    public Expr Tail(IntoExpr n) => new(PolarsWrapper.StrTail(_expr.CloneHandle(),n.Consume().Handle));
+    public Expr Tail(IntOrExpr n) => new(PolarsWrapper.StrTail(_expr.CloneHandle(),n.Expression.CloneHandle()));
     // ==========================================
     // JSON
     // ==========================================
@@ -405,21 +400,21 @@ public readonly struct StringOps
     /// <para>This method is intended for padding numeric strings. If your data contains non-ASCII characters, use pad_start() instead.</para>
     /// </summary>
     /// <param name="length">Pad the string until it reaches this length. Strings with length equal to or greater than this value are returned as-is.</param>
-    public Expr Zfill(IntoExpr length) => new(PolarsWrapper.StrZfill(_expr.CloneHandle(),length.Consume().Handle));
+    public Expr Zfill(IntOrExpr length) => new(PolarsWrapper.StrZfill(_expr.CloneHandle(),length.Expression.CloneHandle()));
     /// <summary>
     /// Pad the start of the string until it reaches the given length.
     /// </summary>
     /// <param name="length">Pad the string until it reaches this length. Strings with length equal to or greater than this value are returned as-is.</param>
     /// <param name="fillChar">The character to pad the string with.</param>
-    public Expr PadStart(IntoExpr length, string fillChar=" ")
-        => new(PolarsWrapper.StrPadStart(_expr.CloneHandle(),length.Consume().Handle,fillChar));
+    public Expr PadStart(IntOrExpr length, string fillChar=" ")
+        => new(PolarsWrapper.StrPadStart(_expr.CloneHandle(),length.Expression.CloneHandle(),fillChar));
     /// <summary>
     /// Pad the end of the string until it reaches the given length.
     /// </summary>
     /// <param name="length">Pad the string until it reaches this length. Strings with length equal to or greater than this value are returned as-is.</param>
     /// <param name="fillChar">The character to pad the string with.</param>
-    public Expr PadEnd(IntoExpr length, string fillChar=" ")
-        => new(PolarsWrapper.StrPadEnd(_expr.CloneHandle(),length.Consume().Handle,fillChar));
+    public Expr PadEnd(IntOrExpr length, string fillChar=" ")
+        => new(PolarsWrapper.StrPadEnd(_expr.CloneHandle(),length.Expression.CloneHandle(),fillChar));
     
     // ==========================================
     // Join
@@ -483,9 +478,9 @@ public readonly struct StringOps
     /// });
     /// 
     /// dateDf.Select(
-    ///     Col("raw"),
-    ///     Col("raw").Str.ToDate("%Y-%m-%d").Alias("fmt_dash"), 
-    ///     Col("raw").Str.ToDate("%Y/%m/%d").Alias("fmt_slash")
+    ///     Pl.Col("raw"),
+    ///     Pl.Col("raw").Str.ToDate("%Y-%m-%d").Alias("fmt_dash"), 
+    ///     Pl.Col("raw").Str.ToDate("%Y/%m/%d").Alias("fmt_slash")
     /// ).Show();
     /// /* Output:
     /// shape: (3, 3)

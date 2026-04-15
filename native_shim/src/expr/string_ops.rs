@@ -24,6 +24,7 @@ impl_expr_namespace_expr_arg!(pl_expr_str_starts_with, str,starts_with);
 impl_expr_namespace_expr_arg!(pl_expr_str_ends_with, str,ends_with);
 impl_expr_namespace_expr_arg!(pl_expr_str_head, str,head);
 impl_expr_namespace_expr_arg!(pl_expr_str_tail, str,tail);
+impl_expr_namespace_expr_arg!(pl_expr_str_contains_literal, str,contains_literal);
 impl_expr_namespace_expr_arg!(pl_expr_str_json_path_match, str,json_path_match);
 
 macro_rules! impl_expr_str_expr_usize_arg {

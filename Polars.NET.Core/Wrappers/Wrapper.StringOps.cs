@@ -6,10 +6,21 @@ namespace Polars.NET.Core;
 
 public readonly partial struct PolarsWrapper
 {
-    public static ExprHandle StrContains(ExprHandle e, ExprHandle pat,bool strict) 
+    public static ExprHandle StrContains(ExprHandle expr, ExprHandle pat,bool literal, bool strict) 
     {
-        var h = NativeBindings.pl_expr_str_contains(e, pat,strict);
-        e.TransferOwnership();
+        ExprHandle h;
+        
+        if (!literal)
+        {
+            
+            h = NativeBindings.pl_expr_str_contains(expr, pat, strict);
+        }
+        else
+        {
+            h = NativeBindings.pl_expr_str_contains_literal(expr, pat);
+        }
+        
+        expr.TransferOwnership();
         pat.TransferOwnership();
         return ErrorHelper.Check(h);
     }

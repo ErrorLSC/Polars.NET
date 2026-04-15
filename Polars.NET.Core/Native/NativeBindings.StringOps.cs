@@ -9,6 +9,10 @@ internal partial class NativeBindings
     public static partial ExprHandle pl_concat_str(IntPtr[] exprs,nuint exprLen, string separator, [MarshalAs(UnmanagedType.U1)] bool ignoreNulls);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_format_str(string format,IntPtr[] exprs,UIntPtr exprLen);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_contains_literal(
+        ExprHandle expr, 
+        ExprHandle pat
+    );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_str_contains(
         ExprHandle expr, 
         ExprHandle pat,
