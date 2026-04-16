@@ -787,7 +787,10 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Access binary operations.
     /// </summary>
     public BinaryOps Bin => new(this);
-
+    /// <summary>
+    /// Access categorical operations.
+    /// </summary>
+    public CategoricalOps Cat => new(this);
     /// <summary>
     /// Access list operations.
     /// </summary>

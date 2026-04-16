@@ -92,9 +92,13 @@ public partial class Series : IDisposable,IPolarsSeries
     /// </summary>
     public SeriesStructOps Struct => new(this);
     /// <summary>
-    /// Access struct operations.
+    /// Access binary operations.
     /// </summary>
     public SeriesBinaryOps Bin => new(this);
+    /// <summary>
+    /// Access categorical operations.
+    /// </summary>
+    public SeriesCategoricalOps Cat => new(this);
 
     /// <summary>
     /// Clone the Series
