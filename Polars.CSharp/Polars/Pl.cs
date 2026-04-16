@@ -117,6 +117,12 @@ public readonly partial struct Polars
         using var s = CSharp.Series.FromSpan("", values);
         return Lit(s);
     }
+
+    /// <summary>
+    /// Creates a scalar Binary Literal Expression from a byte array.
+    /// </summary>
+    public static Expr LitBinary(byte[] value)
+        => Lit(value).Implode().Cast(DataType.Binary);
     
     // ==========================================
     // Control Flow

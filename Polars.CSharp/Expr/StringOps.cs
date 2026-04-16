@@ -87,11 +87,11 @@ public readonly struct StringOps
     /// */
     /// </code>
     /// </example>
-    public Expr Slice(IntoExpr offset, IntoExpr? length = null)
+    public Expr Slice(IntOrExpr offset, IntOrExpr? length = null)
     {
-        Expr offsetExpr = offset.Consume();
+        Expr offsetExpr = offset.Expression;
 
-        Expr lengthExpr = length.HasValue ? length.Value.Consume() : Pl.LitNull();
+        Expr lengthExpr = length?.Expression ?? Pl.LitNull();
 
         return new Expr(PolarsWrapper.StrSlice(
             _expr.CloneHandle(), 

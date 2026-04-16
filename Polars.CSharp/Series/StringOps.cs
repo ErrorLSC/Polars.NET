@@ -27,7 +27,7 @@ public readonly struct SeriesStrOps
     /// <inheritdoc cref="StringOps.Reverse()"/>
     public Series Reverse() => Apply(e => e.Str.Reverse());
     /// <inheritdoc cref="StringOps.Slice"/>
-    public Series Slice(IntoExpr offset, IntoExpr? length=null) => Apply(e => e.Str.Slice(offset, length));
+    public Series Slice(IntOrExpr offset, IntOrExpr? length=null) => Apply(e => e.Str.Slice(offset, length));
     /// <inheritdoc cref="StringOps.Replace"/>
     public Series Replace(string pattern, string value,bool literal=false,int n=1) 
         => Apply(e => e.Str.Replace(pattern, value,literal,n));

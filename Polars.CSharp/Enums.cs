@@ -500,6 +500,12 @@ public enum SizeUnit
     Terabytes
 }
 
+public enum Endianness
+{
+    Little,
+    Big
+}
+
 public enum UnstackDirection
 {
     Vertical,

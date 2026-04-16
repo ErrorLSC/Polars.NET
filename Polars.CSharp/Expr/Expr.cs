@@ -783,6 +783,10 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Access string manipulation operations.
     /// </summary>
     public StringOps Str => new(this);
+    /// <summary>
+    /// Access binary operations.
+    /// </summary>
+    public BinaryOps Bin => new(this);
 
     /// <summary>
     /// Access list operations.

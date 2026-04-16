@@ -1,4 +1,3 @@
-using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;

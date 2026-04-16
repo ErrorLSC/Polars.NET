@@ -626,8 +626,8 @@ public class SeriesStringOpsTests
         Assert.Equal(["___1", "__42", "12345", "_波拉熊"], padExpr.ToArray<string>());
     }
     [Fact]
-    [Trait("Series", "StringEncoding")]
-    public void Test_Series_String_Encode_Decode()
+    [Trait("Series", "EncodingLifecycle")]
+    public void Test_Series_Str_Bin_Encode_Decode_Lifecycle()
     {
         string[] data = [
             "hello", 
@@ -637,26 +637,37 @@ public class SeriesStringOpsTests
         ];
         using Series s = Pl.Series("text", data);
 
-        using Series hexEncoded = s.Str.Encode(TransferEncoding.Hex);
-        Assert.Equal(DataType.String, hexEncoded.DataType);
+        // ==========================================
+        // String -> Hex -> Binary -> String
+        // ==========================================
+        
+        using Series hexEncodedStr = s.Str.Encode(TransferEncoding.Hex);
+        Assert.Equal(DataType.String, hexEncodedStr.DataType);
+        Assert.Equal(["68656c6c6f", "706f6c617273", "e6b3a2e68b89e7868a", null], hexEncodedStr.ToArray<string>());
 
-        // "hello" -> "68656c6c6f"
-        // "polars" -> "706f6c617273"
-        // "波拉熊" -> "e6b3a2e68b8ee7868a"
+        using Series decodedBin = hexEncodedStr.Str.Decode(TransferEncoding.Hex);
+        Assert.Equal(DataType.Binary, decodedBin.DataType);
 
-        Assert.Contains(["68656c6c6f", "706f6c617273"], hexEncoded.ToArray<string>());
+        using Series restoredStr = decodedBin.Cast(DataType.String);
+        Assert.Equal(data, restoredStr.ToArray<string>());
 
-        using Series hexDecoded = hexEncoded.Str.Decode(TransferEncoding.Hex);
 
-        using Series base64Encoded = s.Str.Encode(TransferEncoding.Base64);
-        Assert.Equal(DataTypeKind.String, base64Encoded.DataType.Kind);
+        // ==========================================
+        // Binary -> Base64 -> Binary
+        // ==========================================
 
-        // "hello" -> "aGVsbG8="
-        // "polars" -> "cG9sYXJz"
-        // "波拉熊" -> "5rOi5ouJ54aK"
-        Assert.Equal(["aGVsbG8=", "cG9sYXJz", "5rOi5ouJ54aK", null], base64Encoded.ToArray<string>());
+        using Series originalBin = s.Cast(DataType.Binary);
 
-        using Series base64Decoded = base64Encoded.Str.Decode(TransferEncoding.Base64);
+        using Series base64EncodedStr = originalBin.Bin.Encode(TransferEncoding.Base64);
+        Assert.Equal(DataType.String, base64EncodedStr.DataType);
+        Assert.Equal(["aGVsbG8=", "cG9sYXJz", "5rOi5ouJ54aK", null], base64EncodedStr.ToArray<string>());
+
+        using Series base64Bin = base64EncodedStr.Cast(DataType.Binary);
+
+        using Series restoredBinFromBase64 = base64Bin.Bin.Decode(TransferEncoding.Base64);
+
+        using Series isBinEqual = originalBin.Eq(restoredBinFromBase64);
+        Assert.Equal([true, true, true, null], isBinEqual.ToArray<bool?>());
     }
 
     [Fact]

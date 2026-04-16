@@ -8,3 +8,4 @@ pub mod struct_ops;
 pub mod name_ops;
 pub mod string_ops;
 pub mod datetime_ops;
+pub mod binary_ops;

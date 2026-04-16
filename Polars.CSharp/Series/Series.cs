@@ -2,7 +2,6 @@ using Polars.NET.Core;
 using Apache.Arrow;
 using Polars.NET.Core.Arrow;
 using Pl = Polars.CSharp.Polars;
-using Microsoft.FSharp.Quotations;
 
 namespace Polars.CSharp;
 
@@ -92,6 +91,10 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Access struct operations.
     /// </summary>
     public SeriesStructOps Struct => new(this);
+    /// <summary>
+    /// Access struct operations.
+    /// </summary>
+    public SeriesBinaryOps Bin => new(this);
 
     /// <summary>
     /// Clone the Series
