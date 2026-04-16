@@ -379,3 +379,9 @@ public enum PlSortStateFlags : byte
     Descending = 1 << 1, // 010 (2)
     NullsLast  = 1 << 2  // 100 (4)
 }
+
+public enum PlNonExistent : byte
+{
+    Raise = 0,
+    Null = 1
+}

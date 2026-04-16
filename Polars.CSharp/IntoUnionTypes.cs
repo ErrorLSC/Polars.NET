@@ -136,6 +136,30 @@ public readonly struct IntoDuration
     }
 }
 
+public readonly struct DurationOrExpr
+{
+    internal readonly Expr Expression;
+
+    private DurationOrExpr(Expr expr)
+    {
+        Expression = expr;
+    }
+
+    public static implicit operator DurationOrExpr(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new ArgumentException("Duration string cannot be null or empty.", nameof(value));
+            
+        return new DurationOrExpr(Pl.Lit(value));
+    }
+
+    public static implicit operator DurationOrExpr(TimeSpan timeSpan) 
+        => new(Pl.Lit(timeSpan.ToPolarsDuration()));
+
+    public static implicit operator DurationOrExpr(Expr expr) 
+        => new(expr);
+}
+
 /// <summary>
 /// A union type representing a Polars data type or type expression.
 /// Can be implicitly converted from a .NET Type, a Polars DataType, or a dynamic DataTypeExpr.

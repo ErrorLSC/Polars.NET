@@ -1,6 +1,6 @@
 use polars::{chunked_array::cast::CastOptions, prelude::*, series::ops::NullBehavior, sql::sql_expr};
 use std::{ffi::{CStr, CString}, os::raw::c_char, slice::from_raw_parts};
-use crate::{datatypes::parse_timeunit, types::{DataTypeExprContext, ExprContext, SeriesContext}, utils::parse_closed_window};
+use crate::{types::{DataTypeExprContext, ExprContext, SeriesContext}, utils::parse_closed_window};
 use std::ops::{Add, Sub, Mul, Div, Rem};
 use crate::utils::{consume_exprs_array, ptr_to_str};
 use polars_arrow::array::PrimitiveArray;
@@ -433,25 +433,7 @@ gen_ewm_op!(pl_expr_ewm_std, ewm_std);
 gen_ewm_op!(pl_expr_ewm_var, ewm_var);
 
 // --- Group 5: Namespace Ops ---
-// dt namespace
-gen_namespace_unary!(pl_expr_dt_year, dt, year);
-gen_namespace_unary!(pl_expr_dt_month, dt, month);
-gen_namespace_unary!(pl_expr_dt_quarter, dt, quarter);
-gen_namespace_unary!(pl_expr_dt_day, dt, day);
-gen_namespace_unary!(pl_expr_dt_ordinal_day, dt, ordinal_day);
-gen_namespace_unary!(pl_expr_dt_weekday, dt, weekday);
-gen_namespace_unary!(pl_expr_dt_hour, dt, hour);
-gen_namespace_unary!(pl_expr_dt_minute, dt, minute);
-gen_namespace_unary!(pl_expr_dt_second, dt, second);
-gen_namespace_unary!(pl_expr_dt_millisecond, dt, millisecond);
-gen_namespace_unary!(pl_expr_dt_microsecond, dt, microsecond);
-gen_namespace_unary!(pl_expr_dt_nanosecond, dt, nanosecond);
 
-gen_namespace_unary!(pl_expr_dt_date, dt, date); // convert to Date
-gen_namespace_unary!(pl_expr_dt_time, dt, time); // convert to Time 
-// String Namespace
-
-// 
 gen_rolling_op!(pl_expr_rolling_mean, rolling_mean);
 gen_rolling_op!(pl_expr_rolling_sum, rolling_sum);
 gen_rolling_op!(pl_expr_rolling_min, rolling_min);
@@ -465,22 +447,6 @@ gen_rolling_by_op!(pl_expr_rolling_min_by, rolling_min_by);
 gen_rolling_by_op!(pl_expr_rolling_max_by, rolling_max_by);
 gen_rolling_by_op!(pl_expr_rolling_std_by, rolling_std_by);
 gen_rolling_by_op!(pl_expr_rolling_median_by, rolling_median_by);
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_dt_combine(
-    expr_ptr: *mut ExprContext, 
-    time_ptr: *mut ExprContext, 
-    tu: u8
-) -> *mut ExprContext {
-    let expr = unsafe { Box::from_raw(expr_ptr)};
-    let time = unsafe {Box::from_raw(time_ptr)};
-    let time_unit = parse_timeunit(tu);
-
-    let new_expr = expr.inner.dt().combine(time.inner, time_unit);
-
-    Box::into_raw(Box::new(ExprContext { inner: new_expr }))
-}
-
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_alias(expr_ptr: *mut ExprContext, name_ptr: *const c_char) -> *mut ExprContext {
@@ -825,228 +791,6 @@ pub extern "C" fn pl_expr_clone(ptr: *mut ExprContext) -> *mut ExprContext {
     let ctx = unsafe { &*ptr };
     let new_expr = ctx.inner.clone();
     Box::into_raw(Box::new(ExprContext { inner: new_expr }))
-}
-// ==========================================
-// Temporal Ops
-// ==========================================
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_dt_to_string(
-    expr_ptr: *mut ExprContext,
-    format_ptr: *const c_char
-) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let format = ptr_to_str(format_ptr).unwrap();
-        
-        // Polars API: dt().to_string(format)
-        let new_expr = ctx.inner.dt().to_string(format);
-        
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-// Truncate (Floor)
-// every: e.g. "1h", "1d"
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_dt_truncate(expr_ptr: *mut ExprContext, every: *const c_char) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) }; 
-        let every_str = unsafe { CStr::from_ptr(every).to_string_lossy() };
-        
-        // dt().truncate(every)
-        let new_expr = ctx.inner.dt().truncate(lit(every_str.as_ref()as &str));
-        
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-// Round
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_dt_round(expr_ptr: *mut ExprContext, every: *const c_char) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let every_str = unsafe { CStr::from_ptr(every).to_string_lossy() };
-        
-        let new_expr = ctx.inner.dt().round(lit(every_str.as_ref()as &str));
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-// Offset By (Add Duration)
-// by: Duration Expr (e.g. lit("1d") or col("duration"))
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_dt_offset_by(expr_ptr: *mut ExprContext, by_ptr: *mut ExprContext) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let by_ctx = unsafe { Box::from_raw(by_ptr) };
-        
-        // dt().offset_by(expr)
-        let new_expr = ctx.inner.dt().offset_by(by_ctx.inner);
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-// Timestamp (to Int64)
-// unit: 0=ns, 1=us, 2=ms
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_dt_timestamp(expr_ptr: *mut ExprContext, unit_code: u8) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let unit = parse_timeunit(unit_code);
-        let new_expr = ctx.inner.dt().timestamp(unit);
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-// Helper：String -> NonExistent Enum
-fn parse_non_existent(s: &str) -> NonExistent {
-    match s {
-        "null" => NonExistent::Null,
-        "raise" => NonExistent::Raise,
-        _ => NonExistent::Raise, 
-    }
-}
-// Convert Time Zone (Physical value changes, Wall time changes)
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_dt_convert_time_zone(
-    expr_ptr: *mut ExprContext,
-    tz_ptr: *const c_char
-) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let tz_str = unsafe { CStr::from_ptr(tz_ptr).to_string_lossy() };
-        
-        // Polars 0.50+ TimeZone::new(str)
-        let tz = unsafe{ TimeZone::new_unchecked(tz_str.as_ref()as &str) };
-        
-        let new_expr = ctx.inner.dt().convert_time_zone(tz);
-        
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-// Replace Time Zone (Physical value stays, Wall time changes or meta changes)
-// tz_ptr: NULL means "unset" (make naive), otherwise "set" (make aware)
-// ambiguous_ptr: "raise", "earliest", "latest", "null", etc.
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_dt_replace_time_zone(
-    expr_ptr: *mut ExprContext,
-    tz_ptr: *const c_char,          // TimeZone (Option)
-    ambiguous_ptr: *const c_char,   // Ambiguous (Expr string, e.g. "raise")
-    non_existent_ptr: *const c_char // NonExistent (Enum string, e.g. "raise")
-) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        
-        // Build Option<TimeZone>
-        let tz = if tz_ptr.is_null() {
-            None
-        } else {
-            let s = unsafe { CStr::from_ptr(tz_ptr).to_string_lossy() };
-            unsafe { Some(TimeZone::new_unchecked(s.as_ref()as &str)) }
-        };
-
-        // Build Ambiguous Expr
-        let amb_str = if ambiguous_ptr.is_null() {
-            "raise"
-        } else {
-            unsafe { CStr::from_ptr(ambiguous_ptr).to_str().unwrap() }
-        };
-        let ambiguous_expr = lit(amb_str);
-
-        // Build NonExistent Enum
-        let ne_str = if non_existent_ptr.is_null() {
-            "raise"
-        } else {
-            unsafe { CStr::from_ptr(non_existent_ptr).to_str().unwrap() }
-        };
-        let non_existent = parse_non_existent(ne_str);
-
-        // Call Polars
-        let new_expr = ctx.inner.dt().replace_time_zone(tz, ambiguous_expr, non_existent);
-        
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_add_business_days(
-    expr_ptr: *mut ExprContext,
-    n_ptr: *mut ExprContext,
-    week_mask_ptr: *const u8, 
-    holidays_ptr: *const i32, 
-    holidays_len: usize,
-    roll_strategy: u8          
-) -> *mut ExprContext {
-    ffi_try!({
-        let e = unsafe { Box::from_raw(expr_ptr) };
-        let n = unsafe { Box::from_raw(n_ptr) };
-        
-        // Build Week Mask [bool; 7]
-        // Order: Mon, Tue, Wed, Thu, Fri, Sat, Sun
-        let week_mask = unsafe {
-        let slice = std::slice::from_raw_parts(week_mask_ptr, 7);
-        let mut arr = [false; 7];
-            for i in 0..7 {
-                arr[i] = slice[i] != 0; 
-            }
-            arr
-        };
-
-        // Build Holidays Vec<i32>
-        let holidays = unsafe {
-            std::slice::from_raw_parts(holidays_ptr, holidays_len).to_vec()
-        };
-
-        // Build Roll Strategy
-        let roll = match roll_strategy {
-            1 => Roll::Forward,
-            2 => Roll::Backward,
-            _ => Roll::Raise,
-        };
-
-        // Call Polars DSL
-        let new_expr = e.inner.dt().add_business_days(
-            n.inner,
-            week_mask,
-            holidays,
-            roll
-        );
-
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_is_business_day(
-    expr_ptr: *mut ExprContext,
-    week_mask_ptr: *const u8,
-    holidays_ptr: *const i32,
-    holidays_len: usize
-) -> *mut ExprContext {
-    ffi_try!({
-        let e = unsafe { Box::from_raw(expr_ptr) };
-
-        let week_mask = unsafe {
-        let slice = std::slice::from_raw_parts(week_mask_ptr, 7);
-        let mut arr = [false; 7];
-            for i in 0..7 {
-                arr[i] = slice[i] != 0; 
-            }
-            arr
-        };
-
-        let holidays = unsafe {
-            std::slice::from_raw_parts(holidays_ptr, holidays_len).to_vec()
-        };
-
-        let new_expr = e.inner.dt().is_business_day(
-            week_mask,
-            holidays
-        );
-
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
 }
 
 // ==========================================

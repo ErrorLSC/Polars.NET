@@ -1,3 +1,5 @@
+using Pl = Polars.CSharp.Polars;
+
 namespace Polars.CSharp;
 
 /// <summary>
@@ -10,138 +12,136 @@ public readonly struct SeriesDtOps
 
     private Series Apply(Func<Expr, Expr> op) 
     {
-        var expr = op(Polars.Col(_series.Name));
+        var expr = op(Pl.Col(_series.Name));
         
         return _series.ApplyExpr(expr);
     }
-    /// <summary>Get the year from the underlying date/datetime.</summary>
+    /// <inheritdoc cref="DtOps.Millennium"/>
+    public Series Millennium() => Apply(e => e.Dt.Millennium());
+    /// <inheritdoc cref="DtOps.Century"/>
+    public Series Century() => Apply(e => e.Dt.Century());
+    /// <inheritdoc cref="DtOps.Year"/>
     public Series Year() => Apply(e => e.Dt.Year());
-    /// <summary>Get the quarter from the underlying date/datetime.</summary>
+    /// <inheritdoc cref="DtOps.IsoYear"/>
+    public Series IsoYear() => Apply(e => e.Dt.IsoYear());
+    /// <inheritdoc cref="DtOps.Quarter"/>
     public Series Quarter() => Apply(e => e.Dt.Quarter());
-    /// <summary>Get the month from the underlying date/datetime.</summary>
+    /// <inheritdoc cref="DtOps.Month"/>
     public Series Month() => Apply(e => e.Dt.Month());
-    /// <summary>Get the day from the underlying date/datetime.</summary>
+    /// <inheritdoc cref="DtOps.Day"/>
     public Series Day() => Apply(e => e.Dt.Day());
-    /// <summary>Get the ordinal day (day of year) from the underlying date/datetime.</summary>
+    /// <inheritdoc cref="DtOps.DaysInMonth"/>
+    public Series DaysInMonth() => Apply(e => e.Dt.DaysInMonth());
+    /// <inheritdoc cref="DtOps.OrdinalDay"/>
     public Series OrdinalDay() => Apply(e => e.Dt.OrdinalDay());
-    /// <summary>Get the weekday from the underlying date/datetime.</summary>
-    public Series WeekDay() => Apply(e => e.Dt.Weekday());
-    /// <summary>Get the hour from the underlying datetime.</summary>
+    /// <inheritdoc cref="DtOps.Weekday"/>
+    public Series Weekday() => Apply(e => e.Dt.Weekday());
+    /// <inheritdoc cref="DtOps.Hour"/>
     public Series Hour() => Apply(e => e.Dt.Hour());
-    /// <summary>Get the minute from the underlying datetime.</summary>
+    /// <inheritdoc cref="DtOps.Minute"/>
     public Series Minute() => Apply(e => e.Dt.Minute());
-    /// <summary>Get the second from the underlying datetime.</summary>
-    public Series Second() => Apply(e => e.Dt.Second());
-    /// <summary>Get the millisecond from the underlying datetime.</summary>
+    /// <inheritdoc cref="DtOps.Second"/>
+    public Series Second(bool fractional = false) => Apply(e => e.Dt.Second(fractional));
+    /// <inheritdoc cref="DtOps.Millisecond"/>
     public Series Millisecond() => Apply(e => e.Dt.Millisecond());
-    /// <summary>Get the microsecond from the underlying datetime.</summary>
+    /// <inheritdoc cref="DtOps.Microsecond"/>
     public Series Microsecond() => Apply(e => e.Dt.Microsecond());
-    /// <summary>Get the nanosecond from the underlying datetime.</summary>
+    /// <inheritdoc cref="DtOps.Nanosecond"/>
     public Series Nanosecond() => Apply(e => e.Dt.Nanosecond());
-
-    /// <summary>
-    /// Cast to Date (remove time component).
-    /// </summary>
-    /// <returns></returns>
+    /// <inheritdoc cref="DtOps.IsLeapYear"/>
+    public Series IsLeapYear() => Apply(e => e.Dt.IsLeapYear());
+    /// <inheritdoc cref="DtOps.MonthStart"/>
+    public Series MonthStart() => Apply(e => e.Dt.MonthStart());
+    /// <inheritdoc cref="DtOps.MonthEnd"/>
+    public Series MonthEnd() => Apply(e => e.Dt.MonthEnd());
+    /// <inheritdoc cref="DtOps.BaseUtcOffset"/>
+    public Series BaseUtcOffset() => Apply(e => e.Dt.BaseUtcOffset());
+    /// <inheritdoc cref="DtOps.DstOffset"/>
+    public Series DstOffset() => Apply(e => e.Dt.DstOffset());
+    /// <inheritdoc cref="DtOps.Date"/>
     public Series Date() => Apply(e => e.Dt.Date());
-    /// <summary>
-    /// Cast to Time (remove Date component).
-    /// </summary>
-    /// <returns></returns>
+    /// <inheritdoc cref="DtOps.Time"/>
     public Series Time() => Apply(e => e.Dt.Time());
+    /// <inheritdoc cref="DtOps.TotalDays"/>
+    public Series TotalDays(bool fractional=false) => Apply(e => e.Dt.TotalDays(fractional));
+    /// <inheritdoc cref="DtOps.TotalHours"/>
+    public Series TotalHours(bool fractional=false) => Apply(e => e.Dt.TotalHours(fractional));
+    /// <inheritdoc cref="DtOps.TotalMinutes"/>
+    public Series TotalMinutes(bool fractional=false) => Apply(e => e.Dt.TotalMinutes(fractional));
+    /// <inheritdoc cref="DtOps.TotalMilliseconds"/>
+    public Series TotalMilliseconds(bool fractional=false) => Apply(e => e.Dt.TotalMilliseconds(fractional));
+    /// <inheritdoc cref="DtOps.TotalMicroseconds"/>
+    public Series TotalMicroseconds(bool fractional=false) => Apply(e => e.Dt.TotalMicroseconds(fractional));
+    /// <inheritdoc cref="DtOps.TotalNanoseconds"/>
+    public Series TotalNanoseconds(bool fractional=false) => Apply(e => e.Dt.TotalNanoseconds(fractional));
+    /// <inheritdoc cref="DtOps.ToString"/>
+    public Series ToString(string format="iso") => Apply(e => e.Dt.ToString(format));
+    /// <inheritdoc cref="DtOps.Strftime"/>
+    public Series Strftime(string format="iso") => Apply(e => e.Dt.Strftime(format));
     // ==========================================
     // Truncate & Round
     // ==========================================
 
-    /// <summary>
-    /// Truncate the datetimes to the given interval (e.g. "1d", "1h", "15m").
-    /// </summary>
-    public Series Truncate(IntoDuration every) => Apply(e => e.Dt.Truncate(every));
-    /// <summary>
-    /// Round the datetimes to the given interval.
-    /// </summary>
-    public Series Round(IntoDuration every) => Apply(e => e.Dt.Round(every));
+    /// <inheritdoc cref="DtOps.Truncate"/>
+    public Series Truncate(DurationOrExpr every) => Apply(e => e.Dt.Truncate(every));
+    /// <inheritdoc cref="DtOps.Round"/>
+    public Series Round(DurationOrExpr every) => Apply(e => e.Dt.Round(every));
     // ==========================================
     // Offset
     // ==========================================
-
-    /// <summary>
-    /// Offset the datetimes by a given duration expression.
-    /// </summary>
-    public Series OffsetBy(Expr by) => Apply(e => e.Dt.OffsetBy(by));
-    /// <summary>
-    /// Offset the datetimes by a constant duration string (e.g., "1d", "-2h").
-    /// </summary>
-    public Series OffsetBy(string duration) => Apply(e => e.Dt.OffsetBy(duration));
-    /// <summary>
-    /// Offset the datetimes by TimeSpan
-    /// </summary>
-    /// <param name="duration"></param>
-    /// <returns></returns>
-    public Series OffsetBy(TimeSpan duration) => Apply(e => e.Dt.OffsetBy(duration));
-
+    /// <inheritdoc cref="DtOps.OffsetBy"/>
+    public Series OffsetBy(DurationOrExpr by) => Apply(e => e.Dt.OffsetBy(by));
     // ==========================================
     // Timestamp
     // ==========================================
 
-    /// <summary>
-    /// Convert the datetime to an integer timestamp (Unix epoch).
-    /// </summary>
-    /// <param name="timeUnit">
-    /// The desired TimeUnit for the resulting Datetime.
-    /// <para><b>Note:</b> Only sub-second units (<see cref="TimeUnit.Nanoseconds"/>, <see cref="TimeUnit.Microseconds"/>, <see cref="TimeUnit.Milliseconds"/>) are supported.</para>
-    /// </param>
+    /// <inheritdoc cref="DtOps.Timestamp"/>
     public Series Timestamp(TimeUnit timeUnit = TimeUnit.Microseconds) => Apply(e => e.Dt.Timestamp(timeUnit));
-    /// <summary>
-    /// Combine the date from the underlying date/datetime with the time from another expression.
-    /// <para>The resulting Series will have the specified TimeUnit.</para>
-    /// </summary>
-    /// <param name="time">An expression yielding the Time component.</param>
-    /// <param name="timeUnit">
-    /// The desired TimeUnit for the resulting Datetime.
-    /// <para><b>Note:</b> Only sub-second units (<see cref="TimeUnit.Nanoseconds"/>, <see cref="TimeUnit.Microseconds"/>, <see cref="TimeUnit.Milliseconds"/>) are supported.</para>
-    /// </param>
+    /// <inheritdoc cref="DtOps.Combine"/>
     public Series Combine(Expr time,TimeUnit timeUnit) => Apply(e => e.Dt.Combine(time,timeUnit));
+    /// <inheritdoc cref="DtOps.Combine"/>
+    public Series Combine(Series time,TimeUnit timeUnit) => Apply(e => e.Dt.Combine(Pl.Lit(time),timeUnit));
 
     // ==========================================
     // TimeZone
     // ==========================================
-    /// <summary>
-    /// Convert from one timezone to another.
-    /// Resulting Series will have the given time zone.
-    /// </summary>
-    /// <param name="tz">Target time zone (e.g. "Asia/Shanghai")</param>    
-    public Series ConvertTimeZone(string tz) => Apply(e => e.Dt.ConvertTimeZone(tz));
+    /// <inheritdoc cref="DtOps.ConvertTimeZone"/>
+    public Series ConvertTimeZone(string timeZone) => Apply(e => e.Dt.ConvertTimeZone(timeZone));
 
-    /// <summary>
-    /// Replace the time zone of a Series.
-    /// This does not change the underlying timestamp, only the metadata.
-    /// </summary>
-    public Series ReplaceTimeZone(string? timeZone, string? ambiguous = null, string? nonExistent = "raise")
+    /// <inheritdoc cref="DtOps.ReplaceTimeZone"/>
+    public Series ReplaceTimeZone(string? timeZone, AmbiguousArg? ambiguous = null, NonExistent nonExistent = NonExistent.Raise)
          =>Apply(e => e.Dt.ReplaceTimeZone(timeZone,ambiguous,nonExistent));
     // ==========================================
     // BusinessDays
     // ==========================================
-
-    /// <summary>
-    /// Add business days to the date column.
-    /// </summary>
-    /// <param name="n">Number of business days to add (can be negative).</param>
-    /// <param name="holidays">List of holidays (dates to skip).</param>
-    /// <param name="weekMask">
-    /// Array of 7 bools indicating business days, starting from Monday. 
-    /// Default is Mon-Fri.
-    /// </param>
-    /// <param name="roll">Strategy for handling non-business days.</param>
+    /// <inheritdoc cref="DtOps.AddBusinessDays"/>
     public Series AddBusinessDays(
         Expr n, 
         IEnumerable<DateOnly>? holidays = null, 
         bool[]? weekMask = null, 
         Roll roll = Roll.Raise)
         =>Apply(e => e.Dt.AddBusinessDays(n,holidays,weekMask,roll));
-    /// <summary>
-    /// Check if the date is a business day.
-    /// </summary>
+    /// <inheritdoc cref="DtOps.IsBusinessDay(IEnumerable{DateOnly},bool[])"/>
     public Series IsBusinessDay(IEnumerable<DateOnly>? holidays = null, bool[]? weekMask = null)
         =>Apply(e => e.Dt.IsBusinessDay(holidays,weekMask));
+    /// <inheritdoc cref="DtOps.IsBusinessDay(IEnumerable{DateOnly},bool[])"/>   
+    public Series IsBusinessDay(Expr holidays, bool[]? weekMask = null)
+        =>Apply(e => e.Dt.IsBusinessDay(holidays,weekMask));
+    /// <inheritdoc cref="DtOps.IsBusinessDay(IEnumerable{DateOnly},bool[])"/>
+    public Series IsBusinessDay(Series holidays, bool[]? weekMask = null)
+        =>Apply(e => e.Dt.IsBusinessDay(holidays,weekMask));
+    /// <inheritdoc cref="DtOps.Replace"/>
+    public Series Replace(
+        IntoExpr? year = null,
+        IntoExpr? month = null,
+        IntoExpr? day = null,
+        IntoExpr? hour = null,
+        IntoExpr? minute = null,
+        IntoExpr? second = null,
+        IntoExpr? microsecond = null,
+        AmbiguousArg? ambiguous = null)
+    => Apply(e => e.Dt.Replace(year,month,day,hour,minute,second,microsecond,ambiguous));
+    /// <inheritdoc cref="DtOps.Epoch"/>
+    public Series Epoch(TimeUnit timeUnit = TimeUnit.Microseconds) => Apply(e => e.Dt.Epoch(timeUnit));
+    
 }

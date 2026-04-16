@@ -673,6 +673,8 @@ public readonly struct AmbiguousArg
 
     public static implicit operator AmbiguousArg(Expr expr) 
         => new(expr);
+    
+    public static implicit operator AmbiguousArg(Series series) => new(Pl.Lit(series));
 }
 
 public readonly struct StringOrExpr

@@ -525,6 +525,12 @@ public enum TransferEncoding
     Base64
 }
 
+public enum NonExistent : byte
+{
+    Raise = 0,
+    Null = 1
+}
+
 public enum MissingColumnsPolicy : byte { Raise = 0, Insert = 1 }
 public enum UpcastOrForbid : byte { Forbid = 0, Upcast = 1 }
 public enum ExtraColumnsPolicy : byte { Raise = 0, Ignore = 1 }
@@ -861,6 +867,12 @@ internal static class EnumExtensions
         NullBehavior.Ignore => CoreEnums.PlNullBehavior.Ignore,
         NullBehavior.Drop => CoreEnums.PlNullBehavior.Drop,
         _ => throw new ArgumentOutOfRangeException(nameof(nullBehavior), nullBehavior, null)
+    };
+    internal static CoreEnums.PlNonExistent ToNative(this NonExistent policy) => policy switch
+    {
+        NonExistent.Null => CoreEnums.PlNonExistent.Null,
+        NonExistent.Raise => CoreEnums.PlNonExistent.Raise,
+        _ => throw new ArgumentOutOfRangeException(nameof(policy), policy, null)
     };
 }
 

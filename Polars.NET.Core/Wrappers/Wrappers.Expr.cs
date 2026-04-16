@@ -12,6 +12,12 @@ public readonly partial struct PolarsWrapper
         expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    private static ExprHandle UnaryBoolOp(Func<ExprHandle,bool, ExprHandle> op, ExprHandle expr,bool arg)
+    {
+        var h = op(expr,arg);
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     // Binary Nodes
     private static ExprHandle BinaryOp(Func<ExprHandle, ExprHandle, ExprHandle> op, ExprHandle l, ExprHandle r)
     {
@@ -20,14 +26,6 @@ public readonly partial struct PolarsWrapper
         r.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    private static ExprHandle UnaryStrOp(Func<ExprHandle, string, ExprHandle> func, ExprHandle e, string arg)
-    {
-        var h = func(e, arg);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-    private static ExprHandle UnaryDtOp(Func<ExprHandle, ExprHandle> op, ExprHandle expr) 
-        => UnaryOp(op, expr);
     public static ExprHandle RollingOp(Func<ExprHandle, string ,UIntPtr,double[]?,UIntPtr,bool,ExprHandle> op, ExprHandle expr, string windowSize,int minPeriods, double[]? weights, bool center)
     {   
         UIntPtr len = weights != null ? (UIntPtr)weights.Length : UIntPtr.Zero;
@@ -347,118 +345,7 @@ public readonly partial struct PolarsWrapper
     }
     public static ExprHandle Filter(ExprHandle expr, ExprHandle predicate) 
         => BinaryOp(NativeBindings.pl_expr_filter, expr, predicate);
-    // Temporal
-    public static ExprHandle DtYear(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_dt_year, e);
-    public static ExprHandle DtQuarter(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_dt_quarter, e);
-    public static ExprHandle DtMonth(ExprHandle e) => UnaryDtOp(NativeBindings.pl_expr_dt_month, e);
-    public static ExprHandle DtDay(ExprHandle e) => UnaryDtOp(NativeBindings.pl_expr_dt_day, e);
-    public static ExprHandle DtOrdinalDay(ExprHandle e) => UnaryDtOp(NativeBindings.pl_expr_dt_ordinal_day, e);
-    public static ExprHandle DtWeekday(ExprHandle e) => UnaryDtOp(NativeBindings.pl_expr_dt_weekday, e);
-    public static ExprHandle DtHour(ExprHandle e) => UnaryDtOp(NativeBindings.pl_expr_dt_hour, e);
-    public static ExprHandle DtMinute(ExprHandle e) => UnaryDtOp(NativeBindings.pl_expr_dt_minute, e);
-    public static ExprHandle DtSecond(ExprHandle e) => UnaryDtOp(NativeBindings.pl_expr_dt_second, e);
-    public static ExprHandle DtMillisecond(ExprHandle e) => UnaryDtOp(NativeBindings.pl_expr_dt_millisecond, e);
-    public static ExprHandle DtMicrosecond(ExprHandle e) => UnaryDtOp(NativeBindings.pl_expr_dt_microsecond, e);
-    public static ExprHandle DtNanosecond(ExprHandle e) => UnaryDtOp(NativeBindings.pl_expr_dt_nanosecond, e);
-    public static ExprHandle DtToString(ExprHandle e, string format)
-    {
-        var h = NativeBindings.pl_expr_dt_to_string(e, format);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
 
-    public static ExprHandle DtDate(ExprHandle e) => UnaryDtOp(NativeBindings.pl_expr_dt_date, e);
-    public static ExprHandle DtTime(ExprHandle e) => UnaryDtOp(NativeBindings.pl_expr_dt_time, e);
-    // Truncate / Round (Expr + String)
-    public static ExprHandle DtTruncate(ExprHandle e, string every) 
-        => UnaryStrOp(NativeBindings.pl_expr_dt_truncate, e, every);
-
-    public static ExprHandle DtRound(ExprHandle e, string every)
-        => UnaryStrOp(NativeBindings.pl_expr_dt_round, e, every);
-
-    // OffsetBy (Expr + Expr)
-    public static ExprHandle DtOffsetBy(ExprHandle e, ExprHandle by)
-        => BinaryOp(NativeBindings.pl_expr_dt_offset_by, e, by);
-
-    // Timestamp (Expr + Int)
-    public static ExprHandle DtTimestamp(ExprHandle e, PlTimeUnit unitCode)
-    {
-        var h = NativeBindings.pl_expr_dt_timestamp(e, unitCode);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-    public static ExprHandle DtCombine(ExprHandle expr, ExprHandle time, PlTimeUnit tu)
-    {
-        var h = NativeBindings.pl_expr_dt_combine(expr, time, tu);
-        
-        expr.TransferOwnership();
-        time.TransferOwnership();
-        
-        return ErrorHelper.Check(h);
-    }
-    // TimeZone
-    public static ExprHandle DtConvertTimeZone(ExprHandle e, string timeZone)
-    {
-        var h = NativeBindings.pl_expr_dt_convert_time_zone(e, timeZone);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-    public static ExprHandle DtReplaceTimeZone(
-        ExprHandle e, 
-        string? timeZone, 
-        string? ambiguous = null, 
-        string? nonExistent = "raise")
-    {
-        var h = NativeBindings.pl_expr_dt_replace_time_zone(e, timeZone, ambiguous, nonExistent);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-    public static ExprHandle DtAddBusinessDays(
-        ExprHandle expr, 
-        ExprHandle n, 
-        bool[] weekMask, 
-        int[] holidays,
-        PlRoll roll) 
-    {
-        if (weekMask.Length != 7) 
-            throw new ArgumentException("Week mask must have length 7.");
-
-        var maskBytes = new byte[7];
-        for (int i = 0; i < 7; i++) maskBytes[i] = weekMask[i] ? (byte)1 : (byte)0;
-
-        var h = ErrorHelper.Check(NativeBindings.pl_expr_add_business_days(
-                expr,
-                n,
-                maskBytes,
-                holidays,
-                (UIntPtr)holidays.Length,
-                roll
-            ));
-        expr.TransferOwnership();
-        n.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-
-    public static ExprHandle DtIsBusinessDay(
-        ExprHandle expr,
-        bool[] weekMask,
-        int[] holidays)
-    {
-        if (weekMask.Length != 7) 
-            throw new ArgumentException("Week mask must have length 7.");
-
-        var maskBytes = new byte[7];
-        for (int i = 0; i < 7; i++) maskBytes[i] = weekMask[i] ? (byte)1 : (byte)0;
-
-        var h = ErrorHelper.Check(NativeBindings.pl_expr_is_business_day(
-            expr,
-            maskBytes,
-            holidays,
-            (UIntPtr)holidays.Length
-        ));
-        expr.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
     // String Ops
     public static ExprHandle ConcatString(ExprHandle[] exprs,string separator, bool ignoreNulls)
     {

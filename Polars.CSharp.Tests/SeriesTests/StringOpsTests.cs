@@ -831,7 +831,6 @@ public class SeriesStringOpsTests
     [Trait("Series", "StringNumericInteger")]
     public void Test_Series_String_ToInteger()
     {
-        // 构造基础数据
         string[] data = [
             "42", 
             "-100", 

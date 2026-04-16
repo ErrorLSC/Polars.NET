@@ -245,63 +245,8 @@ unsafe internal partial class NativeBindings
         ReadOnlySpan<long> dims_ptr, 
         nuint dims_len              
     );
-    // Temporal
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_year(ExprHandle expr);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_quarter(ExprHandle expr);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_month(ExprHandle expr);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_day(ExprHandle expr);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_ordinal_day(ExprHandle expr);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_weekday(ExprHandle expr);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_hour(ExprHandle expr);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_minute(ExprHandle expr);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_second(ExprHandle expr);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_millisecond(ExprHandle expr);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_microsecond(ExprHandle expr);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_nanosecond(ExprHandle expr);
-    [LibraryImport(LibName)] 
-    public static partial ExprHandle pl_expr_dt_to_string(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string format);
-    
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_date(ExprHandle expr);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_dt_time(ExprHandle expr);
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial ExprHandle pl_expr_dt_truncate(ExprHandle e, string every);
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial ExprHandle pl_expr_dt_round(ExprHandle e, string every);
-
-    [LibraryImport(LibName)]
-    public static partial ExprHandle pl_expr_dt_offset_by(ExprHandle e, ExprHandle by);
-    [LibraryImport(LibName)]
-    public static partial ExprHandle pl_expr_dt_combine(ExprHandle e, ExprHandle time,PlTimeUnit timeUnit);
-    [LibraryImport(LibName)]
-    public static partial ExprHandle pl_expr_dt_timestamp(ExprHandle e, PlTimeUnit unitCode);
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial ExprHandle pl_expr_dt_convert_time_zone(ExprHandle e, string timeZone);
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial ExprHandle pl_expr_dt_replace_time_zone(
-        ExprHandle e, 
-        string? timeZone, 
-        string? ambiguous, 
-        string? nonExistent
-    );
-    [LibraryImport(LibName)]
-    public static partial ExprHandle pl_expr_add_business_days(
-        ExprHandle expr,
-        ExprHandle n,
-        [In, MarshalAs(UnmanagedType.LPArray, SizeConst = 7)] byte[] weekMask,
-        [In, MarshalAs(UnmanagedType.LPArray)] int[] holidays,     
-        UIntPtr holidaysLen,
-        PlRoll rollStrategy
-    );
-
-    [LibraryImport(LibName)]
-    public static partial ExprHandle pl_expr_is_business_day(
-        ExprHandle expr,
-        [In, MarshalAs(UnmanagedType.LPArray, SizeConst = 7)] byte[] weekMask,
-        [In, MarshalAs(UnmanagedType.LPArray)] int[] holidays,
-        UIntPtr holidaysLen
-    );
+   
+  
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_clone(ExprHandle expr);
 

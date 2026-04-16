@@ -1,6 +1,6 @@
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
-
+using Pl = Polars.CSharp.Polars;
 namespace Polars.CSharp;
 
 // ==========================================
@@ -22,8 +22,19 @@ public readonly struct DtOps
 
     private Expr Wrap(Func<ExprHandle, ExprHandle> op)
         => new(op(_expr.CloneHandle()));
-
-    /// <summary>Get the year from the underlying date/datetime.</summary>
+    /// <summary>
+    /// Extract the millennium from underlying representation.
+    /// Applies to Date and Datetime columns.
+    /// Returns the millennium number in the calendar date.
+    /// </summary>
+    /// <returns>Expression/Series of data type Int32.</returns>
+    public Expr Millennium() => Wrap(PolarsWrapper.DtMillennium);
+    /// <summary>
+    /// Extract the century from underlying representation.Returns the century number in the calendar date.
+    /// </summary>
+    /// <returns>Expression/Series of data type Int32.</returns>
+    public Expr Century() => Wrap(PolarsWrapper.DtCentury);
+    /// <summary>Get the year from the underlying date/datetime.Returns the year number in the calendar date.</summary>
     /// <example>
     /// <code>
     /// var df = DataFrame.FromColumns(new
@@ -32,80 +43,186 @@ public readonly struct DtOps
     /// });
     /// 
     /// df.Select(
-    ///     Col("dt").Dt.Year(),    // 2024
-    ///     Col("dt").Dt.Month(),   // 1
-    ///     Col("dt").Dt.Weekday(), // 1 (Monday)
-    ///     Col("dt").Dt.ToString("%Y-%m-%d") // "2024-01-01"
+    ///     Pl.Col("dt").Dt.Year(),    // 2024
+    ///     Pl.Col("dt").Dt.Month(),   // 1
+    ///     Pl.Col("dt").Dt.Weekday(), // 1 (Monday)
+    ///     Pl.Col("dt").Dt.ToString("%Y-%m-%d") // "2024-01-01"
     /// ).Show();
     /// </code>
     /// </example>
+    /// <returns>Expression/Series of data type Int32.</returns>
     public Expr Year() => Wrap(PolarsWrapper.DtYear);
-
-    /// <summary>Get the quarter from the underlying date/datetime.</summary>
-    public Expr Quarter() => Wrap(PolarsWrapper.DtQuarter);
-
-    /// <summary>Get the month from the underlying date/datetime.</summary>
-    public Expr Month() => Wrap(PolarsWrapper.DtMonth);
-
-    /// <summary>Get the day from the underlying date/datetime.</summary>
-    public Expr Day() => Wrap(PolarsWrapper.DtDay);
-
-    /// <summary>Get the ordinal day (day of year) from the underlying date/datetime.</summary>
-    public Expr OrdinalDay() => Wrap(PolarsWrapper.DtOrdinalDay);
-
-    /// <summary>Get the weekday from the underlying date/datetime.</summary>
-    public Expr Weekday() => Wrap(PolarsWrapper.DtWeekday);
-
-    /// <summary>Get the hour from the underlying datetime.</summary>
-    public Expr Hour() => Wrap(PolarsWrapper.DtHour);
-
-    /// <summary>Get the minute from the underlying datetime.</summary>
-    public Expr Minute() => Wrap(PolarsWrapper.DtMinute);
-
-    /// <summary>Get the second from the underlying datetime.</summary>
-    public Expr Second() => Wrap(PolarsWrapper.DtSecond);
-
-    /// <summary>Get the millisecond from the underlying datetime.</summary>
-    public Expr Millisecond() => Wrap(PolarsWrapper.DtMillisecond);
-
-    /// <summary>Get the microsecond from the underlying datetime.</summary>
-    public Expr Microsecond() => Wrap(PolarsWrapper.DtMicrosecond);
-
-    /// <summary>Get the nanosecond from the underlying datetime.</summary>
-    public Expr Nanosecond() => Wrap(PolarsWrapper.DtNanosecond);
-
     /// <summary>
-    /// Format the date/datetime as a string using the given format string.
-    /// <para>Format codes follow the Rust `chrono` crate syntax (similar to strftime).</para>
+    /// Extract ISO year from underlying Date representation.
+    /// Applies to Date and Datetime columns.
+    /// Returns the year number in the ISO standard. This may not correspond with the calendar year.
     /// </summary>
-    public Expr ToString(string format)
+    /// <returns>Expression/Series of data type Int32.</returns>
+    public Expr IsoYear() => Wrap(PolarsWrapper.DtIsoYear);
+    /// <summary>
+    /// Extract quarter from underlying Date representation. Returns the quarter ranging from 1 to 4.
+    /// </summary>
+    /// <returns>Expression/Series of data type Int8.</returns>
+    public Expr Quarter() => Wrap(PolarsWrapper.DtQuarter);
+    /// <summary>
+    /// Extract month from underlying Date representation.Returns the month number starting from 1. The return value ranges from 1 to 12.
+    /// </summary>
+    /// <returns>Expression/Series of data type Int8.</returns>
+    public Expr Month() => Wrap(PolarsWrapper.DtMonth);
+    /// <summary>
+    /// Extract day from underlying Date representation.Returns the day of month starting from 1. The return value ranges from 1 to 31. (The last day of month differs by months.)
+    /// </summary>
+    /// <returns>Expression/Series of data type Int8.</returns>
+    public Expr Day() => Wrap(PolarsWrapper.DtDay);
+    /// <summary>
+    /// Extract the number of days in the month from the underlying Date representation.Returns the number of days in the month. The return value ranges from 28 to 31.
+    /// </summary>
+    /// <returns>Expression/Series of data type Int8.</returns>
+    public Expr DaysInMonth() => Wrap(PolarsWrapper.DtDaysInMonth);
+    /// <summary>
+    /// Extract ordinal day from underlying Date representation.Returns the day of year starting from 1. The return value ranges from 1 to 366. (The last day of year differs by years.)
+    /// </summary>
+    /// <returns>Expression/Series of data type Int16.</returns>
+    public Expr OrdinalDay() => Wrap(PolarsWrapper.DtOrdinalDay);
+    /// <summary>
+    /// Extract the week day from the underlying Date representation.Returns the ISO weekday number where monday = 1 and sunday = 7
+    /// </summary>
+    /// <returns>Expression/Series of data type Int8.</returns>
+    public Expr Weekday() => Wrap(PolarsWrapper.DtWeekday);
+    /// <summary>
+    /// Extract hour from underlying DateTime representation.Returns the hour number from 0 to 23.
+    /// </summary>
+    /// <returns>Expression/Series of data type Int8.</returns>
+    public Expr Hour() => Wrap(PolarsWrapper.DtHour);
+    /// <summary>
+    /// Extract minutes from underlying DateTime representation.Returns the minute number from 0 to 59.
+    /// </summary>
+    /// <returns>Expression/Series of data type Int8.</returns>
+    public Expr Minute() => Wrap(PolarsWrapper.DtMinute);
+    /// <summary>
+    /// Extract seconds from underlying DateTime representation.Returns the integer second number from 0 to 59, or a floating point number from 0 ~ 60 if fractional=True that includes any milli/micro/nanosecond component.
+    /// </summary>
+    /// <param name="fractional">Whether to include the fractional component of the second.</param> 
+    /// <returns>Expression/Series of data type Int8 or Float64.</returns>
+    public Expr Second(bool fractional = false)
     {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.DtToString(h, format));
+        var sec = Wrap(PolarsWrapper.DtSecond);
+
+        if (!fractional)
+        {
+            return sec;
+        }
+        
+        var nano = Nanosecond();
+        
+        return sec + (nano / 1_000_000_000.0);
     }
+    /// <summary>
+    /// Extract milliseconds from underlying DateTime representation.
+    /// </summary>
+    /// <returns>Expression/Series of data type Int32.</returns>
+    public Expr Millisecond() => Wrap(PolarsWrapper.DtMillisecond);
+    /// <summary>
+    /// Extract microseconds from underlying DateTime representation.
+    /// </summary>
+    /// <returns>Expression/Series of data type Int32.</returns>
+    public Expr Microsecond() => Wrap(PolarsWrapper.DtMicrosecond);
+    /// <summary>
+    /// Extract nanoseconds from underlying DateTime representation.
+    /// </summary>
+    /// <returns>Expression/Series of data type Int32.</returns>
+    public Expr Nanosecond() => Wrap(PolarsWrapper.DtNanosecond);
+    /// <summary>
+    /// Determine whether the year of the underlying date is a leap year.
+    /// </summary>
+    /// <returns>Expression/Series of data type Boolean.</returns>
+    public Expr IsLeapYear() => Wrap(PolarsWrapper.DtIsLeapYear);
+    /// <summary>
+    /// Roll backward to the first day of the month.
+    /// For datetimes, the time-of-day is preserved.
+    /// </summary>
+    /// <returns>Expression/Series of data type Date or Datetime.</returns>
+    public Expr MonthStart() => Wrap(PolarsWrapper.DtMonthStart);
+    /// <summary>
+    /// Roll forward to the last day of the month.
+    /// For datetimes, the time-of-day is preserved.
+    /// </summary>
+    /// <returns>Expression/Series of data type Date or Datetime.</returns>
+    public Expr MonthEnd() => Wrap(PolarsWrapper.DtMonthEnd);
+    /// <summary>
+    /// Base offset from UTC.
+    /// This is usually constant for all datetimes in a given time zone, but may vary in the rare case that a country switches time zone, like Samoa (Apia) did at the end of 2011.
+    /// </summary>
+    /// <returns>Expression/Series of data type Duration.</returns>
+    public Expr BaseUtcOffset() => Wrap(PolarsWrapper.DtBaseUtcOffset);
+    /// <summary>
+    /// Additional offset currently in effect (typically due to daylight saving time).
+    /// </summary>
+    /// <returns>Expression/Series of data type Duration.</returns>
+    public Expr DstOffset() => Wrap(PolarsWrapper.DtDstOffset);
+    /// <summary>
+    /// Extract date from date(time).
+    /// </summary>
+    /// <returns>Expression/Series of data type Date.</returns>
+    public Expr Date() => Wrap(PolarsWrapper.DtDate);
+    /// <summary>
+    /// Extract time.Applies to Datetime columns only; fails on Date.
+    /// </summary>
+    /// <returns>Expression/Series of data type Time.</returns>
+    public Expr Time() => Wrap(PolarsWrapper.DtTime);
+    /// <summary>
+    /// Extract the total days from a Duration type.
+    /// </summary>
+    /// <param name="fractional">Whether to include the fractional component of the day.</param>
+    /// <returns>Expression/Series of data type Int64 or Float64 if fractional is set.</returns>
+    public Expr TotalDays(bool fractional=false) => new(PolarsWrapper.DtTotalDays(_expr.CloneHandle(),fractional));
+    /// <summary>
+    /// Extract the total hours from a Duration type.
+    /// </summary>
+    /// <param name="fractional">Whether to include the fractional component of the hour.</param>
+    /// <returns>Expression/Series of data type Int64 or Float64 if fractional is set.</returns>    
+    public Expr TotalHours(bool fractional=false) => new(PolarsWrapper.DtTotalHours(_expr.CloneHandle(),fractional));
+    /// <summary>
+    /// Extract the total minutes from a Duration type.
+    /// </summary>
+    /// <param name="fractional">Whether to include the fractional component of the minute.</param>
+    /// <returns>Expression/Series of data type Int64 or Float64 if fractional is set.</returns>    
+    public Expr TotalMinutes(bool fractional=false) => new(PolarsWrapper.DtTotalMinutes(_expr.CloneHandle(),fractional));
+    /// <summary>
+    /// Extract the total seconds from a Duration type.
+    /// </summary>
+    /// <param name="fractional">Whether to include the fractional component of the second.</param>
+    /// <returns>Expression/Series of data type Int64 or Float64 if fractional is set.</returns>    
+    public Expr TotalSeconds(bool fractional=false) => new(PolarsWrapper.DtTotalSeconds(_expr.CloneHandle(),fractional));
+    /// <summary>
+    /// Extract the total milliseconds from a Duration type.
+    /// </summary>
+    /// <param name="fractional">Whether to include the fractional component of the millisecond.</param>
+    /// <returns>Expression/Series of data type Int64 or Float64 if fractional is set.</returns>    
+    public Expr TotalMilliseconds(bool fractional=false) => new(PolarsWrapper.DtTotalMilliseconds(_expr.CloneHandle(),fractional));
+    /// <summary>
+    /// Extract the total microseconds from a Duration type.
+    /// </summary>
+    /// <param name="fractional">Whether to include the fractional component of the microsecond.</param>
+    /// <returns>Expression/Series of data type Int64 or Float64 if fractional is set.</returns>    
+    public Expr TotalMicroseconds(bool fractional=false) => new(PolarsWrapper.DtTotalMicroseconds(_expr.CloneHandle(),fractional));
+    /// <summary>
+    /// Extract the total nanoseconds from a Duration type.
+    /// </summary>
+    /// <param name="fractional">Whether to include return the result as a Float64. Because the smallest TimeUnit is 'ns', the fractional component will always be zero.</param>
+    /// <returns>Expression/Series of data type Int64 or Float64 if fractional is set.</returns>    
+    public Expr TotalNanoseconds(bool fractional=false) => new(PolarsWrapper.DtTotalNanoseconds(_expr.CloneHandle(),fractional));
+    /// <summary>
+    /// Convert a Date/Time/Datetime column into a String column with the given format.
+    /// </summary>
+    /// <param name="format">Format codes follow the Rust `chrono` crate syntax (similar to strftime).
+    ///  <para>If no format is provided, the appropriate ISO format for the underlying data type is used. This can be made explicit by passing "iso" or "iso:strict" as the format string.</para>
+    /// </param>
+    public Expr ToString(string format="iso") => new(PolarsWrapper.DtToString(_expr.CloneHandle(), format));
     /// <summary>
     /// Alias for <see cref="ToString(string)"/>.
     /// </summary>
-    public Expr Strftime(string format)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.DtToString(h, format));
-    }
-
-    /// <summary>
-    /// Format the date/datetime as a string using the default format "%Y-%m-%dT%H:%M:%S%.f".
-    /// </summary>
-    public override string ToString() => "DtOps";
-    /// <summary>
-    /// Cast to Date (remove time component).
-    /// </summary>
-    /// <returns></returns>
-    public Expr Date() => Wrap(PolarsWrapper.DtDate);
-    /// <summary>
-    /// Cast to Time (remove Date component).
-    /// </summary>
-    /// <returns></returns>
-    public Expr Time() => Wrap(PolarsWrapper.DtTime);
+    public Expr Strftime(string format) => ToString(format);
 
     // ==========================================
     // Truncate & Round
@@ -119,32 +236,23 @@ public readonly struct DtOps
     /// <code>
     /// // Input: 2024-02-29 23:59:59
     /// df.Select(
-    ///     Col("dt").Dt.Truncate("1h"), // Result: 23:00:00
-    ///     Col("dt").Dt.Round("1h")     // Result: 2024-03-01 00:00:00
+    ///     Pl.Col("dt").Dt.Truncate("1h"), // Result: 23:00:00
+    ///     Pl.Col("dt").Dt.Round("1h")     // Result: 2024-03-01 00:00:00
     /// );
     /// </code>
     /// </example>
-    public Expr Truncate(IntoDuration every)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.DtTruncate(h, every.Value));
-    }
+    public Expr Truncate(DurationOrExpr every)
+        => new(PolarsWrapper.DtTruncate(_expr.CloneHandle(),every.Expression.CloneHandle()));
+
     /// <summary>
     /// Round the datetimes to the given interval.
     /// </summary>
-    public Expr Round(IntoDuration every)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.DtRound(h, every.Value));
-    }
+    public Expr Round(DurationOrExpr every)
+        => new(PolarsWrapper.DtRound(_expr.CloneHandle(),every.Expression.CloneHandle()));
     // ==========================================
     // Offset
     // ==========================================
 
-    /// <summary>
-    /// Offset the datetimes by a given duration expression.
-    /// </summary>
-    public Expr OffsetBy(Expr by) => new(PolarsWrapper.DtOffsetBy(_expr.Handle, by.Handle));
     /// <summary>
     /// Offset the datetimes by a constant duration string (e.g., "1d", "-2h").
     /// </summary>
@@ -152,23 +260,13 @@ public readonly struct DtOps
     /// <code>
     /// df.Select(
     ///     // Add 2 days
-    ///     Col("dt").Dt.OffsetBy("2d"),
+    ///     Pl.Col("dt").Dt.OffsetBy("2d"),
     ///     // Subtract 1 hour
-    ///     Col("dt").Dt.OffsetBy("-1h")
+    ///     Pl.Col("dt").Dt.OffsetBy("-1h")
     /// );
     /// </code>
     /// </example>
-    public Expr OffsetBy(string duration) => OffsetBy(Polars.Lit(duration));
-    /// <summary>
-    /// Offset the datetimes by TimeSpan
-    /// </summary>
-    /// <param name="duration"></param>
-    /// <returns></returns>
-    public Expr OffsetBy(TimeSpan duration)
-    {
-        string durationStr = DurationFormatter.ToPolarsString(duration);
-        return OffsetBy(Polars.Lit(durationStr));
-    }
+    public Expr OffsetBy(DurationOrExpr by) => new(PolarsWrapper.DtOffsetBy(_expr.Handle, by.Expression.CloneHandle()));
 
     // ==========================================
     // Timestamp
@@ -182,10 +280,7 @@ public readonly struct DtOps
     /// <para><b>Note:</b> Only sub-second units (<see cref="TimeUnit.Nanoseconds"/>, <see cref="TimeUnit.Microseconds"/>, <see cref="TimeUnit.Milliseconds"/>) are supported.</para>
     /// </param>
     public Expr Timestamp(TimeUnit timeUnit = TimeUnit.Microseconds)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.DtTimestamp(h, timeUnit.ToNative()));
-    }
+        => new(PolarsWrapper.DtTimestamp(_expr.CloneHandle(), timeUnit.ToNative()));
     /// <summary>
     /// Combine the date from the underlying date/datetime with the time from another expression.
     /// <para>The resulting Series will have the specified TimeUnit.</para>
@@ -196,13 +291,7 @@ public readonly struct DtOps
     /// <para><b>Note:</b> Only sub-second units (<see cref="TimeUnit.Nanoseconds"/>, <see cref="TimeUnit.Microseconds"/>, <see cref="TimeUnit.Milliseconds"/>) are supported.</para>
     /// </param>
     public Expr Combine(Expr time, TimeUnit timeUnit = TimeUnit.Microseconds)
-    {
-
-        var hExpr = PolarsWrapper.CloneExpr(_expr.Handle);
-        var hTime = PolarsWrapper.CloneExpr(time.Handle);
-        
-        return new Expr(PolarsWrapper.DtCombine(hExpr, hTime, timeUnit.ToNative()));
-    }
+        => new(PolarsWrapper.DtCombine(_expr.CloneHandle(),time.CloneHandle(), timeUnit.ToNative()));
     // ==========================================
     // TimeZone
     // ==========================================
@@ -214,7 +303,7 @@ public readonly struct DtOps
     /// </para>
     /// </summary>
     /// <param name="timeZone">Target time zone string (IANA database, e.g. "Asia/Shanghai", "America/New_York").</param>
-    /// <returns>A new expression with the converted time.</returns>
+    /// <returns>A new expression/Series with the converted time.</returns>
     /// <example>
     /// <code>
     /// // 1. Start with a naive datetime (noon)
@@ -228,15 +317,15 @@ public readonly struct DtOps
     /// // - ConvertTimeZone("Asia/Shanghai"): Shift to +8 hours (20:00)
     /// // - ConvertTimeZone("America/New_York"): Shift to -5 hours (07:00)
     /// df.Select(
-    ///     Col("dt").Alias("naive"),
+    ///     Pl.Col("dt").Alias("naive"),
     ///     
-    ///     Col("dt").Dt.ReplaceTimeZone("UTC").Alias("utc_tagged"),
+    ///     Pl.Col("dt").Dt.ReplaceTimeZone("UTC").Alias("utc_tagged"),
     ///     
-    ///     Col("dt").Dt.ReplaceTimeZone("UTC")
+    ///     Pl.Col("dt").Dt.ReplaceTimeZone("UTC")
     ///               .Dt.ConvertTimeZone("Asia/Shanghai")
     ///               .Alias("shanghai_time"),
     /// 
-    ///     Col("dt").Dt.ReplaceTimeZone("UTC")
+    ///     Pl.Col("dt").Dt.ReplaceTimeZone("UTC")
     ///               .Dt.ConvertTimeZone("America/New_York")
     ///               .Alias("ny_time")
     /// ).Show();
@@ -252,13 +341,9 @@ public readonly struct DtOps
     /// */
     /// </code>
     /// </example>
-    public Expr ConvertTimeZone(string timeZone)
-    {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.DtConvertTimeZone(h, timeZone));
-    }
+    public Expr ConvertTimeZone(string timeZone) => new(PolarsWrapper.DtConvertTimeZone(_expr.CloneHandle(), timeZone));
     /// <summary>
-    /// Replace the time zone of a Series.
+    /// Replace the time zone of a column.
     /// <para>
     /// This sets the time zone metadata without changing the underlying physical time (wall clock).
     /// Use this to assign a timezone to a naive datetime.
@@ -268,10 +353,10 @@ public readonly struct DtOps
     /// <param name="ambiguous">How to handle ambiguous times (e.g. DST transitions). Default "raise".</param>
     /// <param name="nonExistent">How to handle non-existent times. Default "raise".</param>
     /// <seealso cref="ConvertTimeZone(string)"/>
-    public Expr ReplaceTimeZone(string? timeZone, string? ambiguous = null, string? nonExistent = "raise")
+    public Expr ReplaceTimeZone(string? timeZone, AmbiguousArg? ambiguous = null, NonExistent nonExistent = NonExistent.Raise)
     {
-        var h = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.DtReplaceTimeZone(h, timeZone, ambiguous, nonExistent));
+        Expr amExpr = ambiguous.HasValue ? ambiguous.Value.Expression : Pl.Lit("raise"); 
+        return new Expr(PolarsWrapper.DtReplaceTimeZone(_expr.CloneHandle(), timeZone, amExpr.CloneHandle(), nonExistent.ToNative()));
     }
     // ==========================================
     // BusinessDays
@@ -296,12 +381,12 @@ public readonly struct DtOps
     /// // Add 1 business day (skipping weekends)
     /// // Fri 2024-03-01 -> Mon 2024-03-04
     /// df.Select(
-    ///     Col("dt").Dt.AddBusinessDays(1)
+    ///     Pl.Col("dt").Dt.AddBusinessDays(1)
     /// );
     /// </code>
     /// </example>
     public Expr AddBusinessDays(
-        Expr n,
+        IntOrExpr n,
         IEnumerable<DateOnly>? holidays = null,
         bool[]? weekMask = null,
         Roll roll = Roll.Raise)
@@ -322,25 +407,27 @@ public readonly struct DtOps
             holidayInts = [.. holidays.Select(d => d.DayNumber - EpochDayNumber)];
         }
 
-        var nHandle = PolarsWrapper.CloneExpr(n.Handle);
-        var handle = PolarsWrapper.CloneExpr(_expr.Handle);
-
         return new Expr(PolarsWrapper.DtAddBusinessDays(
-            handle,
-            nHandle,
+            _expr.CloneHandle(),
+            n.Expression.CloneHandle(),
             mask,
             holidayInts,
             roll.ToNative()
         ));
     }
-
-    /// <summary>
-    /// Check if the date is a business day.
-    /// </summary>
-    public Expr IsBusinessDay(IEnumerable<DateOnly>? holidays = null, bool[]? weekMask = null)
+    private Expr IsBusinessDay(int[] holidayInts, bool[]? weekMask = null)
     {
         var mask = weekMask ?? DefaultWeekMask;
-
+        return new Expr(PolarsWrapper.DtIsBusinessDay(_expr.CloneHandle(), mask, holidayInts));
+    }
+    /// <summary>
+    /// Determine whether each day lands on a business day.
+    /// </summary>
+    /// <param name="holidays">Holidays to exclude from the count.</param>
+    /// <param name="weekMask">Which days of the week to count. The default is Monday to Friday. If you wanted to count only Monday to Thursday, you would pass (True, True, True, True, False, False, False).</param>
+    /// <returns>Expression/Series of data type Boolean.</returns>
+    public Expr IsBusinessDay(IEnumerable<DateOnly>? holidays = null, bool[]? weekMask = null)
+    {
         int[] holidayInts;
         if (holidays == null)
         {
@@ -351,7 +438,98 @@ public readonly struct DtOps
             const int EpochDayNumber = 719162;
             holidayInts = [.. holidays.Select(d => d.DayNumber - EpochDayNumber)];
         }
-        var handle = PolarsWrapper.CloneExpr(_expr.Handle);
-        return new Expr(PolarsWrapper.DtIsBusinessDay(handle, mask, holidayInts));
+        
+        return IsBusinessDay(holidayInts, weekMask);
+    }
+    /// <inheritdoc cref="DtOps.IsBusinessDay(IEnumerable{DateOnly},bool[])"/>
+    public Expr IsBusinessDay(Series holidays, bool[]? weekMask = null)
+    {
+        int[] holidayInts = holidays.Cast<int>().ToArray<int>();
+        
+        return IsBusinessDay(holidayInts, weekMask);
+    }
+    /// <inheritdoc cref="DtOps.IsBusinessDay(IEnumerable{DateOnly},bool[])"/>
+    public Expr IsBusinessDay(Expr holidays, bool[]? weekMask = null)
+    {
+        try
+        {
+            using Series holidaysSeries = Series.FromExpr(holidays);
+            
+            return IsBusinessDay(holidaysSeries, weekMask);
+        }
+        catch (Exception ex)
+        {
+            throw new ArgumentException(
+                "When providing an Expr for holidays, it must be a literal or context-free expression that can be evaluated immediately.", ex);
+        }
+    }
+    /// <summary>
+    /// Replace the datetime components of the underlying Datetime/Date.
+    /// </summary>
+    /// <param name="year">Year to replace</param>
+    /// <param name="month">Month to replace</param>
+    /// <param name="day">Day to replace</param>
+    /// <param name="hour">Hour to replace</param>
+    /// <param name="minute">Minute to replace</param>
+    /// <param name="second">Second to replace</param>
+    /// <param name="microsecond">Microsecond to replace</param>
+    /// <param name="ambiguous">Determine how to deal with ambiguous datetimes.</param>
+    /// <returns>A new expression.</returns>
+    public Expr Replace(
+        IntoExpr? year = null,
+        IntoExpr? month = null,
+        IntoExpr? day = null,
+        IntoExpr? hour = null,
+        IntoExpr? minute = null,
+        IntoExpr? second = null,
+        IntoExpr? microsecond = null,
+        AmbiguousArg? ambiguous = null)
+    {
+        Expr yearExpr = year?.Consume() ?? Pl.LitNull();
+        Expr monthExpr = month?.Consume() ?? Pl.LitNull();
+        Expr dayExpr = day?.Consume() ?? Pl.LitNull();
+        Expr hourExpr = hour?.Consume() ?? Pl.LitNull();
+        Expr minuteExpr = minute?.Consume() ?? Pl.LitNull();
+        Expr secondExpr = second?.Consume() ?? Pl.LitNull();
+        Expr microsecondExpr = microsecond?.Consume() ?? Pl.LitNull();
+
+        Expr amExpr = ambiguous?.Expression ?? Pl.Lit("raise");
+
+        return new Expr(PolarsWrapper.DtReplace(
+            _expr.CloneHandle(),
+            yearExpr.Handle,
+            monthExpr.Handle,
+            dayExpr.Handle,
+            hourExpr.Handle,
+            minuteExpr.Handle,
+            secondExpr.Handle,
+            microsecondExpr.Handle,
+            amExpr.Handle
+        ));
+    }
+    /// <summary>
+    /// Get the time passed since the Unix epoch (1970-01-01 00:00:00).
+    /// </summary>
+    /// <param name="timeUnit">
+    /// The time unit to compute the epoch for. 
+    /// Supported units: Nanoseconds, Microseconds, Milliseconds, Second, Day.
+    /// (default: Microseconds)
+    /// </param>
+    /// <returns>A new expression/Series representing the epoch time.</returns>
+    /// <exception cref="ArgumentException">Thrown when an unsupported TimeUnit is provided.</exception>
+    public Expr Epoch(TimeUnit timeUnit = TimeUnit.Microseconds)
+    {
+        return timeUnit switch
+        {
+            TimeUnit.Nanoseconds  => Timestamp(TimeUnit.Nanoseconds),
+            TimeUnit.Microseconds => Timestamp(TimeUnit.Microseconds),
+            TimeUnit.Milliseconds => Timestamp(TimeUnit.Milliseconds),
+            
+            TimeUnit.Second => Timestamp(TimeUnit.Milliseconds).FloorDiv(1000L),
+            
+            TimeUnit.Day => _expr.Cast<DateOnly>().Cast<int>(),
+            
+            _ => throw new ArgumentException($"`timeUnit` must be one of {{Nanoseconds, Microseconds, Milliseconds, Second, Day}}, got {timeUnit}")
+        };
     }
 }
