@@ -1163,3 +1163,25 @@ pub extern "C" fn pl_series_scatter_indices(
         Ok(Box::into_raw(Box::new(SeriesContext { series: result })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_zip_with(
+    s_ptr: *mut SeriesContext,
+    mask_ptr: *mut SeriesContext,
+    other_ptr: *mut SeriesContext,
+) -> *mut SeriesContext {
+    ffi_try!({
+        let s = unsafe { &(*s_ptr).series };
+        let mask_series = unsafe { &(*mask_ptr).series };
+        let other = unsafe { &(*other_ptr).series };
+
+        // Convert the mask Series to a BooleanChunked
+        // The ? operator will safely propagate an error to C# if the mask is not boolean
+        let mask = mask_series.bool()?;
+        
+        // Execute zip_with
+        let res = s.zip_with(mask, other)?;
+
+        Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
+    })
+}

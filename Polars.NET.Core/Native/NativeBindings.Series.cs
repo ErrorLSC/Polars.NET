@@ -499,6 +499,13 @@ unsafe internal partial class NativeBindings
         SeriesHandle index,
         SeriesHandle value
     );
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_zip_with(
+        SeriesHandle series,
+        SeriesHandle mask,
+        SeriesHandle other
+    );
+
 
     // --- Arrow Export ---
     [LibraryImport(LibName)]

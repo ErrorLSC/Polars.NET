@@ -1929,4 +1929,27 @@ public class SeriesTests
 
         Assert.Contains("cannot reshape", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
+    [Fact]
+    [Trait("Series", "Conditional")]
+    public void Test_Series_ZipWith()
+    {
+        int[] data1 = [1, 2, 3, 4, 5];
+        using Series s1 = Pl.Series("s1", data1);
+
+        int[] data2 = [10, 20, 30, 40, 50];
+        using Series s2 = Pl.Series("s2", data2);
+
+        bool[] maskData = [true, false, true, false, true];
+        using Series mask = Pl.Series("mask", maskData);
+
+        using Series result = s1.ZipWith(mask, s2);
+
+        // mask: [true, false, true, false, true]
+        // s1:   [1,    2,     3,    4,     5]
+        // s2:   [10,   20,    30,   40,    50]
+        // Except: [1,   20,    3,    40,    5]
+        Assert.Equal([1, 20, 3, 40, 5], result.ToArray<int>());
+        
+        Assert.Equal("s1", result.Name);
+    }
 }

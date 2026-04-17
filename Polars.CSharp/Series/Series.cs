@@ -623,6 +623,14 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Shortcut for <see cref="SeriesStructOps.Unnest"/>.
     /// </summary>
     public DataFrame Unnest() => Struct.Unnest();
+    /// <summary>
+    /// Take values from self or other based on the given mask.
+    /// Where mask evaluates true, take values from self. Where mask evaluates false, take values from other.
+    /// </summary>
+    /// <param name="mask">Boolean Series.</param>
+    /// <param name="other">Series of same type.</param>
+    /// <returns>Series</returns>
+    public Series ZipWith(Series mask, Series other) => new(PolarsWrapper.SeriesZipWith(Handle,mask.Handle,other.Handle));
 
     // ==========================================
     // Conversions
