@@ -639,6 +639,13 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <param name="dropNulls">If there are None values in the series, a null column is not generated. Null values in the input are represented by zero vectors.</param>
     /// <returns></returns>
     public DataFrame ToDummies(string? separator = "_",bool dropFirst = false, bool dropNulls = false) => new(PolarsWrapper.SeriesToDummies(Handle,separator,dropFirst,dropNulls));
+    /// <summary>
+    /// Create a new Series filled with values from the given index.
+    /// </summary>
+    /// <param name="index"></param>
+    /// <param name="length"></param>
+    /// <returns></returns>
+    public Series NewFromIndex(long index,long length) => new(PolarsWrapper.SeriesNewFromIndex(Handle,index,length));
     // ==========================================
     // Conversions
     // ==========================================

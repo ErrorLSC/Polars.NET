@@ -1314,4 +1314,6 @@ public readonly partial struct PolarsWrapper
     }
     public static DataFrameHandle SeriesToDummies(SeriesHandle series,string? separator,bool dropFirst,bool dropNulls)
         => ErrorHelper.Check(NativeBindings.pl_series_to_dummies(series,separator,dropFirst,dropNulls));
+    public static SeriesHandle SeriesNewFromIndex(SeriesHandle series,long index,long length)
+        => ErrorHelper.Check(NativeBindings.pl_series_new_from_index(series,(nuint)index,(nuint)length));
 }

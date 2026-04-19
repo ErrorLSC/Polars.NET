@@ -512,6 +512,8 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)]bool dropFirst,
         [MarshalAs(UnmanagedType.U1)]bool dropNulls
     );     
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_new_from_index(SeriesHandle h, nuint index,nuint length);
 
     // --- Arrow Export ---
     [LibraryImport(LibName)]

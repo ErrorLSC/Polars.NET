@@ -1207,3 +1207,18 @@ pub extern "C" fn pl_series_to_dummies(
         Ok(Box::into_raw(Box::new(DataFrameContext { df })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_new_from_index(
+    s_ptr: *mut SeriesContext,
+    index:usize,
+    length:usize
+) -> *mut SeriesContext {
+    ffi_try!({
+        let ctx = unsafe { &*s_ptr };
+        
+        let s = ctx.series.new_from_index(index,length);
+        
+        Ok(Box::into_raw(Box::new(SeriesContext { series:s })))
+    })
+}

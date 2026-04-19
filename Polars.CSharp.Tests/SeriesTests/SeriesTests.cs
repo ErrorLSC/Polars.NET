@@ -1971,4 +1971,18 @@ public class SeriesTests
         using DataFrame d3 = s2.ToDummies(dropNulls:true);
         Assert.DoesNotContain("s2_3",d3.ColumnNames);
     }
+    [Fact]
+    [Trait("Series","NewFromIndex")]
+    public void Test_Series_FromIndex()
+    {
+        string?[] genshin = ["114514","卧槽，原！",null];
+        using Series s1 = Pl.Series("bilibili",genshin);
+
+        using Series s1n = s1.NewFromIndex(1,5);
+        Assert.Equal(5,s1n.Length);
+        Assert.Equal("卧槽，原！",s1n[0]);
+
+        using Series s2n = s1.NewFromIndex(2,5);
+        Assert.Null(s2n[2]);
+    }
 }
