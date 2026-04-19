@@ -505,7 +505,13 @@ unsafe internal partial class NativeBindings
         SeriesHandle mask,
         SeriesHandle other
     );
-
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial DataFrameHandle pl_series_to_dummies(
+        SeriesHandle series, 
+        string? separator,
+        [MarshalAs(UnmanagedType.U1)]bool dropFirst,
+        [MarshalAs(UnmanagedType.U1)]bool dropNulls
+    );     
 
     // --- Arrow Export ---
     [LibraryImport(LibName)]

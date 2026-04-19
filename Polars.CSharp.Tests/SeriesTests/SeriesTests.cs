@@ -1952,4 +1952,23 @@ public class SeriesTests
         
         Assert.Equal("s1", result.Name);
     }
+    [Fact]
+    [Trait("Series", "ToDummies")]
+    public void Test_Series_ToDummies()
+    {
+        int[] data1 = [1, 2, 3, 4, 5];
+        using Series s1 = Pl.Series("s1", data1);
+
+        using DataFrame d1 = s1.ToDummies("nihao");
+        Assert.Contains("s1nihao1",d1.Columns);
+        Assert.Equal(1,(byte)d1[0][0]!);
+
+        using DataFrame d2 = s1.ToDummies(dropFirst:true);
+        Assert.Equal(4,d2.Width);
+
+        int?[] data2 = [1,2,null,4,5];
+        using Series s2 = Pl.Series("s2",data2);
+        using DataFrame d3 = s2.ToDummies(dropNulls:true);
+        Assert.DoesNotContain("s2_3",d3.ColumnNames);
+    }
 }

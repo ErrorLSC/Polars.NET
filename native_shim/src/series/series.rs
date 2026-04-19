@@ -1185,3 +1185,25 @@ pub extern "C" fn pl_series_zip_with(
         Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_to_dummies(
+    s_ptr: *mut SeriesContext,
+    separator: *const c_char,
+    drop_first: bool,
+    drop_nulls: bool,
+) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*s_ptr };
+        
+        let sep_str = if separator.is_null() {
+            None
+        } else {
+            Some(unsafe { CStr::from_ptr(separator).to_str().unwrap() })
+        };
+
+        let df = ctx.series.to_dummies(sep_str, drop_first, drop_nulls)?;
+        
+        Ok(Box::into_raw(Box::new(DataFrameContext { df })))
+    })
+}

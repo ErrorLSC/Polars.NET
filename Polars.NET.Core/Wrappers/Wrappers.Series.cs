@@ -1312,6 +1312,6 @@ public readonly partial struct PolarsWrapper
         ErrorHelper.CheckStatus(status);
         return flags;
     }
-
-    
+    public static DataFrameHandle SeriesToDummies(SeriesHandle series,string? separator,bool dropFirst,bool dropNulls)
+        => ErrorHelper.Check(NativeBindings.pl_series_to_dummies(series,separator,dropFirst,dropNulls));
 }

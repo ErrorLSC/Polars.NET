@@ -631,7 +631,14 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <param name="other">Series of same type.</param>
     /// <returns>Series</returns>
     public Series ZipWith(Series mask, Series other) => new(PolarsWrapper.SeriesZipWith(Handle,mask.Handle,other.Handle));
-
+    /// <summary>
+    /// Get dummy/indicator variables.
+    /// </summary>
+    /// <param name="separator">Separator/delimiter used when generating column names.</param>
+    /// <param name="dropFirst">Remove the first category from the variable being encoded.</param>
+    /// <param name="dropNulls">If there are None values in the series, a null column is not generated. Null values in the input are represented by zero vectors.</param>
+    /// <returns></returns>
+    public DataFrame ToDummies(string? separator = "_",bool dropFirst = false, bool dropNulls = false) => new(PolarsWrapper.SeriesToDummies(Handle,separator,dropFirst,dropNulls));
     // ==========================================
     // Conversions
     // ==========================================
