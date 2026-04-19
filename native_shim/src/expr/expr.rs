@@ -314,7 +314,6 @@ gen_unary_op!(pl_expr_rechunk, rechunk);
 gen_unary_op!(pl_expr_approx_n_unique, approx_n_unique);
 gen_unary_op!(pl_expr_sum, sum);
 gen_unary_op!(pl_expr_mean, mean);
-
 gen_unary_op!(pl_expr_max, max);
 gen_unary_op!(pl_expr_nan_max, nan_max);
 gen_unary_op!(pl_expr_nan_min, nan_min);
@@ -323,6 +322,8 @@ gen_unary_op!(pl_expr_abs, abs);
 gen_unary_op!(pl_expr_null_count, null_count);
 gen_unary_op!(pl_expr_n_unique,n_unique);
 gen_unary_op!(pl_expr_product, product);
+gen_unary_op!(pl_expr_rle, rle);
+gen_unary_op!(pl_expr_rle_id, rle_id);
 
 gen_unary_op!(pl_expr_bitwise_and, bitwise_and);
 gen_unary_op!(pl_expr_bitwise_or, bitwise_or);

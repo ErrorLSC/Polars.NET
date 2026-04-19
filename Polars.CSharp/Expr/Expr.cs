@@ -516,6 +516,18 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <returns>A new expression with filtered values.</returns>
     public Expr Filter(Expr predicate)
         => new(PolarsWrapper.Filter(CloneHandle(),predicate.CloneHandle()));
+    /// <summary>
+    /// Compress the column data using run-length encoding.
+    /// Run-length encoding (RLE) encodes data by storing each run of identical values as a single value and its length.
+    /// </summary>
+    /// <returns>Expression/Series of data type Struct with fields len of data type UInt32 and value of the original data type.</returns>  
+    public Expr Rle() => new(PolarsWrapper.Rle(CloneHandle()));
+    /// <summary>
+    /// Get a distinct integer ID for each run of identical values.
+    /// The ID starts at 0 and increases by one each time the value of the column changes.
+    /// </summary>
+    /// <returns>Expression/Series of data type UInt32.</returns>
+    public Expr RleId() => new(PolarsWrapper.RleId(CloneHandle()));
 
     // ==========================================
     // Extend Constant

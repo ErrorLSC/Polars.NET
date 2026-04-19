@@ -1985,4 +1985,20 @@ public class SeriesTests
         using Series s2n = s1.NewFromIndex(2,5);
         Assert.Null(s2n[2]);
     }
+    [Fact]
+    [Trait("Series","Rle")]
+    public void Test_Series_Rle()
+    {
+        int?[] genshin = [1, 1, 2, 1, null, 1, 3, 3];
+        using Series s1 = Pl.Series("bilibili",genshin);
+
+        using DataFrame d1 = s1.Rle().Unnest();
+        Assert.Equal(2u,d1["len"][0]);
+        Assert.Equal(1,d1["value"][0]);
+        Assert.Equal(1u,d1["len"][3]);
+        Assert.Null(d1["value"][3]);
+
+        using Series s2 = s1.RleId();
+        Assert.Equal(8,s2.Length);
+    }
 }

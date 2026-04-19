@@ -118,6 +118,8 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_first_non_null(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_last_non_null(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_last(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rle(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rle_id(ExprHandle expr);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_head(ExprHandle expr, UIntPtr length);
 

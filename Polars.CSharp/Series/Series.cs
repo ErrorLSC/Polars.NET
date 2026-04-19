@@ -588,6 +588,10 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Filter(Expr)"/>
     public Series Filter(Series predicate) 
         => ApplyExpr(Pl.Col(Name).Filter(Pl.Lit(predicate)));
+    /// <inheritdoc cref="Expr.Rle"/>
+    public Series Rle() => ApplyExpr(Pl.Col(Name).Rle());
+    /// <inheritdoc cref="Expr.RleId"/>
+    public Series RleId() => ApplyExpr(Pl.Col(Name).RleId());
     // ==========================================
     // Common Ops 
     // ==========================================
