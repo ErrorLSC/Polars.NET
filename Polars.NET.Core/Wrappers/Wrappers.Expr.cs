@@ -282,6 +282,89 @@ public readonly partial struct PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle Cut(
+        ExprHandle expr, 
+        ReadOnlySpan<double> breaks, 
+        string[]? labels, 
+        bool leftClosed, 
+        bool includeBreaks)
+    {
+        ref double breaksRef = ref MemoryMarshal.GetReference(breaks);
+        nuint breaksLen = (nuint)breaks.Length;
+        nuint labelsLen = labels == null ? 0 : (nuint)labels.Length;
+
+        var h = NativeBindings.pl_expr_cut(
+            expr, 
+            ref breaksRef, 
+            breaksLen, 
+            labels, 
+            labelsLen, 
+            leftClosed, 
+            includeBreaks
+        );
+        
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+
+    public static ExprHandle QCut(
+        ExprHandle expr, 
+        ReadOnlySpan<double> probs, 
+        string[]? labels, 
+        bool leftClosed, 
+        bool allowDuplicates, 
+        bool includeBreaks)
+    {
+        ref double probsRef = ref MemoryMarshal.GetReference(probs);
+        nuint probsLen = (nuint)probs.Length;
+        nuint labelsLen = labels == null ? 0 : (nuint)labels.Length;
+
+        var h = NativeBindings.pl_expr_qcut(
+            expr, 
+            ref probsRef, 
+            probsLen, 
+            labels, 
+            labelsLen, 
+            leftClosed, 
+            allowDuplicates, 
+            includeBreaks
+        );
+        
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+
+    public static ExprHandle QCutUniform(
+        ExprHandle expr, 
+        nuint nBins, 
+        string[]? labels, 
+        bool leftClosed, 
+        bool allowDuplicates, 
+        bool includeBreaks)
+    {
+        nuint labelsLen = labels == null ? 0 : (nuint)labels.Length;
+
+        var h = NativeBindings.pl_expr_qcut_uniform(
+            expr, 
+            nBins, 
+            labels, 
+            labelsLen, 
+            leftClosed, 
+            allowDuplicates, 
+            includeBreaks
+        );
+        
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ExtTo(ExprHandle expr,DataTypeExprHandle dtype)
+    {
+        var h = NativeBindings.pl_expr_ext_to(expr,dtype);
+        expr.TransferOwnership();
+        dtype.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ExtStorage(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_ext_storage,expr);
     // Cumulative Functions
     public static ExprHandle CumSum(ExprHandle e, bool reverse)
     {

@@ -537,6 +537,30 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     public Expr PeakMin() => new(PolarsWrapper.PeakMin(CloneHandle()));
     /// <summary>
+    /// Bin continuous values into discrete categories.
+    /// </summary>
+    /// <param name="breaks">List of unique cut points.</param>
+    /// <param name="labels">Names of the categories. The number of labels must be equal to the number of cut points plus one.</param>
+    /// <param name="leftClosed">Set the intervals to be left-closed instead of right-closed.</param>
+    /// <param name="includeBreaks">Include a column with the right endpoint of the bin each observation falls in. This will change the data type of the output from an Enum to a Struct.</param>
+    /// <returns>Expression/Series of data type Enum if include_breaks is set to False (default), otherwise an expression of data type Struct.</returns>
+    public Expr Cut(ReadOnlySpan<double> breaks,string[]? labels = null,bool leftClosed=false,bool includeBreaks=false)
+        => new(PolarsWrapper.Cut(CloneHandle(),breaks,labels,leftClosed,includeBreaks));
+    /// <summary>
+    /// Bin continuous values into discrete categories based on their quantiles.
+    /// </summary>
+    /// <param name="quantiles">Either a list of quantile probabilities between 0 and 1 or a positive integer determining the number of bins with uniform probability.</param>
+    /// <param name="labels">Names of the categories. The number of labels must be equal to the number of categories.</param>
+    /// <param name="leftClosed">Set the intervals to be left-closed instead of right-closed.</param>
+    /// <param name="allowDuplicates">If set to True, duplicates in the resulting quantiles are dropped, rather than raising a DuplicateError. This can happen even with unique probabilities, depending on the data.</param>
+    /// <param name="includeBreaks">Include a column with the right endpoint of the bin each observation falls in. This will change the data type of the output from a Categorical to a Struct.</param>
+    /// <returns>Expression/Series of data type Categorical if include_breaks is set to False (default), otherwise an expression of data type Struct.</returns>
+    public Expr QCut(ReadOnlySpan<double> quantiles,string[]? labels = null,bool leftClosed=false,bool allowDuplicates=false,bool includeBreaks =false)
+        => new(PolarsWrapper.QCut(CloneHandle(),quantiles,labels,leftClosed,allowDuplicates,includeBreaks));
+    /// <inheritdoc cref="Expr.QCut(ReadOnlySpan{double}, string[], bool, bool, bool)"/>
+    public Expr QCut(int quantiles,string[]? labels = null,bool leftClosed=false,bool allowDuplicates=false,bool includeBreaks =false)
+        => new(PolarsWrapper.QCutUniform(CloneHandle(),(nuint)quantiles,labels,leftClosed,allowDuplicates,includeBreaks));
+    /// <summary>
     /// Replace the given values by different values of the same data type.
     /// </summary>
     /// <param name="old">Value or sequence of values to replace. Accepts expression input. Sequences are parsed as Series, other non-expression inputs are parsed as literals.</param>
@@ -892,6 +916,10 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Access expression meta operations.
     /// </summary>
     public MetaOps Meta => new(this);
+    /// <summary>
+    /// Access expression extension datatype operations.
+    /// </summary>
+    public ExtensionOps Ext => new(this);
     // ==========================================
     // Bridges
     // ==========================================

@@ -29,7 +29,9 @@ public enum PlDataType : int
     Array = 23,
     Int128= 24,
     UInt128 =25,
-    Float16=26
+    Float16=26,
+    Enum = 27,
+    Extension=28
 }
 
 public enum PlJoinType : byte

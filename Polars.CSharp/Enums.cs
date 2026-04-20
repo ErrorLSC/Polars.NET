@@ -62,6 +62,8 @@ public enum DataTypeKind
     Int128 = 24,
     UInt128=25,
     Float16=26,
+    Enum=27,
+    Extension=28,
     Unknown = 0,
     SameAsInput=0
 }

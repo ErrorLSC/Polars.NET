@@ -1,6 +1,5 @@
 using System.Diagnostics;
-using System.Runtime;
-using static Polars.CSharp.Polars;
+using Pl = Polars.CSharp.Polars;
 namespace Polars.CSharp.Tests;
 
 public class DataTypeTests
@@ -169,7 +168,7 @@ public class DataTypeTests
         using var s = Series.From("modern", data);
         using var df = DataFrame.FromSeries(s).Unnest("modern");
 
-        using var dfCat = df.WithColumns(Col("Cat").Cast(DataType.Categorical));
+        using var dfCat = df.WithColumns(Pl.Col("Cat").Cast(DataType.Categorical));
 
         Assert.Equal(DataTypeKind.Categorical, dfCat.Schema["Cat"].Kind);
         Assert.Equal(DataTypeKind.Date, dfCat.Schema["Date"].Kind);
@@ -425,7 +424,7 @@ public class DataTypeTests
         // --- ReplaceTimeZone (Naive -> Asia/Shanghai) ---
         
         using var df1 = df.Select(
-            Col("ts")
+            Pl.Col("ts")
                 .Dt
                 .ReplaceTimeZone("Asia/Shanghai")
                 .Alias("ts_shanghai")
@@ -446,7 +445,7 @@ public class DataTypeTests
         // --- ConvertTimeZone (Asia/Shanghai -> UTC) ---
 
         using var df2 = df1.Select(
-            Col("ts_shanghai")
+            Pl.Col("ts_shanghai")
             .Dt
             .ConvertTimeZone("UTC")
             .Alias("ts_utc")
@@ -462,7 +461,7 @@ public class DataTypeTests
         // --- Naive -> UTC -> Shanghai ---
         
         using var df3 = df.Select(
-            Col("ts").Dt
+            Pl.Col("ts").Dt
             .ReplaceTimeZone("UTC").Dt         
             .ConvertTimeZone("Asia/Shanghai") 
             .Alias("ts_converted")
@@ -474,7 +473,7 @@ public class DataTypeTests
         var valConverted = df3["ts_converted"][0];
 
         using var dfCheck = df3.Select(
-            Col("ts_converted").Dt.Hour().Alias("h")
+            Pl.Col("ts_converted").Dt.Hour().Alias("h")
         );
 
         var hour = dfCheck["h"][0];
@@ -483,7 +482,7 @@ public class DataTypeTests
         // --- Remove TimeZone (Aware -> Naive) ---
         
         using var df4 = df3.Select(
-            Col("ts_converted").Dt
+            Pl.Col("ts_converted").Dt
             .ReplaceTimeZone(null) 
             .Alias("ts_naive")
         );
@@ -1070,7 +1069,7 @@ public class DataTypeTests
         };
 
         using var df = new DataFrame()
-            .Select(LitStruct(inputObj).Alias("my_struct"));
+            .Select(Pl.LitStruct(inputObj).Alias("my_struct"));
 
         var structType = df.Schema["my_struct"];
         var expectedType = DataType.Struct(
@@ -1106,8 +1105,32 @@ public class DataTypeTests
     [Trait("DataType","128bytes")]
     public void Test_Int128_UInt128()
     {
-        Expr exprI128 = Lit(Int128.MinValue).Alias("i128");
+        Expr exprI128 = Pl.Lit(Int128.MinValue).Alias("i128");
         var seriesI128 = Series.FromExpr(exprI128);
         Assert.Equal(Int128.MinValue,seriesI128[0]);
+    }
+    [Fact]
+    [Trait("DataType", "Extension")]
+    public void Test_DataType_Extension()
+    {
+        using DataType extIntType = DataType.Extension("my_ext.int", DataType.Int32);
+        Assert.Equal(DataTypeKind.Extension, extIntType.Kind); 
+
+        using DataType extGeoType = DataType.Extension("geoarrow.wkb", DataType.Binary, "{\"crs\":\"EPSG:4326\"}");
+        Assert.Equal(DataTypeKind.Extension, extGeoType.Kind);
+
+        int[] data = [1, 2, 3, 4, 5];
+        using Series s = Pl.Series("values", data);
+
+        using Series sExt = s.Ext.To(extIntType);
+
+        Assert.Equal(extIntType, sExt.DataType);
+
+        using DataFrame df = Pl.DataFrame(sExt);
+        Assert.Equal(1, df.Width);
+        Assert.Equal(DataTypeKind.Extension, df.Schema["values"].Kind);
+
+        Series sStorage = sExt.Ext.Storage();
+        Assert.Equal(typeof(int),sStorage.DataType);
     }
 }

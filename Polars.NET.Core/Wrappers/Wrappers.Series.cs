@@ -863,9 +863,7 @@ public readonly partial struct PolarsWrapper
     /// Get DataType Handle from Series
     /// </summary>
     public static DataTypeHandle GetSeriesDataType(SeriesHandle handle)
-    {
-        return ErrorHelper.Check(NativeBindings.pl_series_get_dtype(handle));
-    }
+        => ErrorHelper.Check(NativeBindings.pl_series_get_dtype(handle));
     public static long SeriesLen(SeriesHandle handle)
     {
         bool success = NativeBindings.pl_series_len(handle,out uint count);

@@ -1958,3 +1958,29 @@ pub extern "C" fn pl_expr_qcut_uniform(
         Ok(Box::into_raw(Box::new(ExprContext { inner: out_expr })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_ext_to(
+    expr_ptr: *mut ExprContext,
+    dtype_ptr: *mut DataTypeExprContext,
+) -> *mut ExprContext {
+    ffi_try!({
+        let expr = unsafe { Box::from_raw(expr_ptr) }.inner;
+        let dtype = unsafe { Box::from_raw(dtype_ptr) };        
+        let out_expr = expr.ext().to(dtype.inner);
+        Ok(Box::into_raw(Box::new(ExprContext { inner: out_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_ext_storage(
+    expr_ptr: *mut ExprContext,
+) -> *mut ExprContext {
+    ffi_try!({
+        let expr = unsafe { Box::from_raw(expr_ptr) }.inner;
+        
+        let out_expr = expr.ext().storage();
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: out_expr })))
+    })
+}

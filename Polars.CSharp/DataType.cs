@@ -131,60 +131,14 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     // Value Equality Implementation
     // =========================================================================
 
-    public override bool Equals(object? obj)
-    {
-        return Equals(obj as DataType);
-    }
+    public override bool Equals(object? obj) => Equals(obj as DataType);
 
     public bool Equals(DataType? other)
     {
         if (other is null) return false;
         if (ReferenceEquals(this, other)) return true;
 
-        if (Kind != other.Kind) return false;
-
-        switch (Kind)
-        {
-            case DataTypeKind.Datetime:
-                return Unit == other.Unit && TimeZone == other.TimeZone;
-
-            case DataTypeKind.Duration:
-                return Unit == other.Unit;
-
-            case DataTypeKind.Decimal:
-                return Precision == other.Precision && Scale == other.Scale;
-
-            case DataTypeKind.Array:
-                if (ArrayWidth != other.ArrayWidth) return false;
-                goto case DataTypeKind.List;
-
-            case DataTypeKind.List:
-                using (var myInner = InnerType)
-                using (var otherInner = other.InnerType)
-                {
-                    if (myInner == null && otherInner == null) return true;
-                    if (myInner == null || otherInner == null) return false;
-                    return myInner.Equals(otherInner);
-                }
-            case DataTypeKind.Struct:
-                var myFields = StructFields;
-                var otherFields = other.StructFields;
-
-                if (myFields == null && otherFields == null) return true;
-                if (myFields == null || otherFields == null) return false;
-                if (myFields.Count != otherFields.Count) return false;
-
-                for (int i = 0; i < myFields.Count; i++)
-                {
-                    if (myFields[i].Name != otherFields[i].Name) return false;
-                    
-                    if (!myFields[i].Type.Equals(otherFields[i].Type)) return false;
-                }
-                return true;
-
-            default:
-                return true;
-        }
+        return PolarsWrapper.DataTypeEq(this.Handle,other.Handle);
     }
 
     public override int GetHashCode()
@@ -196,10 +150,7 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
         return left.Equals(right);
     }
 
-    public static bool operator !=(DataType? left, DataType? right)
-    {
-        return !(left == right);
-    }
+    public static bool operator !=(DataType? left, DataType? right) => !(left == right);
 
     // ==========================================
     // Helper Properties
@@ -249,6 +200,7 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     public static DataType Null  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Null), DataTypeKind.Null);
     public static DataType Binary  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Binary), DataTypeKind.Binary);
     public static DataType SameAsInput => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.SameAsInput), DataTypeKind.SameAsInput);
+    public static DataType Enum => new(PolarsWrapper.NewEnumType(),DataTypeKind.Enum);
 
     // ==========================================
     // Complex Factories (Methods)
@@ -331,6 +283,17 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// </summary>
     public static DataType Struct(params (string Name, DataType Type)[] fields)
         => Struct((IEnumerable<(string Name, DataType Type)>)fields);
+    /// <summary>
+    /// Create an Extension data type
+    /// </summary>
+    /// <param name="name">The registered name of the extension type (e.g. "geoarrow.wkb")</param>
+    /// <param name="inner">The physical storage data type</param>
+    /// <param name="metadata">Optional metadata string</param>
+    public static DataType Extension(string name, DataType inner, string? metadata = null)
+    {
+        var h = PolarsWrapper.NewExtensionType(name, inner.Handle, metadata);
+        return new DataType(h, DataTypeKind.Extension); 
+    }
     /// <summary>
     /// Convert this DataType to a DataTypeExpr literal.
     /// Equivalent to Python's polars.DataType.to_dtype_expr()

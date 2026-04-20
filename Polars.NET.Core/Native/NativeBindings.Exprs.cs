@@ -122,6 +122,39 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rle_id(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_peak_max(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_peak_min(ExprHandle expr);
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_cut(
+        ExprHandle expr,
+        ref double breaks,
+        nuint breaks_len,
+        string[]? labels,
+        nuint labels_len,
+        [MarshalAs(UnmanagedType.I1)] bool left_closed,
+        [MarshalAs(UnmanagedType.I1)] bool include_breaks
+    );
+
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_qcut(
+        ExprHandle expr,
+        ref double probs,
+        nuint probs_len,
+        string[]? labels,
+        nuint labels_len,
+        [MarshalAs(UnmanagedType.I1)] bool left_closed,
+        [MarshalAs(UnmanagedType.I1)] bool allow_duplicates,
+        [MarshalAs(UnmanagedType.I1)] bool include_breaks
+    );
+
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_qcut_uniform(
+        ExprHandle expr,
+        nuint n_bins,
+        string[]? labels,
+        nuint labels_len,
+        [MarshalAs(UnmanagedType.I1)] bool left_closed,
+        [MarshalAs(UnmanagedType.I1)] bool allow_duplicates,
+        [MarshalAs(UnmanagedType.I1)] bool include_breaks
+    );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_replace(ExprHandle expr, ExprHandle old,ExprHandle newExpr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_replace_strict(ExprHandle expr, ExprHandle old,ExprHandle newExpr,nint defaultExpr, nint dtype);
     [LibraryImport(LibName)]
@@ -819,4 +852,8 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_mean_horizontal(nint[] exprs,nuint len,[MarshalAs(UnmanagedType.U1)] bool ignoreNulls);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_set_sorted_flag(ExprHandle expr,[MarshalAs(UnmanagedType.U1)] bool descending,[MarshalAs(UnmanagedType.U1)]  bool nullsLast);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_ext_to(ExprHandle expr,DataTypeExprHandle dtype);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_ext_storage(ExprHandle expr);
 }

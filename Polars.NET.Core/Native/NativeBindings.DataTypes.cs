@@ -80,4 +80,16 @@ unsafe internal partial class NativeBindings
         out IntPtr namePtr,       
         out DataTypeHandle typeHandle 
     );
+    [LibraryImport(LibName)]
+    public static partial DataTypeHandle pl_datatype_new_enum();
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial DataTypeHandle pl_datatype_new_extension(
+        string name,
+        DataTypeHandle inner_dtype,
+        string? metadata
+    );
+
+    [LibraryImport(LibName)]
+    public static partial int pl_datatype_eq(DataTypeHandle a, DataTypeHandle b, [MarshalAs(UnmanagedType.I1)] out bool isEqual);
 }

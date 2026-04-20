@@ -2042,4 +2042,38 @@ public class SeriesTests
         Assert.True((bool)sp1[4]!);
         Assert.True((bool)sp2[3]!);
     }
+    [Fact]
+    [Trait("Series", "Binning")]
+    public void Test_Series_Cut_And_QCut()
+    {
+        double[] data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+        using Series s = Pl.Series("values", data);
+
+        // Breaks: 3.0, 7.0 -> (-inf, 3.0], (3.0, 7.0], (7.0, inf]
+        ReadOnlySpan<double> breaks = [3.0, 7.0];
+        string[] cutLabels = ["Low", "Medium", "High"];
+        
+        using Series sCut = s.Cut(breaks, labels: cutLabels);
+        sCut.Show();
+        Assert.Equal(10, sCut.Length);
+        Assert.Equal(DataTypeKind.Categorical,sCut.DataType.Kind);
+
+        // quantiles: 0.5  -> (-inf, 50%], (50%, inf]
+        ReadOnlySpan<double> probs = [0.5];
+        string[] qcutLabels = ["Bottom_Half", "Top_Half"];
+        
+        using Series sQCutProbs = s.QCut(probs, labels: qcutLabels);
+        
+        Assert.Equal(10, sQCutProbs.Length);
+        Assert.Equal(DataTypeKind.Categorical,sQCutProbs.DataType.Kind);
+
+        string[] uniformLabels = ["Q1", "Q2", "Q3", "Q4"];
+        using Series sQCutUniform = s.QCut(4, labels: uniformLabels);
+        
+        Assert.Equal(10, sQCutUniform.Length);
+        Assert.Equal(DataTypeKind.Categorical,sQCutUniform.DataType.Kind);
+        
+        using Series sCutWithBreaks = s.Cut(breaks, includeBreaks: true);
+        Assert.Equal(DataTypeKind.Struct, sCutWithBreaks.DataType.Kind);
+    }
 }

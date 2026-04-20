@@ -99,6 +99,10 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Access categorical operations.
     /// </summary>
     public SeriesCategoricalOps Cat => new(this);
+    /// <summary>
+    /// Access extension datatype operations.
+    /// </summary>
+    public SeriesExtensionOps Ext => new(this);
 
     /// <summary>
     /// Clone the Series
@@ -608,6 +612,15 @@ public partial class Series : IDisposable,IPolarsSeries
     public Series PeakMax() => ApplyExpr(Pl.Col(Name).PeakMax());
     /// <inheritdoc cref="Expr.PeakMin"/>
     public Series PeakMin() => ApplyExpr(Pl.Col(Name).PeakMin());
+    /// <inheritdoc cref="Expr.Cut"/>
+    public Series Cut(ReadOnlySpan<double> breaks,string[]? labels = null,bool leftClosed=false,bool includeBreaks=false) 
+        => ApplyExpr(Pl.Col(Name).Cut(breaks,labels,leftClosed,includeBreaks));
+    /// <inheritdoc cref="Expr.QCut(ReadOnlySpan{double}, string[], bool, bool, bool)"/>
+    public Series QCut(ReadOnlySpan<double> quantiles,string[]? labels = null,bool leftClosed=false,bool allowDuplicates=false,bool includeBreaks =false)
+        => ApplyExpr(Pl.Col(Name).QCut(quantiles,labels,leftClosed,allowDuplicates,includeBreaks));
+    /// <inheritdoc cref="Expr.QCut(ReadOnlySpan{double}, string[], bool, bool, bool)"/>
+    public Series QCut(int quantiles,string[]? labels = null,bool leftClosed=false,bool allowDuplicates=false,bool includeBreaks =false)
+        => ApplyExpr(Pl.Col(Name).QCut(quantiles,labels,leftClosed,allowDuplicates,includeBreaks));
     // ==========================================
     // Common Ops 
     // ==========================================

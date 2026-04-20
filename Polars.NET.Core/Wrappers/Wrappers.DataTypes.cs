@@ -126,4 +126,14 @@ public readonly partial struct PolarsWrapper
         
         name = ErrorHelper.CheckString(namePtr);
     }
+    public static DataTypeHandle NewEnumType() 
+        => ErrorHelper.Check(NativeBindings.pl_datatype_new_enum());
+    public static DataTypeHandle NewExtensionType(string name, DataTypeHandle innerType, string? metadata)
+        => ErrorHelper.Check(NativeBindings.pl_datatype_new_extension(name, innerType, metadata));
+    public static bool DataTypeEq(DataTypeHandle a,DataTypeHandle b)
+    {
+        int status = NativeBindings.pl_datatype_eq(a,b,out bool result);
+        ErrorHelper.CheckStatus(status);
+        return result;
+    }
 }

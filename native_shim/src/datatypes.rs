@@ -1,6 +1,6 @@
 use std::ffi::{CStr, CString, c_char};
 use crate::{types::DataTypeContext};
-use polars::prelude::*;
+use polars::prelude::{extension::get_extension_type_or_generic, *};
 
 macro_rules! define_pl_datatype_kind {
     (
@@ -72,7 +72,16 @@ define_pl_datatype_kind! {
         Array       = 23 <=> DataType::Array(_, _)     => DataType::Array(Box::new(DataType::Null), 0),
         Int128      = 24  <=> DataType::Int128        => DataType::Int128,
         UInt128     = 25  <=> DataType::UInt128        => DataType::UInt128,
-        Float16     = 26  <=> DataType::Float16       => DataType:: Float16
+        Float16     = 26  <=> DataType::Float16       => DataType:: Float16,
+        Enum = 27 <=> DataType::Enum(_, _) => {
+                    let frozen = FrozenCategories::new(std::iter::empty::<&str>()).unwrap();
+                    DataType::Enum(frozen.clone(), frozen.mapping().clone())
+                },
+        Extension = 28 <=> DataType::Extension(_, _) => {
+            let storage = DataType::Null;
+            let ext_inst = get_extension_type_or_generic("", &storage, None);
+            DataType::Extension(ext_inst, Box::new(storage))
+        }
     }
 }
 // --- Constructors ---
@@ -114,6 +123,57 @@ pub extern "C" fn pl_datatype_new_categorical() -> *mut DataTypeContext {
         let mapping = cats.mapping();
         let dtype = DataType::Categorical(cats, mapping);
         
+        Ok(Box::into_raw(Box::new(DataTypeContext { dtype })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_datatype_new_enum() -> *mut DataTypeContext {
+    ffi_try!({
+        let frozen = FrozenCategories::new(std::iter::empty::<&str>()).unwrap();
+
+        let mapping = frozen.mapping().clone();
+        
+        let dtype = DataType::Enum(frozen, mapping);
+        
+        Ok(Box::into_raw(Box::new(DataTypeContext { dtype })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_datatype_new_extension(
+    name: *const c_char,
+    inner_dtype_ptr: *mut DataTypeContext,
+    metadata: *const c_char,
+) -> *mut DataTypeContext {
+    ffi_try!({
+        let name_str = if name.is_null() {
+            ""
+        } else {
+            unsafe { CStr::from_ptr(name).to_str().unwrap() }
+        };
+
+        let inner = if inner_dtype_ptr.is_null() {
+            DataType::Null
+        } else {
+            let inner_ctx = unsafe { &*inner_dtype_ptr };
+            inner_ctx.dtype.clone()
+        };
+
+        let meta_str = if metadata.is_null() {
+            None
+        } else {
+            Some(unsafe { CStr::from_ptr(metadata).to_str().unwrap() })
+        };
+
+        let ext_inst = get_extension_type_or_generic(
+            name_str,
+            &inner,
+            meta_str
+        );
+
+        let dtype = DataType::Extension(ext_inst, Box::new(inner));
+
         Ok(Box::into_raw(Box::new(DataTypeContext { dtype })))
     })
 }
@@ -490,5 +550,23 @@ pub extern "C" fn pl_datatype_export_arrow_schema(
         unsafe { std::ptr::write(out_schema, schema); }
         
         Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_datatype_eq(
+    a_ptr: *mut DataTypeContext,
+    b_ptr: *mut DataTypeContext,
+    out_eq: *mut bool,
+) -> std::os::raw::c_int {
+    ffi_try_c_int!({
+        let a = unsafe { &(*a_ptr).dtype };
+        let b = unsafe { &(*b_ptr).dtype };
+        
+        unsafe {
+            *out_eq = a == b;
+        }
+        
+        Ok(0)
     })
 }
