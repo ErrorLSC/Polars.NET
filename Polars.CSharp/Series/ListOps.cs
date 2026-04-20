@@ -24,8 +24,8 @@ public readonly struct SeriesListOps
     /// </summary>
     /// <param name="indices">Indices to return per sublist</param>
     /// <param name="nullOnOob">Behavior if an index is out of bounds: True -> set as null False -> raise an error Note that defaulting to raising an error is much cheaper</param>
-    public Series Gather(IntoColumnExpr indices,bool nullOnOob=false) => Apply(e=>e.List.Gather(indices,nullOnOob));
-    /// <inheritdoc cref="Gather(IntoColumnExpr,bool)"/>
+    public Series Gather(IntoExprColumn indices,bool nullOnOob=false) => Apply(e=>e.List.Gather(indices,nullOnOob));
+    /// <inheritdoc cref="Gather(IntoExprColumn,bool)"/>
     public Series Gather(ReadOnlySpan<int> indices, bool maintainOrder = false)
     {
         Expr indexExpr = Pl.Lit(indices);
@@ -37,26 +37,26 @@ public readonly struct SeriesListOps
     /// <param name="n">Gather every n-th element.</param>
     /// <param name="offset">Starting Index</param>
     /// <returns></returns>
-    public Series GatherEvery(IntoColumnExpr n,IntoColumnExpr offset) => Apply(e=>e.List.GatherEvery(n,offset));
-    /// <inheritdoc cref="GatherEvery(IntoColumnExpr,IntoColumnExpr)"/>
-    public Series GatherEvery(IntoColumnExpr n) => GatherEvery(n,0);
+    public Series GatherEvery(IntoExprColumn n,IntoExprColumn offset) => Apply(e=>e.List.GatherEvery(n,offset));
+    /// <inheritdoc cref="GatherEvery(IntoExprColumn,IntoExprColumn)"/>
+    public Series GatherEvery(IntoExprColumn n) => GatherEvery(n,0);
     /// <inheritdoc cref="ListOps.Slice"/>
-    public Series Slice(IntoColumnExpr offset, IntoColumnExpr? length=null) => Apply(e=>e.List.Slice(offset,length));
+    public Series Slice(IntoExprColumn offset, IntoExprColumn? length=null) => Apply(e=>e.List.Slice(offset,length));
     /// <summary>
     /// Slice the first n values of every sublist.
     /// </summary>
     /// <param name="n">Number of values to return for each sublist.</param>
     /// <returns></returns>
-    public Series Head(IntoColumnExpr n) =>Apply(e=>e.List.Head(n));
-    /// <inheritdoc cref="Head(IntoColumnExpr)"/>
+    public Series Head(IntoExprColumn n) =>Apply(e=>e.List.Head(n));
+    /// <inheritdoc cref="Head(IntoExprColumn)"/>
     public Series Head(long n=5) =>Apply(e=>e.List.Head(n));
     /// <summary>
     /// Slice the last n values of every sublist.
     /// </summary>
     /// <param name="n">Number of values to return for each sublist.</param>
     /// <returns></returns>
-    public Series Tail(IntoColumnExpr n) =>Apply(e=>e.List.Tail(n));
-    /// <inheritdoc cref="Tail(IntoColumnExpr)"/>
+    public Series Tail(IntoExprColumn n) =>Apply(e=>e.List.Tail(n));
+    /// <inheritdoc cref="Tail(IntoExprColumn)"/>
     public Series Tail(long n=5) =>Apply(e=>e.List.Tail(n));
     /// <summary>
     /// Shift list values by the given number of indices.
@@ -78,20 +78,20 @@ public readonly struct SeriesListOps
     /// <param name="withReplacement">Allow values to be sampled more than once.</param>
     /// <param name="shuffle">Shuffle the order of sampled data points.</param>
     /// <param name="seed">Seed for the random number generator. If set to None (default), a random seed is generated for each sample operation.</param>
-    public Series SampleN(IntoColumnExpr n,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
+    public Series SampleN(IntoExprColumn n,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
         => Apply(e=>e.List.SampleN(n,withReplacement,shuffle,seed));
-    /// <inheritdoc cref="SeriesListOps.SampleN(IntoColumnExpr,bool,bool,ulong?)"/>
+    /// <inheritdoc cref="SeriesListOps.SampleN(IntoExprColumn,bool,bool,ulong?)"/>
     public Series SampleN(bool withReplacement=false,bool shuffle=false,ulong? seed=null)
         => SampleN(1,withReplacement,shuffle,seed);
-    /// <inheritdoc cref="SeriesListOps.SampleN(IntoColumnExpr,bool,bool,ulong?)"/>
+    /// <inheritdoc cref="SeriesListOps.SampleN(IntoExprColumn,bool,bool,ulong?)"/>
     /// <param name="fraction">Fraction of items to return. </param>
-    public Series SampleFrac(IntoColumnExpr fraction,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
+    public Series SampleFrac(IntoExprColumn fraction,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
         =>Apply(e=>e.List.SampleFrac(fraction,withReplacement,shuffle,seed));
     /// <summary>
     /// Compute the SET UNION between the elements in this list and the elements of other.
     /// </summary>
     /// <param name="other">Right hand side of the set operation.</param>
-    public Series SetUnion(IntoColumnExpr other) => Apply(e=>e.List.SetUnion(other));
+    public Series SetUnion(IntoExprColumn other) => Apply(e=>e.List.SetUnion(other));
     /// <inheritdoc cref="SetUnion"/>
     public Series SetUnion<T>(ReadOnlySpan<T> other) => SetUnion(Pl.Lit(other).Implode());
     /// <inheritdoc cref="SetUnion"/>
@@ -100,7 +100,7 @@ public readonly struct SeriesListOps
     /// Compute the SET DIFFERENCE between the elements in this list and the elements of other.
     /// </summary>
     /// <param name="other">Right hand side of the set operation.</param>
-    public Series SetDifference(IntoColumnExpr other) => Apply(e=>e.List.SetDifference(other));
+    public Series SetDifference(IntoExprColumn other) => Apply(e=>e.List.SetDifference(other));
     /// <inheritdoc cref="SetDifference"/>
     public Series SetDifference<T>(ReadOnlySpan<T> other) => SetDifference(Pl.Lit(other).Implode());
     /// <inheritdoc cref="SetDifference"/>
@@ -109,7 +109,7 @@ public readonly struct SeriesListOps
     /// Compute the SET INTERSECTION between the elements in this list and the elements of other.
     /// </summary>
     /// <param name="other">Right hand side of the set operation.</param>
-    public Series SetIntersection(IntoColumnExpr other) => Apply(e=>e.List.SetIntersection(other));
+    public Series SetIntersection(IntoExprColumn other) => Apply(e=>e.List.SetIntersection(other));
     /// <inheritdoc cref="SetIntersection"/>
     public Series SetIntersection<T>(ReadOnlySpan<T> other) => SetIntersection(Pl.Lit(other).Implode());
     /// <inheritdoc cref="SetIntersection"/>
@@ -118,7 +118,7 @@ public readonly struct SeriesListOps
     /// Compute the SET SYMMETRIC DIFFERENCE between the elements in this list and the elements of other.
     /// </summary>
     /// <param name="other">Right hand side of the set operation.</param>
-    public Series SetSymmetricDifference(IntoColumnExpr other) => Apply(e=>e.List.SetSymmetricDifference(other));
+    public Series SetSymmetricDifference(IntoExprColumn other) => Apply(e=>e.List.SetSymmetricDifference(other));
     /// <inheritdoc cref="SetSymmetricDifference"/>
     public Series SetSymmetricDifference<T>(ReadOnlySpan<T> other) => SetSymmetricDifference(Pl.Lit(other).Implode());
     /// <inheritdoc cref="SetSymmetricDifference"/>
@@ -213,14 +213,14 @@ public readonly struct SeriesListOps
     /// <summary>
     /// Concat this list series with another list series or expression.
     /// </summary>
-    public Series Concat(IntoColumnExpr other) 
+    public Series Concat(IntoExprColumn other) 
         => Apply(e => e.List.Concat(other.Consume()));
 
     /// <summary>
     /// Concat this list series with multiple list series or expressions.
     /// Evaluates all concatenations in a single optimized pass.
     /// </summary>
-    public Series Concat(params IntoColumnExpr[] others)
+    public Series Concat(params IntoExprColumn[] others)
     {
         if (others == null || others.Length == 0) 
             return _series;

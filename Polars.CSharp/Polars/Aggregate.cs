@@ -46,7 +46,7 @@ public readonly partial struct Polars
     /// <param name="exprs">Column(s) to use in the aggregation. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
     /// <returns></returns>
     /// <exception cref="ArgumentException"></exception>
-    public static Expr AllHorizontal(params IntoColumnExpr[] exprs) 
+    public static Expr AllHorizontal(params IntoExprColumn[] exprs) 
     {
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
@@ -72,7 +72,7 @@ public readonly partial struct Polars
     /// <param name="exprs">Column(s) to use in the aggregation. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
     /// <returns></returns>
     /// <exception cref="ArgumentException"></exception>
-    public static Expr AnyHorizontal(params IntoColumnExpr[] exprs) 
+    public static Expr AnyHorizontal(params IntoExprColumn[] exprs) 
     {
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
@@ -81,8 +81,8 @@ public readonly partial struct Polars
         
         return new Expr(PolarsWrapper.ExprAnyHorizontal(handles));
     }
-    /// <inheritdoc cref="AnyHorizontal(IntoColumnExpr[])"/>
-    public static Expr AnyHorizontal(IEnumerable<IntoColumnExpr> exprs)
+    /// <inheritdoc cref="AnyHorizontal(IntoExprColumn[])"/>
+    public static Expr AnyHorizontal(IEnumerable<IntoExprColumn> exprs)
     {
         var exprArray = exprs.ToArray();
         if (exprArray.Length == 0)
@@ -104,7 +104,7 @@ public readonly partial struct Polars
     /// <param name="exprs">Column(s) to use in the aggregation. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
     /// <returns></returns>
     /// <exception cref="ArgumentException"></exception>
-    public static Expr MaxHorizontal(params IntoColumnExpr[] exprs) 
+    public static Expr MaxHorizontal(params IntoExprColumn[] exprs) 
     {
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
@@ -126,7 +126,7 @@ public readonly partial struct Polars
     /// <param name="exprs">Column(s) to use in the aggregation. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
     /// <returns></returns>
     /// <exception cref="ArgumentException"></exception>
-    public static Expr MinHorizontal(params IntoColumnExpr[] exprs) 
+    public static Expr MinHorizontal(params IntoExprColumn[] exprs) 
     {
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
@@ -163,7 +163,7 @@ public readonly partial struct Polars
     /// </summary>
     /// <param name="exprs">An iterable of expressions or column names.</param>
     /// <param name="ignoreNulls">Whether to ignore null values (default: true).</param>
-    public static Expr SumHorizontal(IEnumerable<IntoColumnExpr> exprs, bool ignoreNulls = true)
+    public static Expr SumHorizontal(IEnumerable<IntoExprColumn> exprs, bool ignoreNulls = true)
     {
         ArgumentNullException.ThrowIfNull(exprs);
         
@@ -177,7 +177,7 @@ public readonly partial struct Polars
     /// Sum all values horizontally across columns. (ignore_nulls defaults to true)
     /// </summary>
     /// <param name="exprs">Expressions or column names to sum.</param>
-    public static Expr SumHorizontal(params IntoColumnExpr[] exprs)
+    public static Expr SumHorizontal(params IntoExprColumn[] exprs)
     {
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
@@ -191,7 +191,7 @@ public readonly partial struct Polars
     /// </summary>
     /// <param name="ignoreNulls">Whether to ignore null values.</param>
     /// <param name="exprs">Expressions or column names to sum.</param>
-    public static Expr SumHorizontal(bool ignoreNulls, params IntoColumnExpr[] exprs)
+    public static Expr SumHorizontal(bool ignoreNulls, params IntoExprColumn[] exprs)
     {
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
@@ -206,7 +206,7 @@ public readonly partial struct Polars
     /// <param name="names">Name(s) of the columns to use in the aggregation.</param>
     /// <returns></returns>
     public static Expr Mean(params string[] names) => Col(names).Mean();
-    /// <inheritdoc cref="MeanHorizontal(bool,IntoColumnExpr[])"/>
+    /// <inheritdoc cref="MeanHorizontal(bool,IntoExprColumn[])"/>
     public static Expr MeanHorizontal(IEnumerable<Expr> exprs, bool ignoreNulls = true)
     {
         ArgumentNullException.ThrowIfNull(exprs);
@@ -217,8 +217,8 @@ public readonly partial struct Polars
 
         return new Expr(PolarsWrapper.ExprMeanHorizontal(handles, ignoreNulls));
     }
-    /// <inheritdoc cref="MeanHorizontal(bool,IntoColumnExpr[])"/>
-    public static Expr MeanHorizontal(IEnumerable<IntoColumnExpr> exprs, bool ignoreNulls = true)
+    /// <inheritdoc cref="MeanHorizontal(bool,IntoExprColumn[])"/>
+    public static Expr MeanHorizontal(IEnumerable<IntoExprColumn> exprs, bool ignoreNulls = true)
     {
         ArgumentNullException.ThrowIfNull(exprs);
         
@@ -228,8 +228,8 @@ public readonly partial struct Polars
 
         return new Expr(PolarsWrapper.ExprMeanHorizontal(handles, ignoreNulls)); 
     }
-    /// <inheritdoc cref="MeanHorizontal(bool,IntoColumnExpr[])"/>
-    public static Expr MeanHorizontal(params IntoColumnExpr[] exprs)
+    /// <inheritdoc cref="MeanHorizontal(bool,IntoExprColumn[])"/>
+    public static Expr MeanHorizontal(params IntoExprColumn[] exprs)
     {
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
@@ -244,7 +244,7 @@ public readonly partial struct Polars
     /// <param name="ignoreNulls">Ignore null values (default). If set to False, any null value in the input will lead to a null output.</param>
     /// <returns></returns>
     /// <exception cref="ArgumentException"></exception>
-    public static Expr MeanHorizontal(bool ignoreNulls, params IntoColumnExpr[] exprs)
+    public static Expr MeanHorizontal(bool ignoreNulls, params IntoExprColumn[] exprs)
     {
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));

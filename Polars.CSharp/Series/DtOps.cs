@@ -132,13 +132,13 @@ public readonly struct SeriesDtOps
         =>Apply(e => e.Dt.IsBusinessDay(holidays,weekMask));
     /// <inheritdoc cref="DtOps.Replace"/>
     public Series Replace(
-        IntoColumnExpr? year = null,
-        IntoColumnExpr? month = null,
-        IntoColumnExpr? day = null,
-        IntoColumnExpr? hour = null,
-        IntoColumnExpr? minute = null,
-        IntoColumnExpr? second = null,
-        IntoColumnExpr? microsecond = null,
+        IntoExprColumn? year = null,
+        IntoExprColumn? month = null,
+        IntoExprColumn? day = null,
+        IntoExprColumn? hour = null,
+        IntoExprColumn? minute = null,
+        IntoExprColumn? second = null,
+        IntoExprColumn? microsecond = null,
         AmbiguousArg? ambiguous = null)
     => Apply(e => e.Dt.Replace(year,month,day,hour,minute,second,microsecond,ambiguous));
     /// <inheritdoc cref="DtOps.Epoch"/>

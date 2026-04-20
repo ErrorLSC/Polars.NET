@@ -12,8 +12,8 @@ public readonly partial struct Polars
     /// <param name="closed">Define which sides of the range are closed</param>
     /// <returns>Column of data type Date</returns>
     public static Expr DateRange(
-        IntoColumnExpr? start = null, 
-        IntoColumnExpr? end = null, 
+        IntoExprColumn? start = null, 
+        IntoExprColumn? end = null, 
         IntoDuration? interval = null,
         ClosedWindow closed = ClosedWindow.Both)
     {
@@ -32,8 +32,8 @@ public readonly partial struct Polars
     }
     /// <inheritdoc cref="DateRange"/>
     public static Series DateRangeAsSeries(
-        IntoColumnExpr? start = null, 
-        IntoColumnExpr? end = null, 
+        IntoExprColumn? start = null, 
+        IntoExprColumn? end = null, 
         IntoDuration? interval = null, 
         ClosedWindow closed = ClosedWindow.Both,
         string name="date")
@@ -52,8 +52,8 @@ public readonly partial struct Polars
     /// <param name="closed">Define which sides of the range are closed</param>
     /// <returns>Column of data type Date</returns>
     public static Expr DateRanges(
-        IntoColumnExpr? start = null, 
-        IntoColumnExpr? end = null, 
+        IntoExprColumn? start = null, 
+        IntoExprColumn? end = null, 
         IntoDuration? interval = null,
         ClosedWindow closed = ClosedWindow.Both)
     {
@@ -72,8 +72,8 @@ public readonly partial struct Polars
     }
     /// <inheritdoc cref="DateRanges"/>
     public static Series DateRangesAsSeries(
-        IntoColumnExpr? start = null, 
-        IntoColumnExpr? end = null, 
+        IntoExprColumn? start = null, 
+        IntoExprColumn? end = null, 
         IntoDuration? interval = null, 
         ClosedWindow closed = ClosedWindow.Both,
         string name="date")

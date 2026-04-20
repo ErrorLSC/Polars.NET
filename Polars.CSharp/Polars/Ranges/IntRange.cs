@@ -11,7 +11,7 @@ public readonly partial struct Polars
     /// <param name="step">Step size of the range.</param>
     /// <param name="datatype">Integer data type of the ranges. Defaults to Int64.</param>
     /// <returns>A Literal Expression containing the integer series.</returns>
-    public static Expr IntRange(IntoColumnExpr start, IntoColumnExpr? end = null, long step = 1, IntoDataTypeExpr? datatype = null)
+    public static Expr IntRange(IntoExprColumn start, IntoExprColumn? end = null, long step = 1, IntoDataTypeExpr? datatype = null)
     {
         IntoDataTypeExpr resolvedDtype = datatype ?? DataType.Int64;
         
@@ -37,7 +37,7 @@ public readonly partial struct Polars
     /// <param name="name">The name of generated series.</param>
     /// <param name="dtype">Integer data type of the ranges. Defaults to Int64.</param>
     /// <returns>A Literal Expression containing the integer series.</returns>
-    public static Series IntRangeAsSeries(IntoColumnExpr start, IntoColumnExpr? end=null, long step = 1, string name = "int", IntoDataTypeExpr? dtype = null)
+    public static Series IntRangeAsSeries(IntoExprColumn start, IntoExprColumn? end=null, long step = 1, string name = "int", IntoDataTypeExpr? dtype = null)
     {
         var expr = IntRange(start,end,step,dtype);
         Series series = Series(expr);
@@ -49,7 +49,7 @@ public readonly partial struct Polars
     /// Generate a range of integers for each row of the input columns.
     /// Resulting column is of dtype List(dtype).
     /// </summary>
-    public static Expr IntRanges(IntoColumnExpr start, IntoColumnExpr? end = null, IntoColumnExpr? step = null, IntoDataTypeExpr? datatype = null)
+    public static Expr IntRanges(IntoExprColumn start, IntoExprColumn? end = null, IntoExprColumn? step = null, IntoDataTypeExpr? datatype = null)
     {
         IntoDataTypeExpr resolvedDtype = datatype ?? DataType.Int64;
 
@@ -68,7 +68,7 @@ public readonly partial struct Polars
         ));
     }
     /// <inheritdoc cref="IntRanges"/>
-    public static Series IntRangesAsSeries(IntoColumnExpr start, IntoColumnExpr? end=null, IntoColumnExpr? step = null, string name = "int", IntoDataTypeExpr? datatype = null)
+    public static Series IntRangesAsSeries(IntoExprColumn start, IntoExprColumn? end=null, IntoExprColumn? step = null, string name = "int", IntoDataTypeExpr? datatype = null)
     {
         var expr = IntRanges(start,end,step,datatype);
         Series series = Series(expr);

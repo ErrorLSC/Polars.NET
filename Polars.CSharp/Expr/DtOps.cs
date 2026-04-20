@@ -476,13 +476,13 @@ public readonly struct DtOps
     /// <param name="ambiguous">Determine how to deal with ambiguous datetimes.</param>
     /// <returns>A new expression.</returns>
     public Expr Replace(
-        IntoColumnExpr? year = null,
-        IntoColumnExpr? month = null,
-        IntoColumnExpr? day = null,
-        IntoColumnExpr? hour = null,
-        IntoColumnExpr? minute = null,
-        IntoColumnExpr? second = null,
-        IntoColumnExpr? microsecond = null,
+        IntoExprColumn? year = null,
+        IntoExprColumn? month = null,
+        IntoExprColumn? day = null,
+        IntoExprColumn? hour = null,
+        IntoExprColumn? minute = null,
+        IntoExprColumn? second = null,
+        IntoExprColumn? microsecond = null,
         AmbiguousArg? ambiguous = null)
     {
         Expr yearExpr = year?.Consume() ?? Pl.LitNull();

@@ -2896,7 +2896,7 @@ TooShort,1990-05-20,1.60";
             Pl.SumHorizontal(false, "a", "b").Alias("sum_strict"),
 
             // 3. IEnumerable<IntoExpr>
-            Pl.SumHorizontal(new List<IntoColumnExpr> { "a", "b" }).Alias("sum_list_into"),
+            Pl.SumHorizontal(new List<IntoExprColumn> { "a", "b" }).Alias("sum_list_into"),
 
             // 4. IEnumerable<Expr>
             Pl.SumHorizontal([Pl.Col("a"), Pl.Col("b")]).Alias("sum_list_expr")
@@ -3043,7 +3043,7 @@ TooShort,1990-05-20,1.60";
     public void Test_Horizontal_EmptyArgs_Throws()
     {
         Assert.Throws<ArgumentException>(() => Pl.SumHorizontal());
-        Assert.Throws<ArgumentException>(() => Pl.MeanHorizontal(new List<IntoColumnExpr>()));
+        Assert.Throws<ArgumentException>(() => Pl.MeanHorizontal(new List<IntoExprColumn>()));
         Assert.Throws<ArgumentException>(() => Pl.MaxHorizontal());
     }
     [Fact]

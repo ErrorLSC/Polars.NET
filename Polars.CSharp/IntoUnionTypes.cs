@@ -8,44 +8,44 @@ namespace Polars.CSharp;
 /// A type that can be implicitly converted into a Polars Expression.String will be parsed as column name.
 /// Matches the 'IntoExpr' concept in Rust and Python Polars.
 /// </summary>
-public readonly struct IntoColumnExpr
+public readonly struct IntoExprColumn
 {
     private readonly Expr _expr;
     private readonly bool _ownsExpr;
 
-    public static implicit operator IntoColumnExpr(Expr expr) => new(expr, ownsExpr: false);
-    public static implicit operator IntoColumnExpr(Selector selector) => new(selector.ToExpr(), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(string name) => new(Pl.Col(name), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(Series series) => new(Pl.Lit(series), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(DataType dtype) => new(Cs.ByDtype(dtype).ToExpr(), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(Type type) => new(Cs.ByDtype(type).ToExpr(), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(DateOnly date) => new(Pl.Lit(date), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(DateTime dt) => new(Pl.Lit(dt), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(TimeOnly time) => new(Pl.Lit(time), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(TimeSpan ts) => new(Pl.Lit(ts), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(DateTimeOffset dtoffset) => new(Pl.Lit(dtoffset), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(sbyte sb) => new(Pl.Lit(sb), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(byte b) => new(Pl.Lit(b), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(short sh) => new(Pl.Lit(sh), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(ushort ush) => new(Pl.Lit(ush), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(uint ui) => new(Pl.Lit(ui), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(int i) => new(Pl.Lit(i), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(Half hf) => new(Pl.Lit(hf), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(double d) => new(Pl.Lit(d), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(float f) => new(Pl.Lit(f), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(ulong ul) => new(Pl.Lit(ul), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(long l) => new(Pl.Lit(l), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(decimal dm) => new(Pl.Lit(dm), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(Int128 i128) => new(Pl.Lit(i128), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(bool bo) => new(Pl.Lit(bo), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(int[] arr) => new(Pl.Lit(arr), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(long[] arr) => new(Pl.Lit(arr), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(ReadOnlySpan<int> arr) => new(Pl.Lit(arr), ownsExpr: true);
-    public static implicit operator IntoColumnExpr(ReadOnlySpan<long> arr) => new(Pl.Lit(arr), ownsExpr: true);
+    public static implicit operator IntoExprColumn(Expr expr) => new(expr, ownsExpr: false);
+    public static implicit operator IntoExprColumn(Selector selector) => new(selector.ToExpr(), ownsExpr: true);
+    public static implicit operator IntoExprColumn(string name) => new(Pl.Col(name), ownsExpr: true);
+    public static implicit operator IntoExprColumn(Series series) => new(Pl.Lit(series), ownsExpr: true);
+    public static implicit operator IntoExprColumn(DataType dtype) => new(Cs.ByDtype(dtype).ToExpr(), ownsExpr: true);
+    public static implicit operator IntoExprColumn(Type type) => new(Cs.ByDtype(type).ToExpr(), ownsExpr: true);
+    public static implicit operator IntoExprColumn(DateOnly date) => new(Pl.Lit(date), ownsExpr: true);
+    public static implicit operator IntoExprColumn(DateTime dt) => new(Pl.Lit(dt), ownsExpr: true);
+    public static implicit operator IntoExprColumn(TimeOnly time) => new(Pl.Lit(time), ownsExpr: true);
+    public static implicit operator IntoExprColumn(TimeSpan ts) => new(Pl.Lit(ts), ownsExpr: true);
+    public static implicit operator IntoExprColumn(DateTimeOffset dtoffset) => new(Pl.Lit(dtoffset), ownsExpr: true);
+    public static implicit operator IntoExprColumn(sbyte sb) => new(Pl.Lit(sb), ownsExpr: true);
+    public static implicit operator IntoExprColumn(byte b) => new(Pl.Lit(b), ownsExpr: true);
+    public static implicit operator IntoExprColumn(short sh) => new(Pl.Lit(sh), ownsExpr: true);
+    public static implicit operator IntoExprColumn(ushort ush) => new(Pl.Lit(ush), ownsExpr: true);
+    public static implicit operator IntoExprColumn(uint ui) => new(Pl.Lit(ui), ownsExpr: true);
+    public static implicit operator IntoExprColumn(int i) => new(Pl.Lit(i), ownsExpr: true);
+    public static implicit operator IntoExprColumn(Half hf) => new(Pl.Lit(hf), ownsExpr: true);
+    public static implicit operator IntoExprColumn(double d) => new(Pl.Lit(d), ownsExpr: true);
+    public static implicit operator IntoExprColumn(float f) => new(Pl.Lit(f), ownsExpr: true);
+    public static implicit operator IntoExprColumn(ulong ul) => new(Pl.Lit(ul), ownsExpr: true);
+    public static implicit operator IntoExprColumn(long l) => new(Pl.Lit(l), ownsExpr: true);
+    public static implicit operator IntoExprColumn(decimal dm) => new(Pl.Lit(dm), ownsExpr: true);
+    public static implicit operator IntoExprColumn(Int128 i128) => new(Pl.Lit(i128), ownsExpr: true);
+    public static implicit operator IntoExprColumn(bool bo) => new(Pl.Lit(bo), ownsExpr: true);
+    public static implicit operator IntoExprColumn(int[] arr) => new(Pl.Lit(arr), ownsExpr: true);
+    public static implicit operator IntoExprColumn(long[] arr) => new(Pl.Lit(arr), ownsExpr: true);
+    public static implicit operator IntoExprColumn(ReadOnlySpan<int> arr) => new(Pl.Lit(arr), ownsExpr: true);
+    public static implicit operator IntoExprColumn(ReadOnlySpan<long> arr) => new(Pl.Lit(arr), ownsExpr: true);
     // public static implicit operator IntoExpr(string[] arr) => new(Pl.Lit(Pl.Series("", arr)), ownsExpr: true);
     // public static implicit operator IntoExpr(UInt128 u128) => new(Pl.Lit(u128), ownsExpr: true);
 
-    private IntoColumnExpr(Expr expr, bool ownsExpr) 
+    private IntoExprColumn(Expr expr, bool ownsExpr) 
     {
         ArgumentNullException.ThrowIfNull(expr);
         _expr = expr;

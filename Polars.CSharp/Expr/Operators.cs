@@ -162,14 +162,14 @@ public partial class Expr : IDisposable
     /// Check if this expression is NOT equal to another, treating nulls as valid values.
     /// (e.g., Null != Null is False, 5 != Null is True)
     /// </summary>
-    public Expr NeqMissing(IntoColumnExpr other) 
+    public Expr NeqMissing(IntoExprColumn other) 
         => new(PolarsWrapper.NeqMissing(this.CloneHandle(), other.Consume().Handle));
 
     /// <summary>
     /// Check if this expression is equal to another, treating nulls as valid values.
     /// (e.g., Null == Null is True, 5 == Null is False)
     /// </summary>
-    public Expr EqMissing(IntoColumnExpr other) 
+    public Expr EqMissing(IntoExprColumn other) 
         => new(PolarsWrapper.EqMissing(this.CloneHandle(), other.Consume().Handle));
     // ==========================================
     // Arithmetic Operators

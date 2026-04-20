@@ -75,13 +75,13 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <summary>
     /// Gather values by an index expression.
     /// </summary>
-    public Expr Gather(IntoColumnExpr indices)
+    public Expr Gather(IntoExprColumn indices)
         => new(PolarsWrapper.Gather(CloneHandle(), indices.Consume().Handle));
     public Expr Gather(ReadOnlySpan<int> indices) => Gather(Pl.Lit(indices));
     /// <summary>
     /// LINQ-like alias for Gather.
     /// </summary>
-    public Expr Take(IntoColumnExpr indices) => Gather(indices);
+    public Expr Take(IntoExprColumn indices) => Gather(indices);
     public Expr Take(ReadOnlySpan<int> indices) => Take(Pl.Lit(indices));
     
     /// <summary>
@@ -700,7 +700,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Apply a window function over a subgroup.
     /// <para>
     /// This is similar to SQL's `OVER (PARTITION BY ...)` clause.
-    /// Unlike <see cref="DataFrame.GroupBy(IntoColumnExpr,bool)"/>, this does not reduce the number of rows.
+    /// Unlike <see cref="DataFrame.GroupBy(IntoExprColumn,bool)"/>, this does not reduce the number of rows.
     /// The result is broadcasted back to the original rows.
     /// </para>
     /// </summary>
@@ -735,15 +735,15 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// */
     /// </code>
     /// </example>
-    public Expr Over(params IntoColumnExpr[] partitionBy)
-        => Over((IEnumerable<IntoColumnExpr>)partitionBy);
+    public Expr Over(params IntoExprColumn[] partitionBy)
+        => Over((IEnumerable<IntoExprColumn>)partitionBy);
 
     /// <summary>
     /// Window function: Apply aggregation over specific groups from a collection.
     /// </summary>
-    public Expr Over(IEnumerable<IntoColumnExpr> partitionBy)
+    public Expr Over(IEnumerable<IntoExprColumn> partitionBy)
     {
-        var exprArray = partitionBy as IntoColumnExpr[] ?? [.. partitionBy];
+        var exprArray = partitionBy as IntoExprColumn[] ?? [.. partitionBy];
         
         if (exprArray.Length == 0) return this; 
 
@@ -778,7 +778,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// This turns a list column into a long column (flattening).
     /// </para>
     /// <para>
-    /// <b>Warning:</b> When used in <see cref="DataFrame.Select(IntoColumnExpr[])"/> with other columns, 
+    /// <b>Warning:</b> When used in <see cref="DataFrame.Select(IntoExprColumn[])"/> with other columns, 
     /// it may cause a length mismatch error if the other columns are not broadcasted. 
     /// Use <see cref="DataFrame.Explode(string[])"/> for safely exploding columns while repeating others.
     /// </para>
@@ -835,11 +835,11 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// );
     /// </code>
     /// </example>
-    public Expr Coalesce(params IntoColumnExpr[] others)
+    public Expr Coalesce(params IntoExprColumn[] others)
     {
         if (others == null || others.Length == 0) return this;
 
-        var allExprs = new IntoColumnExpr[others.Length + 1];
+        var allExprs = new IntoExprColumn[others.Length + 1];
         allExprs[0] = this; 
         
         for (int i = 0; i < others.Length; i++)

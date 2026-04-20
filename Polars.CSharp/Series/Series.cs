@@ -110,7 +110,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <returns></returns>
     public Series Clone() => new(PolarsWrapper.CloneSeries(Handle));
 
-    internal Series ApplyExpr(IntoColumnExpr expr)
+    internal Series ApplyExpr(IntoExprColumn expr)
     {
         using var df = new DataFrame(this);
 
@@ -119,7 +119,7 @@ public partial class Series : IDisposable,IPolarsSeries
         return dfRes[0];
     }
 
-    internal Series ApplyBinaryExpr(IntoColumnExpr other, Func<Expr, Expr, Expr> op)
+    internal Series ApplyBinaryExpr(IntoExprColumn other, Func<Expr, Expr, Expr> op)
     {
         using Expr rightExpr = other.Consume();
         
@@ -186,13 +186,13 @@ public partial class Series : IDisposable,IPolarsSeries
     public Series Get(ulong index, bool nullOnOutOfBounds = false)
         => ApplyExpr(Pl.Col(Name).Get(index, nullOnOutOfBounds));
 
-    /// <inheritdoc cref="Expr.Gather(IntoColumnExpr)"/>
-    public Series Gather(IntoColumnExpr indices) => ApplyExpr(Pl.Col(Name).Gather(indices));
+    /// <inheritdoc cref="Expr.Gather(IntoExprColumn)"/>
+    public Series Gather(IntoExprColumn indices) => ApplyExpr(Pl.Col(Name).Gather(indices));
     /// <inheritdoc cref="Take(Series)"/>
     public Series Gather(ReadOnlySpan<int> indices) => ApplyExpr(Pl.Col(Name).Gather(indices));
-    /// <inheritdoc cref="Expr.Take(IntoColumnExpr)"/>
-    public Series Take(IntoColumnExpr indices) => Gather(indices);
-    /// <inheritdoc cref="Expr.Take(IntoColumnExpr)"/>
+    /// <inheritdoc cref="Expr.Take(IntoExprColumn)"/>
+    public Series Take(IntoExprColumn indices) => Gather(indices);
+    /// <inheritdoc cref="Expr.Take(IntoExprColumn)"/>
     public Series Take(ReadOnlySpan<int> indices) => Gather(indices);
     /// <summary>
     /// Take elements by physical integer indices.

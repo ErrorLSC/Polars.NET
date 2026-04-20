@@ -45,7 +45,7 @@ public readonly struct SeriesStructOps
     /// </summary>
     /// <param name="expr">Field(s) to add, specified as positional arguments. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
     /// <returns></returns>
-    public Series WithFields(params IntoColumnExpr[] expr) => Apply(e => e.Struct.WithFields(expr));
+    public Series WithFields(params IntoExprColumn[] expr) => Apply(e => e.Struct.WithFields(expr));
 
     /// <inheritdoc cref="Field(int)"/>
     public Series this[int index] => Field(index);
@@ -62,7 +62,7 @@ public readonly struct SeriesStructOps
         {
             return Apply(e => 
             {
-                var exprs = names.Select(name => (IntoColumnExpr)e.Struct.Field(name)).ToArray();
+                var exprs = names.Select(name => (IntoExprColumn)e.Struct.Field(name)).ToArray();
                 return Pl.Struct(exprs);
             });
         }

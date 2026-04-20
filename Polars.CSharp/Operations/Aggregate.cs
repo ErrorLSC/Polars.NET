@@ -80,9 +80,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <inheritdoc cref="LazyFrame.Sum"/>
     public DataFrame Sum()
         => Lazy().Sum().Collect();
-    /// <inheritdoc cref="Pl.SumHorizontal(IntoColumnExpr[])"/>
+    /// <inheritdoc cref="Pl.SumHorizontal(IntoExprColumn[])"/>
     public Series SumHorizontal(bool ignoreNulls=true) => Select(Pl.SumHorizontal(ignoreNulls,Pl.All()))[0].Rename("sum");
-    /// <inheritdoc cref="Pl.MaxHorizontal(IntoColumnExpr[])"/>
+    /// <inheritdoc cref="Pl.MaxHorizontal(IntoExprColumn[])"/>
     public Series MaxHorizontal() => Select(Pl.MaxHorizontal(Pl.All()))[0].Rename("max");
 
     /// <inheritdoc cref="LazyFrame.Max"/>
@@ -94,13 +94,13 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         => Lazy().Min().Collect();
 
 
-    /// <inheritdoc cref="Pl.MinHorizontal(IntoColumnExpr[])"/>
+    /// <inheritdoc cref="Pl.MinHorizontal(IntoExprColumn[])"/>
     public Series MinHorizontal() => Select(Pl.MinHorizontal(Pl.All()))[0].Rename("min");
 
     /// <inheritdoc cref="LazyFrame.Mean"/>
     public DataFrame Mean()
         => Lazy().Mean().Collect();
-    /// <inheritdoc cref="Pl.MeanHorizontal(IntoColumnExpr[])"/>
+    /// <inheritdoc cref="Pl.MeanHorizontal(IntoExprColumn[])"/>
     public Series MeanHorizontal(bool ignoreNulls=true) => Select(Pl.MeanHorizontal(ignoreNulls,Pl.All()))[0].Rename("mean");
 
     /// <inheritdoc cref="LazyFrame.Median"/>

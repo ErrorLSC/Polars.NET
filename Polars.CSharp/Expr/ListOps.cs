@@ -70,16 +70,16 @@ public readonly struct ListOps
     public Expr Get(long index,bool nullOnOob=false)=> GetImpl(index,nullOnOob);
     internal Expr GetImpl(Expr index, bool nullOnOob= false)
         => new(PolarsWrapper.ListGet(_expr.CloneHandle(), index.CloneHandle(),nullOnOob));
-    public Expr Gather(IntoColumnExpr indices,bool nullOnOob=false) => new(PolarsWrapper.ListGather(_expr.CloneHandle(),indices.Consume().Handle,nullOnOob));
+    public Expr Gather(IntoExprColumn indices,bool nullOnOob=false) => new(PolarsWrapper.ListGather(_expr.CloneHandle(),indices.Consume().Handle,nullOnOob));
     public Expr Gather(ReadOnlySpan<int> indices,bool nullOnOob=false) => Gather(Pl.Lit(indices),nullOnOob);
-    public Expr GatherEvery(IntoColumnExpr n,IntoColumnExpr offset) => new(PolarsWrapper.ListGatherEvery(_expr.CloneHandle(),n.Consume().Handle,offset.Consume().Handle));
-    public Expr GatherEvery(IntoColumnExpr n) => GatherEvery(n,0);
+    public Expr GatherEvery(IntoExprColumn n,IntoExprColumn offset) => new(PolarsWrapper.ListGatherEvery(_expr.CloneHandle(),n.Consume().Handle,offset.Consume().Handle));
+    public Expr GatherEvery(IntoExprColumn n) => GatherEvery(n,0);
     /// <summary>
     /// Slice every sublist.
     /// </summary>
     /// <param name="offset">Start index. Negative indexing is supported.</param>
     /// <param name="length">Length of the slice. If null, the slice is taken to the end of the list.</param>
-    public Expr Slice(IntoColumnExpr offset, IntoColumnExpr? length = null)
+    public Expr Slice(IntoExprColumn offset, IntoExprColumn? length = null)
     {
         Expr offsetExpr = offset.Consume();
 
@@ -91,32 +91,32 @@ public readonly struct ListOps
             lengthExpr.CloneHandle()
         ));
     }
-    public Expr Head(IntoColumnExpr n) => new(PolarsWrapper.ListHead(_expr.CloneHandle(),n.Consume().Handle));
+    public Expr Head(IntoExprColumn n) => new(PolarsWrapper.ListHead(_expr.CloneHandle(),n.Consume().Handle));
     public Expr Head(long n=5) => Head(Pl.Lit(n));
-    public Expr Tail(IntoColumnExpr n) => new(PolarsWrapper.ListTail(_expr.CloneHandle(),n.Consume().Handle));
+    public Expr Tail(IntoExprColumn n) => new(PolarsWrapper.ListTail(_expr.CloneHandle(),n.Consume().Handle));
     public Expr Tail(long n=5) => Tail(Pl.Lit(n));
     public Expr Agg(Expr expr) => new(PolarsWrapper.ListAgg(_expr.CloneHandle(),expr.CloneHandle()));
     public Expr Shift(Expr n) => new(PolarsWrapper.ListShift(_expr.CloneHandle(),n.CloneHandle()));
     public Expr Shift() => Shift(1);
     public Expr Diff(long n=1,NullBehavior nullBehavior=NullBehavior.Ignore) => new(PolarsWrapper.ListDiff(_expr.CloneHandle(),n,nullBehavior.ToNative()));
-    public Expr SampleN(IntoColumnExpr n,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
+    public Expr SampleN(IntoExprColumn n,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
     {
         ExprHandle nE = n.Consume().Handle;
         return new Expr(PolarsWrapper.ListSampleN(_expr.CloneHandle(),nE,withReplacement,shuffle,seed));
     }
     public Expr SampleN(bool withReplacement=false,bool shuffle=false,ulong? seed=null) => SampleN(1,withReplacement,shuffle,seed);
-    public Expr SampleFrac(IntoColumnExpr fraction,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
+    public Expr SampleFrac(IntoExprColumn fraction,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
         => new(PolarsWrapper.ListSampleFraction(_expr.CloneHandle(),fraction.Consume().Handle,withReplacement,shuffle,seed));
-    public Expr SetUnion(IntoColumnExpr other) => new(PolarsWrapper.ListSetUnion(_expr.CloneHandle(),other.Consume().Handle));
+    public Expr SetUnion(IntoExprColumn other) => new(PolarsWrapper.ListSetUnion(_expr.CloneHandle(),other.Consume().Handle));
     public Expr SetUnion<T>(ReadOnlySpan<T> other) => SetUnion(Pl.Lit(other));
     public Expr SetUnion<T>(IEnumerable<T> other) => SetUnion(Pl.Lit(other));
-    public Expr SetDifference(IntoColumnExpr other) => new(PolarsWrapper.ListSetDifference(_expr.CloneHandle(),other.Consume().Handle));
+    public Expr SetDifference(IntoExprColumn other) => new(PolarsWrapper.ListSetDifference(_expr.CloneHandle(),other.Consume().Handle));
     public Expr SetDifference<T>(ReadOnlySpan<T> other) => SetDifference(Pl.Lit(other));
     public Expr SetDifference<T>(IEnumerable<T> other) => SetDifference(Pl.Lit(other));
-    public Expr SetIntersection(IntoColumnExpr other) => new(PolarsWrapper.ListSetIntersection(_expr.CloneHandle(),other.Consume().Handle));
+    public Expr SetIntersection(IntoExprColumn other) => new(PolarsWrapper.ListSetIntersection(_expr.CloneHandle(),other.Consume().Handle));
     public Expr SetIntersection<T>(ReadOnlySpan<T> other) => SetIntersection(Pl.Lit(other));
     public Expr SetIntersection<T>(IEnumerable<T> other) => SetIntersection(Pl.Lit(other));
-    public Expr SetSymmetricDifference(IntoColumnExpr other) => new(PolarsWrapper.ListSetSymmetricDifference(_expr.CloneHandle(),other.Consume().Handle));
+    public Expr SetSymmetricDifference(IntoExprColumn other) => new(PolarsWrapper.ListSetSymmetricDifference(_expr.CloneHandle(),other.Consume().Handle));
     public Expr SetSymmetricDifference<T>(ReadOnlySpan<T> other) => SetSymmetricDifference(Pl.Lit(other));
     public Expr SetSymmetricDifference<T>(IEnumerable<T> other) => SetSymmetricDifference(Pl.Lit(other));
     
@@ -194,7 +194,7 @@ public readonly struct ListOps
     /// Perfectly matches Python's list[Expr | str] | Expr | str | Series.
     /// </summary>
     /// <param name="others">Other expressions to append.</param>
-    public Expr Concat(params IntoColumnExpr[] others)
+    public Expr Concat(params IntoExprColumn[] others)
     {
         if (others == null || others.Length == 0)
             return new Expr(_expr.CloneHandle());
