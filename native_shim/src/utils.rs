@@ -40,6 +40,24 @@ pub unsafe fn ptr_to_vec_string(ptr: *const *const c_char, len: usize) -> Vec<St
     res
 }
 
+#[inline]
+pub unsafe fn ptr_to_opt_pl_str_vec(ptr: *const *const c_char, len: usize) -> Option<Vec<PlSmallStr>> {
+    if ptr.is_null() || len == 0 {
+        None
+    } else {
+        let slice = unsafe {std::slice::from_raw_parts(ptr, len)};
+        let vec: Vec<PlSmallStr> = slice.iter().map(|&p| {
+            if p.is_null() {
+                PlSmallStr::from_str("")
+            } else {
+                let s = unsafe { CStr::from_ptr(p).to_string_lossy() };
+                PlSmallStr::from_str(&s)
+            }
+        }).collect();
+        Some(vec)
+    }
+}
+
 pub fn ptr_to_str<'a>(ptr: *const c_char) -> Result<&'a str, std::str::Utf8Error> {
     if ptr.is_null() { 
         panic!("Null pointer passed to ptr_to_str"); 

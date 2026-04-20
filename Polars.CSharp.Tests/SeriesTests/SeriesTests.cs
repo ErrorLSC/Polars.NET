@@ -2029,4 +2029,17 @@ public class SeriesTests
         
         Assert.Equal("test_replace", s1.Name);
     }
+    [Fact]
+    [Trait("Series", "Peak")]
+    public void Test_Series_Peaks()
+    {
+        int[] data1 = [1, 2, 114514, -2200, 59796016];
+        using Series s1 = Pl.Series("s1", data1);
+
+        using Series sp1 = s1.PeakMax();
+        using Series sp2 = s1.PeakMin();
+        Assert.False((bool)sp1[0]!);
+        Assert.True((bool)sp1[4]!);
+        Assert.True((bool)sp2[3]!);
+    }
 }

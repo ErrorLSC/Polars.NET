@@ -235,6 +235,8 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle NanMin(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_nan_min, e);
     public static ExprHandle Rle(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_rle, e);
     public static ExprHandle RleId(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_rle_id, e);
+    public static ExprHandle PeakMax(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_peak_max, e);
+    public static ExprHandle PeakMin(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_peak_min, e);
     public static ExprHandle BitwiseAnd(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_bitwise_and, e);
     public static ExprHandle BitwiseOr(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_bitwise_or, e);
     public static ExprHandle BitwiseXor(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_bitwise_xor, e);

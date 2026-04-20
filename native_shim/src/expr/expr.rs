@@ -1,6 +1,6 @@
 use polars::{chunked_array::cast::CastOptions, prelude::*, series::ops::NullBehavior, sql::sql_expr};
 use std::{ffi::{CStr, CString}, os::raw::c_char, slice::from_raw_parts};
-use crate::{types::{DataTypeExprContext, ExprContext, SeriesContext}, utils::parse_closed_window};
+use crate::{types::{DataTypeExprContext, ExprContext, SeriesContext}, utils::{parse_closed_window, ptr_to_opt_pl_str_vec}};
 use std::ops::{Add, Sub, Mul, Div, Rem};
 use crate::utils::{consume_exprs_array, ptr_to_str};
 use polars_arrow::array::PrimitiveArray;
@@ -324,6 +324,8 @@ gen_unary_op!(pl_expr_n_unique,n_unique);
 gen_unary_op!(pl_expr_product, product);
 gen_unary_op!(pl_expr_rle, rle);
 gen_unary_op!(pl_expr_rle_id, rle_id);
+gen_unary_op!(pl_expr_peak_max, peak_max);
+gen_unary_op!(pl_expr_peak_min,peak_min);
 
 gen_unary_op!(pl_expr_bitwise_and, bitwise_and);
 gen_unary_op!(pl_expr_bitwise_or, bitwise_or);
@@ -1876,6 +1878,82 @@ pub extern "C" fn pl_expr_replace_strict(
             default_opt,
             return_dtype_opt,
         );
+
+        Ok(Box::into_raw(Box::new(ExprContext { inner: out_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_cut(
+    expr_ptr: *mut ExprContext,
+    breaks_ptr: *const f64,
+    breaks_len: usize,
+    labels_ptr: *const *const c_char,
+    labels_len: usize,
+    left_closed: bool,
+    include_breaks: bool,
+) -> *mut ExprContext {
+    ffi_try!({
+        let expr = unsafe { Box::from_raw(expr_ptr) }.inner;
+
+        let breaks = if breaks_ptr.is_null() || breaks_len == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(breaks_ptr, breaks_len) }.to_vec()
+        };
+
+        let labels = unsafe { ptr_to_opt_pl_str_vec(labels_ptr, labels_len) };
+
+        let out_expr = expr.cut(breaks, labels, left_closed, include_breaks);
+
+        Ok(Box::into_raw(Box::new(ExprContext { inner: out_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_qcut(
+    expr_ptr: *mut ExprContext,
+    probs_ptr: *const f64,
+    probs_len: usize,
+    labels_ptr: *const *const c_char,
+    labels_len: usize,
+    left_closed: bool,
+    allow_duplicates: bool,
+    include_breaks: bool,
+) -> *mut ExprContext {
+    ffi_try!({
+        let expr = unsafe { Box::from_raw(expr_ptr) }.inner;
+
+        let probs = if probs_ptr.is_null() || probs_len == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(probs_ptr, probs_len) }.to_vec()
+        };
+
+        let labels = unsafe { ptr_to_opt_pl_str_vec(labels_ptr, labels_len) };
+
+        let out_expr = expr.qcut(probs, labels, left_closed, allow_duplicates, include_breaks);
+
+        Ok(Box::into_raw(Box::new(ExprContext { inner: out_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_qcut_uniform(
+    expr_ptr: *mut ExprContext,
+    n_bins: usize,
+    labels_ptr: *const *const c_char,
+    labels_len: usize,
+    left_closed: bool,
+    allow_duplicates: bool,
+    include_breaks: bool,
+) -> *mut ExprContext {
+    ffi_try!({
+        let expr = unsafe { Box::from_raw(expr_ptr) }.inner;
+
+        let labels = unsafe { ptr_to_opt_pl_str_vec(labels_ptr, labels_len) };
+
+        let out_expr = expr.qcut_uniform(n_bins, labels, left_closed, allow_duplicates, include_breaks);
 
         Ok(Box::into_raw(Box::new(ExprContext { inner: out_expr })))
     })

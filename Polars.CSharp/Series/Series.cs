@@ -604,6 +604,10 @@ public partial class Series : IDisposable,IPolarsSeries
     public Series Rle() => ApplyExpr(Pl.Col(Name).Rle());
     /// <inheritdoc cref="Expr.RleId"/>
     public Series RleId() => ApplyExpr(Pl.Col(Name).RleId());
+    /// <inheritdoc cref="Expr.PeakMax"/>
+    public Series PeakMax() => ApplyExpr(Pl.Col(Name).PeakMax());
+    /// <inheritdoc cref="Expr.PeakMin"/>
+    public Series PeakMin() => ApplyExpr(Pl.Col(Name).PeakMin());
     // ==========================================
     // Common Ops 
     // ==========================================

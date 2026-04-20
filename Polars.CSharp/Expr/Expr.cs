@@ -529,6 +529,14 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <returns>Expression/Series of data type UInt32.</returns>
     public Expr RleId() => new(PolarsWrapper.RleId(CloneHandle()));
     /// <summary>
+    /// Get a boolean mask of the local maximum peaks.
+    /// </summary>
+    public Expr PeakMax() => new(PolarsWrapper.PeakMax(CloneHandle()));
+    /// <summary>
+    /// Get a boolean mask of the local minimum peaks.
+    /// </summary>
+    public Expr PeakMin() => new(PolarsWrapper.PeakMin(CloneHandle()));
+    /// <summary>
     /// Replace the given values by different values of the same data type.
     /// </summary>
     /// <param name="old">Value or sequence of values to replace. Accepts expression input. Sequences are parsed as Series, other non-expression inputs are parsed as literals.</param>

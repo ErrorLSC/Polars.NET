@@ -120,6 +120,8 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_last(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rle(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rle_id(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_peak_max(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_peak_min(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_replace(ExprHandle expr, ExprHandle old,ExprHandle newExpr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_replace_strict(ExprHandle expr, ExprHandle old,ExprHandle newExpr,nint defaultExpr, nint dtype);
     [LibraryImport(LibName)]
