@@ -10,7 +10,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Default behavior: maintains group order.
     /// </summary>
     /// <remarks>
-    /// Unlike <see cref="DataFrame.GroupBy(IntoExpr,bool)"/> which returns a <see cref="GroupByBuilder"/>,
+    /// Unlike <see cref="DataFrame.GroupBy(IntoColumnExpr,bool)"/> which returns a <see cref="GroupByBuilder"/>,
     /// this returns a <see cref="LazyGroupBy"/> object which allows constructing the aggregation plan.
     /// </remarks>
     /// <example>
@@ -33,7 +33,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// */
     /// </code>
     /// </example>
-    public LazyGroupBy GroupBy(IEnumerable<IntoExpr> keys, bool maintainOrder = true)
+    public LazyGroupBy GroupBy(IEnumerable<IntoColumnExpr> keys, bool maintainOrder = true)
     {
         var exprs = keys.Select(k => k.Consume()).ToArray();
         
@@ -42,7 +42,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// <summary>
     /// Group by a single key with explicit control over maintainOrder.
     /// </summary>
-    public LazyGroupBy GroupBy(IntoExpr key, bool maintainOrder = true)
+    public LazyGroupBy GroupBy(IntoColumnExpr key, bool maintainOrder = true)
         => GroupBy([key], maintainOrder);
     /// <summary>
     /// Lazily group based on a time index using dynamic windows.
@@ -63,7 +63,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         IntoDuration every,
         IntoDuration? period = null,
         IntoDuration? offset = null,
-        IEnumerable<IntoExpr>? groupBy = null, 
+        IEnumerable<IntoColumnExpr>? groupBy = null, 
         Label label = Label.Left,
         bool includeBoundaries = false,
         ClosedWindow closedWindow = ClosedWindow.Left,
@@ -110,7 +110,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         IntoSelector indexColumn, 
         IntoDuration period,
         IntoDuration? offset = null,
-        IEnumerable<IntoExpr>? groupBy = null,
+        IEnumerable<IntoColumnExpr>? groupBy = null,
         ClosedWindow closedWindow = ClosedWindow.Right)
     {
         using var idxSelector = indexColumn.Consume();
@@ -189,13 +189,13 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <summary>
     /// Group by a single key with explicit control over maintainOrder.
     /// </summary>
-    public GroupByBuilder GroupBy(IntoExpr key, bool maintainOrder = true)
+    public GroupByBuilder GroupBy(IntoColumnExpr key, bool maintainOrder = true)
         => GroupBy([key], maintainOrder);
     /// <summary>
     /// The core GroupBy implementation. 
     /// All other overloads route here.
     /// </summary>
-    public GroupByBuilder GroupBy(IEnumerable<IntoExpr> keys, bool maintainOrder = true)
+    public GroupByBuilder GroupBy(IEnumerable<IntoColumnExpr> keys, bool maintainOrder = true)
     {
         var exprs = keys.Select(k => k.Consume()).ToArray();
         
@@ -261,7 +261,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         IntoDuration every,
         IntoDuration? period = null,
         IntoDuration? offset = null,
-        IEnumerable<IntoExpr>? groupBy = null, 
+        IEnumerable<IntoColumnExpr>? groupBy = null, 
         Label label = Label.Left,
         bool includeBoundaries = false,
         ClosedWindow closedWindow = ClosedWindow.Left,
@@ -275,7 +275,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         IntoSelector indexColumn,
         IntoDuration period,
         IntoDuration? offset = null,
-        IEnumerable<IntoExpr>? groupBy = null,
+        IEnumerable<IntoColumnExpr>? groupBy = null,
         ClosedWindow closedWindow = ClosedWindow.Left)
     {
         return new GroupByBuilder(

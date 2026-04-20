@@ -32,7 +32,7 @@ public class MissingColumnAction
     /// Insert the missing column and fill it with the evaluated expression or literal value.
     /// </summary>
     /// <param name="expr">The expression or primitive value to fill the missing column with.</param>
-    public static MissingColumnAction InsertWith(IntoExpr expr) 
+    public static MissingColumnAction InsertWith(IntoColumnExpr expr) 
         => new(PlMissingColumnsPolicyType.InsertWith, expr.Consume());
 }
 

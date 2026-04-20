@@ -105,7 +105,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         string tmpSuffix = "__POLARS_RIGHT";
         var dropColumns = rightOther.Select(name => $"{name}{tmpSuffix}").ToList();
         
-        var otherSelectExprs = new IntoExpr[rightOnList.Count + rightOther.Count + (validityCol != null ? 1 : 0)];
+        var otherSelectExprs = new IntoColumnExpr[rightOnList.Count + rightOther.Count + (validityCol != null ? 1 : 0)];
         int selectIdx = 0;
         foreach (var col in rightOnList) otherSelectExprs[selectIdx++] = col;
         foreach (var col in rightOther) otherSelectExprs[selectIdx++] = col;
@@ -116,8 +116,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         }
 
         // Execute Join 
-        var leftOnExprs = leftOnList.Select(x => (IntoExpr)x).ToArray();
-        var rightOnExprs = rightOnList.Select(x => (IntoExpr)x).ToArray();
+        var leftOnExprs = leftOnList.Select(x => (IntoColumnExpr)x).ToArray();
+        var rightOnExprs = rightOnList.Select(x => (IntoColumnExpr)x).ToArray();
 
         var result = leftFrame.Join(
             rightFrame.Select(otherSelectExprs),
@@ -129,7 +129,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
             coalesce: JoinCoalesce.CoalesceColumns);
 
         // Coalesce/Update logic
-        var updateExprs = new IntoExpr[rightOther.Count];
+        var updateExprs = new IntoColumnExpr[rightOther.Count];
         for (int i = 0; i < rightOther.Count; i++)
         {
             string name = rightOther[i];

@@ -106,7 +106,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <returns></returns>
     public Series Clone() => new(PolarsWrapper.CloneSeries(Handle));
 
-    internal Series ApplyExpr(IntoExpr expr)
+    internal Series ApplyExpr(IntoColumnExpr expr)
     {
         using var df = new DataFrame(this);
 
@@ -115,7 +115,7 @@ public partial class Series : IDisposable,IPolarsSeries
         return dfRes[0];
     }
 
-    internal Series ApplyBinaryExpr(IntoExpr other, Func<Expr, Expr, Expr> op)
+    internal Series ApplyBinaryExpr(IntoColumnExpr other, Func<Expr, Expr, Expr> op)
     {
         using Expr rightExpr = other.Consume();
         
@@ -182,13 +182,13 @@ public partial class Series : IDisposable,IPolarsSeries
     public Series Get(ulong index, bool nullOnOutOfBounds = false)
         => ApplyExpr(Pl.Col(Name).Get(index, nullOnOutOfBounds));
 
-    /// <inheritdoc cref="Expr.Gather(IntoExpr)"/>
-    public Series Gather(IntoExpr indices) => ApplyExpr(Pl.Col(Name).Gather(indices));
+    /// <inheritdoc cref="Expr.Gather(IntoColumnExpr)"/>
+    public Series Gather(IntoColumnExpr indices) => ApplyExpr(Pl.Col(Name).Gather(indices));
     /// <inheritdoc cref="Take(Series)"/>
     public Series Gather(ReadOnlySpan<int> indices) => ApplyExpr(Pl.Col(Name).Gather(indices));
-    /// <inheritdoc cref="Expr.Take(IntoExpr)"/>
-    public Series Take(IntoExpr indices) => Gather(indices);
-    /// <inheritdoc cref="Expr.Take(IntoExpr)"/>
+    /// <inheritdoc cref="Expr.Take(IntoColumnExpr)"/>
+    public Series Take(IntoColumnExpr indices) => Gather(indices);
+    /// <inheritdoc cref="Expr.Take(IntoColumnExpr)"/>
     public Series Take(ReadOnlySpan<int> indices) => Gather(indices);
     /// <summary>
     /// Take elements by physical integer indices.
@@ -394,6 +394,18 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <param name="dimensions">Tuple of the dimension sizes. If a -1 is used in any of the dimensions, that dimension is inferred.</param>
     /// <returns>Tuple of the dimension sizes. If a -1 is used in any of the dimensions, that dimension is inferred.</returns>
     public Series Reshape(ReadOnlySpan<long> dimensions) => new(PolarsWrapper.SeriesReshape(Handle, dimensions));
+    /// <inheritdoc cref="Expr.Replace(IntoExpr, IntoExpr)"/> 
+    public Series Replace(IntoExpr old,IntoExpr newExpr) => ApplyExpr(Pl.Col(Name).Replace(old,newExpr));
+    /// <inheritdoc cref="Expr.Replace{TKey, TValue}(IEnumerable{KeyValuePair{TKey, TValue}})"/> 
+    public Series Replace<TKey, TValue>(IEnumerable<KeyValuePair<TKey, TValue>> mapping) => ApplyExpr(Pl.Col(Name).Replace(mapping));
+    /// <inheritdoc cref="Expr.ReplaceStrict{TOld, TNew}(IEnumerable{TOld}, IEnumerable{TNew}, IntoExpr?, IntoDataTypeExpr?)"/> 
+    public Series Replace<TOld, TNew>(IEnumerable<TOld> oldValues, IEnumerable<TNew> newValues) => ApplyExpr(Pl.Col(Name).Replace(oldValues,newValues));
+    /// <inheritdoc cref="Expr.ReplaceStrict(IntoExpr, IntoExpr,IntoExpr?,IntoDataTypeExpr?)"/> 
+    public Series ReplaceStrict(IntoExpr old,IntoExpr newExpr,IntoExpr? defaultExpr = null,IntoDataTypeExpr? returnDataType=null) => ApplyExpr(Pl.Col(Name).ReplaceStrict(old,newExpr,defaultExpr,returnDataType));
+    /// <inheritdoc cref="Expr.ReplaceStrict{TKey, TValue}(IEnumerable{KeyValuePair{TKey, TValue}}, IntoExpr?, IntoDataTypeExpr?)"/>
+    public Series ReplaceStrict<TKey, TValue>(IEnumerable<KeyValuePair<TKey, TValue>> mapping,IntoExpr? defaultExpr = null,IntoDataTypeExpr? returnDataType=null) => ApplyExpr(Pl.Col(Name).ReplaceStrict(mapping,defaultExpr,returnDataType));
+    /// <inheritdoc cref="Expr.ReplaceStrict{TOld, TNew}(IEnumerable{TOld}, IEnumerable{TNew}, IntoExpr?, IntoDataTypeExpr?)"/>
+    public Series ReplaceStrict<TOld, TNew>(IEnumerable<TOld> oldValues, IEnumerable<TNew> newValues,IntoExpr? defaultExpr = null,IntoDataTypeExpr? returnDataType=null) => ApplyExpr(Pl.Col(Name).ReplaceStrict(oldValues,newValues,defaultExpr,returnDataType));
     
     // ==========================================
     // Null Checks & Boolean Masks

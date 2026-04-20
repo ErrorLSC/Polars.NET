@@ -1550,4 +1550,22 @@ public readonly partial struct PolarsWrapper
         expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle ExprReplace(ExprHandle expr,ExprHandle old,ExprHandle newExpr)
+    {
+        var h = NativeBindings.pl_expr_replace(expr,old,newExpr);
+        expr.TransferOwnership();
+        old.TransferOwnership();
+        newExpr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ExprReplaceStrict(ExprHandle expr,ExprHandle old,ExprHandle newExpr,ExprHandle? defaultExpr,DataTypeExprHandle? dtype)
+    {
+        nint defaultPtr = defaultExpr?.TransferOwnership() ?? nint.Zero;
+        nint dtypePtr = dtype?.TransferOwnership() ?? nint.Zero;
+        var h = NativeBindings.pl_expr_replace_strict(expr,old,newExpr,defaultPtr,dtypePtr);
+        expr.TransferOwnership();
+        old.TransferOwnership();
+        newExpr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
 }

@@ -8,7 +8,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Get the top k rows according to a single expression, string, or selector.
     /// Usage: lf.TopK(5, "Sales") or lf.TopK(10, Pl.Col("Age") * 2, reverse: true)
     /// </summary>
-    public LazyFrame TopK(int k, IntoExpr by, bool reverse = false)
+    public LazyFrame TopK(int k, IntoColumnExpr by, bool reverse = false)
     {
         using var safeExpr = by.Consume();
         
@@ -44,7 +44,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Get the top k rows with specific reverse directions using Tuples.
     /// Usage: lf.TopK(5, ("Score", false), ("Age", true), (Cs.Numeric(), false))
     /// </summary>
-    public LazyFrame TopK(int k, params (IntoExpr By, bool Reverse)[] configs)
+    public LazyFrame TopK(int k, params (IntoColumnExpr By, bool Reverse)[] configs)
     {
         if (configs.Length == 0) return this;
 
@@ -86,7 +86,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Get the Bottom k rows according to a single expression, string, or selector.
     /// Usage: lf.BottomK(5, "Sales") or lf.BottomK(10, Pl.Col("Age") * 2, reverse: true)
     /// </summary>
-    public LazyFrame BottomK(int k, IntoExpr by, bool reverse = false)
+    public LazyFrame BottomK(int k, IntoColumnExpr by, bool reverse = false)
     {
         using var safeExpr = by.Consume();
         
@@ -122,7 +122,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Get the Bottom k rows with specific reverse directions using Tuples.
     /// Usage: lf.BottomK(5, ("Score", false), ("Age", true), (Cs.Numeric(), false))
     /// </summary>
-    public LazyFrame BottomK(int k, params (IntoExpr By, bool Reverse)[] configs)
+    public LazyFrame BottomK(int k, params (IntoColumnExpr By, bool Reverse)[] configs)
     {
         if (configs.Length == 0) return this;
 
@@ -172,7 +172,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <summary>
     /// Get the top k rows according to a single expression.
     /// </summary>
-    public DataFrame TopK(int k, IntoExpr by, bool reverse = false) => Lazy().TopK(k, by, reverse).Collect();
+    public DataFrame TopK(int k, IntoColumnExpr by, bool reverse = false) => Lazy().TopK(k, by, reverse).Collect();
     /// <summary>
     /// Master method: Get the top k rows by multiple Expressions with optional parallel boolean arrays.
     /// Usage: df.TopK(10, myColumns.Select(c => Pl.Col(c)))
@@ -182,7 +182,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Get the top k rows with specific reverse directions using Tuples.
     /// Usage: df.TopK(5, ("Score", false), ("Age", true), (Cs.Numeric(), false))
     /// </summary>
-    public DataFrame TopK(int k, params (IntoExpr By, bool Reverse)[] configs) => Lazy().TopK(k, configs).Collect();
+    public DataFrame TopK(int k, params (IntoColumnExpr By, bool Reverse)[] configs) => Lazy().TopK(k, configs).Collect();
     /// <summary>
     /// Get the top k rows according to the given expressions.
     /// <para>This selects the largest values.</para>
@@ -192,7 +192,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <summary>
     /// Get the Bottom k rows according to a single expression.
     /// </summary>
-    public DataFrame BottomK(int k, IntoExpr by, bool reverse = false) => Lazy().BottomK(k, by, reverse).Collect();
+    public DataFrame BottomK(int k, IntoColumnExpr by, bool reverse = false) => Lazy().BottomK(k, by, reverse).Collect();
     /// <summary>
     /// Master method: Get the Bottom k rows by multiple Expressions with optional parallel boolean arrays.
     /// Usage: df.BottomK(10, myColumns.Select(c => Pl.Col(c)))
@@ -202,5 +202,5 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Get the Bottom k rows with specific reverse directions using Tuples.
     /// Usage: df.BottomK(5, ("Score", false), ("Age", true), (Cs.Numeric(), false))
     /// </summary>
-    public DataFrame BottomK(int k, params (IntoExpr By, bool Reverse)[] configs) => Lazy().BottomK(k, configs).Collect();
+    public DataFrame BottomK(int k, params (IntoColumnExpr By, bool Reverse)[] configs) => Lazy().BottomK(k, configs).Collect();
 }

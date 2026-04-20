@@ -11,7 +11,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// lf.WithColumns(Pl.Col("a") + 1, mySeries, "ExistingCol", Cs.Numeric() * 2);
     /// </code>
     /// </example>
-    public LazyFrame WithColumns(params IntoExpr[] exprs)
+    public LazyFrame WithColumns(params IntoColumnExpr[] exprs)
     {
         if (exprs.Length == 0) return this;
 
@@ -29,13 +29,13 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     public LazyFrame WithColumns(IEnumerable<Expr> exprs)
     {
         if (exprs == null) return this;
-        return WithColumns(exprs.Select(e => (IntoExpr)e).ToArray());
+        return WithColumns(exprs.Select(e => (IntoColumnExpr)e).ToArray());
     }
 
     /// <summary>
     /// Add or overwrite multiple columns from a collection of mixed IntoExpr types.
     /// </summary>
-    public LazyFrame WithColumns(IEnumerable<IntoExpr> exprs)
+    public LazyFrame WithColumns(IEnumerable<IntoColumnExpr> exprs)
     {
         if (exprs == null) return this;
         return WithColumns(exprs.ToArray());
@@ -47,7 +47,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     public LazyFrame WithColumns(IEnumerable<string> columns)
     {
         if (columns == null) return this;
-        return WithColumns(columns.Select(c => (IntoExpr)c).ToArray());
+        return WithColumns(columns.Select(c => (IntoColumnExpr)c).ToArray());
     }
 }
 
@@ -56,7 +56,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <summary>
     /// Add new columns to the DataFrame or replace existing ones using expressions.
     /// <para>
-    /// Unlike <see cref="Select(IntoExpr[])"/>, this method keeps all original columns in the DataFrame 
+    /// Unlike <see cref="Select(IntoColumnExpr[])"/>, this method keeps all original columns in the DataFrame 
     /// and appends the new ones (or replaces them if the names match).
     /// </para>
     /// </summary>
@@ -91,7 +91,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// */
     /// </code>
     /// </example>
-    public DataFrame WithColumns(params IntoExpr[] exprs) => Lazy().WithColumns(exprs).Collect();
+    public DataFrame WithColumns(params IntoColumnExpr[] exprs) => Lazy().WithColumns(exprs).Collect();
     /// <summary>
     /// Add or overwrite multiple columns from a collection of Expressions.
     /// </summary>
@@ -100,7 +100,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <summary>
     /// Add or overwrite multiple columns from a collection of mixed IntoExpr types.
     /// </summary>
-    public DataFrame WithColumns(IEnumerable<IntoExpr> exprs) => Lazy().WithColumns(exprs).Collect();
+    public DataFrame WithColumns(IEnumerable<IntoColumnExpr> exprs) => Lazy().WithColumns(exprs).Collect();
 
     /// <summary>
     /// Add or overwrite multiple columns from a collection of string column names.

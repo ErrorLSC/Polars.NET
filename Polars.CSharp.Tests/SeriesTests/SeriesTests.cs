@@ -2001,4 +2001,32 @@ public class SeriesTests
         using Series s2 = s1.RleId();
         Assert.Equal(8,s2.Length);
     }
+    [Fact]
+    [Trait("Series", "Replace")]
+    public void Test_Series_Replace()
+    {
+        int[] data = [1, 2, 3, 2, 1];
+        using Series s = Pl.Series("test_replace", data);
+
+        using Series s1 = s.Replace(2, 20);
+        Assert.Equal([1, 20, 3, 20, 1], s1.ToArray<int>());
+
+        var mapping = new Dictionary<int, int>
+        {
+            { 1, 10 },
+            { 3, 30 }
+        };
+        using Series s2 = s.Replace(mapping);
+        Assert.Equal([10, 2, 30, 2, 10], s2.ToArray<int>());
+
+        int[] oldVals = [1, 2];
+        int[] newVals = [100, 200];
+        using Series s3 = s.Replace(oldVals, newVals);
+        Assert.Equal([100, 200, 3, 200, 100], s3.ToArray<int>());
+
+        using Series s4 = s.ReplaceStrict(2, 2000, defaultExpr: 0);
+        Assert.Equal([0, 2000, 0, 2000, 0], s4.ToArray<int>());
+        
+        Assert.Equal("test_replace", s1.Name);
+    }
 }

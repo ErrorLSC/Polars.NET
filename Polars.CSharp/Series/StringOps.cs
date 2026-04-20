@@ -34,13 +34,13 @@ public readonly struct SeriesStrOps
     /// <inheritdoc cref="StringOps.ReplaceAll"/>
     public Series ReplaceAll(string pattern, string value, bool literal = false)
         => Apply(e => e.Str.ReplaceAll(pattern, value,literal));
-    /// <inheritdoc cref="StringOps.ReplaceMany(IntoExpr,IntoExpr,bool,bool)"/>
+    /// <inheritdoc cref="StringOps.ReplaceMany(IntoColumnExpr,IntoColumnExpr,bool,bool)"/>
     public Series ReplaceMany(Series patterns, Series replaceWith, bool asciiCaseInsensitive = false,bool leftmost=false)
         => Apply(e => e.Str.ReplaceMany(patterns, replaceWith,asciiCaseInsensitive,leftmost));
     /// <inheritdoc cref="StringOps.ReplaceMany(IReadOnlyDictionary{string,string},bool,bool)"/>
     public Series ReplaceMany(IReadOnlyDictionary<string, string> mapping, bool asciiCaseInsensitive = false,bool leftmost=false)
         => Apply(e => e.Str.ReplaceMany(mapping,asciiCaseInsensitive,leftmost));
-    /// <inheritdoc cref="StringOps.ReplaceMany(IntoExpr,IntoExpr,bool,bool)"/>
+    /// <inheritdoc cref="StringOps.ReplaceMany(IntoColumnExpr,IntoColumnExpr,bool,bool)"/>
     public Series ReplaceMany(IEnumerable<string> patterns,IEnumerable<string> replaceWith, bool asciiCaseInsensitive = false,bool leftmost=false)
         => Apply(e => e.Str.ReplaceMany(Pl.Lit(patterns).Implode(),Pl.Lit(replaceWith).Implode(),asciiCaseInsensitive,leftmost));
     /// <inheritdoc cref="StringOps.Extract"/>

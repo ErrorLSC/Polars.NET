@@ -62,7 +62,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// </example>
     public LazyFrame Join(
         LazyFrame other,
-        IntoExpr on,
+        IntoColumnExpr on,
         JoinType how = JoinType.Inner,
         string? suffix = null,
         JoinValidation validation = JoinValidation.ManyToMany,
@@ -90,8 +90,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// </summary>
     public LazyFrame Join(
         LazyFrame other,
-        IntoExpr leftOn,
-        IntoExpr rightOn,
+        IntoColumnExpr leftOn,
+        IntoColumnExpr rightOn,
         JoinType how = JoinType.Inner,
         string? suffix = null,
         JoinValidation validation = JoinValidation.ManyToMany,
@@ -155,8 +155,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// </summary>
     public LazyFrame Join(
         LazyFrame other,
-        IEnumerable<IntoExpr> leftOn,
-        IEnumerable<IntoExpr> rightOn,
+        IEnumerable<IntoColumnExpr> leftOn,
+        IEnumerable<IntoColumnExpr> rightOn,
         JoinType how = JoinType.Inner,
         string? suffix = null,
         JoinValidation validation = JoinValidation.ManyToMany,
@@ -167,8 +167,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         long? sliceOffset = null,
         ulong sliceLen = 0)
     {
-        var lArr = leftOn as IntoExpr[] ?? [.. leftOn];
-        var rArr = rightOn as IntoExpr[] ?? [.. rightOn];
+        var lArr = leftOn as IntoColumnExpr[] ?? [.. leftOn];
+        var rArr = rightOn as IntoColumnExpr[] ?? [.. rightOn];
 
         var lOn = new ExprHandle[lArr.Length];
         for (int i = 0; i < lArr.Length; i++)
@@ -196,7 +196,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// </summary>
     public LazyFrame Join(
         LazyFrame other,
-        IEnumerable<IntoExpr> on,
+        IEnumerable<IntoColumnExpr> on,
         JoinType how = JoinType.Inner,
         string? suffix = null,
         JoinValidation validation = JoinValidation.ManyToMany,
@@ -207,7 +207,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         long? sliceOffset = null,
         ulong sliceLen = 0)
     {
-        var arr = on as IntoExpr[] ?? [.. on];
+        var arr = on as IntoColumnExpr[] ?? [.. on];
 
         var lOn = new ExprHandle[arr.Length];
         var rOn = new ExprHandle[arr.Length];
@@ -244,8 +244,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         long? sliceOffset = null,
         ulong sliceLen = 0)
     {
-        var lArr = leftOn.Select(e => (IntoExpr)e).ToArray();
-        var rArr = rightOn.Select(e => (IntoExpr)e).ToArray();
+        var lArr = leftOn.Select(e => (IntoColumnExpr)e).ToArray();
+        var rArr = rightOn.Select(e => (IntoColumnExpr)e).ToArray();
 
         return Join(other, lArr, rArr, how, suffix, validation, coalesce, maintainOrder, joinSide, nullsEqual, sliceOffset, sliceLen);
     }
@@ -267,7 +267,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         long? sliceOffset = null,
         ulong sliceLen = 0)
     {
-        var onArr = on.Select(e => (IntoExpr)e).ToArray();
+        var onArr = on.Select(e => (IntoColumnExpr)e).ToArray();
 
         return Join(other, onArr, how, suffix, validation, coalesce, maintainOrder, joinSide, nullsEqual, sliceOffset, sliceLen);
     }
@@ -355,7 +355,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// </example>
     internal LazyFrame JoinAsOfInternal(
         LazyFrame other,
-        IntoExpr leftOn, IntoExpr rightOn,
+        IntoColumnExpr leftOn, IntoColumnExpr rightOn,
         IEnumerable<string>? leftBy, IEnumerable<string>? rightBy,
         AsOfTolerance? tolerance, AsofStrategy strategy,
         bool allowEq, bool checkSorted, string? suffix,
@@ -374,7 +374,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
             lByHandles = new ExprHandle[lByArr.Length];
             for (int i = 0; i < lByArr.Length; i++)
             {
-                using var safeExpr = ((IntoExpr)lByArr[i]).Consume();
+                using var safeExpr = ((IntoColumnExpr)lByArr[i]).Consume();
                 lByHandles[i] = PolarsWrapper.CloneExpr(safeExpr.Handle);
             }
         }
@@ -386,7 +386,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
             rByHandles = new ExprHandle[rByArr.Length];
             for (int i = 0; i < rByArr.Length; i++)
             {
-                using var safeExpr = ((IntoExpr)rByArr[i]).Consume();
+                using var safeExpr = ((IntoColumnExpr)rByArr[i]).Consume();
                 rByHandles[i] = PolarsWrapper.CloneExpr(safeExpr.Handle);
             }
         }
@@ -407,10 +407,10 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Join AsOf using a shared 'on' column and optional shared 'by' columns.
     /// Usage: lf.JoinAsOf(other, on: "time", tolerance: "2h", by: ["ticker"])
     /// </summary>
-    /// <inheritdoc cref="LazyFrame.JoinAsOfInternal(LazyFrame, IntoExpr, IntoExpr, IEnumerable{string}?, IEnumerable{string}?, AsOfTolerance?, AsofStrategy, bool, bool, string?, JoinValidation, JoinCoalesce, JoinMaintainOrder, JoinSide, bool, long?, ulong)"/>
+    /// <inheritdoc cref="LazyFrame.JoinAsOfInternal(LazyFrame, IntoColumnExpr, IntoColumnExpr, IEnumerable{string}?, IEnumerable{string}?, AsOfTolerance?, AsofStrategy, bool, bool, string?, JoinValidation, JoinCoalesce, JoinMaintainOrder, JoinSide, bool, long?, ulong)"/>
     public LazyFrame JoinAsOf(
         LazyFrame other,
-        IntoExpr on,
+        IntoColumnExpr on,
         AsOfTolerance? tolerance = null,
         IEnumerable<string>? by = null,
         AsofStrategy strategy = AsofStrategy.Backward,
@@ -436,11 +436,11 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Join AsOf using independent 'leftOn'/'rightOn' and 'leftBy'/'rightBy' columns.
     /// Usage: lf.JoinAsOf(other, leftOn: "time_L", rightOn: "time_R", tolerance: TimeSpan.FromMinutes(5))
     /// </summary>
-    /// <inheritdoc cref="LazyFrame.JoinAsOfInternal(LazyFrame, IntoExpr, IntoExpr, IEnumerable{string}?, IEnumerable{string}?, AsOfTolerance?, AsofStrategy, bool, bool, string?, JoinValidation, JoinCoalesce, JoinMaintainOrder, JoinSide, bool, long?, ulong)"/>
+    /// <inheritdoc cref="LazyFrame.JoinAsOfInternal(LazyFrame, IntoColumnExpr, IntoColumnExpr, IEnumerable{string}?, IEnumerable{string}?, AsOfTolerance?, AsofStrategy, bool, bool, string?, JoinValidation, JoinCoalesce, JoinMaintainOrder, JoinSide, bool, long?, ulong)"/>
     public LazyFrame JoinAsOf(
         LazyFrame other,
-        IntoExpr leftOn,
-        IntoExpr rightOn,
+        IntoColumnExpr leftOn,
+        IntoColumnExpr rightOn,
         AsOfTolerance? tolerance = null,
         IEnumerable<string>? leftBy = null,
         IEnumerable<string>? rightBy = null,
@@ -469,7 +469,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// </summary>
     public LazyFrame JoinWhere(
         LazyFrame other,
-        IEnumerable<IntoExpr> predicates,
+        IEnumerable<IntoColumnExpr> predicates,
         JoinType how = JoinType.Inner,
         string? suffix = null,
         JoinValidation validation = JoinValidation.ManyToMany,
@@ -477,7 +477,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         JoinMaintainOrder maintainOrder = JoinMaintainOrder.None,
         bool nullsEqual = false)
     {
-        var predArr = predicates as IntoExpr[] ?? [.. predicates];
+        var predArr = predicates as IntoColumnExpr[] ?? [.. predicates];
         if (predArr.Length == 0)
             throw new ArgumentException("At least one predicate must be provided for JoinWhere.", nameof(predicates));
 
@@ -509,7 +509,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// </summary>
     public LazyFrame JoinWhere(
         LazyFrame other,
-        IntoExpr predicate,
+        IntoColumnExpr predicate,
         JoinType how = JoinType.Inner,
         string? suffix = null,
         JoinValidation validation = JoinValidation.ManyToMany,
@@ -528,11 +528,11 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Note: You cannot use optional parameters (like 'how' or 'suffix') with this overload. Use collection expressions `[...]` instead.
     /// Usage: lf.JoinWhere(other, Pl.Col("A") &gt; Pl.Col("B"), Pl.Col("C") > 0)
     /// </summary>
-    public LazyFrame JoinWhere(LazyFrame other, params IntoExpr[] predicates)
+    public LazyFrame JoinWhere(LazyFrame other, params IntoColumnExpr[] predicates)
     {
         if (predicates.Length == 0) return this;
         
-        return JoinWhere(other, (IEnumerable<IntoExpr>)predicates);
+        return JoinWhere(other, (IEnumerable<IntoColumnExpr>)predicates);
     }
 
     public LazyFrame MergeSorted(LazyFrame other, string key)
@@ -558,7 +558,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="sliceLen">Length of the slice.</param>
     public DataFrame Join(
         DataFrame other, 
-        IntoExpr on,
+        IntoColumnExpr on,
         JoinType how = JoinType.Inner,
         string? suffix = null,
         JoinValidation validation = JoinValidation.ManyToMany,
@@ -640,8 +640,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </example>
     public DataFrame Join(
         DataFrame other, 
-        IntoExpr leftOn,
-        IntoExpr rightOn,
+        IntoColumnExpr leftOn,
+        IntoColumnExpr rightOn,
         JoinType how = JoinType.Inner,
         string? suffix = null,
         JoinValidation validation = JoinValidation.ManyToMany,
@@ -674,8 +674,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     public DataFrame Join(
         DataFrame other,
-        IEnumerable<IntoExpr> leftOn,
-        IEnumerable<IntoExpr> rightOn,
+        IEnumerable<IntoColumnExpr> leftOn,
+        IEnumerable<IntoColumnExpr> rightOn,
         JoinType how = JoinType.Inner,
         string? suffix = null,
         JoinValidation validation = JoinValidation.ManyToMany,
@@ -747,7 +747,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     }
     public DataFrame Join(
         DataFrame other,
-        IEnumerable<IntoExpr> on,
+        IEnumerable<IntoColumnExpr> on,
         JoinType how = JoinType.Inner,
         string? suffix = null,
         JoinValidation validation = JoinValidation.ManyToMany,
@@ -840,7 +840,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             sliceLen
         ).Collect();
     }
-    /// <inheritdoc cref="LazyFrame.JoinAsOfInternal(LazyFrame, IntoExpr, IntoExpr, IEnumerable{string}?, IEnumerable{string}?, AsOfTolerance?, AsofStrategy, bool, bool, string?, JoinValidation, JoinCoalesce, JoinMaintainOrder, JoinSide, bool, long?, ulong)"/>
+    /// <inheritdoc cref="LazyFrame.JoinAsOfInternal(LazyFrame, IntoColumnExpr, IntoColumnExpr, IEnumerable{string}?, IEnumerable{string}?, AsOfTolerance?, AsofStrategy, bool, bool, string?, JoinValidation, JoinCoalesce, JoinMaintainOrder, JoinSide, bool, long?, ulong)"/>
     /// <example>
     /// <code>
     /// // Trades: Events happening at specific times
@@ -887,7 +887,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     public DataFrame JoinAsOf(
         DataFrame other,
-        IntoExpr on,
+        IntoColumnExpr on,
         AsOfTolerance? tolerance = null,
         IEnumerable<string>? by = null,
         AsofStrategy strategy = AsofStrategy.Backward,
@@ -914,11 +914,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Join AsOf using independent 'leftOn'/'rightOn' and 'leftBy'/'rightBy' columns.
     /// Usage: lf.JoinAsOf(other, leftOn: "time_L", rightOn: "time_R", tolerance: TimeSpan.FromMinutes(5))
     /// </summary>
-    /// <inheritdoc cref="LazyFrame.JoinAsOfInternal(LazyFrame, IntoExpr, IntoExpr, IEnumerable{string}?, IEnumerable{string}?, AsOfTolerance?, AsofStrategy, bool, bool, string?, JoinValidation, JoinCoalesce, JoinMaintainOrder, JoinSide, bool, long?, ulong)"/>
+    /// <inheritdoc cref="LazyFrame.JoinAsOfInternal(LazyFrame, IntoColumnExpr, IntoColumnExpr, IEnumerable{string}?, IEnumerable{string}?, AsOfTolerance?, AsofStrategy, bool, bool, string?, JoinValidation, JoinCoalesce, JoinMaintainOrder, JoinSide, bool, long?, ulong)"/>
     public DataFrame JoinAsOf(
         DataFrame other,
-        IntoExpr leftOn,
-        IntoExpr rightOn,
+        IntoColumnExpr leftOn,
+        IntoColumnExpr rightOn,
         AsOfTolerance? tolerance = null,
         IEnumerable<string>? leftBy = null,
         IEnumerable<string>? rightBy = null,
@@ -948,7 +948,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     public DataFrame JoinWhere(
         DataFrame other,
-        IEnumerable<IntoExpr> predicates,
+        IEnumerable<IntoColumnExpr> predicates,
         JoinType how = JoinType.Inner,
         string? suffix = null,
         JoinValidation validation = JoinValidation.ManyToMany,
@@ -970,7 +970,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     public DataFrame JoinWhere(
         DataFrame other,
-        IntoExpr predicate,
+        IntoColumnExpr predicate,
         JoinType how = JoinType.Inner,
         string? suffix = null,
         JoinValidation validation = JoinValidation.ManyToMany,
@@ -989,11 +989,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Note: You cannot use optional parameters (like 'how' or 'suffix') with this overload. Use collection expressions `[...]` instead.
     /// Usage: lf.JoinWhere(other, Pl.Col("A") &gt; Pl.Col("B"), Pl.Col("C") > 0)
     /// </summary>
-    public DataFrame JoinWhere(DataFrame other, params IntoExpr[] predicates)
+    public DataFrame JoinWhere(DataFrame other, params IntoColumnExpr[] predicates)
     {
         if (predicates.Length == 0) return this;
         
-        return JoinWhere(other, (IEnumerable<IntoExpr>)predicates);
+        return JoinWhere(other, (IEnumerable<IntoColumnExpr>)predicates);
     }
     public DataFrame MergeSorted(DataFrame other, string key)
     {

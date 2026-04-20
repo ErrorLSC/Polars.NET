@@ -124,7 +124,7 @@ public class GroupByBuilder:IEnumerable<(object[] Key, DataFrame Group)>
         string tempCol = "__POLARS_GB_GROUP_INDICES";
 
         var lazyWithIndex = _df.Lazy().WithRowIndex(rowIdxCol);
-        var intoKeys = _lazyGrouped._keys.Select(k => (IntoExpr)k).ToArray();
+        var intoKeys = _lazyGrouped._keys.Select(k => (IntoColumnExpr)k).ToArray();
 
         LazyGroupBy newLazyGrouped = _lazyGrouped._type switch
         {

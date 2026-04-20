@@ -13,7 +13,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// lf.Select(Col("a"), (Col("b") * 2).Alias("b_double"));
     /// </code>
     /// </example>
-    public LazyFrame Select(params IntoExpr[] exprs)
+    public LazyFrame Select(params IntoColumnExpr[] exprs)
     {
         if (exprs.Length == 0) return this;
 
@@ -30,7 +30,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Bridge overload to support IEnumerable IntoExpr exprs.
     /// Usage: lf.Select(["Id", "Name", "Date"])
     /// </summary>
-    public LazyFrame Select(params IEnumerable<IntoExpr> exprs) => Select(exprs.ToArray());
+    public LazyFrame Select(params IEnumerable<IntoColumnExpr> exprs) => Select(exprs.ToArray());
     /// <summary>
     /// Bridge overload to support C# 12 collection expressions.
     /// Usage: lf.Select(["Id", "Name", "Date"])
@@ -40,7 +40,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         var cols = columns as string[] ?? [.. columns];
         if (cols.Length == 0) return this;
 
-        var intoExprs = new IntoExpr[cols.Length];
+        var intoExprs = new IntoColumnExpr[cols.Length];
         for (int i = 0; i < cols.Length; i++)
         {
             intoExprs[i] = cols[i]; 
@@ -117,7 +117,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// */
     /// </code>
     /// </example>
-    public DataFrame Select(params IntoExpr[] columns) => Lazy().Select(columns).Collect();
+    public DataFrame Select(params IntoColumnExpr[] columns) => Lazy().Select(columns).Collect();
     /// <summary>
     /// Select columns by name (convenience overload).
     /// <para>
@@ -127,7 +127,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="columns">The names of the columns to select.</param>
     /// <returns>A new DataFrame containing only the selected columns.</returns>
     /// <remarks>
-    /// For more advanced selections (renaming, calculations), use <see cref="Select(IntoExpr[])"/>.
+    /// For more advanced selections (renaming, calculations), use <see cref="Select(IntoColumnExpr[])"/>.
     /// </remarks>
     public DataFrame Select(IEnumerable<string> columns) => Lazy().Select(columns).Collect();
     /// <summary>
@@ -142,5 +142,5 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Bridge overload to support IEnumerable IntoExpr exprs.
     /// Usage: lf.Select(["Id", "Name", "Date"])
     /// </summary>
-    public DataFrame Select(params IEnumerable<IntoExpr> exprs) => Lazy().Select(exprs).Collect();
+    public DataFrame Select(params IEnumerable<IntoColumnExpr> exprs) => Lazy().Select(exprs).Collect();
 }

@@ -24,7 +24,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     public LazyFrame Cast(params (IntoSelector Selector, IntoDataTypeExpr Dtype)[] casts)
     {
         if (casts.Length == 0) return this;
-        var castExprs = new IntoExpr[casts.Length];
+        var castExprs = new IntoColumnExpr[casts.Length];
         
         for (int i = 0; i < casts.Length; i++)
         {
@@ -47,7 +47,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
                 return this;
 
             var fields = schema.ToList();
-            var castExprs = new IntoExpr[fields.Count];
+            var castExprs = new IntoColumnExpr[fields.Count];
 
             for (int i = 0; i < fields.Count; i++)
             {
@@ -82,7 +82,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public DataFrame Cast(params (IntoSelector Selector, IntoDataTypeExpr Dtype)[] casts)
     {
         if (casts.Length == 0) return this;
-        var castExprs = new IntoExpr[casts.Length];
+        var castExprs = new IntoColumnExpr[casts.Length];
         
         for (int i = 0; i < casts.Length; i++)
         {
@@ -105,7 +105,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
                 return this;
 
             var fields = schema.ToList();
-            var castExprs = new IntoExpr[fields.Count];
+            var castExprs = new IntoColumnExpr[fields.Count];
 
             for (int i = 0; i < fields.Count; i++)
             {

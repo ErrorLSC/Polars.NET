@@ -85,7 +85,7 @@ public readonly struct StructOps
     /// <returns></returns>
     public Expr Unnest() => Field("*");
 
-    public Expr WithFields(params IntoExpr[] fields)
+    public Expr WithFields(params IntoColumnExpr[] fields)
     {
         if (fields == null || fields.Length == 0)
         {

@@ -6,7 +6,7 @@ public readonly partial struct Polars
     /// <summary>
     /// Start a `when-then-otherwise` expression.
     /// </summary>
-    public static When When(IntoExpr condition)
+    public static When When(IntoColumnExpr condition)
         => new(condition.Consume());
 }
 
@@ -19,7 +19,7 @@ public class When
         _condition = condition;
     }
 
-    public Then Then(IntoExpr statement)
+    public Then Then(IntoColumnExpr statement)
     {
         return new Then(_condition, statement.Consume());
     }
@@ -36,14 +36,14 @@ public class Then
         _statements.Add(statement);
     }
 
-    public ChainedWhen When(IntoExpr condition)
+    public ChainedWhen When(IntoColumnExpr condition)
         => new (this, condition.Consume());
     
 
     /// <summary>
     /// Define a default for the `when-then-otherwise` expression.
     /// </summary>
-    public Expr Otherwise(IntoExpr statement)
+    public Expr Otherwise(IntoColumnExpr statement)
     {
         Expr otherwiseExpr = statement.Consume();
 
@@ -70,7 +70,7 @@ public class ChainedWhen
         _condition = condition;
     }
 
-    public Then Then(IntoExpr statement)
+    public Then Then(IntoColumnExpr statement)
     {
         _parent._conditions.Add(_condition);
         _parent._statements.Add(statement.Consume());

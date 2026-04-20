@@ -14,8 +14,8 @@ public readonly partial struct Polars
     /// <param name="timeZone">Time zone of the resulting Datetime data type.</param>
     /// <returns></returns>
     public static Expr DatetimeRange(
-        IntoExpr? start = null, 
-        IntoExpr? end = null, 
+        IntoColumnExpr? start = null, 
+        IntoColumnExpr? end = null, 
         IntoDuration? interval = null,
         ClosedWindow closed = ClosedWindow.Both,
         TimeUnit unit=TimeUnit.Microseconds,
@@ -38,8 +38,8 @@ public readonly partial struct Polars
     }
     /// <inheritdoc cref="DatetimeRange"/>
     public static Series DatetimeRangeAsSeries(
-        IntoExpr? start = null, 
-        IntoExpr? end = null, 
+        IntoColumnExpr? start = null, 
+        IntoColumnExpr? end = null, 
         IntoDuration? interval = null,
         ClosedWindow closed = ClosedWindow.Both,
         TimeUnit unit=TimeUnit.Microseconds,
@@ -56,8 +56,8 @@ public readonly partial struct Polars
     /// </summary>
     /// <inheritdoc cref="DatetimeRange"/>
     public static Expr DatetimeRanges(
-        IntoExpr? start = null, 
-        IntoExpr? end = null, 
+        IntoColumnExpr? start = null, 
+        IntoColumnExpr? end = null, 
         IntoDuration? interval = null,
         ClosedWindow closed = ClosedWindow.Both,
         TimeUnit unit=TimeUnit.Microseconds,
@@ -80,8 +80,8 @@ public readonly partial struct Polars
     }
     /// <inheritdoc cref="DatetimeRanges"/>
     public static Series DatetimeRangesAsSeries(
-        IntoExpr? start = null, 
-        IntoExpr? end = null, 
+        IntoColumnExpr? start = null, 
+        IntoColumnExpr? end = null, 
         IntoDuration? interval = null,
         ClosedWindow closed = ClosedWindow.Both,
         TimeUnit unit=TimeUnit.Microseconds,

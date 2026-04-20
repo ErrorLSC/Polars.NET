@@ -352,7 +352,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     /// Insert a column into the DataFrame at a specified index.
     /// Accepts a string (column name), a Series, a primitive value, or an Expr.
     /// </summary>
-    public DataFrame InsertColumn(int index, IntoExpr column)
+    public DataFrame InsertColumn(int index, IntoColumnExpr column)
     {
         int originalIndex = index;
 

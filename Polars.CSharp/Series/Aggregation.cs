@@ -137,22 +137,22 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Get the maximum value in this Series, ordered by an expression.
     /// </summary>
     /// <param name="by">Column used to determine the largest element. Accepts expression input.</param>
-    public Series MaxBy(IntoExpr by) => ApplyBinaryExpr(by, (left, right) => left.MaxBy(right));
+    public Series MaxBy(IntoColumnExpr by) => ApplyBinaryExpr(by, (left, right) => left.MaxBy(right));
     /// <summary>
     /// Get the maximum value in this Series, ordered by an expression.
     /// </summary>
     /// <param name="by">Column used to determine the largest element. Accepts expression input.</param>
-    public T? MaxBy<T>(IntoExpr by) where T : struct => ExtractScalar<T>(() => ApplyBinaryExpr(by, (left, right) => left.MaxBy(right)));
+    public T? MaxBy<T>(IntoColumnExpr by) where T : struct => ExtractScalar<T>(() => ApplyBinaryExpr(by, (left, right) => left.MaxBy(right)));
     /// <summary>
     /// Get the minimum value in this Series, ordered by an expression.
     /// </summary>
     /// <param name="by">Column used to determine the largest element. Accepts expression input.</param>
-    public Series MinBy(IntoExpr by) => ApplyBinaryExpr(by, (left, right) => left.MinBy(right));
+    public Series MinBy(IntoColumnExpr by) => ApplyBinaryExpr(by, (left, right) => left.MinBy(right));
     /// <summary>
     /// Get the minimum value in this Series, ordered by an expression.
     /// </summary>
     /// <param name="by">Column used to determine the smallest element. Accepts expression input.</param>
-    public T? MinBy<T>(IntoExpr by) where T : struct => ExtractScalar<T>(() => ApplyBinaryExpr(by, (left, right) => left.MinBy(right)));
+    public T? MinBy<T>(IntoColumnExpr by) where T : struct => ExtractScalar<T>(() => ApplyBinaryExpr(by, (left, right) => left.MinBy(right)));
     /// <summary>
     /// Product series into 1 length series(Scalar)
     /// </summary>

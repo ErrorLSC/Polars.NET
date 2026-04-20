@@ -37,7 +37,7 @@ public class MergeSetterBuilder
     private readonly MergeContext _ctx;
     private readonly LazyFrame _target;
 
-    internal Dictionary<string, IntoExpr> Setters { get; } = [];
+    internal Dictionary<string, IntoColumnExpr> Setters { get; } = [];
 
     internal MergeSetterBuilder(MergeContext ctx, LazyFrame target)
     {
@@ -45,13 +45,13 @@ public class MergeSetterBuilder
         _target = target;
     }
 
-    public MergeSetterBuilder Set(string columnName, Func<MergeContext, IntoExpr> valueBuilder)
+    public MergeSetterBuilder Set(string columnName, Func<MergeContext, IntoColumnExpr> valueBuilder)
     {
         Setters[columnName] = valueBuilder(_ctx);
         return this;
     }
 
-    public MergeSetterBuilder Set(string columnName, IntoExpr value)
+    public MergeSetterBuilder Set(string columnName, IntoColumnExpr value)
     {
         Setters[columnName] = value;
         return this;
@@ -60,7 +60,7 @@ public class MergeSetterBuilder
     /// <summary>
     /// Update multiple columns using a Selector. The value builder provides the current column name.
     /// </summary>
-    public MergeSetterBuilder Set(IntoSelector selector, Func<MergeContext, string, IntoExpr> valueBuilder)
+    public MergeSetterBuilder Set(IntoSelector selector, Func<MergeContext, string, IntoColumnExpr> valueBuilder)
     {
         using var sel = selector.Consume();
         
@@ -94,7 +94,7 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
         int ActionId, 
         MergeActionType Type, 
         Expr Condition, 
-        Dictionary<string, IntoExpr>? Setters
+        Dictionary<string, IntoColumnExpr>? Setters
     )> _actions = [];
 
     protected MergeBuilderBase(LazyFrame target, LazyFrame source, string[] on)
@@ -114,7 +114,7 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
     {
         Expr cond = condition != null ? condition(_ctx) : Pl.Lit(true);
         
-        Dictionary<string, IntoExpr>? setters = null;
+        Dictionary<string, IntoColumnExpr>? setters = null;
         if (set != null)
         {
             var sb = new MergeSetterBuilder(_ctx,_target);
@@ -145,7 +145,7 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
     {
         Expr cond = condition != null ? condition(_ctx) : Pl.Lit(true);
         
-        Dictionary<string, IntoExpr>? setters = null;
+        Dictionary<string, IntoColumnExpr>? setters = null;
         if (set != null)
         {
             var sb = new MergeSetterBuilder(_ctx,_target);
@@ -211,7 +211,7 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
         // =========================================================
         // Data Quality Check (Nulls & Duplicates) 
         // =========================================================
-        var mergeKeyExprs = _on.Select(k => (IntoExpr)k);
+        var mergeKeyExprs = _on.Select(k => (IntoColumnExpr)k);
         
         var hasNullExpr = Pl.AnyHorizontal(Cs.ByName(_on).ToExpr().IsNull()).Alias("has_null_key");
 
@@ -307,7 +307,7 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
         joined = joined.WithColumns(actionExpr.Alias(_actionCol));
 
         // Column-level Update Arbitration
-        var updateExprs = new List<IntoExpr>(allCols.Count);
+        var updateExprs = new List<IntoColumnExpr>(allCols.Count);
 
         foreach (var colName in allCols)
         {
@@ -401,7 +401,7 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
             .Where(a => a.Type == MergeActionType.NotMatchedInsert || a.Type == MergeActionType.NotMatchedBySourceDelete)
             .ToList();
 
-        void PrintActions(List<(int ActionId, MergeActionType Type, Expr Condition, Dictionary<string, IntoExpr>? Setters)> acts)
+        void PrintActions(List<(int ActionId, MergeActionType Type, Expr Condition, Dictionary<string, IntoColumnExpr>? Setters)> acts)
         {
             for (int i = 0; i < acts.Count; i++)
             {

@@ -197,7 +197,7 @@ public readonly partial struct Polars
     /// Combine multiple expressions into a Struct expression.
     /// </summary>
     [Obsolete("Renamed to Struct to align with pypolars API name")]
-    public static Expr AsStruct(params IntoExpr[] exprs)
+    public static Expr AsStruct(params IntoColumnExpr[] exprs)
     {
         if (exprs == null || exprs.Length == 0)
         {
@@ -211,11 +211,11 @@ public readonly partial struct Polars
     /// <summary>
     /// Collect several expressions and combine them into a single Struct column.
     /// </summary>
-    public static Expr Struct(params IntoExpr[] exprs) => AsStruct(exprs);
+    public static Expr Struct(params IntoColumnExpr[] exprs) => AsStruct(exprs);
     /// <summary>
     /// Collect several expressions and combine them into a single Struct Series
     /// </summary>
-    public static Series StructSeries(params IntoExpr[] exprs) => CSharp.Series.FromExpr(Struct(exprs));
+    public static Series StructSeries(params IntoColumnExpr[] exprs) => CSharp.Series.FromExpr(Struct(exprs));
     // ==========================================
     // SQL
     // ==========================================
@@ -312,7 +312,7 @@ public readonly partial struct Polars
         return current;
     }
 
-    public static Expr Arange(IntoExpr start, IntoExpr? end = null, long step = 1, IntoDataTypeExpr? datatype = null)
+    public static Expr Arange(IntoColumnExpr start, IntoColumnExpr? end = null, long step = 1, IntoDataTypeExpr? datatype = null)
         => IntRange(start,end,step,datatype);
 
     /// <summary>
@@ -339,7 +339,7 @@ public readonly partial struct Polars
     /// </summary>
     /// <param name="exprs">Expressions to evaluate. Strings, Literals, Series are automatically converted.</param>
     /// <returns>A new expression.</returns>
-    public static Expr Coalesce(params IntoExpr[] exprs)
+    public static Expr Coalesce(params IntoColumnExpr[] exprs)
     {
         if (exprs == null || exprs.Length == 0)
             throw new ArgumentException("At least one expression must be provided.");
@@ -359,7 +359,7 @@ public readonly partial struct Polars
     /// (Eager) Evaluates the arguments eagerly and returns the first non-null value as a Series.
     /// </summary>
     /// <param name="exprs">Expressions or Series to evaluate.</param>
-    public static Series CoalesceAsSeries(params IntoExpr[] exprs)
+    public static Series CoalesceAsSeries(params IntoColumnExpr[] exprs)
     {
         if (exprs == null || exprs.Length == 0)
             throw new ArgumentException("At least one expression must be provided.");

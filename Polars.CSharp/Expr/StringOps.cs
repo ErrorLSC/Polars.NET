@@ -124,7 +124,7 @@ public readonly struct StringOps
     /// <param name="replaceWith">Strings to replace where a pattern was a match. Length must match the length of patterns or have length 1. This can be broadcasted, so it supports many:one and many:many.</param>
     /// <param name="asciiCaseInsensitive">Enable ASCII-aware case-insensitive matching.</param>
     /// <param name="leftmost">Guarantees in case there are overlapping matches that the leftmost match is used.</param>
-    public Expr ReplaceMany(IntoExpr patterns, IntoExpr replaceWith, bool asciiCaseInsensitive = false, bool leftmost = false)
+    public Expr ReplaceMany(IntoColumnExpr patterns, IntoColumnExpr replaceWith, bool asciiCaseInsensitive = false, bool leftmost = false)
         => new(PolarsWrapper.StrReplaceMany(_expr.CloneHandle(), patterns.Consume().Handle,replaceWith.Consume().Handle,asciiCaseInsensitive,leftmost));
     /// <summary>
     /// Use the Aho-Corasick algorithm to replace many matches using a dictionary mapping.
@@ -159,7 +159,7 @@ public readonly struct StringOps
     /// <param name="asciiCaseInsensitive">Enable ASCII-aware case-insensitive matching. When this option is enabled, searching will be performed without respect to case for ASCII letters (a-z and A-Z) only.</param>
     /// <param name="overlapping">Whether matches may overlap.</param>
     /// <param name="leftmost">Guarantees in case there are overlapping matches that the leftmost match is used. In case there are multiple candidates for the leftmost match the pattern which comes first in patterns is used. May not be used together with overlapping = True.</param>
-    public Expr ExtractMany(IntoExpr patterns,bool asciiCaseInsensitive=false,bool overlapping=false,bool leftmost=false)
+    public Expr ExtractMany(IntoColumnExpr patterns,bool asciiCaseInsensitive=false,bool overlapping=false,bool leftmost=false)
         => new(PolarsWrapper.StrExtractMany(_expr.CloneHandle(),patterns.Consume().Handle,asciiCaseInsensitive,overlapping,leftmost));
     /// <summary>
     /// Extract all matches for the given regex pattern.

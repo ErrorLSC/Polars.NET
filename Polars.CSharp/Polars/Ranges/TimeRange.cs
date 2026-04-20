@@ -12,8 +12,8 @@ public readonly partial struct Polars
     /// <param name="closed">Define which sides of the range are closed.</param>
     /// <returns></returns>
     public static Expr TimeRange(
-        IntoExpr? start = null, 
-        IntoExpr? end = null, 
+        IntoColumnExpr? start = null, 
+        IntoColumnExpr? end = null, 
         IntoDuration? interval = null, 
         ClosedWindow closed = ClosedWindow.Both)
     {
@@ -33,8 +33,8 @@ public readonly partial struct Polars
     }
     /// <inheritdoc cref="TimeRange"/>
     public static Series TimeRangeAsSeries(
-        IntoExpr? start = null, 
-        IntoExpr? end = null, 
+        IntoColumnExpr? start = null, 
+        IntoColumnExpr? end = null, 
         IntoDuration? interval = null, 
         ClosedWindow closed = ClosedWindow.Both,
         string name = "time")
@@ -50,8 +50,8 @@ public readonly partial struct Polars
     /// </summary>
     /// <inheritdoc cref="TimeRange"/>
     public static Expr TimeRanges(
-        IntoExpr? start = null, 
-        IntoExpr? end = null, 
+        IntoColumnExpr? start = null, 
+        IntoColumnExpr? end = null, 
         IntoDuration? interval = null, 
         ClosedWindow closed = ClosedWindow.Both)
     {
@@ -71,8 +71,8 @@ public readonly partial struct Polars
     }
     /// <inheritdoc cref="TimeRanges"/>
     public static Series TimeRangesAsSeries(
-        IntoExpr? start = null, 
-        IntoExpr? end = null, 
+        IntoColumnExpr? start = null, 
+        IntoColumnExpr? end = null, 
         IntoDuration? interval = null, 
         ClosedWindow closed = ClosedWindow.Both,
         string name = "time")

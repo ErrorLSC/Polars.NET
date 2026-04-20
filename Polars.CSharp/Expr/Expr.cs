@@ -75,13 +75,13 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <summary>
     /// Gather values by an index expression.
     /// </summary>
-    public Expr Gather(IntoExpr indices)
+    public Expr Gather(IntoColumnExpr indices)
         => new(PolarsWrapper.Gather(CloneHandle(), indices.Consume().Handle));
     public Expr Gather(ReadOnlySpan<int> indices) => Gather(Pl.Lit(indices));
     /// <summary>
     /// LINQ-like alias for Gather.
     /// </summary>
-    public Expr Take(IntoExpr indices) => Gather(indices);
+    public Expr Take(IntoColumnExpr indices) => Gather(indices);
     public Expr Take(ReadOnlySpan<int> indices) => Take(Pl.Lit(indices));
     
     /// <summary>
@@ -528,6 +528,65 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <returns>Expression/Series of data type UInt32.</returns>
     public Expr RleId() => new(PolarsWrapper.RleId(CloneHandle()));
+    /// <summary>
+    /// Replace the given values by different values of the same data type.
+    /// </summary>
+    /// <param name="old">Value or sequence of values to replace. Accepts expression input. Sequences are parsed as Series, other non-expression inputs are parsed as literals.</param>
+    /// <param name="newExpr">Value or sequence of values to replace by. Accepts expression input. Sequences are parsed as Series, other non-expression inputs are parsed as literals.</param>
+    /// <returns></returns>
+    public Expr Replace(IntoExpr old,IntoExpr newExpr) => new(PolarsWrapper.ExprReplace(CloneHandle(),old.Consume().Handle,newExpr.Consume().Handle));
+    /// <summary>
+    /// Replace all values by different values.
+    /// </summary>
+    /// <param name="old">Value or sequence of values to replace. Accepts expression input. Sequences are parsed as Series, other non-expression inputs are parsed as literals.</param>
+    /// <param name="newExpr">Value or sequence of values to replace by. Accepts expression input. Sequences are parsed as Series, other non-expression inputs are parsed as literals. Length must match the length of old or have length 1.</param>
+    /// <param name="defaultExpr">Set values that were not replaced to this value. If no default is specified, (default), an error is raised if any values were not replaced. Accepts expression input. Non-expression inputs are parsed as literals.</param>
+    /// <param name="returnDataType">The data type of the resulting expression. If set to null (default), the data type is determined automatically based on the other inputs.</param>
+    /// <returns></returns>
+    public Expr ReplaceStrict(IntoExpr old,IntoExpr newExpr,IntoExpr? defaultExpr=null,IntoDataTypeExpr? returnDataType=null)
+    {
+        ExprHandle? realDefault = defaultExpr?.Consume().Handle;
+        DataTypeExprHandle? dtype = returnDataType?.Consume().Handle;
+        return new(PolarsWrapper.ExprReplaceStrict(CloneHandle(),old.Consume().Handle,newExpr.Consume().Handle,realDefault,dtype));
+    }
+    /// <summary>
+    /// Replace values using a mapping (Dictionary/IEnumerable of KeyValuePair).
+    /// </summary>
+    public Expr Replace<TKey, TValue>(IEnumerable<KeyValuePair<TKey, TValue>> mapping)
+        => Replace(mapping.Select(k => k.Key), mapping.Select(v => v.Value));
+    
+    /// <summary>
+    /// Replace values strictly using a mapping.
+    /// </summary>
+    public Expr ReplaceStrict<TKey, TValue>(
+        IEnumerable<KeyValuePair<TKey, TValue>> mapping, 
+        IntoExpr? defaultExpr = null, 
+        IntoDataTypeExpr? returnDataType = null)
+        => ReplaceStrict(mapping.Select(k => k.Key), mapping.Select(v => v.Value),defaultExpr,returnDataType);
+    /// <summary>
+    /// Replace values using two sequences (IEnumerable) for old and new values.
+    /// </summary>
+    public Expr Replace<TOld, TNew>(IEnumerable<TOld> oldValues, IEnumerable<TNew> newValues)
+    {
+        using Series oldSeries = Pl.Series("old", oldValues);
+        using Series newSeries = Pl.Series("new", newValues);
+
+        return Replace(oldSeries, newSeries);
+    }
+    /// <summary>
+    /// Replace values strictly using two sequences (IEnumerable).
+    /// </summary>
+    public Expr ReplaceStrict<TOld, TNew>(
+        IEnumerable<TOld> oldValues, 
+        IEnumerable<TNew> newValues, 
+        IntoExpr? defaultExpr = null, 
+        IntoDataTypeExpr? returnDataType = null)
+    {
+        using Series oldSeries = Pl.Series("old", oldValues);
+        using Series newSeries = Pl.Series("new", newValues);
+
+        return ReplaceStrict(oldSeries, newSeries, defaultExpr, returnDataType);
+    }
 
     // ==========================================
     // Extend Constant
@@ -609,7 +668,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Apply a window function over a subgroup.
     /// <para>
     /// This is similar to SQL's `OVER (PARTITION BY ...)` clause.
-    /// Unlike <see cref="DataFrame.GroupBy(IntoExpr,bool)"/>, this does not reduce the number of rows.
+    /// Unlike <see cref="DataFrame.GroupBy(IntoColumnExpr,bool)"/>, this does not reduce the number of rows.
     /// The result is broadcasted back to the original rows.
     /// </para>
     /// </summary>
@@ -644,15 +703,15 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// */
     /// </code>
     /// </example>
-    public Expr Over(params IntoExpr[] partitionBy)
-        => Over((IEnumerable<IntoExpr>)partitionBy);
+    public Expr Over(params IntoColumnExpr[] partitionBy)
+        => Over((IEnumerable<IntoColumnExpr>)partitionBy);
 
     /// <summary>
     /// Window function: Apply aggregation over specific groups from a collection.
     /// </summary>
-    public Expr Over(IEnumerable<IntoExpr> partitionBy)
+    public Expr Over(IEnumerable<IntoColumnExpr> partitionBy)
     {
-        var exprArray = partitionBy as IntoExpr[] ?? [.. partitionBy];
+        var exprArray = partitionBy as IntoColumnExpr[] ?? [.. partitionBy];
         
         if (exprArray.Length == 0) return this; 
 
@@ -687,7 +746,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// This turns a list column into a long column (flattening).
     /// </para>
     /// <para>
-    /// <b>Warning:</b> When used in <see cref="DataFrame.Select(IntoExpr[])"/> with other columns, 
+    /// <b>Warning:</b> When used in <see cref="DataFrame.Select(IntoColumnExpr[])"/> with other columns, 
     /// it may cause a length mismatch error if the other columns are not broadcasted. 
     /// Use <see cref="DataFrame.Explode(string[])"/> for safely exploding columns while repeating others.
     /// </para>
@@ -744,11 +803,11 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// );
     /// </code>
     /// </example>
-    public Expr Coalesce(params IntoExpr[] others)
+    public Expr Coalesce(params IntoColumnExpr[] others)
     {
         if (others == null || others.Length == 0) return this;
 
-        var allExprs = new IntoExpr[others.Length + 1];
+        var allExprs = new IntoColumnExpr[others.Length + 1];
         allExprs[0] = this; 
         
         for (int i = 0; i < others.Length; i++)

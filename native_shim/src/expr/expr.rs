@@ -1827,3 +1827,56 @@ pub extern "C" fn pl_expr_set_sorted_flag(
         Ok(Box::into_raw(Box::new(ExprContext { inner: res_expr })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_replace(
+    self_ptr: *mut ExprContext,
+    old_ptr: *mut ExprContext,
+    new_ptr: *mut ExprContext
+) -> *mut ExprContext {
+    ffi_try!({
+        let self_expr = unsafe { Box::from_raw(self_ptr) };
+        let old = unsafe { Box::from_raw(old_ptr) };
+        let new = unsafe { Box::from_raw(new_ptr) };
+
+        let new_expr = self_expr.inner.replace(old.inner, new.inner);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_replace_strict(
+    self_ptr: *mut ExprContext,
+    old_ptr: *mut ExprContext,
+    new_ptr: *mut ExprContext,
+    default_ptr: *mut ExprContext,
+    return_dtype_ptr: *mut DataTypeExprContext,
+) -> *mut ExprContext {
+    ffi_try!({
+        let self_expr = unsafe { Box::from_raw(self_ptr) };
+        let old = unsafe { Box::from_raw(old_ptr) };
+        let new = unsafe { Box::from_raw(new_ptr) };
+
+        let default_opt = if default_ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { Box::from_raw(default_ptr) }.inner)
+        };
+
+        let return_dtype_opt = if return_dtype_ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { Box::from_raw(return_dtype_ptr) }.inner)
+        };
+
+        let out_expr = self_expr.inner.replace_strict(
+            old.inner,
+            new.inner,
+            default_opt,
+            return_dtype_opt,
+        );
+
+        Ok(Box::into_raw(Box::new(ExprContext { inner: out_expr })))
+    })
+}

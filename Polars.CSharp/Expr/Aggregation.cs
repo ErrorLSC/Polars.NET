@@ -31,8 +31,8 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <para>
     /// Behavior depends on context:
     /// <list type="bullet">
-    /// <item>In <see cref="DataFrame.GroupBy(IntoExpr,bool)"/>: Calculates the sum for each group.</item>
-    /// <item>In <see cref="DataFrame.Select(IntoExpr[])"/>: Calculates the sum of the entire column (scalar result).</item>
+    /// <item>In <see cref="DataFrame.GroupBy(IntoColumnExpr,bool)"/>: Calculates the sum for each group.</item>
+    /// <item>In <see cref="DataFrame.Select(IntoColumnExpr[])"/>: Calculates the sum of the entire column (scalar result).</item>
     /// </list>
     /// </para>
     /// </summary>
@@ -128,7 +128,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// If the by expression has multiple values equal to the maximum it is not defined which value will be chosen.
     /// </summary>
     /// <param name="by">Column used to determine the largest element. Accepts expression input. Strings are parsed as column names.</param>
-    public Expr MaxBy(IntoExpr by)
+    public Expr MaxBy(IntoColumnExpr by)
     {
         Expr realBy = by.Consume();
         return new(PolarsWrapper.MaxBy(CloneHandle(),realBy.Handle));
@@ -138,7 +138,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// If the by expression has multiple values equal to the minimum it is not defined which value will be chosen.
     /// </summary>
     /// <param name="by">Column used to determine the smallest element. Accepts expression input. Strings are parsed as column names.</param>
-    public Expr MinBy(IntoExpr by)
+    public Expr MinBy(IntoColumnExpr by)
     {
         Expr realBy = by.Consume();
         return new(PolarsWrapper.MinBy(CloneHandle(),realBy.Handle));
