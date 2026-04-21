@@ -82,6 +82,11 @@ public partial class Series : IDisposable,IPolarsSeries
 
     /// <summary>Compute the element-wise tangent.</summary>
     public Series Tan() => ApplyExpr(Pl.Col(Name).Tan());
+    /// <summary>
+    /// Compute the element-wise value for the cotangent.
+    /// </summary>
+    /// <returns></returns>
+    public Series Cot() => ApplyExpr(Pl.Col(Name).Cot());
 
     /// <summary>Compute the element-wise inverse sine.</summary>
     public Series ArcSin() => ApplyExpr(Pl.Col(Name).ArcSin());
@@ -164,6 +169,9 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <returns>A new <see cref="Series"/> with the cumulative count.</returns>
     public Series CumCount(bool reverse = false) 
         => ApplyExpr(Pl.Col(Name).CumCount(reverse));
+    /// <inheritdoc cref="Expr.CumulativeEval"/>
+    public Series CumulativeEval(Expr expr,int minSamples=1)
+        => ApplyExpr(Pl.Col(Name).CumulativeEval(expr,minSamples));
     // ==========================================
     // EWM Functions
     // ==========================================

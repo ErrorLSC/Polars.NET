@@ -197,6 +197,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_cum_min(ExprHandle expr,[MarshalAs(UnmanagedType.U1)] bool reverse);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_cum_prod(ExprHandle expr,[MarshalAs(UnmanagedType.U1)] bool reverse);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_cum_count(ExprHandle expr,[MarshalAs(UnmanagedType.U1)] bool reverse);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_cumulative_eval(ExprHandle expr,ExprHandle eval,nuint minSamples);
     // --- EWM Functions ---
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_ewm_mean(
         ExprHandle expr,
@@ -266,6 +267,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_sin(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_cos(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_tan(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_cot(ExprHandle expr);
     
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_arcsin(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_arccos(ExprHandle expr);

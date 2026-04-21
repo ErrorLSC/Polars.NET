@@ -2085,4 +2085,12 @@ public class SeriesTests
         Assert.True((bool)sC[0]!);
         Assert.False((bool)sC[3]!);
     }
+    [Fact]
+    [Trait("Series", "CumulativeEval")]
+    public void Test_Series_CumEval()
+    {
+        using Series s = Pl.Series("nihao",[1,2,3,4,5]);
+        using Series sE = s.CumulativeEval(Pl.Element().First() - Pl.Element().Last().Pow(2));
+        Assert.Equal(-24.0,sE[4]);
+    }
 }

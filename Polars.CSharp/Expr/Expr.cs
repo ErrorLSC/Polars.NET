@@ -377,39 +377,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <returns></returns>
     public Expr Rank(RankMethod method = RankMethod.Average, bool descending = false, ulong? seed = null)
         => new(PolarsWrapper.Rank(CloneHandle(), method.ToNative(), descending, seed));
-    // ==========================================
-    // Cumulative Functions
-    // ==========================================
-    /// <summary>
-    /// Get an array with the cumulative sum computed at every element.
-    /// </summary>
-    /// <param name="reverse">Reverse the operation.</param>
-    /// <returns></returns>
-    public Expr CumSum(bool reverse = false) => new(PolarsWrapper.CumSum(CloneHandle(), reverse));
-    /// <summary>
-    /// Get an array with the cumulative max computed at every element.
-    /// </summary>
-    /// <param name="reverse">Reverse the operation.</param>
-    /// <returns></returns>
-    public Expr CumMax(bool reverse = false) => new(PolarsWrapper.CumMax(CloneHandle(), reverse));
-    /// <summary>
-    /// Get an array with the cumulative min computed at every element.
-    /// </summary>
-    /// <param name="reverse">Reverse the operation.</param>
-    /// <returns></returns>
-    public Expr CumMin(bool reverse = false) => new(PolarsWrapper.CumMin(CloneHandle(), reverse));
-    /// <summary>
-    /// Get an array with the cumulative prod computed at every element.
-    /// </summary>
-    /// <param name="reverse">Reverse the operation.</param>
-    /// <returns></returns>
-    public Expr CumProd(bool reverse = false) => new(PolarsWrapper.CumProd(CloneHandle(), reverse));
-    /// <summary>
-    /// Get an array with the cumulative count computed at every element.
-    /// </summary>
-    /// <param name="reverse">Reverse the operation.</param>
-    /// <returns></returns>
-    public Expr CumCount(bool reverse = false) => new(PolarsWrapper.CumCount(CloneHandle(), reverse));
+
     // ==========================================
     // EWM Functions
     // ==========================================

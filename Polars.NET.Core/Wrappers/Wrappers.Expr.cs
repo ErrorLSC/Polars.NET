@@ -366,34 +366,16 @@ public readonly partial struct PolarsWrapper
     }
     public static ExprHandle ExtStorage(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_ext_storage,expr);
     // Cumulative Functions
-    public static ExprHandle CumSum(ExprHandle e, bool reverse)
+    public static ExprHandle CumSum(ExprHandle e, bool reverse) => UnaryBoolOp(NativeBindings.pl_expr_cum_sum,e,reverse);
+    public static ExprHandle CumMax(ExprHandle e, bool reverse) => UnaryBoolOp(NativeBindings.pl_expr_cum_max,e,reverse);
+    public static ExprHandle CumMin(ExprHandle e, bool reverse) => UnaryBoolOp(NativeBindings.pl_expr_cum_min,e,reverse);
+    public static ExprHandle CumProd(ExprHandle e, bool reverse) => UnaryBoolOp(NativeBindings.pl_expr_cum_prod,e,reverse);
+    public static ExprHandle CumCount(ExprHandle e, bool reverse) => UnaryBoolOp(NativeBindings.pl_expr_cum_count,e,reverse);
+    public static ExprHandle CumulativeEval(ExprHandle e, ExprHandle eval,int minSamples)
     {
-        var h = NativeBindings.pl_expr_cum_sum(e,reverse);
+        var h = NativeBindings.pl_expr_cumulative_eval(e,eval,(nuint)minSamples);
         e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-    public static ExprHandle CumMax(ExprHandle e, bool reverse)
-    {
-        var h = NativeBindings.pl_expr_cum_max(e,reverse);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-    public static ExprHandle CumMin(ExprHandle e, bool reverse)
-    {
-        var h = NativeBindings.pl_expr_cum_min(e,reverse);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-    public static ExprHandle CumProd(ExprHandle e, bool reverse)
-    {
-        var h = NativeBindings.pl_expr_cum_prod(e,reverse);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-    public static ExprHandle CumCount(ExprHandle e, bool reverse)
-    {
-        var h = NativeBindings.pl_expr_cum_count(e,reverse);
-        e.TransferOwnership();
+        eval.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     // EWM Functions
@@ -601,6 +583,7 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle Sin(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_sin,e);
     public static ExprHandle Cos(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_cos,e);
     public static ExprHandle Tan(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_tan,e);
+    public static ExprHandle Cot(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_cot,e);
     
     public static ExprHandle ArcSin(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_arcsin,e);
     public static ExprHandle ArcCos(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_arccos,e);

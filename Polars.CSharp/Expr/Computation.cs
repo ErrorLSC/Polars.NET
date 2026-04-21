@@ -75,6 +75,10 @@ public partial class Expr : IDisposable,IEquatable<Expr>
 
     /// <summary>Compute the element-wise tangent.</summary>
     public Expr Tan() => new(PolarsWrapper.Tan(CloneHandle()));
+    /// <summary>
+    /// Compute the element-wise value for the cotangent.
+    /// </summary>
+    public Expr Cot() => new(PolarsWrapper.Cot(CloneHandle()));
 
     /// <summary>Compute the element-wise inverse sine.</summary>
     public Expr ArcSin() => new(PolarsWrapper.ArcSin(CloneHandle()));
@@ -127,4 +131,45 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <returns></returns>
     public Expr BitwiseTrailingZeros() => new(PolarsWrapper.BitwiseTrailingZeros(CloneHandle()));
+    // ==========================================
+    // Cumulative Functions
+    // ==========================================
+    /// <summary>
+    /// Get an array with the cumulative sum computed at every element.
+    /// </summary>
+    /// <param name="reverse">Reverse the operation.</param>
+    /// <returns></returns>
+    public Expr CumSum(bool reverse = false) => new(PolarsWrapper.CumSum(CloneHandle(), reverse));
+    /// <summary>
+    /// Get an array with the cumulative max computed at every element.
+    /// </summary>
+    /// <param name="reverse">Reverse the operation.</param>
+    /// <returns></returns>
+    public Expr CumMax(bool reverse = false) => new(PolarsWrapper.CumMax(CloneHandle(), reverse));
+    /// <summary>
+    /// Get an array with the cumulative min computed at every element.
+    /// </summary>
+    /// <param name="reverse">Reverse the operation.</param>
+    /// <returns></returns>
+    public Expr CumMin(bool reverse = false) => new(PolarsWrapper.CumMin(CloneHandle(), reverse));
+    /// <summary>
+    /// Get an array with the cumulative prod computed at every element.
+    /// </summary>
+    /// <param name="reverse">Reverse the operation.</param>
+    /// <returns></returns>
+    public Expr CumProd(bool reverse = false) => new(PolarsWrapper.CumProd(CloneHandle(), reverse));
+    /// <summary>
+    /// Get an array with the cumulative count computed at every element.
+    /// </summary>
+    /// <param name="reverse">Reverse the operation.</param>
+    /// <returns></returns>
+    public Expr CumCount(bool reverse = false) => new(PolarsWrapper.CumCount(CloneHandle(), reverse));
+    /// <summary>
+    /// Run an expression over a sliding window that increases 1 slot every iteration.
+    /// This can be really slow as it can have O(n^2) complexity. Don’t use this for operations that visit all elements.
+    /// </summary>
+    /// <param name="expr">Expression to evaluate</param>
+    /// <param name="minSamples">Number of valid values there should be in the window before the expression is evaluated. valid values = length - null_count</param>
+    /// <returns></returns>
+    public Expr CumulativeEval(Expr expr,int minSamples=1) => new(PolarsWrapper.CumulativeEval(CloneHandle(), expr.CloneHandle(),minSamples));
 }

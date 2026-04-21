@@ -377,6 +377,7 @@ gen_unary_op!(pl_expr_arg_max,arg_max);
 gen_unary_op!(pl_expr_sin, sin);
 gen_unary_op!(pl_expr_cos, cos);
 gen_unary_op!(pl_expr_tan, tan);
+gen_unary_op!(pl_expr_cot, cot);
 
 gen_unary_op!(pl_expr_arcsin, arcsin);
 gen_unary_op!(pl_expr_arccos, arccos);
@@ -1983,6 +1984,24 @@ pub extern "C" fn pl_expr_qcut_uniform(
         Ok(Box::into_raw(Box::new(ExprContext { inner: out_expr })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_cumulative_eval(
+    expr_ptr: *mut ExprContext,
+    eval_ptr: *mut ExprContext,
+    min_samples: usize
+) -> *mut ExprContext {
+    ffi_try!({
+        let expr = unsafe { Box::from_raw(expr_ptr) }.inner;
+        let eval = unsafe { Box::from_raw(eval_ptr) }.inner;
+
+        let out_expr = expr.cumulative_eval(eval,min_samples);
+
+        Ok(Box::into_raw(Box::new(ExprContext { inner: out_expr })))
+    })
+}
+
+
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_ext_to(
