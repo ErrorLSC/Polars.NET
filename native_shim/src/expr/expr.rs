@@ -428,6 +428,8 @@ gen_binary_op!(pl_expr_fill_null, fill_null);
 gen_binary_op!(pl_expr_interpolate_by, interpolate_by);
 // Math Ops
 gen_binary_op!(pl_expr_pow,pow);
+gen_unary_op!(pl_expr_log1p, log1p);
+gen_binary_op!(pl_expr_log,log);
 gen_binary_op!(pl_expr_dot,dot);
 // Gather 
 gen_binary_op!(pl_expr_gather, gather);
@@ -1021,18 +1023,6 @@ pub extern "C" fn pl_concat_expr(
 // ==========================================
 // Math
 // ==========================================
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_log(
-    expr_ptr: *mut ExprContext, 
-    base: f64 
-) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        // Polars API: log(base: f64)
-        let new_expr = ctx.inner.log(base.into()); 
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_round(

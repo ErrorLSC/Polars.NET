@@ -262,7 +262,8 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_sqrt(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_cbrt(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_exp(ExprHandle expr);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_log(ExprHandle expr, double baseVal);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_log(ExprHandle expr, ExprHandle baseVal);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_log1p(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_round(ExprHandle expr, uint decimals);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_sin(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_cos(ExprHandle expr);

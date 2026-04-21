@@ -29,12 +29,14 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Calculate the power of the Euler's number.
     /// </summary>
     public Series Exp() =>  ApplyExpr(Pl.Col(Name).Exp());
-    /// <summary>
-    /// Calculate the ln of Number 
-    /// </summary>
-    /// <param name="baseVal"></param>
-    /// <returns></returns>
-    public Series Ln(double baseVal = Math.E) => ApplyExpr(Pl.Col(Name).Ln(baseVal));
+    /// <inheritdoc cref="Expr.Log(Expr)"/> 
+    public Series Log(Expr baseVal) => ApplyExpr(Pl.Col(Name).Log(baseVal));
+    public Series Ln() => Log(Math.E);
+    public Series Log() => Ln();
+    /// <inheritdoc cref="Expr.Log10"/> 
+    public Series Log10() => Log(10.0);
+    /// <inheritdoc cref="Expr.Log1p"/> 
+    public Series Log1p() => ApplyExpr(Pl.Col(Name).Log1p());
     // ==========================================
     // Linear Algebra (Dot Product)
     // ==========================================

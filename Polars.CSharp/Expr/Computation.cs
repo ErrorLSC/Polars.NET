@@ -57,11 +57,21 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     public Expr Exp() => new(PolarsWrapper.Exp(CloneHandle()));
 
     /// <summary>
-    /// Calculate the ln of Number 
+    /// Compute the logarithm to a given base,defaults to e.
     /// </summary>
-    /// <param name="baseVal"></param>
-    /// <returns></returns>
-    public Expr Ln(double baseVal = Math.E) => new(PolarsWrapper.Log(CloneHandle(), baseVal));
+    /// <param name="baseVal">Given base, defaults to e</param>
+    public Expr Log(Expr baseVal) => new(PolarsWrapper.Log(CloneHandle(), baseVal.CloneHandle()));
+    /// <inheritdoc cref="Expr.Log(Expr)"/> 
+    public Expr Log() => Ln();
+    /// <summary>
+    /// Compute the base 10 logarithm of the input array, element-wise.
+    /// </summary>
+    public Expr Log10() => Log(10.0);
+    public Expr Ln() => Log(Math.E);
+    /// <summary>
+    /// Compute the natural logarithm of each element plus one.This computes log(1 + x) but is more numerically stable for x close to zero.
+    /// </summary>
+    public Expr Log1p() => new(PolarsWrapper.Log1p(CloneHandle()));
 
     // ==========================================
     // Trigonometry

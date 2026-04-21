@@ -2093,4 +2093,18 @@ public class SeriesTests
         using Series sE = s.CumulativeEval(Pl.Element().First() - Pl.Element().Last().Pow(2));
         Assert.Equal(-24.0,sE[4]);
     }
+    [Fact]
+    [Trait("Series", "Log")]
+    public void Test_Series_Log()
+    {
+        using Series s = Pl.Series("nihao",[100.0,Math.E,8]);
+        using Series sL = s.Log();
+        using Series s10 = s.Log10();
+        using Series s2 = s.Log(2);
+        using Series s1p = s.Log1p();
+        Assert.Equal(1.0,sL[1]);
+        Assert.Equal(2.0,s10[0]);
+        Assert.Equal(3.0,s2[2]);
+        Assert.Equal(4.615121,(double)s1p[0]!,1e-5);
+    }
 }

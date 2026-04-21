@@ -602,12 +602,8 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle Sign(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_sign,e);
     public static ExprHandle Ceil(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_ceil,e);
     public static ExprHandle Floor(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_floor,e);
-    public static ExprHandle Log(ExprHandle expr, double baseVal)
-    {
-        var h = NativeBindings.pl_expr_log(expr, baseVal);
-        expr.TransferOwnership(); // 消耗掉 expr
-        return ErrorHelper.Check(h);
-    }
+    public static ExprHandle Log(ExprHandle expr, ExprHandle baseVal) => BinaryOp(NativeBindings.pl_expr_log,expr,baseVal);
+    public static ExprHandle Log1p(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_log1p,e);
     public static ExprHandle Round(ExprHandle e, uint decimals)
     {
         var h = NativeBindings.pl_expr_round(e, decimals);
