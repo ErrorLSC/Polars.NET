@@ -615,6 +615,15 @@ public readonly partial struct PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle ExprHash(ExprHandle e,ulong seed, ulong? seed1,ulong? seed2,ulong? seed3)
+    {
+        ulong seed1k = seed1 ?? seed;
+        ulong seed2k = seed2 ?? seed;
+        ulong seed3k = seed3 ?? seed;
+        var h = NativeBindings.pl_expr_hash(e,seed,seed1k,seed2k,seed3k);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     public static ExprHandle Round(ExprHandle e, uint decimals)
     {
         var h = NativeBindings.pl_expr_round(e, decimals);

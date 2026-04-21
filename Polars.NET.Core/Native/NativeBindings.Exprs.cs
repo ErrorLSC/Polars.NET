@@ -882,4 +882,8 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] bool parallel,
         string name,
         [MarshalAs(UnmanagedType.U1)] bool normalize);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_hash(
+        ExprHandle expr,
+        ulong k0,ulong k1,ulong k2,ulong k3);
 }

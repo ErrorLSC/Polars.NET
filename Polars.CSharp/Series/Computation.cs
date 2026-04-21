@@ -39,6 +39,9 @@ public partial class Series : IDisposable,IPolarsSeries
     public Series Log1p() => ApplyExpr(Pl.Col(Name).Log1p());
     /// <inheritdoc cref="Expr.Entropy"/> 
     public double? Entropy(double baseVal=Math.E,bool normalize=true) => ExtractScalar<double>(Pl.Col(Name).Entropy(baseVal,normalize));
+    /// <inheritdoc cref="Expr.Hash"/> 
+    public Series Hash(ulong seed=0, ulong? seed1=null,ulong? seed2=null,ulong? seed3=null)
+        => ApplyExpr(Pl.Col(Name).Hash(seed,seed1,seed2,seed3));
     // ==========================================
     // Linear Algebra (Dot Product)
     // ==========================================

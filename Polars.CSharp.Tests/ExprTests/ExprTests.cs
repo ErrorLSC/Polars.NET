@@ -3138,7 +3138,7 @@ TooShort,1990-05-20,1.60";
         ];
 
         using var dfCounts = df.Select(
-            Pl.Col("double1").ValueCounts(normalize:true).Struct.Unnest(),
+            Pl.Col("double1").ValueCounts(sort:true,normalize:true).Struct.Unnest(),
             Pl.Col("double2").UniqueCounts());
         
         Assert.Contains("proportion",dfCounts.ColumnNames);

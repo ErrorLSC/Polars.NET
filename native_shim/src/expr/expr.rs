@@ -1884,6 +1884,23 @@ pub extern "C" fn pl_expr_set_sorted_flag(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_hash(
+    expr_ptr: *mut ExprContext,
+    k0: u64,
+    k1: u64,
+    k2: u64,
+    k3: u64,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe {Box::from_raw(expr_ptr) };
+
+        let res_expr = ctx.inner.hash(k0,k1,k2,k3);
+
+        Ok(Box::into_raw(Box::new(ExprContext { inner: res_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_replace(
     self_ptr: *mut ExprContext,
     old_ptr: *mut ExprContext,

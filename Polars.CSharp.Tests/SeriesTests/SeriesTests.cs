@@ -2115,4 +2115,15 @@ public class SeriesTests
         double? entropy = s.Entropy();
         Assert.Equal(0.372828,(double)entropy!,1e-5);
     }
+    [Fact]
+    [Trait("Series", "Hash")]
+    public void Test_Series_Hash()
+    {
+        double? [] numbers = [100.0,Math.E,8,114514,1919810,double.NaN,null,double.NaN];
+        using Series s = Pl.Series("nihao",numbers);
+        using Series sHash = s.Hash(42,41,0,10086);
+        Assert.True(sHash.Sum<ulong>()>0);
+        Assert.True((ulong)sHash[5]! == (ulong)sHash[7]!);
+    }
+
 }
