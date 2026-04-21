@@ -565,13 +565,12 @@ public readonly partial struct PolarsWrapper
     // Unique and Duplicated
     public static ExprHandle ExprIsUnique(ExprHandle expr)
         => UnaryOp(NativeBindings.pl_expr_is_unique,expr);
-
     public static ExprHandle ExprIsDuplicated(ExprHandle expr)
         => UnaryOp(NativeBindings.pl_expr_is_duplicated,expr);
-
     public static ExprHandle ExprUnique(ExprHandle expr)
         => UnaryOp(NativeBindings.pl_expr_unique,expr);
-
+    public static ExprHandle ExprUniqueCounts(ExprHandle expr)
+        => UnaryOp(NativeBindings.pl_expr_unique_counts,expr);
     public static ExprHandle ExprUniqueStable(ExprHandle expr)
         => UnaryOp(NativeBindings.pl_expr_unique_stable,expr);
     // Math
@@ -598,18 +597,31 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle ArcTanh(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_arctanh,e);
     public static ExprHandle Degrees(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_degrees,e);
     public static ExprHandle Radians(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_radians,e);
-
     public static ExprHandle Sign(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_sign,e);
     public static ExprHandle Ceil(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_ceil,e);
     public static ExprHandle Floor(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_floor,e);
     public static ExprHandle Log(ExprHandle expr, ExprHandle baseVal) => BinaryOp(NativeBindings.pl_expr_log,expr,baseVal);
     public static ExprHandle Log1p(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_log1p,e);
+    public static ExprHandle Entropy(ExprHandle e, double baseVal,bool normalize)
+    {
+        var h = NativeBindings.pl_expr_entropy(e,baseVal,normalize);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ValueCounts(ExprHandle e, bool sort, bool parallel, string? name,bool normalize)
+    {
+        string realName = name ?? (normalize ? "proportion" : "count");
+        var h = NativeBindings.pl_expr_value_counts(e,sort,parallel,realName,normalize);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     public static ExprHandle Round(ExprHandle e, uint decimals)
     {
         var h = NativeBindings.pl_expr_round(e, decimals);
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+
     // Statistics
     public static ExprHandle Count(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_count, e);
     public static ExprHandle Std(ExprHandle e, int ddof) 

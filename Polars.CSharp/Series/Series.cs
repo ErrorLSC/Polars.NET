@@ -566,25 +566,12 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <returns>A new <see cref="Series"/> with the ranks.</returns>
     public Series Rank(RankMethod method = RankMethod.Average, bool descending = false, ulong? seed = null)
         => ApplyExpr(Pl.Col(Name).Rank(method, descending, seed));
-    // ==========================================
-    // Unique Ops and Boolean Mask
-    // ==========================================
     /// <summary>
     /// Get an approximation of the number of unique values in this Series.
     /// Uses HyperLogLog algorithm for fast, memory-efficient counting.
     /// </summary>
     /// <returns>Approximate count of unique values.</returns>
     public long ApproxNUnique() => PolarsWrapper.SeriesApproxNUnique(Handle);
-
-    /// <summary>
-    /// Get the unique elements of this Series.
-    /// </summary>
-    public Series Unique() => new(PolarsWrapper.SeriesUnique(Handle));
-
-    /// <summary>
-    /// Get the unique elements of this Series, maintaining the order of appearance.
-    /// </summary>
-    public Series UniqueStable() => new(PolarsWrapper.SeriesUniqueStable(Handle));
     /// <summary>
     /// Check if values are between lower and upper bounds.
     /// </summary>

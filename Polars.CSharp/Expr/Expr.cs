@@ -329,19 +329,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="reverse">See <see cref="BottomKBy(int, Expr[], bool[])"/>.</param>
     /// <returns>A new expression.</returns>
     public Expr BottomKBy(int k, Expr by, bool reverse = false) => BottomKBy(k, [by], [reverse]);
-    // ==========================================
-    // Unique and Duplicated
-    // ==========================================
 
-    /// <summary>
-    /// Get unique values.
-    /// </summary>
-    public Expr Unique() => new(PolarsWrapper.ExprUnique(CloneHandle()));
-
-    /// <summary>
-    /// Get unique values, maintaining order.
-    /// </summary>
-    public Expr UniqueStable() => new(PolarsWrapper.ExprUniqueStable(CloneHandle()));
     // ==========================================
     // Statistical Ops
     // ==========================================
@@ -378,73 +366,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     public Expr Rank(RankMethod method = RankMethod.Average, bool descending = false, ulong? seed = null)
         => new(PolarsWrapper.Rank(CloneHandle(), method.ToNative(), descending, seed));
 
-    // ==========================================
-    // EWM Functions
-    // ==========================================
-    /// <summary>
-    /// Compute exponentially-weighted moving average.
-    /// </summary>
-    /// <param name="alpha">
-    /// Specify smoothing factor alpha directly. 
-    /// <para>Constraint: <c>0 &lt; alpha &lt;= 1</c></para>
-    /// </param>
-    /// <param name="adjust">
-    /// If <c>true</c>, divide by decaying adjustment factor in beginning periods to account for imbalance in relative weightings (viewing data as finite history). 
-    /// If <c>false</c>, assume infinite history.
-    /// </param>
-    /// <param name="bias">
-    /// If <c>true</c>, use a biased estimator (Standard deviation uses <c>N</c> in denominator). 
-    /// If <c>false</c>, use an unbiased estimator (Standard deviation uses <c>N-1</c>).
-    /// <para>Note: This is primarily relevant for Variance/StdDev. For Mean, it typically defaults to true.</para>
-    /// </param>
-    /// <param name="minPeriods">Minimum number of observations in window required to have a value (otherwise result is null).</param>
-    /// <param name="ignoreNulls">Ignore missing values when calculating weights.</param>
-    /// <returns>A new expression representing the EWM mean.</returns>
-    public Expr EwmMean(double alpha, bool adjust = true, bool bias = true, int minPeriods = 1, bool ignoreNulls = false)
-        => new(PolarsWrapper.EwmMean(CloneHandle(), alpha, adjust, bias, minPeriods, ignoreNulls));
-    /// <summary>
-    /// Compute exponentially-weighted moving standard deviation.
-    /// </summary>
-    /// <inheritdoc cref="EwmMean"/>
-    /// <returns>A new expression representing the EWM standard deviation.</returns>
-    public Expr EwmStd(double alpha, bool adjust = true, bool bias = true, int minPeriods = 1, bool ignoreNulls = false)
-        => new(PolarsWrapper.EwmStd(CloneHandle(), alpha, adjust, bias, minPeriods, ignoreNulls));
-    /// <summary>
-    /// Compute exponentially-weighted moving variance.
-    /// </summary>
-    /// <inheritdoc cref="EwmMean"/>
-    /// <returns>A new expression representing the EWM variance.</returns>
-    public Expr EwmVar(double alpha, bool adjust = true, bool bias = true, int minPeriods = 1, bool ignoreNulls = false)
-        => new(PolarsWrapper.EwmVar(CloneHandle(), alpha, adjust, bias, minPeriods, ignoreNulls));
-    /// <summary>
-    /// Compute exponentially-weighted moving average based on a temporal or index column.
-    /// </summary>
-    /// <param name="by">
-    /// The column used to determine the distance between observations.
-    /// <para>Supported data types: <c>Date</c>, <c>DateTime</c>, <c>UInt64</c>, <c>UInt32</c>, <c>Int64</c>, or <c>Int32</c>.</para>
-    /// </param>
-    /// <param name="halfLife">
-    /// The unit over which an observation decays to half its value.
-    /// <para>Supported string formats:</para>
-    /// <list type="bullet">
-    ///     <item><term>Time units</term><description><c>ns</c> (nanosecond), <c>us</c> (microsecond), <c>ms</c> (millisecond), <c>s</c> (second), <c>m</c> (minute), <c>h</c> (hour), <c>d</c> (day), <c>w</c> (week).</description></item>
-    ///     <item><term>Index units</term><description><c>i</c> (index count). Example: <c>"2i"</c> means decay by half every 2 index steps.</description></item>
-    ///     <item><term>Compound</term><description>Example: <c>"3d12h4m25s"</c>.</description></item>
-    /// </list>
-    /// <para>
-    /// <b>Warning:</b> <paramref name="halfLife"/> is treated as a constant duration. 
-    /// Calendar durations such as months (<c>mo</c>) or years (<c>y</c>) are <b>NOT</b> supported because they vary in length. 
-    /// Please express such durations in hours (e.g. use <c>'730h'</c> instead of <c>'1mo'</c>).
-    /// </para>
-    /// </param>
-    /// <returns>A new expression representing the time/index-based EWM mean.</returns>
-    public Expr EwmMeanBy(Expr by, string halfLife)
-        => new(PolarsWrapper.EwmMeanBy(
-            CloneHandle(),
-            by.CloneHandle(),
-            halfLife
-        ));
-    
     // ==========================================
     // Logic / Comparison
     // ==========================================

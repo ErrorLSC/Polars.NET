@@ -2107,4 +2107,12 @@ public class SeriesTests
         Assert.Equal(3.0,s2[2]);
         Assert.Equal(4.615121,(double)s1p[0]!,1e-5);
     }
+    [Fact]
+    [Trait("Series", "Entropy")]
+    public void Test_Series_Entropy()
+    {
+        using Series s = Pl.Series("nihao",[100.0,Math.E,8]);
+        double? entropy = s.Entropy();
+        Assert.Equal(0.372828,(double)entropy!,1e-5);
+    }
 }

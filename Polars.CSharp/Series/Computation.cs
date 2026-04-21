@@ -37,6 +37,8 @@ public partial class Series : IDisposable,IPolarsSeries
     public Series Log10() => Log(10.0);
     /// <inheritdoc cref="Expr.Log1p"/> 
     public Series Log1p() => ApplyExpr(Pl.Col(Name).Log1p());
+    /// <inheritdoc cref="Expr.Entropy"/> 
+    public double? Entropy(double baseVal=Math.E,bool normalize=true) => ExtractScalar<double>(Pl.Col(Name).Entropy(baseVal,normalize));
     // ==========================================
     // Linear Algebra (Dot Product)
     // ==========================================
@@ -231,4 +233,13 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Calculate the difference with the previous value (n-th lag).
     /// </summary>
     public Series Diff(long n = 1) => ApplyExpr(Pl.Col(Name).Diff(n));
+    /// <summary>
+    /// Get the unique elements of this Series.
+    /// </summary>
+    public Series Unique() => new(PolarsWrapper.SeriesUnique(Handle));
+
+    /// <summary>
+    /// Get the unique elements of this Series, maintaining the order of appearance.
+    /// </summary>
+    public Series UniqueStable() => new(PolarsWrapper.SeriesUniqueStable(Handle));
 }

@@ -3128,5 +3128,22 @@ TooShort,1990-05-20,1.60";
         Assert.True((bool)dfMask["isClose"][0]);
         Assert.False((bool)dfMask["isClose"][2]);
     }
+    [Fact]
+    [Trait("Expr", "ValueCounts")]
+    public void Test_Expr_ValueCounts()
+    {
+        using DataFrame df = [
+            Series.From("double1",[1.5,2.0,2.5,2.5]),
+            Series.From("double2",[1.55,114514,1919,1.55])
+        ];
+
+        using var dfCounts = df.Select(
+            Pl.Col("double1").ValueCounts(normalize:true).Struct.Unnest(),
+            Pl.Col("double2").UniqueCounts());
+        
+        Assert.Contains("proportion",dfCounts.ColumnNames);
+        Assert.Equal(0.25,dfCounts["proportion"][1]);
+        Assert.Equal(2u,dfCounts["double2"][0]);
+    }
 
 }   

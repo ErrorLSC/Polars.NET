@@ -362,6 +362,7 @@ gen_unary_op!(pl_expr_drop_nulls, drop_nulls);
 gen_unary_op!(pl_expr_drop_nans, drop_nans);
 // dupilicated and unique
 gen_unary_op!(pl_expr_unique, unique);
+gen_unary_op!(pl_expr_unique_counts, unique_counts);
 gen_unary_op!(pl_expr_unique_stable, unique_stable);
 gen_unary_op!(pl_expr_is_duplicated, is_duplicated);
 gen_unary_op!(pl_expr_is_unique, is_unique);
@@ -1524,6 +1525,39 @@ pub extern "C" fn pl_expr_extend_constant(
         let n = unsafe { Box::from_raw(n_ptr) };
 
         let new_expr = self_expr.inner.extend_constant(value.inner, n.inner);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_value_counts(
+    self_ptr: *mut ExprContext,
+    sort: bool,
+    parallel : bool,
+    name_ptr: *const c_char,
+    normalize:bool
+) -> *mut ExprContext {
+    ffi_try!({
+        let self_expr = unsafe { Box::from_raw(self_ptr) };
+        let name = ptr_to_str(name_ptr).unwrap();
+
+        let new_expr = self_expr.inner.value_counts(sort,parallel,name,normalize);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_entropy(
+    self_ptr: *mut ExprContext,
+    base: f64,
+    normalize:bool
+) -> *mut ExprContext {
+    ffi_try!({
+        let self_expr = unsafe { Box::from_raw(self_ptr) };
+
+        let new_expr = self_expr.inner.entropy(base,normalize);
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })

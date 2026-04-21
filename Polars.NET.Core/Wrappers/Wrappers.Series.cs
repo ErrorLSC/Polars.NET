@@ -1278,14 +1278,15 @@ public readonly partial struct PolarsWrapper
         SeriesHandle series,
         bool sort,
         bool parallel,
-        string name,
+        string? name,
         bool normalize)
     {
+        string realName = name ?? (normalize ? "proportion" : "count");
         return ErrorHelper.Check(NativeBindings.pl_series_value_counts(
             series,
             sort,
             parallel,
-            name,
+            realName,
             normalize
         ));
     }

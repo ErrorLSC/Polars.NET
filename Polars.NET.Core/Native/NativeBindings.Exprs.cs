@@ -185,6 +185,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_abs(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_null_count(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_n_unique(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_unique_counts(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_approx_n_unique(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_skew(ExprHandle expr,[MarshalAs(UnmanagedType.U1)] bool bias);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_kurtosis(ExprHandle expr,[MarshalAs(UnmanagedType.U1)] bool fisher,[MarshalAs(UnmanagedType.U1)] bool bias);
@@ -264,6 +265,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_exp(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_log(ExprHandle expr, ExprHandle baseVal);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_log1p(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_entropy(ExprHandle expr,double baseVal,[MarshalAs(UnmanagedType.U1)]bool normalize);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_round(ExprHandle expr, uint decimals);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_sin(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_cos(ExprHandle expr);
@@ -873,4 +875,11 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_ext_to(ExprHandle expr,DataTypeExprHandle dtype);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_ext_storage(ExprHandle expr);
+    [LibraryImport(LibName,StringMarshalling =StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_value_counts(
+        ExprHandle expr,
+        [MarshalAs(UnmanagedType.U1)] bool sort,
+        [MarshalAs(UnmanagedType.U1)] bool parallel,
+        string name,
+        [MarshalAs(UnmanagedType.U1)] bool normalize);
 }
