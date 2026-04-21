@@ -97,6 +97,16 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     public Expr ArcSinh() => new(PolarsWrapper.ArcSinh(CloneHandle()));
     public Expr ArcCosh() => new(PolarsWrapper.ArcCosh(CloneHandle()));
     public Expr ArcTanh() => new(PolarsWrapper.ArcTanh(CloneHandle()));
+    /// <summary>
+    /// Convert from degrees to radians.
+    /// </summary>
+    /// <returns></returns>
+    public Expr Radians() => new(PolarsWrapper.Radians(CloneHandle()));
+    /// <summary>
+    /// Convert from radians to degrees.
+    /// </summary>
+    /// <returns></returns>
+    public Expr Degrees() => new(PolarsWrapper.Degrees(CloneHandle()));
 
     // ==========================================
     // Bitwise
@@ -172,4 +182,12 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="minSamples">Number of valid values there should be in the window before the expression is evaluated. valid values = length - null_count</param>
     /// <returns></returns>
     public Expr CumulativeEval(Expr expr,int minSamples=1) => new(PolarsWrapper.CumulativeEval(CloneHandle(), expr.CloneHandle(),minSamples));
+    /// <summary>
+    /// Calculate the difference with the previous value (n-th lag).
+    /// </summary>
+    public Expr Diff(IntoExprColumn n,NullBehavior nullBehavior=NullBehavior.Ignore) => new(PolarsWrapper.Diff(CloneHandle(), n.Consume().CloneHandle(),nullBehavior.ToNative()));
+    /// <summary>
+    /// Calculate the difference with the previous value (1-st lag).
+    /// </summary>
+    public Expr Diff(NullBehavior nullBehavior = NullBehavior.Ignore) => Diff(1, nullBehavior);
 }

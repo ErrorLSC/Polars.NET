@@ -280,6 +280,8 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_arcsinh(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_arccosh(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_arctanh(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_degrees(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_radians(ExprHandle expr);
 
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_sign(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_ceil(ExprHandle expr);

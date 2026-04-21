@@ -702,15 +702,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     public Expr Shift() => Shift(1);
 
-    /// <summary>
-    /// Calculate the difference with the previous value (n-th lag).
-    /// </summary>
-    public Expr Diff(Expr n,NullBehavior nullBehavior=NullBehavior.Ignore) => new(PolarsWrapper.Diff(CloneHandle(), n.CloneHandle(),nullBehavior.ToNative()));
-    /// <summary>
-    /// Calculate the difference with the previous value (1-st lag).
-    /// </summary>
-    public Expr Diff(NullBehavior nullBehavior = NullBehavior.Ignore) => Diff(1, nullBehavior);
-
     #endregion
 
     /// <summary>

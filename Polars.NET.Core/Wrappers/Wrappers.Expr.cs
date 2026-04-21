@@ -596,6 +596,8 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle ArcSinh(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_arcsinh,e);
     public static ExprHandle ArcCosh(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_arccosh,e);
     public static ExprHandle ArcTanh(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_arctanh,e);
+    public static ExprHandle Degrees(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_degrees,e);
+    public static ExprHandle Radians(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_radians,e);
 
     public static ExprHandle Sign(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_sign,e);
     public static ExprHandle Ceil(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_ceil,e);

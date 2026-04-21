@@ -155,17 +155,18 @@ TooShort,1990-05-20,1.60";
         Assert.True(res.GetValue<double>(0, "sqrt_h") > 1.28 && res.GetValue<double>(0, "sqrt_h") < 1.29);
     }
     [Fact]
+    [Trait("Expr","Trigonometry")]
     public void Test_Trigonometry_Basic()
     {
-        var data = new[] { 0.0, Math.PI / 2.0, Math.PI };
+        double[] data = [0.0, Math.PI / 2.0, Math.PI];
         using var df = DataFrame.FromColumns(new { theta = data });
 
         using var res = df.Select(
             Pl.Col("theta").Sin().Alias("sin"),
             Pl.Col("theta").Cos().Alias("cos"),
-            Pl.Col("theta").Tan().Alias("tan")
+            Pl.Col("theta").Tan().Alias("tan"),
+            Pl.Col("theta").Degrees().Alias("degree")
         );
-
         // Sin(0)=0, Cos(0)=1, Tan(0)=0
         Assert.Equal(0.0, (double)res["sin"][0], 1e-6);
         Assert.Equal(1.0, (double)res["cos"][0], 1e-6);
@@ -174,23 +175,27 @@ TooShort,1990-05-20,1.60";
         // Sin(PI/2)=1, Cos(PI/2)=0 (approx)
         Assert.Equal(1.0, (double)res["sin"][1], 1e-6);
         Assert.Equal(0.0, (double)res["cos"][1], 1e-6);
+        Assert.Equal(180.0,res["degree"][2]);
     }
 
     [Fact]
+    [Trait("Expr","Trigonometry")]
     public void Test_Trigonometry_Inverse()
     {
-        var data = new[] { -1.0, 0.0, 1.0 };
-        using var df = DataFrame.FromColumns(new { val = data });
+        double[] data = [-1.0, 0.0, 1.0];
+        double[] degrees = [180.0,90.0,360.0];
+        using var df = DataFrame.FromColumns(new { val = data,degree=degrees });
 
         using var res = df.Select(
             Pl.Col("val").ArcSin().Alias("asin"),
-            Pl.Col("val").ArcCos().Alias("acos")
+            Pl.Col("val").ArcCos().Alias("acos"),
+            Pl.Col("degree").Radians().Alias("radian")
         );
-
         // ArcSin(-1) = -PI/2
         Assert.Equal(-Math.PI / 2, (double)res["asin"][0], 1e-6);
         // ArcCos(1) = 0
         Assert.Equal(0.0, (double)res["acos"][2], 1e-6);
+        Assert.Equal(Math.PI,res["radian"][0]);
     }
 
     [Fact]

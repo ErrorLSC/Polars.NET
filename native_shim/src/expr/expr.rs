@@ -391,6 +391,9 @@ gen_unary_op!(pl_expr_arcsinh, arcsinh);
 gen_unary_op!(pl_expr_arccosh, arccosh);
 gen_unary_op!(pl_expr_arctanh, arctanh);
 
+gen_unary_op!(pl_expr_degrees, degrees);
+gen_unary_op!(pl_expr_radians, radians);
+
 gen_unary_op!(pl_expr_sign, sign); // Sign func (-1, 0, 1)
 gen_unary_op!(pl_expr_ceil, ceil); // ceiling round
 gen_unary_op!(pl_expr_floor, floor); // flooring round

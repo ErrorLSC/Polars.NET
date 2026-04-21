@@ -705,11 +705,6 @@ public partial class Series : IDisposable,IPolarsSeries
     // Window & Rolling
     // ==========================================
     /// <summary>
-    /// Calculate the difference with the previous value (n-th lag).
-    /// </summary>
-    public Series Diff(long n = 1) => ApplyExpr(Pl.Col(Name).Diff(n));
-
-    /// <summary>
     /// Shift values by the given number of indices.
     /// </summary>
     public Series Shift(long n = 1) => ApplyExpr(Pl.Col(Name).Shift(n));

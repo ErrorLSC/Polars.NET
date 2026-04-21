@@ -225,5 +225,8 @@ public partial class Series : IDisposable,IPolarsSeries
     public Series BitwiseTrailingOnes() => ApplyExpr(Pl.Col(Name).BitwiseTrailingOnes());
     /// <inheritdoc cref="Expr.BitwiseTrailingZeros"/>
     public Series BitwiseTrailingZeros() => ApplyExpr(Pl.Col(Name).BitwiseTrailingZeros());
-    
+    /// <summary>
+    /// Calculate the difference with the previous value (n-th lag).
+    /// </summary>
+    public Series Diff(long n = 1) => ApplyExpr(Pl.Col(Name).Diff(n));
 }
