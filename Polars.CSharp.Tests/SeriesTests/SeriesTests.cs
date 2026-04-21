@@ -2076,4 +2076,13 @@ public class SeriesTests
         using Series sCutWithBreaks = s.Cut(breaks, includeBreaks: true);
         Assert.Equal(DataTypeKind.Struct, sCutWithBreaks.DataType.Kind);
     }
+    [Fact]
+    [Trait("Series", "IsClose")]
+    public void Test_Series_IsClose()
+    {
+        using Series s = Pl.Series("nihao",[114514,1919,810,725000]);
+        using Series sC = s.IsClose(114515,absTol: 2.0);
+        Assert.True((bool)sC[0]!);
+        Assert.False((bool)sC[3]!);
+    }
 }

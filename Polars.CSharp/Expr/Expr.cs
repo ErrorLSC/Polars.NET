@@ -228,14 +228,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="by">The column to use for interpolation (e.g. a timestamp column).</param>
     /// <returns>A new expression with interpolated values.</returns>
     public Expr InterpolateBy(Expr by) => new(PolarsWrapper.InterpolateBy(CloneHandle(), by.CloneHandle()));
-    /// <summary>
-    /// Evaluate whether the expression is null.
-    /// </summary>
-    public Expr IsNull() => new(PolarsWrapper.IsNull(CloneHandle()));
-    /// <summary>
-    /// Evaluate whether the expression is not null.
-    /// </summary>
-    public Expr IsNotNull() => new(PolarsWrapper.IsNotNull(CloneHandle()));
+
     /// <summary>
     /// Fill floating point NaN values with a specified value.
     /// Note: This is different from FillNull. It only handles IEEE 754 NaN.
@@ -339,15 +332,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     // ==========================================
     // Unique and Duplicated
     // ==========================================
-    /// <summary>
-    /// Create a boolean expression indicating whether the value is unique.
-    /// </summary>
-    public Expr IsUnique() => new(PolarsWrapper.ExprIsUnique(CloneHandle()));
-
-    /// <summary>
-    /// Create a boolean expression indicating whether the value is duplicated.
-    /// </summary>
-    public Expr IsDuplicated() => new(PolarsWrapper.ExprIsDuplicated(CloneHandle()));
 
     /// <summary>
     /// Get unique values.
@@ -496,17 +480,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     // ==========================================
     // Logic / Comparison
     // ==========================================
-
-    /// <summary>
-    /// Check if the value is between lower and upper bounds (inclusive).
-    /// </summary>
-    public Expr IsBetween(Expr lower, Expr upper)
-        => new(PolarsWrapper.IsBetween(CloneHandle(), lower.CloneHandle(), upper.CloneHandle()));
-    /// <summary>
-    /// Check if the value is in given collection.
-    /// </summary>
-    public Expr IsIn(Expr other, bool nullsEqual = false)
-        => new(PolarsWrapper.IsIn(CloneHandle(),other.CloneHandle(),nullsEqual));
     /// <summary>
     /// Filter a single column.
     /// <br/>

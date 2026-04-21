@@ -561,12 +561,21 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(h);
     }
     public static ExprHandle InterpolateBy(ExprHandle e, ExprHandle by) => BinaryOp(NativeBindings.pl_expr_interpolate_by, e, by);
-    
-    public static ExprHandle IsNull(ExprHandle expr) 
-        => UnaryOp(NativeBindings.pl_expr_is_null, expr);
-
-    public static ExprHandle IsNotNull(ExprHandle expr) 
-        => UnaryOp(NativeBindings.pl_expr_is_not_null, expr);
+    public static ExprHandle IsNull(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_is_null, expr);
+    public static ExprHandle IsNotNull(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_is_not_null, expr);
+    public static ExprHandle ExprIsNan(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_is_nan, expr);
+    public static ExprHandle ExprIsNotNan(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_is_not_nan, expr);
+    public static ExprHandle ExprIsInfinite(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_is_infinite, expr);
+    public static ExprHandle ExprIsFinite(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_is_finite, expr);
+    public static ExprHandle ExprIsFirstDistinct(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_is_first_distinct, expr);
+    public static ExprHandle ExprIsLastDistinct(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_is_last_distinct, expr);
+    public static ExprHandle ExprIsClose(ExprHandle expr,ExprHandle other,double absTol,double relTol,bool nansEqual)
+    {
+        var h = NativeBindings.pl_expr_is_close(expr,other,absTol,relTol,nansEqual);
+        expr.TransferOwnership();
+        other.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     public static ExprHandle DropNulls(ExprHandle expr) 
         => UnaryOp(NativeBindings.pl_expr_drop_nulls, expr);
     public static ExprHandle DropNans(ExprHandle expr) 

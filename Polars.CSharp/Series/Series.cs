@@ -237,6 +237,9 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Expr.SearchSorted(Expr, SearchSortedSide, bool)"/>
     public Series SearchSorted(Expr element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
         => ApplyExpr(Pl.Col(Name).SearchSorted(element, side, descending));
+    /// <inheritdoc cref="Expr.IsClose"/> 
+    public Series IsClose(IntoExprColumn other,double absTol = 0.0,double relTol=1e-9,bool nansEqual=false)
+        => ApplyExpr(Pl.Col(Name).IsClose(other,absTol,relTol,nansEqual));
     
     // -------------------------------------------------------------------------
     // Boolean Aggregation

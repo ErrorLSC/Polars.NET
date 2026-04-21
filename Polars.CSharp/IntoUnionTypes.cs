@@ -6,7 +6,7 @@ namespace Polars.CSharp;
 
 /// <summary>
 /// A type that can be implicitly converted into a Polars Expression.String will be parsed as column name.
-/// Matches the 'IntoExpr' concept in Rust and Python Polars.
+/// Matches the 'IntoExprColumn' concept in Rust and Python Polars.
 /// </summary>
 public readonly struct IntoExprColumn
 {

@@ -233,6 +233,18 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_interpolate_by(ExprHandle expr, ExprHandle by);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_is_null(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_is_not_null(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_is_nan(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_is_not_nan(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_is_finite(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_is_infinite(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_is_first_distinct(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_is_last_distinct(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_is_close(
+        ExprHandle expr,
+        ExprHandle other,
+        double abs_tol,
+        double rel_tol,
+        [MarshalAs(UnmanagedType.U1)]bool nans_equal);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_drop_nulls(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_drop_nans(ExprHandle expr);
     // Unique ops

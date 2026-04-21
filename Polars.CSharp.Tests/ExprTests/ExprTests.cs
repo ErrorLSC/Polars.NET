@@ -1565,6 +1565,7 @@ TooShort,1990-05-20,1.60";
         Assert.Equal("B",res2[0][1]);
     }
     [Fact]
+    [Trait("Expr","IsIn")]
     public void Test_Expr_IsIn()
     {
         using var df = DataFrame.FromColumns(new
@@ -1573,12 +1574,14 @@ TooShort,1990-05-20,1.60";
             name = new[] { "Alice", "Bob", "Charlie", "David", "Eve" }
         });
 
-        var validIds = new[] { 1, 3, 5 };       
-        var validNames = new[] { "Bob", "Eve" }; 
+        int[] validIds = [1, 3, 5];       
+        string[] validNames = ["Bob", "Eve"]; 
+
+        Series vNS = Pl.Series("vns",validNames).Implode();
 
         var res = df.Select(
-            Pl.Col("id").IsIn(Pl.Lit(validIds).Implode()).Alias("id_in_whitelist"),
-            Pl.Col("name").IsIn(Pl.Lit(validNames).Implode()).Alias("name_in_whitelist")
+            Pl.Col("id").IsIn(validIds).Alias("id_in_whitelist"),
+            Pl.Col("name").IsIn(vNS).Alias("name_in_whitelist")
         );
 
         Assert.Equal(5, res.Height);
@@ -3083,4 +3086,42 @@ TooShort,1990-05-20,1.60";
         Assert.Equal([1, 3, 5], c1.ToArray<int>());
         Assert.Equal([2, 4, 6], c2.ToArray<int>());
     }
+    [Fact]
+    [Trait("Expr", "BooleanMask")]
+    public void Test_Expr_BooleanMask()
+    {
+        using DataFrame df = [
+            Series.From("double1",[double.NaN,double.PositiveInfinity,double.NegativeInfinity,0.114514]),
+            Series.From("int2",[1919810,114514,1919810,0])
+        ];
+
+        using var dfMask = df.WithColumns(
+            Pl.Col("double1").IsFinite().Alias("Finite"),
+            Pl.Col("double1").IsInfinite().Alias("Infinite"),
+            Pl.Col("double1").IsNan().Alias("NaN"),
+            Pl.Col("double1").IsNotNan().Alias("NotNaN"),
+            Pl.Col("int2").IsFirstDistinct().Alias("FirstDistinct"),
+            Pl.Col("int2").IsLastDistinct().Alias("LastDistinct"));
+        Assert.True((bool)dfMask["Finite"][3]);   
+        Assert.True((bool)dfMask["Infinite"][2]);
+        Assert.True((bool)dfMask["NaN"][0]);
+        Assert.True((bool)dfMask["NotNaN"][1]);       
+        Assert.False((bool)dfMask["FirstDistinct"][2]);
+        Assert.False((bool)dfMask["LastDistinct"][0]);  
+    }
+    [Fact]
+    [Trait("Expr", "IsClose")]
+    public void Test_Expr_IsClose()
+    {
+        using DataFrame df = [
+            Series.From("double1",[1.5,2.0,2.5]),
+            Series.From("double2",[1.55, 2.2, 3.0])
+        ];
+
+        using var dfMask = df.WithColumns(
+            Pl.Col("double1").IsClose("double2", absTol:0.1).Alias("isClose"));
+        Assert.True((bool)dfMask["isClose"][0]);
+        Assert.False((bool)dfMask["isClose"][2]);
+    }
+
 }   

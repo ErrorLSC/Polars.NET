@@ -352,6 +352,12 @@ gen_unary_op!(pl_expr_not, not);
 // is_null()
 gen_unary_op!(pl_expr_is_null, is_null);
 gen_unary_op!(pl_expr_is_not_null, is_not_null);
+gen_unary_op!(pl_expr_is_nan, is_nan);
+gen_unary_op!(pl_expr_is_not_nan, is_not_nan);
+gen_unary_op!(pl_expr_is_infinite, is_infinite);
+gen_unary_op!(pl_expr_is_finite, is_finite);
+gen_unary_op!(pl_expr_is_first_distinct, is_first_distinct);
+gen_unary_op!(pl_expr_is_last_distinct, is_last_distinct);
 gen_unary_op!(pl_expr_drop_nulls, drop_nulls);
 gen_unary_op!(pl_expr_drop_nans, drop_nans);
 // dupilicated and unique
@@ -521,6 +527,25 @@ pub extern "C" fn pl_expr_is_in(
         let other = unsafe { Box::from_raw(other_ptr) };
 
         let new_expr = ctx.inner.is_in(other.inner,nulls_equal);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_is_close(
+    expr_ptr: *mut ExprContext, 
+    other_ptr: *mut ExprContext,
+    abs_tol: f64,
+    rel_tol : f64,
+    nans_equal: bool
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let other = unsafe { Box::from_raw(other_ptr) };
+
+        let new_expr = ctx.inner.is_close(other.inner,abs_tol,rel_tol,nans_equal);
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
