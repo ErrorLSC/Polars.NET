@@ -543,7 +543,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
         bool dropFirst = false, 
         bool dropNulls = false)
     {
-        IntoSelector actualSelector = columns ?? (Cs.String() | Cs.ByDtype(DataType.Categorical) | Cs.Enum());
+        IntoSelector actualSelector = columns ?? (Cs.String() | Cs.ByDtype(DataType.Categorical()) | Cs.Enum());
 
         using var selector = actualSelector.Consume();
         string[] columnsArray = Cs.ExpandSelector(this, selector);

@@ -15,7 +15,7 @@ public partial class Series : IDisposable,IPolarsSeries
     public ReadOnlySpan<T> AsReadOnlySpan<T>() where T : unmanaged
     {
         if (DataType == DataType.String || 
-            DataType == DataType.Categorical)
+            DataType.Kind == DataTypeKind.Categorical)
         {
             throw new InvalidOperationException(
                 $"Cannot create Tensor/Span from a {DataType} Series. " +

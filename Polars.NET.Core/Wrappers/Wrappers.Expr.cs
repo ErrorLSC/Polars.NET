@@ -1664,4 +1664,13 @@ public readonly partial struct PolarsWrapper
         newExpr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle ExprHist(ExprHandle expr,ExprHandle? bins,int? binCount,bool includeCategory, bool includeBreakPoint)
+    {
+        bool hasBinCount = binCount.HasValue;
+        nuint realBinCount = (nuint)(binCount ?? 0);
+        nint binsPtr = bins?.TransferOwnership() ?? nint.Zero;
+        var h = NativeBindings.pl_expr_hist(expr,binsPtr,hasBinCount,realBinCount,includeCategory,includeBreakPoint);
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
 }

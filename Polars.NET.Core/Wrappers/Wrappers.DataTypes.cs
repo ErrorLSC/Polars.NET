@@ -7,7 +7,7 @@ public readonly partial struct PolarsWrapper
     public static DataTypeHandle CloneHandle(DataTypeHandle handle) => ErrorHelper.Check(NativeBindings.pl_datatype_clone(handle));
     public static DataTypeHandle NewPrimitiveType(int code) => ErrorHelper.Check(NativeBindings.pl_datatype_new_primitive(code));
     public static DataTypeHandle NewDecimalType(int precision, int scale) => ErrorHelper.Check(NativeBindings.pl_datatype_new_decimal((UIntPtr)precision, (UIntPtr)scale));
-    public static DataTypeHandle NewCategoricalType() => ErrorHelper.Check(NativeBindings.pl_datatype_new_categorical());
+    public static DataTypeHandle NewCategoricalType(CategoriesHandle categories) => ErrorHelper.Check(NativeBindings.pl_datatype_new_categorical(categories));
     public static DataTypeHandle NewListType(DataTypeHandle innerType)
        => ErrorHelper.Check(NativeBindings.pl_datatype_new_list(innerType));
     public static DataTypeHandle NewDateTimeType(byte unit, string? timezone)
@@ -109,7 +109,7 @@ public readonly partial struct PolarsWrapper
     }
 
     /// <summary>
-    /// Get Struct field info for specified index。
+    /// Get Struct field info for specified index
     /// </summary>
     public static void GetStructField(DataTypeHandle handle, ulong index, out string name, out DataTypeHandle typeHandle)
     {
@@ -126,10 +126,14 @@ public readonly partial struct PolarsWrapper
         
         name = ErrorHelper.CheckString(namePtr);
     }
-    public static DataTypeHandle NewEnumType() 
-        => ErrorHelper.Check(NativeBindings.pl_datatype_new_enum());
+    public static DataTypeHandle NewEnumType(FrozenCategoriesHandle frozenCategories) 
+        => ErrorHelper.Check(NativeBindings.pl_datatype_new_enum(frozenCategories));
     public static DataTypeHandle NewExtensionType(string name, DataTypeHandle innerType, string? metadata)
         => ErrorHelper.Check(NativeBindings.pl_datatype_new_extension(name, innerType, metadata));
+    public static CategoriesHandle GetCategories(DataTypeHandle dtype)
+        => ErrorHelper.Check(NativeBindings.pl_datatype_get_categories(dtype));
+    public static FrozenCategoriesHandle GetEnumCategories(DataTypeHandle dtype)
+        => ErrorHelper.Check(NativeBindings.pl_datatype_get_enum_categories(dtype));
     public static bool DataTypeEq(DataTypeHandle a,DataTypeHandle b)
     {
         int status = NativeBindings.pl_datatype_eq(a,b,out bool result);

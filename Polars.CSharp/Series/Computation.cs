@@ -245,4 +245,10 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Get the unique elements of this Series, maintaining the order of appearance.
     /// </summary>
     public Series UniqueStable() => new(PolarsWrapper.SeriesUniqueStable(Handle));
+    /// <inheritdoc cref="Expr.Hist"/>
+    public DataFrame Hist(IntoExpr? bins=null,int? binCount=null,bool includeCategory=true,bool includeBreakPoint=true)
+    {
+        Series res = ApplyExpr(Pl.Col(Name).Hist(bins,binCount,includeCategory,includeBreakPoint));
+        return (includeCategory | includeBreakPoint)? res.Unnest() : res.ToFrame();
+    }
 }

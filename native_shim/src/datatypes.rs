@@ -1,5 +1,5 @@
 use std::ffi::{CStr, CString, c_char};
-use crate::{types::DataTypeContext};
+use crate::types::{CategoriesContext, DataTypeContext, FrozenCategoriesContext};
 use polars::prelude::{extension::get_extension_type_or_generic, *};
 
 macro_rules! define_pl_datatype_kind {
@@ -116,10 +116,28 @@ pub extern "C" fn pl_datatype_new_decimal(precision: usize, scale: usize) -> *mu
 }
 
 // Categorical 
+// #[unsafe(no_mangle)]
+// pub extern "C" fn pl_datatype_new_categorical() -> *mut DataTypeContext {
+//     ffi_try!({
+//         let cats = Categories::random(PlSmallStr::EMPTY, CategoricalPhysical::U32);
+//         let mapping = cats.mapping();
+//         let dtype = DataType::Categorical(cats, mapping);
+        
+//         Ok(Box::into_raw(Box::new(DataTypeContext { dtype })))
+//     })
+// }
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_datatype_new_categorical() -> *mut DataTypeContext {
+pub extern "C" fn pl_datatype_new_categorical(
+    cats_ptr: *mut CategoriesContext
+) -> *mut DataTypeContext {
     ffi_try!({
-        let cats = Categories::random(PlSmallStr::EMPTY, CategoricalPhysical::U32);
+        let cats = if cats_ptr.is_null() {
+            Categories::random(PlSmallStr::EMPTY, CategoricalPhysical::U32)
+        } else {
+            let ctx = unsafe { &*cats_ptr };
+            ctx.inner.clone()
+        };
+
         let mapping = cats.mapping();
         let dtype = DataType::Categorical(cats, mapping);
         
@@ -127,10 +145,30 @@ pub extern "C" fn pl_datatype_new_categorical() -> *mut DataTypeContext {
     })
 }
 
+// #[unsafe(no_mangle)]
+// pub extern "C" fn pl_datatype_new_enum() -> *mut DataTypeContext {
+//     ffi_try!({
+//         let frozen = FrozenCategories::new(std::iter::empty::<&str>()).unwrap();
+
+//         let mapping = frozen.mapping().clone();
+        
+//         let dtype = DataType::Enum(frozen, mapping);
+        
+//         Ok(Box::into_raw(Box::new(DataTypeContext { dtype })))
+//     })
+// }
+
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_datatype_new_enum() -> *mut DataTypeContext {
+pub extern "C" fn pl_datatype_new_enum(
+    frozen_ptr: *mut FrozenCategoriesContext
+) -> *mut DataTypeContext {
     ffi_try!({
-        let frozen = FrozenCategories::new(std::iter::empty::<&str>()).unwrap();
+        let frozen = if frozen_ptr.is_null() {
+            FrozenCategories::new(std::iter::empty::<&str>()).unwrap()
+        } else {
+            let ctx = unsafe { &*frozen_ptr };
+            ctx.inner.clone() 
+        };
 
         let mapping = frozen.mapping().clone();
         
@@ -568,5 +606,39 @@ pub extern "C" fn pl_datatype_eq(
         }
         
         Ok(0)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_datatype_get_categories(
+    ptr: *mut DataTypeContext
+) -> *mut CategoriesContext {
+    ffi_try!({
+        if ptr.is_null() { return Ok(std::ptr::null_mut()); }
+        let ctx = unsafe { &*ptr };
+        
+        match &ctx.dtype {
+            DataType::Categorical(cats, _) => {
+                Ok(Box::into_raw(Box::new(CategoriesContext { inner: cats.clone() })))
+            },
+            _ => Ok(std::ptr::null_mut())
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_datatype_get_enum_categories(
+    ptr: *mut DataTypeContext
+) -> *mut FrozenCategoriesContext {
+    ffi_try!({
+        if ptr.is_null() { return Ok(std::ptr::null_mut()); }
+        let ctx = unsafe { &*ptr };
+        
+        match &ctx.dtype {
+            DataType::Enum(frozen, _) => {
+                Ok(Box::into_raw(Box::new(FrozenCategoriesContext { inner: frozen.clone() })))
+            },
+            _ => Ok(std::ptr::null_mut())
+        }
     })
 }

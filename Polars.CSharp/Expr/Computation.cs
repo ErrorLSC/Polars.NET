@@ -305,5 +305,18 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <returns>Expression of type Struct, mapping unique values to their count (or proportion).</returns>
     public Expr ValueCounts(bool sort=false,bool parallel=false,string? name=null,bool normalize=false) 
         => new(PolarsWrapper.ValueCounts(CloneHandle(),sort,parallel,name,normalize));
+    /// <summary>
+    /// Bin values into buckets and count their occurrences.
+    /// </summary>
+    /// <param name="bins">Bin edges. If None given, we determine the edges based on the data.</param>
+    /// <param name="binCount">If bins is not provided, bin_count uniform bins are created that fully encompass the data.</param>
+    /// <param name="includeCategory">Include a column that indicates the upper breakpoint.</param>
+    /// <param name="includeBreakPoint">Include a column that shows the intervals as categories.</param>
+    /// <returns></returns>
+    public Expr Hist(IntoExpr? bins=null,int? binCount=null,bool includeCategory=false,bool includeBreakPoint=false)
+    {
+        ExprHandle? binsHandle = bins?.Consume().Handle;
+        return new(PolarsWrapper.ExprHist(CloneHandle(),binsHandle,binCount,includeCategory,includeBreakPoint));
+    }
 
 }

@@ -539,6 +539,13 @@ public enum NonExistent : byte
     Null = 1
 }
 
+public enum CategoricalPhysical : byte
+{
+    U32 = 0,
+    U16 = 1,
+    U8 = 2 
+}
+
 public enum MissingColumnsPolicy : byte { Raise = 0, Insert = 1 }
 public enum UpcastOrForbid : byte { Forbid = 0, Upcast = 1 }
 public enum ExtraColumnsPolicy : byte { Raise = 0, Ignore = 1 }
@@ -881,6 +888,13 @@ internal static class EnumExtensions
         NonExistent.Null => CoreEnums.PlNonExistent.Null,
         NonExistent.Raise => CoreEnums.PlNonExistent.Raise,
         _ => throw new ArgumentOutOfRangeException(nameof(policy), policy, null)
+    };
+    internal static CoreEnums.PlCategoricalPhysical ToNative(this CategoricalPhysical type) => type switch
+    {
+        CategoricalPhysical.U32 => CoreEnums.PlCategoricalPhysical.U32,
+        CategoricalPhysical.U16 => CoreEnums.PlCategoricalPhysical.U16,
+        CategoricalPhysical.U8 => CoreEnums.PlCategoricalPhysical.U8,
+        _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
     };
 }
 

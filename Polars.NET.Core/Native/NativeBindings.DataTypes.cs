@@ -18,7 +18,7 @@ unsafe internal partial class NativeBindings
     public static partial DataTypeHandle pl_datatype_new_decimal(UIntPtr precision, UIntPtr scale);
 
     [LibraryImport(LibName)]
-    public static partial DataTypeHandle pl_datatype_new_categorical();
+    public static partial DataTypeHandle pl_datatype_new_categorical(CategoriesHandle categories);
     [LibraryImport(LibName)]
     public static partial DataTypeHandle pl_datatype_new_list(DataTypeHandle inner);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
@@ -81,7 +81,7 @@ unsafe internal partial class NativeBindings
         out DataTypeHandle typeHandle 
     );
     [LibraryImport(LibName)]
-    public static partial DataTypeHandle pl_datatype_new_enum();
+    public static partial DataTypeHandle pl_datatype_new_enum(FrozenCategoriesHandle frozenCategories);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial DataTypeHandle pl_datatype_new_extension(
@@ -89,6 +89,11 @@ unsafe internal partial class NativeBindings
         DataTypeHandle inner_dtype,
         string? metadata
     );
+    [LibraryImport(LibName)]
+    public static partial CategoriesHandle pl_datatype_get_categories(DataTypeHandle ptr);
+
+    [LibraryImport(LibName)]
+    public static partial FrozenCategoriesHandle pl_datatype_get_enum_categories(DataTypeHandle ptr);
 
     [LibraryImport(LibName)]
     public static partial int pl_datatype_eq(DataTypeHandle a, DataTypeHandle b, [MarshalAs(UnmanagedType.I1)] out bool isEqual);

@@ -2116,14 +2116,15 @@ public class SeriesTests
         Assert.Equal(0.372828,(double)entropy!,1e-5);
     }
     [Fact]
-    [Trait("Series", "Hash")]
+    [Trait("Series", "Hist")]
     public void Test_Series_Hash()
     {
-        double? [] numbers = [100.0,Math.E,8,114514,1919810,double.NaN,null,double.NaN];
+        int[] numbers = [1, 3, 8, 8, 2, 1, 3];
         using Series s = Pl.Series("nihao",numbers);
-        using Series sHash = s.Hash(42,41,0,10086);
-        Assert.True(sHash.Sum<ulong>()>0);
-        Assert.True((ulong)sHash[5]! == (ulong)sHash[7]!);
+        using var sHist = s.Hist(binCount:2);
+        Assert.Equal(2u,sHist["count"][1]);
+        Assert.Equal(DataType.Categorical().Kind,sHist.Schema["category"].Kind);
     }
+
 
 }

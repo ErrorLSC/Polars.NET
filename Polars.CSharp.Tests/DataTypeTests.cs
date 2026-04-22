@@ -149,6 +149,7 @@ public class DataTypeTests
     }
 
     [Fact]
+    [Trait("DataType","Categorical")]
     public void Test_DataFrame_ModernTypes_And_Categorical()
     {
         var data = new List<ModernTypesPoco>
@@ -168,9 +169,9 @@ public class DataTypeTests
         using var s = Series.From("modern", data);
         using var df = DataFrame.FromSeries(s).Unnest("modern");
 
-        using var dfCat = df.WithColumns(Pl.Col("Cat").Cast(DataType.Categorical));
+        using var dfCat = df.WithColumns(Pl.Col("Cat").Cast(DataType.Categorical("time")));
 
-        Assert.Equal(DataTypeKind.Categorical, dfCat.Schema["Cat"].Kind);
+        Assert.Equal(DataType.Categorical("time"), dfCat.Schema["Cat"]);
         Assert.Equal(DataTypeKind.Date, dfCat.Schema["Date"].Kind);
         Assert.Equal(DataTypeKind.Time, dfCat.Schema["Time"].Kind);
 
@@ -1132,5 +1133,55 @@ public class DataTypeTests
 
         Series sStorage = sExt.Ext.Storage();
         Assert.Equal(typeof(int),sStorage.DataType);
+    }
+    public enum ProcessStatus
+    {
+        Pending,
+        Running,
+        Completed,
+        Failed
+    }
+
+    public class EnumTestPoco
+    {
+        public string Status { get; set; } 
+        public int TaskId { get; set; }
+    }
+    [Fact]
+    [Trait("DataType", "Enum")]
+    public void Test_DataFrame_CSharpEnum_To_PolarsEnum()
+    {
+        var data = new List<EnumTestPoco>
+        {
+            new() { TaskId = 101, Status = "Pending" },
+            new() { TaskId = 102, Status = "Running" },
+            new() { TaskId = 103, Status = "Completed" }
+        };
+
+        using var s = Series.From("tasks", data);
+        using var df = DataFrame.FromSeries(s).Unnest("tasks");
+
+        using var enumType = DataType.Enum<ProcessStatus>();
+        using var dfEnum = df.Cast("Status",enumType);
+
+        Assert.Equal(enumType, dfEnum.Schema["Status"]);
+        Assert.Equal(DataType.Int32, dfEnum.Schema["TaskId"]);
+        
+        var castedEnumType = dfEnum.Schema["Status"];
+        string[] expectedCategories = ["Pending", "Running", "Completed", "Failed"];
+        Assert.Equal(expectedCategories, castedEnumType.EnumCategories.GetCategories());
+
+        var rows = dfEnum.Rows<EnumTestPoco>().ToList();
+
+        Assert.Equal(3, rows.Count);
+        
+        Assert.Equal(101, rows[0].TaskId);
+        Assert.Equal("Pending", rows[0].Status);
+
+        Assert.Equal(102, rows[1].TaskId);
+        Assert.Equal("Running", rows[1].Status);
+
+        Assert.Equal(103, rows[2].TaskId);
+        Assert.Equal("Completed", rows[2].Status);
     }
 }

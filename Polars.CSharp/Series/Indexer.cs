@@ -51,7 +51,7 @@ public partial class Series : IDisposable,IPolarsSeries
             return (T?)(object?)PolarsWrapper.SeriesGetBool(Handle, index);
 
         // 3. String
-        if (underlying == typeof(string) && DataType != DataType.Categorical) 
+        if (underlying == typeof(string) && DataType != DataType.Categorical()) 
         {
             if (PolarsWrapper.SeriesIsNullAt(Handle, index))
             {

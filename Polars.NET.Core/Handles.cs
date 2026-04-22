@@ -161,3 +161,27 @@ public class CatalogHandle : PolarsHandle
         return true;
     }
 }
+
+public class CategoriesHandle : PolarsHandle
+{
+    protected override bool ReleaseHandle()
+    {
+        if (!IsInvalid)
+        {
+            NativeBindings.pl_categories_free(handle);
+        }
+        return true;
+    }
+}
+
+public class FrozenCategoriesHandle : PolarsHandle
+{
+    protected override bool ReleaseHandle()
+    {
+        if (!IsInvalid)
+        {
+            NativeBindings.pl_frozencategories_free(handle);
+        }
+        return true;
+    }
+}

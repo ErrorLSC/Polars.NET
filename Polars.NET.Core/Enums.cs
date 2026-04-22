@@ -387,3 +387,10 @@ public enum PlNonExistent : byte
     Raise = 0,
     Null = 1
 }
+
+public enum PlCategoricalPhysical: byte
+{
+    U32 = 0,
+    U16 = 1,
+    U8 = 2 
+}

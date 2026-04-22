@@ -294,7 +294,7 @@ public class IoTests
                 .Add("amount", DataType.Int32); 
 
             using var hiveSchema = new PolarsSchema()
-                .Add("category", DataType.Categorical);
+                .Add("category", DataType.Categorical());
 
             using var lf = LazyFrame.ScanParquet(
                 path: Path.Combine(baseDir, "**/*.parquet"),

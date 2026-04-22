@@ -2072,3 +2072,38 @@ pub extern "C" fn pl_expr_ext_storage(
         Ok(Box::into_raw(Box::new(ExprContext { inner: out_expr })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_hist(
+    expr_ptr: *mut ExprContext,
+    bins_ptr: *mut ExprContext,
+    has_bin_count: bool,
+    bin_count: usize,
+    include_category: bool,
+    include_breakpoint: bool,
+) -> *mut ExprContext {
+    ffi_try!({
+        let expr = unsafe { Box::from_raw(expr_ptr) }.inner;
+
+        let bins_opt = if bins_ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { Box::from_raw(bins_ptr) }.inner)
+        };
+
+        let bin_count_opt = if has_bin_count {
+            Some(bin_count)
+        } else {
+            None
+        };
+
+        let out_expr = expr.hist(
+            bins_opt,
+            bin_count_opt,
+            include_category,
+            include_breakpoint,
+        );
+
+        Ok(Box::into_raw(Box::new(ExprContext { inner: out_expr })))
+    })
+}

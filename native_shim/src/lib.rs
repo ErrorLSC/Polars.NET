@@ -21,6 +21,7 @@ mod datatypes;
 mod schema;
 mod excel_reader;
 mod excel_writer;
+mod categories;
 
 use std::ffi::CStr;
 use std::os::raw::c_char;

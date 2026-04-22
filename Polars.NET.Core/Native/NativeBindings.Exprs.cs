@@ -886,4 +886,13 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_hash(
         ExprHandle expr,
         ulong k0,ulong k1,ulong k2,ulong k3);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_hist(
+        ExprHandle expr,
+        nint bins,
+        [MarshalAs(UnmanagedType.I1)] bool has_bin_count,
+        nuint bin_count,
+        [MarshalAs(UnmanagedType.I1)] bool include_category,
+        [MarshalAs(UnmanagedType.I1)] bool include_breakpoint
+    );
 }

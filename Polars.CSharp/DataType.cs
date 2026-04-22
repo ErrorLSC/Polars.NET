@@ -63,6 +63,43 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
                 break;
         }
     }
+    /// <summary>
+    /// Return underlying Categories for categorical type, for other types returns null
+    /// </summary>
+    public Categories? Categories
+    {
+        get
+        {
+            if (Kind != DataTypeKind.Categorical) 
+                return null;
+
+            var handle = PolarsWrapper.GetCategories(Handle);
+            
+            if (handle == null || handle.IsInvalid) 
+                return null;
+
+            return new Categories(handle);
+        }
+    }
+
+    /// <summary>
+    /// Return underlying FrozenCategories for enum type, for other types returns null
+    /// </summary>
+    public FrozenCategories? EnumCategories
+    {
+        get
+        {
+            if (Kind != DataTypeKind.Enum) 
+                return null;
+
+            var handle = PolarsWrapper.GetEnumCategories(Handle);
+            
+            if (handle == null || handle.IsInvalid) 
+                return null;
+
+            return new FrozenCategories(handle);
+        }
+    }
     
     /// <summary>
     /// Dispose the underlying DataTypeHandle.
@@ -200,7 +237,6 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     public static DataType Null  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Null), DataTypeKind.Null);
     public static DataType Binary  => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Binary), DataTypeKind.Binary);
     public static DataType SameAsInput => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.SameAsInput), DataTypeKind.SameAsInput);
-    public static DataType Enum => new(PolarsWrapper.NewEnumType(),DataTypeKind.Enum);
 
     // ==========================================
     // Complex Factories (Methods)
@@ -216,8 +252,34 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// <summary>
     /// Create a Categorical type
     /// </summary>
-    public static DataType Categorical 
-        => new(PolarsWrapper.NewCategoricalType(), DataTypeKind.Categorical);
+    public static DataType Categorical(Categories? categories=null)
+    {
+        Categories realCate = categories ?? Categories.Global();
+        return new(PolarsWrapper.NewCategoricalType(realCate.Handle), DataTypeKind.Categorical);
+    }
+    public static DataType Categorical(string categories)
+    {
+        Categories realCate = new(name:categories);
+        return new(PolarsWrapper.NewCategoricalType(realCate.Handle), DataTypeKind.Categorical);
+    }
+    /// <summary>
+    /// Create a Enum type
+    /// </summary>
+    /// <param name="categories"></param>
+    /// <returns></returns>
+    public static DataType Enum(FrozenCategories categories) => new(PolarsWrapper.NewEnumType(categories.Handle),DataTypeKind.Enum);
+    public static DataType Enum(Series categories)
+    {
+        FrozenCategories cate = new(categories.ToArray<string>());
+        return Enum(cate);
+    }
+    public static DataType Enum(Categories categories) => Enum(categories.Freeze());
+    public static DataType Enum<T>() where T : struct, Enum
+    {
+        string[] names = System.Enum.GetNames(typeof(T));
+        FrozenCategories cate = new(names);
+        return Enum(cate);
+    }
     /// <summary>
     /// Create a datetime type with unit and timezone
     /// </summary>
@@ -374,7 +436,7 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
                 [.. s.Fields.Select(f => FromArrowType(f.DataType))]
             ),
 
-            DictionaryType dict => Categorical,
+            DictionaryType dict => Categorical(Categories.Random()),
 
             MapType map => List(Struct(
                 ["key", "value"], 
@@ -383,5 +445,135 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
 
             _ => throw new NotSupportedException($"ArrowType {arrowType.GetType().Name} is not supported yet.")
         };
+    }
+}
+
+public class Categories : IDisposable,IEquatable<Categories>
+{
+    internal CategoriesHandle Handle { get; }
+    private bool _disposed;
+
+    public Categories(string? name=null, string? nameSpace= "",CategoricalPhysical physical = CategoricalPhysical.U32)
+    {
+        Handle = PolarsWrapper.CategoriesNew(name,nameSpace,physical.ToNative());
+    }
+
+    internal Categories(CategoriesHandle handle)
+    {
+        Handle = handle;
+    }
+
+    public static Categories Random(string nameSpace = "", CategoricalPhysical physical = CategoricalPhysical.U32)
+    {
+        var handle = PolarsWrapper.CategoriesRandom(nameSpace,physical.ToNative());
+        return new Categories(handle);
+    }
+    public string Name() => PolarsWrapper.CategoriesGetName(Handle);
+    public string NameSpace() => PolarsWrapper.CategoriesGetNameSpace(Handle);
+    public bool IsGlobal() => PolarsWrapper.CategoriesIsGlobal(Handle);
+    public CategoricalPhysical Physical() => (CategoricalPhysical)PolarsWrapper.CategoriesPhysical(Handle);
+    public static Categories Global() => new(PolarsWrapper.CategoriesGlobal());
+
+    public FrozenCategories Freeze() => new(PolarsWrapper.CategoriesFreeze(Handle));
+
+    public ulong Hash
+    {
+        get
+        {
+            return PolarsWrapper.CategoriesHash(Handle);
+        }
+    }
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            Handle?.Dispose();
+            _disposed = true;
+        }
+        GC.SuppressFinalize(this);
+    }
+    public bool Equals(Categories? other)
+    {
+        if (other is null) return false;
+        
+        if (ReferenceEquals(this, other)) return true;
+        
+        return this.Hash == other.Hash;
+    }
+
+    public override bool Equals(object? obj) => Equals(obj as Categories);
+
+    public override int GetHashCode() => Hash.GetHashCode();
+
+    public static bool operator ==(Categories? left, Categories? right)
+    {
+        if (ReferenceEquals(left, right)) return true;
+        if (left is null) return false;
+        return left.Equals(right);
+    }
+
+    public static bool operator !=(Categories? left, Categories? right)
+    {
+        return !(left == right);
+    }
+}
+
+public class FrozenCategories : IDisposable,IEquatable<FrozenCategories>
+{
+    internal FrozenCategoriesHandle Handle { get; }
+    private bool _disposed;
+
+    public FrozenCategories(string[] categories)
+    {
+        Handle = PolarsWrapper.FrozenCategoriesNew(categories);
+    }
+
+    internal FrozenCategories(FrozenCategoriesHandle handle)
+    {
+        Handle = handle;
+    }
+
+    public string[] GetCategories() => new Series(PolarsWrapper.FrozenCategoriesGetCategories(Handle)).ToArray<string>();
+    public CategoricalPhysical Physical() => (CategoricalPhysical)PolarsWrapper.FrozenCategoriesPhysical(Handle);
+
+    public ulong Hash
+    {
+        get
+        {
+            return PolarsWrapper.FrozenCategoriesHash(Handle);
+        }
+    }
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            Handle?.Dispose();
+            _disposed = true;
+        }
+        GC.SuppressFinalize(this);
+    }
+    public bool Equals(FrozenCategories? other)
+    {
+        if (other is null) return false;
+        
+        if (ReferenceEquals(this, other)) return true;
+        
+        return this.Hash == other.Hash;
+    }
+
+    public override bool Equals(object? obj) => Equals(obj as FrozenCategories);
+
+    public override int GetHashCode() => Hash.GetHashCode();
+
+    public static bool operator ==(FrozenCategories? left, FrozenCategories? right)
+    {
+        if (ReferenceEquals(left, right)) return true;
+        if (left is null) return false;
+        return left.Equals(right);
+    }
+
+    public static bool operator !=(FrozenCategories? left, FrozenCategories? right)
+    {
+        return !(left == right);
     }
 }
