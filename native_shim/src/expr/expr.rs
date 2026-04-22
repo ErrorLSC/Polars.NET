@@ -1514,6 +1514,22 @@ pub extern "C" fn pl_expr_ternary(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_append(
+    self_ptr: *mut ExprContext,
+    other_ptr: *mut ExprContext,
+    upcast: bool
+) -> *mut ExprContext {
+    ffi_try!({
+        let self_expr = unsafe { Box::from_raw(self_ptr) };
+        let other = unsafe { Box::from_raw(other_ptr) };
+
+        let new_expr = self_expr.inner.append(other.inner, upcast);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_extend_constant(
     self_ptr: *mut ExprContext,
     value_ptr: *mut ExprContext,

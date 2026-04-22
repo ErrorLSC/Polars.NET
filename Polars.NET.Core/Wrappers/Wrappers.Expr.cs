@@ -1281,6 +1281,13 @@ public readonly partial struct PolarsWrapper
         
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle Append(ExprHandle e, ExprHandle other,bool upcast)
+    {
+        var h = NativeBindings.pl_expr_append(e, other, upcast);
+        e.TransferOwnership();
+        other.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     public static ExprHandle SqlExpr(string sql)
         =>ErrorHelper.Check(NativeBindings.pl_expr_sql(sql));
     public static ExprHandle Gather(ExprHandle expr,ExprHandle idx)

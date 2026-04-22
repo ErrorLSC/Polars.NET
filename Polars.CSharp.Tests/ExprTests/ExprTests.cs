@@ -3145,5 +3145,19 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(0.25,dfCounts["proportion"][1]);
         Assert.Equal(2u,dfCounts["double2"][0]);
     }
+    [Fact]
+    [Trait("Expr", "Append")]
+    public void Test_Expr_Append()
+    {
+        using DataFrame df = [
+            Series.From("double1",[1.5,2.0,2.5,2.5]),
+            Series.From("double2",[1.55,114514,1919,1.55])
+        ];
 
+        using DataFrame dfAppend = df.Select(
+            Pl.Col("double1").Append(114514),
+            Pl.Col("double2").Append(725000));
+        Assert.Equal(114514.0,dfAppend[0][4]);
+        Assert.Equal(725000.0,dfAppend[1][4]);
+    }
 }   

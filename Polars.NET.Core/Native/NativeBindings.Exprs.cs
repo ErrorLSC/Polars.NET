@@ -690,6 +690,7 @@ unsafe internal partial class NativeBindings
     );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_ternary(ExprHandle pred, ExprHandle ifTrue, ExprHandle ifFalse);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_extend_constant(ExprHandle e, ExprHandle value, ExprHandle n);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_append(ExprHandle e, ExprHandle other, [MarshalAs(UnmanagedType.U1)]bool upcast);
     // Statistical
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_count(ExprHandle e);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_mode(ExprHandle e);

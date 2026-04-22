@@ -466,10 +466,13 @@ public partial class Expr : IDisposable,IEquatable<Expr>
 
         return ReplaceStrict(oldSeries, newSeries, defaultExpr, returnDataType);
     }
-
-    // ==========================================
-    // Extend Constant
-    // ==========================================
+    /// <summary>
+    /// Append expressions.
+    /// This is done by adding the chunks of other to this Series.
+    /// </summary>
+    /// <param name="other">Expression to append.</param>
+    /// <param name="upcast">Cast both Series to the same supertype.</param>
+    public Expr Append(IntoExpr other,bool upcast = true) => new(PolarsWrapper.Append(CloneHandle(),other.Consume().Handle,upcast));
     /// <summary>
     /// Extremely fast method for extending the Series with ‘n’ copies of a value.
     /// </summary>
