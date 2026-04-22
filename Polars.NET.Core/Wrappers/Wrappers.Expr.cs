@@ -1341,6 +1341,54 @@ public readonly partial struct PolarsWrapper
 
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle ArgSortBy(
+        ExprHandle[] exprs, 
+        bool[]? descending,  
+        bool[]? nullsLast, 
+        bool multithreaded, 
+        bool maintainOrder)
+    {
+        if (exprs == null || exprs.Length == 0)
+        {
+            throw new ArgumentException("Expressions array cannot be null or empty.", nameof(exprs));
+        }
+
+        if (descending != null && descending.Length != exprs.Length)
+        {
+            throw new ArgumentException(
+                $"Length of '{nameof(descending)}' ({descending.Length}) must match the number of expressions ({exprs.Length}).", 
+                nameof(descending));
+        }
+
+        if (nullsLast != null && nullsLast.Length != exprs.Length)
+        {
+            throw new ArgumentException(
+                $"Length of '{nameof(nullsLast)}' ({nullsLast.Length}) must match the number of expressions ({exprs.Length}).", 
+                nameof(nullsLast));
+        }
+        nint[] ptrs = HandlesToPtrs(exprs);
+        nuint len = (nuint)ptrs.Length;
+
+        ReadOnlySpan<byte> descSpan = descending != null 
+            ? MemoryMarshal.Cast<bool, byte>(descending) 
+            : default;
+
+        ReadOnlySpan<byte> nullsSpan = nullsLast != null 
+            ? MemoryMarshal.Cast<bool, byte>(nullsLast) 
+            : default;
+
+        var resultHandle = NativeBindings.pl_expr_arg_sort_by(
+            ptrs, 
+            len, 
+            descSpan, 
+            nullsSpan, 
+            multithreaded, 
+            maintainOrder
+        );
+
+        return ErrorHelper.Check(resultHandle);
+    }
+    public static ExprHandle ArgWhere(ExprHandle condition) => UnaryOp(NativeBindings.pl_expr_arg_where,condition);
     public static ExprHandle IndexOf(ExprHandle expr, ExprHandle element) 
         => BinaryOp(NativeBindings.pl_expr_index_of,expr,element);
     public static ExprHandle SearchSorted(ExprHandle expr,ExprHandle element, PlSearchSortedSide side,bool descending)

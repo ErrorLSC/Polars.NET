@@ -735,6 +735,18 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.I1)] bool nullsLast
     );
     [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_arg_sort_by(
+        nint[] exprs, 
+        nuint len,
+        ReadOnlySpan<byte> descending, 
+        ReadOnlySpan<byte> nullsLast,  
+        [MarshalAs(UnmanagedType.I1)] bool multithreaded,
+        [MarshalAs(UnmanagedType.I1)] bool maintainOrder
+    );
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_arg_where(ExprHandle condition);
+
+    [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_index_of(
         ExprHandle expr, 
         ExprHandle element

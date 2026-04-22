@@ -368,7 +368,80 @@ public readonly partial struct Polars
         
         return Series(expr);
     }
+    /// <summary>
+    /// Return the row indices that would sort the column(s).
+    /// </summary>
+    /// <param name="expr">Column(s) to arg sort by. Accepts expression input. Strings are parsed as column names.</param>
+    /// <param name="descending">Sort in descending order. When sorting by multiple columns, can be specified per column by passing a sequence of booleans.</param>
+    /// <param name="nullsLast">Place null values last.</param>
+    /// <param name="multithreaded">Sort using multiple threads.</param>
+    /// <param name="maintainOrder">Whether the order should be maintained if elements are equal.</param>
+    public static Expr ArgSortBy(
+        IntoExprColumn expr, 
+        bool descending = false, 
+        bool nullsLast = false, 
+        bool multithreaded = true, 
+        bool maintainOrder = false)
+    {
+        return ArgSortBy(
+            [expr], 
+            [descending], 
+            [nullsLast], 
+            multithreaded, 
+            maintainOrder
+        );
+    }
+    /// <inheritdoc cref="ArgSortBy(IntoExprColumn,bool,bool,bool,bool)"/>
+    public static Expr ArgSortBy(
+        IEnumerable<IntoExprColumn> exprs, 
+        bool descending = false, 
+        bool nullsLast = false, 
+        bool multithreaded = true, 
+        bool maintainOrder = false)
+    {
+        var exprList = exprs.ToArray();
+        var n = exprList.Length;
+        
+        return ArgSortBy(
+            exprList,
+            [.. Enumerable.Repeat(descending, n)],
+            [.. Enumerable.Repeat(nullsLast, n)],
+            multithreaded,
+            maintainOrder
+        );
+    }
 
+    /// <inheritdoc cref="ArgSortBy(IntoExprColumn,bool,bool,bool,bool)"/>
+    public static Expr ArgSortBy(
+        IEnumerable<IntoExprColumn> exprs, 
+        IEnumerable<bool> descending, 
+        IEnumerable<bool> nullsLast, 
+        bool multithreaded = true, 
+        bool maintainOrder = false)
+    {
+        var handles = exprs.Select(e => e.Consume().Handle).ToArray();
+        var descArray = descending.ToArray();
+        var nullsArray = nullsLast.ToArray();
+
+        var newHandle = PolarsWrapper.ArgSortBy(
+            handles,
+            descArray,
+            nullsArray,
+            multithreaded,
+            maintainOrder
+        );
+
+        return new Expr(newHandle);
+    }
+    /// <inheritdoc cref="ArgSortBy(IntoExprColumn,bool,bool,bool,bool)"/>
+    public static Expr ArgSortBy(params IntoExprColumn[] exprs) => ArgSortBy(exprs, descending: false);
+    /// <summary>
+    /// Return indices where condition evaluates True.
+    /// </summary>
+    /// <param name="condition">Boolean expression/Series to evaluate</param>
+    public static Expr ArgWhere(IntoExpr condition) => new(PolarsWrapper.ArgWhere(condition.Consume().Handle));
+    /// <inheritdoc cref="ArgWhere(IntoExpr)"/>
+    public static Series ArgWhereAsSeries(IntoExpr condition) => CSharp.Series.FromExpr(ArgWhere(condition));
 }
 
 internal static class InterfaceUnwrapperExtensions

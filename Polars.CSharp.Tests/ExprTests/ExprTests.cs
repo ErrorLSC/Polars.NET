@@ -3160,4 +3160,82 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(114514.0,dfAppend[0][4]);
         Assert.Equal(725000.0,dfAppend[1][4]);
     }
+    private static DataFrame CreateTestDataFrame() => Pl.DataFrame(
+        ("A", new[] { 1, 1, 2, 2 }),
+        ("B", new[] { 5, 3, 4, 6 }),
+        ("C", new int?[] { null, 10, 20, null })
+    );
+
+    [Fact]
+    [Trait("Expr", "ArgSortBy")]
+    public void Test_ArgSortBy_SingleColumn()
+    {
+        using var df = CreateTestDataFrame();
+
+        using var resAsc = df.Select(Pl.ArgSortBy("B"));
+        Assert.Equal(new uint[] { 1, 2, 0, 3 }, resAsc[0].ToArray<uint>());
+
+        using var resDesc = df.Select(Pl.ArgSortBy("B", descending: true));
+        Assert.Equal(new uint[] { 3, 0, 2, 1 }, resDesc[0].ToArray<uint>());
+    }
+
+    [Fact]
+    [Trait("Expr", "ArgSortBy")]
+    public void Test_ArgSortBy_Params_And_UniformMultiple()
+    {
+        using var df = CreateTestDataFrame();
+
+        using var resParams = df.Select(Pl.ArgSortBy("A", "B"));
+        Assert.Equal(new uint[] { 1, 0, 2, 3 }, resParams[0].ToArray<uint>());
+
+        using var resUniformMultiple = df.Select(Pl.ArgSortBy(
+            ["A", "B"], 
+            descending: true
+        ));
+        Assert.Equal(new uint[] { 3, 2, 0, 1 }, resUniformMultiple[0].ToArray<uint>());
+    }
+
+    [Fact]
+    [Trait("Expr", "ArgSortBy")]
+    public void Test_ArgSortBy_GranularMultiple()
+    {
+        using var df = CreateTestDataFrame();
+
+        using var resGranular = df.Select(Pl.ArgSortBy(
+            ["A", "B"],
+            descending: [false, true],
+            nullsLast: [false, false]
+        ));
+        Assert.Equal(new uint[] { 0, 1, 3, 2 }, resGranular[0].ToArray<uint>());
+    }
+
+    [Fact]
+    [Trait("Expr", "ArgSortBy")]
+    public void Test_ArgSortBy_NullsLast()
+    {
+        using var df = CreateTestDataFrame();
+
+        using var resNullsLast = df.Select(Pl.ArgSortBy("C", nullsLast: true));
+        Assert.Equal(new uint[] { 1, 2, 0, 3 }, resNullsLast[0].ToArray<uint>());
+
+        using var resNullsFirst = df.Select(Pl.ArgSortBy("C", nullsLast: false));
+        Assert.Equal(new uint[] { 0, 3, 1, 2 }, resNullsFirst[0].ToArray<uint>());
+    }
+
+    [Fact]
+    [Trait("Expr", "ArgWhere")]
+    public void Test_ArgWhere_And_ArgWhereAsSeries()
+    {
+        using var df = CreateTestDataFrame();
+
+        // ArgWhere
+        using var resExpr = df.Select(Pl.ArgWhere(Pl.Col("A") == 2).Alias("indices"));
+        Assert.Equal(new uint[] { 2, 3 }, resExpr[0].ToArray<uint>());
+
+        // ArgWhereAsSeries
+        using var sBool = df["B"] > 4; 
+        using var resSeries = Pl.ArgWhereAsSeries(sBool);
+        Assert.Equal(new uint[] { 0, 3 }, resSeries.ToArray<uint>());
+    }
+    
 }   

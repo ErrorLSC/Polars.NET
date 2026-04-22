@@ -647,6 +647,57 @@ pub extern "C" fn pl_expr_arg_sort(
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_arg_sort_by(
+    by_exprs: *const *mut ExprContext,
+    num_exprs: usize,
+    descending: *const bool,
+    nulls_last: *const bool,
+    multithreaded: bool,
+    maintain_order: bool,
+) -> *mut ExprContext {
+    ffi_try!({
+        let by_vec = unsafe { consume_exprs_array(by_exprs, num_exprs) };
+
+        let desc_vec = if descending.is_null() {
+            vec![false; num_exprs]
+        } else {
+            unsafe { std::slice::from_raw_parts(descending, num_exprs) }.to_vec()
+        };
+
+        let nulls_vec = if nulls_last.is_null() {
+            vec![false; num_exprs]
+        } else {
+            unsafe { std::slice::from_raw_parts(nulls_last, num_exprs) }.to_vec()
+        };
+
+        let sort_options = SortMultipleOptions {
+            descending: desc_vec,
+            nulls_last: nulls_vec,
+            multithreaded,
+            maintain_order,
+            limit:None
+        };
+
+        let new_expr = arg_sort_by(by_vec, sort_options);
+
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_expr_arg_where(
+    condition_ptr: *mut ExprContext,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(condition_ptr) };
+        
+        let expr = arg_where(ctx.inner);
+
+        Ok(Box::into_raw(Box::new(ExprContext { inner:expr })))
+    })
+}
+
 // ==========================================
 // Index Of
 // ==========================================
@@ -1563,6 +1614,8 @@ pub extern "C" fn pl_expr_value_counts(
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
+
+
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_entropy(
