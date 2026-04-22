@@ -225,18 +225,10 @@ public partial class Series : IDisposable,IPolarsSeries
     public Series ArgUnique()
         => ApplyExpr(Pl.Col(Name).ArgUnique());
 
-
     /// <inheritdoc cref="Expr.ArgSort(bool, bool)"/>
     public Series ArgSort(bool descending = false, bool nullsLast = false)
         => ApplyExpr(Pl.Col(Name).ArgSort(descending, nullsLast));
 
-    /// <inheritdoc cref="Expr.IndexOf(Expr)"/>
-    public Series IndexOf(Expr element)
-        => ApplyExpr(Pl.Col(Name).IndexOf(element));
-
-    /// <inheritdoc cref="Expr.SearchSorted(Expr, SearchSortedSide, bool)"/>
-    public Series SearchSorted(Expr element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
-        => ApplyExpr(Pl.Col(Name).SearchSorted(element, side, descending));
     /// <inheritdoc cref="Expr.IsClose"/> 
     public Series IsClose(IntoExprColumn other,double absTol = 0.0,double relTol=1e-9,bool nansEqual=false)
         => ApplyExpr(Pl.Col(Name).IsClose(other,absTol,relTol,nansEqual));
@@ -529,21 +521,6 @@ public partial class Series : IDisposable,IPolarsSeries
     // ==========================================
     // Statistical Ops
     // ==========================================
-
-    /// <summary>
-    /// <inheritdoc cref="Expr.Skew(bool)" path="/summary"/>
-    /// </summary>
-    /// <inheritdoc cref="Expr.Skew(bool)" path="/param"/>
-    /// <returns>A new <see cref="Series"/> containing the skewness (length 1).</returns>
-    public Series Skew(bool bias = true) => ApplyExpr(Pl.Col(Name).Skew(bias));
-
-    /// <summary>
-    /// <inheritdoc cref="Expr.Kurtosis(bool, bool)" path="/summary"/>
-    /// </summary>
-    /// <inheritdoc cref="Expr.Kurtosis(bool, bool)" path="/param"/>
-    /// <returns>A new <see cref="Series"/> containing the kurtosis (length 1).</returns>
-    public Series Kurtosis(bool fisher = true, bool bias = true) 
-        => ApplyExpr(Pl.Col(Name).Kurtosis(fisher, bias));
 
     /// <summary>
     /// <inheritdoc cref="Expr.Quantile(double, QuantileMethod)" path="/summary"/>

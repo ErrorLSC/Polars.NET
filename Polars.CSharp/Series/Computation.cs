@@ -251,4 +251,40 @@ public partial class Series : IDisposable,IPolarsSeries
         Series res = ApplyExpr(Pl.Col(Name).Hist(bins,binCount,includeCategory,includeBreakPoint));
         return (includeCategory | includeBreakPoint)? res.Unnest() : res.ToFrame();
     }
+    /// <inheritdoc cref="Expr.IndexOf(IntoExpr)"/>
+    public int? IndexOf(IntoExpr element)
+        => ExtractScalar<int>(Pl.Col(Name).IndexOf(element));
+
+    /// <inheritdoc cref="Expr.SearchSorted(IntoExpr, SearchSortedSide, bool)"/>
+    public Series SearchSorted(IntoExpr? element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
+    {
+        Expr eleExpr = element?.Consume() ?? Pl.LitNull();
+        return ApplyExpr(Pl.Col(Name).SearchSorted(eleExpr, side, descending));
+    }
+    /// <inheritdoc cref="Expr.SearchSorted(IntoExpr, SearchSortedSide, bool)"/>
+    public Series SearchSorted<T>(IEnumerable<T> element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
+        => ApplyExpr(Pl.Col(Name).SearchSorted(element, side, descending));
+    /// <summary>
+    /// Searches for a single scalar value and returns its insertion index.
+    /// </summary>
+    public int SearchSortedIndex(object? scalar, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
+    {
+        Expr eleExpr = scalar is null ? Pl.LitNull(): Expr.MakeLit(scalar) ;
+        
+        using var series = ApplyExpr(Pl.Col(Name).SearchSorted(eleExpr, side, descending));
+        
+        return (int)series.Cast<int>()[0]!; 
+    }
+    /// <summary>
+    /// <inheritdoc cref="Expr.Skew(bool)" path="/summary"/>
+    /// </summary>
+    /// <inheritdoc cref="Expr.Skew(bool)" path="/param"/>
+    public double? Skew(bool bias = true) => ExtractScalar<double>(Pl.Col(Name).Skew(bias));
+
+    /// <summary>
+    /// <inheritdoc cref="Expr.Kurtosis(bool, bool)" path="/summary"/>
+    /// </summary>
+    /// <inheritdoc cref="Expr.Kurtosis(bool, bool)" path="/param"/>
+    public double? Kurtosis(bool fisher = true, bool bias = true) 
+        => ExtractScalar<double>(Pl.Col(Name).Kurtosis(fisher, bias));
 }

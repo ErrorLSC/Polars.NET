@@ -318,5 +318,23 @@ public partial class Expr : IDisposable,IEquatable<Expr>
         ExprHandle? binsHandle = bins?.Consume().Handle;
         return new(PolarsWrapper.ExprHist(CloneHandle(),binsHandle,binCount,includeCategory,includeBreakPoint));
     }
-
+    /// <summary>
+    /// Find the index of the first occurrence of a specific value.
+    /// </summary>
+    /// <param name="element">The element expression to search for.</param>
+    public Expr IndexOf(IntoExpr element) => new(PolarsWrapper.IndexOf(CloneHandle(), element.Consume().Handle));
+    /// <summary>
+    /// Find indices where elements should be inserted to maintain order (Binary Search).
+    /// </summary>
+    /// <param name="element">The element expression to insert/search.</param>
+    /// <param name="side">The insertion side (Any, Left, Right). Default is Any.</param>
+    /// <param name="descending">Whether the target column is sorted in descending order. Default is false.</param>
+    public Expr SearchSorted(IntoExpr element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
+        => new(PolarsWrapper.SearchSorted(CloneHandle(), element.Consume().Handle, side.ToNative(), descending));
+    /// <inheritdoc cref="Expr.SearchSorted(IntoExpr, SearchSortedSide, bool)"/>
+    public Expr SearchSorted<T>(IEnumerable<T> element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
+    {
+        Series temp = Pl.Series("temp",element);
+        return SearchSorted(temp,side,descending);
+    }
 }

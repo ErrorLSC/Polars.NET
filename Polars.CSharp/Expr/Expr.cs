@@ -102,21 +102,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     public Expr ArgSort(bool descending = false, bool nullsLast = false)
         => new(PolarsWrapper.ArgSort(CloneHandle(), descending, nullsLast));
 
-    /// <summary>
-    /// Find the index of the first occurrence of a specific value.
-    /// </summary>
-    /// <param name="element">The element expression to search for.</param>
-    public Expr IndexOf(Expr element) => new(PolarsWrapper.IndexOf(CloneHandle(), element.CloneHandle()));
-
-    /// <summary>
-    /// Find indices where elements should be inserted to maintain order (Binary Search).
-    /// </summary>
-    /// <param name="element">The element expression to insert/search.</param>
-    /// <param name="side">The insertion side (Any, Left, Right). Default is Any.</param>
-    /// <param name="descending">Whether the target column is sorted in descending order. Default is false.</param>
-    public Expr SearchSorted(Expr element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
-        => new(PolarsWrapper.SearchSorted(CloneHandle(), element.CloneHandle(), side.ToNative(), descending));
-
     /// <inheritdoc cref="Pl.SqlExpr(string)"/>
     public static Expr SqlExpr(string sql) => Pl.SqlExpr(sql);
 

@@ -2117,14 +2117,112 @@ public class SeriesTests
     }
     [Fact]
     [Trait("Series", "Hist")]
-    public void Test_Series_Hash()
+    public void Test_Series_Hist()
     {
         int[] numbers = [1, 3, 8, 8, 2, 1, 3];
         using Series s = Pl.Series("nihao",numbers);
         using var sHist = s.Hist(binCount:2);
         Assert.Equal(2u,sHist["count"][1]);
-        Assert.Equal(DataType.Categorical().Kind,sHist.Schema["category"].Kind);
+        Assert.Equal(DataType.Categorical(),sHist.Schema["category"]);
+    }
+    [Fact]
+    [Trait("Series", "SearchSorted")]
+    public void Test_Series_SearchSorted_And_IndexOf()
+    {
+        using var s = Series.From("values", [10, 20, 20, 30, 40]);
+
+        int? index = s.IndexOf(20);
+        Assert.Equal(1, index); 
+
+        int idxAny = s.SearchSortedIndex(25);
+        Assert.Equal(3, idxAny);
+
+        int idxLeft = s.SearchSortedIndex(20, SearchSortedSide.Left);
+        Assert.Equal(1, idxLeft);
+
+        int idxRight = s.SearchSortedIndex(20, SearchSortedSide.Right);
+        Assert.Equal(3, idxRight);
+
+        Assert.Equal(0, s.SearchSortedIndex(5));
+        Assert.Equal(5, s.SearchSortedIndex(50));
+
+        int[] searchArray = [5, 20, 35, 50];
+        using var resSeriesFromArr = s.SearchSorted(searchArray, SearchSortedSide.Left);
+        
+        var resArr = resSeriesFromArr.ToArray<uint>(); 
+        Assert.Equal(new uint[] { 0, 1, 4, 5 }, resArr);
+
+        using var querySeries = Series.From("query", [25, 45]);
+        using var resSeriesFromExpr = s.SearchSorted(querySeries);
+        
+        var resArrExpr = resSeriesFromExpr.ToArray<uint>();
+        Assert.Equal(new uint[] { 3, 5 }, resArrExpr);
+    }
+    [Fact]
+    [Trait("Series", "SearchSortedNulls")]
+    public void Test_SearchSorted_With_Nulls()
+    {
+        using var sWithNull = Series.From("with_null", new int?[] { 1, 2, 3, null, null });
+
+        int nullIdxLeft = sWithNull.SearchSortedIndex(null, SearchSortedSide.Left);
+        Assert.Equal(3, nullIdxLeft);
+
+        int nullIdxRight = sWithNull.SearchSortedIndex(null, SearchSortedSide.Right);
+        Assert.Equal(5, nullIdxRight);
+    }
+    [Fact]
+    [Trait("Series", "Statistics")]
+    public void Test_Series_Skew_And_Kurtosis()
+    {
+        using var sSymmetric = Series.From("symmetric", new double[] { 1, 2, 3, 4, 5 });
+        
+        double? skewSymmetric = sSymmetric.Skew();
+        Assert.NotNull(skewSymmetric);
+        Assert.Equal(0.0, skewSymmetric.Value, precision: 5);
+
+        using var sRightSkewed = Series.From("right_skew", new double[] { 1, 1, 1, 2, 2, 3, 20, 50 });
+        
+        double? skewRight = sRightSkewed.Skew(bias: true);
+        Assert.NotNull(skewRight);
+        Assert.True(skewRight.Value > 1.0, "Right-skewed data should have a positive skewness");
+
+        double? skewRightUnbiased = sRightSkewed.Skew(bias: false);
+        Assert.NotNull(skewRightUnbiased);
+        Assert.True(skewRightUnbiased.Value > 1.0);
+        
+        double? kurtFisherBiased = sSymmetric.Kurtosis(fisher: true, bias: true);
+        Assert.NotNull(kurtFisherBiased);
+        Assert.Equal(-1.3, kurtFisherBiased.Value, precision: 5);
+
+        double? kurtPearsonBiased = sSymmetric.Kurtosis(fisher: false, bias: true);
+        Assert.NotNull(kurtPearsonBiased);
+        Assert.Equal(1.7, kurtPearsonBiased.Value, precision: 5);
+
+        double? kurtUnbiased = sSymmetric.Kurtosis(fisher: true, bias: false);
+        Assert.NotNull(kurtUnbiased);
+        Assert.NotEqual(kurtFisherBiased.Value, kurtUnbiased.Value);
     }
 
+    [Fact]
+    [Trait("Series", "StatisticsNulls")]
+    public void Test_Series_Skew_And_Kurtosis_With_Nulls()
+    {
+        using var sWithNulls = Series.From("with_nulls", new double?[] { 1, 2, null, 3, null, 4, 5 });
 
+        double? skewWithNulls = sWithNulls.Skew();
+        Assert.NotNull(skewWithNulls);
+        Assert.Equal(0.0, skewWithNulls.Value, precision: 5);
+
+        using var sAllNulls = Series.From("all_nulls", new double?[] { null, null, null });
+        double? skewAllNulls = sAllNulls.Skew();
+        
+        if (skewAllNulls.HasValue)
+        {
+            Assert.True(double.IsNaN(skewAllNulls.Value));
+        }
+        else
+        {
+            Assert.Null(skewAllNulls);
+        }
+    }
 }
