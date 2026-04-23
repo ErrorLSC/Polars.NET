@@ -1315,4 +1315,16 @@ public readonly partial struct PolarsWrapper
         => ErrorHelper.Check(NativeBindings.pl_series_to_dummies(series,separator,dropFirst,dropNulls));
     public static SeriesHandle SeriesNewFromIndex(SeriesHandle series,long index,long length)
         => ErrorHelper.Check(NativeBindings.pl_series_new_from_index(series,(nuint)index,(nuint)length));
+    public static bool SeriesEquals(SeriesHandle left,SeriesHandle right)
+    {
+        int status = NativeBindings.pl_series_equals(left,right,out bool result);
+        ErrorHelper.CheckStatus(status);
+        return result;
+    }
+    public static ulong SeriesHash(SeriesHandle series)
+    {
+        int status = NativeBindings.pl_series_hash(series,out ulong hash);
+        ErrorHelper.CheckStatus(status);
+        return hash;
+    }
 }

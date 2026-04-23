@@ -287,4 +287,9 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <inheritdoc cref="Expr.Kurtosis(bool, bool)" path="/param"/>
     public double? Kurtosis(bool fisher = true, bool bias = true) 
         => ExtractScalar<double>(Pl.Col(Name).Kurtosis(fisher, bias));
+    /// <summary>
+    /// Get index values where Boolean Series evaluate True.
+    /// </summary>
+    /// <returns>Series of data type UInt32.</returns>
+    public Series ArgTrue() => Pl.ArgWhereAsSeries(this);
 }

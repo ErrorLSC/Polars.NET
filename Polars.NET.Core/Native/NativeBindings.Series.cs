@@ -514,7 +514,18 @@ unsafe internal partial class NativeBindings
     );     
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_from_index(SeriesHandle h, nuint index,nuint length);
+    [LibraryImport(LibName)]
+    public static partial int pl_series_equals(
+        SeriesHandle ptr1, 
+        SeriesHandle ptr2, 
+        [MarshalAs(UnmanagedType.I1)] out bool result
+    );
 
+    [LibraryImport(LibName)]
+    public static partial int pl_series_hash(
+        SeriesHandle ptr, 
+        out ulong hash
+    );
     // --- Arrow Export ---
     [LibraryImport(LibName)]
     public static partial ArrowArrayContextHandle pl_series_to_arrow(SeriesHandle h);

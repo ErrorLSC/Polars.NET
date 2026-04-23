@@ -20,7 +20,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public RecordBatch ToArrow() => ArrowFfiBridge.ExportDataFrame(Handle);
 }
 
-
 public partial class Series : IDisposable,IPolarsSeries
 {
     /// <summary>

@@ -1,6 +1,8 @@
 use polars::prelude::*;
 use polars_arrow::array::{Array,ListArray};
+use polars_core::utils::Wrap;
 use std::ffi::{CStr, CString, c_int};
+use std::hash::{DefaultHasher, Hasher};
 use std::os::raw::c_char;
 use std::slice::from_raw_parts;
 use crate::pl_io::arrow::ArrowArrayContext;
@@ -1220,5 +1222,43 @@ pub extern "C" fn pl_series_new_from_index(
         let s = ctx.series.new_from_index(index,length);
         
         Ok(Box::into_raw(Box::new(SeriesContext { series:s })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_equals(
+    ptr1: *mut SeriesContext,
+    ptr2: *mut SeriesContext,
+    out: *mut bool,
+) -> i32 {
+    ffi_try_c_int!({
+        let ctx1 = unsafe { &*ptr1 };
+        let ctx2 = unsafe { &*ptr2 };
+        
+        unsafe {
+            *out = ctx1.series.equals_missing(&ctx2.series);
+        }
+        
+        Ok(0) 
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_hash(
+    ptr: *mut SeriesContext,
+    out: *mut u64,
+) -> i32 {
+    ffi_try_c_int!({
+        let ctx = unsafe { &*ptr };
+        
+        let mut hasher = DefaultHasher::new();
+        
+        std::hash::Hash::hash(&Wrap(ctx.series.clone()), &mut hasher);
+        
+        unsafe {
+            *out = hasher.finish();
+        }
+        
+        Ok(0)
     })
 }

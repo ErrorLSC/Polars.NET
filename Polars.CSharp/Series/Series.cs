@@ -12,7 +12,7 @@ namespace Polars.CSharp;
 /// Operations on Series are generally performed immediately.
 /// </para>
 /// </summary>
-public partial class Series : IDisposable,IPolarsSeries
+public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
 {
     internal SeriesHandle Handle { get; private set; }
     private void ReplaceInnerHandle(SeriesHandle newHandle)
@@ -703,6 +703,23 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Print the DataFrame to Console.
     /// </summary>
     public void Show() => Console.WriteLine(ToString());
+    /// <summary>
+    /// Check whether two series is equal to each other.
+    /// </summary>
+    public bool Equals(Series? other)
+    {
+        if (ReferenceEquals(this, other)) return true;
+        if (other is null) return false;
+        
+        return PolarsWrapper.SeriesEquals(Handle,other.Handle);
+    }
+    /// <inheritdoc cref="Series.Equals(Series)"/>
+    public override bool Equals(object? obj) => Equals(obj as Series);
+    /// <summary>
+    /// Get hashcode for the series
+    /// </summary>
+    public override int GetHashCode() => (int)PolarsWrapper.SeriesHash(Handle);
+    
     /// <summary>
     /// Dispose the underlying SeriesHandle.
     /// </summary>

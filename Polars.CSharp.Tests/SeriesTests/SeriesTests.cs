@@ -2225,4 +2225,22 @@ public class SeriesTests
             Assert.Null(skewAllNulls);
         }
     }
+    [Fact]
+    [Trait("Series", "ArgTrue")]
+    public void Test_Series_ArgTrue()
+    {
+        using Series s = Pl.Series("test",[1,2,3]);
+        Assert.Equal(1u,(2 == s).ArgTrue()[0]);
+    }
+    [Fact]
+    [Trait("Series", "IEquatable")]
+    public void Test_Series_IEquatable()
+    {
+        using Series s1 = Pl.Series("test1",[1,2,3]);
+        using Series s2 = Pl.Series("test2",[1,2,3]);
+        Assert.True(s1.Equals(s2));
+        Assert.Equal(s1.GetHashCode(),s2.GetHashCode());
+        using var nihao = s1 == s2;
+        Assert.Equal(3,nihao.Length);
+    }
 }

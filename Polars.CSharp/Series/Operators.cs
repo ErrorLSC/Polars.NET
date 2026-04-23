@@ -95,6 +95,8 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <param name="other"></param>
     /// <returns></returns>
     public Series NeqMissing(Series other) => new(PolarsWrapper.SeriesNeq(Handle, other.Handle));
+    public static Series operator == (Series left, Series right) => left.Eq(right);
+    public static Series operator != (Series left, Series right) => left.Neq(right);
     /// <summary>
     /// Compare whether left series is greater than right series
     /// </summary>
@@ -160,66 +162,50 @@ public partial class Series : IDisposable,IPolarsSeries
     // ==========================================
     // Scalar Comparisons
     // ==========================================
-
-    // ---------------- int ----------------
-    public static Series operator >(Series left, int right)
+    public static Series operator >(Series left, IntoExpr right)
     {
-        using var rightSeries = Series.From("val", [right]);
+        using var rightSeries = Series.FromExpr(right.Consume());
         return left > rightSeries;
     }
 
-    public static Series operator <(Series left, int right)
+    public static Series operator <(Series left, IntoExpr right)
     {
-        using var rightSeries = Series.From("val", [right]);
+        using var rightSeries = Series.FromExpr(right.Consume());
         return left < rightSeries;
     }
 
-    public static Series operator >=(Series left, int right)
+    public static Series operator ==(Series left, IntoExpr right)
     {
-        using var rightSeries = Series.From("val", [right]);
+        using var rightSeries = Series.FromExpr(right.Consume());
+        return left == rightSeries;
+    }
+
+    public static Series operator !=(Series left, IntoExpr right)
+    {
+        using var rightSeries = Series.FromExpr(right.Consume());
+        return left != rightSeries;
+    }
+
+    public static Series operator >=(Series left, IntoExpr right)
+    {
+        using var rightSeries = Series.FromExpr(right.Consume());
         return left >= rightSeries;
     }
 
-    public static Series operator <=(Series left, int right)
+    public static Series operator <=(Series left, IntoExpr right)
     {
-        using var rightSeries = Series.From("val", [right]);
+        using var rightSeries = Series.FromExpr(right.Consume());
         return left <= rightSeries;
     }
+    public static Series operator >(IntoExpr left, Series right) => right < left; 
 
-    public static Series operator >(int left, Series right)
-    {
-        using var leftSeries = Series.From("val", [left]);
-        return leftSeries > right;
-    }
-    public static Series operator <(int left, Series right)
-    {
-        using var leftSeries = Series.From("val", [left]);
-        return leftSeries < right;
-    }
+    public static Series operator <(IntoExpr left, Series right) => right > left;
 
-    // ---------------- double ----------------
+    public static Series operator ==(IntoExpr left, Series right) => right == left;
+    
+    public static Series operator !=(IntoExpr left, Series right) => right != left;
 
-    public static Series operator >(Series left, double right)
-    {
-        using var rightSeries = Series.From("val", [right]);
-        return left > rightSeries;
-    }
+    public static Series operator >=(IntoExpr left, Series right) => right <= left;
 
-    public static Series operator <(Series left, double right)
-    {
-        using var rightSeries = Series.From("val", [right]);
-        return left < rightSeries;
-    }
-
-    public static Series operator >=(Series left, double right)
-    {
-        using var rightSeries = Series.From("val", [right]);
-        return left >= rightSeries;
-    }
-
-    public static Series operator <=(Series left, double right)
-    {
-        using var rightSeries = Series.From("val", [right]);
-        return left <= rightSeries;
-    }
+    public static Series operator <=(IntoExpr left, Series right) => right >= left;
 }
