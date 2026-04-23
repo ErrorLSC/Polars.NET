@@ -2,6 +2,7 @@ use polars::prelude::*;
 use polars_arrow::array::{FixedSizeListArray, Utf8ViewArray, View};
 use std::ffi::CStr;
 use std::os::raw::c_char;
+use crate::types::DataTypeContext;
 use crate::types::SeriesContext;
 use polars_arrow::datatypes::ArrowDataType;
 use polars_buffer::Buffer;
@@ -516,5 +517,34 @@ pub extern "C" fn pl_series_new_struct(
 
         let s = ca.into_series();
         Ok(Box::into_raw(Box::new(SeriesContext { series: s })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_new_empty(
+    name: *const c_char,
+    dtype_ptr: *const DataTypeContext
+) -> *mut SeriesContext {
+    ffi_try!({
+        let name_str = unsafe { CStr::from_ptr(name).to_string_lossy() };
+        let dtype = unsafe {&*dtype_ptr};
+        
+        let s = Series::new_empty(name_str.into(), &dtype.dtype);
+        
+        Ok(Box::into_raw(Box::new(SeriesContext { series:s })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_new_null(
+    name: *const c_char,
+    len: usize
+) -> *mut SeriesContext {
+    ffi_try!({
+        let name_str = unsafe { CStr::from_ptr(name).to_string_lossy() };
+        
+        let s = Series::new_null(name_str.into(), len);
+        
+        Ok(Box::into_raw(Box::new(SeriesContext { series:s })))
     })
 }

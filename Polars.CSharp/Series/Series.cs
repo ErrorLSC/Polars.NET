@@ -384,11 +384,24 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <param name="value">A constant literal value or a unit expression with which to extend the expression result Series; can pass None to extend with nulls.</param>
     /// <param name="n">The number of additional values that will be added.</param>
     /// <returns></returns>
-    public Series ExtendConstant(Expr value,Expr n) => ApplyExpr(Pl.Col(Name).ExtendConstant(value,n));
-    /// <inheritdoc cref="ExtendConstant(Expr,Expr)"/>
-    public Series ExtendConstant(object value,ulong n) => ApplyExpr(Pl.Col(Name).ExtendConstant(value,n));
+    public Series ExtendConstant(IntoExpr value,Expr n) => ApplyExpr(Pl.Col(Name).ExtendConstant(value,n));
     /// <inheritdoc cref="Expr.Clip"/>
     public Series Clip(IntoExprColumn? lowerBound=null,IntoExprColumn? upperBound=null) => ApplyExpr(Pl.Col(Name).Clip(lowerBound,upperBound));
+    /// <summary>
+    /// Create an empty copy of the current Series, with zero to ‘n’ elements.
+    /// The copy has an identical name/dtype, but no data.
+    /// </summary>
+    /// <param name="n"></param>
+    /// <returns></returns>
+    public Series Clear(uint n = 0)
+    {
+        if (IsEmpty)
+            return this.Clone();
+        else if (n == 0)  
+            return new(PolarsWrapper.SeriesClear(Handle));
+        else 
+            return new Series(PolarsWrapper.SeriesClear(Handle)).ExtendConstant(Pl.LitNull(),n);
+    }
     /// <summary>
     /// Reshape this Series to a flat Series or an Array Series.
     /// </summary>
@@ -644,6 +657,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <param name="length"></param>
     /// <returns></returns>
     public Series NewFromIndex(long index,long length) => new(PolarsWrapper.SeriesNewFromIndex(Handle,index,length));
+
     // ==========================================
     // Conversions
     // ==========================================

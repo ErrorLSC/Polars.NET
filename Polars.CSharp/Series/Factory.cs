@@ -76,7 +76,14 @@ public partial class Series : IDisposable,IPolarsSeries
     public Series(string name, decimal[,] data) => Handle = SeriesFactory.Create(name, data);
     public Series(string name, Int128[,] data) => Handle = SeriesFactory.Create(name, data);
     public Series(string name, UInt128[,] data) => Handle = SeriesFactory.Create(name, data);
-
+    /// <summary>
+    /// This will create an empty series, if dtype is also null, datatype will be null.
+    /// </summary>
+    /// <param name="name"></param>
+    /// <param name="dtype"></param>
+    public Series(string name="",DataType? dtype=null)
+        => Handle = dtype is null ? PolarsWrapper.SeriesNewNull(name,0) : PolarsWrapper.SeriesNewEmpty(name,dtype.Handle);
+         
     // ==========================================
     // High-Level Factories
     // ==========================================

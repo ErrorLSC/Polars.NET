@@ -1262,3 +1262,16 @@ pub extern "C" fn pl_series_hash(
         Ok(0)
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_clear(
+    s_ptr: *mut SeriesContext,
+) -> *mut SeriesContext {
+    ffi_try!({
+        let ctx = unsafe { &*s_ptr };
+
+        let s = ctx.series.clear();
+        
+        Ok(Box::into_raw(Box::new(SeriesContext { series:s })))
+    })
+}

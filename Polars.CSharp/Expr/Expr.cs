@@ -487,13 +487,8 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="value">A constant literal value or a unit expression with which to extend the expression result Series; can pass None to extend with nulls.</param>
     /// <param name="n">The number of additional values that will be added.</param>
     /// <returns></returns>
-    public Expr ExtendConstant(Expr value,Expr n)
-        => new(PolarsWrapper.ExtendConstant(CloneHandle(),value.CloneHandle(),n.CloneHandle()));
-    /// <summary>
-    /// Extend the column with a constant value (Syntax Sugar).
-    /// </summary>
-    public Expr ExtendConstant(object value, ulong n)
-        => ExtendConstant(MakeLit(value), MakeLit(n));
+    public Expr ExtendConstant(IntoExpr value,Expr n)
+        => new(PolarsWrapper.ExtendConstant(CloneHandle(),value.Consume().Handle,n.CloneHandle()));
     /// <summary>
     /// Set values outside the given boundaries to the boundary value.
     /// </summary>
