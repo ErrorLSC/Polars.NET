@@ -494,12 +494,40 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     public Expr ExtendConstant(object value, ulong n)
         => ExtendConstant(MakeLit(value), MakeLit(n));
-
     /// <summary>
-    /// Extend the column with a constant value (Syntax Sugar for int).
+    /// Set values outside the given boundaries to the boundary value.
     /// </summary>
-    public Expr ExtendConstant(object value, int n)
-        => ExtendConstant(MakeLit(value), MakeLit(n));
+    /// <param name="lowerBound">Lower bound. Accepts expression input. Non-expression inputs are parsed as literals. Strings are parsed as column names.</param>
+    /// <param name="upperBound">Upper bound. Accepts expression input. Non-expression inputs are parsed as literals. Strings are parsed as column names.</param>
+    /// <returns></returns>
+    /// <exception cref="ArgumentException"></exception>
+    public Expr Clip(IntoExprColumn? lowerBound = null, IntoExprColumn? upperBound = null)
+    {
+        if (lowerBound is null && upperBound is null)
+        {
+            throw new ArgumentException("At least one of 'lowerBound' or 'upperBound' must be provided.");
+        }
+
+        if (lowerBound is not null && upperBound is null)
+        {
+            var hMin = PolarsWrapper.ClipMin(Handle, lowerBound?.Consume().Handle!);
+            return new Expr(hMin);
+        }
+
+        if (lowerBound is null && upperBound is not null)
+        {
+            var hMax = PolarsWrapper.ClipMax(Handle, upperBound?.Consume().Handle!);
+            return new Expr(hMax);
+        }
+
+        var hFull = PolarsWrapper.Clip(
+            Handle, 
+            lowerBound?.Consume().Handle!, 
+            upperBound?.Consume().Handle!
+        );
+        
+        return new Expr(hFull);
+    }
     // ==========================================
     // Casting
     // ==========================================

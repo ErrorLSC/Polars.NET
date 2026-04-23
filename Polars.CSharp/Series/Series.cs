@@ -386,7 +386,9 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <returns></returns>
     public Series ExtendConstant(Expr value,Expr n) => ApplyExpr(Pl.Col(Name).ExtendConstant(value,n));
     /// <inheritdoc cref="ExtendConstant(Expr,Expr)"/>
-    public Series ExtendConstant(object value,int n) => ApplyExpr(Pl.Col(Name).ExtendConstant(value,n));
+    public Series ExtendConstant(object value,ulong n) => ApplyExpr(Pl.Col(Name).ExtendConstant(value,n));
+    /// <inheritdoc cref="Expr.Clip"/>
+    public Series Clip(IntoExprColumn? lowerBound=null,IntoExprColumn? upperBound=null) => ApplyExpr(Pl.Col(Name).Clip(lowerBound,upperBound));
     /// <summary>
     /// Reshape this Series to a flat Series or an Array Series.
     /// </summary>

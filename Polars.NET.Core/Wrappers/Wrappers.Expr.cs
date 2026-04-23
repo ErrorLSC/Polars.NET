@@ -550,6 +550,18 @@ public readonly partial struct PolarsWrapper
     }
     public static ExprHandle FillNan(ExprHandle expr, ExprHandle fillValue) 
         => BinaryOp(NativeBindings.pl_expr_fill_nan, expr, fillValue);
+    public static ExprHandle ClipMin(ExprHandle expr, ExprHandle min) 
+        => BinaryOp(NativeBindings.pl_expr_clip_min, expr, min);
+    public static ExprHandle ClipMax(ExprHandle expr, ExprHandle max) 
+        => BinaryOp(NativeBindings.pl_expr_clip_max, expr, max);
+    public static ExprHandle Clip(ExprHandle expr, ExprHandle min, ExprHandle max)
+    {
+        var h = NativeBindings.pl_expr_clip(expr,min,max);
+        expr.TransferOwnership();
+        min.TransferOwnership();
+        max.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     public static ExprHandle Interpolate(ExprHandle expr, PlInterpolationMethod method)
     {
         var h = NativeBindings.pl_expr_interpolate(expr, method);

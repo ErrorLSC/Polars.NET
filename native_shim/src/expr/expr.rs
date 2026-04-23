@@ -413,6 +413,9 @@ gen_binary_op!(pl_expr_filter,filter);
 gen_binary_op!(pl_expr_max_by, max_by); 
 gen_binary_op!(pl_expr_min_by, min_by); 
 
+gen_binary_op!(pl_expr_clip_max, clip_max); 
+gen_binary_op!(pl_expr_clip_min, clip_min); 
+
 // Arithmetic
 gen_binary_op!(pl_expr_add, add); // +
 gen_binary_op!(pl_expr_sub, sub); // -
@@ -993,18 +996,6 @@ pub extern "C" fn pl_expr_lit_i128(
         Ok(Box::into_raw(Box::new(ExprContext { inner: expr })))
     })
 }
-
-// #[unsafe(no_mangle)]
-// pub extern "C" fn pl_expr_lit_u128(
-//     low: u64,  
-//     high: u64   
-// ) -> *mut ExprContext {
-//     ffi_try!({
-//         let v = ((high as u128) << 64) | (low as u128);
-//         let expr = lit(v); 
-//         Ok(Box::into_raw(Box::new(ExprContext { inner: expr })))
-//     })
-// }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_lit_series(
@@ -2148,6 +2139,23 @@ pub extern "C" fn pl_expr_hist(
             include_category,
             include_breakpoint,
         );
+
+        Ok(Box::into_raw(Box::new(ExprContext { inner: out_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_clip(
+    expr_ptr: *mut ExprContext,
+    min_ptr: *mut ExprContext,
+    max_ptr: *mut ExprContext
+) -> *mut ExprContext {
+    ffi_try!({
+        let expr = unsafe { Box::from_raw(expr_ptr) }.inner;
+        let max = unsafe { Box::from_raw(max_ptr) }.inner;
+        let min = unsafe { Box::from_raw(min_ptr) }.inner;
+
+        let out_expr = expr.clip(min,max);
 
         Ok(Box::into_raw(Box::new(ExprContext { inner: out_expr })))
     })

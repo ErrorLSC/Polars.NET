@@ -2270,4 +2270,61 @@ public class SeriesTests
         Assert.Equal(0.0,s1.FillNull(FillNullStrategy.Zero)[4]);
         Assert.Equal(1.0,s1.FillNull(FillNullStrategy.One)[4]);
     }
+    [Fact]
+    [Trait("Series", "Clip")]
+    public void Test_Clip_Numeric_Bounds()
+    {
+        // 准备数据: [1, 2, 3, 4, 5]
+        using var s = Pl.Series("values", [1, 2, 3, 4, 5]);
+
+        using var sBoth = s.Clip(lowerBound: 2, upperBound: 4);
+        Assert.Equal([2, 2, 3, 4, 4], sBoth.ToArray<int>());
+
+        using var sMin = s.Clip(lowerBound: 3);
+        Assert.Equal([3, 3, 3, 4, 5], sMin.ToArray<int>());
+
+        using var sMax = s.Clip(upperBound: 3);
+        Assert.Equal([1, 2, 3, 3, 3], sMax.ToArray<int>());
+    }
+
+    [Fact]
+    [Trait("Series", "Clip")]
+    public void Test_Clip_With_Nulls()
+    {
+        using var s = Pl.Series("with_nulls", new int?[] { 1, null, 10 });
+        
+        using var res = s.Clip(2, 5);
+        var arr = res.ToArray<int?>();
+        
+        Assert.Equal(2, arr[0]);
+        Assert.Null(arr[1]);
+        Assert.Equal(5, arr[2]);
+    }
+
+    [Fact]
+    [Trait("Series", "Clip")]
+    public void Test_Clip_Temporal_Types()
+    {
+        using var s = Pl.DatetimeRangeAsSeries(new DateTime(2024, 1, 1),new DateTime(2024, 1, 5));
+
+        var minDate = new DateTime(2024, 1, 2);
+        var maxDate = new DateTime(2024, 1, 4);
+
+        using var sClipped = s.Clip(lowerBound: minDate, upperBound: maxDate);
+        var resDates = sClipped.ToArray<DateTime>();
+
+        Assert.Equal(new DateTime(2024, 1, 2), resDates[0]);
+        Assert.Equal(new DateTime(2024, 1, 3), resDates[2]);
+        Assert.Equal(new DateTime(2024, 1, 4), resDates[4]);
+    }
+
+    [Fact]
+    [Trait("Series", "Clip")]
+    public void Test_Clip_Exception_No_Bounds()
+    {
+        using var s = Pl.Series("values", [1, 2, 3]);
+
+        var ex = Assert.Throws<ArgumentException>(() => s.Clip(null, null));
+        Assert.Contains("must be provided", ex.Message);
+    }
 }

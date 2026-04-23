@@ -230,6 +230,9 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_fill_null(ExprHandle expr, ExprHandle fillValue);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_fill_null_with_strategy(ExprHandle expr, PlFillNullStrategy strategy,uint limit);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_fill_nan(ExprHandle expr, ExprHandle fillValue);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_clip_min(ExprHandle expr,ExprHandle min);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_clip_max(ExprHandle expr,ExprHandle max);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_clip(ExprHandle expr,ExprHandle min,ExprHandle max);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_interpolate(ExprHandle expr, PlInterpolationMethod method);
     [LibraryImport(LibName)]
