@@ -78,7 +78,16 @@ public enum Engine : byte
     Streaming = 2,
     Gpu = 3
 }
-
+public enum FillNullStrategy: byte
+{
+    Forward = 0,
+    Backward = 1,
+    Max = 2,
+    Min = 3,
+    Mean = 4,
+    Zero = 5,
+    One = 6
+}
 
 /// <summary>
 /// Defines which boundary of the window to use for the label.
@@ -396,9 +405,8 @@ public enum CloudProvider : byte
 
     /// <summary>
     /// Google Cloud Storage.
-    /// </summary>
+    /// </summary>Min = 3,
     Gcp = 3,
-
     /// <summary>
     /// Generic HTTP/HTTPS.
     /// </summary>
@@ -895,6 +903,17 @@ internal static class EnumExtensions
         CategoricalPhysical.U16 => CoreEnums.PlCategoricalPhysical.U16,
         CategoricalPhysical.U8 => CoreEnums.PlCategoricalPhysical.U8,
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
+    };
+    internal static CoreEnums.PlFillNullStrategy ToNative(this FillNullStrategy strategy) => strategy switch
+    {
+        FillNullStrategy.Forward => CoreEnums.PlFillNullStrategy.Forward,
+        FillNullStrategy.Backward => CoreEnums.PlFillNullStrategy.Backward,
+        FillNullStrategy.Max => CoreEnums.PlFillNullStrategy.Max,
+        FillNullStrategy.Min => CoreEnums.PlFillNullStrategy.Min,
+        FillNullStrategy.Mean => CoreEnums.PlFillNullStrategy.Mean,
+        FillNullStrategy.Zero => CoreEnums.PlFillNullStrategy.Zero,
+        FillNullStrategy.One => CoreEnums.PlFillNullStrategy.One,
+        _ => throw new ArgumentOutOfRangeException(nameof(strategy), strategy, null)
     };
 }
 

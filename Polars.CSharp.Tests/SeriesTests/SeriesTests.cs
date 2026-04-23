@@ -2243,4 +2243,31 @@ public class SeriesTests
         using var nihao = s1 == s2;
         Assert.Equal(3,nihao.Length);
     }
+    [Fact]
+    [Trait("Series", "FillNaN")]
+    public void Test_Series_FillNaN()
+    {
+        double?[] double1 = [5.5,6.6,7.7,double.NaN,null];
+        using Series s1 = Pl.Series("double1",double1);
+
+        using var s2 = s1.FillNan(9.9);
+        Assert.Equal(9.9,s2[3]);
+        Assert.Null(s2[4]);
+    }
+    [Fact]
+    [Trait("Series", "FillNull")]
+    public void Test_Series_FillNull()
+    {
+        double?[] double1 = [5.5,6.6,7.7,double.NaN,null];
+        using Series s1 = Pl.Series("double1",double1);
+
+        using var s2 = s1.FillNull(9.9);
+        Assert.Equal(9.9,s2[4]);
+        Assert.Equal(double.NaN,s2[3]);
+        Assert.Equal(double1.Max(),s1.FillNull(FillNullStrategy.Max)[4]);
+        Assert.Equal(5.5,s1.FillNull(FillNullStrategy.Min)[4]);
+        Assert.Equal(double1.Average(),s1.FillNull(FillNullStrategy.Mean)[4]);
+        Assert.Equal(0.0,s1.FillNull(FillNullStrategy.Zero)[4]);
+        Assert.Equal(1.0,s1.FillNull(FillNullStrategy.One)[4]);
+    }
 }

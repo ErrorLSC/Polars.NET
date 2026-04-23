@@ -534,6 +534,20 @@ public readonly partial struct PolarsWrapper
     // Null Handling
     public static ExprHandle FillNull(ExprHandle expr, ExprHandle fillValue) 
         => BinaryOp(NativeBindings.pl_expr_fill_null, expr, fillValue);
+    public static ExprHandle FillNullWithStrategy(ExprHandle expr, PlFillNullStrategy strategy,uint? limit) 
+    {
+        if (limit.HasValue && strategy != PlFillNullStrategy.Forward && strategy != PlFillNullStrategy.Backward)
+        {
+            throw new ArgumentException(
+                $"Can only specify '{nameof(limit)}' when strategy is set to {nameof(PlFillNullStrategy.Backward)} or {nameof(PlFillNullStrategy.Forward)}.", 
+                nameof(limit)
+            );
+        }
+        uint vlimit = limit ?? 0;
+        var h = NativeBindings.pl_expr_fill_null_with_strategy(expr, strategy,vlimit);
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     public static ExprHandle FillNan(ExprHandle expr, ExprHandle fillValue) 
         => BinaryOp(NativeBindings.pl_expr_fill_nan, expr, fillValue);
     public static ExprHandle Interpolate(ExprHandle expr, PlInterpolationMethod method)
@@ -1158,19 +1172,6 @@ public readonly partial struct PolarsWrapper
         var h = NativeBindings.pl_expr_diff(e, n,nullBehavior);
         e.TransferOwnership();
         n.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-    // Fill
-    public static ExprHandle ForwardFill(ExprHandle e, uint limit)
-    {
-        var h = NativeBindings.pl_expr_forward_fill(e, limit);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-    public static ExprHandle BackwardFill(ExprHandle e, uint limit)
-    {
-        var h = NativeBindings.pl_expr_backward_fill(e, limit);
-        e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     public static ExprHandle RollingMean(ExprHandle e, string w, int minPeriods, double[]? weights,bool center) => RollingOp(NativeBindings.pl_expr_rolling_mean, e, w, minPeriods,weights,center);

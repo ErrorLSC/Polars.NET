@@ -434,18 +434,14 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     // ==========================================
     // Fill Ops
     // ==========================================
-    /// <summary>
-    /// Fill null values with a specified value.
-    /// </summary>
-    public Series FillNull(object value) => ApplyExpr(Pl.Col(Name).FillNull(value));
-    /// <summary>
-    /// Fill null values with a specific strategy (Forward).
-    /// </summary>
-    public Series ForwardFill(uint? limit = null) => ApplyExpr(Pl.Col(Name).ForwardFill(limit));
-    /// <summary>
-    /// Fill null values with a specific strategy (Backward).
-    /// </summary>
-    public Series BackwardFill(uint? limit = null) => ApplyExpr(Pl.Col(Name).BackwardFill(limit));
+    /// <inheritdoc cref="Expr.FillNull(IntoExpr)"/> 
+    public Series FillNull(IntoExpr value) => ApplyExpr(Pl.Col(Name).FillNull(value));
+    /// <inheritdoc cref="Expr.FillNull(FillNullStrategy,uint?)"/> 
+    public Series FillNull(FillNullStrategy strategy,uint? limit = null) => ApplyExpr(Pl.Col(Name).FillNull(strategy,limit));
+    /// <inheritdoc cref="Expr.ForwardFill"/> 
+    public Series ForwardFill(uint limit = 0) => ApplyExpr(Pl.Col(Name).ForwardFill(limit));
+    /// <inheritdoc cref="Expr.BackwardFill"/> 
+    public Series BackwardFill(uint limit = 0) => ApplyExpr(Pl.Col(Name).BackwardFill(limit));
     /// <summary>
     /// Interpolate intermediate values.
     /// </summary>
@@ -466,7 +462,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// Fill floating point NaN values with a specified value.
     /// Note: This is different from FillNull. It only handles IEEE 754 NaN.
     /// </summary>
-    public Series FillNan(object value) => ApplyExpr(Pl.Col(Name).FillNan(value));
+    public Series FillNan(IntoExpr value) => ApplyExpr(Pl.Col(Name).FillNan(value));
     // ==========================================
     // Top-K & Bottom-K
     // ==========================================

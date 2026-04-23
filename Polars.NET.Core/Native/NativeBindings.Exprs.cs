@@ -228,6 +228,7 @@ unsafe internal partial class NativeBindings
     );
     // null ops
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_fill_null(ExprHandle expr, ExprHandle fillValue);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_fill_null_with_strategy(ExprHandle expr, PlFillNullStrategy strategy,uint limit);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_fill_nan(ExprHandle expr, ExprHandle fillValue);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_interpolate(ExprHandle expr, PlInterpolationMethod method);
@@ -594,9 +595,6 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_shift(ExprHandle expr, ExprHandle n);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_diff(ExprHandle expr, ExprHandle n, PlNullBehavior nullBehavior);
 
-    // Fill
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_forward_fill(ExprHandle expr, uint limit);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_backward_fill(ExprHandle expr, uint limit);
     // Rolling Window
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_rolling_mean(
         ExprHandle expr,

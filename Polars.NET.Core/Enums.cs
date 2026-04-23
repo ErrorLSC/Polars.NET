@@ -81,6 +81,17 @@ public enum PlConcatType : byte
     Diagonal = 2
 }
 
+public enum PlFillNullStrategy: byte
+{
+    Forward = 0,
+    Backward = 1,
+    Max = 2,
+    Min = 3,
+    Mean = 4,
+    Zero = 5,
+    One = 6
+}
+
 public enum PlLabel: byte
 {
     Left = 0,

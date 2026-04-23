@@ -173,30 +173,38 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <summary>Rounds down to the nearest integer.</summary>
     public Expr Floor() => new(PolarsWrapper.Floor(CloneHandle()));
 
+    /// <summary>
+    /// Return indices where expression evaluates True.
+    /// </summary>
+    /// <returns>Expression of data type UInt32.</returns>
+    public Expr ArgTrue() => Pl.ArgWhere(this);
+
     // ==========================================
     // Null Handling
     // ==========================================
 
     /// <summary>
-    /// Fill null values with a specified value.
+    /// Fill null values using the specified value
     /// </summary>
-    /// <param name="fillValue">The expression (or literal) to replace nulls with.</param>
-    public Expr FillNull(Expr fillValue) => new(PolarsWrapper.FillNull(CloneHandle(), fillValue.CloneHandle()));
+    /// <param name="value">Value used to fill null values.</param>
+    public Expr FillNull(IntoExpr value) => new(PolarsWrapper.FillNull(CloneHandle(), value.Consume().Handle));
     /// <summary>
-    /// Fill null values with a specified literal value.
+    /// Fill null values using the specified strategy
     /// </summary>
-    /// <param name="value"></param>
-    /// <returns></returns>
-    public Expr FillNull(object value) => FillNull(MakeLit(value));
+    /// <param name="strategy">Strategy used to fill null values.</param>
+    /// <param name="limit">Number of consecutive null values to fill when using the ‘forward’ or ‘backward’ strategy.</param>
+    public Expr FillNull(FillNullStrategy strategy, uint? limit = null)
+        => new(PolarsWrapper.FillNullWithStrategy(CloneHandle(), strategy.ToNative(), limit));
     /// <summary>
     /// Fill null values with a specific strategy (Forward).
     /// </summary>
     /// <param name="limit">Max number of consecutive nulls to fill. (Default null = infinite)</param>
-    public Expr ForwardFill(uint? limit = null) => new(PolarsWrapper.ForwardFill(CloneHandle(), limit ?? 0));
+    public Expr ForwardFill(uint limit = 0) => FillNull(FillNullStrategy.Forward,limit);
     /// <summary>
     /// Fill null values with a specific strategy (Backward).
     /// </summary>
-    public Expr BackwardFill(uint? limit = null) => new(PolarsWrapper.BackwardFill(CloneHandle(), limit ?? 0));
+    /// <param name="limit">Max number of consecutive nulls to fill. (Default null = infinite)</param>
+    public Expr BackwardFill(uint limit = 0) => FillNull(FillNullStrategy.Backward,limit);
     /// <summary>
     /// Interpolate intermediate values. The interpolation method can be configured.
     /// <para>Nulls at the beginning and end of the series remain null.</para>
@@ -218,7 +226,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Fill floating point NaN values with a specified value.
     /// Note: This is different from FillNull. It only handles IEEE 754 NaN.
     /// </summary>
-    public Expr FillNan(object value) => new(PolarsWrapper.FillNan(CloneHandle(), MakeLit(value).Handle));
+    public Expr FillNan(IntoExpr value) => new(PolarsWrapper.FillNan(CloneHandle(), value.Consume().Handle));
     /// <summary>
     /// Drop null values.
     /// </summary>

@@ -426,6 +426,7 @@ gen_binary_op!(pl_expr_or, or);   // |
 gen_binary_op!(pl_expr_xor, xor); // xor
 // Null Ops
 gen_binary_op!(pl_expr_fill_null, fill_null);
+gen_binary_op!(pl_expr_fill_nan, fill_nan);
 gen_binary_op!(pl_expr_interpolate_by, interpolate_by);
 // Math Ops
 gen_binary_op!(pl_expr_pow,pow);
@@ -1489,10 +1490,10 @@ pub extern "C" fn pl_expr_diff(
 }
 // --- Time Series: Fill ---
 
-// forward_fill -> fill_null_with_strategy(Forward)
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_forward_fill(
+pub extern "C" fn pl_expr_fill_null_with_strategy(
     expr_ptr: *mut ExprContext,
+    strategy_code: u8,
     limit: u32 // 0 = None (Unlimited)
 ) -> *mut ExprContext {
     ffi_try!({
@@ -1500,25 +1501,16 @@ pub extern "C" fn pl_expr_forward_fill(
         
         let limit_opt = if limit == 0 { None } else { Some(limit as u32) };
         
-        let strategy = FillNullStrategy::Forward(limit_opt);
-        let new_expr = ctx.inner.fill_null_with_strategy(strategy);
-        
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-// backward_fill -> fill_null_with_strategy(Backward)
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_backward_fill(
-    expr_ptr: *mut ExprContext,
-    limit: u32
-) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        
-        let limit_opt = if limit == 0 { None } else { Some(limit as u32) };
-        
-        let strategy = FillNullStrategy::Backward(limit_opt);
+        let strategy = match strategy_code {
+            0 => FillNullStrategy::Forward(limit_opt),
+            1 => FillNullStrategy::Backward(limit_opt),
+            2 => FillNullStrategy::Max,
+            3 => FillNullStrategy::Min,
+            4 => FillNullStrategy::Mean,
+            5 => FillNullStrategy::Zero,
+            6 => FillNullStrategy::One,
+            _ => FillNullStrategy::Zero,
+        };
         let new_expr = ctx.inner.fill_null_with_strategy(strategy);
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
@@ -1749,22 +1741,6 @@ pub extern "C" fn pl_expr_rolling_quantile_by(
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_fill_nan(
-    expr: *mut ExprContext,
-    fill_value: *mut ExprContext
-) -> *mut ExprContext {
-    ffi_try!({
-        let e = unsafe { Box::from_raw(expr) };
-        let v = unsafe { Box::from_raw(fill_value) };
-        
-        let out = e.inner.fill_nan(v.inner);
-        
-        Ok(Box::into_raw(Box::new(ExprContext { inner: out })))
-    })
-}
-
 // --- TopK / BottomK ---
 
 #[unsafe(no_mangle)]
