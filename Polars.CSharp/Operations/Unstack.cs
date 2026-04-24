@@ -120,7 +120,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             {
                 for (int sliceNbr = 0; sliceNbr < nCols; sliceNbr++)
                 {
-                    var slice = s.Slice(sliceNbr * nRows, nRows);
+                    var slice = s.Slice(sliceNbr * nRows, (ulong?)nRows);
                     slice.Name = $"{s.Name}_{sliceNbr.ToString().PadLeft(zfillVal, '0')}";
                     slices.Add(slice);
                 }

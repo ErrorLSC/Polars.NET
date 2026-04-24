@@ -294,6 +294,12 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] bool shuffle,
         [MarshalAs(UnmanagedType.U1)] bool hasSeed,
         ulong seed);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_slice(
+        ExprHandle e,
+        ExprHandle offset,
+        ExprHandle length
+    );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_sin(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_cos(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_tan(ExprHandle expr);

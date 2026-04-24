@@ -603,19 +603,19 @@ David,40,80000";
         Assert.Contains(5, bottomVals);
     }
     [Fact]
+    [Trait("LazyFrame","Slice")]
     public void Test_LazyFrame_Slice()
     {
-        using var csv = new DisposableFile("val\n0\n1\n2\n3\n4", ".csv");
-        using var lf = LazyFrame.ScanCsv(csv.Path);
+        using var s = Pl.Series("nihao",[1,2,3,4,5]);
 
-        var slicedLf = lf.Slice(-3, 2);
+        var slicedLf = s.ToFrame().Lazy().Slice(-3);
 
         using var df = slicedLf.Collect();
 
-        Assert.Equal(2, df.Height);
+        Assert.Equal(3, df.Height);
         
-        Assert.Equal(2, df["val"].GetValue<int>(0));
-        Assert.Equal(3, df["val"].GetValue<int>(1));
+        Assert.Equal(3, df["nihao"][0]);
+        Assert.Equal(4, df["nihao"][1]);
     }
     [Fact]
     public void Test_Drop_ByColumnNames()

@@ -987,7 +987,7 @@ B,5";
         // 2: Grape, White  <-- Start
         // 3: Fig,   White
         // 4: Fig,   Red    <-- End (Length 3)
-        using var sl = df.Slice(2, 3);
+        using var sl = df.Slice(2);
 
         Assert.Equal(3, sl.Height);
         Assert.Equal(2, sl.Width);

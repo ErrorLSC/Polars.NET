@@ -3267,4 +3267,14 @@ TooShort,1990-05-20,1.60";
         using var schema = PolarsSchema.From([("date",DataType.Int32),("dec",DataType.Int128)]);
         Assert.Equal(schema,df1.Schema);
     }
+    [Fact]
+    [Trait("Expr", "Slice")]
+    public void Test_ExprSlice()
+    {
+        using var sDate = Pl.DateRangeAsSeries(new DateOnly(1991,12,3),new DateOnly(1991,12,5));
+        using var sDec = Pl.Series("dec",[10.000m,12312.123m,114.514000m]);
+        using DataFrame df = [sDate,sDec];
+        using var df1 = df.Select(Pl.All().Slice(2));
+        Assert.Equal(1L,df1.Height);
+    }
 }   

@@ -230,14 +230,27 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     /// <param name="offset">Start index. Negative values work as expected (counting from the end).</param>
     /// <param name="length">Length of the slice.</param>
     /// <returns>A new sliced DataFrame.</returns>
-    public DataFrame Slice(long offset, ulong length) => new(PolarsWrapper.Slice(Handle, offset, length));
-    /// <summary>
-    /// Slice the DataFrame along the rows (Convenience overload for int).
-    /// </summary>
-    public DataFrame Slice(int offset, int length)
+    public DataFrame Slice(long offset, ulong? length=null)
     {
-        if (length < 0) throw new ArgumentOutOfRangeException(nameof(length), "Length must be non-negative.");
-        return Slice(offset, (ulong)length);
+        long absoluteOffset;
+        
+        if (offset < 0)
+        {
+            absoluteOffset = Height + offset;
+        }
+        else
+        {
+            absoluteOffset = offset;
+        }
+
+        if (absoluteOffset < 0 || absoluteOffset >= Height)
+        {
+            return new(PolarsWrapper.Slice(Handle, absoluteOffset, 0UL));
+        }
+
+        ulong realLength = length ?? (ulong)(Height - absoluteOffset);
+
+        return new(PolarsWrapper.Slice(Handle, absoluteOffset, realLength));
     }
     /// <summary>
     /// e.g. df.Slice(1..5) 或 df.Slice(..^10)

@@ -574,18 +574,31 @@ public readonly partial struct PolarsWrapper
     {
         ulong seedValue = seed ?? 0UL;
         var h = NativeBindings.pl_expr_shuffle(expr,seed.HasValue,seedValue);
+        expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     public static ExprHandle ExprSampleN(ExprHandle expr,ExprHandle n,bool withReplacement,bool shuffle,ulong? seed)
     {
         ulong seedValue = seed ?? 0UL;
         var h = NativeBindings.pl_expr_sample_n(expr,n,withReplacement,shuffle,seed.HasValue,seedValue);
+        expr.TransferOwnership();
+        n.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     public static ExprHandle ExprSampleFrac(ExprHandle expr,ExprHandle frac,bool withReplacement,bool shuffle,ulong? seed)
     {
         ulong seedValue = seed ?? 0UL;
         var h = NativeBindings.pl_expr_sample_frac(expr,frac,withReplacement,shuffle,seed.HasValue,seedValue);
+        expr.TransferOwnership();
+        frac.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ExprSlice(ExprHandle expr,ExprHandle offset,ExprHandle length)
+    {
+        var h = NativeBindings.pl_expr_slice(expr,offset,length);
+        expr.TransferOwnership();
+        offset.TransferOwnership();
+        length.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     // Unique and Duplicated

@@ -780,6 +780,17 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="dimensions">Tuple of the dimension sizes. If a -1 is used, that dimension is inferred.</param>
     public Expr Reshape(ReadOnlySpan<long> dimensions) => new (PolarsWrapper.ExprReshape(CloneHandle(), dimensions));
     /// <summary>
+    /// Get a slice of this expression.
+    /// </summary>
+    /// <param name="offset">Start index. Negative indexing is supported.</param>
+    /// <param name="length">Length of the slice. If set to None, all rows starting at the offset will be selected.</param>
+    /// <returns></returns>
+    public Expr Slice(long offset,ulong? length=null)
+    {
+        ulong realLength = length ?? ulong.MaxValue;
+        return new(PolarsWrapper.ExprSlice(CloneHandle(),Pl.Lit(offset).Handle,Pl.Lit(realLength).Handle));
+    }
+    /// <summary>
     /// Print the value that this expression evaluates to and pass on the value.
     /// </summary>
     public Expr Inspect(string format="{}") => new(PolarsWrapper.ExprInspect(CloneHandle(),format));

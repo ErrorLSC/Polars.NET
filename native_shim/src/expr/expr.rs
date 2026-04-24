@@ -514,6 +514,21 @@ pub extern "C" fn pl_expr_tail(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_slice(
+    expr_ptr: *mut ExprContext, 
+    offset_ptr: *mut ExprContext,
+    length_ptr: *mut ExprContext
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let offset = unsafe { Box::from_raw(offset_ptr) };
+        let length = unsafe { Box::from_raw(length_ptr) };
+        let new_expr = ctx.inner.slice(offset.inner,length.inner);
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_reshape(
     expr_ptr: *mut ExprContext,
     dims_ptr: *const i64,

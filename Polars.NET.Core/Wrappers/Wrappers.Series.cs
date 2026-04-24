@@ -1251,7 +1251,7 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNot(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_not(s));
     
     // Slice
-    public static SeriesHandle SeriesSlice(SeriesHandle handle, long offset, long length)
+    public static SeriesHandle SeriesSlice(SeriesHandle handle, long offset, ulong length)
         => ErrorHelper.Check(NativeBindings.pl_series_slice(handle, offset, (UIntPtr)length));
     public static SeriesHandle SeriesTake(SeriesHandle series, SeriesHandle indices)
         => ErrorHelper.Check(NativeBindings.pl_series_take(series,indices)); 

@@ -109,15 +109,10 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </summary>
     /// <param name="offset">Start index. Negative values count from the end.</param>
     /// <param name="length">Number of rows to return.</param>
-    public LazyFrame Slice(long offset, uint length)
-        => new(PolarsWrapper.LazySlice(CloneHandle(), offset, length));
-    /// <summary>
-    /// Slice the LazyFrame (Convenience overload).
-    /// </summary>
-    public LazyFrame Slice(long offset, int length)
+    public LazyFrame Slice(long offset, uint? length=null)
     {
-        if (length < 0) throw new ArgumentOutOfRangeException(nameof(length), "Length must be non-negative.");
-        return Slice(offset, (uint)length);
+        uint realLength = length ?? uint.MaxValue;
+        return new(PolarsWrapper.LazySlice(CloneHandle(), offset, realLength));
     }
     /// <summary>
     /// Create an empty (n=0) or n-row null-filled (n>0) copy of the LazyFrame.
@@ -136,14 +131,14 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </summary>
     /// <param name="n">Number of rows to return.</param>
     /// <returns></returns>
-    public LazyFrame Limit(int n=5)
+    public LazyFrame Limit(uint n=5)
         => Slice(0,n);
     /// <summary>
     /// Get the last n rows.
     /// </summary>
     /// <param name="n">Number of rows to return.</param>
     /// <returns></returns>
-    public LazyFrame Tail(int n=5)
+    public LazyFrame Tail(uint n=5)
         => Slice(-n,n);
     /// <summary>
     /// Get the last row.
@@ -158,7 +153,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     public LazyFrame First()
         => Head(1);
     /// <inheritdoc cref="Limit"/>
-    public LazyFrame Head(int n=5) => Limit(n);
+    public LazyFrame Head(uint n=5) => Limit(n);
     /// <summary>
     /// Take every nth row in the Frame and return as a new Frame.
     /// </summary>

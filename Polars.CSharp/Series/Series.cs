@@ -338,9 +338,29 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// </summary>
     /// <param name="offset">Start index. Negative values count from the end.</param>
     /// <param name="length">Length of the slice.</param>
-    public Series Slice(long offset, long length)
-        => new(PolarsWrapper.SeriesSlice(Handle, offset, length));
-    /// <inheritdoc cref="Slice(long,long)"/>
+    public Series Slice(long offset, ulong? length=null)
+    {
+        long absoluteOffset;
+        
+        if (offset < 0)
+        {
+            absoluteOffset = Length + offset;
+        }
+        else
+        {
+            absoluteOffset = offset;
+        }
+
+        if (absoluteOffset < 0 || absoluteOffset >= Length)
+        {
+            return new(PolarsWrapper.SeriesSlice(Handle, absoluteOffset, 0UL));
+        }
+
+        ulong realLength = length ?? (ulong)(Length - absoluteOffset);
+
+        return new(PolarsWrapper.SeriesSlice(Handle, absoluteOffset, realLength));
+    }
+    /// <inheritdoc cref="Slice(long,ulong?)"/>
     public Series Slice(Range range)
     {
         long length = Length;
@@ -363,7 +383,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
             return Slice(0, 0); 
         }
 
-        return Slice(start, sliceLength);
+        return Slice(start, (ulong)sliceLength);
     }
     /// <summary>
     /// <inheritdoc cref="Expr.Reverse" path="/summary"/>
