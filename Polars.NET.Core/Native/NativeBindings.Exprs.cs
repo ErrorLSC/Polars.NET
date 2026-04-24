@@ -904,9 +904,18 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_hist(
         ExprHandle expr,
         nint bins,
-        [MarshalAs(UnmanagedType.I1)] bool has_bin_count,
+        [MarshalAs(UnmanagedType.U1)] bool has_bin_count,
         nuint bin_count,
-        [MarshalAs(UnmanagedType.I1)] bool include_category,
-        [MarshalAs(UnmanagedType.I1)] bool include_breakpoint
+        [MarshalAs(UnmanagedType.U1)] bool include_category,
+        [MarshalAs(UnmanagedType.U1)] bool include_breakpoint
     );
+    [LibraryImport(LibName,StringMarshalling =StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_inspect(
+        ExprHandle expr,
+        string format);
+   [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_reinterpret(
+        ExprHandle expr,
+        [MarshalAs(UnmanagedType.U1)] bool signed);
+    
 }

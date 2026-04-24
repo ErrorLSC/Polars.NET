@@ -319,7 +319,8 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <returns>A new Series of the target type.</returns>
     public Series Cast<T>(bool strict = true, bool wrapNumerical = false)
         => Cast(DataType.FromNetType<T>(), strict, wrapNumerical);
-    
+    /// <inheritdoc cref="Expr.Reinterpret(bool)"/> 
+    public Series Reinterpret(bool signed=true) => ApplyExpr(Pl.Col(Name).Reinterpret(signed));
     /// <summary>
     /// Get a slice of this Series.
     /// </summary>
@@ -471,7 +472,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// </summary>
     /// <param name="by">The Series to use for interpolation (e.g. timestamps).</param>
     /// <returns>A new Series with interpolated values.</returns>
-    public Series InterpolateBy(Series by)
+    public Series InterpolateBy(IntoExprColumn by)
         => ApplyBinaryExpr(by, (left, right) => left.InterpolateBy(right));
     /// <summary>
     /// Fill floating point NaN values with a specified value.

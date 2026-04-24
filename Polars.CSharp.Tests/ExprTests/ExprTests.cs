@@ -3237,5 +3237,23 @@ TooShort,1990-05-20,1.60";
         using var resSeries = Pl.ArgWhereAsSeries(sBool);
         Assert.Equal(new uint[] { 0, 3 }, resSeries.ToArray<uint>());
     }
-    
+    [Fact]
+    [Trait("Expr", "Inspect")]
+    public void Test_ExprInspect()
+    {
+            using DataFrame df = Pl.DataFrame(Series.From("nihao", [1, 1, 2]));
+            
+            using DataFrame res = df.Select(
+                Pl.Col("nihao")
+                  .CumSum()
+                  .Inspect("仙人指路：\n{}\n将五退一") 
+                  .Alias("hello")
+            );
+
+            using var helloSeries = res["hello"];
+            var resultArr = helloSeries.ToArray<int>();
+
+            Assert.Equal([1, 2, 4], resultArr);
+            Assert.Equal("hello", helloSeries.Name);
+    }   
 }   

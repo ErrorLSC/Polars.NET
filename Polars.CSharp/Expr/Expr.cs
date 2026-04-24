@@ -220,7 +220,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <param name="by">The column to use for interpolation (e.g. a timestamp column).</param>
     /// <returns>A new expression with interpolated values.</returns>
-    public Expr InterpolateBy(Expr by) => new(PolarsWrapper.InterpolateBy(CloneHandle(), by.CloneHandle()));
+    public Expr InterpolateBy(IntoExprColumn by) => new(PolarsWrapper.InterpolateBy(CloneHandle(), by.Consume().Handle));
 
     /// <summary>
     /// Fill floating point NaN values with a specified value.
@@ -744,7 +744,17 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <param name="dimensions">Tuple of the dimension sizes. If a -1 is used, that dimension is inferred.</param>
     public Expr Reshape(ReadOnlySpan<long> dimensions) => new (PolarsWrapper.ExprReshape(CloneHandle(), dimensions));
-    
+    /// <summary>
+    /// Print the value that this expression evaluates to and pass on the value.
+    /// </summary>
+    public Expr Inspect(string format="{}") => new(PolarsWrapper.ExprInspect(CloneHandle(),format));
+    /// <summary>
+    /// Reinterpret the underlying bits as a signed/unsigned integer.
+    /// This operation is only allowed for numeric types of the same size. For lower bits numbers, you can safely use the cast operation.
+    /// </summary>
+    /// <param name="signed">If True, reinterpret as signed integer. Otherwise, reinterpret as unsigned integer.</param>
+    /// <returns></returns>
+    public Expr Reinterpret(bool signed=true) => new(PolarsWrapper.ExprReinterpret(CloneHandle(),signed));
     // ==========================================
     // Namespaces
     // ==========================================

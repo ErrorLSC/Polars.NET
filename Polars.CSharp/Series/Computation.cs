@@ -8,12 +8,10 @@ public partial class Series : IDisposable,IPolarsSeries
 {
     /// <summary>
     /// Calculate absolute value.
-    /// <para>Implemented via Expr composition.</para>
     /// </summary>
     public Series Abs() => ApplyExpr(Pl.Col(Name).Abs());
     /// <summary>
     /// Calculate square value.
-    /// <para>Implemented via Expr composition.</para>
     /// </summary>
     public Series Sqrt() => ApplyExpr(Pl.Col(Name).Sqrt());
     /// <summary>
@@ -22,7 +20,6 @@ public partial class Series : IDisposable,IPolarsSeries
     public Series Cbrt() => ApplyExpr(Pl.Col(Name).Cbrt());
     /// <summary>
     /// Calculate exponent value.
-    /// <para>Implemented via Expr composition.</para>
     /// </summary>
     public Series Pow(double exponent) => ApplyExpr(Pl.Col(Name).Pow(exponent));
     /// <summary>
@@ -137,42 +134,27 @@ public partial class Series : IDisposable,IPolarsSeries
     // ==========================================
     // Cumulative Functions
     // ==========================================
-    /// <summary>
-    /// <inheritdoc cref="Expr.CumSum(bool)" path="/summary"/>
-    /// </summary>
-    /// <inheritdoc cref="Expr.CumSum(bool)" path="/param"/>
+    /// <inheritdoc cref="Expr.CumSum(bool)"/>
     /// <returns>A new <see cref="Series"/> with the cumulative sum.</returns>
     public Series CumSum(bool reverse = false) 
         => ApplyExpr(Pl.Col(Name).CumSum(reverse));
 
-    /// <summary>
-    /// <inheritdoc cref="Expr.CumMax(bool)" path="/summary"/>
-    /// </summary>
-    /// <inheritdoc cref="Expr.CumMax(bool)" path="/param"/>
+    /// <inheritdoc cref="Expr.CumMax(bool)"/>
     /// <returns>A new <see cref="Series"/> with the cumulative maximum.</returns>
     public Series CumMax(bool reverse = false) 
         => ApplyExpr(Pl.Col(Name).CumMax(reverse));
 
-    /// <summary>
-    /// <inheritdoc cref="Expr.CumMin(bool)" path="/summary"/>
-    /// </summary>
-    /// <inheritdoc cref="Expr.CumMin(bool)" path="/param"/>
+    /// <inheritdoc cref="Expr.CumMin(bool)"/>
     /// <returns>A new <see cref="Series"/> with the cumulative minimum.</returns>
     public Series CumMin(bool reverse = false) 
         => ApplyExpr(Pl.Col(Name).CumMin(reverse));
 
-    /// <summary>
-    /// <inheritdoc cref="Expr.CumProd(bool)" path="/summary"/>
-    /// </summary>
-    /// <inheritdoc cref="Expr.CumProd(bool)" path="/param"/>
+    /// <inheritdoc cref="Expr.CumProd(bool)"/>
     /// <returns>A new <see cref="Series"/> with the cumulative product.</returns>
     public Series CumProd(bool reverse = false) 
         => ApplyExpr(Pl.Col(Name).CumProd(reverse));
 
-    /// <summary>
-    /// <inheritdoc cref="Expr.CumCount(bool)" path="/summary"/>
-    /// </summary>
-    /// <inheritdoc cref="Expr.CumCount(bool)" path="/param"/>
+    /// <inheritdoc cref="Expr.CumCount(bool)"/>
     /// <returns>A new <see cref="Series"/> with the cumulative count.</returns>
     public Series CumCount(bool reverse = false) 
         => ApplyExpr(Pl.Col(Name).CumCount(reverse));
@@ -182,26 +164,17 @@ public partial class Series : IDisposable,IPolarsSeries
     // ==========================================
     // EWM Functions
     // ==========================================
-    /// <summary>
-    /// <inheritdoc cref="Expr.EwmMean(double, bool, bool, int, bool)" path="/summary"/>
-    /// </summary>
-    /// <inheritdoc cref="Expr.EwmMean(double, bool, bool, int, bool)" path="/param"/>
+    /// <inheritdoc cref="Expr.EwmMean(double, bool, bool, int, bool)"/>
     /// <returns>A new <see cref="Series"/> with the EWM mean.</returns>
     public Series EwmMean(double alpha, bool adjust = true, bool bias = true, int minPeriods = 1, bool ignoreNulls = false)
         => ApplyExpr(Pl.Col(Name).EwmMean(alpha, adjust, bias, minPeriods, ignoreNulls));
 
-    /// <summary>
-    /// <inheritdoc cref="Expr.EwmStd(double, bool, bool, int, bool)" path="/summary"/>
-    /// </summary>
-    /// <inheritdoc cref="Expr.EwmStd(double, bool, bool, int, bool)" path="/param"/>
+    /// <inheritdoc cref="Expr.EwmStd(double, bool, bool, int, bool)"/>
     /// <returns>A new <see cref="Series"/> with the EWM standard deviation.</returns>
     public Series EwmStd(double alpha, bool adjust = true, bool bias = true, int minPeriods = 1, bool ignoreNulls = false)
         => ApplyExpr(Pl.Col(Name).EwmStd(alpha, adjust, bias, minPeriods, ignoreNulls));
 
-    /// <summary>
-    /// <inheritdoc cref="Expr.EwmVar(double, bool, bool, int, bool)" path="/summary"/>
-    /// </summary>
-    /// <inheritdoc cref="Expr.EwmVar(double, bool, bool, int, bool)" path="/param"/>
+    /// <inheritdoc cref="Expr.EwmVar(double, bool, bool, int, bool)"/>
     /// <returns>A new <see cref="Series"/> with the EWM variance.</returns>
     public Series EwmVar(double alpha, bool adjust = true, bool bias = true, int minPeriods = 1, bool ignoreNulls = false)
         => ApplyExpr(Pl.Col(Name).EwmVar(alpha, adjust, bias, minPeriods, ignoreNulls));
@@ -210,10 +183,7 @@ public partial class Series : IDisposable,IPolarsSeries
     // EWM By (Time/Index based)
     // -------------------------------------------------------------------------
 
-    /// <summary>
-    /// <inheritdoc cref="Expr.EwmMeanBy(Expr, string)" path="/summary"/>
-    /// </summary>
-    /// <inheritdoc cref="Expr.EwmMeanBy(Expr, string)" path="/param"/>
+    /// <inheritdoc cref="Expr.EwmMeanBy(Expr, string)"/>
     /// <returns>A new <see cref="Series"/> with the time/index-based EWM mean.</returns>
     public Series EwmMeanBy(Expr by, string halfLife)
         => ApplyExpr(Pl.Col(Name).EwmMeanBy(by, halfLife));
@@ -275,16 +245,10 @@ public partial class Series : IDisposable,IPolarsSeries
         
         return (int)series.Cast<int>()[0]!; 
     }
-    /// <summary>
-    /// <inheritdoc cref="Expr.Skew(bool)" path="/summary"/>
-    /// </summary>
-    /// <inheritdoc cref="Expr.Skew(bool)" path="/param"/>
+    /// <inheritdoc cref="Expr.Skew(bool)"/>
     public double? Skew(bool bias = true) => ExtractScalar<double>(Pl.Col(Name).Skew(bias));
 
-    /// <summary>
-    /// <inheritdoc cref="Expr.Kurtosis(bool, bool)" path="/summary"/>
-    /// </summary>
-    /// <inheritdoc cref="Expr.Kurtosis(bool, bool)" path="/param"/>
+    /// <inheritdoc cref="Expr.Kurtosis(bool, bool)"/>
     public double? Kurtosis(bool fisher = true, bool bias = true) 
         => ExtractScalar<double>(Pl.Col(Name).Kurtosis(fisher, bias));
     /// <summary>

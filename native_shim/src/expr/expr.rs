@@ -445,7 +445,7 @@ gen_unary_op_arg_bool!(pl_expr_cum_min, cum_min);
 gen_unary_op_arg_bool!(pl_expr_cum_prod, cum_prod);
 gen_unary_op_arg_bool!(pl_expr_cum_count, cum_count);
 gen_unary_op_arg_bool!(pl_expr_mode, mode);
-
+gen_unary_op_arg_bool!(pl_expr_reinterpret, reinterpret);
 // --- EWM Functions ---
 // Mean/Std/Var all share the same signature now
 gen_ewm_op!(pl_expr_ewm_mean, ewm_mean);
@@ -2158,5 +2158,43 @@ pub extern "C" fn pl_expr_clip(
         let out_expr = expr.clip(min,max);
 
         Ok(Box::into_raw(Box::new(ExprContext { inner: out_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_inspect(
+    ptr: *mut ExprContext,
+    fmt_ptr: *const c_char,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { &*ptr };
+        
+        let fmt = if fmt_ptr.is_null() { 
+            "{}".to_string() 
+        } else { 
+            unsafe { CStr::from_ptr(fmt_ptr).to_string_lossy().into_owned() } 
+        };
+
+        let output_type = |_: &Schema, f: &Field| Ok(f.clone());
+
+        let new_expr = ctx.inner.clone().map_with_fmt_str(
+            move |col: Column| {
+                let s_str = format!("{}", col.as_materialized_series());
+                
+                let out_msg = if fmt.contains("{}") {
+                    fmt.replace("{}", &s_str)
+                } else {
+                    format!("{} {}", fmt, s_str)
+                };
+
+                println!("{}", out_msg);
+                
+                Ok(col)
+            },
+            output_type,
+            "inspect", 
+        );
+
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }

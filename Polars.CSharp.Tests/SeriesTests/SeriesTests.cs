@@ -2349,4 +2349,12 @@ public class SeriesTests
         Assert.True(s2.IsEmpty);
         Assert.Equal(10L,s3.Length);
     }
+    [Fact]
+    [Trait("Series", "Reinterpret")]
+    public void Test_SeriesReinterpret()
+    {
+        using var s1 = Series.From("Reinterpret",[1231,324234,45345,345]);
+        using var s2 = s1.Reinterpret(false);
+        Assert.Equal(DataType.UInt32,s2.DataType);
+    }
 }

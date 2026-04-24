@@ -210,24 +210,9 @@ public readonly partial struct PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle All(ExprHandle e, bool ignoreNulls)
-    {
-        var h = NativeBindings.pl_expr_all(e,ignoreNulls);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-    public static ExprHandle Any(ExprHandle e, bool ignoreNulls)
-    {
-        var h = NativeBindings.pl_expr_any(e,ignoreNulls);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
-    public static ExprHandle Item(ExprHandle e, bool allowEmpty)
-    {
-        var h = NativeBindings.pl_expr_item(e,allowEmpty);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
+    public static ExprHandle All(ExprHandle e, bool ignoreNulls) => UnaryBoolOp(NativeBindings.pl_expr_all,e,ignoreNulls);
+    public static ExprHandle Any(ExprHandle e, bool ignoreNulls) => UnaryBoolOp(NativeBindings.pl_expr_any,e,ignoreNulls);
+    public static ExprHandle Item(ExprHandle e, bool allowEmpty) => UnaryBoolOp(NativeBindings.pl_expr_item,e,allowEmpty);
     public static ExprHandle Sum(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_sum, e);
     public static ExprHandle Mean(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_mean, e);
     public static ExprHandle Max(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_max, e);
@@ -256,12 +241,7 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle NUnique(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_n_unique, e);
     public static ExprHandle ApproxNUnique(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_approx_n_unique, e);
     public static ExprHandle Product(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_product, e);
-    public static ExprHandle Skew(ExprHandle e, bool bias)
-    {
-        var h = NativeBindings.pl_expr_skew(e,bias);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
+    public static ExprHandle Skew(ExprHandle e, bool bias) => UnaryBoolOp(NativeBindings.pl_expr_skew,e,bias);
     public static ExprHandle Kurtosis(ExprHandle e,bool fisher ,bool bias)
     {
         var h = NativeBindings.pl_expr_kurtosis(e,fisher,bias);
@@ -732,11 +712,7 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle ListArgMax(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_arg_max, e);
     public static ExprHandle ListArgMin(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_arg_min, e);
     public static ExprHandle ListUnique(ExprHandle e,bool maintainOrder)
-    {
-        var h = NativeBindings.pl_expr_list_unique(e, maintainOrder);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
+        => UnaryBoolOp(NativeBindings.pl_expr_list_unique,e,maintainOrder);
     public static ExprHandle ListStd(ExprHandle e,byte ddof)
     {
         var h = NativeBindings.pl_expr_list_std(e, ddof);
@@ -894,7 +870,7 @@ public readonly partial struct PolarsWrapper
         var ptrs = HandlesToPtrs(exprs); 
         return ErrorHelper.Check(NativeBindings.pl_concat_list(
             ptrs,
-            (UIntPtr)exprs.Length
+            (nuint)exprs.Length
         ));
     }
     public static ExprHandle ListReverse(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_reverse, e);
@@ -904,7 +880,7 @@ public readonly partial struct PolarsWrapper
         var ptrs = HandlesToPtrs(exprs); 
         return ErrorHelper.Check(NativeBindings.pl_concat_array(
             ptrs,
-            (UIntPtr)exprs.Length
+            (nuint)exprs.Length
         ));
     }
     public static ExprHandle ArraySum(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_array_sum, e);
@@ -930,11 +906,7 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(h);
     }    
     public static ExprHandle ArrayUnique(ExprHandle e,bool stable)   
-    {
-        var h = NativeBindings.pl_expr_array_unique(e, stable);
-        e.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
+        => UnaryBoolOp(NativeBindings.pl_expr_array_unique,e,stable);
     public static ExprHandle ArrayJoin(ExprHandle e,string sep,bool ignoreNulls)
     {
         var h = NativeBindings.pl_expr_array_join(e, sep,ignoreNulls);
@@ -1741,4 +1713,12 @@ public readonly partial struct PolarsWrapper
         expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle ExprInspect(ExprHandle expr,string format)
+    {
+        var h = NativeBindings.pl_expr_inspect(expr,format);
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ExprReinterpret(ExprHandle expr, bool signed)
+        => UnaryBoolOp(NativeBindings.pl_expr_reinterpret,expr,signed);
 }
