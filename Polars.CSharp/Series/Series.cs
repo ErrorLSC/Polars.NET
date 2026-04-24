@@ -319,6 +319,16 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <returns>A new Series of the target type.</returns>
     public Series Cast<T>(bool strict = true, bool wrapNumerical = false)
         => Cast(DataType.FromNetType<T>(), strict, wrapNumerical);
+    /// <summary>
+    /// Cast to physical representation of the logical dtype.
+    /// </summary>
+    public Series ToPhysical() => new(PolarsWrapper.SeriesToPhysical(Handle));
+    /// <inheritdoc cref="Expr.Sample(ulong, bool, bool, ulong?)"/>
+    public Series Sample(ulong n=1,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
+        => ApplyExpr(Pl.Col(Name).Sample(n,withReplacement,shuffle,seed));
+    /// <inheritdoc cref="Expr.Sample(double, bool, bool, ulong?)"/>
+    public Series Sample(double fraction,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
+        => ApplyExpr(Pl.Col(Name).Sample(fraction,withReplacement,shuffle,seed));
     /// <inheritdoc cref="Expr.Reinterpret(bool)"/> 
     public Series Reinterpret(bool signed=true) => ApplyExpr(Pl.Col(Name).Reinterpret(signed));
     /// <inheritdoc cref="Expr.RepeatBy(IntoExprColumn)"/> 

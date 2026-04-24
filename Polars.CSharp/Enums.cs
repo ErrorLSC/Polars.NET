@@ -31,6 +31,24 @@ public enum TimeUnit
     Month = 7,
     Year = 8
 }
+
+public enum RoundMode
+{
+    /// <summary>
+    /// Round to the nearest value; break ties by rounding away from zero. For example, 0.5 rounds to 1, -0.5 rounds to -1, 2.5 rounds to 3. Also known as “commercial rounding”.
+    /// </summary>
+    HalfAwayFromZero = 0,
+    /// <summary>
+    /// Round to the nearest value; break ties by choosing the nearest even value. For example, 0.5 rounds to 0, 1.5 rounds to 2, 2.5 rounds to 2. Also known as “banker’s rounding”; this is the default because it tends to minimise cumulative rounding bias.
+    /// </summary>
+    HalfToEven = 1,
+    /// <summary>
+    /// Always round (truncate) towards zero, discarding the fractional part beyond decimals. For example, 0.9 rounds to 0, -0.9 rounds to 0, 1.29 rounds to 1.2 (with decimals=1). Equivalent to the truncate() method.
+    /// </summary>
+    ToZero =2
+}
+
+
 /// <summary>
 /// Concat Type Enum
 /// </summary>
@@ -822,6 +840,13 @@ internal static class EnumExtensions
         InterpolationMethod.Nearest => CoreEnums.PlInterpolationMethod.Nearest,
         InterpolationMethod.Linear => CoreEnums.PlInterpolationMethod.Linear,
         _ => throw new ArgumentOutOfRangeException(nameof(method), method, null)
+    };
+    internal static CoreEnums.PlRoundMode ToNative(this RoundMode mode) => mode switch
+    {
+        RoundMode.HalfToEven => CoreEnums.PlRoundMode.HalfToEven,
+        RoundMode.HalfAwayFromZero => CoreEnums.PlRoundMode.HalfAwayFromZero,
+        RoundMode.ToZero => CoreEnums.PlRoundMode.ToZero,
+        _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
     };
     internal static CoreEnums.PlCloudProvider ToNative(this CloudProvider cloud) => cloud switch
     {

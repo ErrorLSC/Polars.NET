@@ -1,4 +1,5 @@
 #pragma warning disable CS1591
+#pragma warning disable CS1573
 using Apache.Arrow;
 using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
@@ -154,16 +155,50 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Returns a unit Series with the highest value possible for the dtype of this expression.
     /// </summary>
     public Expr UpperBound() => new(PolarsWrapper.UpperBound(CloneHandle()));
+    /// <summary>
+    /// Cast to physical representation of the logical dtype.
+    /// </summary>
+    public Expr ToPhysical() => new(PolarsWrapper.ExprToPhysical(CloneHandle()));
+    // ==========================================
+    // Random
+    // ==========================================
+    /// <summary>
+    /// Shuffle the contents of this expression.Note this is shuffled independently of any other column or Expression. If you want each row to stay the same use df.sample(shuffle=True)
+    /// </summary>
+    /// <param name="seed">Seed for the random number generator. If set to None (default), a random seed is generated each time the shuffle is called.</param>
+    /// <returns></returns>
+    public Expr Shuffle(ulong? seed=null) => new(PolarsWrapper.ExprShuffle(CloneHandle(),seed));
+    /// <summary>
+    /// Sample from this expression.
+    /// </summary>
+    /// <param name="n">Number of items to return. Default to 1</param>
+    /// <param name="withReplacement">Allow values to be sampled more than once.</param>
+    /// <param name="shuffle">Shuffle the order of sampled data points.</param>
+    /// <param name="seed">Seed for the random number generator. If set to None (default), a random seed is generated for each sample operation.</param>
+    public Expr Sample(ulong n=1,bool withReplacement=false,bool shuffle=false,ulong? seed=null) 
+        => new(PolarsWrapper.ExprSampleN(CloneHandle(),Pl.Lit(n).Handle,withReplacement,shuffle,seed));
+    /// <inheritdoc cref="Expr.Sample(ulong, bool, bool, ulong?)"/>
+    /// <param name="fraction">Fraction of items to return.</param>
+    public Expr Sample(double fraction,bool withReplacement=false,bool shuffle=false,ulong? seed=null) 
+        => new(PolarsWrapper.ExprSampleFrac(CloneHandle(),Pl.Lit(fraction).Handle,withReplacement,shuffle,seed));
 
     // ==========================================
     // Rounding & Sign
     // ==========================================
     /// <summary>
-    /// Round the number
+    /// Round underlying floating point data by decimals digits.
     /// </summary>
-    /// <param name="decimals"></param>
+    /// <param name="decimals">Number of decimals to round by.</param>
+    /// <param name="mode">The rounding strategy used. A “rounded value” is a value with at most decimals decimal places (e.g. integers when decimals=0, multiples of 0.1 when decimals=1, 0.01 when decimals=2, and so on).
+    /// Strategies that start with half_ round all values to the nearest rounded value, only using the strategy to break ties when a value falls exactly between two rounded values (e.g. 0.5 when decimals=0, 0.05 when decimals=1). Other rounding strategies specify explicitly which rounded value is chosen and always apply (not just for tiebreaks).</param>
     /// <returns></returns>
-    public Expr Round(uint decimals) => new(PolarsWrapper.Round(CloneHandle(), decimals));
+    public Expr Round(uint decimals=0,RoundMode mode=RoundMode.HalfToEven) => new(PolarsWrapper.Round(CloneHandle(), decimals,mode.ToNative()));
+    /// <summary>
+    /// Round to a number of significant figures.
+    /// </summary>
+    /// <param name="digits">Number of significant figures to round to.</param>
+    /// <returns></returns>
+    public Expr RoundSigFigs(int digits) => new(PolarsWrapper.RoundSigFigs(CloneHandle(),digits));
     /// <summary>Compute the element-wise sign (-1, 0, 1).</summary>
     public Expr Sign() => new(PolarsWrapper.Sign(CloneHandle()));
 

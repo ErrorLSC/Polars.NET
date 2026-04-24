@@ -1327,6 +1327,8 @@ public readonly partial struct PolarsWrapper
         ErrorHelper.CheckStatus(status);
         return hash;
     }
+    public static SeriesHandle SeriesToPhysical(SeriesHandle s)
+        => ErrorHelper.Check(NativeBindings.pl_series_to_physical(s));
     public static SeriesHandle SeriesNewEmpty(string name,DataTypeHandle dtype)
         => ErrorHelper.Check(NativeBindings.pl_series_new_empty(name,dtype));
     public static SeriesHandle SeriesNewNull(string name,long length)

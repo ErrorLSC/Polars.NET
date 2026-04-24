@@ -112,14 +112,20 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(NativeBindings.pl_dataframe_rename_many(df, oldNames, newNames, (nuint)oldNames.Length));
     }
 
-    public static unsafe DataFrameHandle SampleN(DataFrameHandle df, ulong n, bool replacement, bool shuffle, ulong? seed)
+    public static unsafe DataFrameHandle SampleN(DataFrameHandle df, SeriesHandle n, bool replacement, bool shuffle, ulong? seed)
     {
         ulong sVal = seed ?? 0;
         ulong* sPtr = seed.HasValue ? &sVal : null;
-        return ErrorHelper.Check(NativeBindings.pl_dataframe_sample_n(df, (UIntPtr)n, replacement, shuffle, sPtr));
+        return ErrorHelper.Check(NativeBindings.pl_dataframe_sample_n(df, n, replacement, shuffle, sPtr));
+    }
+    public static unsafe DataFrameHandle SampleNLiteral(DataFrameHandle df, ulong n, bool replacement, bool shuffle, ulong? seed)
+    {
+        ulong sVal = seed ?? 0;
+        ulong* sPtr = seed.HasValue ? &sVal : null;
+        return ErrorHelper.Check(NativeBindings.pl_dataframe_sample_n_literal(df, (nuint)n, replacement, shuffle, sPtr));
     }
 
-    public static unsafe DataFrameHandle SampleFrac(DataFrameHandle df, double frac, bool replacement, bool shuffle, ulong? seed)
+    public static unsafe DataFrameHandle SampleFrac(DataFrameHandle df, SeriesHandle frac, bool replacement, bool shuffle, ulong? seed)
     {
         ulong sVal = seed ?? 0;
         ulong* sPtr = seed.HasValue ? &sVal : null;

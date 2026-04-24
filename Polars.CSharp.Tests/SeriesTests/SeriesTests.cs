@@ -2368,4 +2368,78 @@ public class SeriesTests
         Assert.Equal(6L,s3.Explode().Length);
         Assert.Equal(15L,s4.Explode().Length);
     }
+    [Fact]
+    [Trait("Series", "Round")]
+    public void Test_Round_Default_HalfToEven()
+    {
+        // Half to Even
+        // 1.5 -> 2.0
+        // 2.5 -> 2.0
+        // 3.5 -> 4.0
+        // 4.5 -> 4.0
+        using var s = Pl.Series("values", new double?[] { 1.5, 2.5, 3.5, 4.5, null });
+
+        // decimals = 0, mode = RoundMode.HalfToEven
+        using var res = s.Round(); 
+        var arr = res.ToArray<double?>();
+
+        Assert.Equal(2.0, arr[0]);
+        Assert.Equal(2.0, arr[1]);
+        Assert.Equal(4.0, arr[2]);
+        Assert.Equal(4.0, arr[3]);
+        Assert.Null(arr[4]); 
+    }
+
+    [Fact]
+    [Trait("Series", "Round")]
+    public void Test_Round_With_Decimals()
+    {
+        using var s = Pl.Series("values", [1.12345, 2.6789, 3.14159]);
+
+        using var res = s.Round(decimals: 3);
+        var arr = res.ToArray<double>();
+
+        Assert.Equal(1.123, arr[0]);
+        Assert.Equal(2.679, arr[1]);
+        Assert.Equal(3.142, arr[2]);
+    }
+
+    [Fact]
+    [Trait("Series", "RoundSigFigs")]
+    public void Test_RoundSigFigs()
+    {
+        using var s = Pl.Series("values", new double?[] { 12345.0, 0.0012345, 1.2345, null });
+
+        using var res = s.RoundSigFigs(digits: 3);
+        var arr = res.ToArray<double?>();
+
+        Assert.Equal(12300.0, arr[0]);
+        Assert.Equal(0.00123, arr[1]);
+        Assert.Equal(1.23, arr[2]);
+        Assert.Null(arr[3]);
+    }
+    [Fact]
+    [Trait("Series", "Sample")]
+    public void Test_SeriesSample()
+    {
+        using var s = Pl.Series("values", new double?[] { 12345.0, 0.0012345, 1.2345, null });
+        using var s1 = s.Sample(10,withReplacement:true);
+        Assert.Equal(10L,s1.Length);
+        using var s2 = s.Sample(0.5,shuffle:true,seed:42);
+        Assert.Equal(2L,s2.Length);
+    }
+    [Fact]
+    [Trait("Series", "ToPhysical")]
+    public void Test_SeriesToPhysical()
+    {
+        using var sDate = Pl.DateRangeAsSeries(new DateOnly(1991,12,3),new DateOnly(1992,1,1));
+        using var sDatePhy = sDate.ToPhysical();
+        Assert.Equal(8006,sDatePhy[0]);
+        Assert.Equal(DataType.Int32,sDatePhy.DataType);
+        using var sDec = Pl.Series("dec",[10.000m,12312.123m,114.514000m]);
+        using var s128 = sDec.ToPhysical();
+        Assert.Equal((Int128)114514000,(Int128)s128[2]!);
+        Assert.Equal(DataType.Int128,s128.DataType);
+    }
+
 }

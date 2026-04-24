@@ -1275,3 +1275,16 @@ pub extern "C" fn pl_series_clear(
         Ok(Box::into_raw(Box::new(SeriesContext { series:s })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_to_physical(
+    s_ptr: *mut SeriesContext,
+) -> *mut SeriesContext {
+    ffi_try!({
+        let ctx = unsafe { &*s_ptr };
+
+        let s = ctx.series.to_physical_repr();
+        
+        Ok(Box::into_raw(Box::new(SeriesContext { series:s.into_owned() })))
+    })
+}

@@ -319,17 +319,33 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     // ==========================================
 
     /// <summary>
-    /// Sample n rows from the DataFrame.
+    /// Sample from this DataFrame.
     /// </summary>
-    public DataFrame Sample(ulong n, bool withReplacement = false, bool shuffle = true, ulong? seed = null)
-        => new(PolarsWrapper.SampleN(Handle, n, withReplacement, shuffle, seed));
+    /// <param name="n">Number of items to return. Defaults to 1</param>
+    /// <param name="withReplacement">Allow values to be sampled more than once.</param>
+    /// <param name="shuffle">If set to True, the order of the sampled rows will be shuffled. If set to False (default), the order of the returned rows will be neither stable nor fully random.</param>
+    /// <param name="seed">Seed for the random number generator. If set to None (default), a random seed is generated for each time the sample is called.</param>
+    public DataFrame Sample(ulong n=1, bool withReplacement = false, bool shuffle = false, ulong? seed = null)
+        => new(PolarsWrapper.SampleNLiteral(Handle, n, withReplacement, shuffle, seed));
 
+    // /// <inheritdoc cref="DataFrame.Sample(ulong, bool, bool, ulong?)"/> 
+    // public DataFrame Sample(Series n, bool withReplacement = false, bool shuffle = false, ulong? seed = null)
+    //     => new(PolarsWrapper.SampleN(Handle, n.Handle, withReplacement, shuffle, seed));
     /// <summary>
-    /// Sample a fraction of rows from the DataFrame.
+    /// Sample from this DataFrame.
     /// </summary>
-    public DataFrame Sample(double fraction, bool withReplacement = false, bool shuffle = true, ulong? seed = null)
-        => new(PolarsWrapper.SampleFrac(Handle, fraction, withReplacement, shuffle, seed));
- 
+    /// <param name="fraction">Fraction of items to return.</param>
+    /// <param name="withReplacement">Allow values to be sampled more than once.</param>
+    /// <param name="shuffle">If set to True, the order of the sampled rows will be shuffled. If set to False (default), the order of the returned rows will be neither stable nor fully random.</param>
+    /// <param name="seed">Seed for the random number generator. If set to None (default), a random seed is generated for each time the sample is called.</param>
+    /// <returns></returns>
+    public DataFrame Sample(double fraction,bool withReplacement = false, bool shuffle = false, ulong? seed = null)
+    {
+        using Series frac = Pl.Series("",[fraction]);
+        return new(PolarsWrapper.SampleFrac(Handle,frac.Handle , withReplacement, shuffle, seed));
+    }
+    // public DataFrame SampleFrac(Series fraction,bool withReplacement = false, bool shuffle = false, ulong? seed = null)
+       
     /// <summary>
     /// Create an empty (n=0) or n-row null-filled (n>0) copy of the DataFrame.
     /// Returns a n-row null-filled DataFrame with an identical schema.

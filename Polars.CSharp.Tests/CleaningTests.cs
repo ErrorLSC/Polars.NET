@@ -22,6 +22,7 @@ public class CleaningTests
         Assert.Equal(2, ff.GetValue<int>(4,"ff")); 
     }
     [Fact]
+    [Trait("Cleaning","Sample")]
     public void Test_Sampling()
     {
         var rows = Enumerable.Range(0, 100).Select(i => new { Val = i });
@@ -29,11 +30,11 @@ public class CleaningTests
         Assert.Equal(100, df.Height);
 
         // Sample N=10
-        using var sampleN = df.Sample(n: 10, seed: 42);
+        using var sampleN = df.Sample(n: 10,shuffle:true, seed: 42);
         Assert.Equal(10, sampleN.Height);
 
         // Sample Frac=0.1 (10%)
-        using var sampleFrac = df.Sample(fraction: 0.1, seed: 42);
+        using var sampleFrac = df.Sample(fraction: 0.1,shuffle:true, seed: 42);
         Assert.Equal(10, sampleFrac.Height);
     }
     [Fact]

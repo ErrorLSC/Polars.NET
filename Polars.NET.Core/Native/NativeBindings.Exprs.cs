@@ -270,7 +270,30 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_log(ExprHandle expr, ExprHandle baseVal);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_log1p(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_entropy(ExprHandle expr,double baseVal,[MarshalAs(UnmanagedType.U1)]bool normalize);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_round(ExprHandle expr, uint decimals);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_round(ExprHandle expr, uint decimals,PlRoundMode mode);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_round_sig_figs(ExprHandle expr, int digits);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_to_physical(ExprHandle expr);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_shuffle(
+        ExprHandle expr,
+        [MarshalAs(UnmanagedType.U1)] bool hasSeed,
+        ulong seed);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_sample_n(
+        ExprHandle e, 
+        ExprHandle n,
+        [MarshalAs(UnmanagedType.U1)] bool withReplacement,
+        [MarshalAs(UnmanagedType.U1)] bool shuffle,
+        [MarshalAs(UnmanagedType.U1)] bool hasSeed,
+        ulong seed);
+
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_sample_frac(
+        ExprHandle e,
+        ExprHandle frac,
+        [MarshalAs(UnmanagedType.U1)] bool withReplacement,
+        [MarshalAs(UnmanagedType.U1)] bool shuffle,
+        [MarshalAs(UnmanagedType.U1)] bool hasSeed,
+        ulong seed);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_sin(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_cos(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_tan(ExprHandle expr);

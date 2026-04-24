@@ -526,6 +526,8 @@ unsafe internal partial class NativeBindings
         SeriesHandle ptr, 
         out ulong hash
     );
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_to_physical(SeriesHandle h);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial SeriesHandle pl_series_new_empty(string name,DataTypeHandle dtype);
     [LibraryImport(LibName)]
@@ -536,5 +538,6 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial ArrowArrayContextHandle pl_series_to_arrow(SeriesHandle h);
     [LibraryImport(LibName)] public static partial IntPtr pl_series_to_string(SeriesHandle series);
+
 
 }

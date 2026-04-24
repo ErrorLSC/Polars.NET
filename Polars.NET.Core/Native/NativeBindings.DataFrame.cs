@@ -81,10 +81,11 @@ unsafe internal partial class NativeBindings
     );
 
     [LibraryImport(LibName)]
-    public static partial DataFrameHandle pl_dataframe_sample_n(DataFrameHandle df, UIntPtr n, [MarshalAs(UnmanagedType.U1)] bool replacement, [MarshalAs(UnmanagedType.I1)] bool shuffle, ulong* seed);
-
+    public static partial DataFrameHandle pl_dataframe_sample_n_literal(DataFrameHandle df, nuint n, [MarshalAs(UnmanagedType.U1)] bool replacement, [MarshalAs(UnmanagedType.I1)] bool shuffle, ulong* seed);
     [LibraryImport(LibName)]
-    public static partial DataFrameHandle pl_dataframe_sample_frac(DataFrameHandle df, double frac, [MarshalAs(UnmanagedType.U1)] bool replacement, [MarshalAs(UnmanagedType.I1)] bool shuffle, ulong* seed);
+    public static partial DataFrameHandle pl_dataframe_sample_n(DataFrameHandle df, SeriesHandle n, [MarshalAs(UnmanagedType.U1)] bool replacement, [MarshalAs(UnmanagedType.I1)] bool shuffle, ulong* seed);
+    [LibraryImport(LibName)]
+    public static partial DataFrameHandle pl_dataframe_sample_frac(DataFrameHandle df, SeriesHandle frac, [MarshalAs(UnmanagedType.U1)] bool replacement, [MarshalAs(UnmanagedType.I1)] bool shuffle, ulong* seed);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial DataFrameHandle pl_dataframe_unnest(
         DataFrameHandle df,

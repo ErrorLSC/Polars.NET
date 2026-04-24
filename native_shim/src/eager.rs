@@ -318,7 +318,7 @@ pub extern "C" fn pl_df_unique(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_dataframe_sample_n(
+pub extern "C" fn pl_dataframe_sample_n_literal(
     df_ptr: *mut DataFrameContext, 
     n: usize, 
     replacement: bool, 
@@ -336,21 +336,38 @@ pub extern "C" fn pl_dataframe_sample_n(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_dataframe_sample_frac(
+pub extern "C" fn pl_dataframe_sample_n(
     df_ptr: *mut DataFrameContext, 
-    frac: f64, 
+    n_ptr: *const SeriesContext, 
     replacement: bool, 
     shuffle: bool, 
     seed: *const u64
 ) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*df_ptr };
+        let n = unsafe {&*n_ptr};
         let s = if seed.is_null() { None } else { Some(unsafe { *seed }) };
         
-        let height = ctx.df.height();
-        let n = (height as f64 * frac) as usize;
+        let new_df = ctx.df.sample_n(&n.series, replacement, shuffle, s)?;
         
-        let new_df = ctx.df.sample_n_literal(n, replacement, shuffle, s)?;
+        Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_sample_frac(
+    df_ptr: *mut DataFrameContext, 
+    frac_ptr: *const SeriesContext, 
+    replacement: bool, 
+    shuffle: bool, 
+    seed: *const u64
+) -> *mut DataFrameContext {
+    ffi_try!({
+        let ctx = unsafe { &*df_ptr };
+        let frac = unsafe {&*frac_ptr};
+        let s = if seed.is_null() { None } else { Some(unsafe { *seed }) };
+        
+        let new_df = ctx.df.sample_frac(&frac.series, replacement, shuffle, s)?;
         
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
     })

@@ -326,6 +326,7 @@ gen_unary_op!(pl_expr_rle, rle);
 gen_unary_op!(pl_expr_rle_id, rle_id);
 gen_unary_op!(pl_expr_peak_max, peak_max);
 gen_unary_op!(pl_expr_peak_min,peak_min);
+gen_unary_op!(pl_expr_to_physical,to_physical);
 
 gen_unary_op!(pl_expr_bitwise_and, bitwise_and);
 gen_unary_op!(pl_expr_bitwise_or, bitwise_or);
@@ -1073,15 +1074,115 @@ pub extern "C" fn pl_concat_expr(
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_round(
     expr_ptr: *mut ExprContext, 
-    decimals: u32
+    decimals: u32,
+    mode_code:u8
 ) -> *mut ExprContext {
     ffi_try!({
         let ctx = unsafe { Box::from_raw(expr_ptr) };
         // default round
-        let new_expr = ctx.inner.round(decimals, RoundMode::HalfAwayFromZero); 
+        let mode = match mode_code {
+            0 => RoundMode::HalfAwayFromZero,
+            1 => RoundMode::HalfToEven,
+            _ => RoundMode::HalfAwayFromZero
+        };
+        let new_expr = ctx.inner.round(decimals, mode); 
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_round_sig_figs(
+    expr_ptr: *mut ExprContext, 
+    digits: i32
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+
+        let new_expr = ctx.inner.round_sig_figs(digits); 
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+
+// #[unsafe(no_mangle)]
+// pub extern "C" fn pl_expr_truncate(
+//     expr_ptr: *mut ExprContext, 
+//     digits: i32
+// ) -> *mut ExprContext {
+//     ffi_try!({
+//         let ctx = unsafe { Box::from_raw(expr_ptr) };
+
+//         let new_expr = ctx.inner.truncate(digits); 
+//         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+//     })
+// }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_shuffle(
+    expr_ptr: *mut ExprContext,
+    has_seed: bool,
+    seed: u64,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let seed_opt = if has_seed { Some(seed) } else { None };
+        
+        let new_expr = ctx.inner.shuffle(seed_opt);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_sample_n(
+    expr_ptr: *mut ExprContext,
+    n_ptr: *mut ExprContext,
+    with_replacement: bool,
+    shuffle: bool,
+    has_seed: bool,
+    seed: u64,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let n_ctx = unsafe { Box::from_raw(n_ptr) };
+        let seed_opt = if has_seed { Some(seed) } else { None };
+        
+        let new_expr = ctx.inner.sample_n(
+            n_ctx.inner,
+            with_replacement,
+            shuffle,
+            seed_opt,
+        );
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_sample_frac(
+    expr_ptr: *mut ExprContext,
+    frac_ptr: *mut ExprContext,
+    with_replacement: bool,
+    shuffle: bool,
+    has_seed: bool,
+    seed: u64,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let frac_ctx = unsafe { Box::from_raw(frac_ptr) };
+        let seed_opt = if has_seed { Some(seed) } else { None };
+        
+        let new_expr = ctx.inner.sample_frac(
+            frac_ctx.inner,
+            with_replacement,
+            shuffle,
+            seed_opt,
+        );
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
 
 // ==========================================
 // Meta Data

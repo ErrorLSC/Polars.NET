@@ -568,6 +568,26 @@ public readonly partial struct PolarsWrapper
         => UnaryOp(NativeBindings.pl_expr_drop_nulls, expr);
     public static ExprHandle DropNans(ExprHandle expr) 
         => UnaryOp(NativeBindings.pl_expr_drop_nans, expr);
+    public static ExprHandle ExprToPhysical(ExprHandle expr) 
+        => UnaryOp(NativeBindings.pl_expr_to_physical, expr);
+    public static ExprHandle ExprShuffle(ExprHandle expr,ulong? seed)
+    {
+        ulong seedValue = seed ?? 0UL;
+        var h = NativeBindings.pl_expr_shuffle(expr,seed.HasValue,seedValue);
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ExprSampleN(ExprHandle expr,ExprHandle n,bool withReplacement,bool shuffle,ulong? seed)
+    {
+        ulong seedValue = seed ?? 0UL;
+        var h = NativeBindings.pl_expr_sample_n(expr,n,withReplacement,shuffle,seed.HasValue,seedValue);
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle ExprSampleFrac(ExprHandle expr,ExprHandle frac,bool withReplacement,bool shuffle,ulong? seed)
+    {
+        ulong seedValue = seed ?? 0UL;
+        var h = NativeBindings.pl_expr_sample_frac(expr,frac,withReplacement,shuffle,seed.HasValue,seedValue);
+        return ErrorHelper.Check(h);
+    }
     // Unique and Duplicated
     public static ExprHandle ExprIsUnique(ExprHandle expr)
         => UnaryOp(NativeBindings.pl_expr_is_unique,expr);
@@ -630,9 +650,15 @@ public readonly partial struct PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle Round(ExprHandle e, uint decimals)
+    public static ExprHandle Round(ExprHandle e, uint decimals,PlRoundMode mode)
     {
-        var h = NativeBindings.pl_expr_round(e, decimals);
+        var h = NativeBindings.pl_expr_round(e, decimals,mode);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle RoundSigFigs(ExprHandle e, int digits)
+    {
+        var h = NativeBindings.pl_expr_round_sig_figs(e, digits);
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }

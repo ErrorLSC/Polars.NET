@@ -71,14 +71,19 @@ public enum PlTimeUnit: byte
     Year =8,
     All = 100
 }
-/// <summary>
-/// Concat Type Enum
-/// </summary>
+
 public enum PlConcatType : byte
 {
     Vertical = 0,
     Horizontal = 1,
     Diagonal = 2
+}
+
+public enum PlRoundMode : byte
+{
+    HalfAwayFromZero = 0,
+    HalfToEven = 1,
+    ToZero = 2
 }
 
 public enum PlFillNullStrategy: byte
