@@ -755,6 +755,13 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="signed">If True, reinterpret as signed integer. Otherwise, reinterpret as unsigned integer.</param>
     /// <returns></returns>
     public Expr Reinterpret(bool signed=true) => new(PolarsWrapper.ExprReinterpret(CloneHandle(),signed));
+    /// <summary>
+    /// Repeat the elements in this Series as specified in the given expression.
+    /// The repeated elements are expanded into a List.
+    /// </summary>
+    /// <param name="by">Numeric column that determines how often the values will be repeated. The column will be coerced to UInt32. Give this dtype to make the coercion a no-op.</param>
+    /// <returns>Expression/Series of data type List, where the inner data type is equal to the original data type.</returns>
+    public Expr RepeatBy(IntoExprColumn by) => new(PolarsWrapper.ExprRepeatBy(CloneHandle(),by.Consume().Handle));
     // ==========================================
     // Namespaces
     // ==========================================

@@ -2357,4 +2357,15 @@ public class SeriesTests
         using var s2 = s1.Reinterpret(false);
         Assert.Equal(DataType.UInt32,s2.DataType);
     }
+    [Fact]
+    [Trait("Series", "RepeatBy")]
+    public void Test_SeriesRepeatBy()
+    {
+        using var s1 = Series.From("RepeatBy",[1,2,3]);
+        using var s2 = Series.From("str",["x","y","z"]);
+        using var s3 = s2.RepeatBy(s1);
+        using var s4 = s2.RepeatBy(5);
+        Assert.Equal(6L,s3.Explode().Length);
+        Assert.Equal(15L,s4.Explode().Length);
+    }
 }
