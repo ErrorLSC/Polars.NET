@@ -197,6 +197,18 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(0.0, (double)res["acos"][2], 1e-6);
         Assert.Equal(Math.PI,res["radian"][0]);
     }
+    [Fact]
+    [Trait("Expr","Trigonometry")]
+    public void Test_Trigonometry_Arctan2()
+    {
+        double c = Math.Sqrt(2) / 2;
+        double[] y = [c, -c, c,-c];
+        double[] x = [c,c,-c,-c];
+        using DataFrame df =[Series.From("y",y),Series.From("x",x)] ;
+
+        using var res = df.WithColumns(Pl.ArcTan2("y","x").Alias("arctan2"));
+        Assert.Equal(2.356194,(double)res["arctan2"][2],5);
+    }
 
     [Fact]
     public void Test_Rounding_And_Sign()

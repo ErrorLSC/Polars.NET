@@ -384,7 +384,8 @@ gen_unary_op!(pl_expr_cot, cot);
 gen_unary_op!(pl_expr_arcsin, arcsin);
 gen_unary_op!(pl_expr_arccos, arccos);
 gen_unary_op!(pl_expr_arctan, arctan);
-
+gen_binary_op!(pl_expr_arctan2, arctan2);
+ 
 gen_unary_op!(pl_expr_sinh, sinh);
 gen_unary_op!(pl_expr_cosh, cosh);
 gen_unary_op!(pl_expr_tanh, tanh);

@@ -626,7 +626,7 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle ArcSin(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_arcsin,e);
     public static ExprHandle ArcCos(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_arccos,e);
     public static ExprHandle ArcTan(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_arctan,e);
-
+    public static ExprHandle ArcTan2(ExprHandle e,ExprHandle x) => BinaryOp(NativeBindings.pl_expr_arctan2,e,x);
     public static ExprHandle Sinh(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_sinh,e);
     public static ExprHandle Cosh(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_cosh,e);
     public static ExprHandle Tanh(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_tanh,e);

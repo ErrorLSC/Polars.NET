@@ -125,6 +125,17 @@ public readonly partial struct Polars
         => Lit(value).Implode().Cast(DataType.Binary);
     
     // ==========================================
+    // Calculation
+    // ==========================================
+    /// <summary>
+    /// Compute two argument arctan in radians.
+    /// Returns the angle (in radians) in the plane between the positive x-axis and the ray from the origin to (x,y).
+    /// </summary>
+    /// <param name="y">Column name or Expression.</param>
+    /// <param name="x">Column name or Expression.</param>
+    public static Expr ArcTan2(IntoExprColumn y,IntoExprColumn x)
+        => new(PolarsWrapper.ArcTan2(y.Consume().Handle,x.Consume().Handle));
+    // ==========================================
     // Control Flow
     // ==========================================
 
