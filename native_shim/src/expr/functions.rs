@@ -349,3 +349,99 @@ impl_horizontal_expr_ffi!(pl_expr_max_horizontal, polars::lazy::dsl::max_horizon
 impl_horizontal_expr_ffi!(pl_expr_min_horizontal, polars::lazy::dsl::min_horizontal);
 impl_horizontal_expr_ffi!(pl_expr_sum_horizontal, polars::lazy::dsl::sum_horizontal, ignore_nulls);
 impl_horizontal_expr_ffi!(pl_expr_mean_horizontal, polars::lazy::dsl::mean_horizontal, ignore_nulls);
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_cov(
+    a_ptr: *mut ExprContext,
+    b_ptr: *mut ExprContext,
+    ddof: u8
+) -> *mut ExprContext {
+    ffi_try!({
+        let a = unsafe { Box::from_raw(a_ptr) }.inner;
+        let b = unsafe { Box::from_raw(b_ptr) }.inner;
+
+        let new_expr = dsl::cov(a, b,ddof);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_pearson_corr(
+    a_ptr: *mut ExprContext,
+    b_ptr: *mut ExprContext,
+) -> *mut ExprContext {
+    ffi_try!({
+        let a = unsafe { Box::from_raw(a_ptr) }.inner;
+        let b = unsafe { Box::from_raw(b_ptr) }.inner;
+
+        let new_expr = dsl::pearson_corr(a, b);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_spearman_rank_corr(
+    a_ptr: *mut ExprContext,
+    b_ptr: *mut ExprContext,
+    propagate_nans: bool
+) -> *mut ExprContext {
+    ffi_try!({
+        let a = unsafe { Box::from_raw(a_ptr) }.inner;
+        let b = unsafe { Box::from_raw(b_ptr) }.inner;
+
+        let new_expr = dsl::spearman_rank_corr(a, b,propagate_nans);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+fn parse_rolling_cov_options(
+    window_size:u32,
+    min_periods:u32,
+    ddof:u8
+) -> RollingCovOptions
+{
+    RollingCovOptions{
+        window_size:window_size,
+        min_periods: min_periods,
+        ddof:ddof 
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_rolling_corr(
+    x_ptr: *mut ExprContext,
+    y_ptr: *mut ExprContext,
+    window_size:u32,
+    min_periods:u32,
+    ddof:u8    
+) -> *mut ExprContext {
+    ffi_try!({
+        let a = unsafe { Box::from_raw(x_ptr) }.inner;
+        let b = unsafe { Box::from_raw(y_ptr) }.inner;
+        let options = parse_rolling_cov_options(window_size, min_periods, ddof);
+        let new_expr = dsl::rolling_corr(a, b,options);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_rolling_cov(
+    x_ptr: *mut ExprContext,
+    y_ptr: *mut ExprContext,
+    window_size:u32,
+    min_periods:u32,
+    ddof:u8    
+) -> *mut ExprContext {
+    ffi_try!({
+        let a = unsafe { Box::from_raw(x_ptr) }.inner;
+        let b = unsafe { Box::from_raw(y_ptr) }.inner;
+        let options = parse_rolling_cov_options(window_size, min_periods, ddof);
+        let new_expr = dsl::rolling_cov(a, b,options);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}

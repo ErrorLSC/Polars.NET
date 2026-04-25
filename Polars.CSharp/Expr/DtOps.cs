@@ -1,5 +1,4 @@
 using Polars.NET.Core;
-using Polars.NET.Core.Helpers;
 using Pl = Polars.CSharp.Polars;
 namespace Polars.CSharp;
 

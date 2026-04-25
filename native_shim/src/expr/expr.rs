@@ -89,6 +89,7 @@ macro_rules! gen_unary_op_u8 {
 
 /// Binary Operator
 /// like: fn pl_expr_eq(left: *mut, right: *mut) -> *mut
+#[macro_export]
 macro_rules! gen_binary_op {
     ($func_name:ident, $method:ident) => {
         #[unsafe(no_mangle)]

@@ -3306,4 +3306,125 @@ TooShort,1990-05-20,1.60";
         ).WithColumns((Pl.Col("单休牛马工作日") - Pl.Col("双休打工人工作日")).Alias("血泪"));
         Assert.Equal(4,res["血泪"][0]);
     }
+    [Fact]
+    [Trait("Expr", "Covariance")]
+    public void Test_Cov_Expr()
+    {
+        // a: [1, 2, 3, 4, 5] -> mean = 3
+        // b: [2, 4, 6, 8, 10] -> mean = 6
+        // Sum of squared differences = (-2*-4) + (-1*-2) + 0 + (1*2) + (2*4) = 8 + 2 + 0 + 2 + 8 = 20
+        using var df = Pl.DataFrame(
+            ("a", new double[] { 1, 2, 3, 4, 5 }),
+            ("b", new double[] { 2, 4, 6, 8, 10 })
+        );
+
+        // 1. 样本协方差 (Sample Covariance), 默认 ddof = 1
+        // 计算结果应为: 20 / (5 - 1) = 5.0
+        using var covSample = df.Select(Pl.Cov("a", "b"));
+        Assert.Equal(5.0, covSample[0].ToArray<double>()[0], precision: 5);
+
+        // 2. 总体协方差 (Population Covariance), ddof = 0
+        // 计算结果应为: 20 / 5 = 4.0
+        using var covPop = df.Select(Pl.Cov("a", "b", ddof: 0));
+        Assert.Equal(4.0, covPop[0].ToArray<double>()[0], precision: 5);
+    }
+
+    [Fact]
+    [Trait("Expr", "Correlation")]
+    public void Test_Corr_Expr()
+    {
+        using var df = Pl.DataFrame(
+            ("a", new double[] { 1, 2, 3, 4, 5 }),
+            ("b", new double[] { 2, 4, 6, 8, 10 }), 
+            ("c", new double[] { 1, 10, 100, 1000, 10000 }) 
+        );
+
+        // Pearson
+        using var corrPearson = df.Select(Pl.Corr("a", "b", CorrelationMethod.Pearson));
+        Assert.Equal(1.0, corrPearson[0].ToArray<double>()[0], precision: 5);
+
+        // Spearman
+        using var corrSpearman = df.Select(Pl.Corr("a", "c", CorrelationMethod.Spearman));
+        Assert.Equal(1.0, corrSpearman[0].ToArray<double>()[0], precision: 5);
+        
+        using var corrPearsonNotPerfect = df.Select(Pl.Corr("a", "c", CorrelationMethod.Pearson));
+        var pearsonValue = corrPearsonNotPerfect[0].ToArray<double>()[0];
+        Assert.True(pearsonValue < 1.0 && pearsonValue > 0.5); // 约等于 0.716
+    }
+
+    [Fact]
+    [Trait("Expr", "Correlation_NaNs")]
+    public void Test_Corr_Spearman_PropagateNans()
+    {
+        using var df = Pl.DataFrame(
+            ("a", new double[] { 1, 2, double.NaN, 4, 5 }),
+            ("b", new double[] { 1, 2, 3, 4, 5 })
+        );
+
+        // 1. propagateNans = false 
+        using var corrIgnore = df.Select(Pl.Corr("a", "b", CorrelationMethod.Spearman, propagateNans: false));
+        Assert.False(double.IsNaN(corrIgnore[0].ToArray<double>()[0]));
+
+        // 2. propagateNans = true
+        using var corrPropagate = df.Select(Pl.Corr("a", "b", CorrelationMethod.Spearman, propagateNans: true));
+        Assert.True(double.IsNaN(corrPropagate[0].ToArray<double>()[0]));
+    }
+
+    [Fact]
+    [Trait("Series", "Cov_And_Corr")]
+    public void Test_AsSeries_Direct_Evaluation()
+    {
+        using var s1 = Pl.Series("s1", new double[] { 1, 2, 3, 4, 5 });
+        using var s2 = Pl.Series("s2", new double[] { 2, 4, 6, 8, 10 });
+
+        // CovAsSeries
+        using var covSeries = Pl.CovAsSeries(s1, s2);
+        Assert.Equal(5.0, covSeries.ToArray<double>()[0], precision: 5);
+
+        // CorrAsSeries
+        using var corrSeries = Pl.CorrAsSeries(s1, s2, CorrelationMethod.Pearson);
+        Assert.Equal(1.0, corrSeries.ToArray<double>()[0], precision: 5);
+    }
+    [Fact]
+    [Trait("Expr", "Rolling")]
+    public void Test_RollingCov()
+    {
+        using var df = Pl.DataFrame(
+            ("a", new double[] { 1, 2, 3, 4, 5 }),
+            ("b", new double[] { 2, 4, 6, 8, 10 })
+        );
+
+        using var resCov = df.Select(Pl.RollingCov("a", "b", windowSize: 3));
+        var arrCov = resCov[0].ToArray<double?>();
+
+        Assert.Null(arrCov[0]);
+        Assert.Null(arrCov[1]);
+
+        Assert.Equal(2.0, arrCov[2]!.Value, precision: 5);
+
+        Assert.Equal(2.0, arrCov[3]!.Value, precision: 5);
+    }
+
+    [Fact]
+    [Trait("Expr", "Rolling")]
+    public void Test_RollingCorr_With_MinSamples()
+    {
+        using var df = Pl.DataFrame(
+            ("a", new double[] { 1, 2, 3, 4, 5 }),
+            ("b", new double[] { 1, 2, 3, 2, 1 })
+        );
+
+        using var resCorr = df.Select(Pl.RollingCorr("a", "b", windowSize: 3, minSamples: 2));
+        var arrCorr = resCorr[0].ToArray<double?>();
+
+        Assert.Null(arrCorr[0]);
+
+        Assert.Equal(1.0, arrCorr[1]!.Value, precision: 5);
+
+        Assert.Equal(1.0, arrCorr[2]!.Value, precision: 5);
+
+        Assert.Equal(0.0, arrCorr[3]!.Value, precision: 5);
+
+        Assert.Equal(-1.0, arrCorr[4]!.Value, precision: 5);
+    }
 }   

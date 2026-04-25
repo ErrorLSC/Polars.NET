@@ -465,6 +465,69 @@ public readonly partial struct Polars
     public static Expr ArgWhere(IntoExpr condition) => new(PolarsWrapper.ArgWhere(condition.Consume().Handle));
     /// <inheritdoc cref="ArgWhere(IntoExpr)"/>
     public static Series ArgWhereAsSeries(IntoExpr condition) => CSharp.Series.FromExpr(ArgWhere(condition));
+    // ==========================================
+    // Correlation
+    // ==========================================
+    /// <summary>
+    /// Compute the covariance between two columns/ expressions.
+    /// </summary>
+    /// <param name="a">Column name or Expression.</param>
+    /// <param name="b">Column name or Expression.</param>
+    /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
+    /// <returns></returns>
+    public static Expr Cov(IntoExprColumn a,IntoExprColumn b, byte ddof =1)
+        => new(PolarsWrapper.Cov(a.Consume().Handle,b.Consume().Handle,ddof));
+    /// <inheritdoc cref="Cov"/>
+    public static Series CovAsSeries(IntoExprColumn a,IntoExprColumn b, byte ddof =1)
+        => CSharp.Series.FromExpr(Cov(a,b,ddof));
+    /// <summary>
+    /// Compute the Pearson’s or Spearman rank correlation between two columns.
+    /// </summary>
+    /// <param name="a">Column name or Expression.</param>
+    /// <param name="b">Column name or Expression.</param>
+    /// <param name="method">Correlation method.</param>
+    /// <param name="propagateNans">If True any NaN encountered will lead to NaN in the output. Defaults to False where NaN are regarded as larger than any finite number and thus lead to the highest rank.</param>
+    /// <returns></returns>
+    public static Expr Corr(IntoExprColumn a,IntoExprColumn b,CorrelationMethod method=CorrelationMethod.Pearson,bool propagateNans=false)
+    {
+        ExprHandle aE = a.Consume().Handle;
+        ExprHandle bE = b.Consume().Handle;
+        if (method == CorrelationMethod.Pearson)
+            return new(PolarsWrapper.PearsonCorr(aE,bE));
+        else 
+            return new(PolarsWrapper.SpearmanRankCorr(aE,bE,propagateNans));
+    }
+    /// <inheritdoc cref="Corr"/>
+    public static Series CorrAsSeries(IntoExprColumn a,IntoExprColumn b,CorrelationMethod method=CorrelationMethod.Pearson,bool propagateNans=false)
+        => CSharp.Series.FromExpr(Corr(a,b,method,propagateNans));
+    /// <summary>
+    /// Compute the rolling correlation between two columns/ expressions.
+    /// The window at a given row includes the row itself and the window_size - 1 elements before it.
+    /// </summary>
+    /// <param name="a">Column name or Expression.</param>
+    /// <param name="b">Column name or Expression.</param>
+    /// <param name="windowSize">The length of the window.</param>
+    /// <param name="minSamples">The number of values in the window that should be non-null before computing a result. If None, it will be set equal to window size.</param>
+    public static Expr RollingCorr(IntoExprColumn a,IntoExprColumn b,uint windowSize,uint? minSamples=null)
+    {
+        uint minSam = minSamples ?? windowSize;
+        return new(PolarsWrapper.RollingCorr(a.Consume().Handle,b.Consume().Handle,windowSize,minSam));
+    }
+    /// <summary>
+    /// Compute the rolling covariance between two columns/ expressions.
+    /// The window at a given row includes the row itself and the window_size - 1 elements before it.
+    /// </summary>
+    /// <param name="a">Column name or Expression.</param>
+    /// <param name="b">Column name or Expression.</param>
+    /// <param name="windowSize">The length of the window.</param>
+    /// <param name="minSamples">The number of values in the window that should be non-null before computing a result. If None, it will be set equal to window size.</param>
+    /// <param name="ddof">Delta degrees of freedom. The divisor used in calculations is N - ddof, where N represents the number of elements.</param>
+    public static Expr RollingCov(IntoExprColumn a,IntoExprColumn b,uint windowSize,uint? minSamples=null,byte ddof=1)
+    {
+        uint minSam = minSamples ?? windowSize;
+        return new(PolarsWrapper.RollingCov(a.Consume().Handle,b.Consume().Handle,windowSize,minSam,ddof));
+    }
+
 }
 
 internal static class InterfaceUnwrapperExtensions

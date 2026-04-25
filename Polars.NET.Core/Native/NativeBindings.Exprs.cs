@@ -951,5 +951,39 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_repeat_by(
         ExprHandle expr,
         ExprHandle by);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_cov(
+        ExprHandle a,
+        ExprHandle b,
+        byte ddof);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_pearson_corr(
+        ExprHandle a,
+        ExprHandle b
+    );
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_spearman_rank_corr(
+        ExprHandle a,
+        ExprHandle b,
+        [MarshalAs(UnmanagedType.U1)] bool propagateNans
+    );
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_rolling_corr(
+        ExprHandle x,
+        ExprHandle y,
+        uint windowSize,
+        uint minPeriods,
+        byte ddof
+    );
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_rolling_cov(
+        ExprHandle x,
+        ExprHandle y,
+        uint windowSize,
+        uint minPeriods,
+        byte ddof
+    );
+
+    
     
 }

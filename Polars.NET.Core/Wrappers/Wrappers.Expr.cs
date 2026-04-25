@@ -1762,4 +1762,34 @@ public readonly partial struct PolarsWrapper
         => UnaryBoolOp(NativeBindings.pl_expr_reinterpret,expr,signed);
     public static ExprHandle ExprRepeatBy(ExprHandle expr, ExprHandle by)
         => BinaryOp(NativeBindings.pl_expr_repeat_by,expr,by);
+    public static ExprHandle Cov(ExprHandle a, ExprHandle b,byte ddof)
+    {
+        var h = NativeBindings.pl_expr_cov(a,b,ddof);
+        a.TransferOwnership();
+        b.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle PearsonCorr(ExprHandle a, ExprHandle b)
+        => BinaryOp(NativeBindings.pl_expr_pearson_corr,a,b);
+    public static ExprHandle SpearmanRankCorr(ExprHandle a, ExprHandle b,bool propagateNans)
+    {
+        var h = NativeBindings.pl_expr_spearman_rank_corr(a,b,propagateNans);
+        a.TransferOwnership();
+        b.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle RollingCorr(ExprHandle x, ExprHandle y,uint windowSize,uint minSamples)
+    {
+        var h = NativeBindings.pl_expr_rolling_corr(x,y,windowSize,minSamples,1);
+        x.TransferOwnership();
+        y.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle RollingCov(ExprHandle x, ExprHandle y,uint windowSize,uint minSamples,byte ddof)
+    {
+        var h = NativeBindings.pl_expr_rolling_cov(x,y,windowSize,minSamples,ddof);
+        x.TransferOwnership();
+        y.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
 }

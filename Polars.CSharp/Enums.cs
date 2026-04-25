@@ -48,6 +48,11 @@ public enum RoundMode
     ToZero =2
 }
 
+public enum CorrelationMethod
+{
+    Pearson,Spearman
+}
+
 
 /// <summary>
 /// Concat Type Enum
