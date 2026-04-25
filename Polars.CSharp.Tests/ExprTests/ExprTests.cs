@@ -3289,4 +3289,21 @@ TooShort,1990-05-20,1.60";
         using var df1 = df.Select(Pl.All().Slice(2));
         Assert.Equal(1L,df1.Height);
     }
+    [Fact]
+    [Trait("Expr", "BusinessDayCount")]
+    public void Test_BusinessDayCount()
+    {
+        using DataFrame df = 
+        [
+            Series.From("月初", [new DateOnly(2026, 4, 1), new DateOnly(2026, 5, 1)]),
+            Series.From("月末" , [new DateOnly(2026, 4, 30), new DateOnly(2026, 5, 31)])
+        ];
+        bool[] weekMask = [true,true,true,true,true,true,false];
+        var holidays = Pl.DateRangeAsSeries(new DateOnly(2026, 5, 1),new DateOnly(2026, 5, 4));
+        using var res = df.WithColumns(
+            Pl.BusinessDayCount("月初", "月末",weekMask:weekMask,holidays:holidays).Alias("单休牛马工作日"),
+            Pl.BusinessDayCount("月初", "月末",holidays:holidays).Alias("双休打工人工作日")
+        ).WithColumns((Pl.Col("单休牛马工作日") - Pl.Col("双休打工人工作日")).Alias("血泪"));
+        Assert.Equal(4,res["血泪"][0]);
+    }
 }   

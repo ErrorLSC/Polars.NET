@@ -282,13 +282,25 @@ public readonly partial struct Polars
     /// var times = new[] { new TimeOnly(10, 0), new TimeOnly(11, 0) };
     /// 
     /// df.Select(
-    ///     Polars.Combine(Polars.Lit(dates), Polars.Lit(times)).Alias("combined")
+    ///     Pl.Combine(Pl.Lit(dates), Pl.Lit(times)).Alias("combined")
     /// );
     /// </code>
     /// </example>
     public static Expr CombineDateAndTime(Expr date, Expr time, TimeUnit tu = TimeUnit.Microseconds)
         => date.Dt.Combine(time, tu);
-
+    /// <summary>
+    /// Count the number of business days between start and end (not including end).
+    /// </summary>
+    /// <param name="start">Start dates.</param>
+    /// <param name="end">End dates.</param>
+    /// <param name="weekMask">Which days of the week to count. The default is Monday to Friday. If you wanted to count only Monday to Thursday, you would pass (True, True, True, True, False, False, False).</param>
+    /// <param name="holidays">Holidays to exclude from the count.</param>
+    public static Expr BusinessDayCount(IntoExprColumn start,IntoExprColumn end,bool[]? weekMask=null,IntoDateSeries? holidays=null)
+    {
+        bool[] realWeek = weekMask ?? DtOps.DefaultWeekMask;
+        int[] holidaysMask = holidays?.ToPhysicalArray() ?? [];
+        return new(PolarsWrapper.DtBusinessDayCount(start.Consume().Handle,end.Consume().Handle,realWeek,holidaysMask));
+    }
     // ==========================================
     // Fold & Reduce
     // ==========================================

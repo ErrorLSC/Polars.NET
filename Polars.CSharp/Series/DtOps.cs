@@ -117,19 +117,13 @@ public readonly struct SeriesDtOps
     /// <inheritdoc cref="DtOps.AddBusinessDays"/>
     public Series AddBusinessDays(
         Expr n, 
-        IEnumerable<DateOnly>? holidays = null, 
-        bool[]? weekMask = null, 
+        bool[]? weekMask = null,
+        IntoDateSeries? holidays = null,  
         Roll roll = Roll.Raise)
-        =>Apply(e => e.Dt.AddBusinessDays(n,holidays,weekMask,roll));
-    /// <inheritdoc cref="DtOps.IsBusinessDay(IEnumerable{DateOnly},bool[])"/>
-    public Series IsBusinessDay(IEnumerable<DateOnly>? holidays = null, bool[]? weekMask = null)
-        =>Apply(e => e.Dt.IsBusinessDay(holidays,weekMask));
-    /// <inheritdoc cref="DtOps.IsBusinessDay(IEnumerable{DateOnly},bool[])"/>   
-    public Series IsBusinessDay(Expr holidays, bool[]? weekMask = null)
-        =>Apply(e => e.Dt.IsBusinessDay(holidays,weekMask));
-    /// <inheritdoc cref="DtOps.IsBusinessDay(IEnumerable{DateOnly},bool[])"/>
-    public Series IsBusinessDay(Series holidays, bool[]? weekMask = null)
-        =>Apply(e => e.Dt.IsBusinessDay(holidays,weekMask));
+        =>Apply(e => e.Dt.AddBusinessDays(n,weekMask,holidays,roll));
+    /// <inheritdoc cref="DtOps.IsBusinessDay(bool[],IntoDateSeries?)"/>
+    public Series IsBusinessDay(bool[]? weekMask = null,IntoDateSeries? holidays=null)
+        =>Apply(e => e.Dt.IsBusinessDay(weekMask,holidays));
     /// <inheritdoc cref="DtOps.Replace"/>
     public Series Replace(
         IntoExprColumn? year = null,

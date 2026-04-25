@@ -505,17 +505,15 @@ public class SeriesDtOpsTests
         
         DateOnly[] holidaysArray = [new DateOnly(2024, 5, 2)];
         
-        using Series holidaysSeries = Pl.Series("holidays_series", holidaysArray);
-
-        using Series isBizEnum = s.Dt.IsBusinessDay(holidaysArray);
+        using Series isBizEnum = s.Dt.IsBusinessDay(holidays:holidaysArray);
         Assert.Equal(DataType.Boolean, isBizEnum.DataType);
         Assert.Equal([true, false, true, false, null], isBizEnum.ToArray<bool?>());
 
-        using Series isBizSeries = s.Dt.IsBusinessDay(holidaysSeries);
+        using Series isBizSeries = s.Dt.IsBusinessDay(holidays:holidaysArray);
         Assert.Equal([true, false, true, false, null], isBizSeries.ToArray<bool?>());
 
         bool[] fourDayWorkWeek = [true, true, true, true, false, false, false];
-        using Series isBizCustom = s.Dt.IsBusinessDay(holidaysArray, fourDayWorkWeek);
+        using Series isBizCustom = s.Dt.IsBusinessDay(fourDayWorkWeek,holidaysArray);
         Assert.Equal([true, false, false, false, null], isBizCustom.ToArray<bool?>());
 
         DateTime?[] validStartDates = [
@@ -527,7 +525,7 @@ public class SeriesDtOpsTests
         
         using Expr nExpr = Pl.Lit(1); 
         
-        using Series addedDays = sValid.Dt.AddBusinessDays(nExpr, holidaysArray);
+        using Series addedDays = sValid.Dt.AddBusinessDays(nExpr, holidays:holidaysArray);
         
         Assert.Equal([
             new DateTime(2024, 5, 3),

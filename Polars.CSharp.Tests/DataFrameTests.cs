@@ -172,12 +172,10 @@ public class DataFrameTests
             .GroupBy(Cs.String())
             .Agg(
                 Cs.Boolean().ToExpr().Any().Alias("is_any_true"),   
-                Cs.Boolean().ToExpr().All().Alias("is_all_true"),   
-                
-                
+                Cs.Boolean().ToExpr().All().Alias("is_all_true"),                  
+            
                 Cs.Integer().ToExpr().First().Alias("v_first"),
-                Cs.Integer().ToExpr().Last().Alias("v_last"),
-                
+                Cs.Integer().ToExpr().Last().Alias("v_last"),    
                 
                 Cs.Integer().ToExpr().Reverse().First().Alias("v_rev_first") 
             )
@@ -403,7 +401,7 @@ public class DataFrameTests
         Assert.Contains("NY", cols);
 
         Assert.Equal(20.0, pivoted.GetValue<double>(0, "LA")); 
-        Assert.Equal(5.0, pivoted.GetValue<double>(0, "NY"));  
+        Assert.Equal(5.0, pivoted.GetValue<double>(0, "NY")); 
 
         // --- Step 2: Custom Expr Pivot ---
         

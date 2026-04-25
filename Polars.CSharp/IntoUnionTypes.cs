@@ -186,6 +186,26 @@ public readonly struct IntoDuration
     }
 }
 
+public readonly struct IntoDateSeries
+{
+    public readonly Series DateSeries;
+
+    public static implicit operator IntoDateSeries(ReadOnlySpan<DateOnly> datelist) => new(Pl.Series("__Date__",datelist));
+    public static implicit operator IntoDateSeries(Series series) => new(series);
+    public static implicit operator IntoDateSeries(Expr dateExpr) => new(Series.FromExpr(dateExpr));
+
+    private IntoDateSeries(Series series)
+    {
+        if (series.DataType != DataType.Date)
+            throw new ArgumentException("This series is not a date series,please try to cast it to dateonly");   
+        
+        DateSeries = series;
+    }
+
+    public ReadOnlySpan<int> ToPhysicalSpan() => DateSeries.DropNulls().ToPhysical().AsReadOnlySpan<int>();
+    public int[] ToPhysicalArray() => DateSeries.DropNulls().ToPhysical().ToArray<int>();
+}
+
 public readonly struct DurationOrExpr
 {
     internal readonly Expr Expression;

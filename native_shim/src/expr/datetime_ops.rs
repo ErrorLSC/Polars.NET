@@ -299,3 +299,32 @@ pub extern "C" fn pl_expr_dt_replace(
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_business_day_count(
+    start_ptr: *mut ExprContext,
+    end_ptr:*mut ExprContext,
+    week_mask_ptr: *const u8,
+    holidays_ptr: *const i32,
+    holidays_len: usize
+) -> *mut ExprContext {
+    ffi_try!({
+        unsafe {
+        let start =  Box::from_raw(start_ptr);
+        let end =  Box::from_raw(end_ptr);
+        let week_mask = {
+            let slice = std::slice::from_raw_parts(week_mask_ptr, 7);
+            let mut arr = [false; 7];
+                for i in 0..7 {
+                    arr[i] = slice[i] != 0; 
+                }
+                arr
+            };
+
+        let holidays = std::slice::from_raw_parts(holidays_ptr, holidays_len).to_vec();
+
+        let new_expr = polars_plan::dsl::functions::business_day_count(start.inner, end.inner, week_mask, holidays);
+
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))}
+    })
+}

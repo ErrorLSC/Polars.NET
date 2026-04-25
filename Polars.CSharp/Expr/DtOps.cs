@@ -361,7 +361,10 @@ public readonly struct DtOps
     // ==========================================
     // BusinessDays
     // ==========================================
-    private static readonly bool[] DefaultWeekMask = [true, true, true, true, true, false, false];
+    /// <summary>
+    /// Default Weekday Mask
+    /// </summary>
+    public static readonly bool[] DefaultWeekMask = [true, true, true, true, true, false, false];
 
     /// <summary>
     /// Add business days to the date column.
@@ -387,38 +390,19 @@ public readonly struct DtOps
     /// </example>
     public Expr AddBusinessDays(
         IntOrExpr n,
-        IEnumerable<DateOnly>? holidays = null,
         bool[]? weekMask = null,
+        IntoDateSeries? holidays = null,
         Roll roll = Roll.Raise)
     {
         var mask = weekMask ?? DefaultWeekMask;
-
-        int[] holidayInts;
-        if (holidays == null)
-        {
-            holidayInts = [];
-        }
-        else
-        {
-            // Polars using 1970-01-01 as 0
-            // DateOnly.DayNumber is days from 0001-01-01
-            // 1970-01-01 DayNumber is 719162
-            const int EpochDayNumber = 719162;
-            holidayInts = [.. holidays.Select(d => d.DayNumber - EpochDayNumber)];
-        }
 
         return new Expr(PolarsWrapper.DtAddBusinessDays(
             _expr.CloneHandle(),
             n.Expression.CloneHandle(),
             mask,
-            holidayInts,
+            holidays?.ToPhysicalArray() ?? [],
             roll.ToNative()
         ));
-    }
-    private Expr IsBusinessDay(int[] holidayInts, bool[]? weekMask = null)
-    {
-        var mask = weekMask ?? DefaultWeekMask;
-        return new Expr(PolarsWrapper.DtIsBusinessDay(_expr.CloneHandle(), mask, holidayInts));
     }
     /// <summary>
     /// Determine whether each day lands on a business day.
@@ -426,42 +410,11 @@ public readonly struct DtOps
     /// <param name="holidays">Holidays to exclude from the count.</param>
     /// <param name="weekMask">Which days of the week to count. The default is Monday to Friday. If you wanted to count only Monday to Thursday, you would pass (True, True, True, True, False, False, False).</param>
     /// <returns>Expression/Series of data type Boolean.</returns>
-    public Expr IsBusinessDay(IEnumerable<DateOnly>? holidays = null, bool[]? weekMask = null)
+    public Expr IsBusinessDay(bool[]? weekMask = null,IntoDateSeries? holidays= null)
     {
-        int[] holidayInts;
-        if (holidays == null)
-        {
-            holidayInts = [];
-        }
-        else
-        {
-            const int EpochDayNumber = 719162;
-            holidayInts = [.. holidays.Select(d => d.DayNumber - EpochDayNumber)];
-        }
-        
-        return IsBusinessDay(holidayInts, weekMask);
-    }
-    /// <inheritdoc cref="DtOps.IsBusinessDay(IEnumerable{DateOnly},bool[])"/>
-    public Expr IsBusinessDay(Series holidays, bool[]? weekMask = null)
-    {
-        int[] holidayInts = holidays.Cast<int>().ToArray<int>();
-        
-        return IsBusinessDay(holidayInts, weekMask);
-    }
-    /// <inheritdoc cref="DtOps.IsBusinessDay(IEnumerable{DateOnly},bool[])"/>
-    public Expr IsBusinessDay(Expr holidays, bool[]? weekMask = null)
-    {
-        try
-        {
-            using Series holidaysSeries = Series.FromExpr(holidays);
-            
-            return IsBusinessDay(holidaysSeries, weekMask);
-        }
-        catch (Exception ex)
-        {
-            throw new ArgumentException(
-                "When providing an Expr for holidays, it must be a literal or context-free expression that can be evaluated immediately.", ex);
-        }
+        var mask = weekMask ?? DefaultWeekMask;
+        int[] holidaysMask = holidays?.ToPhysicalArray() ?? [];
+        return new Expr(PolarsWrapper.DtIsBusinessDay(_expr.CloneHandle(), mask, holidaysMask));
     }
     /// <summary>
     /// Replace the datetime components of the underlying Datetime/Date.

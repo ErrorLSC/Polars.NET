@@ -121,6 +121,29 @@ public readonly partial struct PolarsWrapper
         expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle DtBusinessDayCount(
+        ExprHandle start, 
+        ExprHandle end, 
+        bool[] weekMask, 
+        int[] holidays) 
+    {
+        if (weekMask.Length != 7) 
+            throw new ArgumentException("Week mask must have length 7.");
+
+        var maskBytes = new byte[7];
+        for (int i = 0; i < 7; i++) maskBytes[i] = weekMask[i] ? (byte)1 : (byte)0;
+
+        var h = ErrorHelper.Check(NativeBindings.pl_expr_business_day_count(
+                start,
+                end,
+                maskBytes,
+                holidays,
+                (nuint)holidays.Length
+            ));
+        start.TransferOwnership();
+        end.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     public static ExprHandle DtCastTimeUnit(ExprHandle expr,PlTimeUnit unit)
     {
         var h = NativeBindings.pl_expr_dt_cast_time_unit(expr,unit);

@@ -73,7 +73,14 @@ internal partial class NativeBindings
         UIntPtr holidaysLen,
         PlRoll rollStrategy
     );
-
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_business_day_count(
+        ExprHandle start,
+        ExprHandle end,
+        [In, MarshalAs(UnmanagedType.LPArray, SizeConst = 7)] byte[] weekMask,
+        [In, MarshalAs(UnmanagedType.LPArray)] int[] holidays,     
+        nuint holidaysLen
+    );
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_is_business_day(
         ExprHandle expr,
