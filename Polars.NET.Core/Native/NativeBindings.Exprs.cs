@@ -618,11 +618,24 @@ unsafe internal partial class NativeBindings
         nint[] fields, 
         nuint fieldsLen);
     // Window
-    [LibraryImport(LibName)] 
-    public static partial ExprHandle pl_expr_over(
-        ExprHandle expr, 
-        IntPtr[] partitionBy, 
-        UIntPtr len
+    // [LibraryImport(LibName)] 
+    // public static partial ExprHandle pl_expr_over(
+    //     ExprHandle expr, 
+    //     IntPtr[] partitionBy, 
+    //     nuint len
+    // );
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_over_with_options(
+        ExprHandle exprPtr,
+        nint[] partitionByPtr,
+        nuint partitionByLen,
+        nint[] orderByPtr,
+        nuint orderByLen,
+        [MarshalAs(UnmanagedType.I1)] bool descending,
+        [MarshalAs(UnmanagedType.I1)] bool nullsLast,
+        [MarshalAs(UnmanagedType.I1)] bool multithreaded,
+        [MarshalAs(UnmanagedType.I1)] bool maintainOrder,
+        PlWindowMapping mappingCode 
     );
     // Shift / Diff
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_shift(ExprHandle expr, ExprHandle n);

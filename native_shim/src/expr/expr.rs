@@ -1544,6 +1544,59 @@ pub extern "C" fn pl_expr_over(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_over_with_options(
+    expr_ptr: *mut ExprContext,
+    partition_by_ptr: *const *mut ExprContext,
+    partition_by_len: usize,
+    order_by_ptr: *const *mut ExprContext,
+    order_by_len: usize,
+    descending: bool,
+    nulls_last: bool,
+    multithreaded: bool,
+    maintain_order: bool,
+    mapping_code: u8,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        
+        let partition_by = if partition_by_ptr.is_null() || partition_by_len == 0 {
+            None
+        } else {
+            Some(unsafe { consume_exprs_array(partition_by_ptr, partition_by_len) })
+        };
+
+        let order_by = if order_by_ptr.is_null() || order_by_len == 0 {
+            None
+        } else {
+            let exprs = unsafe { consume_exprs_array(order_by_ptr, order_by_len) };
+            let sort_options = SortOptions {
+                descending,
+                nulls_last,
+                multithreaded,
+                maintain_order,
+                limit: None, 
+            };
+            Some((exprs, sort_options))
+        };
+
+        let mapping = match mapping_code {
+            0 => WindowMapping::GroupsToRows,
+            1 => WindowMapping::Explode,
+            2 => WindowMapping::Join,
+            _ => WindowMapping::GroupsToRows, 
+        };
+
+        let new_expr = ctx.inner.over_with_options(
+            partition_by,
+            order_by,
+            mapping
+        )?;
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_cast(
     expr_ptr: *mut ExprContext, 
     dexpr_ptr: *mut DataTypeExprContext, 

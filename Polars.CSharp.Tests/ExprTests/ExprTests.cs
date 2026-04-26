@@ -653,6 +653,7 @@ TooShort,1990-05-20,1.60";
         // {"Name":"Alice","Age":18}
     }
     [Fact]
+    [Trait("Expr","Over")]
     public void Test_Window_Shift_Diff_Len()
     {
         var df = DataFrame.FromColumns(new 
@@ -688,6 +689,114 @@ TooShort,1990-05-20,1.60";
         Assert.Null(result[0, "DiffValue"]);
         Assert.Equal(10, result[1, "DiffValue"]); // 20 - 10 = 10
         Assert.Equal(100, result[4, "DiffValue"]); // 200 - 100 = 100
+    }
+    [Fact]
+    [Trait("Expr", "Over")]
+    public void Test_Window_Over_Multiple_Aggregations()
+    {
+        // Test basic Over with single partition column and multiple aggregations
+        var df = DataFrame.FromColumns(new 
+        {
+            Class = new[] { "A", "A", "A", "B", "B" },
+            Score = new[] { 80, 90, 85, 70, 75 }
+        });
+
+        var result = df.Select(
+            Pl.Col("Class"),
+            Pl.Col("Score"),
+            Pl.Col("Score").Max().Over("Class").Alias("ClassMax"),
+            Pl.Col("Score").Min().Over("Class").Alias("ClassMin")
+        );
+
+        // Class A (80, 90, 85) -> Max = 90, Min = 80
+        Assert.Equal(90, result[0, "ClassMax"]);
+        Assert.Equal(80, result[0, "ClassMin"]);
+        Assert.Equal(90, result[2, "ClassMax"]);
+
+        // Class B (70, 75) -> Max = 75, Min = 70
+        Assert.Equal(75, result[3, "ClassMax"]);
+        Assert.Equal(70, result[3, "ClassMin"]);
+    }
+
+    [Fact]
+    [Trait("Expr", "Over")]
+    public void Test_Window_Over_Multiple_Partition_Columns()
+    {
+        // Test partitioning by multiple columns explicitly
+        var df = DataFrame.FromColumns(new 
+        {
+            Dept = new[] { "IT", "IT", "HR", "HR", "IT" },
+            Role = new[] { "Dev", "Dev", "Recruiter", "Manager", "Manager" },
+            Salary = new[] { 100, 120, 80, 150, 200 }
+        });
+
+        // Over(IEnumerable<IntoExprColumn> partitionBy)
+        var result = df.Select(
+            Pl.Col("Salary").Sum().Over([Pl.Col("Dept"), Pl.Col("Role")]).Alias("DeptRoleSum")
+        );
+
+        // IT & Dev (100, 120) -> Sum = 220
+        Assert.Equal(220, result[0, "DeptRoleSum"]);
+        Assert.Equal(220, result[1, "DeptRoleSum"]);
+        
+        // HR & Recruiter (80) -> Sum = 80
+        Assert.Equal(80, result[2, "DeptRoleSum"]);
+        
+        // HR & Manager (150) -> Sum = 150
+        Assert.Equal(150, result[3, "DeptRoleSum"]);
+
+        // IT & Manager (200) -> Sum = 200
+        Assert.Equal(200, result[4, "DeptRoleSum"]);
+    }
+
+    [Fact]
+    [Trait("Expr", "Over")]
+    public void Test_Window_Over_With_OrderBy_Options()
+    {
+        // Test the full over_with_options FFI upgrade: PartitionBy + OrderBy
+        var df = DataFrame.FromColumns(new 
+        {
+            Group = new[] { "A", "A", "A", "B", "B" },
+            Time = new[] { 3, 1, 2, 2, 1 }, // Note: Intentionally out of order
+            Value = new[] { 10, 20, 30, 100, 200 }
+        });
+
+        // We want to calculate the cumulative sum of 'Value' within each 'Group', 
+        // but strictly ordered by 'Time' in ascending order.
+        var result = df.Select(
+            Pl.Col("Group"),
+            Pl.Col("Time"),
+            Pl.Col("Value"),
+            Pl.Col("Value").CumSum().Over(
+                partitionBy:  ["Group"] ,
+                orderBy: ["Time"]
+            ).Alias("OrderedCumSum")
+        );
+
+        // --- Group A Explanation ---
+        // Original rows: (Time: 3, Val: 10), (Time: 1, Val: 20), (Time: 2, Val: 30)
+        // Internally Sorted for CumSum: 
+        //   1. Time 1 -> Val 20 -> CumSum 20
+        //   2. Time 2 -> Val 30 -> CumSum 50 (20+30)
+        //   3. Time 3 -> Val 10 -> CumSum 60 (50+10)
+        // Result is mapped back to original row positions (WindowMapping.GroupsToRows is default):
+        //   idx 0 (Time 3) -> 60
+        //   idx 1 (Time 1) -> 20
+        //   idx 2 (Time 2) -> 50
+        Assert.Equal(60, result[0, "OrderedCumSum"]);
+        Assert.Equal(20, result[1, "OrderedCumSum"]);
+        Assert.Equal(50, result[2, "OrderedCumSum"]);
+
+        // --- Group B Explanation ---
+        // Original rows: (Time: 2, Val: 100), (Time: 1, Val: 200)
+        // Internally Sorted for CumSum:
+        //   1. Time 1 -> Val 200 -> CumSum 200
+        //   2. Time 2 -> Val 100 -> CumSum 300 (200+100)
+        // Mapped back:
+        //   idx 3 (Time 2) -> 300
+        //   idx 4 (Time 1) -> 200
+        Assert.Equal(300, result[3, "OrderedCumSum"]);
+        Assert.Equal(200, result[4, "OrderedCumSum"]);
     }
     [Fact]
     public void Test_AddBusinessDays_SupplyChain_Scenario()

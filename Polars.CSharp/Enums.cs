@@ -558,6 +558,30 @@ public enum AmbiguousStrategy
     Null
 }
 
+public enum WindowMappingStrategy: byte
+{
+    /// <summary>
+    /// If the aggregation results in multiple values per group, 
+    /// map them back to their row position in the DataFrame. 
+    /// This can only be done if each group yields the same elements before aggregation as after. 
+    /// If the aggregation results in one scalar value per group, this value will be mapped to every row.
+    /// </summary>
+    GroupsToRows = 0,
+    /// <summary>
+    /// If the aggregation may result in multiple values per group, map each value to a new row, similar to the results of group_by + agg + explode. 
+    /// If the aggregation always results in one scalar value per group, map this value to one row position. 
+    /// Sorting of the given groups is required if the groups are not part of the window operation for the operation, otherwise the result would not make sense. 
+    /// This operation changes the number of rows.
+    /// </summary>
+    Explode = 1,
+    /// <summary>
+    /// If the aggregation may result in multiple values per group, join the values as List{group_dtype} to each row position. 
+    /// Warning: this can be memory intensive. 
+    /// If the aggregation always results in one scalar value per group, join this value as group_dtype to each row position.
+    /// </summary>
+    Join = 2
+}
+
 public enum TransferEncoding
 {
     Hex,
@@ -944,6 +968,13 @@ internal static class EnumExtensions
         FillNullStrategy.Zero => CoreEnums.PlFillNullStrategy.Zero,
         FillNullStrategy.One => CoreEnums.PlFillNullStrategy.One,
         _ => throw new ArgumentOutOfRangeException(nameof(strategy), strategy, null)
+    };
+    internal static CoreEnums.PlWindowMapping ToNative(this WindowMappingStrategy mapping) => mapping switch
+    {
+        WindowMappingStrategy.GroupsToRows => CoreEnums.PlWindowMapping.GroupsToRows,
+        WindowMappingStrategy.Explode => CoreEnums.PlWindowMapping.Explode,
+        WindowMappingStrategy.Join => CoreEnums.PlWindowMapping.Join,
+        _ => throw new ArgumentOutOfRangeException(nameof(mapping), mapping, null)
     };
 }
 

@@ -527,7 +527,15 @@ public readonly partial struct Polars
         uint minSam = minSamples ?? windowSize;
         return new(PolarsWrapper.RollingCov(a.Consume().Handle,b.Consume().Handle,windowSize,minSam,ddof));
     }
-
+    /// <summary>
+    /// Return the cumulative count of the non-null values in the column.This function is syntactic sugar for Col(column).CumCount().
+    /// </summary>
+    /// <param name="column">Name of the columns to use.</param>
+    /// <param name="reverse">reverse the operation</param>
+    /// <returns></returns>
+    public static Expr CumCount(string column,bool reverse=false)
+        => Col(column).CumCount(reverse);
+    
 }
 
 internal static class InterfaceUnwrapperExtensions

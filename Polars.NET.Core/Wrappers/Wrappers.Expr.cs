@@ -1154,16 +1154,34 @@ public readonly partial struct PolarsWrapper
 
     public static ExprHandle StructMapFields(ExprHandle expr, Func<string, string> function) => MapWithCallback(expr, function, NativeBindings.pl_expr_name_map_fields);
     
-
     // Window
-    public static ExprHandle Over(ExprHandle expr, ExprHandle[] partitionBy)
+    public static ExprHandle Over(
+        ExprHandle expr, 
+        ExprHandle[] partitionBy, 
+        ExprHandle[] orderBy, 
+        bool descending, 
+        bool nullsLast, 
+        bool multithreaded, 
+        bool maintainOrder, 
+        PlWindowMapping mappingCode)
     {
         var rawPartition = HandlesToPtrs(partitionBy);
+        var rawOrderBy = HandlesToPtrs(orderBy);
+
+        var pPtrs = rawPartition.Length == 0 ? null : rawPartition;
+        var oPtrs = rawOrderBy.Length == 0 ? null : rawOrderBy;
         
-        var h = NativeBindings.pl_expr_over(expr, rawPartition, (UIntPtr)rawPartition.Length);
-        
+        var h = NativeBindings.pl_expr_over_with_options(
+            expr, 
+            pPtrs!, (nuint)rawPartition.Length,
+            oPtrs!, (nuint)rawOrderBy.Length,
+            descending, 
+            nullsLast, 
+            multithreaded, 
+            maintainOrder, 
+            mappingCode
+        );
         expr.TransferOwnership();
-        
         return ErrorHelper.Check(h);
     }
     // Expr Length

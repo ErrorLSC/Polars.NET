@@ -168,6 +168,13 @@ public enum PlRoll :byte
     Backward = 2
 }
 
+public enum PlWindowMapping: byte
+{
+    GroupsToRows = 0,
+    Explode = 1,
+    Join = 2
+}
+
 public enum PlRankMethod: byte
 {
     Average = 0, // Default

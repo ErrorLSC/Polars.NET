@@ -632,10 +632,10 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// // Calculate mean per group and subtract it from the value
     /// // The result has the same shape as the original DataFrame (5 rows)
     /// df.Select(
-    ///     Col("group"),
-    ///     Col("val"),
-    ///     Col("val").Mean().Over("group").Alias("group_mean"),
-    ///     (Col("val") - Col("val").Mean().Over("group")).Alias("diff_from_mean")
+    ///     Pl.Col("group"),
+    ///     Pl.Col("val"),
+    ///     Pl.Col("val").Mean().Over("group").Alias("group_mean"),
+    ///     (Pl.Col("val") - Pl.Col("val").Mean().Over("group")).Alias("diff_from_mean")
     /// ).Show();
     /// /* Output:
     /// shape: (5, 4)
@@ -655,18 +655,49 @@ public partial class Expr : IDisposable,IEquatable<Expr>
         => Over((IEnumerable<IntoExprColumn>)partitionBy);
 
     /// <summary>
-    /// Window function: Apply aggregation over specific groups from a collection.
+    /// Compute expressions over the given groups.
+    /// This expression is similar to performing a group by aggregation and joining the result back into the original DataFrame.
+    /// The outcome is similar to how window functions work in PostgreSQL.
     /// </summary>
-    public Expr Over(IEnumerable<IntoExprColumn> partitionBy)
+    /// <param name="partitionBy">Column(s) to group by. Accepts expression input. Strings are parsed as column names.</param>
+    /// <param name="orderBy">Order the window functions/aggregations with the partitioned groups by the result of the expression passed to order_by.</param>
+    /// <param name="descending">In case ‘order_by’ is given, indicate whether to order in ascending or descending order.</param>
+    /// <param name="nullsLast">In case ‘order_by’ is given, indicate whether to order the nulls in last position.</param>
+    /// <param name="multithreaded"></param>
+    /// <param name="maintainOrder"></param>
+    /// <param name="mappingStrategy"></param>
+    /// <returns></returns>
+    public Expr Over(
+        IEnumerable<IntoExprColumn>? partitionBy = null,
+        IEnumerable<IntoExprColumn>? orderBy = null,
+        bool descending = false,
+        bool nullsLast = false,
+        bool multithreaded = true, 
+        bool maintainOrder = false, 
+        WindowMappingStrategy mappingStrategy = WindowMappingStrategy.GroupsToRows)
     {
-        var exprArray = partitionBy as IntoExprColumn[] ?? [.. partitionBy];
-        
-        if (exprArray.Length == 0) return this; 
+        var exprArray = partitionBy?.ToArray() ?? [];
+        var orderArray = orderBy?.ToArray() ?? [];
+
+        if (exprArray.Length == 0 && orderArray.Length == 0) 
+        {
+            return this; 
+        }
 
         var handles = System.Array.ConvertAll(exprArray, e => e.Consume().Handle);
-        return new Expr(PolarsWrapper.Over(CloneHandle(), handles));
-    }
-    
+        var orderHandles = System.Array.ConvertAll(orderArray, e => e.Consume().Handle);
+
+        return new Expr(PolarsWrapper.Over(
+            CloneHandle(), 
+            handles,
+            orderHandles,
+            descending,
+            nullsLast,
+            multithreaded,
+            maintainOrder,
+            mappingStrategy.ToNative()
+        ));
+    }    
     /// <summary>
     /// Shift values by the given number of indices.
     /// Positive values shift downstream, negative values shift upstream.
