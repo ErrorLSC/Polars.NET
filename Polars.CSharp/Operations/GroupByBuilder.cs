@@ -135,7 +135,7 @@ public class GroupByBuilder:IEnumerable<(object[] Key, DataFrame Group)>
                 offset: _lazyGrouped._offset!,
                 label: _lazyGrouped._label,
                 includeBoundaries: _lazyGrouped._includeBoundaries,
-                closedWindow: _lazyGrouped._closedWindow,
+                ClosedInterval: _lazyGrouped._ClosedInterval,
                 startBy: _lazyGrouped._startBy,
                 groupBy: intoKeys),
 
@@ -143,7 +143,7 @@ public class GroupByBuilder:IEnumerable<(object[] Key, DataFrame Group)>
                 indexColumn: _lazyGrouped._indexColumn!,
                 period: _lazyGrouped._period!,
                 offset: _lazyGrouped._offset!,
-                closedWindow: _lazyGrouped._closedWindow,
+                ClosedInterval: _lazyGrouped._ClosedInterval,
                 groupBy: intoKeys),
 
             _ => lazyWithIndex.GroupBy(intoKeys, _lazyGrouped._maintainOrder)

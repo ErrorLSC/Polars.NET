@@ -138,17 +138,6 @@ public enum StartBy
     Sunday
 }
 
-/// <summary>
-/// Defines which window boundaries are closed (inclusive).
-/// </summary>
-public enum ClosedWindow
-{
-    Left,
-    Right,
-    Both,
-    None
-}
-
 public enum NullBehavior: byte
 {
     Ignore = 0,
@@ -712,16 +701,6 @@ internal static class EnumExtensions
         StartBy.Sunday => CoreEnums.PlStartBy.Sunday,
         _ => throw new ArgumentOutOfRangeException(nameof(startBy), startBy, null)
     };
-
-    internal static CoreEnums.PlClosedWindow ToNative(this ClosedWindow closed) => closed switch
-    {
-        ClosedWindow.Left => CoreEnums.PlClosedWindow.Left,
-        ClosedWindow.Right => CoreEnums.PlClosedWindow.Right,
-        ClosedWindow.Both => CoreEnums.PlClosedWindow.Both,
-        ClosedWindow.None => CoreEnums.PlClosedWindow.None,
-        _ => throw new ArgumentOutOfRangeException(nameof(closed), closed, null)
-    };
-
     internal static CoreEnums.PlRoll ToNative(this Roll roll) => roll switch
     {
         Roll.Backward => CoreEnums.PlRoll.Backward,

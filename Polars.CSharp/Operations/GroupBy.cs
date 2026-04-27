@@ -66,7 +66,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         IEnumerable<IntoExprColumn>? groupBy = null, 
         Label label = Label.Left,
         bool includeBoundaries = false,
-        ClosedWindow closedWindow = ClosedWindow.Left,
+        ClosedInterval ClosedInterval = ClosedInterval.Left,
         StartBy startBy = StartBy.WindowBound
     )
     {
@@ -99,7 +99,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
             keys,
             label, 
             includeBoundaries,
-            closedWindow,
+            ClosedInterval,
             startBy
         );
     }
@@ -111,7 +111,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         IntoDuration period,
         IntoDuration? offset = null,
         IEnumerable<IntoExprColumn>? groupBy = null,
-        ClosedWindow closedWindow = ClosedWindow.Right)
+        ClosedInterval ClosedInterval = ClosedInterval.Right)
     {
         using var idxSelector = indexColumn.Consume();
         var expandedCols = Cs.ExpandSelector(this, idxSelector);
@@ -136,7 +136,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
             periodStr,
             actualOffset,
             keys,
-            closedWindow
+            ClosedInterval
         );
     }
 }
@@ -214,7 +214,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="groupBy">Optional extra columns to group by (e.g., group by "stock_symbol" AND time window).</param>
     /// <param name="label">Which label to use for the window (Left boundary, Right boundary, or Datapoint).</param>
     /// <param name="includeBoundaries">Whether to include the window boundaries in the output.</param>
-    /// <param name="closedWindow">Which side of the window interval is closed (inclusive).</param>
+    /// <param name="ClosedInterval">Which side of the window interval is closed (inclusive).</param>
     /// <param name="startBy">Strategy to determine the start of the first window.</param>
     /// <returns>A <see cref="GroupByBuilder"/> object to define aggregations.</returns>
     /// <example>
@@ -264,10 +264,10 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         IEnumerable<IntoExprColumn>? groupBy = null, 
         Label label = Label.Left,
         bool includeBoundaries = false,
-        ClosedWindow closedWindow = ClosedWindow.Left,
+        ClosedInterval ClosedInterval = ClosedInterval.Left,
         StartBy startBy = StartBy.WindowBound
     )
-        => new(this,Lazy().GroupByDynamic(indexColumn,every,period,offset,groupBy,label,includeBoundaries,closedWindow,startBy));
+        => new(this,Lazy().GroupByDynamic(indexColumn,every,period,offset,groupBy,label,includeBoundaries,ClosedInterval,startBy));
     /// <summary>
     /// Group based on a time index using rolling windows.
     /// </summary>
@@ -276,7 +276,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         IntoDuration period,
         IntoDuration? offset = null,
         IEnumerable<IntoExprColumn>? groupBy = null,
-        ClosedWindow closedWindow = ClosedWindow.Left)
+        ClosedInterval ClosedInterval = ClosedInterval.Left)
     {
         return new GroupByBuilder(
             this,Lazy().Rolling(
@@ -284,7 +284,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
                 period, 
                 offset, 
                 groupBy, 
-                closedWindow
+                ClosedInterval
             )
         );
     }

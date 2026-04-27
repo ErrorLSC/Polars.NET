@@ -15,7 +15,7 @@ public readonly partial struct Polars
         IntoExprColumn? start = null, 
         IntoExprColumn? end = null, 
         IntoDuration? interval = null,
-        ClosedWindow closed = ClosedWindow.Both)
+        ClosedInterval closed = ClosedInterval.Both)
     {
         using var realStart = start?.Consume();
         using var realEnd = end?.Consume();
@@ -35,7 +35,7 @@ public readonly partial struct Polars
         IntoExprColumn? start = null, 
         IntoExprColumn? end = null, 
         IntoDuration? interval = null, 
-        ClosedWindow closed = ClosedWindow.Both,
+        ClosedInterval closed = ClosedInterval.Both,
         string name="date")
     {
         var expr = DateRange(start,end,interval,closed);
@@ -55,7 +55,7 @@ public readonly partial struct Polars
         IntoExprColumn? start = null, 
         IntoExprColumn? end = null, 
         IntoDuration? interval = null,
-        ClosedWindow closed = ClosedWindow.Both)
+        ClosedInterval closed = ClosedInterval.Both)
     {
         using var realStart = start?.Consume();
         using var realEnd = end?.Consume();
@@ -75,7 +75,7 @@ public readonly partial struct Polars
         IntoExprColumn? start = null, 
         IntoExprColumn? end = null, 
         IntoDuration? interval = null, 
-        ClosedWindow closed = ClosedWindow.Both,
+        ClosedInterval closed = ClosedInterval.Both,
         string name="date")
     {
         var expr = DateRanges(start,end,interval,closed);

@@ -746,7 +746,7 @@ public class SeriesTests
             Pl.Col("val").RollingMeanBy(
                 windowSize: TimeSpan.FromHours(2), 
                 by: Pl.Col("tm"), 
-                closed: ClosedWindow.Left          
+                closed: ClosedInterval.Left          
             ).Alias("mean_left")
         );
 
@@ -767,7 +767,7 @@ public class SeriesTests
             Pl.Col("val").RollingMeanBy(
                 windowSize: TimeSpan.FromHours(2), 
                 by: Pl.Col("tm"), 
-                closed: ClosedWindow.Both
+                closed: ClosedInterval.Both
             ).Alias("mean_both")
         );
 
@@ -793,7 +793,7 @@ public class SeriesTests
                 method: QuantileMethod.Linear,
                 windowSize: TimeSpan.FromSeconds(3), // "3s"
                 by: Pl.Col("tm"),
-                closed: ClosedWindow.Both
+                closed: ClosedInterval.Both
             ).Alias("q50")
         );
 

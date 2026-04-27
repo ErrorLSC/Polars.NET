@@ -799,6 +799,76 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(200, result[4, "OrderedCumSum"]);
     }
     [Fact]
+    [Trait("Expr", "Rolling")]
+    public void Test_Rolling_Temporal_Default_Offset()
+    {
+        var df = DataFrame.FromColumns(new 
+        {
+            Date = new[] 
+            { 
+                new DateTime(2023, 1, 1), 
+                new DateTime(2023, 1, 2), 
+                new DateTime(2023, 1, 3), 
+                new DateTime(2023, 1, 5) 
+            },
+            Value = new[] { 10, 20, 30, 40 }
+        });
+
+        // (T - 2d, T] 
+        var result = df.Select(
+            Pl.Col("Date"),
+            Pl.Col("Value").Sum().Rolling(
+                indexColumn: Pl.Col("Date"),
+                period: TimeSpan.FromDays(2) 
+            ).Alias("RollingSum2D")
+        );
+
+        // (12-30, 01-01] ->  [1] -> Sum = 10
+        Assert.Equal(10, result[0, "RollingSum2D"]);
+        
+        // (12-31, 01-02] -> [1, 2] -> Sum = 10 + 20 = 30
+        Assert.Equal(30, result[1, "RollingSum2D"]);
+        
+        // (01-01, 01-03] -> [2, 3] -> Sum = 20 + 30 = 50 
+        Assert.Equal(50, result[2, "RollingSum2D"]);
+        
+        // (01-03, 01-05] -> [5] -> Sum = 40 
+        Assert.Equal(40, result[3, "RollingSum2D"]);
+    }
+
+    [Fact]
+    [Trait("Expr", "Rolling")]
+    public void Test_Rolling_Integer_Index_And_ClosedInterval()
+    {
+        var df = DataFrame.FromColumns(new 
+        {
+            Idx = new long[] { 1, 2, 5, 6 }, 
+            Value = new[] { 100, 200, 300, 400 }
+        });
+
+        var result = df.Select(
+            Pl.Col("Idx"),
+            Pl.Col("Value").Sum().Rolling(
+                indexColumn: Pl.Col("Idx"),
+                period: "2i", 
+                offset: "-1i", 
+                closed: ClosedInterval.Left
+            ).Alias("RollingSumInt")
+        );
+
+        // Idx 1: [0, 2) -> [Idx 1] -> 100
+        Assert.Equal(100, result[0, "RollingSumInt"]);
+        
+        // Idx 2: [1, 3) -> [Idx 1, Idx 2] -> 100 + 200 = 300
+        Assert.Equal(300, result[1, "RollingSumInt"]);
+        
+        // Idx 5: [4, 6) -> [Idx 5] -> 300
+        Assert.Equal(300, result[2, "RollingSumInt"]);
+
+        // Idx 6 [5, 7) -> [Idx 5, Idx 6] -> 300 + 400 = 700
+        Assert.Equal(700, result[3, "RollingSumInt"]);
+    }
+    [Fact]
     public void Test_AddBusinessDays_SupplyChain_Scenario()
     {
         // 2024-01-05 is Friday
@@ -1540,13 +1610,13 @@ TooShort,1990-05-20,1.60";
             Pl.Col("v").RollingStdBy(
                 windowSize: TimeSpan.FromMinutes(2), 
                 by: tsCol, 
-                closed: ClosedWindow.Left
+                closed: ClosedInterval.Left
             ).Alias("std_left"),
             
             Pl.Col("v").RollingStdBy(
                 windowSize: TimeSpan.FromMinutes(2), 
                 by: tsCol, 
-                closed: ClosedWindow.Both 
+                closed: ClosedInterval.Both 
             ).Alias("std_both")
         );
 
@@ -1561,7 +1631,7 @@ TooShort,1990-05-20,1.60";
             Pl.Col("v").RollingRankBy(
                 windowSize: "3m",
                 by: tsCol,
-                closed: ClosedWindow.Both
+                closed: ClosedInterval.Both
             ).Alias("rank")
         );
         
@@ -1599,7 +1669,7 @@ TooShort,1990-05-20,1.60";
                 method: QuantileMethod.Linear, 
                 windowSize: "2m", 
                 by: tsCol,
-                closed: ClosedWindow.Both
+                closed: ClosedInterval.Both
             ).Alias("q_linear"),
             
             Pl.Col("v").RollingQuantileBy(
@@ -1607,7 +1677,7 @@ TooShort,1990-05-20,1.60";
                 method: QuantileMethod.Lower, 
                 windowSize: "2m", 
                 by: tsCol,
-                closed: ClosedWindow.Both
+                closed: ClosedInterval.Both
             ).Alias("q_lower")
         );
 

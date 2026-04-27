@@ -12,6 +12,23 @@ public partial class Expr : IDisposable
     // ==========================================
     // Rolling Window Functions
     // ==========================================
+    /// <summary>
+    /// Create rolling groups based on a temporal or integer column.
+    /// </summary>
+    /// <param name="indexColumn"> Column used to group based on the time window. Often of type Date/Datetime. 
+    /// This column must be sorted in ascending order. 
+    /// In case of a rolling group by on indices, dtype needs to be one of {UInt32, UInt64, Int32, Int64}. 
+    /// Note that the first three get temporarily cast to Int64, so if performance matters use an Int64 column.</param>
+    /// <param name="period">Length of the window - must be non-negative.</param>
+    /// <param name="offset">Offset of the window. Default is -period.</param>
+    /// <param name="closed">Define which sides of the temporal interval are closed (inclusive).</param>
+    public Expr Rolling(IntoExprColumn indexColumn,IntoDuration period,IntoDuration? offset=null,ClosedInterval closed = ClosedInterval.Right)
+    {
+        ExprHandle index = indexColumn.Consume().Handle;
+        string periodStr = period.Value;
+        string offsetStr = offset?.Value ?? ("-" + periodStr);
+        return new(PolarsWrapper.ExprRolling(CloneHandle(),index,periodStr,offsetStr,closed.ToNative()));
+    }
 
     /// <summary>
     /// Apply a rolling min (moving min) over a window.
@@ -125,7 +142,7 @@ public partial class Expr : IDisposable
     /// <param name="windowSize">
     /// The size of the window. 
     /// <para>Format: <c>"3i"</c> (3 rows) or just a number string <c>"3"</c>.</para>
-    /// <para>For time-based windows (e.g. "2h"), use <see cref="RollingQuantileBy(double,QuantileMethod,IntoDuration,Expr,int,ClosedWindow)"/> instead.</para>
+    /// <para>For time-based windows (e.g. "2h"), use <see cref="RollingQuantileBy(double,QuantileMethod,IntoDuration,Expr,int,ClosedInterval)"/> instead.</para>
     /// </param>
     /// <param name="weights">
     /// Optional weights for the window. The length must match the parsed window size.
@@ -176,17 +193,17 @@ public partial class Expr : IDisposable
     /// <param name="minPeriods">The minimum number of observations in the window required to have a non-null result.</param>
     /// <param name="closed">
     /// Defines how the window interval is closed. 
-    /// Default is <see cref="ClosedWindow.Left"/> <c>[t - window, t)</c>.
+    /// Default is <see cref="ClosedInterval.Left"/> <c>[t - window, t)</c>.
     /// </param>
     /// <returns>A new expression representing the dynamic rolling mean.</returns>
     /// <example>
     /// <code>
     /// // Python: pl.col("index").rolling_mean_by("date", window_size="2h", closed="both")
     /// // C#:
-    /// Col("index").RollingMeanBy("2h", Col("date"), closed: ClosedWindow.Both);
+    /// Col("index").RollingMeanBy("2h", Col("date"), closed: ClosedInterval.Both);
     /// </code>
     /// </example>
-    public Expr RollingMeanBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedWindow closed = ClosedWindow.Left)
+    public Expr RollingMeanBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedInterval closed = ClosedInterval.Left)
     {
         return new Expr(PolarsWrapper.RollingMeanBy(
             CloneHandle(),
@@ -199,10 +216,10 @@ public partial class Expr : IDisposable
     /// <summary>
     /// Apply a rolling sum over a dynamic window defined by the values in the <paramref name="by"/> column.
     /// </summary>
-    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedWindow)" path="/param"/>
-    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedWindow)" path="/remarks"/>
+    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedInterval)" path="/param"/>
+    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedInterval)" path="/remarks"/>
     /// <returns>A new expression representing the dynamic rolling sum.</returns>
-    public Expr RollingSumBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedWindow closed = ClosedWindow.Left)
+    public Expr RollingSumBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedInterval closed = ClosedInterval.Left)
     {
         return new Expr(PolarsWrapper.RollingSumBy(
             CloneHandle(),
@@ -215,10 +232,10 @@ public partial class Expr : IDisposable
     /// <summary>
     /// Apply the rolling minimum over a dynamic window defined by the values in the <paramref name="by"/> column.
     /// </summary>
-    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedWindow)" path="/param"/>
-    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedWindow)" path="/remarks"/>
+    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedInterval)" path="/param"/>
+    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedInterval)" path="/remarks"/>
     /// <returns>A new expression representing the dynamic rolling minimum.</returns>
-    public Expr RollingMinBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedWindow closed = ClosedWindow.Left)
+    public Expr RollingMinBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedInterval closed = ClosedInterval.Left)
     {
         return new Expr(PolarsWrapper.RollingMinBy(
             CloneHandle(),
@@ -231,10 +248,10 @@ public partial class Expr : IDisposable
     /// <summary>
     /// Apply the rolling maximum over a dynamic window defined by the values in the <paramref name="by"/> column.
     /// </summary>
-    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedWindow)" path="/param"/>
-    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedWindow)" path="/remarks"/>
+    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedInterval)" path="/param"/>
+    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedInterval)" path="/remarks"/>
     /// <returns>A new expression representing the dynamic rolling maximum.</returns>
-    public Expr RollingMaxBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedWindow closed = ClosedWindow.Left)
+    public Expr RollingMaxBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedInterval closed = ClosedInterval.Left)
     {
         return new Expr(PolarsWrapper.RollingMaxBy(
             CloneHandle(),
@@ -247,10 +264,10 @@ public partial class Expr : IDisposable
     /// <summary>
     /// Apply the rolling standard deviation over a dynamic window defined by the values in the <paramref name="by"/> column.
     /// </summary>
-    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedWindow)" path="/param"/>
-    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedWindow)" path="/remarks"/>
+    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedInterval)" path="/param"/>
+    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedInterval)" path="/remarks"/>
     /// <returns>A new expression representing the dynamic rolling standard deviation.</returns>
-    public Expr RollingStdBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedWindow closed = ClosedWindow.Left)
+    public Expr RollingStdBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedInterval closed = ClosedInterval.Left)
     {
         return new Expr(PolarsWrapper.RollingStdBy(
             CloneHandle(),
@@ -265,19 +282,19 @@ public partial class Expr : IDisposable
     /// </summary>
     /// 
     /// /// <param name="windowSize">
-    /// <inheritdoc cref="RollingMeanBy(IntoDuration, Expr, int, ClosedWindow)" path="/param[@name='windowSize']/node()"/>
+    /// <inheritdoc cref="RollingMeanBy(IntoDuration, Expr, int, ClosedInterval)" path="/param[@name='windowSize']/node()"/>
     /// </param>
     /// 
     /// /// <param name="by">
-    /// <inheritdoc cref="RollingMeanBy(IntoDuration, Expr, int, ClosedWindow)" path="/param[@name='by']/node()"/>
+    /// <inheritdoc cref="RollingMeanBy(IntoDuration, Expr, int, ClosedInterval)" path="/param[@name='by']/node()"/>
     /// </param>
     /// 
     /// /// <param name="minPeriods">
-    /// <inheritdoc cref="RollingMeanBy(IntoDuration, Expr, int, ClosedWindow)" path="/param[@name='minPeriods']/node()"/>
+    /// <inheritdoc cref="RollingMeanBy(IntoDuration, Expr, int, ClosedInterval)" path="/param[@name='minPeriods']/node()"/>
     /// </param>
     /// 
     /// /// <param name="closed">
-    /// <inheritdoc cref="RollingMeanBy(IntoDuration, Expr, int, ClosedWindow)" path="/param[@name='closed']/node()"/>
+    /// <inheritdoc cref="RollingMeanBy(IntoDuration, Expr, int, ClosedInterval)" path="/param[@name='closed']/node()"/>
     /// </param>
     /// 
     /// /// <param name="ddof">
@@ -286,7 +303,7 @@ public partial class Expr : IDisposable
     /// </param>
     /// 
     /// <returns>A new expression representing the dynamic rolling variance.</returns>
-    public Expr RollingVarBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedWindow closed = ClosedWindow.Left, byte ddof=1)
+    public Expr RollingVarBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedInterval closed = ClosedInterval.Left, byte ddof=1)
     {
         return new Expr(PolarsWrapper.RollingVarBy(
             CloneHandle(),
@@ -300,10 +317,10 @@ public partial class Expr : IDisposable
     /// <summary>
     /// Apply the rolling median over a dynamic window defined by the values in the <paramref name="by"/> column.
     /// </summary>
-    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedWindow)" path="/param"/>
-    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedWindow)" path="/remarks"/>
+    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedInterval)" path="/param"/>
+    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedInterval)" path="/remarks"/>
     /// <returns>A new expression representing the dynamic rolling median.</returns>
-    public Expr RollingMedianBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedWindow closed = ClosedWindow.Left)
+    public Expr RollingMedianBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedInterval closed = ClosedInterval.Left)
     {
         return new Expr(PolarsWrapper.RollingMedianBy(
             CloneHandle(),
@@ -318,11 +335,11 @@ public partial class Expr : IDisposable
     /// </summary>
     /// 
     /// <param name="windowSize">
-    /// <inheritdoc cref="RollingMeanBy(IntoDuration, Expr, int, ClosedWindow)" path="/param[@name='windowSize']/node()"/>
+    /// <inheritdoc cref="RollingMeanBy(IntoDuration, Expr, int, ClosedInterval)" path="/param[@name='windowSize']/node()"/>
     /// </param>
     /// 
     /// <param name="by">
-    /// <inheritdoc cref="RollingMeanBy(IntoDuration, Expr, int, ClosedWindow)" path="/param[@name='by']/node()"/>
+    /// <inheritdoc cref="RollingMeanBy(IntoDuration, Expr, int, ClosedInterval)" path="/param[@name='by']/node()"/>
     /// </param>
     /// 
     /// <param name="method">The method used to assign ranks to tied elements.</param>
@@ -330,11 +347,11 @@ public partial class Expr : IDisposable
     /// <param name="seed">Seed for the random method (only relevant when method is Random).</param>
     /// 
     /// <param name="minPeriods">
-    /// <inheritdoc cref="RollingMeanBy(IntoDuration, Expr, int, ClosedWindow)" path="/param[@name='minPeriods']/node()"/>
+    /// <inheritdoc cref="RollingMeanBy(IntoDuration, Expr, int, ClosedInterval)" path="/param[@name='minPeriods']/node()"/>
     /// </param>
     /// 
     /// <param name="closed">
-    /// <inheritdoc cref="RollingMeanBy(IntoDuration, Expr, int, ClosedWindow)" path="/param[@name='closed']/node()"/>
+    /// <inheritdoc cref="RollingMeanBy(IntoDuration, Expr, int, ClosedInterval)" path="/param[@name='closed']/node()"/>
     /// </param>
     /// 
     /// <returns>A new expression representing the dynamic rolling rank.</returns>
@@ -344,7 +361,7 @@ public partial class Expr : IDisposable
         RollingRankMethod method = RollingRankMethod.Average, 
         ulong? seed = null,
         int minPeriods = 1, 
-        ClosedWindow closed = ClosedWindow.Left)
+        ClosedInterval closed = ClosedInterval.Left)
     {
         return new Expr(PolarsWrapper.RollingRankBy(
             CloneHandle(),
@@ -366,11 +383,11 @@ public partial class Expr : IDisposable
     /// The size of the time window as a <see cref="TimeSpan"/>.
     /// <para>This will be automatically converted to a Polars duration string (e.g., <c>01:30:00</c> -> <c>"1h30m"</c>).</para>
     /// </param>
-    /// <param name="by"><inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedWindow)" path="/param[@name='by']/node()"/></param>
-    /// <param name="minPeriods"><inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedWindow)" path="/param[@name='minPeriods']/node()"/></param>
-    /// <param name="closed"><inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedWindow)" path="/param[@name='closed']/node()"/></param>
+    /// <param name="by"><inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedInterval)" path="/param[@name='by']/node()"/></param>
+    /// <param name="minPeriods"><inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedInterval)" path="/param[@name='minPeriods']/node()"/></param>
+    /// <param name="closed"><inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedInterval)" path="/param[@name='closed']/node()"/></param>
     ///
-    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedWindow)" path="/remarks"/>
+    /// <inheritdoc cref="RollingMeanBy(IntoDuration,Expr,int,ClosedInterval)" path="/remarks"/>
     /// <returns>A new expression representing the dynamic rolling quantile.</returns>
     public Expr RollingQuantileBy(
         double quantile,
@@ -378,7 +395,7 @@ public partial class Expr : IDisposable
         IntoDuration windowSize,
         Expr by,
         int minPeriods = 1,
-        ClosedWindow closed = ClosedWindow.Left)
+        ClosedInterval closed = ClosedInterval.Left)
     {
         return new Expr(PolarsWrapper.RollingQuantileBy(
             CloneHandle(),

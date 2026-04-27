@@ -25,7 +25,7 @@ public sealed class LazyGroupBy : IDisposable
     internal readonly string? _indexColumn;
     internal readonly string? _period;
     internal readonly string? _offset;
-    internal readonly ClosedWindow _closedWindow;
+    internal readonly ClosedInterval _ClosedInterval;
 
     // --- Dynamic ---
     internal readonly string? _every;
@@ -163,7 +163,7 @@ public sealed class LazyGroupBy : IDisposable
 
     internal LazyGroupBy(
         LazyFrameHandle lfHandle, string indexColumn, string every, string? period, string? offset, 
-        Expr[] keys, Label label, bool includeBoundaries, ClosedWindow closedWindow, StartBy startBy)
+        Expr[] keys, Label label, bool includeBoundaries, ClosedInterval ClosedInterval, StartBy startBy)
     {
         _lfHandle = lfHandle;
         _type = GroupByType.Dynamic;
@@ -174,13 +174,13 @@ public sealed class LazyGroupBy : IDisposable
         _keys = keys;
         _label = label;
         _includeBoundaries = includeBoundaries;
-        _closedWindow = closedWindow;
+        _ClosedInterval = ClosedInterval;
         _startBy = startBy;
     }
 
     internal LazyGroupBy(
         LazyFrameHandle lfHandle, string indexColumn, string? period, string? offset, 
-        Expr[] keys, ClosedWindow closedWindow)
+        Expr[] keys, ClosedInterval ClosedInterval)
     {
         _lfHandle = lfHandle;
         _type = GroupByType.Rolling;
@@ -188,7 +188,7 @@ public sealed class LazyGroupBy : IDisposable
         _period = period;
         _offset = offset;
         _keys = keys;
-        _closedWindow = closedWindow;
+        _ClosedInterval = ClosedInterval;
     }
 
     /// <summary>
@@ -221,10 +221,10 @@ public sealed class LazyGroupBy : IDisposable
                                 clonedLf, keysForRust, aggHandles, havingHandle, _maintainOrder),
             GroupByType.Dynamic => PolarsWrapper.LazyGroupByDynamic(
                                 clonedLf, _indexColumn!, _every!, _period!, _offset!,
-                                _label.ToNative(), _includeBoundaries, _closedWindow.ToNative(), _startBy.ToNative(),
+                                _label.ToNative(), _includeBoundaries, _ClosedInterval.ToNative(), _startBy.ToNative(),
                                 keysForRust, aggHandles, havingHandle),
             GroupByType.Rolling => PolarsWrapper.LazyGroupByRolling(
-                                clonedLf, _indexColumn!, _period!, _offset!, _closedWindow.ToNative(),
+                                clonedLf, _indexColumn!, _period!, _offset!, _ClosedInterval.ToNative(),
                                 keysForRust, aggHandles, havingHandle),
             _ => throw new InvalidOperationException("Unknown GroupBy mode."),
         };

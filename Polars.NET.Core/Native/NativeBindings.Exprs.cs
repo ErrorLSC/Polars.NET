@@ -618,12 +618,6 @@ unsafe internal partial class NativeBindings
         nint[] fields, 
         nuint fieldsLen);
     // Window
-    // [LibraryImport(LibName)] 
-    // public static partial ExprHandle pl_expr_over(
-    //     ExprHandle expr, 
-    //     IntPtr[] partitionBy, 
-    //     nuint len
-    // );
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_over_with_options(
         ExprHandle exprPtr,
@@ -636,6 +630,14 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.I1)] bool multithreaded,
         [MarshalAs(UnmanagedType.I1)] bool maintainOrder,
         PlWindowMapping mappingCode 
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_rolling(
+        ExprHandle expr,
+        ExprHandle indexColumn,
+        string period,
+        string offset,
+        PlClosedInterval closed
     );
     // Shift / Diff
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_shift(ExprHandle expr, ExprHandle n);
@@ -715,14 +717,14 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)]bool center
         );
 
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_rolling_mean_by(ExprHandle expr, string windowSize,UIntPtr minPeriods, ExprHandle by, PlClosedWindow closed);
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_rolling_sum_by(ExprHandle expr, string windowSize,UIntPtr minPeriods, ExprHandle by, PlClosedWindow closed);
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_rolling_min_by(ExprHandle expr, string windowSize,UIntPtr minPeriods, ExprHandle by, PlClosedWindow closed);
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_rolling_max_by(ExprHandle expr, string windowSize,UIntPtr minPeriods, ExprHandle by, PlClosedWindow closed);
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_rolling_std_by(ExprHandle expr, string windowSize,UIntPtr minPeriods, ExprHandle by, PlClosedWindow closed);
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_rolling_var_by(ExprHandle expr, string windowSize,UIntPtr minPeriods, ExprHandle by, PlClosedWindow closed, byte ddof);
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_rolling_median_by(ExprHandle expr, string windowSize,UIntPtr minPeriods, ExprHandle by, PlClosedWindow closed);
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_rolling_rank_by(ExprHandle expr, PlRollingRankMethod method,ulong* seed,string windowSize,UIntPtr minPeriods, ExprHandle by, PlClosedWindow closed);
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_rolling_mean_by(ExprHandle expr, string windowSize,UIntPtr minPeriods, ExprHandle by, PlClosedInterval closed);
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_rolling_sum_by(ExprHandle expr, string windowSize,UIntPtr minPeriods, ExprHandle by, PlClosedInterval closed);
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_rolling_min_by(ExprHandle expr, string windowSize,UIntPtr minPeriods, ExprHandle by, PlClosedInterval closed);
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_rolling_max_by(ExprHandle expr, string windowSize,UIntPtr minPeriods, ExprHandle by, PlClosedInterval closed);
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_rolling_std_by(ExprHandle expr, string windowSize,UIntPtr minPeriods, ExprHandle by, PlClosedInterval closed);
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_rolling_var_by(ExprHandle expr, string windowSize,UIntPtr minPeriods, ExprHandle by, PlClosedInterval closed, byte ddof);
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_rolling_median_by(ExprHandle expr, string windowSize,UIntPtr minPeriods, ExprHandle by, PlClosedInterval closed);
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_rolling_rank_by(ExprHandle expr, PlRollingRankMethod method,ulong* seed,string windowSize,UIntPtr minPeriods, ExprHandle by, PlClosedInterval closed);
     [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_rolling_quantile_by(
         ExprHandle expr,
         double quantile,
@@ -730,7 +732,7 @@ unsafe internal partial class NativeBindings
         string windowSize,
         UIntPtr minPeriods,
         ExprHandle by,
-        PlClosedWindow closed
+        PlClosedInterval closed
     );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_ternary(ExprHandle pred, ExprHandle ifTrue, ExprHandle ifFalse);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_extend_constant(ExprHandle e, ExprHandle value, ExprHandle n);
@@ -855,7 +857,7 @@ unsafe internal partial class NativeBindings
         IntPtr end,
         string? interval,
         IntPtr numSamples,
-        PlClosedWindow closedWindow
+        PlClosedInterval closedWindow
     );
     [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_date_ranges(
@@ -863,7 +865,7 @@ unsafe internal partial class NativeBindings
         IntPtr end,
         string? interval,
         IntPtr numSamples,
-        PlClosedWindow closedWindow
+        PlClosedInterval closedWindow
     );
     [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_datetime_range(
@@ -871,7 +873,7 @@ unsafe internal partial class NativeBindings
         IntPtr end,
         string? interval,
         IntPtr numSamples,
-        PlClosedWindow closedWindow,
+        PlClosedInterval closedWindow,
         PlTimeUnit unit,
         string? timeZone
     );  
@@ -881,7 +883,7 @@ unsafe internal partial class NativeBindings
         IntPtr end,
         string? interval,
         IntPtr numSamples,
-        PlClosedWindow closedWindow,
+        PlClosedInterval closedWindow,
         PlTimeUnit unit,
         string? timeZone
     ); 
@@ -890,14 +892,14 @@ unsafe internal partial class NativeBindings
         ExprHandle start,
         ExprHandle end,
         string? interval,
-        PlClosedWindow closedWindow
+        PlClosedInterval closedWindow
     );
     [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
     public static partial ExprHandle pl_expr_time_ranges(
         ExprHandle start,
         ExprHandle end,
         string? interval,
-        PlClosedWindow closedWindow
+        PlClosedInterval closedWindow
     );
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_linear_space(

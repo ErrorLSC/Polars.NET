@@ -89,75 +89,75 @@ public partial class Series : IDisposable,IPolarsSeries
     // Rolling ... By (Dynamic Window based on another column, usually Time)
     // -------------------------------------------------------------------------
     /// <summary>
-    /// <inheritdoc cref="Expr.RollingMeanBy(IntoDuration, Expr, int, ClosedWindow)" path="/summary"/>
+    /// <inheritdoc cref="Expr.RollingMeanBy(IntoDuration, Expr, int, ClosedInterval)" path="/summary"/>
     /// </summary>
-    /// <inheritdoc cref="Expr.RollingMeanBy(IntoDuration, Expr, int, ClosedWindow)" path="/remarks"/>
-    /// <inheritdoc cref="Expr.RollingMeanBy(IntoDuration, Expr, int, ClosedWindow)" path="/param"/>
+    /// <inheritdoc cref="Expr.RollingMeanBy(IntoDuration, Expr, int, ClosedInterval)" path="/remarks"/>
+    /// <inheritdoc cref="Expr.RollingMeanBy(IntoDuration, Expr, int, ClosedInterval)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the dynamic rolling mean.</returns>
-    public Series RollingMeanBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedWindow closed = ClosedWindow.Left)
+    public Series RollingMeanBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedInterval closed = ClosedInterval.Left)
         => ApplyExpr(Polars.Col(Name).RollingMeanBy(windowSize, by, minPeriods, closed));
 
     /// <summary>
-    /// <inheritdoc cref="Expr.RollingSumBy(IntoDuration, Expr, int, ClosedWindow)" path="/summary"/>
+    /// <inheritdoc cref="Expr.RollingSumBy(IntoDuration, Expr, int, ClosedInterval)" path="/summary"/>
     /// </summary>
-    /// <inheritdoc cref="Expr.RollingSumBy(IntoDuration, Expr, int, ClosedWindow)" path="/param"/>
+    /// <inheritdoc cref="Expr.RollingSumBy(IntoDuration, Expr, int, ClosedInterval)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the dynamic rolling sum.</returns>
-    public Series RollingSumBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedWindow closed = ClosedWindow.Left)
+    public Series RollingSumBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedInterval closed = ClosedInterval.Left)
         => ApplyExpr(Polars.Col(Name).RollingSumBy(windowSize, by, minPeriods, closed));
 
     /// <summary>
-    /// <inheritdoc cref="Expr.RollingMinBy(IntoDuration, Expr, int, ClosedWindow)" path="/summary"/>
+    /// <inheritdoc cref="Expr.RollingMinBy(IntoDuration, Expr, int, ClosedInterval)" path="/summary"/>
     /// </summary>
-    /// <inheritdoc cref="Expr.RollingMinBy(IntoDuration, Expr, int, ClosedWindow)" path="/param"/>
+    /// <inheritdoc cref="Expr.RollingMinBy(IntoDuration, Expr, int, ClosedInterval)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the dynamic rolling minimum.</returns>
-    public Series RollingMinBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedWindow closed = ClosedWindow.Left)
+    public Series RollingMinBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedInterval closed = ClosedInterval.Left)
         => ApplyExpr(Polars.Col(Name).RollingMinBy(windowSize, by, minPeriods, closed));
 
     /// <summary>
-    /// <inheritdoc cref="Expr.RollingMaxBy(IntoDuration, Expr, int, ClosedWindow)" path="/summary"/>
+    /// <inheritdoc cref="Expr.RollingMaxBy(IntoDuration, Expr, int, ClosedInterval)" path="/summary"/>
     /// </summary>
-    /// <inheritdoc cref="Expr.RollingMaxBy(IntoDuration, Expr, int, ClosedWindow)" path="/param"/>
+    /// <inheritdoc cref="Expr.RollingMaxBy(IntoDuration, Expr, int, ClosedInterval)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the dynamic rolling maximum.</returns>
-    public Series RollingMaxBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedWindow closed = ClosedWindow.Left)
+    public Series RollingMaxBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedInterval closed = ClosedInterval.Left)
         => ApplyExpr(Polars.Col(Name).RollingMaxBy(windowSize, by, minPeriods, closed));
     /// <summary>
-    /// <inheritdoc cref="Expr.RollingStdBy(IntoDuration, Expr, int, ClosedWindow)" path="/summary"/>
+    /// <inheritdoc cref="Expr.RollingStdBy(IntoDuration, Expr, int, ClosedInterval)" path="/summary"/>
     /// </summary>
-    /// <inheritdoc cref="Expr.RollingStdBy(IntoDuration, Expr, int, ClosedWindow)" path="/param"/>
+    /// <inheritdoc cref="Expr.RollingStdBy(IntoDuration, Expr, int, ClosedInterval)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the dynamic rolling standard deviation.</returns>
-    public Series RollingStdBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedWindow closed = ClosedWindow.Left)
+    public Series RollingStdBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedInterval closed = ClosedInterval.Left)
         => ApplyExpr(Polars.Col(Name).RollingStdBy(windowSize, by, minPeriods, closed));
 
     /// <summary>
-    /// <inheritdoc cref="Expr.RollingVarBy(IntoDuration, Expr, int, ClosedWindow, byte)" path="/summary"/>
+    /// <inheritdoc cref="Expr.RollingVarBy(IntoDuration, Expr, int, ClosedInterval, byte)" path="/summary"/>
     /// </summary>
-    /// <inheritdoc cref="Expr.RollingVarBy(IntoDuration, Expr, int, ClosedWindow, byte)" path="/param"/>
+    /// <inheritdoc cref="Expr.RollingVarBy(IntoDuration, Expr, int, ClosedInterval, byte)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the dynamic rolling variance.</returns>
-    public Series RollingVarBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedWindow closed = ClosedWindow.Left, byte ddof = 1)
+    public Series RollingVarBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedInterval closed = ClosedInterval.Left, byte ddof = 1)
         => ApplyExpr(Polars.Col(Name).RollingVarBy(windowSize, by, minPeriods, closed, ddof));
 
     /// <summary>
-    /// <inheritdoc cref="Expr.RollingMedianBy(IntoDuration, Expr, int, ClosedWindow)" path="/summary"/>
+    /// <inheritdoc cref="Expr.RollingMedianBy(IntoDuration, Expr, int, ClosedInterval)" path="/summary"/>
     /// </summary>
-    /// <inheritdoc cref="Expr.RollingMedianBy(IntoDuration, Expr, int, ClosedWindow)" path="/param"/>
+    /// <inheritdoc cref="Expr.RollingMedianBy(IntoDuration, Expr, int, ClosedInterval)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the dynamic rolling median.</returns>
-    public Series RollingMedianBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedWindow closed = ClosedWindow.Left)
+    public Series RollingMedianBy(IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedInterval closed = ClosedInterval.Left)
         => ApplyExpr(Polars.Col(Name).RollingMedianBy(windowSize, by, minPeriods, closed));
 
     /// <summary>
-    /// <inheritdoc cref="Expr.RollingRankBy(IntoDuration, Expr, RollingRankMethod, ulong?, int, ClosedWindow)" path="/summary"/>
+    /// <inheritdoc cref="Expr.RollingRankBy(IntoDuration, Expr, RollingRankMethod, ulong?, int, ClosedInterval)" path="/summary"/>
     /// </summary>
-    /// <inheritdoc cref="Expr.RollingRankBy(IntoDuration, Expr, RollingRankMethod, ulong?, int, ClosedWindow)" path="/param"/>
+    /// <inheritdoc cref="Expr.RollingRankBy(IntoDuration, Expr, RollingRankMethod, ulong?, int, ClosedInterval)" path="/param"/>
     /// <returns>A new <see cref="Series"/> with the dynamic rolling rank.</returns>
-    public Series RollingRankBy(IntoDuration windowSize, Expr by, RollingRankMethod method = RollingRankMethod.Average, ulong? seed = null, int minPeriods = 1, ClosedWindow closed = ClosedWindow.Left)
+    public Series RollingRankBy(IntoDuration windowSize, Expr by, RollingRankMethod method = RollingRankMethod.Average, ulong? seed = null, int minPeriods = 1, ClosedInterval closed = ClosedInterval.Left)
         => ApplyExpr(Polars.Col(Name).RollingRankBy(windowSize, by, method, seed, minPeriods, closed));
 
     /// <summary>
-    /// <inheritdoc cref="Expr.RollingQuantileBy(double, QuantileMethod, IntoDuration, Expr, int, ClosedWindow)" path="/summary"/>
+    /// <inheritdoc cref="Expr.RollingQuantileBy(double, QuantileMethod, IntoDuration, Expr, int, ClosedInterval)" path="/summary"/>
     /// </summary>
-    /// <inheritdoc cref="Expr.RollingQuantileBy(double, QuantileMethod, IntoDuration, Expr, int, ClosedWindow)" path="/param"/>
-    /// <inheritdoc cref="Expr.RollingQuantileBy(double, QuantileMethod, IntoDuration, Expr, int, ClosedWindow)" path="/remarks"/>
+    /// <inheritdoc cref="Expr.RollingQuantileBy(double, QuantileMethod, IntoDuration, Expr, int, ClosedInterval)" path="/param"/>
+    /// <inheritdoc cref="Expr.RollingQuantileBy(double, QuantileMethod, IntoDuration, Expr, int, ClosedInterval)" path="/remarks"/>
     /// <returns>A new <see cref="Series"/> with the dynamic rolling quantile.</returns>
-    public Series RollingQuantileBy(double quantile, QuantileMethod method, IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedWindow closed = ClosedWindow.Left)
+    public Series RollingQuantileBy(double quantile, QuantileMethod method, IntoDuration windowSize, Expr by, int minPeriods = 1, ClosedInterval closed = ClosedInterval.Left)
         => ApplyExpr(Polars.Col(Name).RollingQuantileBy(quantile, method, windowSize, by, minPeriods, closed));
 }

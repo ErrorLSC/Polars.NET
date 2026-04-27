@@ -33,7 +33,7 @@ public readonly partial struct PolarsWrapper
         expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    private static ExprHandle RollingByOp(Func<ExprHandle, string, UIntPtr,ExprHandle, PlClosedWindow, ExprHandle> op, ExprHandle expr, string windowSize, int minPeriods,ExprHandle by, PlClosedWindow closed)
+    private static ExprHandle RollingByOp(Func<ExprHandle, string, UIntPtr,ExprHandle, PlClosedInterval, ExprHandle> op, ExprHandle expr, string windowSize, int minPeriods,ExprHandle by, PlClosedInterval closed)
     {
         var h = op(expr, windowSize,(UIntPtr)minPeriods, by, closed);
         expr.TransferOwnership();
@@ -1184,6 +1184,25 @@ public readonly partial struct PolarsWrapper
         expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle ExprRolling(
+        ExprHandle expr, 
+        ExprHandle indexColumn, 
+        string period, 
+        string offset, 
+        PlClosedInterval closed )
+    {
+        var h = NativeBindings.pl_expr_rolling(
+            expr, 
+            indexColumn,
+            period, 
+            offset,
+            closed
+        );
+        expr.TransferOwnership();
+        indexColumn.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    
     // Expr Length
     public static ExprHandle ExprLen(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_len,e);
     public static ExprHandle Len() => NativeBindings.pl_len();
@@ -1258,19 +1277,19 @@ public readonly partial struct PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle RollingMeanBy(ExprHandle e, string w, int minPeriods, ExprHandle by, PlClosedWindow closed) => RollingByOp(NativeBindings.pl_expr_rolling_mean_by, e, w, minPeriods,by, closed);
-    public static ExprHandle RollingSumBy(ExprHandle e, string w, int minPeriods, ExprHandle by, PlClosedWindow closed) => RollingByOp(NativeBindings.pl_expr_rolling_sum_by, e, w, minPeriods,by, closed);
-    public static ExprHandle RollingMinBy(ExprHandle e, string w, int minPeriods, ExprHandle by, PlClosedWindow closed) => RollingByOp(NativeBindings.pl_expr_rolling_min_by, e, w, minPeriods,by, closed);
-    public static ExprHandle RollingMaxBy(ExprHandle e, string w, int minPeriods, ExprHandle by, PlClosedWindow closed) => RollingByOp(NativeBindings.pl_expr_rolling_max_by, e, w, minPeriods,by, closed);
-    public static ExprHandle RollingStdBy(ExprHandle e, string w, int minPeriods, ExprHandle by, PlClosedWindow closed) => RollingByOp(NativeBindings.pl_expr_rolling_std_by, e, w, minPeriods,by, closed);
-    public static ExprHandle RollingVarBy(ExprHandle e, string w, int minPeriods, ExprHandle by, PlClosedWindow closed, byte ddof) 
+    public static ExprHandle RollingMeanBy(ExprHandle e, string w, int minPeriods, ExprHandle by, PlClosedInterval closed) => RollingByOp(NativeBindings.pl_expr_rolling_mean_by, e, w, minPeriods,by, closed);
+    public static ExprHandle RollingSumBy(ExprHandle e, string w, int minPeriods, ExprHandle by, PlClosedInterval closed) => RollingByOp(NativeBindings.pl_expr_rolling_sum_by, e, w, minPeriods,by, closed);
+    public static ExprHandle RollingMinBy(ExprHandle e, string w, int minPeriods, ExprHandle by, PlClosedInterval closed) => RollingByOp(NativeBindings.pl_expr_rolling_min_by, e, w, minPeriods,by, closed);
+    public static ExprHandle RollingMaxBy(ExprHandle e, string w, int minPeriods, ExprHandle by, PlClosedInterval closed) => RollingByOp(NativeBindings.pl_expr_rolling_max_by, e, w, minPeriods,by, closed);
+    public static ExprHandle RollingStdBy(ExprHandle e, string w, int minPeriods, ExprHandle by, PlClosedInterval closed) => RollingByOp(NativeBindings.pl_expr_rolling_std_by, e, w, minPeriods,by, closed);
+    public static ExprHandle RollingVarBy(ExprHandle e, string w, int minPeriods, ExprHandle by, PlClosedInterval closed, byte ddof) 
     {
         var h = NativeBindings.pl_expr_rolling_var_by(e, w, (UIntPtr)minPeriods,by, closed,ddof);
         e.TransferOwnership();
         by.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle RollingMedianBy(ExprHandle e, string w, int minPeriods, ExprHandle by, PlClosedWindow closed) => RollingByOp(NativeBindings.pl_expr_rolling_median_by, e, w, minPeriods,by, closed);
+    public static ExprHandle RollingMedianBy(ExprHandle e, string w, int minPeriods, ExprHandle by, PlClosedInterval closed) => RollingByOp(NativeBindings.pl_expr_rolling_median_by, e, w, minPeriods,by, closed);
     public static unsafe ExprHandle RollingRankBy(
         ExprHandle e,
         string windowSize, 
@@ -1278,7 +1297,7 @@ public readonly partial struct PolarsWrapper
         PlRollingRankMethod method, 
         ulong? seed,
         int minPeriods, 
-        PlClosedWindow closed)
+        PlClosedInterval closed)
     {
         ulong seedValue = seed.GetValueOrDefault();
         ulong* pSeed = seed.HasValue ? &seedValue : null;
@@ -1296,7 +1315,7 @@ public readonly partial struct PolarsWrapper
         by.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle RollingQuantileBy(ExprHandle e, double quantile, PlQuantileMethod method, string w, int minPeriods, ExprHandle by, PlClosedWindow closed)
+    public static ExprHandle RollingQuantileBy(ExprHandle e, double quantile, PlQuantileMethod method, string w, int minPeriods, ExprHandle by, PlClosedInterval closed)
     {
         var h = NativeBindings.pl_expr_rolling_quantile_by(e,quantile,method,w,(UIntPtr)minPeriods,by,closed);
         e.TransferOwnership();
@@ -1530,7 +1549,7 @@ public readonly partial struct PolarsWrapper
         dtypeExpr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle DateRange(ExprHandle? start,ExprHandle? end,string? interval,ExprHandle? numSamples,PlClosedWindow closedWindow) 
+    public static ExprHandle DateRange(ExprHandle? start,ExprHandle? end,string? interval,ExprHandle? numSamples,PlClosedInterval closedWindow) 
     {
         IntPtr startHandle = start?.TransferOwnership() ?? IntPtr.Zero;
         IntPtr endHandle = end?.TransferOwnership() ?? IntPtr.Zero;
@@ -1538,7 +1557,7 @@ public readonly partial struct PolarsWrapper
         var h = NativeBindings.pl_expr_date_range(startHandle,endHandle,interval,numSamplesHandle,closedWindow);
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle DateRanges(ExprHandle? start,ExprHandle? end,string? interval,ExprHandle? numSamples,PlClosedWindow closedWindow) 
+    public static ExprHandle DateRanges(ExprHandle? start,ExprHandle? end,string? interval,ExprHandle? numSamples,PlClosedInterval closedWindow) 
     {
         IntPtr startHandle = start?.TransferOwnership() ?? IntPtr.Zero;
         IntPtr endHandle = end?.TransferOwnership() ?? IntPtr.Zero;
@@ -1551,7 +1570,7 @@ public readonly partial struct PolarsWrapper
         ExprHandle? end,
         string? interval,
         ExprHandle? numSamples,
-        PlClosedWindow closedWindow,
+        PlClosedInterval closedWindow,
         PlTimeUnit unit,
         string? timeZone) 
     {
@@ -1566,7 +1585,7 @@ public readonly partial struct PolarsWrapper
         ExprHandle? end,
         string? interval,
         ExprHandle? numSamples,
-        PlClosedWindow closedWindow,
+        PlClosedInterval closedWindow,
         PlTimeUnit unit,
         string? timeZone) 
     {
@@ -1576,14 +1595,14 @@ public readonly partial struct PolarsWrapper
         var h = NativeBindings.pl_expr_datetime_ranges(startHandle,endHandle,interval,numSamplesHandle,closedWindow,unit,timeZone);
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle TimeRange(ExprHandle start,ExprHandle end,string? interval,PlClosedWindow closedWindow) 
+    public static ExprHandle TimeRange(ExprHandle start,ExprHandle end,string? interval,PlClosedInterval closedWindow) 
     {
         var h = NativeBindings.pl_expr_time_range(start,end,interval,closedWindow);
         start.TransferOwnership();
         end.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle TimeRanges(ExprHandle start,ExprHandle end,string? interval,PlClosedWindow closedWindow) 
+    public static ExprHandle TimeRanges(ExprHandle start,ExprHandle end,string? interval,PlClosedInterval closedWindow) 
     {
         var h = NativeBindings.pl_expr_time_ranges(start,end,interval,closedWindow);
         start.TransferOwnership();

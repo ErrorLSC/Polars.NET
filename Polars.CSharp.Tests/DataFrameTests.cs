@@ -508,7 +508,7 @@ public class DataFrameTests
         // 10,20 -> 15
         // 10,20,30 -> 20
         var rollExpr = Pl.Col("val")
-            .RollingMeanBy(windowSize: new TimeSpan(3,0,0,0), by: Pl.Col("date"), closed: ClosedWindow.Left)
+            .RollingMeanBy(windowSize: new TimeSpan(3,0,0,0), by: Pl.Col("date"), closed: ClosedInterval.Left)
             .Alias("roll_mean");
 
         using var res = df.Select(

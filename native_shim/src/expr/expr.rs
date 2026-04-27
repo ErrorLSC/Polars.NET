@@ -1597,6 +1597,41 @@ pub extern "C" fn pl_expr_over_with_options(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_rolling(
+    expr_ptr: *mut ExprContext,
+    index_column_ptr: *mut ExprContext,
+    period_ptr: *const c_char,
+    offset_ptr: *const c_char,
+    closed_window_code: u8,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let index_ctx = unsafe { Box::from_raw(index_column_ptr) };
+        
+        let period_str = unsafe { CStr::from_ptr(period_ptr) }
+            .to_str()
+            .map_err(|e| PolarsError::ComputeError(format!("Invalid UTF-8 for period: {}", e).into()))?;
+        let period = Duration::try_parse(period_str)?;
+
+        let offset_str = unsafe { CStr::from_ptr(offset_ptr) }
+            .to_str()
+            .map_err(|e| PolarsError::ComputeError(format!("Invalid UTF-8 for offset: {}", e).into()))?;
+        let offset = Duration::try_parse(offset_str)?;
+
+        let closed_window = parse_closed_window(closed_window_code);
+
+        let new_expr = ctx.inner.rolling(
+            index_ctx.inner,
+            period,
+            offset,
+            closed_window
+        );
+
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_cast(
     expr_ptr: *mut ExprContext, 
     dexpr_ptr: *mut DataTypeExprContext, 

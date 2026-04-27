@@ -124,15 +124,6 @@ public enum PlStartBy : byte
     Saturday = 7,
     Sunday = 8
 }
-
-public enum PlClosedWindow: byte
-{
-    Left = 0,
-    Right = 1,
-    Both = 2,
-    None = 3
-}
-
 public enum PlNullBehavior: byte
 {
     Ignore = 0,

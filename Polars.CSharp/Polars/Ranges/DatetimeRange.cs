@@ -17,7 +17,7 @@ public readonly partial struct Polars
         IntoExprColumn? start = null, 
         IntoExprColumn? end = null, 
         IntoDuration? interval = null,
-        ClosedWindow closed = ClosedWindow.Both,
+        ClosedInterval closed = ClosedInterval.Both,
         TimeUnit unit=TimeUnit.Microseconds,
         string? timeZone=null)
     {
@@ -41,7 +41,7 @@ public readonly partial struct Polars
         IntoExprColumn? start = null, 
         IntoExprColumn? end = null, 
         IntoDuration? interval = null,
-        ClosedWindow closed = ClosedWindow.Both,
+        ClosedInterval closed = ClosedInterval.Both,
         TimeUnit unit=TimeUnit.Microseconds,
         string? timeZone=null,
         string name="datetime")
@@ -59,7 +59,7 @@ public readonly partial struct Polars
         IntoExprColumn? start = null, 
         IntoExprColumn? end = null, 
         IntoDuration? interval = null,
-        ClosedWindow closed = ClosedWindow.Both,
+        ClosedInterval closed = ClosedInterval.Both,
         TimeUnit unit=TimeUnit.Microseconds,
         string? timeZone=null)
     {
@@ -83,7 +83,7 @@ public readonly partial struct Polars
         IntoExprColumn? start = null, 
         IntoExprColumn? end = null, 
         IntoDuration? interval = null,
-        ClosedWindow closed = ClosedWindow.Both,
+        ClosedInterval closed = ClosedInterval.Both,
         TimeUnit unit=TimeUnit.Microseconds,
         string? timeZone=null,
         string name="datetime")

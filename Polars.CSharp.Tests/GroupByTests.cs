@@ -25,7 +25,7 @@ public class TimeSeriesTests
             .GroupByDynamic(
                 indexColumn: Cs.Temporal(),
                 every: TimeSpan.FromMinutes(30),
-                closedWindow: ClosedWindow.Left // [ )
+                ClosedInterval: ClosedInterval.Left // [ )
             )
             .Agg(
                 Pl.Col("Val").Sum().Alias("SumVal"),
@@ -61,7 +61,7 @@ public class TimeSeriesTests
                 period: TimeSpan.FromMinutes(10),
                 label: Label.Right,             
                 includeBoundaries: true,         
-                closedWindow: ClosedWindow.Left  
+                ClosedInterval: ClosedInterval.Left  
             )
             .Agg(
                 Pl.Col("Val").Count().Alias("Count")
@@ -97,7 +97,7 @@ public class TimeSeriesTests
             .GroupByDynamic(
                 indexColumn: "Time",
                 every: TimeSpan.FromMinutes(30),
-                closedWindow: ClosedWindow.Left
+                ClosedInterval: ClosedInterval.Left
             )
             .Having(Pl.Col("Val").Sum() > 20) 
             .Agg(
@@ -219,7 +219,7 @@ public class TimeSeriesTests
             .Rolling(
                 indexColumn: "Time",
                 period: "20m",
-                closedWindow: ClosedWindow.Both 
+                ClosedInterval: ClosedInterval.Both 
             )
             .Agg(
                 Pl.Col("Val").Sum().Alias("SumVal"),
@@ -257,7 +257,7 @@ public class TimeSeriesTests
                 indexColumn: Cs.Temporal(), 
                 period: TimeSpan.FromMinutes(30),
                 groupBy: ["Symbol"], 
-                closedWindow: ClosedWindow.Right 
+                ClosedInterval: ClosedInterval.Right 
             )
             .Agg(
                 Pl.Col("Val").Max().Alias("MaxVal")
@@ -286,7 +286,7 @@ public class TimeSeriesTests
         // Window 2 [10:30, 11:00): 10:30(3), 10:40(4), 10:50(5)
         
         var headRes = df
-            .GroupByDynamic("Time", "30m", closedWindow: ClosedWindow.Left)
+            .GroupByDynamic("Time", "30m", ClosedInterval: ClosedInterval.Left)
             .Head(2);
 
         Assert.Equal(4, headRes.Height);
@@ -298,7 +298,7 @@ public class TimeSeriesTests
         Assert.Equal(4, headRes.GetValue<int>(3, "Val"));
 
         var tailRes = df
-            .GroupByDynamic("Time", "30m", closedWindow: ClosedWindow.Left)
+            .GroupByDynamic("Time", "30m", ClosedInterval: ClosedInterval.Left)
             .Tail(1);
 
         Assert.Equal(2, tailRes.Height);
