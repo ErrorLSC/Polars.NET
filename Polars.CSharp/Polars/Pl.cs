@@ -535,7 +535,55 @@ public readonly partial struct Polars
     /// <returns></returns>
     public static Expr CumCount(string column,bool reverse=false)
         => Col(column).CumCount(reverse);
+    /// <summary>
+    /// Cumulatively sum all values.
+    /// Syntactic sugar for Col(names).CumSum().
+    /// </summary>
+    /// <param name="columns">Name(s) of the columns to use in the aggregation.</param>
+    public static Expr CumSum(params string[] columns)
+        => Col(columns).CumSum();
+    /// <summary>
+    /// Represent all columns except for the given columns.
+    /// Syntactic sugar for Pl.All().Exclude(columns).
+    /// </summary>
+    /// <param name="columns">The name or datatype of the column(s) to exclude. Accepts regular expression input. Regular expressions should start with ^ and end with $.</param>
+    /// <returns></returns>
+    public static Expr Exclude(params string[] columns)
+        => All().Exclude(columns);
+    /// <inheritdoc cref="Exclude(string[])"/>
+    public static Expr Exclude(params ReadOnlySpan<DataType> columns)
+        => All().Exclude(columns);  
+    /// <summary>
+    /// Parses an integer column (seconds, milliseconds, etc.) into a Datetime or Date expression.
+    /// </summary>
+    public static Expr FromEpoch(IntoExprColumn column, TimeUnit timeUnit = TimeUnit.Second)
+    {
+        var expr = column.Consume();
+
+        return timeUnit switch
+        {
+            TimeUnit.Day => 
+                expr.Cast(DataType.Date),
+                
+            TimeUnit.Second => 
+                // Multiply by Int64 literal to prevent overflow
+                (expr * 1_000_000L).Cast(DataType.Datetime(TimeUnit.Microseconds)),
+                
+            TimeUnit.Milliseconds => 
+                (expr * 1_000L).Cast(DataType.Datetime(TimeUnit.Microseconds)),
+                
+            TimeUnit.Microseconds => 
+                expr.Cast(DataType.Datetime(TimeUnit.Microseconds)),
+                
+            TimeUnit.Nanoseconds => 
+                expr.Cast(DataType.Datetime(TimeUnit.Nanoseconds)),
+                
+            _ => throw new ArgumentException(
+                $"`timeUnit` must be one of Nanoseconds, Microseconds, Milliseconds, Second, Day. Got: {timeUnit}")
+        };
+    }
     
+
 }
 
 internal static class InterfaceUnwrapperExtensions

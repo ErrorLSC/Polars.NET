@@ -54,10 +54,10 @@ public readonly struct StructOps
     /// <summary>
     /// Retrieve a field by its index.
     /// </summary>
-    public Expr Field(int index)
+    public Expr Field(long index)
         => new(PolarsWrapper.StructFieldByIndex(_expr.CloneHandle(), index));
     
-    /// <inheritdoc cref="Field(int)"/>
+    /// <inheritdoc cref="Field(long)"/>
     public Expr this[int index] => Field(index);
     /// <inheritdoc cref="Field(string[])"/>
     public Expr this[string[] name] => Field(name);
@@ -100,4 +100,12 @@ public readonly struct StructOps
 
         return new Expr(PolarsWrapper.StructWithFields(_expr.Handle, handles));
     }
+
+    /// <inheritdoc cref="Field(long)"/>
+    public Expr this[long index] => Field(index);
+
+    /// <summary>
+    /// Retrieve one of the fields of this Struct as a new expr.
+    /// </summary>
+    public Expr this[string name] => Field(name);
 }

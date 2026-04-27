@@ -2441,5 +2441,67 @@ public class SeriesTests
         Assert.Equal((Int128)114514000,(Int128)s128[2]!);
         Assert.Equal(DataType.Int128,s128.DataType);
     }
+    [Fact]
+    [Trait("Series", "FromEpoch")]
+    public void Test_Series_FromEpoch_Day()
+    {
+        // 19358 days since Unix Epoch -> 2023-01-01
+        var s = Series.From("epoch", [0, 1, 19358]);
+        
+        var result = s.FromEpoch(TimeUnit.Day);
 
+        Assert.Equal(DataType.Date, result.DataType);
+
+        Assert.Equal(new DateOnly(1970, 1, 1), result[0]!);
+        Assert.Equal(new DateOnly(1970, 1, 2), result[1]!);
+        Assert.Equal(new DateOnly(2023, 1, 1), result[2]!);
+    }
+
+    [Fact]
+    [Trait("Series", "FromEpoch")]
+    public void Test_Series_FromEpoch_Second_Int32_Promotion()
+    {
+        // 1672531200 seconds -> 2023-01-01 00:00:00
+        var s = Series.From("epoch_sec", [0, 1672531200]);
+        
+        var result = s.FromEpoch(TimeUnit.Second);
+
+        Assert.Equal(DataType.Datetime(TimeUnit.Microseconds), result.DataType);
+
+        Assert.Equal(new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc), result[0]!);
+        Assert.Equal(new DateTime(2023, 1, 1, 0, 0, 0, DateTimeKind.Utc), result[1]!);
+    }
+
+    [Fact]
+    [Trait("Series", "FromEpoch")]
+    public void Test_Series_FromEpoch_Subseconds()
+    {
+        long ms = 1_672_531_200_000L;
+        long us = 1_672_531_200_000_000L;
+        long ns = 1_672_531_200_000_000_000L;
+
+        var s_ms = Series.From("ms", [ms]);
+        var s_us = Series.From("us", [us]);
+        var s_ns = Series.From("ns", [ns]);
+
+        var res_ms = s_ms.FromEpoch(TimeUnit.Milliseconds);
+        var res_us = s_us.FromEpoch(TimeUnit.Microseconds);
+        var res_ns = s_ns.FromEpoch(TimeUnit.Nanoseconds);
+
+        Assert.Equal(DataType.Datetime(TimeUnit.Microseconds), res_ms.DataType);
+        Assert.Equal(DataType.Datetime(TimeUnit.Microseconds), res_us.DataType);
+        Assert.Equal(DataType.Datetime(TimeUnit.Nanoseconds), res_ns.DataType); 
+    }
+
+    [Fact]
+    [Trait("Series", "FromEpoch")]
+    public void Test_Series_FromEpoch_Throws_On_Invalid_Unit()
+    {
+        var s = Series.From("epoch", [ 1, 2, 3 ]);
+
+        var ex = Assert.Throws<ArgumentException>(() => s.FromEpoch(TimeUnit.Hour));
+        
+        Assert.Contains("must be one of", ex.Message);
+        Assert.Contains("Hour", ex.Message);
+    }
 }

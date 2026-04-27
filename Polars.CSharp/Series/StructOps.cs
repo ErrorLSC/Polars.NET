@@ -23,7 +23,7 @@ public readonly struct SeriesStructOps
     /// <summary>
     /// Retrieve a field from the struct by index.
     /// </summary>
-    public Series Field(int index) => Apply(e => e.Struct.Field(index));
+    public Series Field(long index) => Apply(e => e.Struct.Field(index));
 
     /// <summary>
     /// Rename the fields of the struct.
@@ -47,8 +47,8 @@ public readonly struct SeriesStructOps
     /// <returns></returns>
     public Series WithFields(params IntoExprColumn[] expr) => Apply(e => e.Struct.WithFields(expr));
 
-    /// <inheritdoc cref="Field(int)"/>
-    public Series this[int index] => Field(index);
+    /// <inheritdoc cref="Field(long)"/>
+    public Series this[long index] => Field(index);
 
     /// <summary>
     /// Retrieve one of the fields of this Struct as a new Series.

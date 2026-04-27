@@ -690,7 +690,39 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <param name="length"></param>
     /// <returns></returns>
     public Series NewFromIndex(long index,long length) => new(PolarsWrapper.SeriesNewFromIndex(Handle,index,length));
+    /// <summary>
+    /// Parses an integer Series into a Datetime or Date Series.
+    /// </summary>
+    public Series FromEpoch(TimeUnit timeUnit = TimeUnit.Second)
+    {
+        return timeUnit switch
+        {
+            TimeUnit.Day => 
+                this.Cast(DataType.Date),
 
+            TimeUnit.Second => 
+                (EnsureInt64(this) * FromExpr(Pl.Lit(1_000_000L))).Cast(DataType.Datetime(TimeUnit.Microseconds)),
+
+            TimeUnit.Milliseconds => 
+                (EnsureInt64(this) * FromExpr(Pl.Lit(1_000L))).Cast(DataType.Datetime(TimeUnit.Microseconds)),
+
+            TimeUnit.Microseconds => 
+                this.Cast(DataType.Datetime(TimeUnit.Microseconds)),
+
+            TimeUnit.Nanoseconds => 
+                this.Cast(DataType.Datetime(TimeUnit.Nanoseconds)),
+
+            _ => throw new ArgumentException(
+                $"`timeUnit` must be one of Nanoseconds, Microseconds, Milliseconds, Second, Day. Got: {timeUnit}")
+        };
+
+        static Series EnsureInt64(Series s)
+        {
+            return s.DataType.IsInteger && s.DataType != DataType.Int64 
+                ? s.Cast(DataType.Int64) 
+                : s;
+        }
+    }
     // ==========================================
     // Conversions
     // ==========================================

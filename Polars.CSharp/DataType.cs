@@ -211,6 +211,44 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
         DataTypeKind.Int128 or DataTypeKind.UInt128=> true,
         _ => false
     };
+    public bool IsFloat => Kind switch
+    {
+        DataTypeKind.Float16 or DataTypeKind.Float32 or DataTypeKind.Float64 => true,
+        _ => false
+    };
+    public bool IsDecimal => Kind switch
+    {
+        DataTypeKind.Decimal => true,
+        _ => false
+    };
+    public bool IsExtension => Kind switch
+    {
+        DataTypeKind.Extension => true,
+        _ => false
+    };
+    public bool IsNested => Kind switch
+    {
+        DataTypeKind.List or DataTypeKind.Array or DataTypeKind.Struct => true,
+        _ => false
+    };
+    public bool IsTemporal => Kind switch
+    {
+        DataTypeKind.Duration or DataTypeKind.Date or DataTypeKind.Datetime or
+        DataTypeKind.Time => true,
+        _ => false
+    };
+    public bool IsSignedInteger => Kind switch
+    {
+        DataTypeKind.Int8 or DataTypeKind.Int16 or DataTypeKind.Int32 or DataTypeKind.Int64
+        or DataTypeKind.Int128 => true,
+        _ => false
+    };
+    public bool IsUnsignedInteger => Kind switch
+    {
+        DataTypeKind.UInt8 or DataTypeKind.UInt16 or DataTypeKind.UInt32 or DataTypeKind.UInt64
+        or DataTypeKind.UInt128 => true,
+        _ => false
+    };
 
     // ==========================================
     // Primitive Factories (Static Properties)

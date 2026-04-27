@@ -28,6 +28,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     // Columns
     // ==========================================
     public Expr Exclude(params string[] names) => ToSelector().Exclude(names).ToExpr();
+    public Expr Exclude(params ReadOnlySpan<DataType> dtypes) => ToSelector().Exclude(dtypes).ToExpr();
 
     // ==========================================
     // Sort
