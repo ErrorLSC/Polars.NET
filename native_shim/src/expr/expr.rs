@@ -1842,7 +1842,9 @@ fn parse_quantile_method(val: u8) -> QuantileMethod {
         1 => QuantileMethod::Higher,
         2 => QuantileMethod::Lower,
         3 => QuantileMethod::Midpoint,
-        _ => QuantileMethod::Linear,
+        4 => QuantileMethod::Linear,
+        5 => QuantileMethod::Equiprobable,
+        _ => QuantileMethod::Nearest
     }
 
 }

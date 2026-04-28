@@ -189,7 +189,8 @@ public enum PlQuantileMethod : byte
     Higher = 1,
     Lower = 2,
     Midpoint = 3,
-    Linear = 4 // Default
+    Linear = 4,
+    Equiprobable =5
 }
 
 public enum PlUniqueKeepStrategy : byte

@@ -591,6 +591,38 @@ public readonly partial struct Polars
     public static Series RepeatAsSeries(IntoExpr? value,int n,DataType? dtype=null)
         => CSharp.Series.FromExpr(Repeat(value,n,dtype));
     /// <summary>
+    /// Construct a column of length n filled with zeros.
+    /// This is syntactic sugar for the repeat function.
+    /// </summary>
+    /// <param name="n">Length of the resulting column.</param>
+    /// <param name="dtype">Data type of the resulting column. Defaults to Float64.</param>
+    public static Expr Zeros(int n, DataType? dtype=null)
+        => Repeat(0,n,dtype ?? DataType.Float64);
+    /// <inheritdoc cref="Zeros"/>
+    public static Series ZerosAsSeries(int n,DataType? dtype=null)
+        => RepeatAsSeries(0,n,dtype ?? DataType.Float64);
+    /// <summary>
+    /// Construct a column of length n filled with ones.
+    /// This is syntactic sugar for the repeat function.
+    /// </summary>
+    /// <param name="n">Length of the resulting column.</param>
+    /// <param name="dtype">Data type of the resulting column. Defaults to Float64.</param>
+    public static Expr Ones(int n, DataType? dtype=null)
+        => Repeat(1,n,dtype ?? DataType.Float64);
+    /// <inheritdoc cref="Ones"/>
+    public static Series OnesAsSeries(int n,DataType? dtype=null)
+        => RepeatAsSeries(1,n,dtype ?? DataType.Float64);
+    /// <summary>
+    /// Syntactic sugar for Pl.Col("foo").Quantile(..).
+    /// </summary>
+    /// <param name="column">Column name.</param>
+    /// <param name="quantile">Quantile between 0.0 and 1.0.</param>
+    /// <param name="interpolation">Interpolation method.</param>
+    /// <returns></returns>
+    public static Expr Quantile(string column,double quantile,QuantileMethod interpolation=QuantileMethod.Nearest)
+        => Col(column).Quantile(quantile,interpolation);
+
+    /// <summary>
     /// Parses an integer column (seconds, milliseconds, etc.) into a Datetime or Date expression.
     /// </summary>
     public static Expr FromEpoch(IntoExprColumn column, TimeUnit timeUnit = TimeUnit.Second)

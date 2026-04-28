@@ -172,7 +172,8 @@ public enum QuantileMethod : byte
     Higher = 1,
     Lower = 2,
     Midpoint = 3,
-    Linear = 4 // Default
+    Linear = 4,
+    Equiprobable =5
 }
 
 public enum RankMethod : byte
@@ -715,6 +716,7 @@ internal static class EnumExtensions
         QuantileMethod.Lower => CoreEnums.PlQuantileMethod.Lower,
         QuantileMethod.Midpoint => CoreEnums.PlQuantileMethod.Midpoint,
         QuantileMethod.Linear => CoreEnums.PlQuantileMethod.Linear,  
+        QuantileMethod.Equiprobable => CoreEnums.PlQuantileMethod.Equiprobable,  
         _ => throw new ArgumentOutOfRangeException(nameof(interpol), interpol, null)
     };
     internal static CoreEnums.PlRankMethod ToNative(this RankMethod method) => method switch
