@@ -839,7 +839,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <param name="by">Numeric column that determines how often the values will be repeated. The column will be coerced to UInt32. Give this dtype to make the coercion a no-op.</param>
     /// <returns>Expression/Series of data type List, where the inner data type is equal to the original data type.</returns>
-    public Expr RepeatBy(IntoExprColumn by) => new(PolarsWrapper.ExprRepeatBy(CloneHandle(),by.Consume().Handle));
+    public Expr RepeatBy(IntoExpr by) => new(PolarsWrapper.ExprRepeatBy(CloneHandle(),by.Consume().Handle));
     // ==========================================
     // Namespaces
     // ==========================================

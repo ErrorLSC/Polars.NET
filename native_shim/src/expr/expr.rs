@@ -2406,3 +2406,18 @@ pub extern "C" fn pl_expr_inspect(
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_repeat(
+    value_ptr: *mut ExprContext,
+    n_ptr: *mut ExprContext
+) -> *mut ExprContext {
+    ffi_try!({
+        let value_ctx = unsafe { Box::from_raw(value_ptr) };
+        let n_ctx = unsafe { Box::from_raw(n_ptr) };
+        
+        let new_expr = repeat(value_ctx.inner, n_ctx.inner);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}

@@ -1797,6 +1797,8 @@ public readonly partial struct PolarsWrapper
     }
     public static ExprHandle ExprReinterpret(ExprHandle expr, bool signed)
         => UnaryBoolOp(NativeBindings.pl_expr_reinterpret,expr,signed);
+    public static ExprHandle ExprRepeat(ExprHandle value, ExprHandle n)
+        => BinaryOp(NativeBindings.pl_expr_repeat,value,n);
     public static ExprHandle ExprRepeatBy(ExprHandle expr, ExprHandle by)
         => BinaryOp(NativeBindings.pl_expr_repeat_by,expr,by);
     public static ExprHandle Cov(ExprHandle a, ExprHandle b,byte ddof)

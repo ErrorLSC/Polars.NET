@@ -3606,4 +3606,24 @@ TooShort,1990-05-20,1.60";
 
         Assert.Equal(-1.0, arrCorr[4]!.Value, precision: 5);
     }
+    [Fact]
+    [Trait("Expr", "Repeat")]
+    public void Test_Repeat_Expr_Basic_And_Null()
+    {
+        var df = new DataFrame(Pl.Series("dummy", [1]));
+
+        var result = df.Select(
+            Pl.Repeat("Polars", 3).Alias("StrCol"),
+            Pl.Repeat(null, 3, DataType.Int32).Alias("NullCol")
+        );
+
+        Assert.Equal(3u, result.Height);
+
+        Assert.Equal("Polars", (string)result[0, "StrCol"]);
+        Assert.Equal("Polars", (string)result[2, "StrCol"]);
+
+        Assert.Equal(DataType.Int32, result.Schema["NullCol"]);
+        Assert.Null(result[0, "NullCol"]);
+        Assert.Null(result[2, "NullCol"]);
+    }
 }   

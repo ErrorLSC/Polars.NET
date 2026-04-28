@@ -963,6 +963,10 @@ unsafe internal partial class NativeBindings
         ExprHandle expr,
         [MarshalAs(UnmanagedType.U1)] bool signed);
     [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_repeat(
+        ExprHandle value,
+        ExprHandle n);
+    [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_repeat_by(
         ExprHandle expr,
         ExprHandle by);

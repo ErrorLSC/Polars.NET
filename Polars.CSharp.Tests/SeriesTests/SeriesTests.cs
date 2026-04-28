@@ -2504,4 +2504,24 @@ public class SeriesTests
         Assert.Contains("must be one of", ex.Message);
         Assert.Contains("Hour", ex.Message);
     }
+    [Fact]
+    [Trait("Series", "Repeat")]
+    public void Test_Repeat_As_Series()
+    {
+
+        var s1 = Pl.RepeatAsSeries(100, 5,typeof(long));
+        Assert.Equal(5u, s1.Length);
+        Assert.Equal(100L, s1[0]);
+        Assert.Equal(100L, s1[4]);
+
+        var s2 = Pl.RepeatAsSeries(3.14, 2, DataType.Float32);
+        Assert.Equal(2u, s2.Length);
+        Assert.Equal(DataType.Float32, s2.DataType);
+        Assert.Equal(3.14f, (float)s2[0]!, precision: 5); 
+
+        var s3 = Pl.RepeatAsSeries(true, 3);
+        Assert.Equal(3u, s3.Length);
+        Assert.Equal(DataType.Boolean, s3.DataType);
+        Assert.True((bool)s3[0]!);
+    }
 }

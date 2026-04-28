@@ -554,6 +554,43 @@ public readonly partial struct Polars
     public static Expr Exclude(params ReadOnlySpan<DataType> columns)
         => All().Exclude(columns);  
     /// <summary>
+    /// Aggregate all column values into a list.
+    /// This function is syntactic sugar for Pl.Col(name).Implode().
+    /// </summary>
+    /// <param name="column">Column name</param>
+    /// <param name="maintainOrder">Whether to preserve the order of elements in the list. Setting this to False can improve performance, especially within GroupBy.</param>
+    public static Expr Implode(string column,bool maintainOrder =true)
+        => Col(column).Implode();
+    /// <summary>
+    /// Count unique values.This function is syntactic sugar for Pl.Col(columns).NUnique().
+    /// </summary>
+    /// <param name="columns">One or more column names.</param>
+    public static Expr NUnique(params string[] columns)
+        => Col(columns).NUnique();
+    /// <summary>
+    /// Get the nth column(s) of the context.
+    /// </summary>
+    /// <param name="indices">One or more indices representing the columns to retrieve.</param>
+    /// <param name="strict">By default, all specified indices must be valid; if any index is out of bounds, an error is raised. If set to False, out-of-bounds indices are ignored.</param>
+    public static Expr Nth(ReadOnlySpan<long> indices, bool strict=true)
+        => Cs.ByIndex(indices,true).ToExpr();
+    /// <summary>
+    /// Construct a column of length n filled with the given value.
+    /// </summary>
+    /// <param name="value">Value to repeat.</param>
+    /// <param name="n">Length of the resulting column.</param>
+    /// <param name="dtype">Data type of the resulting column. If set to None (default), data type is inferred from the given value. 
+    /// Defaults to Int32 for integer values, unless Int64 is required to fit the given value. Defaults to Float64 for float values.</param>
+    public static Expr Repeat(IntoExpr? value,int n,DataType? dtype=null)
+    {
+        Expr valExpr = value?.Consume() ?? LitNull();
+        var expr = new Expr(PolarsWrapper.ExprRepeat(valExpr.Handle, Lit(n).Handle));
+        return dtype is null ? expr : expr.Cast(dtype);
+    }
+    /// <inheritdoc cref="Repeat"/>
+    public static Series RepeatAsSeries(IntoExpr? value,int n,DataType? dtype=null)
+        => CSharp.Series.FromExpr(Repeat(value,n,dtype));
+    /// <summary>
     /// Parses an integer column (seconds, milliseconds, etc.) into a Datetime or Date expression.
     /// </summary>
     public static Expr FromEpoch(IntoExprColumn column, TimeUnit timeUnit = TimeUnit.Second)
