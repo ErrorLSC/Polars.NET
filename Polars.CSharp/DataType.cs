@@ -89,11 +89,27 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
 
             if (factory is not null)
             {
-                return factory(handle, storage, metadata);
+                BaseExtension.AmbientHandle.Value = handle;
+                try
+                {
+                    return factory(storage, metadata);
+                }
+                finally
+                {
+                    BaseExtension.AmbientHandle.Value = null;
+                }
             }
         }
 
-        return new UnknownExtension(handle, extName, storage, metadata);
+        BaseExtension.AmbientHandle.Value = handle;
+        try
+        {
+            return new UnknownExtension(extName, storage, metadata);
+        }
+        finally
+        {
+            BaseExtension.AmbientHandle.Value = null;
+        }
     }
     /// <summary>
     /// Return underlying Categories for categorical type, for other types returns null
@@ -648,40 +664,44 @@ public class FrozenCategories : IDisposable,IEquatable<FrozenCategories>
 
 public abstract class BaseExtension : DataType
 {
+    // 【核心机密】：用于框架内部“暗度陈仓”的通道，对外部开发者绝对隐形。
+    // 使用 AsyncLocal 确保在 Task 并发环境下绝对线程安全。
+    internal static readonly AsyncLocal<DataTypeHandle?> AmbientHandle = new();
+
     public string ExtensionName { get; }
     public DataType Storage { get; }
     public string? Metadata { get; }
 
     /// <summary>
-    /// 主动创建时使用的构造函数 (例如: 用户 new UuidExtension())
+    /// 唯一的保护构造函数！开发者自定义扩展类型时，只用调这个！
     /// </summary>
     protected BaseExtension(string name, DataType storage, string? metadata = null)
-        : base(PolarsWrapper.NewExtensionType(name, storage.Handle, metadata), DataTypeKind.Extension)
+        : base(ResolveHandle(name, storage, metadata), DataTypeKind.Extension)
     {
         ExtensionName = name;
         Storage = storage;
         Metadata = metadata;
     }
 
-    /// <summary>
-    /// 从底层反序列化时使用的构造函数 (零分配，直接包裹现有句柄)
-    /// </summary>
-    protected BaseExtension(DataTypeHandle existingHandle, string name, DataType storage, string? metadata = null)
-        : base(existingHandle, DataTypeKind.Extension)
+    // 在调用 base(handle) 之前，静态拦截并决定 Handle 的来源
+    private static DataTypeHandle ResolveHandle(string name, DataType storage, string? metadata)
     {
-        ExtensionName = name;
-        Storage = storage;
-        Metadata = metadata;
+        // 1. 检查是否有框架层“偷渡”过来的现成 Handle (Schema 反序列化场景)
+        if (AmbientHandle.Value is { } existingHandle)
+        {
+            AmbientHandle.Value = null; // 阅后即焚，防止污染后续的 new 操作
+            return existingHandle;
+        }
+
+        // 2. 如果没有，说明是开发者主动 new 的，直接调用底层 FFI 创建全新类型
+        return PolarsWrapper.NewExtensionType(name, storage.Handle, metadata);
     }
 }
 
-/// <summary>
-/// 兜底类：当 Rust 传回一个 C# 未注册的 Extension 时，安全地包裹它。
-/// </summary>
 public sealed class UnknownExtension : BaseExtension
 {
-    internal UnknownExtension(DataTypeHandle handle, string name, DataType storage, string? metadata) 
-        : base(handle, name, storage, metadata)
+    internal UnknownExtension(string name, DataType storage, string? metadata) 
+        : base(name, storage, metadata)
     {
     }
 }
@@ -690,7 +710,7 @@ public sealed class UnknownExtension : BaseExtension
 /// 扩展类型反序列化工厂。
 /// 传入底层的句柄、存储类型和元数据，返回强类型的 BaseExtension 实例。
 /// </summary>
-public delegate BaseExtension ExtensionFactory(DataTypeHandle handle, DataType storage, string? metadata);
+public delegate BaseExtension ExtensionFactory(DataType storage, string? metadata);
 
 public static class ExtensionRegistry
 {

@@ -1137,12 +1137,7 @@ public class DataTypeTests
     }
     public sealed class UuidExtension : BaseExtension
     {
-        // 给用户主动 new 用的
         public UuidExtension() : base("myapp.uuid", DataType.Binary) { }
-
-        // 给框架反序列化用的 (internal，零分配)
-        internal UuidExtension(DataTypeHandle handle, DataType storage, string metadata) 
-            : base(handle, "myapp.uuid", storage, metadata) { }
     }
 
     [Fact]
@@ -1151,7 +1146,7 @@ public class DataTypeTests
     {
         ExtensionRegistry.RegisterExtensionType<UuidExtension>(
             "myapp.uuid", 
-            (handle, storage, metadata) => new UuidExtension(handle, storage, metadata)
+            (storage, metadata) => new UuidExtension()
         );
 
         ExtensionRegistry.RegisterExtensionTypeAsStorage("myapp.transparent");
