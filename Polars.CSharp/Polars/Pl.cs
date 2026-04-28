@@ -275,7 +275,7 @@ public readonly partial struct Polars
     /// <example>
     /// <code>
     /// // 1. Combine Columns
-    /// df.Select(Polars.Combine(Col("date_col"), Col("time_col")));
+    /// df.Select(Pl.Combine(Pl.Col("date_col"), Pl.Col("time_col")));
     /// 
     /// // 2. Combine Arrays (Literals)
     /// var dates = new[] { new DateOnly(2024, 1, 1), new DateOnly(2024, 1, 2) };
@@ -528,21 +528,6 @@ public readonly partial struct Polars
         return new(PolarsWrapper.RollingCov(a.Consume().Handle,b.Consume().Handle,windowSize,minSam,ddof));
     }
     /// <summary>
-    /// Return the cumulative count of the non-null values in the column.This function is syntactic sugar for Col(column).CumCount().
-    /// </summary>
-    /// <param name="column">Name of the columns to use.</param>
-    /// <param name="reverse">reverse the operation</param>
-    /// <returns></returns>
-    public static Expr CumCount(string column,bool reverse=false)
-        => Col(column).CumCount(reverse);
-    /// <summary>
-    /// Cumulatively sum all values.
-    /// Syntactic sugar for Col(names).CumSum().
-    /// </summary>
-    /// <param name="columns">Name(s) of the columns to use in the aggregation.</param>
-    public static Expr CumSum(params string[] columns)
-        => Col(columns).CumSum();
-    /// <summary>
     /// Represent all columns except for the given columns.
     /// Syntactic sugar for Pl.All().Exclude(columns).
     /// </summary>
@@ -561,12 +546,7 @@ public readonly partial struct Polars
     /// <param name="maintainOrder">Whether to preserve the order of elements in the list. Setting this to False can improve performance, especially within GroupBy.</param>
     public static Expr Implode(string column,bool maintainOrder =true)
         => Col(column).Implode();
-    /// <summary>
-    /// Count unique values.This function is syntactic sugar for Pl.Col(columns).NUnique().
-    /// </summary>
-    /// <param name="columns">One or more column names.</param>
-    public static Expr NUnique(params string[] columns)
-        => Col(columns).NUnique();
+
     /// <summary>
     /// Get the nth column(s) of the context.
     /// </summary>
@@ -612,16 +592,6 @@ public readonly partial struct Polars
     /// <inheritdoc cref="Ones"/>
     public static Series OnesAsSeries(int n,DataType? dtype=null)
         => RepeatAsSeries(1,n,dtype ?? DataType.Float64);
-    /// <summary>
-    /// Syntactic sugar for Pl.Col("foo").Quantile(..).
-    /// </summary>
-    /// <param name="column">Column name.</param>
-    /// <param name="quantile">Quantile between 0.0 and 1.0.</param>
-    /// <param name="interpolation">Interpolation method.</param>
-    /// <returns></returns>
-    public static Expr Quantile(string column,double quantile,QuantileMethod interpolation=QuantileMethod.Nearest)
-        => Col(column).Quantile(quantile,interpolation);
-
     /// <summary>
     /// Parses an integer column (seconds, milliseconds, etc.) into a Datetime or Date expression.
     /// </summary>
@@ -818,6 +788,16 @@ public readonly partial struct Polars
         
         return await CollectAllAsync(alignedLazy).ConfigureAwait(false);
     }
+    /// <summary>
+    /// Run polars expressions without a context.
+    /// This is syntactic sugar for running df.select on an empty DataFrame (or LazyFrame if eager=False).
+    /// </summary>
+    /// <param name="exprs">Column(s) to select, specified as positional arguments. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
+    public static LazyFrame Select(params IntoExprColumn[] exprs)
+        => new DataFrame().Lazy().Select(exprs);
+    /// <inheritdoc cref="Select(IntoExprColumn[])"/> 
+    public static DataFrame SelectEager(params IntoExprColumn[] exprs)
+        => new DataFrame().Select(exprs);
 }
 
 internal static class InterfaceUnwrapperExtensions

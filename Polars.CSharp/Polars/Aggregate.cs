@@ -253,6 +253,18 @@ public readonly partial struct Polars
         return new Expr(PolarsWrapper.ExprMeanHorizontal(handles, ignoreNulls));
     }
     /// <summary>
+    /// Get the median value.This function is syntactic sugar for Pl.Col(columns).Median().
+    /// </summary>
+    /// <param name="names">One or more column names.</param>
+    /// <returns></returns>
+    /// <exception cref="ArgumentException"></exception>
+    public static Expr Median(params string[] names)
+    {
+        if (names is null || names.Length == 0)
+            throw new ArgumentException("Please at least input one column", nameof(names));
+        return Col(names).Median();
+    }
+    /// <summary>
     /// Return the number of non-null values in the column.
     /// </summary>
     /// <param name="names"></param>
@@ -263,6 +275,36 @@ public readonly partial struct Polars
             throw new ArgumentException("Please at least input one column", nameof(names));
         return Col(names).Count();
     }
+    /// <summary>
+    /// Cumulatively sum all values.
+    /// Syntactic sugar for Col(names).CumSum().
+    /// </summary>
+    /// <param name="columns">Name(s) of the columns to use in the aggregation.</param>
+    public static Expr CumSum(params string[] columns)
+        => Col(columns).CumSum();
+    /// <summary>
+    /// Return the cumulative count of the non-null values in the column.This function is syntactic sugar for Col(column).CumCount().
+    /// </summary>
+    /// <param name="column">Name of the columns to use.</param>
+    /// <param name="reverse">reverse the operation</param>
+    /// <returns></returns>
+    public static Expr CumCount(string column,bool reverse=false)
+        => Col(column).CumCount(reverse);
+    /// <summary>
+    /// Count unique values.This function is syntactic sugar for Pl.Col(columns).NUnique().
+    /// </summary>
+    /// <param name="columns">One or more column names.</param>
+    public static Expr NUnique(params string[] columns)
+        => Col(columns).NUnique();
+    /// <summary>
+    /// Syntactic sugar for Pl.Col("foo").Quantile(..).
+    /// </summary>
+    /// <param name="column">Column name.</param>
+    /// <param name="quantile">Quantile between 0.0 and 1.0.</param>
+    /// <param name="interpolation">Interpolation method.</param>
+    /// <returns></returns>
+    public static Expr Quantile(string column,double quantile,QuantileMethod interpolation=QuantileMethod.Nearest)
+        => Col(column).Quantile(quantile,interpolation);
     /// <summary>
     /// Get the first column or value.
     /// </summary>
@@ -285,4 +327,18 @@ public readonly partial struct Polars
             return Cs.Last().ToExpr();
         else return Col(columns).Last();
     }
+    /// <summary>
+    /// Get the standard deviation.
+    /// This function is syntactic sugar for Pl.Col(column).Std(ddof).
+    /// </summary>
+    /// <param name="column">Column name.</param>
+    /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
+    public static Expr Std(string column, byte ddof=1) => Col(column).Std(ddof);
+    /// <summary>
+    /// Get the variance.
+    /// This function is syntactic sugar for Pl.Col(column).Var(ddof).
+    /// </summary>
+    /// <param name="column">Column name.</param>
+    /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
+    public static Expr Var(string column, byte ddof=1) => Col(column).Var(ddof);
 }
