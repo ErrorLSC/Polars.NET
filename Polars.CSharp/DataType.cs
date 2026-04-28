@@ -662,38 +662,22 @@ public class FrozenCategories : IDisposable,IEquatable<FrozenCategories>
     }
 }
 
-public abstract class BaseExtension : DataType
+public abstract class BaseExtension(string name, DataType storage, string? metadata = null) : DataType(ResolveHandle(name, storage, metadata), DataTypeKind.Extension)
 {
-    // 【核心机密】：用于框架内部“暗度陈仓”的通道，对外部开发者绝对隐形。
-    // 使用 AsyncLocal 确保在 Task 并发环境下绝对线程安全。
     internal static readonly AsyncLocal<DataTypeHandle?> AmbientHandle = new();
 
-    public string ExtensionName { get; }
-    public DataType Storage { get; }
-    public string? Metadata { get; }
+    public string ExtensionName { get; } = name;
+    public DataType Storage { get; } = storage;
+    public string? Metadata { get; } = metadata;
 
-    /// <summary>
-    /// 唯一的保护构造函数！开发者自定义扩展类型时，只用调这个！
-    /// </summary>
-    protected BaseExtension(string name, DataType storage, string? metadata = null)
-        : base(ResolveHandle(name, storage, metadata), DataTypeKind.Extension)
-    {
-        ExtensionName = name;
-        Storage = storage;
-        Metadata = metadata;
-    }
-
-    // 在调用 base(handle) 之前，静态拦截并决定 Handle 的来源
     private static DataTypeHandle ResolveHandle(string name, DataType storage, string? metadata)
     {
-        // 1. 检查是否有框架层“偷渡”过来的现成 Handle (Schema 反序列化场景)
         if (AmbientHandle.Value is { } existingHandle)
         {
-            AmbientHandle.Value = null; // 阅后即焚，防止污染后续的 new 操作
+            AmbientHandle.Value = null;
             return existingHandle;
         }
 
-        // 2. 如果没有，说明是开发者主动 new 的，直接调用底层 FFI 创建全新类型
         return PolarsWrapper.NewExtensionType(name, storage.Handle, metadata);
     }
 }
@@ -706,20 +690,12 @@ public sealed class UnknownExtension : BaseExtension
     }
 }
 
-/// <summary>
-/// 扩展类型反序列化工厂。
-/// 传入底层的句柄、存储类型和元数据，返回强类型的 BaseExtension 实例。
-/// </summary>
 public delegate BaseExtension ExtensionFactory(DataType storage, string? metadata);
 
 public static class ExtensionRegistry
 {
-    // value 为 null 代表 AsStorage
     private static readonly ConcurrentDictionary<string, ExtensionFactory?> _registry = new();
 
-    /// <summary>
-    /// 注册自定义的扩展类型及其反序列化工厂
-    /// </summary>
     public static void RegisterExtensionType<T>(string extName, ExtensionFactory factory) where T : BaseExtension
     {
         if (!_registry.TryAdd(extName, factory))
@@ -728,9 +704,6 @@ public static class ExtensionRegistry
         }
     }
 
-    /// <summary>
-    /// 注册一个仅作为底层 Storage 传递的扩展类型
-    /// </summary>
     public static void RegisterExtensionTypeAsStorage(string extName)
     {
         if (!_registry.TryAdd(extName, null))
