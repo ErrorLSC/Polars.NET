@@ -154,6 +154,13 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] bool useStreaming
     );
     [LibraryImport(LibName)]
+    internal static partial int pl_lazy_collect_all(
+        nint[] lfsPtr,
+        nuint lfsLen,
+        nint[] outDfsPtr, 
+        PlEngine engine
+    );
+    [LibraryImport(LibName)]
     public static partial LazyFrameHandle pl_lazy_clone(LazyFrameHandle lf);
 
     [LibraryImport(LibName)] public static partial LazyFrameHandle pl_lazy_with_columns(LazyFrameHandle lf, IntPtr[] exprs, UIntPtr len);

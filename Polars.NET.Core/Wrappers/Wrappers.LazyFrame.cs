@@ -30,6 +30,33 @@ public readonly partial struct PolarsWrapper
         lf.TransferOwnership();
         return ErrorHelper.Check(df);
     }
+    public static DataFrameHandle[] LazyCollectAll(LazyFrameHandle[] lfs, PlEngine engine)
+    {
+        if (lfs == null || lfs.Length == 0) return [];
+
+        var inPtrs = HandlesToPtrs(lfs)!; 
+        
+        var outPtrs = new nint[lfs.Length];
+
+        int status = NativeBindings.pl_lazy_collect_all(
+            inPtrs, 
+            (nuint)lfs.Length, 
+            outPtrs, 
+            engine
+        );
+
+        ErrorHelper.CheckStatus(status); 
+
+        var result = new DataFrameHandle[lfs.Length];
+        for (int i = 0; i < lfs.Length; i++)
+        {
+            result[i] = new DataFrameHandle(outPtrs[i]);
+        }
+
+        return result;
+    }
+    public static Task<DataFrameHandle[]> LazyCollectAllAsync(LazyFrameHandle[] lfs, PlEngine engine)
+        => Task.Run(() => LazyCollectAll(lfs, engine));
     public static LazyFrameHandle LazyFilter(LazyFrameHandle lf, ExprHandle expr)
     {
         var h = NativeBindings.pl_lazy_filter(lf, expr);

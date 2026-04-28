@@ -598,6 +598,157 @@ public readonly partial struct Polars
     /// <param name="n">Number of rows to return</param>
     public static Expr Tail(string column, int n=10)
         => Col(column).Tail(n);
+    /// <summary>
+    /// Collect multiple LazyFrames concurrently.
+    /// </summary>
+    public static DataFrame[] CollectAll(IEnumerable<LazyFrame> frames, Engine engine = Engine.Auto)
+    {
+        var lfs = frames.ToArray();
+        if (lfs.Length == 0) return [];
+
+        var handles = System.Array.ConvertAll(lfs, lf => lf.Handle);
+
+        var dfHandles = PolarsWrapper.LazyCollectAll(handles, engine.ToNative());
+
+        var dfs = new DataFrame[dfHandles.Length];
+        for (int i = 0; i < dfHandles.Length; i++)
+        {
+            dfs[i] = new DataFrame(dfHandles[i]);
+        }
+
+        return dfs;
+    }
+    /// <summary>
+    /// Collect multiple LazyFrames concurrently and asynchronously.
+    /// </summary>
+    public static async Task<DataFrame[]> CollectAllAsync(IEnumerable<LazyFrame> frames, Engine engine = Engine.Auto)
+    {
+        var lfs = frames.ToArray();
+        if (lfs.Length == 0) return [];
+
+        var handles = System.Array.ConvertAll(lfs, lf => lf.Handle);
+
+        var dfHandles = await PolarsWrapper.LazyCollectAllAsync(handles, engine.ToNative()).ConfigureAwait(false);
+
+        var dfs = new DataFrame[dfHandles.Length];
+        for (int i = 0; i < dfHandles.Length; i++)
+        {
+            dfs[i] = new DataFrame(dfHandles[i]);
+        }
+
+        return dfs;
+    }
+    /// <summary>
+    /// Align a sequence of frames using common values from one or more columns as a key.
+    /// <para>Frames that do not contain the given key values have rows injected (with nulls filling the non-key columns), and each resulting frame is sorted by the key.</para>
+    /// <para>The original column order of input frames is not changed unless select is specified (in which case the final column order is determined from that). 
+    /// In the case where duplicate key values exist, the alignment behaviour is determined by the given alignment strategy specified in the how parameter 
+    /// (by default this is a full outer join, but if your data is suitable you can get a large speedup by setting how="left" instead).</para>
+    /// <para>Note that this function does not result in a joined frame - 
+    /// you receive the same number of frames back that you passed in, but each is now aligned by key and has the same number of rows.</para>
+    /// </summary>
+    /// <param name="frames">Sequence of DataFrames or LazyFrames.</param>
+    /// <param name="on">One or more columns whose unique values will be used to align the frames.</param>
+    /// <param name="how">By default the row alignment values are determined using a full outer join strategy across all frames; 
+    /// if you know that the first frame contains all required keys, you can set how=left for a large performance increase.</param>
+    /// <param name="select">Optional post-alignment column select to constrain and/or order the columns returned from the newly aligned frames.</param>
+    /// <param name="descending">Sort the alignment column values in descending order; can be a single boolean or a list of booleans associated with each column in on.</param>
+    public static LazyFrame[] AlignFrames(
+        IEnumerable<LazyFrame> frames,
+        IEnumerable<IntoExprColumn> on,
+        JoinType how = JoinType.Outer,
+        IEnumerable<IntoExprColumn>? select = null,
+        bool descending = false)
+    {
+        LazyFrame[] lfs = [.. frames];
+        if (lfs.Length == 0) return [];
+        if (lfs.Length == 1) return lfs;
+
+        Expr[] baseAlignExprs = [.. on.Select(c => c.Consume())];
+        
+        Expr[]? baseSelectExprs = select?.Select(c => c.Consume()).ToArray();
+
+        var idxFrames = lfs.Select((lf, i) => (Index: i, Frame: lf)).ToArray();
+
+        var joinedFrame = idxFrames[1..].Aggregate(
+            seed: idxFrames[0].Frame,
+            func: (accFrame, curr) => accFrame.Join(
+                curr.Frame,
+                on: [.. baseAlignExprs.Select(e => (IntoExprColumn)e.Clone())],
+                how: how,
+                suffix: $":{curr.Index}",
+                nullsEqual: true,
+                coalesce: JoinCoalesce.CoalesceColumns 
+            )
+        );
+
+        joinedFrame = joinedFrame.Sort(
+            by: [.. baseAlignExprs.Select(e => (IntoSelector)e.Clone())], 
+            descending: [descending],
+            nullsLast: null,
+            maintainOrder: true
+        );
+
+        var masterSchemaCols = joinedFrame.CollectSchema().Names.ToHashSet();
+
+        LazyFrame[] alignedFrames = new LazyFrame[lfs.Length];
+        
+        for (int i = 0; i < lfs.Length; i++)
+        {
+            var lf = lfs[i];
+            string sfx = $":{i}";
+            List<Expr> componentCols = []; 
+
+            var currentNames = lf.CollectSchema().Names;
+            
+            foreach (var colName in currentNames)
+            {
+                string suffixedCol = $"{colName}{sfx}";
+                
+                componentCols.Add(masterSchemaCols.Contains(suffixedCol)
+                    ? Col(suffixedCol).Alias(colName)
+                    : Col(colName));
+            }
+
+            var alignedLf = joinedFrame.Select(componentCols);
+            
+            if (baseSelectExprs is { Length: > 0 })
+                {
+                    alignedLf = alignedLf.Select([.. baseSelectExprs.Select(e => (IntoExprColumn)e.Clone())]);
+                }
+            
+            alignedFrames[i] = alignedLf;
+        }
+
+        return alignedFrames;
+    }
+
+    /// <inheritdoc cref="Polars.AlignFrames(IEnumerable{LazyFrame}, IEnumerable{IntoExprColumn}, JoinType, IEnumerable{IntoExprColumn}?, bool)"/>
+    public static DataFrame[] AlignFrames(
+        IEnumerable<DataFrame> frames,
+        IEnumerable<IntoExprColumn> on,
+        JoinType how = JoinType.Outer,
+        IEnumerable<IntoExprColumn>? select = null,
+        bool descending = false)
+    {
+        LazyFrame[] lazyFrames = [.. frames.Select(f => f.Lazy())];
+        var alignedLazy = AlignFrames(lazyFrames, on, how, select, descending);
+        
+        return CollectAll(alignedLazy);
+    }
+    /// <inheritdoc cref="Polars.AlignFrames(IEnumerable{LazyFrame}, IEnumerable{IntoExprColumn}, JoinType, IEnumerable{IntoExprColumn}?, bool)"/>
+    public static async Task<DataFrame[]> AlignFramesAsync(
+        IEnumerable<DataFrame> frames,
+        IEnumerable<IntoExprColumn> on,
+        JoinType how = JoinType.Outer,
+        IEnumerable<IntoExprColumn>? select = null,
+        bool descending = false)
+    {
+        LazyFrame[] lazyFrames = [.. frames.Select(f => f.Lazy())];
+        var alignedLazy = AlignFrames(lazyFrames, on, how, select, descending);
+        
+        return await CollectAllAsync(alignedLazy).ConfigureAwait(false);
+    }
 }
 
 internal static class InterfaceUnwrapperExtensions

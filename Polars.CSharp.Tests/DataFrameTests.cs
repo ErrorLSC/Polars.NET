@@ -2398,4 +2398,89 @@ B,5";
         Assert.Equal(0, idArray[0]);
         Assert.Equal(9, idArray[^1]);
     }
+    [Fact]
+    [Trait("DataFrame", "AlignFrames")]
+    public void Test_AlignFrames_OuterJoin_And_Null_Padding()
+    {
+        var df1 = DataFrame.FromColumns(new 
+        { 
+            Time = (int[])[1, 2, 3], 
+            ValA = (double[])[1.1, 2.2, 3.3] 
+        });
+        var df2 = DataFrame.FromColumns(new 
+        { 
+            Time = (int[])[2, 3, 4], 
+            ValB = (double[])[20.0, 30.0, 40.0] 
+        });
+        var df3 = DataFrame.FromColumns(new 
+        { 
+            Time = (int[])[1, 3, 5], 
+            ValC = (double[])[100.0, 300.0, 500.0] 
+        });
+
+        DataFrame[] aligned = Pl.AlignFrames(
+            frames: [df1, df2, df3], 
+            on: ["Time"], 
+            how: JoinType.Outer 
+        );
+
+        Assert.Equal(3, aligned.Length);
+        foreach (var df in aligned)
+        {
+            Assert.Equal(5u, df.Height);
+            
+            Assert.Equal(1, df[0, "Time"]);
+            Assert.Equal(5, df[4, "Time"]);
+        }
+
+        Assert.Null(aligned[0][3, "ValA"]); 
+        Assert.Null(aligned[0][4, "ValA"]); // Time = 5
+
+        Assert.Null(aligned[1][0, "ValB"]); 
+        Assert.Equal(20.0, aligned[1][1, "ValB"]); 
+    }
+
+    [Fact]
+    [Trait("DataFrame", "AlignFrames")]
+    public void Test_AlignFrames_Name_Collision_Resolution()
+    {
+        var df1 = DataFrame.FromColumns(new { Id = (int[])[1, 2], Price = (int[])[10, 20] });
+        var df2 = DataFrame.FromColumns(new { Id = (int[])[2, 3], Price = (int[])[200, 300] });
+        var df3 = DataFrame.FromColumns(new { Id = (int[])[3, 4], Price = (int[])[3000, 4000] }); 
+
+        var aligned = Pl.AlignFrames(
+            frames: [df1, df2, df3], 
+            on: ["Id"], 
+            how: JoinType.Outer
+        );
+
+        Assert.Equal(["Id", "Price"], aligned[0].Columns);
+        Assert.Equal(["Id", "Price"], aligned[1].Columns);
+        Assert.Equal(["Id", "Price"], aligned[2].Columns);
+
+        Assert.Equal(20, aligned[0][1, "Price"]); 
+        Assert.Equal(200, aligned[1][1, "Price"]); 
+    }
+
+    [Fact]
+    [Trait("DataFrame", "AlignFramesAsync")]
+    public async Task Test_AlignFramesAsync_With_Select_Projection()
+    {
+        var df1 = DataFrame.FromColumns(new { Date = (string[])["2023"], Open = (int[])[10], Close = (int[])[15] });
+        var df2 = DataFrame.FromColumns(new { Date = (string[])["2023"], Open = (int[])[20], Close = (int[])[25] });
+
+        DataFrame[] aligned = await Pl.AlignFramesAsync(
+            frames: [df1, df2], 
+            on: ["Date"], 
+            select: ["Date", "Close"]
+        );
+
+        Assert.Equal(2, aligned.Length);
+
+        Assert.Equal(["Date", "Close"], aligned[0].Columns);
+        Assert.Equal(["Date", "Close"], aligned[1].Columns);
+
+        Assert.Equal(15, aligned[0][0, "Close"]);
+        Assert.Equal(25, aligned[1][0, "Close"]);
+    }
 }

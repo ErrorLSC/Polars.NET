@@ -1191,4 +1191,65 @@ David,40,80000";
         using var resultDf = optimizedLf.Collect();
         Assert.Equal(2, resultDf.Height);
     }
+    [Fact]
+    [Trait("LazyFrame", "CollectAll")]
+    public void Test_LazyFrame_CollectAll_Synchronous()
+    {
+        // 1. 构造基础数据
+        var df1 = DataFrame.FromColumns(new { A = (int[])[1, 2, 3, 4, 5] });
+        var df2 = DataFrame.FromColumns(new { B = (string[])["x", "y", "z"] });
+        var df3 = DataFrame.FromColumns(new { C = (double[])[1.1, 2.2, 3.3] });
+
+        var lf1 = df1.Lazy()
+            .Filter(Pl.Col("A") >= 3)
+            .Select(Pl.Col("A") * Pl.Lit(10));
+            
+        var lf2 = df2.Lazy()
+            .Filter(Pl.Col("B") == Pl.Lit("y"));
+            
+        var lf3 = df3.Lazy()
+            .Select(Pl.Col("C").Sum().Alias("Sum_C"));
+
+        DataFrame[] results = Pl.CollectAll([lf1, lf2, lf3]);
+
+        Assert.Equal(3, results.Length);
+
+        Assert.Equal(3u, results[0].Height);
+        Assert.Equal(30, results[0][0, "A"]); 
+        Assert.Equal(50, results[0][2, "A"]);
+
+        Assert.Equal(1u, results[1].Height);
+        Assert.Equal("y", (string)results[1][0, "B"]);
+
+        Assert.Equal(1u, results[2].Height);
+        Assert.Equal(6.6, (double)results[2][0, "Sum_C"], precision: 5);
+    }
+
+    [Fact]
+    [Trait("LazyFrame", "CollectAllAsync")]
+    public async Task Test_LazyFrame_CollectAll_Asynchronous()
+    {
+        var df1 = DataFrame.FromColumns(new { Group = (string[])["A", "A", "B"], Val = (int[])[10, 20, 30] });
+        var df2 = DataFrame.FromColumns(new { Id = (int[])[1, 2], Score = (int[])[100, 200] });
+
+        var lf1 = df1.Lazy()
+            .GroupBy("Group")
+            .Agg(Pl.Col("Val").Sum().Alias("TotalVal"))
+            .Sort("Group");
+
+        var lf2 = df2.Lazy()
+            .Select(Pl.Col("Score").Max().Alias("MaxScore"));
+
+        DataFrame[] results = await Pl.CollectAllAsync([lf1, lf2]);
+
+        Assert.Equal(2, results.Length);
+
+        Assert.Equal(2u, results[0].Height);
+        Assert.Equal("A", (string)results[0][0, "Group"]);
+        Assert.Equal(30, results[0][0, "TotalVal"]); 
+        Assert.Equal(30, results[0][1, "TotalVal"]); 
+
+        Assert.Equal(1u, results[1].Height);
+        Assert.Equal(200, results[1][0, "MaxScore"]);
+    }
 }

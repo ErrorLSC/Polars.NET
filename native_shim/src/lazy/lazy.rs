@@ -1,4 +1,4 @@
-use std::ffi::{CStr, c_char};
+use std::ffi::{CStr, c_char, c_int};
 use polars::prelude::*;
 use crate::{types::*, utils::parse_closed_window};
 use polars::lazy::dsl::UnpivotArgsDSL;
@@ -481,6 +481,42 @@ pub extern "C" fn pl_lazy_collect(
         let df = lf.collect_with_engine(engine)?;
 
         Ok(Box::into_raw(Box::new(DataFrameContext { df })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazy_collect_all(
+    lfs_ptr: *const *mut LazyFrameContext, 
+    lfs_len: usize,                        
+    out_dfs_ptr: *mut *mut DataFrameContext, 
+    engine_code: u8,
+) -> c_int {               
+    ffi_try_c_int!({
+        let ptrs = unsafe { std::slice::from_raw_parts(lfs_ptr, lfs_len) };
+        let mut plans = Vec::with_capacity(lfs_len);
+        
+        for &ptr in ptrs {
+            let lf_ctx = unsafe { Box::from_raw(ptr) };
+            
+            let lf = lf_ctx.inner.with_new_streaming(true);
+            plans.push(lf.logical_plan);
+        }
+
+        let engine = match engine_code {
+            1 => Engine::InMemory,
+            2 => Engine::Streaming,
+            3 => Engine::Gpu,
+            _ => Engine::Auto,
+        };
+
+        let dfs = LazyFrame::collect_all_with_engine(plans, engine, OptFlags::default())?;
+
+        let out_slice = unsafe { std::slice::from_raw_parts_mut(out_dfs_ptr, lfs_len) };
+        for (i, df) in dfs.into_iter().enumerate() {
+            out_slice[i] = Box::into_raw(Box::new(DataFrameContext { df }));
+        }
+
+        Ok(0)
     })
 }
 // ==========================================
