@@ -55,8 +55,27 @@ public readonly partial struct PolarsWrapper
 
         return result;
     }
+
     public static Task<DataFrameHandle[]> LazyCollectAllAsync(LazyFrameHandle[] lfs, PlEngine engine)
         => Task.Run(() => LazyCollectAll(lfs, engine));
+    public static string LazyExplainAll(LazyFrameHandle[] lfs)
+    {
+        if (lfs == null || lfs.Length == 0) return "";
+
+        var inPtrs = HandlesToPtrs(lfs)!; 
+        
+        var outPtrs = new nint[lfs.Length];
+
+        int status = NativeBindings.pl_lazy_explain_all(
+            inPtrs, 
+            (nuint)lfs.Length, 
+            out nint plan 
+        );
+
+        ErrorHelper.CheckStatus(status); 
+
+        return ErrorHelper.CheckString(plan);
+    }
     public static LazyFrameHandle LazyFilter(LazyFrameHandle lf, ExprHandle expr)
     {
         var h = NativeBindings.pl_lazy_filter(lf, expr);

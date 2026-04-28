@@ -163,7 +163,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
         {
             var handle = PolarsWrapper.GetSeriesDataType(Handle);
             
-            return new DataType(handle);
+            return DataType.CreateFromHandle(handle);
         }
     }
     IPolarsDataType IPolarsSeries.DataType => DataType;

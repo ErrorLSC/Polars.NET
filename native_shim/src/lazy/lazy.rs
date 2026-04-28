@@ -1,4 +1,4 @@
-use std::ffi::{CStr, c_char, c_int};
+use std::ffi::{CStr, CString, c_char, c_int};
 use polars::prelude::*;
 use crate::{types::*, utils::parse_closed_window};
 use polars::lazy::dsl::UnpivotArgsDSL;
@@ -519,6 +519,41 @@ pub extern "C" fn pl_lazy_collect_all(
         Ok(0)
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazy_explain_all(
+    lfs_ptr: *const *mut LazyFrameContext, 
+    lfs_len: usize,
+    out_str: *mut *mut c_char,
+) -> c_int {
+    ffi_try_c_int!({
+        unsafe { *out_str = std::ptr::null_mut() };
+        if lfs_len == 0 {
+            unsafe { *out_str = CString::new("").unwrap().into_raw() };
+            return Ok(0);
+        }
+
+        let lfs = unsafe { std::slice::from_raw_parts(lfs_ptr, lfs_len) };
+        let mut plans = Vec::with_capacity(lfs_len);
+        let opt_state = OptFlags::default();
+
+        for (_i,&lf_ptr) in lfs.iter().enumerate() {
+            let lf = unsafe { Box::from_raw(lf_ptr) }.inner;
+            
+            plans.push(lf.logical_plan);
+        }
+
+        let explained = LazyFrame::explain_all(plans, opt_state)
+            .map_err(|e| PolarsError::ComputeError(format!("explain_all failed: {}", e).into()))?;
+
+        let c_str = CString::new(explained)
+            .map_err(|e| PolarsError::ComputeError(format!("Invalid UTF-8: {}", e).into()))?;
+            
+        unsafe { *out_str = c_str.into_raw() };
+        Ok(0)
+    })
+}
+
 // ==========================================
 // Unpivot
 // ==========================================

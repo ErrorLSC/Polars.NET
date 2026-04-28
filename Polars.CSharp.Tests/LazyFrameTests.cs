@@ -1209,7 +1209,7 @@ David,40,80000";
             
         var lf3 = df3.Lazy()
             .Select(Pl.Col("C").Sum().Alias("Sum_C"));
-
+        Console.WriteLine(Pl.ExplainAll([lf1,lf2,lf3]));
         DataFrame[] results = Pl.CollectAll([lf1, lf2, lf3]);
 
         Assert.Equal(3, results.Length);

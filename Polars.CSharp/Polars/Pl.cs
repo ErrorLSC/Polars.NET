@@ -762,7 +762,7 @@ public readonly partial struct Polars
         return alignedFrames;
     }
 
-    /// <inheritdoc cref="Polars.AlignFrames(IEnumerable{LazyFrame}, IEnumerable{IntoExprColumn}, JoinType, IEnumerable{IntoExprColumn}?, bool)"/>
+    /// <inheritdoc cref="AlignFrames(IEnumerable{LazyFrame}, IEnumerable{IntoExprColumn}, JoinType, IEnumerable{IntoExprColumn}?, bool)"/>
     public static DataFrame[] AlignFrames(
         IEnumerable<DataFrame> frames,
         IEnumerable<IntoExprColumn> on,
@@ -775,9 +775,9 @@ public readonly partial struct Polars
         
         return CollectAll(alignedLazy);
     }
-    /// <inheritdoc cref="Polars.AlignFrames(IEnumerable{LazyFrame}, IEnumerable{IntoExprColumn}, JoinType, IEnumerable{IntoExprColumn}?, bool)"/>
+    /// <inheritdoc cref="AlignFrames(IEnumerable{LazyFrame}, IEnumerable{IntoExprColumn}, JoinType, IEnumerable{IntoExprColumn}?, bool)"/>
     public static async Task<DataFrame[]> AlignFramesAsync(
-        IEnumerable<DataFrame> frames,
+        IEnumerable<DataFrame> frames, 
         IEnumerable<IntoExprColumn> on,
         JoinType how = JoinType.Outer,
         IEnumerable<IntoExprColumn>? select = null,
@@ -787,6 +787,17 @@ public readonly partial struct Polars
         var alignedLazy = AlignFrames(lazyFrames, on, how, select, descending);
         
         return await CollectAllAsync(alignedLazy).ConfigureAwait(false);
+    }
+    /// <summary>
+    /// Explain multiple LazyFrames as if passed to collect_all.
+    /// Common Subplan Elimination is applied on the combined plan, meaning that diverging queries will run only once.
+    /// </summary>
+    /// <param name="lazyFrames">A list of LazyFrames to collect.</param>
+    /// <returns>Explained plan.</returns>
+    public static string ExplainAll(IEnumerable<LazyFrame> lazyFrames)
+    {
+        LazyFrameHandle[] frames = [.. lazyFrames.Select(e => e.CloneHandle())];
+        return PolarsWrapper.LazyExplainAll(frames);
     }
     /// <summary>
     /// Run polars expressions without a context.
