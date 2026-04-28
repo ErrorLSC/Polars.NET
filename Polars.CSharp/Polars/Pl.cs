@@ -1,5 +1,6 @@
 #pragma warning disable 1591
 #pragma warning disable 0618
+using System.Text.RegularExpressions;
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
 using Cs = Polars.CSharp.Polars.Selectors;
@@ -809,6 +810,17 @@ public readonly partial struct Polars
     /// <inheritdoc cref="Select(IntoExprColumn[])"/> 
     public static DataFrame SelectEager(params IntoExprColumn[] exprs)
         => new DataFrame().Select(exprs);
+    /// <summary>
+    /// Escapes string regex meta characters.
+    /// </summary>
+    /// <param name="s">The string to escape.</param>
+    /// <returns>A string with regex meta characters escaped.</returns>
+    public static string EscapeRegex(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return s;
+        
+        return Regex.Escape(s);
+    }
 }
 
 internal static class InterfaceUnwrapperExtensions
