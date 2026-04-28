@@ -692,7 +692,7 @@ public sealed class UnknownExtension : BaseExtension
 
 public delegate BaseExtension ExtensionFactory(DataType storage, string? metadata);
 
-public static class ExtensionRegistry
+internal static class ExtensionRegistry
 {
     private static readonly ConcurrentDictionary<string, ExtensionFactory?> _registry = new();
 
@@ -728,4 +728,13 @@ public static class ExtensionRegistry
         asStorage = false;
         return false;
     }
+}
+
+public abstract record ExtensionInfo
+{
+    public sealed record AsClass(ExtensionFactory Factory) : ExtensionInfo;
+    
+    public sealed record AsStorage() : ExtensionInfo;
+    
+    public sealed record NotFound() : ExtensionInfo;
 }

@@ -1144,12 +1144,12 @@ public class DataTypeTests
     [Trait("DataType", "ExtensionRegistry")]
     public void Test_DataType_OOP_Registry_Interception()
     {
-        ExtensionRegistry.RegisterExtensionType<UuidExtension>(
+        Pl.RegisterExtensionType<UuidExtension>(
             "myapp.uuid", 
             (storage, metadata) => new UuidExtension()
         );
 
-        ExtensionRegistry.RegisterExtensionTypeAsStorage("myapp.transparent");
+        Pl.RegisterExtensionType("myapp.transparent",asStorage:true);
 
         try
         {
@@ -1188,8 +1188,48 @@ public class DataTypeTests
         }
         finally
         {
-            ExtensionRegistry.UnregisterExtensionType("myapp.uuid");
-            ExtensionRegistry.UnregisterExtensionType("myapp.transparent");
+            Pl.UnregisterExtensionType("myapp.uuid");
+            Pl.UnregisterExtensionType("myapp.transparent");
+        }
+    }
+    [Fact]
+    [Trait("API", "ExtensionRegistry")]
+    public void Test_Pl_GetExtensionType_Returns_Correct_Info()
+    {
+        string classExtName = "test.dummy_class";
+        string storageExtName = "test.dummy_storage";
+        string missingExtName = "test.missing";
+
+        ExtensionInfo missingInfo = Pl.GetExtensionType(missingExtName);
+        Assert.IsType<ExtensionInfo.NotFound>(missingInfo);
+
+        try
+        {
+            Pl.RegisterExtensionType<UuidExtension>(
+                classExtName, 
+                (storage, metadata) => new UuidExtension() 
+            );
+
+            ExtensionInfo classInfo = Pl.GetExtensionType(classExtName);
+            
+            var asClass = Assert.IsType<ExtensionInfo.AsClass>(classInfo);
+            Assert.NotNull(asClass.Factory); 
+
+            Pl.RegisterExtensionType(storageExtName, asStorage: true);
+            
+            ExtensionInfo storageInfo = Pl.GetExtensionType(storageExtName);
+            Assert.IsType<ExtensionInfo.AsStorage>(storageInfo);
+        }
+        finally
+        {
+            Pl.UnregisterExtensionType(classExtName);
+            Pl.UnregisterExtensionType(storageExtName);
+
+            ExtensionInfo unregisteredClassInfo = Pl.GetExtensionType(classExtName);
+            ExtensionInfo unregisteredStorageInfo = Pl.GetExtensionType(storageExtName);
+
+            Assert.IsType<ExtensionInfo.NotFound>(unregisteredClassInfo);
+            Assert.IsType<ExtensionInfo.NotFound>(unregisteredStorageInfo);
         }
     }
     public enum ProcessStatus
