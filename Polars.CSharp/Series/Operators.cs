@@ -160,7 +160,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <returns></returns>
     public Series LtEq(Series other) => this <= other;
     // ==========================================
-    // Scalar Comparisons
+    // Scalar
     // ==========================================
     public static Series operator >(Series left, IntoExpr right)
     {
@@ -208,4 +208,34 @@ public partial class Series : IDisposable,IPolarsSeries
     public static Series operator >=(IntoExpr left, Series right) => right <= left;
 
     public static Series operator <=(IntoExpr left, Series right) => right >= left;
+    public static Series operator +(Series left, IntoExpr right)
+    {
+        using var rightSeries = Series.FromExpr(right.Consume());
+        return left + rightSeries;
+    }
+
+    public static Series operator -(Series left, IntoExpr right)
+    {
+        using var rightSeries = Series.FromExpr(right.Consume());
+        return left - rightSeries;
+    }
+
+    public static Series operator *(Series left, IntoExpr right)
+    {
+        using var rightSeries = Series.FromExpr(right.Consume());
+        return left * rightSeries;
+    }
+
+    public static Series operator /(Series left, IntoExpr right)
+    {
+        using var rightSeries = Series.FromExpr(right.Consume());
+        return left / rightSeries;
+    }
+    public static Series operator +(IntoExpr left, Series right) => right + left; 
+
+    public static Series operator -(IntoExpr left, Series right) => right - left;
+
+    public static Series operator *(IntoExpr left, Series right) => right * left;
+    
+    public static Series operator /(IntoExpr left, Series right) => right / left;
 }

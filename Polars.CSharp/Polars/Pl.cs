@@ -582,8 +582,22 @@ public readonly partial struct Polars
                 $"`timeUnit` must be one of Nanoseconds, Microseconds, Milliseconds, Second, Day. Got: {timeUnit}")
         };
     }
-    
-
+    /// <summary>
+    /// Get the first n rows.
+    /// This function is syntactic sugar for Pl.Col(column).Head(n).
+    /// </summary>
+    /// <param name="column">Column name.</param>
+    /// <param name="n">Number of rows to return</param>
+    public static Expr Head(string column,int n=10)
+        => Col(column).Head(n);
+    /// <summary>
+    /// Get the Last n rows.
+    /// This function is syntactic sugar for Pl.Col(column).Tail(n).
+    /// </summary>
+    /// <param name="column">Column name.</param>
+    /// <param name="n">Number of rows to return</param>
+    public static Expr Tail(string column, int n=10)
+        => Col(column).Tail(n);
 }
 
 internal static class InterfaceUnwrapperExtensions

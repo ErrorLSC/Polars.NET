@@ -701,10 +701,10 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
                 this.Cast(DataType.Date),
 
             TimeUnit.Second => 
-                (EnsureInt64(this) * FromExpr(Pl.Lit(1_000_000L))).Cast(DataType.Datetime(TimeUnit.Microseconds)),
+                (EnsureInt64(this) * 1_000_000L).Cast(DataType.Datetime(TimeUnit.Microseconds)),
 
             TimeUnit.Milliseconds => 
-                (EnsureInt64(this) * FromExpr(Pl.Lit(1_000L))).Cast(DataType.Datetime(TimeUnit.Microseconds)),
+                (EnsureInt64(this) * 1_000L).Cast(DataType.Datetime(TimeUnit.Microseconds)),
 
             TimeUnit.Microseconds => 
                 this.Cast(DataType.Datetime(TimeUnit.Microseconds)),

@@ -354,7 +354,7 @@ public partial class Expr : IDisposable
     /// <summary>
     /// Bitwise right shift operation.
     /// <para>
-    /// For signed integers, this is an **arithmetic shift** (preserves the sign bit).
+    /// For signed integers, this is an arithmetic shift (preserves the sign bit).
     /// For unsigned integers, this is a logical shift (fills with zeros).
     /// </para>
     /// </summary>
