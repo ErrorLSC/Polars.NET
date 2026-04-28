@@ -1,4 +1,4 @@
-use std::ffi::{CStr, CString, c_char};
+use std::{ffi::{CStr, CString, c_char}, os::raw::c_int};
 use crate::types::{CategoriesContext, DataTypeContext, FrozenCategoriesContext};
 use polars::prelude::{extension::get_extension_type_or_generic, *};
 
@@ -640,5 +640,68 @@ pub extern "C" fn pl_datatype_get_enum_categories(
             },
             _ => Ok(std::ptr::null_mut())
         }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_datatype_get_extension_name(
+    dt_ptr: *const DataTypeContext,
+    out_name: *mut *mut c_char,
+) -> c_int {
+    ffi_try_c_int!({
+        let dt = unsafe { &(*dt_ptr).dtype };
+        unsafe { *out_name = std::ptr::null_mut() };
+        
+        if let DataType::Extension(instance, _) = dt {
+            let c_str = CString::new(instance.name().as_ref())
+                .map_err(|e| PolarsError::ComputeError(format!("Invalid UTF-8 in Extension Name: {}", e).into()))?;
+            
+            unsafe { *out_name = c_str.into_raw() };
+        }
+        
+        Ok(0)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_datatype_get_extension_metadata(
+    dt_ptr: *const DataTypeContext,
+    out_metadata: *mut *mut c_char,
+) -> c_int {
+    ffi_try_c_int!({
+        let dt = unsafe { &(*dt_ptr).dtype };
+        unsafe { *out_metadata = std::ptr::null_mut() };
+        
+        if let DataType::Extension(instance, _) = dt {
+            if let Some(metadata_cow) = instance.serialize_metadata() {
+                let c_str = CString::new(metadata_cow.as_ref())
+                    .map_err(|e| PolarsError::ComputeError(format!("Invalid UTF-8 in Extension Metadata: {}", e).into()))?;
+                    
+                unsafe { *out_metadata = c_str.into_raw() };
+            }
+        }
+        
+        Ok(0)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_datatype_get_extension_storage(
+    dt_ptr: *const DataTypeContext,
+    out_storage: *mut *mut DataTypeContext,
+) -> c_int {
+    ffi_try_c_int!({
+        let dt = unsafe { &(*dt_ptr).dtype };
+        unsafe { *out_storage = std::ptr::null_mut() };
+        
+        if let DataType::Extension(_, storage) = dt {
+            let storage_ctx = DataTypeContext {
+                dtype: *storage.clone(), 
+            };
+            
+            unsafe { *out_storage = Box::into_raw(Box::new(storage_ctx)) };
+        }
+        
+        Ok(0)
     })
 }

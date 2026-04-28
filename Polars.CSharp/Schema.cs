@@ -99,7 +99,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>
         for (ulong i = 0; i < len; i++)
         {
             PolarsWrapper.GetSchemaFieldAt(Handle, i, out string name, out DataTypeHandle dtHandle);
-            result[name] = new DataType(dtHandle);
+            result[name] = DataType.CreateFromHandle(dtHandle);
         }
 
         return result;
@@ -119,7 +119,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>
         for (ulong i = 0; i < len; i++)
         {
             PolarsWrapper.GetSchemaFieldAt(Handle, i, out string name, out DataTypeHandle dtHandle);
-            pairs[i] = new KeyValuePair<string, DataType>(name, new DataType(dtHandle));
+            pairs[i] = new KeyValuePair<string, DataType>(name, DataType.CreateFromHandle(dtHandle));
         }
 
         return pairs.ToFrozenDictionary(); 
@@ -142,7 +142,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>
         for (ulong i = 0; i < len; i++)
         {
             PolarsWrapper.GetSchemaFieldAt(Handle, i, out string name, out DataTypeHandle dtHandle);
-            result.Add((name, new DataType(dtHandle)));
+            result.Add((name, DataType.CreateFromHandle(dtHandle)));
         }
 
         return result;
@@ -158,7 +158,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>
                 PolarsWrapper.GetSchemaFieldAt(Handle, i, out string fName, out DataTypeHandle dtHandle);
                 if (fName == name)
                 {
-                    return new DataType(dtHandle);
+                    return DataType.CreateFromHandle(dtHandle);
                 }
             }
             throw new KeyNotFoundException($"Column '{name}' not found in Schema.");
@@ -203,7 +203,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>
                 PolarsWrapper.GetSchemaFieldAt(Handle, i, out _, out DataTypeHandle dtypeHandle);
                 
                 // Wrap the native handle in the high-level DataType API class
-                list.Add(new DataType(dtypeHandle));
+                list.Add(DataType.CreateFromHandle(dtypeHandle));
             }
             return list;
         }
@@ -245,7 +245,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>
         {
             PolarsWrapper.GetSchemaFieldAt(Handle, i, out string name, out DataTypeHandle dtHandle);
 
-            using var dt = new DataType(dtHandle); 
+            using var dt = DataType.CreateFromHandle(dtHandle); 
             sb.Append($"{name}: {dt.Kind}");
 
             if (i < len - 1) sb.Append(", ");

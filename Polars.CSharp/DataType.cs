@@ -1,4 +1,5 @@
 #pragma warning disable CS1591
+using System.Collections.Concurrent;
 using Apache.Arrow.Types;
 using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
@@ -62,6 +63,37 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
                 Scale = s;
                 break;
         }
+    }
+    internal static DataType CreateFromHandle(DataTypeHandle handle)
+    {
+        var kind = (DataTypeKind)PolarsWrapper.GetDataTypeKind(handle);
+
+        if (kind != DataTypeKind.Extension)
+        {
+            return new DataType(handle, kind);
+        }
+
+        string extName = PolarsWrapper.DataTypeGetExtensionName(handle);
+        string? metadata = PolarsWrapper.DataTypeGetExtensionMetadata(handle);
+        DataTypeHandle storageHandle = PolarsWrapper.DataTypeGetExtensionStorage(handle);
+        
+        DataType storage = CreateFromHandle(storageHandle);
+
+        if (ExtensionRegistry.TryGetResolution(extName, out var factory, out bool asStorage))
+        {
+            if (asStorage)
+            {
+                handle.Dispose(); 
+                return storage;
+            }
+
+            if (factory is not null)
+            {
+                return factory(handle, storage, metadata);
+            }
+        }
+
+        return new UnknownExtension(handle, extName, storage, metadata);
     }
     /// <summary>
     /// Return underlying Categories for categorical type, for other types returns null
@@ -399,10 +431,8 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// Equivalent to Python's polars.DataType.to_dtype_expr()
     /// </summary>
     public DataTypeExpr ToDataTypeExpr()
-    {
-        var h = PolarsWrapper.DataTypeExprFromDataType(this.Handle);
-        return new DataTypeExpr(h);
-    }
+        => new(PolarsWrapper.DataTypeExprFromDataType(this.Handle));
+    
     public Type GetNetType() => ArrowTypeResolver.GetNetTypeFromArrowType(GetArrowType());
     public static DataType FromNetType<T>() => FromArrowType(ArrowTypeResolver.GetArrowTypeFromNetType(typeof(T)));
     /// <summary>
@@ -613,5 +643,96 @@ public class FrozenCategories : IDisposable,IEquatable<FrozenCategories>
     public static bool operator !=(FrozenCategories? left, FrozenCategories? right)
     {
         return !(left == right);
+    }
+}
+
+public abstract class BaseExtension : DataType
+{
+    public string ExtensionName { get; }
+    public DataType Storage { get; }
+    public string? Metadata { get; }
+
+    /// <summary>
+    /// 主动创建时使用的构造函数 (例如: 用户 new UuidExtension())
+    /// </summary>
+    protected BaseExtension(string name, DataType storage, string? metadata = null)
+        : base(PolarsWrapper.NewExtensionType(name, storage.Handle, metadata), DataTypeKind.Extension)
+    {
+        ExtensionName = name;
+        Storage = storage;
+        Metadata = metadata;
+    }
+
+    /// <summary>
+    /// 从底层反序列化时使用的构造函数 (零分配，直接包裹现有句柄)
+    /// </summary>
+    protected BaseExtension(DataTypeHandle existingHandle, string name, DataType storage, string? metadata = null)
+        : base(existingHandle, DataTypeKind.Extension)
+    {
+        ExtensionName = name;
+        Storage = storage;
+        Metadata = metadata;
+    }
+}
+
+/// <summary>
+/// 兜底类：当 Rust 传回一个 C# 未注册的 Extension 时，安全地包裹它。
+/// </summary>
+public sealed class UnknownExtension : BaseExtension
+{
+    internal UnknownExtension(DataTypeHandle handle, string name, DataType storage, string? metadata) 
+        : base(handle, name, storage, metadata)
+    {
+    }
+}
+
+/// <summary>
+/// 扩展类型反序列化工厂。
+/// 传入底层的句柄、存储类型和元数据，返回强类型的 BaseExtension 实例。
+/// </summary>
+public delegate BaseExtension ExtensionFactory(DataTypeHandle handle, DataType storage, string? metadata);
+
+public static class ExtensionRegistry
+{
+    // value 为 null 代表 AsStorage
+    private static readonly ConcurrentDictionary<string, ExtensionFactory?> _registry = new();
+
+    /// <summary>
+    /// 注册自定义的扩展类型及其反序列化工厂
+    /// </summary>
+    public static void RegisterExtensionType<T>(string extName, ExtensionFactory factory) where T : BaseExtension
+    {
+        if (!_registry.TryAdd(extName, factory))
+        {
+            throw new ArgumentException($"Extension type '{extName}' is already registered.");
+        }
+    }
+
+    /// <summary>
+    /// 注册一个仅作为底层 Storage 传递的扩展类型
+    /// </summary>
+    public static void RegisterExtensionTypeAsStorage(string extName)
+    {
+        if (!_registry.TryAdd(extName, null))
+        {
+            throw new ArgumentException($"Extension type '{extName}' is already registered.");
+        }
+    }
+
+    public static void UnregisterExtensionType(string extName)
+    {
+        _registry.TryRemove(extName, out _);
+    }
+
+    internal static bool TryGetResolution(string extName, out ExtensionFactory? factory, out bool asStorage)
+    {
+        if (_registry.TryGetValue(extName, out factory))
+        {
+            asStorage = factory is null;
+            return true;
+        }
+
+        asStorage = false;
+        return false;
     }
 }

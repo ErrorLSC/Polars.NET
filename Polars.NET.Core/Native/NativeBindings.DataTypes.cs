@@ -97,4 +97,10 @@ unsafe internal partial class NativeBindings
 
     [LibraryImport(LibName)]
     public static partial int pl_datatype_eq(DataTypeHandle a, DataTypeHandle b, [MarshalAs(UnmanagedType.I1)] out bool isEqual);
+    [LibraryImport(LibName)]
+    public static partial int pl_datatype_get_extension_name(DataTypeHandle dtype,out nint name);
+    [LibraryImport(LibName)]
+    public static partial int pl_datatype_get_extension_metadata(DataTypeHandle dtype,out nint metadata);
+    [LibraryImport(LibName)]
+    public static partial int pl_datatype_get_extension_storage(DataTypeHandle dtype, out DataTypeHandle storage);
 }

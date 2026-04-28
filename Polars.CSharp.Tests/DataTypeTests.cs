@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 namespace Polars.CSharp.Tests;
 
@@ -1133,6 +1134,68 @@ public class DataTypeTests
 
         Series sStorage = sExt.Ext.Storage();
         Assert.Equal(typeof(int),sStorage.DataType);
+    }
+    public sealed class UuidExtension : BaseExtension
+    {
+        // 给用户主动 new 用的
+        public UuidExtension() : base("myapp.uuid", DataType.Binary) { }
+
+        // 给框架反序列化用的 (internal，零分配)
+        internal UuidExtension(DataTypeHandle handle, DataType storage, string metadata) 
+            : base(handle, "myapp.uuid", storage, metadata) { }
+    }
+
+    [Fact]
+    [Trait("DataType", "ExtensionRegistry")]
+    public void Test_DataType_OOP_Registry_Interception()
+    {
+        ExtensionRegistry.RegisterExtensionType<UuidExtension>(
+            "myapp.uuid", 
+            (handle, storage, metadata) => new UuidExtension(handle, storage, metadata)
+        );
+
+        ExtensionRegistry.RegisterExtensionTypeAsStorage("myapp.transparent");
+
+        try
+        {
+            byte[][] uuidData = [[1, 2, 3], [4, 5, 6]]; 
+            using Series sUuid = Pl.Series("uuids", uuidData)
+                        .Cast(DataType.Binary) 
+                        .Ext.To(new UuidExtension());
+            using DataFrame df1 = Pl.DataFrame(sUuid);
+
+            DataType readType = df1.Schema["uuids"];
+            Assert.IsType<UuidExtension>(readType); 
+            
+            var uuidType = (UuidExtension)readType;
+            Assert.Equal("myapp.uuid", uuidType.ExtensionName);
+            Assert.Equal(DataTypeKind.Binary, uuidType.Storage.Kind);
+
+            using DataType transparentExt = DataType.Extension("myapp.transparent", DataType.Int64);
+            using Series sTrans = Pl.Series("trans", [100L, 200L]).Ext.To(transparentExt);
+            using DataFrame df2 = Pl.DataFrame(sTrans);
+
+            DataType readTransType = df2.Schema["trans"];
+            Assert.IsNotType<BaseExtension>(readTransType, exactMatch: false); 
+            Assert.Equal(DataType.Int64, readTransType);
+
+            using DataType alienExt = DataType.Extension("alien.type", DataType.Float32, "{\"v\": 1}");
+            using Series sAlien = Pl.Series("alien", [3.14f]).Ext.To(alienExt);
+            using DataFrame df3 = Pl.DataFrame(sAlien);
+
+            DataType readAlienType = df3.Schema["alien"];
+            Assert.IsType<UnknownExtension>(readAlienType);
+            
+            var alien = (UnknownExtension)readAlienType;
+            Assert.Equal("alien.type", alien.ExtensionName);
+            Assert.Equal("{\"v\": 1}", alien.Metadata);
+            Assert.Equal(DataTypeKind.Float32, alien.Storage.Kind);
+        }
+        finally
+        {
+            ExtensionRegistry.UnregisterExtensionType("myapp.uuid");
+            ExtensionRegistry.UnregisterExtensionType("myapp.transparent");
+        }
     }
     public enum ProcessStatus
     {

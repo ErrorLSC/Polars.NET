@@ -140,4 +140,22 @@ public readonly partial struct PolarsWrapper
         ErrorHelper.CheckStatus(status);
         return result;
     }
+    public static string DataTypeGetExtensionName(DataTypeHandle dtype)
+    {
+        int status = NativeBindings.pl_datatype_get_extension_name(dtype,out nint name);
+        ErrorHelper.CheckStatus(status);
+        return ErrorHelper.CheckString(name);
+    }
+    public static string DataTypeGetExtensionMetadata(DataTypeHandle dtype)
+    {
+        int status = NativeBindings.pl_datatype_get_extension_metadata(dtype,out nint metadata);
+        ErrorHelper.CheckStatus(status);
+        return ErrorHelper.CheckString(metadata);
+    }
+    public static DataTypeHandle DataTypeGetExtensionStorage(DataTypeHandle dtype)
+    {
+        int status = NativeBindings.pl_datatype_get_extension_storage(dtype,out DataTypeHandle storage);
+        ErrorHelper.CheckStatus(status);
+        return ErrorHelper.Check(storage);
+    }
 }

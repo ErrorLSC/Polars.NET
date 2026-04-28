@@ -33,7 +33,7 @@ public partial class DataTypeExpr : IDisposable
         {
             throw new ArgumentException("Polars engine requires a non-empty schema to resolve expressions.", nameof(schema));
         }
-        return new(PolarsWrapper.DataTypeExprIntoDataType(CloneHandle(),schema.Handle));
+        return DataType.CreateFromHandle(PolarsWrapper.DataTypeExprIntoDataType(CloneHandle(),schema.Handle));
     }
     /// <summary>
     /// Materialize the DataTypeExpr using a DataFrame's schema as context.
@@ -67,7 +67,7 @@ public partial class DataTypeExpr : IDisposable
             handle.Dispose();
             return null;
         }
-        return new DataType(handle);
+        return DataType.CreateFromHandle(handle);
     }
     /// <summary>
     /// Get a default value of a specific type.
