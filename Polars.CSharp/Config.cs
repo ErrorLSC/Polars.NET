@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
