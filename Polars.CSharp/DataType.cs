@@ -362,7 +362,7 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     public static DataType Enum(Categories categories) => Enum(categories.Freeze());
     public static DataType Enum<T>() where T : struct, Enum
     {
-        string[] names = System.Enum.GetNames(typeof(T));
+        string[] names = System.Enum.GetNames<T>();
         FrozenCategories cate = new(names);
         return Enum(cate);
     }

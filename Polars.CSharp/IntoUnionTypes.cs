@@ -282,6 +282,16 @@ public readonly struct IntoSchema
     private readonly PolarsSchema _schema;
     private readonly bool _ownsSchema;
 
+    private IntoSchema(PolarsSchema schema, bool ownsSchema)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        _schema = schema;
+        _ownsSchema = ownsSchema;
+    }
+
+    // ==========================================
+    // 1. PolarsSchema, DataFrame, LazyFrame
+    // ==========================================
     public static implicit operator IntoSchema(PolarsSchema schema) => new(schema, ownsSchema: false);
 
     public static implicit operator IntoSchema(DataFrame df) 
@@ -296,23 +306,62 @@ public readonly struct IntoSchema
         return new(lf.Schema, ownsSchema: true); 
     }
 
-    private IntoSchema(PolarsSchema schema, bool ownsSchema)
+    // ==========================================
+    // 2. Dict {name: type} -> Dictionary
+    // ==========================================
+    public static implicit operator IntoSchema(Dictionary<string, DataType> dict)
     {
-        ArgumentNullException.ThrowIfNull(schema);
-        _schema = schema;
-        _ownsSchema = ownsSchema;
+        ArgumentNullException.ThrowIfNull(dict);
+        return new(PolarsSchema.From(dict), ownsSchema: true); 
     }
 
-    /// <summary>
-    /// Consume the schema. 
-    /// Note: Caller should NOT dispose the returned schema if ownsSchema is false, 
-    /// but for safe iteration to extract fields, returning the reference is fine.
-    /// </summary>
+    // ==========================================
+    // 3. List of (name, type) -> Tuple Arrays / Lists
+    // ==========================================
+    public static implicit operator IntoSchema((string Name, DataType Type)[] pairs)
+    {
+        ArgumentNullException.ThrowIfNull(pairs);
+        return new(PolarsSchema.From(pairs), ownsSchema: true);
+    }
+
+    public static implicit operator IntoSchema(List<(string Name, DataType Type)> pairs)
+    {
+        ArgumentNullException.ThrowIfNull(pairs);
+        return new(PolarsSchema.From(pairs), ownsSchema: true);
+    }
+
+    // ==========================================
+    // 4. List of names (types auto-inferred) -> String Arrays / Lists
+    // ==========================================
+    public static implicit operator IntoSchema(string[] columnNames)
+    {
+        ArgumentNullException.ThrowIfNull(columnNames);
+        return new(CreateSchemaFromNames(columnNames), ownsSchema: true);
+    }
+
+    public static implicit operator IntoSchema(List<string> columnNames)
+    {
+        ArgumentNullException.ThrowIfNull(columnNames);
+        return new(CreateSchemaFromNames(columnNames), ownsSchema: true);
+    }
+
+    private static PolarsSchema CreateSchemaFromNames(IEnumerable<string> names)
+    {
+        var schema = new PolarsSchema();
+        foreach (var name in names)
+        {
+            // 传入 null (或者 DataType.Unknown，取决于你的底层实现) 
+            // 代表告诉底层和 FromDictionaries："这个列存在，但类型交给你动态推断"
+            schema.Add(name, DataType.Unknown); 
+        }
+        return schema;
+    }
+
+    // ==========================================
+    // 生命周期管理
+    // ==========================================
     public PolarsSchema Consume() => _schema;
 
-    /// <summary>
-    /// Automatically clean up if we generated a temporary schema (from DF/LF).
-    /// </summary>
     public void DisposeTempSchema()
     {
         if (_ownsSchema)

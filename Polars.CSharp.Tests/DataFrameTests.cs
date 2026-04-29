@@ -5,6 +5,7 @@ using Apache.Arrow.Memory;
 using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
 using Polars.NET.Core;
+using System.Text.Json;
 namespace Polars.CSharp.Tests;
 
 public class DataFrameTests
@@ -2482,5 +2483,268 @@ B,5";
 
         Assert.Equal(15, aligned[0][0, "Close"]);
         Assert.Equal(25, aligned[1][0, "Close"]);
+    }
+    [Fact]
+    [Trait("Factory", "FromDicts")]
+    public void Test_FromDictionaries_BasicInference_And_MissingValues()
+    {
+        var data = new List<Dictionary<string, object?>>
+        {
+            new() { { "id", 1 }, { "name", "Alice" } },
+            new() { { "id", 2 }, { "age", 25 } }, 
+            new() { { "id", 3 }, { "name", "Bob" }, { "age", null } }
+        };
+
+        using var df = DataFrame.FromDicts(data);
+
+        Assert.Equal(3, df.Height);
+        Assert.Equal(3, df.Width); // id, name, age
+
+        Assert.Equal(DataType.Int32, df.Schema["id"]);
+        Assert.Equal(DataType.String, df.Schema["name"]);
+        Assert.Equal(DataType.Int32, df.Schema["age"]);
+    }
+
+    [Fact]
+    [Trait("Factory", "FromDicts")]
+    public void Test_FromDictionaries_TypePromotion()
+    {
+        var data = new List<Dictionary<string, object?>>
+        {
+            new() { { "value", 100 } },        // typeof(int)
+            new() { { "value", 99.9 } }      // typeof(double)
+        };
+
+        using var df = DataFrame.FromDicts(data);
+
+        Assert.Equal(2, df.Height);
+        Assert.Equal(DataType.Float64, df.Schema["value"]);
+    }
+
+    [Fact]
+    [Trait("Factory", "FromDictionaries")]
+    public void Test_FromDictionaries_StrictSchema_FastPath()
+    {
+        var data = new List<Dictionary<string, object?>>
+        {
+            new() { { "id", 1 }, { "secret_key", "xxx" }, { "score", 95.5 } }
+        };
+
+        // Dictionary -> IntoSchema
+        var schema = new Dictionary<string, DataType>
+        {
+            { "score", DataType.Float32 }, 
+            { "id", DataType.Int64 }       
+        };
+
+        using var df = DataFrame.FromDicts(data, schema: schema);
+
+        Assert.Equal(2, df.Width);
+        
+        var columns = df.Columns;
+        Assert.Equal("score", columns[0]);
+        Assert.Equal("id", columns[1]);
+
+        Assert.Equal(DataTypeKind.Float32, df.Schema["score"].Kind);
+        Assert.Equal(DataTypeKind.Int64, df.Schema["id"].Kind);
+    }
+
+    [Fact]
+    [Trait("Factory", "FromDictionaries")]
+    public void Test_FromDictionaries_SchemaOverrides()
+    {
+        var data = new List<Dictionary<string, object?>>
+        {
+            new() { { "id", 1 }, { "flag", 1 } }
+        };
+
+        var overrides = new (string, DataType)[] 
+        { 
+            ("flag", DataType.Boolean) 
+        };
+
+        using var df = DataFrame.FromDicts(data, schemaOverrides: overrides);
+
+        Assert.Equal(2, df.Width);
+        Assert.Equal(DataType.Int32, df.Schema["id"]);
+        Assert.Equal(DataType.Boolean, df.Schema["flag"]);
+    }
+
+    [Fact]
+    [Trait("Factory", "FromDicts")]
+    public void Test_FromDictionaries_AutoInferNamesOnly()
+    {
+        var data = new List<Dictionary<string, object?>>
+        {
+            new() { { "col_A", "text" }, { "col_B", 42 }, { "col_C", 3.14 } }
+        };
+
+        string[] names = ["col_A", "col_B"]; 
+
+        using var df = DataFrame.FromDicts(data, schema: names);
+
+        Assert.Equal(2, df.Width);
+        
+        Assert.Equal(DataType.String, df.Schema["col_A"]);
+        Assert.Equal(DataType.Int32, df.Schema["col_B"]);
+    }
+    [Fact]
+    [Trait("DataFrame", "JsonNormalize")]
+    public void Test_JsonNormalize_BasicFlattening()
+    {
+        var data = new Dictionary<string, object?>
+        {
+            { "id", 1 },
+            { "user", new Dictionary<string, object?>
+                {
+                    { "name", "Alice" },
+                    { "address", new Dictionary<string, object?>
+                        {
+                            { "city", "Tokyo" },
+                            { "zip", "100-0001" }
+                        }
+                    }
+                }
+            }
+        };
+
+        // Act 
+        using var df = Pl.JsonNormalize(data);
+
+        // Assert
+        Assert.Equal(1, df.Height);
+        Assert.Equal(4, df.Width);
+
+        var columns = df.Columns;
+        Assert.Contains("id", columns);
+        Assert.Contains("user.name", columns);
+        Assert.Contains("user.address.city", columns);
+        Assert.Contains("user.address.zip", columns);
+
+        Assert.Equal(DataType.Int32, df.Schema["id"]);
+        Assert.Equal(DataType.String, df.Schema["user.address.city"]);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "JsonNormalize")]
+    public void Test_JsonNormalize_ListAndCustomSeparator()
+    {
+        var data = new List<Dictionary<string, object?>>
+        {
+            new() { { "device", new Dictionary<string, object?> { { "sensor", 42.5 } } } },
+            new() { { "device", new Dictionary<string, object?> { { "sensor", 99.9 } } } }
+        };
+
+        using var df = Pl.JsonNormalize(data, separator: "_");
+
+        Assert.Equal(2, df.Height);
+        Assert.Single(df.Columns);
+        
+        Assert.Equal("device_sensor", df.Columns[0]);
+        Assert.Equal(DataType.Float64, df.Schema["device_sensor"]);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "JsonNormalize")]
+    public void Test_JsonNormalize_MaxLevelCutoff()
+    {
+        var data = new Dictionary<string, object?>
+        {
+            { "L1", new Dictionary<string, object?>
+                {
+                    { "L2", new Dictionary<string, object?>
+                        {
+                            { "L3", "deep_value" }
+                        }
+                    }
+                }
+            }
+        };
+
+        // 1. MaxLevel = 0
+        using var df0 = Pl.JsonNormalize(data, maxLevel: 0);
+        Assert.Single(df0.Columns);
+        Assert.Equal("L1", df0.Columns[0]);
+        Assert.Equal(DataType.String, df0.Schema["L1"]); 
+
+        // 2. MaxLevel = 1: Flatten L1 -> L2
+        using var df1 = Pl.JsonNormalize(data, maxLevel: 1);
+        Assert.Single(df1.Columns);
+        Assert.Equal("L1.L2", df1.Columns[0]);
+        Assert.Equal(DataType.String, df1.Schema["L1.L2"]);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "JsonNormalize")]
+    public void Test_JsonNormalize_WithSchemaIntegration()
+    {
+        var data = new List<Dictionary<string, object?>>
+        {
+            new() {
+                { "meta", new Dictionary<string, object?> { { "tag", "A" }, { "version", 1 }, { "garbage", "xyz" } } }
+            },
+            new() {
+                { "meta", new Dictionary<string, object?> { { "tag", "B" } } }
+            }
+        };
+
+        var strictSchema = new Dictionary<string, DataType>
+        {
+            { "meta.tag", typeof(string) },
+            { "meta.version", typeof(double) }
+        };
+
+        using var df = Pl.JsonNormalize(data, schema: strictSchema);
+
+        Assert.Equal(2, df.Height);
+        Assert.Equal(2, df.Width);
+        Assert.Equal(DataType.Float64, df.Schema["meta.version"]);
+    }
+    
+    [Fact]
+    [Trait("DataFrame", "JsonNormalize")]
+    public void Test_JsonNormalize_EmptyData()
+    {
+        var emptyData = new List<Dictionary<string, object?>>();
+        using var df = Pl.JsonNormalize(emptyData);
+        
+        Assert.True(df.IsVoid);
+    }
+    [Fact]
+    [Trait("DataFrame", "JsonNormalize")]
+    public void Test_JsonNormalize_CustomEncoder()
+    {
+        var data = new Dictionary<string, object?>
+        {
+            { "event_id", 1024 },
+            { "payload", new Dictionary<string, object?>
+                {
+                    { "action", "click" },
+                    { "timestamp", "2024-01-01T12:00:00Z" }
+                }
+            }
+        };
+
+        bool encoderWasCalled = false;
+        string myCustomEncoder(object obj)
+        {
+            encoderWasCalled = true;
+            return $"<CustomEncoded>{JsonSerializer.Serialize(obj)}</CustomEncoded>";
+        }
+
+        // Act: maxLevel = 0 
+        using var df = Pl.JsonNormalize(data, maxLevel: 0, encoder: myCustomEncoder);
+
+        // Assert
+        Assert.Equal(1, df.Height);
+        Assert.Equal(2, df.Width);
+
+        Assert.Equal(DataType.Int32, df.Schema["event_id"]);
+        Assert.Equal(DataType.String, df.Schema["payload"]);
+
+        Assert.True(encoderWasCalled, "Custom Encoder is not called!");
+
+        string payloadValue = df["payload"].GetValue<string>(0); 
+        Assert.StartsWith("<CustomEncoded>", payloadValue);
     }
 }

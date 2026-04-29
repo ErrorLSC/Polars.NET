@@ -1,6 +1,5 @@
 #pragma warning disable CS1591
 using System.Collections.Frozen;
-using System.Reflection.Metadata;
 using System.Text;
 using Polars.NET.Core;
 

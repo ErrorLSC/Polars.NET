@@ -160,7 +160,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public static DataFrame FromColumns(params (string Name, object Data)[] columns)
     {
         if (columns == null || columns.Length == 0)
-            return new DataFrame(); // Return empty DF
+            return []; // Return empty DF
 
         var seriesList = new List<Series>(columns.Length);
 
@@ -206,15 +206,28 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     private sealed class ColumnBuffer<TCol>(int capacity) : IColumnBuffer
     {
         private readonly List<TCol?> _data = new(capacity);
+        
+        private static readonly Type _underlyingType = Nullable.GetUnderlyingType(typeof(TCol)) ?? typeof(TCol);
 
         public void Add(object? val)
         {
-            _data.Add((TCol?)val);
+            if (val == null)
+            {
+                _data.Add(default);
+                return;
+            }
+
+            if (val is TCol exactVal)
+            {
+                _data.Add(exactVal);
+                return;
+            }
+
+            _data.Add((TCol)Convert.ChangeType(val, _underlyingType));
         }
 
         public Series ToSeries(string name)
             => Series.From(name, _data.ToArray());
-        
     }
 
     private static class ColumnBufferFactory
@@ -297,7 +310,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         => new(series);
     /// <inheritdoc cref="FromSeries(Series[])"/>
     public static DataFrame FromColumns(params Series[] series)
-        => new(series);
+        => [.. series];
     /// <inheritdoc cref="FromSeries(Series[])"/>
     public static DataFrame FromSeries(IEnumerable<Series> series)
         => new([.. series]);
@@ -354,5 +367,217 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         var df = new DataFrame(handle);
         df.HoldResource(stream); 
         return df;
+    }
+    // ==========================================
+    // Dictionary Mapping (Dynamic/JSON Data)
+    // ==========================================
+    
+    /// <summary>
+    /// Create a DataFrame from a single dictionary (represents 1 row).
+    /// </summary>
+    public static DataFrame FromDict(IDictionary<string, object?> data, IntoSchema? schema = null,IntoSchema? schemaOverrides=null,bool strict=true)
+        => FromDicts([data], schema,schemaOverrides,strict);
+
+    /// <summary>
+    /// Create a DataFrame from a collection of dictionaries.
+    /// </summary>
+    /// <param name="data">The collection of dictionaries representing rows.</param>
+    /// <param name="schema">Strict blueprint. If provided, overrides dynamic inference. Extra keys in data are ignored.</param>
+    /// <param name="schemaOverrides">Patch blueprint. Infers all keys, but overrides specific column types.</param>
+    /// <param name="strict">If true, throws on unpromotable type mismatch.</param>
+    /// <param name="inferSchemaLength">Rows to inspect for C# type inference.</param>
+    public static DataFrame FromDicts(
+        IEnumerable<IDictionary<string, object?>> data,
+        IntoSchema? schema = null,
+        IntoSchema? schemaOverrides = null,
+        bool strict = true,
+        uint? inferSchemaLength = 100)
+    {
+        if (data == null) return [];
+
+        var records = data as ICollection<IDictionary<string, object?>> ?? [.. data];
+        if (records.Count == 0) return [];
+
+        try
+        {
+            var actualSchema = schema?.Consume().ToDictionary();
+            var overrides = schemaOverrides?.Consume().ToDictionary();
+
+            var columnTypes = new Dictionary<string, Type?>();
+            int rowsToInfer = (int?)inferSchemaLength ?? records.Count;
+
+            // ==========================================
+            // Schema Inference Phase
+            // ==========================================
+            if (actualSchema != null)
+            {
+                // Use explicit schema
+                foreach (var colName in actualSchema.Keys)
+                {
+                    columnTypes[colName] = null; 
+                }
+
+                int rowCount = 0;
+                var targetKeys = actualSchema.Keys.ToList(); 
+
+                foreach (var row in records)
+                {
+                    if (rowCount >= rowsToInfer) break;
+                    
+                    foreach (var colName in targetKeys)
+                    {
+                        if (row.TryGetValue(colName, out var val) && val != null)
+                        {
+                            Type newType = val.GetType();
+                            Type? existingType = columnTypes[colName];
+
+                            if (existingType == null)
+                                columnTypes[colName] = newType;
+                            else if (existingType != newType)
+                                columnTypes[colName] = PromoteType(existingType, newType); 
+                        }
+                    }
+                    rowCount++;
+                }
+            }
+            else
+            {
+                int rowCount = 0;
+                foreach (var row in records)
+                {
+                    if (rowCount >= rowsToInfer) break;
+
+                    foreach (var kvp in row)
+                    {
+                        if (!columnTypes.TryGetValue(kvp.Key, out Type? existingType))
+                        {
+                            columnTypes[kvp.Key] = kvp.Value?.GetType();
+                        }
+                        else if (kvp.Value != null)
+                        {
+                            Type newType = kvp.Value.GetType();
+                            if (existingType == null)
+                                columnTypes[kvp.Key] = newType;
+                            else if (existingType != newType)
+                                columnTypes[kvp.Key] = PromoteType(existingType, newType); 
+                        }
+                    }
+                    rowCount++;
+                }
+            }
+
+            // ==========================================
+            // Buffer Loading Phase
+            // ==========================================
+            var buffers = new Dictionary<string, IColumnBuffer>();
+            foreach (var kvp in columnTypes)
+            {
+                Type colType = kvp.Value ?? typeof(string);
+                buffers[kvp.Key] = ColumnBufferFactory.Create(colType, records.Count);
+            }
+
+            foreach (var row in records)
+            {
+                foreach (var colName in columnTypes.Keys)
+                {
+                    row.TryGetValue(colName, out var val);
+                    try
+                    {
+                        buffers[colName].Add(val);
+                    }
+                    catch (InvalidCastException ex)
+                    {
+                        if (strict) throw new InvalidCastException($"Strict mode error on column '{colName}'...", ex);
+                        buffers[colName].Add(null);
+                    }
+                }
+            }
+
+            // ==========================================
+            // Type Cast Phase
+            // ==========================================
+            var seriesList = new Series[buffers.Count];
+            int i = 0;
+            var orderedKeys = actualSchema != null ? actualSchema.Keys : columnTypes.Keys; 
+            
+            foreach (var key in orderedKeys)
+            {
+                seriesList[i++] = buffers[key].ToSeries(key);
+            }
+
+            var df = new DataFrame(seriesList);
+
+            // ==========================================
+            // Schema 
+            // ==========================================
+            if (actualSchema != null || overrides != null)
+            {
+                var castExprs = new List<Expr>();
+                foreach (var col in df.Columns)
+                {
+                    if (actualSchema != null && 
+                        actualSchema.TryGetValue(col, out var targetType) && 
+                        targetType.Kind != DataTypeKind.Unknown)
+                    {
+                        castExprs.Add(Pl.Col(col).Cast(targetType));
+                    }
+                    else if (overrides != null && 
+                             overrides.TryGetValue(col, out var overrideType) && 
+                             overrideType.Kind != DataTypeKind.Unknown)
+                    {
+                        castExprs.Add(Pl.Col(col).Cast(overrideType));
+                    }
+                    else
+                    {
+                        castExprs.Add(Pl.Col(col));
+                    }
+                }
+                df = df.Select([.. castExprs]);
+            }
+
+            return df;
+        }
+        finally
+        {
+            if (schema.HasValue)
+            {
+                schema.Value.DisposeTempSchema();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Type Promotion
+    /// </summary>
+    private static Type PromoteType(Type typeA, Type typeB)
+    {
+        if (typeA == typeB) return typeA;
+
+        Type baseA = Nullable.GetUnderlyingType(typeA) ?? typeA;
+        Type baseB = Nullable.GetUnderlyingType(typeB) ?? typeB;
+
+        if (baseA == baseB) return baseA; 
+
+        if (IsNumeric(baseA) && IsNumeric(baseB))
+        {
+            if (baseA == typeof(double) || baseB == typeof(double)) return typeof(double);
+            if (baseA == typeof(float) || baseB == typeof(float)) return typeof(double); 
+            if (baseA == typeof(decimal) || baseB == typeof(decimal)) return typeof(decimal);
+            if (baseA == typeof(long) || baseB == typeof(long)) return typeof(long);
+            
+            return typeof(long); 
+        }
+
+        return typeof(string);
+    }
+
+    private static bool IsNumeric(Type type)
+    {
+        return type == typeof(byte) || type == typeof(sbyte) ||
+               type == typeof(short) || type == typeof(ushort) ||
+               type == typeof(int) || type == typeof(uint) ||
+               type == typeof(long) || type == typeof(ulong) || type == typeof(Half) ||
+               type == typeof(float) || type == typeof(double) ||
+               type == typeof(decimal) || type == typeof(Int128) || type == typeof(UInt128);
     }
 }
