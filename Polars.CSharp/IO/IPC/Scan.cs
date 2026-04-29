@@ -27,7 +27,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <param name="cloudOptions">Options for cloud storage (AWS S3, Azure Blob, GCS, etc.).</param>
     public static LazyFrame ScanIpc(
         string path,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         ulong? nRows = null,
         bool rechunk = false,
         bool cache = true,
@@ -36,7 +36,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
         bool hivePartitioning = false,
-        PolarsSchema? hivePartitionSchema = null,
+        IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = true,
         CloudOptions? cloudOptions = null)
     {
@@ -52,9 +52,9 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             rowIndexName,
             rowIndexOffset,
             includePathColumn,
-            schema?.Handle,
+            schema?.Consume().Handle,
             hivePartitioning,
-            hivePartitionSchema?.Handle,
+            hivePartitionSchema?.Consume().Handle,
             tryParseHiveDates,
             provider.ToNative(),
             retries,
@@ -78,7 +78,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </summary>
     public static LazyFrame ScanIpc(
         byte[] buffer,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         ulong? nRows = null,
         bool rechunk = false,
         bool cache = true,
@@ -86,7 +86,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
         bool hivePartitioning = false,
-        PolarsSchema? hivePartitionSchema = null,
+        IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = false)
     {
         var h = PolarsWrapper.ScanIpc(
@@ -97,9 +97,9 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             rowIndexName,
             rowIndexOffset,
             includePathColumn,
-            schema?.Handle,
+            schema?.Consume().Handle,
             hivePartitioning,
-            hivePartitionSchema?.Handle,
+            hivePartitionSchema?.Consume().Handle,
             tryParseHiveDates
         );
 
@@ -118,7 +118,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </remarks>
     public static LazyFrame ScanIpc(
         Stream stream,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         ulong? nRows = null,
         bool rechunk = false,
         bool cache = true,
@@ -126,7 +126,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
         bool hivePartitioning = false,
-        PolarsSchema? hivePartitionSchema = null,
+        IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = false)
     {
         using var ms = new MemoryStream();

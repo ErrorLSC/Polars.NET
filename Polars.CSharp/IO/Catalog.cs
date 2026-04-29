@@ -46,9 +46,9 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         bool hivePartitioning = true,
-        PolarsSchema? hivePartitionSchema = null,
+        IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = true,
         CloudOptions? cloudOptions = null)
     {
@@ -57,8 +57,8 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             throw new ArgumentException("Cannot specify both 'version' and 'datetime' for Delta Time Travel.");
         }
 
-        var schemaHandle = schema?.Handle;
-        var hiveSchemaHandle = hivePartitionSchema?.Handle;
+        var schemaHandle = schema?.Consume().Handle;
+        var hiveSchemaHandle = hivePartitionSchema?.Consume().Handle;
 
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 
@@ -175,7 +175,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
     /// <param name="catalogName">The name of the catalog where the table will be created.</param>
     /// <param name="schemaName">The name of the schema (database) within the catalog.</param>
     /// <param name="tableName">The name of the table to be created.</param>
-    /// <param name="polarsSchema">The structural definition of the table columns and data types via <see cref="PolarsSchema"/>.</param>
+    /// <param name="IntoSchema">The structural definition of the table columns and data types via <see cref="IntoSchema"/>.</param>
     /// <param name="tableType">
     /// The management type of the table. 
     /// <see cref="CatalogTableType.Managed"/>: Unity Catalog manages both metadata and physical data.
@@ -189,7 +189,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         string catalogName,
         string schemaName,
         string tableName,
-        PolarsSchema polarsSchema,
+        IntoSchema IntoSchema,
         CatalogTableType tableType = CatalogTableType.Managed,
         string? storageLocation = null
     )
@@ -198,7 +198,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         catalogName,
         schemaName,
         tableName,
-        polarsSchema.Handle,
+        IntoSchema.Consume().Handle,
         tableType.ToNative(),
         storageLocation);
     /// <summary>

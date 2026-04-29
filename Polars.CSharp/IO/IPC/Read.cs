@@ -33,7 +33,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public static DataFrame ReadIpc(
         string path,
         string[]? columns = null,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         ulong? nRows = null,
         bool rechunk = false,
         bool cache = true,
@@ -42,7 +42,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
         bool hivePartitioning = false,
-        PolarsSchema? hivePartitionSchema = null,
+        IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = true,
         CloudOptions? cloudOptions = null)
     {
@@ -94,11 +94,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     /// <param name="buffer">The byte array containing the IPC data.</param>
     /// <param name="columns">Columns to select. If null, select all columns.</param>
-    /// <inheritdoc cref="ReadIpc(string, string[], PolarsSchema?, ulong?, bool, bool, bool, string?, uint, string?, bool, PolarsSchema?, bool, CloudOptions?)"/>
+    /// <inheritdoc cref="ReadIpc(string, string[], IntoSchema?, ulong?, bool, bool, bool, string?, uint, string?, bool, IntoSchema?, bool, CloudOptions?)"/>
     public static DataFrame ReadIpc(
         byte[] buffer,
         string[]? columns = null,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         ulong? nRows = null,
         bool rechunk = false,
         bool cache = true,
@@ -106,7 +106,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
         bool hivePartitioning = false,
-        PolarsSchema? hivePartitionSchema = null,
+        IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = false)
     {
         var lf = LazyFrame.ScanIpc(
@@ -155,11 +155,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     /// <param name="stream">The input stream containing the IPC data.</param>
     /// <param name="columns">Columns to select. If null, select all columns.</param>
-    /// <inheritdoc cref="ReadIpc(string, string[], PolarsSchema?, ulong?, bool, bool, bool, string?, uint, string?, bool, PolarsSchema?, bool, CloudOptions?)"/>
+    /// <inheritdoc cref="ReadIpc(string, string[], IntoSchema?, ulong?, bool, bool, bool, string?, uint, string?, bool, IntoSchema?, bool, CloudOptions?)"/>
     public static DataFrame ReadIpc(
         Stream stream,
         string[]? columns = null,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         ulong? nRows = null,
         bool rechunk = false,
         bool cache = true,
@@ -167,7 +167,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
         bool hivePartitioning = false,
-        PolarsSchema? hivePartitionSchema = null,
+        IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = false)
     {
         using var ms = new MemoryStream();

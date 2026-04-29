@@ -43,9 +43,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         bool hivePartitioning = false,
-        PolarsSchema? hivePartitionSchema = null,
+        IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = false,
         CloudOptions? cloudOptions = null)
     {
@@ -97,7 +97,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     /// <param name="buffer">The byte array containing the parquet file.</param>
     /// <param name="columns">Columns to select. If null, select all columns.</param>
-    /// <inheritdoc cref="ReadParquet(string, string[], ulong?, ParallelStrategy, bool, bool, bool, bool, bool, bool, string?, uint, string?, PolarsSchema?,bool, PolarsSchema?, bool, CloudOptions?)"/>
+    /// <inheritdoc cref="ReadParquet(string, string[], ulong?, ParallelStrategy, bool, bool, bool, bool, bool, bool, string?, uint, string?, IntoSchema?,bool, IntoSchema?, bool, CloudOptions?)"/>
     public static DataFrame ReadParquet(
         byte[] buffer,
         string[]? columns = null,
@@ -111,9 +111,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         bool hivePartitioning = false,
-        PolarsSchema? hivePartitionSchema = null,
+        IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = false)
     {
         var lf = LazyFrame.ScanParquet(
@@ -162,7 +162,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     /// <param name="stream">The input stream containing the parquet file.</param>
     /// <param name="columns">Columns to select. If null, select all columns.</param>
-    /// <inheritdoc cref="ReadParquet(string, string[], ulong?, ParallelStrategy, bool, bool, bool, bool, bool, bool, string?, uint, string?, PolarsSchema?,bool, PolarsSchema?, bool, CloudOptions?)"/>
+    /// <inheritdoc cref="ReadParquet(string, string[], ulong?, ParallelStrategy, bool, bool, bool, bool, bool, bool, string?, uint, string?, IntoSchema?,bool, IntoSchema?, bool, CloudOptions?)"/>
     public static DataFrame ReadParquet(
         Stream stream,
         string[]? columns = null,
@@ -176,9 +176,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         bool hivePartitioning = false,
-        PolarsSchema? hivePartitionSchema = null,
+        IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = false)
     {
         using var ms = new MemoryStream();
@@ -220,9 +220,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         bool hivePartitioning = false,
-        PolarsSchema? hivePartitionSchema = null,
+        IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = false,
         CloudOptions? cloudOptions = null)
     {

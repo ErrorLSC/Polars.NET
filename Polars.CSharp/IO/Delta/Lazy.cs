@@ -17,7 +17,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <param name="cloudOptions">Options for cloud storage authentication (AWS S3, Azure, GCP, etc).</param>
     /// <param name="version">The version of the table to read (e.g., 0, 1). Mutually exclusive with <paramref name="datetime"/>.</param>
     /// <param name="datetime">The timestamp to read (ISO-8601 string, e.g., "2026-02-09T12:00:00Z"). Mutually exclusive with <paramref name="version"/>.</param>
-    /// <inheritdoc cref="LazyFrame.ScanParquet(string, ulong?, ParallelStrategy, bool, bool, bool, bool, bool, bool, string?, uint, string?, PolarsSchema?, bool, PolarsSchema?, bool, CloudOptions?)"/>
+    /// <inheritdoc cref="LazyFrame.ScanParquet(string, ulong?, ParallelStrategy, bool, bool, bool, bool, bool, bool, string?, uint, string?, IntoSchema?, bool, IntoSchema?, bool, CloudOptions?)"/>
     /// <returns>A new LazyFrame.</returns>
     public static LazyFrame ScanDelta(
         string path,
@@ -33,9 +33,9 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         bool hivePartitioning = true,
-        PolarsSchema? hivePartitionSchema = null,
+        IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = true,
         CloudOptions? cloudOptions = null)
     {
@@ -44,8 +44,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             throw new ArgumentException("Cannot specify both 'version' and 'datetime' for Delta Time Travel.");
         }
 
-        var schemaHandle = schema?.Handle;
-        var hiveSchemaHandle = hivePartitionSchema?.Handle;
+        var schemaHandle = schema?.Consume().Handle;
+        var hiveSchemaHandle = hivePartitionSchema?.Consume().Handle;
 
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 

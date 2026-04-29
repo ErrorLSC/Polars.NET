@@ -350,16 +350,16 @@ public readonly struct IntoSchema
         var schema = new PolarsSchema();
         foreach (var name in names)
         {
-            // 传入 null (或者 DataType.Unknown，取决于你的底层实现) 
-            // 代表告诉底层和 FromDictionaries："这个列存在，但类型交给你动态推断"
             schema.Add(name, DataType.Unknown); 
         }
         return schema;
     }
+    public static implicit operator IntoSchema(Type type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        return new(PolarsSchema.From(type), ownsSchema: true);
+    }
 
-    // ==========================================
-    // 生命周期管理
-    // ==========================================
     public PolarsSchema Consume() => _schema;
 
     public void DisposeTempSchema()

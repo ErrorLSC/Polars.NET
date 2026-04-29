@@ -44,14 +44,14 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         bool hivePartitioning = false,
-        PolarsSchema? hivePartitionSchema = null,
+        IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = false,
         CloudOptions? cloudOptions = null) 
     {
-        var schemaHandle = schema?.Handle;
-        var hiveSchemaHandle = hivePartitionSchema?.Handle;
+        var schemaHandle = schema?.Consume().Handle;
+        var hiveSchemaHandle = hivePartitionSchema?.Consume().Handle;
 
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 
@@ -99,13 +99,13 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         bool hivePartitioning = false,
-        PolarsSchema? hivePartitionSchema = null,
+        IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = false)
     {
-        var schemaHandle = schema?.Handle;
-        var hiveSchemaHandle = hivePartitionSchema?.Handle;
+        var schemaHandle = schema?.Consume().Handle;
+        var hiveSchemaHandle = hivePartitionSchema?.Consume().Handle;
 
         var h = PolarsWrapper.ScanParquet(
             buffer,

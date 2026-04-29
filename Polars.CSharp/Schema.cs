@@ -59,14 +59,17 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>
     }
 
     /// <summary>
-    /// Create a Schema directly from a .NET type (e.g., a record or class).
+    /// Create a Schema directly from a .NET type.
     /// </summary>
-    /// <typeparam name="T">The record or class type.</typeparam>
-    /// <returns>A PolarsSchema mapped from the type's properties.</returns>
-    public static PolarsSchema From<T>()
-    {
-        SchemaHandle handle = PolarsWrapper.NewSchemaFromType(typeof(T));
+    public static PolarsSchema From<T>() => From(typeof(T));
 
+    /// <summary>
+    /// Create a Schema directly from a System.Type.
+    /// </summary>
+    public static PolarsSchema From(Type type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        SchemaHandle handle = PolarsWrapper.NewSchemaFromType(type);
         return new PolarsSchema(handle);
     }
 

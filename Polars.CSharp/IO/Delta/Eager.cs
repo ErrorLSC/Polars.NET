@@ -10,7 +10,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <summary>
     /// Read a delta table into a new DataFrame
     /// </summary>
-    /// <inheritdoc cref="LazyFrame.ScanDelta(string, long?, string?, ulong?, ParallelStrategy, bool, bool, bool, bool, bool, string?, uint, string?, PolarsSchema?, bool, PolarsSchema?, bool, CloudOptions?)"/>
+    /// <inheritdoc cref="LazyFrame.ScanDelta(string, long?, string?, ulong?, ParallelStrategy, bool, bool, bool, bool, bool, string?, uint, string?, IntoSchema?, bool, IntoSchema?, bool, CloudOptions?)"/>
     public static DataFrame ReadDelta(
         string path,
         long? version = null,
@@ -25,9 +25,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
         string? includePathColumn = null,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         bool hivePartitioning = true,
-        PolarsSchema? hivePartitionSchema = null,
+        IntoSchema? hivePartitionSchema = null,
         bool tryParseHiveDates = true,
         CloudOptions? cloudOptions = null)
     {

@@ -16,7 +16,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public static DataFrame ReadJson(
         string path,
         string[]? columns = null,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         ulong? inferSchemaLen = null,
         ulong? batchSize = null,
         bool ignoreErrors = false,
@@ -25,7 +25,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         if (!File.Exists(path)) 
             throw new FileNotFoundException($"JSON file not found: {path}");
 
-        var schemaHandle = schema?.Handle;
+        var schemaHandle = schema?.Consume().Handle;
 
         var h = PolarsWrapper.ReadJson(
             path,
@@ -50,13 +50,13 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public static DataFrame ReadJson(
         byte[] buffer,
         string[]? columns = null,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         ulong? inferSchemaLen = null,
         ulong? batchSize = null,
         bool ignoreErrors = false,
         JsonFormat jsonFormat = JsonFormat.Json)
     {
-        var schemaHandle = schema?.Handle;
+        var schemaHandle = schema?.Consume().Handle;
 
         var h = PolarsWrapper.ReadJson(
             buffer,
@@ -81,7 +81,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public static DataFrame ReadJson(
         Stream stream,
         string[]? columns = null,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         ulong? inferSchemaLen = null,
         ulong? batchSize = null,
         bool ignoreErrors = false,

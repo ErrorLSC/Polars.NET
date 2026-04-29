@@ -50,8 +50,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <returns>A new LazyFrame.</returns>
     public static LazyFrame ScanCsv(
         string path,
-        PolarsSchema? schema = null,
-        PolarsSchema? dtypeOverride = null,
+        IntoSchema? schema = null,
+        IntoSchema? dtypeOverride = null,
         bool hasHeader = true,
         char separator = ',',
         char? quoteChar = '"',           
@@ -86,8 +86,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
 
         var handle = PolarsWrapper.ScanCsv(
             path,
-            schema?.Handle,
-            dtypeOverride?.Handle,
+            schema?.Consume().Handle,
+            dtypeOverride?.Consume().Handle,
             hasHeader,
             separator,
             quoteChar,
@@ -167,8 +167,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <returns>A new LazyFrame.</returns>
     public static LazyFrame ScanCsv(
         byte[] buffer,
-        PolarsSchema? schema = null,
-        PolarsSchema? dtypeOverride = null,
+        IntoSchema? schema = null,
+        IntoSchema? dtypeOverride = null,
         bool hasHeader = true,
         char separator = ',',
         char? quoteChar = '"',          
@@ -199,8 +199,8 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     {
         var handle = PolarsWrapper.ScanCsv(
             buffer,
-            schema?.Handle,
-            dtypeOverride?.Handle,
+            schema?.Consume().Handle,
+            dtypeOverride?.Consume().Handle,
             hasHeader,
             separator,
             quoteChar,

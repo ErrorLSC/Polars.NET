@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Polars.NET.Core.Helpers;
 
 namespace Polars.CSharp;
@@ -28,7 +27,7 @@ public readonly partial struct Polars
     {
         int actualMaxLevel = maxLevel.HasValue ? maxLevel.Value + 1 : int.MaxValue;
 
-        encoder ??= obj => JsonSerializer.Serialize(obj);
+        encoder ??= JsonNormalizeHelper.DefaultEncoder;
 
         // Unify format to List 
         IEnumerable<IDictionary<string, object?>> dataList;

@@ -27,7 +27,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
    /// <param name="cloudOptions">Options for cloud storage (AWS S3, Azure Blob, GCS, etc.).</param>
     public static LazyFrame ScanNdjson(
         string path,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         ulong? inferSchemaLength = null,
         ulong? batchSize = null,
         ulong? nRows = null,
@@ -43,7 +43,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
             throw new FileNotFoundException($"NDJSON file not found: {path}");
         var (provider, retries, retryTimeoutMs, retryInitBackoffMs, retryMaxBackoffMs, cacheTtl, keys, values) = 
             CloudOptions.ParseCloudOptions(cloudOptions);
-        var schemaHandle = schema?.Handle;
+        var schemaHandle = schema?.Consume().Handle;
 
         var h = PolarsWrapper.ScanNdjson(
             path,
@@ -79,7 +79,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </summary>
     public static LazyFrame ScanNdjson(
         byte[] buffer,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         ulong? inferSchemaLength = null,
         ulong? batchSize = null,
         ulong? nRows = null,
@@ -89,7 +89,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         string? rowIndexName = null,
         uint rowIndexOffset = 0)
     {
-        var schemaHandle = schema?.Handle;
+        var schemaHandle = schema?.Consume().Handle;
 
         var h = PolarsWrapper.ScanNdjson(
             buffer,
@@ -117,7 +117,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </summary>
     public static LazyFrame ScanNdjson(
         Stream stream,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         ulong? inferSchemaLength = null,
         ulong? batchSize = null,
         ulong? nRows = null,
