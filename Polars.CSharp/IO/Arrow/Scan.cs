@@ -70,7 +70,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// </summary>
     public static LazyFrame ScanRecordBatches(IEnumerable<RecordBatch> stream, Schema schema)
     {
-        if (schema == null) throw new ArgumentNullException(nameof(schema));
+        // ArgumentNullException.ThrowIfNull(nameof(schema));
 
         var handle = ArrowStreamInterop.ScanStream(
             () => EnsureStreamSafety(stream),

@@ -1,6 +1,8 @@
 #pragma warning disable CS1591
 using System.Collections.Frozen;
 using System.Text;
+using Apache.Arrow;
+using Apache.Arrow.Types;
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
@@ -256,6 +258,83 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>
         sb.Append('}');
         return sb.ToString();
     }
+    /// <summary>
+    /// Convert a Polars Schema to an Apache.Arrow.Schema.
+    /// </summary>
+    public Apache.Arrow.Schema ToArrowSchema()
+    {
+        var builder = new Apache.Arrow.Schema.Builder();
+
+        foreach (var (columnName, polarsType) in ToDictionary())
+        {
+            IArrowType arrowType = polarsType.GetArrowType();
+            
+            Dictionary<string, string>? metadata = null;
+
+            if (polarsType is BaseExtension ext)
+            {
+                metadata = new Dictionary<string, string>
+                {
+                    { "ARROW:extension:name", ext.ExtensionName }
+                };
+
+                if (ext.Metadata != null)
+                {
+                    metadata["ARROW:extension:metadata"] = ext.Metadata;
+                }
+            }
+
+            var field = new Field(columnName, arrowType, nullable: true, metadata);
+            
+            builder.Field(field);
+        }
+
+        return builder.Build();
+    }
+    /// <summary>
+    /// Creates a Polars Schema from an Apache.Arrow.Schema.
+    /// </summary>
+    public static PolarsSchema FromArrowSchema(Apache.Arrow.Schema arrowSchema)
+    {
+        var polarsSchema = new PolarsSchema();
+
+        foreach (var field in arrowSchema.FieldsList)
+        {
+            DataType polarsType;
+
+            if (field.Metadata != null && field.Metadata.TryGetValue("ARROW:extension:name", out var extName))
+            {
+                field.Metadata.TryGetValue("ARROW:extension:metadata", out var extMetadata);
+                
+                var storageType = DataType.FromArrowType(field.DataType);
+
+                if (ExtensionRegistry.TryGetResolution(extName, out var factory, out var asStorage))
+                {
+                    if (asStorage)
+                    {
+                        polarsType = storageType;
+                    }
+                    else
+                    {
+                        polarsType = factory!(storageType, extMetadata);
+                    }
+                }
+                else
+                {
+                    polarsType = new UnknownExtension(extName, storageType, extMetadata);
+                }
+            }
+            else
+            {
+                polarsType = DataType.FromArrowType(field.DataType);
+            }
+
+            polarsSchema.Add(field.Name, polarsType); 
+        }
+
+        return polarsSchema;
+    }
+
     // ==========================================
     // Equality Members
     // ==========================================

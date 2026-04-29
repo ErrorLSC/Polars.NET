@@ -745,7 +745,6 @@ internal static class ReprParser
     {
         typeStr = typeStr.ToLower().Trim();
 
-        // 1. 拆离基础类型和参数 (例如 "datetime[μs, UTC]" -> baseType="datetime", argsStr="μs, UTC")
         string baseType = typeStr;
         string? argsStr = null;
 
@@ -756,22 +755,21 @@ internal static class ReprParser
             argsStr = typeStr.Substring(bracketIdx + 1, typeStr.Length - bracketIdx - 2);
         }
 
-        // 2. 模式匹配
         return baseType switch
         {
             "i8" => DataType.Int8,
             "i16" => DataType.Int16,
             "i32" => DataType.Int32,
             "i64" => DataType.Int64,
-            "i128" => DataType.Int128, // 补充 128 位
+            "i128" => DataType.Int128, 
             
             "u8" => DataType.UInt8,
             "u16" => DataType.UInt16,
             "u32" => DataType.UInt32,
             "u64" => DataType.UInt64,
-            "u128" => DataType.UInt128, // 补充 128 位
+            "u128" => DataType.UInt128, 
 
-            "f16" => DataType.Float16,  // 补充 f16
+            "f16" => DataType.Float16,  
             "f32" => DataType.Float32,
             "f64" => DataType.Float64,
             
@@ -780,18 +778,13 @@ internal static class ReprParser
             "date" => DataType.Date,
             "time" => DataType.Time,
             
-            // 带有参数的复杂类型分配给专门的方法处理
             "datetime" => ParseDatetime(argsStr),
             "duration" => ParseDuration(argsStr),
             
-            // 特殊类型处理
             "cat" => DataType.Categorical(), 
-            
-            // 【极其关键】：Enum 必须知道所有 Categories 才能创建，而表头里没有。
-            // 强行转 Enum 会导致底层 Panic，因此必须降级为 String。
+
             "enum" => DataType.String,     
             
-            // 兜底（包括 list, struct 等嵌套类型，原版 Python from_repr 也是不支持嵌套类型的还原的）
             _ => DataType.String 
         };
     }
@@ -803,26 +796,22 @@ internal static class ReprParser
             "ns" => TimeUnit.Nanoseconds,
             "us" or "μs" => TimeUnit.Microseconds,
             "ms" => TimeUnit.Milliseconds,
-            _ => TimeUnit.Microseconds // Polars 默认精度
+            _ => TimeUnit.Microseconds 
         };
     }
 
     private static DataType ParseDatetime(string? args)
     {
-        // 如果没有参数，默认返回无时区的微秒
         if (string.IsNullOrWhiteSpace(args)) 
             return DataType.Datetime(TimeUnit.Microseconds, null);
 
         var parts = args.Split(',').Select(p => p.Trim()).ToArray();
         
-        // 解析第一部分：时间精度
         var unit = ParseTimeUnit(parts[0]);
-        
-        // 解析第二部分：时区字符串 (例如 "Asia/Shanghai")
+
         string? timeZone = parts.Length > 1 ? parts[1] : null;
 
-        // 如果控制台打印带有引号 (例如 "UTC")，将其剥离
-        if (timeZone != null && timeZone.StartsWith("\"") && timeZone.EndsWith("\""))
+        if (timeZone != null && timeZone.StartsWith('\"') && timeZone.EndsWith('\"'))
         {
             timeZone = timeZone[1..^1];
         }

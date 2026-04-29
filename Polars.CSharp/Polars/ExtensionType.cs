@@ -1,6 +1,4 @@
-using Polars.NET.Core;
-using Polars.NET.Core.Helpers;
-using Cs = Polars.CSharp.Polars.Selectors;
+
 namespace Polars.CSharp;
 
 public readonly partial struct Polars

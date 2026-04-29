@@ -344,7 +344,14 @@ public readonly struct IntoSchema
         ArgumentNullException.ThrowIfNull(columnNames);
         return new(CreateSchemaFromNames(columnNames), ownsSchema: true);
     }
-
+    // ==========================================
+    // 5. Apache Arrow Schema -> PolarsSchema
+    // ==========================================
+    public static implicit operator IntoSchema(Apache.Arrow.Schema arrowSchema)
+    {
+        ArgumentNullException.ThrowIfNull(arrowSchema);
+        return new(PolarsSchema.FromArrowSchema(arrowSchema), ownsSchema: true);
+    }
     private static PolarsSchema CreateSchemaFromNames(IEnumerable<string> names)
     {
         var schema = new PolarsSchema();
