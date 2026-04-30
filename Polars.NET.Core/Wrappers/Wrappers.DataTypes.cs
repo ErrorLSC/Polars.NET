@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
@@ -14,10 +15,28 @@ public readonly partial struct PolarsWrapper
         => ErrorHelper.Check(NativeBindings.pl_datatype_new_datetime(unit,timezone));
     public static DataTypeHandle NewDurationType(byte unit) 
         => ErrorHelper.Check(NativeBindings.pl_datatype_new_duration(unit));
-    public static DataTypeHandle NewArrayType(DataTypeHandle inner, ulong width)
+    // public static DataTypeHandle NewArrayType(DataTypeHandle inner, ulong width)
+    //     => ErrorHelper.Check(NativeBindings.pl_datatype_new_array(inner, (UIntPtr)width));
+    public static DataTypeHandle NewArrayType(DataTypeHandle inner, uint width)
+        => NewArrayType(inner, new ReadOnlySpan<uint>([width])); 
+    public static DataTypeHandle NewArrayType(DataTypeHandle inner, ReadOnlySpan<uint> shape)
     {
-        return ErrorHelper.Check(NativeBindings.pl_datatype_new_array(inner, (UIntPtr)width));
+        if (shape.IsEmpty)
+            throw new ArgumentException("Shape must not be empty.", nameof(shape));
+
+        Span<nuint> nuShape = stackalloc nuint[shape.Length];
+        for (int i = 0; i < shape.Length; i++)
+        {
+            nuShape[i] = shape[i];
+        }
+
+        ref nuint shapeRef = ref MemoryMarshal.GetReference(nuShape);
+
+        return ErrorHelper.Check(
+            NativeBindings.pl_datatype_new_array(inner, ref shapeRef, (nuint)shape.Length)
+        );
     }
+    
     public static DataTypeHandle NewStructType(string[] names, DataTypeHandle[] types)
     {
         if (names.Length != types.Length) 
@@ -95,6 +114,31 @@ public readonly partial struct PolarsWrapper
         ErrorHelper.CheckBool(success);
         
         return width;
+    }
+    public static uint[] GetArrayShape(DataTypeHandle handle)
+    {
+        bool success = NativeBindings.pl_datatype_get_array_shape(
+            handle,
+            out nint rawShape,
+            out nuint len
+        );
+        ErrorHelper.CheckBool(success);
+
+        if (rawShape == IntPtr.Zero || len == 0)
+            return [];
+
+        var result = new uint[len];
+        unsafe
+        {
+            var src = (nuint*)rawShape;
+            for (int i = 0; i < (int)len; i++)
+            {
+                result[i] = (uint)src[i];
+            }
+        }
+
+        NativeBindings.pl_free_shape(rawShape, len);
+        return result;
     }
     /// <summary>
     /// Get Struct field length

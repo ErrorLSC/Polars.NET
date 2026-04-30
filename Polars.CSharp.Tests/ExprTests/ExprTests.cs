@@ -1124,7 +1124,7 @@ TooShort,1990-05-20,1.60";
 
             Assert.Equal(DataTypeKind.Float64, arrType.InnerType.Kind);
 
-            Assert.Equal(5L, arrType.ArrayWidth);
+            Assert.Equal(5UL, arrType.ArrayWidth);
         }
         [Fact]
         public void Test_Series_Array_ReadItem()
@@ -1855,7 +1855,7 @@ TooShort,1990-05-20,1.60";
 
         var dtype = res.Schema["user_info"];
 
-        Assert.Equal(res.Schema["user_info"],DataType.Struct(["Name","Age"],[DataType.String,DataType.Int32]));
+        Assert.Equal(res.Schema["user_info"],Pl.Struct(new Dictionary<string,DataType>{{"Name",Pl.Utf8},{"Age",Pl.Int32}}));
     }
     [Fact]
     public void Test_Complex_Struct_Filter()

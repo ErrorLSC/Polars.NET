@@ -78,7 +78,7 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(h);
     }
     public static DataTypeExprHandle DataTypeExprWrapInList(DataTypeExprHandle dexpr) => UnaryOpToDataTypeExpr(NativeBindings.pl_datatype_expr_wrap_in_list,dexpr);
-    public static DataTypeExprHandle DataTypeExprWrapInArray(DataTypeExprHandle dexpr,int width)
+    public static DataTypeExprHandle DataTypeExprWrapInArray(DataTypeExprHandle dexpr,uint width)
     {
         var h = NativeBindings.pl_datatype_expr_wrap_in_array(dexpr,(nuint)width);
         dexpr.TransferOwnership();

@@ -261,9 +261,9 @@ public class StreamingTests(ITestOutputHelper output)
         var today = DateOnly.FromDateTime(DateTime.Now); 
 
         var schema = new Schema.Builder()
-            .Field(new Field("Id", Int32Type.Default, true))
-            .Field(new Field("Name", StringViewType.Default, true))
-            .Field(new Field("Date", Date32Type.Default, true)) 
+            .Field(new Apache.Arrow.Field("Id", Int32Type.Default, true))
+            .Field(new Apache.Arrow.Field("Name", StringViewType.Default, true))
+            .Field(new Apache.Arrow.Field("Date", Date32Type.Default, true)) 
             .Build();
 
         IEnumerable<RecordBatch> MockArrowStream()

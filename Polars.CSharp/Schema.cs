@@ -34,7 +34,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>
     /// <summary>
     /// Create a Schema from a Dictionary.
     /// </summary>
-    public static PolarsSchema From(Dictionary<string, DataType> fields)
+    public static PolarsSchema From(IReadOnlyDictionary<string, DataType> fields)
     {
         var schema = new PolarsSchema();
         foreach (var kvp in fields)
@@ -284,7 +284,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>
                 }
             }
 
-            var field = new Field(columnName, arrowType, nullable: true, metadata);
+            var field = new Apache.Arrow.Field(columnName, arrowType, nullable: true, metadata);
             
             builder.Field(field);
         }

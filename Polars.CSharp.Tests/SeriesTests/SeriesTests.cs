@@ -154,7 +154,7 @@ public class SeriesTests
         using var structValid = structValidBuilder.Build();
 
         // Build StructArray
-        var fields = new List<Field>
+        var fields = new List<Apache.Arrow.Field>
         {
             new("Name", new StringType(), false),
             new("Scores", new ListType(new Int64Type()), true)
@@ -1880,7 +1880,7 @@ public class SeriesTests
         using Series reshaped = s.Reshape([2, 3]);
         
         Assert.Equal(2, reshaped.Len());
-        
+
         Assert.Equal(DataType.Array(typeof(int), 3), reshaped.DataType);
 
         using Series structSeries = reshaped.Array.ToStruct(["c1", "c2", "c3"]);
@@ -1895,7 +1895,27 @@ public class SeriesTests
         using Series backed = reshaped.Reshape([-1]);
         Assert.Equal([1,2,3,4,5,6],backed.ToArray<int>());
     }
+    [Fact]
+    [Trait("Series", "ReshapeExplicit")]
+    public void Test_Series_Reshape_Explicit_Dimensions_3D()
+    {
+        using Series s = Pl.Series("a", [1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
+        using Series mat = s.Reshape([3, 3]);
+        Assert.Equal(3, mat.Len());
+        Assert.Equal(DataType.Array(Pl.Int32, 3), mat.DataType);
+        Assert.Equal([3u], mat.DataType.ArrayShape);
+
+        using Series cube = s.Reshape([3, 1, 3]);
+        Assert.Equal(3, cube.Len());
+        Assert.Equal(DataType.Array(Pl.Int32,1,3), cube.DataType);
+        Assert.Equal([ 1u, 3u ], cube.DataType.ArrayShape);
+
+        using Series cube2 = s.Reshape([1, 3, 3]);
+        Assert.Equal(1, cube2.Len());
+        Assert.Equal(DataType.Array(typeof(int),3, 3), cube2.DataType);
+        Assert.Equal([ 3u, 3u ], cube2.DataType.ArrayShape);
+    }
     [Fact]
     [Trait("Series", "ReshapeInferred")]
     public void Test_Series_Reshape_Inferred_Dimensions()

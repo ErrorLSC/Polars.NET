@@ -276,6 +276,7 @@ public readonly struct IntoDataTypeExpr
 /// <summary>
 /// A union type representing a PolarsSchema.
 /// Can be implicitly converted from a PolarsSchema, DataFrame, or LazyFrame.
+/// Schema Dictionary and Tuple are also accepted.
 /// </summary>
 public readonly struct IntoSchema
 {
@@ -377,3 +378,4 @@ public readonly struct IntoSchema
         }
     }
 }
+

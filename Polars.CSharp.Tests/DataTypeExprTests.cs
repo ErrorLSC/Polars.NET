@@ -191,7 +191,7 @@ public class DataTypeExprTests
         using var baseType = DataType.Float64;
         using var dTypeExpr = baseType.ToDataTypeExpr();
 
-        int arrayWidth = 5;
+        uint arrayWidth = 5;
         using var arrayExpr = dTypeExpr.WrapInArray(arrayWidth);
 
         using var schema = new PolarsSchema().Add("dummy", DataType.Int32);
@@ -254,7 +254,7 @@ public class DataTypeExprTests
     [Trait("DataTypeExpr", "ArrayNamespace")]
     public void Test_Array_InnerDataType_ExtractsTypeCorrectly()
     {
-        int arrayWidth = 4;
+        uint arrayWidth = 4;
         using var arrayType = DataType.Array(DataType.Float32, arrayWidth);
         using var dTypeExpr = arrayType.ToDataTypeExpr();
 

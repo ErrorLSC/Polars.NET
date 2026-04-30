@@ -502,9 +502,9 @@ public class DataTypeTests
 
         Assert.Equal(DataTypeKind.Array, dtype.Kind);
         
-        Assert.Equal(3L, dtype.ArrayWidth);
+        Assert.Equal(3UL, dtype.ArrayWidth);
         
-        Assert.Equal(DataTypeKind.Int32, dtype.InnerType.Kind);
+        Assert.Equal(DataType.Int32, dtype.InnerType);
     }
     [Fact]
     public void Test_Float_Double_Half_Resolution()
@@ -1023,7 +1023,7 @@ public class DataTypeTests
         
         using var series = Series.From(name, data);
 
-        Assert.Equal(DataType.Array(DataType.Decimal(38,5),3),series.DataType); 
+        Assert.Equal(DataType.Array(Pl.Decimal(38,5),3),series.DataType); 
         
         decimal[][] rows = series.ToArray<decimal[]>();
 
@@ -1074,27 +1074,27 @@ public class DataTypeTests
             .Select(Pl.LitStruct(inputObj).Alias("my_struct"));
 
         var structType = df.Schema["my_struct"];
-        var expectedType = DataType.Struct(
-            ("Id", DataType.Int32),
-            ("Name", DataType.String),
-            ("Score", DataType.Float64),
-            ("IsActive", DataType.Boolean)
+        var expectedType = Pl.Struct(
+            Pl.Field("Id", Pl.Int32),
+            Pl.Field("Name", Pl.String),
+            Pl.Field("Score", Pl.Float64),
+            Pl.Field("IsActive", Pl.Boolean)
         );
 
         Assert.Equal(expectedType, structType);
         Assert.Equal(4, structType.StructFields.Count);
 
         Assert.Equal("Id", structType.StructFields[0].Name);
-        Assert.Equal(DataType.Int32, structType.StructFields[0].Type);
+        Assert.Equal(DataType.Int32, structType.StructFields[0].DataType);
 
         Assert.Equal("Name", structType.StructFields[1].Name);
-        Assert.Equal(DataType.String, structType.StructFields[1].Type);
+        Assert.Equal(DataType.String, structType.StructFields[1].DataType);
 
         Assert.Equal("Score", structType.StructFields[2].Name);
-        Assert.Equal(DataType.Float64, structType.StructFields[2].Type);
+        Assert.Equal(DataType.Float64, structType.StructFields[2].DataType);
 
         Assert.Equal("IsActive", structType.StructFields[3].Name);
-        Assert.Equal(DataType.Boolean, structType.StructFields[3].Type);
+        Assert.Equal(DataType.Boolean, structType.StructFields[3].DataType);
 
         using var unnestedDf = df.Unnest("my_struct");
 
@@ -1281,5 +1281,30 @@ public class DataTypeTests
 
         Assert.Equal(103, rows[2].TaskId);
         Assert.Equal("Completed", rows[2].Status);
+    }
+    [Fact]
+    [Trait("DataType", "MultidimensionalArray")]
+    public void Test_Multidimensional_Array_Shape()
+    {
+        // 1D array
+        var arr1d = DataType.Array(Pl.Int64, 5);
+        Assert.Equal(new uint[] { 5 }, arr1d.ArrayShape);
+
+        // 2D array
+        var arr2d = DataType.Array(Pl.Int64, 2, 3);
+        Assert.Equal(new uint[] { 2, 3 }, arr2d.ArrayShape);
+
+        // 3D array
+        var arr3d = DataType.Array(Pl.Float32, 4, 5, 6);
+        Assert.Equal(new uint[] { 4, 5, 6 }, arr3d.ArrayShape);
+
+        // Nested array built manually (Array inside Array)
+        var nestedInner = DataType.Array(Pl.Utf8, 2);
+        var nestedOuter = DataType.Array(nestedInner, 3);
+        Assert.Equal(new uint[] { 3, 2 }, nestedOuter.ArrayShape);
+
+        // Non-array type returns empty
+        var plain = Pl.Utf8;
+        Assert.Empty(plain.ArrayShape);
     }
 }

@@ -51,7 +51,7 @@ public readonly partial struct Polars
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
 
-        var handles = Array.ConvertAll(exprs, e => e.Consume().Handle);
+        var handles = System.Array.ConvertAll(exprs, e => e.Consume().Handle);
         
         return new Expr(PolarsWrapper.ExprAllHorizontal(handles));
     }
@@ -77,7 +77,7 @@ public readonly partial struct Polars
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
 
-        var handles = Array.ConvertAll(exprs, e => e.Consume().Handle);
+        var handles = System.Array.ConvertAll(exprs, e => e.Consume().Handle);
         
         return new Expr(PolarsWrapper.ExprAnyHorizontal(handles));
     }
@@ -88,7 +88,7 @@ public readonly partial struct Polars
         if (exprArray.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
 
-        var handles = Array.ConvertAll(exprArray, e => e.Consume().Handle);
+        var handles = System.Array.ConvertAll(exprArray, e => e.Consume().Handle);
         return new Expr(PolarsWrapper.ExprAnyHorizontal(handles));
     }
     /// <summary>
@@ -109,7 +109,7 @@ public readonly partial struct Polars
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
 
-        var handles = Array.ConvertAll(exprs, e => e.Consume().Handle);
+        var handles = System.Array.ConvertAll(exprs, e => e.Consume().Handle);
         
         return new Expr(PolarsWrapper.ExprMaxHorizontal(handles));
     }
@@ -131,7 +131,7 @@ public readonly partial struct Polars
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
 
-        var handles = Array.ConvertAll(exprs, e => e.Consume().Handle);
+        var handles = System.Array.ConvertAll(exprs, e => e.Consume().Handle);
         
         return new Expr(PolarsWrapper.ExprMinHorizontal(handles));
     }
@@ -182,7 +182,7 @@ public readonly partial struct Polars
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
 
-        var handles = Array.ConvertAll(exprs, e => e.Consume().Handle);
+        var handles = System.Array.ConvertAll(exprs, e => e.Consume().Handle);
         return new Expr(PolarsWrapper.ExprSumHorizontal(handles, true));
     }
 
@@ -196,7 +196,7 @@ public readonly partial struct Polars
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
 
-        var handles = Array.ConvertAll(exprs, e => e.Consume().Handle);
+        var handles = System.Array.ConvertAll(exprs, e => e.Consume().Handle);
         return new Expr(PolarsWrapper.ExprSumHorizontal(handles, ignoreNulls));
     }
     /// <summary>
@@ -234,7 +234,7 @@ public readonly partial struct Polars
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
 
-        var handles = Array.ConvertAll(exprs, e => e.Consume().Handle);
+        var handles = System.Array.ConvertAll(exprs, e => e.Consume().Handle);
         return new Expr(PolarsWrapper.ExprMeanHorizontal(handles, true));
     }
     /// <summary>
@@ -249,7 +249,7 @@ public readonly partial struct Polars
         if (exprs is null || exprs.Length == 0)
             throw new ArgumentException("Cannot create horizontal fold with empty expressions.", nameof(exprs));
 
-        var handles = Array.ConvertAll(exprs, e => e.Consume().Handle);
+        var handles = System.Array.ConvertAll(exprs, e => e.Consume().Handle);
         return new Expr(PolarsWrapper.ExprMeanHorizontal(handles, ignoreNulls));
     }
     /// <summary>

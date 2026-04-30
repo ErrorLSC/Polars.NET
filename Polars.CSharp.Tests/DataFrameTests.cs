@@ -1283,7 +1283,7 @@ B,5";
         var structSeries = df.ToStruct(name:"struct");
 
         Assert.Equal("struct",structSeries.Name);
-        Assert.Equal(DataType.Struct(["Name","Age","Score"],[DataType.String,DataType.Int32,DataType.Int32]),structSeries.DataType);
+        Assert.Equal(Pl.Struct([("Name",Pl.String),("Age",Pl.Int32),("Score",Pl.Int32)]),structSeries.DataType);
         var dfBack = structSeries.Unnest();
         Assert.Equal((2L,3L),dfBack.Shape);
     }

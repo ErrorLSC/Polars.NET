@@ -276,19 +276,39 @@ pub extern "C" fn pl_datatype_new_datetime(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_new_array(
-    inner_ptr: *mut DataTypeContext, 
-    width: usize
+    inner_ptr: *mut DataTypeContext,
+    width_or_shape_ptr: *const usize,  
+    ndim: usize                         
 ) -> *mut DataTypeContext {
     ffi_try!({
         if inner_ptr.is_null() {
             polars_bail!(ComputeError: "Inner DataTypeContext pointer is null");
         }
+        if width_or_shape_ptr.is_null() && ndim > 0 {
+            polars_bail!(ComputeError: "Shape pointer is null but ndim > 0");
+        }
         
         let inner_ctx = unsafe { &*inner_ptr };
+        let mut current_dtype = inner_ctx.dtype.clone();
         
-        let array_dtype = DataType::Array(Box::new(inner_ctx.dtype.clone()), width);
+        if ndim == 0 {
+            return Ok(Box::into_raw(Box::new(DataTypeContext { 
+                dtype: current_dtype 
+            })));
+        }
         
-        Ok(Box::into_raw(Box::new(DataTypeContext { dtype: array_dtype })))
+        let widths = unsafe { std::slice::from_raw_parts(width_or_shape_ptr, ndim) };
+        
+        for &width in widths.iter().rev() {
+            current_dtype = DataType::Array(
+                Box::new(current_dtype), 
+                width
+            );
+        }
+        
+        Ok(Box::into_raw(Box::new(DataTypeContext { 
+            dtype: current_dtype 
+        })))
     })
 }
 
@@ -507,6 +527,51 @@ pub extern "C" fn pl_datatype_get_array_width(
         
         Ok(())
     })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_datatype_get_array_shape(
+    ctx: *const DataTypeContext,
+    out_shape: *mut *const usize,
+    out_len: *mut usize,
+) -> bool {
+    ffi_bool_try!({
+        if ctx.is_null() || out_shape.is_null() || out_len.is_null() {
+            polars_bail!(ComputeError: "null pointer passed to pl_datatype_get_array_shape");
+        }
+
+        let ctx = unsafe { &*ctx };
+        let shape_opt = ctx.dtype.get_shape(); 
+
+        match shape_opt {
+            Some(shape) if !shape.is_empty() => {
+                let len = shape.len();
+                let ptr = shape.as_ptr();
+                std::mem::forget(shape);
+                unsafe {
+                    *out_shape = ptr;
+                    *out_len = len;
+                }
+                Ok(())
+            }
+            _ => {
+                unsafe {
+                    *out_shape = std::ptr::null();
+                    *out_len = 0;
+                }
+                Ok(())
+            }
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_free_shape(data: *mut usize, len: usize) {
+    if !data.is_null() && len > 0 {
+        unsafe {
+            let _ = Vec::from_raw_parts(data, len, len);
+        }
+    }
 }
 
 #[unsafe(no_mangle)]

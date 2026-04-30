@@ -25,13 +25,19 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     public TimeUnit? Unit { get; private set; }
     public string? TimeZone { get; private set; }
 
-    private IReadOnlyList<(string Name, DataType Type)>? _structFields;
+    private IReadOnlyList<Field>? _structFields;
 
     /// <summary>
     /// If this is an Array type, returns the fixed width.
     /// Returns 0 if not an Array type.
     /// </summary>
-    public long ArrayWidth => (long)PolarsWrapper.DataTypeGetArrayWidth(Handle);
+    public ulong ArrayWidth => PolarsWrapper.DataTypeGetArrayWidth(Handle);
+    /// <summary>
+    /// The shape of the array
+    /// </summary>
+    public uint[] ArrayShape => Kind == DataTypeKind.Array
+        ? PolarsWrapper.GetArrayShape(Handle)
+        : [];
 
     internal DataType(DataTypeHandle handle, DataTypeKind kind = DataTypeKind.Unknown)
     {
@@ -187,7 +193,7 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// Gets the fields of a Struct type. 
     /// Returns null if this DataType is not a Struct.
     /// </summary>
-    public IReadOnlyList<(string Name, DataType Type)>? StructFields
+    public IReadOnlyList<Field>? StructFields
     {
         get
         {
@@ -196,13 +202,12 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
             if (_structFields == null)
             {
                 ulong len = PolarsWrapper.GetStructLen(Handle);
-                var fields = new List<(string Name, DataType Type)>((int)len);
+                var fields = new List<Field>((int)len);
 
                 for (ulong i = 0; i < len; i++)
                 {
                     PolarsWrapper.GetStructField(Handle, i, out string name, out DataTypeHandle typeHandle);
-                    
-                    fields.Add((name, new DataType(typeHandle)));
+                    fields.Add(new Field(name, new DataType(typeHandle)));
                 }
 
                 _structFields = fields.AsReadOnly();
@@ -359,6 +364,11 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
         FrozenCategories cate = new(categories.ToArray<string>());
         return Enum(cate);
     }
+    public static DataType Enum(string[] categories)
+    {
+        FrozenCategories cate = new(categories);
+        return Enum(cate);
+    }
     public static DataType Enum(Categories categories) => Enum(categories.Freeze());
     public static DataType Enum<T>() where T : struct, Enum
     {
@@ -371,7 +381,7 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// </summary>
     /// <param name="unit">precision (ns, us, ms)</param>
     /// <param name="timeZone">timezone string (e.g. "Asia/Shanghai")， null for no timezone (Naive)</param>
-    public static DataType Datetime(TimeUnit unit, string? timeZone = null)
+    public static DataType Datetime(TimeUnit unit = TimeUnit.Microseconds, string? timeZone = null)
     {
         var handle = PolarsWrapper.NewDateTimeType((byte)unit, timeZone);
         return new DataType(handle,DataTypeKind.Datetime);
@@ -393,12 +403,31 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// <para>Example: DataType.Array(DataType.Int32, 3),DataType.Array(typeof(int), 3) </para>
     /// </summary>
     /// <param name="inner">The data type of the elements.</param>
-    /// <param name="width">The fixed length of the array.</param>
-    public static DataType Array(DataType inner, int width)
+    /// <param name="shape">The shape of the arrays.</param>
+    public static DataType Array(DataType inner, params uint[] shape)
     {
-        var h = PolarsWrapper.NewArrayType(inner.Handle, (ulong)width);
-        return new DataType(h,DataTypeKind.Array);
+        if (shape == null || shape.Length == 0)
+            throw new ArgumentException("Shape must contain at least one dimension.", nameof(shape));
+
+        var handle = PolarsWrapper.NewArrayType(inner.Handle, shape.AsSpan());
+        return new DataType(handle, DataTypeKind.Array);
     }
+    public static DataType Struct(IEnumerable<Field> fields)
+    {
+        var names = new List<string>();
+        var handles = new List<DataTypeHandle>();
+        foreach (var f in fields)
+        {
+            names.Add(f.Name);
+            handles.Add(f.DataType.Handle);
+        }
+        var h = PolarsWrapper.NewStructType([.. names], [.. handles]);
+        return new DataType(h, DataTypeKind.Struct);
+    }
+    public static DataType Struct(params Field[] fields)
+        => Struct((IEnumerable<Field>)fields);
+    public static DataType Struct(IReadOnlyDictionary<string, DataType> fields)
+        => Struct([.. fields.Select(kvp => (Field)kvp)]);
     public static DataType Struct(string[] names, DataType[] types)
     {
         var handles = System.Array.ConvertAll(types, t => t.Handle);
@@ -407,30 +436,6 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
         
         return new DataType(h, DataTypeKind.Struct);
     }
-    /// <summary>
-    /// Create a Struct DataType from a collection of named fields.
-    /// Preserves the exact order of the fields, which is strictly required by Polars.
-    /// </summary>
-    public static DataType Struct(IEnumerable<(string Name, DataType Type)> fields)
-    {
-        var names = new List<string>();
-        var handles = new List<DataTypeHandle>();
-
-        foreach (var field in fields)
-        {
-            names.Add(field.Name);
-            handles.Add(field.Type.Handle);
-        }
-
-        var h = PolarsWrapper.NewStructType([.. names], [.. handles]);
-        return new DataType(h, DataTypeKind.Struct);
-    }
-    /// <summary>
-    /// Create a Struct DataType explicitly using Tuples.
-    /// <para>Example: <c>DataType.Struct(("Id", DataType.Int32), ("Name", DataType.String))</c></para>
-    /// </summary>
-    public static DataType Struct(params (string Name, DataType Type)[] fields)
-        => Struct((IEnumerable<(string Name, DataType Type)>)fields);
     /// <summary>
     /// Create an Extension data type
     /// </summary>
@@ -513,23 +518,41 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
 
             ListType l => List(FromArrowType(l.ValueDataType)),
             LargeListType l => List(FromArrowType(l.ValueDataType)),
-            FixedSizeListType l => Array(FromArrowType(l.ValueDataType), l.ListSize),
+            FixedSizeListType l => Array(FromArrowType(l.ValueDataType), (uint)l.ListSize),
             
             StructType s => Struct(
-                [.. s.Fields.Select(f => f.Name)],
-                [.. s.Fields.Select(f => FromArrowType(f.DataType))]
+                [.. s.Fields.Select(f => (Field)(f.Name, FromArrowType(f.DataType)))]
             ),
 
             DictionaryType dict => Categorical(Categories.Random()),
 
-            MapType map => List(Struct(
-                ["key", "value"], 
-                [FromArrowType(map.KeyField.DataType), FromArrowType(map.ValueField.DataType)]
-            )),
+            MapType map => List(
+                Struct(
+                    ("key",   FromArrowType(map.KeyField.DataType)),
+                    ("value", FromArrowType(map.ValueField.DataType))
+                )
+            ),
 
             _ => throw new NotSupportedException($"ArrowType {arrowType.GetType().Name} is not supported yet.")
         };
     }
+}
+
+/// <summary>
+/// Definition of a single field within a Struct DataType.
+/// </summary>
+/// <param name="name">The name of the field within its parent Struct.</param>
+/// <param name="dataType">The DataType of the field’s values.</param>
+public readonly struct Field(string name, DataType dataType)
+{
+    public string Name { get; } = name ?? throw new ArgumentNullException(nameof(name));
+    public DataType DataType { get; } = dataType ?? throw new ArgumentNullException(nameof(dataType));
+
+    public static implicit operator Field((string Name, DataType Type) tuple)
+        => new(tuple.Name, tuple.Type);
+
+    public static implicit operator Field(KeyValuePair<string, DataType> kvp)
+        => new(kvp.Key, kvp.Value);
 }
 
 public class Categories : IDisposable,IEquatable<Categories>

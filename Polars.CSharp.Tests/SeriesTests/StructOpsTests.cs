@@ -44,11 +44,11 @@ public class SeriesStructOpsTests
 
         string[] fields = structSeries.Struct.Fields;
         Assert.Equal(["a", "b", "c"], fields);
-        var schema = structSeries.Struct.Schema.ToDictionary();
-        Assert.NotNull(schema);
+        var schema = structSeries.Struct.Schema;
         Assert.True(schema.ContainsKey("a"));
         Assert.True(schema.ContainsKey("b"));
         Assert.True(schema.ContainsKey("c"));
+        Assert.Equal(Pl.Int32, schema["a"]);
 
         using Series colA = structSeries.Struct["a"];
         Assert.Equal("a", colA.Name);

@@ -70,17 +70,13 @@ public readonly struct SeriesStructOps
     /// <summary>
     /// Get the struct definition as a name/dtype schema.
     /// </summary>
-    public PolarsSchema Schema
+    public IReadOnlyDictionary<string, DataType> Schema
     {
         get
         {
             var fields = _series.DataType.StructFields;
-            if (fields == null)
-            {
-                return new PolarsSchema(); 
-            }
-            
-            return PolarsSchema.From(fields);
+            if (fields == null) return new Dictionary<string, DataType>();
+            return fields.ToDictionary(f => f.Name, f => f.DataType);
         }
     }
 
@@ -92,12 +88,7 @@ public readonly struct SeriesStructOps
         get
         {
             var fields = _series.DataType.StructFields;
-            if (fields == null)
-            {
-                return [];
-            }
-
-            return [.. fields.Select(f => f.Name)];
+            return fields?.Select(f => f.Name).ToArray() ?? [];
         }
     }
 }

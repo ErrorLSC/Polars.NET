@@ -27,8 +27,9 @@ unsafe internal partial class NativeBindings
     public static partial DataTypeHandle pl_datatype_new_duration(byte unit);
     [LibraryImport(LibName)]
     public static partial DataTypeHandle pl_datatype_new_array(
-        DataTypeHandle inner, 
-        UIntPtr width
+        DataTypeHandle inner,
+        ref nuint shape,   
+        nuint ndim         
     );
 
     [LibraryImport(LibName)]
@@ -37,6 +38,16 @@ unsafe internal partial class NativeBindings
         DataTypeHandle dtype,
         out uint width
     );
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_datatype_get_array_shape(
+        DataTypeHandle dtype,
+        out nint out_shape,
+        out nuint out_len
+    );
+
+    [LibraryImport(LibName)]
+    public static partial void pl_free_shape(IntPtr data, nuint len);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial DataTypeHandle pl_datatype_new_struct(
     string[] names, 

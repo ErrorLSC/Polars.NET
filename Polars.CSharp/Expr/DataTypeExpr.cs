@@ -115,7 +115,7 @@ public partial class DataTypeExpr : IDisposable
     /// </summary>
     /// <param name="width">Array Width</param>
     /// <returns></returns>
-    public DataTypeExpr WrapInArray(int width) => new(PolarsWrapper.DataTypeExprWrapInArray(CloneHandle(), width));
+    public DataTypeExpr WrapInArray(uint width) => new(PolarsWrapper.DataTypeExprWrapInArray(CloneHandle(), width));
     /// <summary>
     /// Get the signed integer version of the same bitsize.
     /// </summary>

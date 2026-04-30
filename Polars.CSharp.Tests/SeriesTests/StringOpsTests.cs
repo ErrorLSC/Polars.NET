@@ -581,9 +581,9 @@ public class SeriesStringOpsTests
         
         Assert.Equal(["25", "30", null, null], matchAge.ToArray<string>());
 
-        using var targetDtype = DataType.Struct([
-            ("user", DataType.String),
-            ("age", DataType.Int64)
+        using var targetDtype = Pl.Struct([
+            ("user", Pl.String),
+            ("age", Pl.Int64)
         ]);
 
         using Series decoded = s.Str.JsonDecode(targetDtype);
