@@ -97,7 +97,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     /// <summary>
     /// Return DataFrame Columns' DataType
     /// </summary>
-    public List<DataType> DataTypes => Schema.DataTypes;
+    public IReadOnlyList<DataType> DataTypes => Schema.DataTypes;
     /// <summary>
     /// Hash and combine the rows in this DataFrame.
     /// </summary>

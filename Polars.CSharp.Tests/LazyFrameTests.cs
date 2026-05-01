@@ -430,7 +430,7 @@ David,40,80000";
         Console.WriteLine("--- 1. Initial Schema ---");
         using var schema1 = lf.Schema; 
 
-        Assert.Equal(3, schema1.Length);
+        Assert.Equal(3, schema1.Count);
         
         Assert.Equal(DataTypeKind.Int32, schema1["a"].Kind);
         Assert.Equal(DataTypeKind.Float64, schema1["b"].Kind);

@@ -139,7 +139,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,
     /// <summary>
     /// Returns the schema as an ordered list of fields.
     /// </summary>
-    public List<(string Name, DataType Type)> ToList()
+    public IReadOnlyList<(string Name, DataType Type)> ToList()
         => [.. GetFields().Select(f => (f.Name, f.DataType))];
 
     public DataType this[string name]
@@ -168,14 +168,14 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,
     // ==========================================
     // ColumnNames / Length / dtype
     // ==========================================
-    public int Length => (int)PolarsWrapper.GetSchemaLen(Handle);
-    public List<string> ColumnNames => [.. Keys];
+    public int Len() => Count;
+    public IReadOnlyList<string> ColumnNames => [.. Keys];
 
-    public List<string> Names => ColumnNames;
+    public IReadOnlyList<string> Names => ColumnNames;
     /// <summary>
     /// Gets the list of data types for the columns in the schema.
     /// </summary>
-    public List<DataType> DataTypes => [.. Values];
+    public IReadOnlyList<DataType> DataTypes => [.. Values];
 
     IPolarsDataType IReadOnlyDictionary<string, IPolarsDataType>.this[string key]
     {

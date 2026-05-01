@@ -51,7 +51,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
         
         Console.WriteLine("root");
         
-        foreach (var name in schema.ColumnNames)
+        foreach (var name in schema.Names)
         {
             var type = schema[name]; 
             Console.WriteLine($" |-- {name}: {type.Kind}");
@@ -60,7 +60,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <summary>
     /// Return LazyFrame Columns' Name
     /// </summary>
-    public string[] Columns => [.. Schema.ColumnNames];
+    public string[] Columns => [.. Schema.Names];
 
     /// <summary>
     /// Return LazyFrame Columns' Name
@@ -70,7 +70,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <summary>
     /// Return LazyFrame Columns' DataType
     /// </summary>
-    public List<DataType> DataTypes => Schema.DataTypes;
+    public IReadOnlyList<DataType> DataTypes => Schema.DataTypes;
 
     /// <summary>
     /// Clone the LazyFrame, creating a new independent copy.

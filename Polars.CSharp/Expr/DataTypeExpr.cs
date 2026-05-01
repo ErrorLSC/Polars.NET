@@ -29,7 +29,7 @@ public partial class DataTypeExpr : IDisposable
     /// <returns></returns>
     public DataType CollectDataType(PolarsSchema schema)
     {
-        if (schema.Length == 0)
+        if (schema.Count == 0)
         {
             throw new ArgumentException("Polars engine requires a non-empty schema to resolve expressions.", nameof(schema));
         }

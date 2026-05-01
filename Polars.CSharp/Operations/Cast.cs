@@ -43,7 +43,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         
         try
         {
-            if (schema == null || schema.Handle.IsInvalid || schema.Length == 0) 
+            if (schema == null || schema.Handle.IsInvalid || schema.Count == 0) 
                 return this;
 
             var fields = schema.ToList();
@@ -101,7 +101,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         
         try
         {
-            if (schema == null || schema.Handle.IsInvalid || schema.Length == 0) 
+            if (schema == null || schema.Handle.IsInvalid || schema.Count == 0) 
                 return this;
 
             var fields = schema.ToList();
