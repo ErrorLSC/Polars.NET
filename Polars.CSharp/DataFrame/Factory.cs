@@ -400,8 +400,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 
         try
         {
-            var actualSchema = schema?.Consume().ToDictionary();
-            var overrides = schemaOverrides?.Consume().ToDictionary();
+            var actualSchema = schema?.Consume();
+            var overrides = schemaOverrides?.Consume();
 
             var columnTypes = new Dictionary<string, Type?>();
             int rowsToInfer = (int?)inferSchemaLength ?? records.Count;

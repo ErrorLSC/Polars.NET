@@ -56,7 +56,7 @@ public sealed class PolarsDataView(IPolarsDataFrame df, bool enableMacroShuffle 
         var builder = new DataViewSchema.Builder();
         IPolarsSchema schema = df.Schema;
 
-        foreach (var kvp in schema.ToDictionary())
+        foreach (var kvp in schema)
         {
             builder.AddColumn(kvp.Key, ArrowDataViewMapper.GetDataViewType(kvp.Value.GetArrowType()));
         }

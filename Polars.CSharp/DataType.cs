@@ -543,16 +543,33 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
 /// </summary>
 /// <param name="name">The name of the field within its parent Struct.</param>
 /// <param name="dataType">The DataType of the field’s values.</param>
-public readonly struct Field(string name, DataType dataType)
+public readonly struct Field(string name, DataType dataType): IEquatable<Field>
 {
     public string Name { get; } = name ?? throw new ArgumentNullException(nameof(name));
     public DataType DataType { get; } = dataType ?? throw new ArgumentNullException(nameof(dataType));
+    public void Deconstruct(out string name, out DataType dataType)
+    {
+        name = Name;
+        dataType = DataType;
+    }
 
     public static implicit operator Field((string Name, DataType Type) tuple)
         => new(tuple.Name, tuple.Type);
 
     public static implicit operator Field(KeyValuePair<string, DataType> kvp)
         => new(kvp.Key, kvp.Value);
+    // ================ IEquatable<Field> ================
+    public bool Equals(Field other) =>
+        Name == other.Name && DataType == other.DataType;
+
+    public override bool Equals(object? obj) =>
+        obj is Field other && Equals(other);
+
+    public override int GetHashCode() =>
+        HashCode.Combine(Name, DataType);
+
+    public static bool operator ==(Field left, Field right) => left.Equals(right);
+    public static bool operator !=(Field left, Field right) => !left.Equals(right);
 }
 
 public class Categories : IDisposable,IEquatable<Categories>

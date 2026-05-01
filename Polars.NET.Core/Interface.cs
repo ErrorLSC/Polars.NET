@@ -47,11 +47,7 @@ public interface IPolarsSqlContext : IDisposable
     IPolarsLazyFrame Execute(string sql);
 }
 
-public interface IPolarsSchema : IDisposable
+public interface IPolarsSchema : IDisposable,IReadOnlyDictionary<string, IPolarsDataType>
 {
-    int Length { get; }
-    List<string> ColumnNames { get; }
-    
-    IPolarsDataType this[string name] { get; } 
-    IReadOnlyDictionary<string,IPolarsDataType> ToDictionary();
+
 }

@@ -86,9 +86,7 @@ public class PolarsDataContext : DataConnection, IDisposable
     }
 
     private void BuildSchemaMapping<T>(string tableName, IPolarsSchema schema) where T : class
-    {
-        var schemaDict = schema.ToDictionary();
-        
+    {      
         try
         {
             var mappingBuilder = new FluentMappingBuilder(this.MappingSchema);
@@ -97,12 +95,12 @@ public class PolarsDataContext : DataConnection, IDisposable
 
             foreach (var prop in properties)
             {
-                var matchedColumn = schemaDict.Keys.FirstOrDefault(k => 
+                var matchedColumn = schema.Keys.FirstOrDefault(k => 
                     string.Equals(k, prop.Name, StringComparison.OrdinalIgnoreCase));
 
                 if (matchedColumn != null)
                 {
-                    var polarsDataType = schemaDict[matchedColumn];
+                    var polarsDataType = schema[matchedColumn];
                     var expectedNetType = ArrowTypeResolver.GetNetTypeFromArrowType(polarsDataType.GetArrowType());
                     
                     var actualNetType = prop.PropertyType;
@@ -139,7 +137,7 @@ public class PolarsDataContext : DataConnection, IDisposable
         }
         finally
         {
-            foreach(var dt in schemaDict.Values) { dt.Dispose(); }
+            foreach(var dt in schema.Values) { dt.Dispose(); }
         }
     }
     // ====================================================================
