@@ -311,7 +311,6 @@ public abstract class MergeBuilderBase<TBuilder> where TBuilder : MergeBuilderBa
 
         foreach (var colName in allCols)
         {
-            // 🚀 直接用 ContainsKey 查询字典缓存，O(1) 且零 FFI 交互
             var tgtCol = _tgtSchemaCache!.ContainsKey(colName) ? Pl.Col(colName) : Pl.LitNull();
             var srcColTmp = _srcSchemaCache!.ContainsKey(colName) ? Pl.Col(colName + _tmpSfx) : Pl.LitNull();
 

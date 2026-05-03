@@ -2758,5 +2758,44 @@ B,5";
 
         var df2 = DataFrame.FromRepr(df.ToString());
         df2.Show();
+    }
+    [Fact]
+    [Trait("DataFrame", "ToDict")]
+    public void Test_ToDict()
+    {
+        using var df = Pl.DataFrame(
+            ("a", new int[] { 1, 2, 3 }),
+            ("b", new string[] { "x", "y", "z" })
+        );
+
+        var d = df.ToDict();
+        Assert.Equal(2, d.Count);
+        Assert.True(d.ContainsKey("a"));
+        Assert.True(d.ContainsKey("b"));
+
+        var aSeries = d["a"];
+        var bSeries = d["b"];
+        Assert.Equal([1, 2, 3], aSeries.ToArray<int?>());
+        Assert.Equal(new string[] { "x", "y", "z" }, bSeries.ToArray<string>());
+    }
+
+    [Fact]
+    [Trait("DataFrame", "ToDicts")]
+    public void Test_ToDicts()
+    {
+        using var df = Pl.DataFrame(
+            ("foo", new int[] { 1, 2, 3 }),
+            ("bar", new double[] { 4.0, 5.0, 6.0 })
+        );
+
+        var dicts = df.ToDicts();
+        Assert.Equal(3, dicts.Count);
+
+        Assert.Equal(1, dicts[0]["foo"]);
+        Assert.Equal(4.0, dicts[0]["bar"]);
+        Assert.Equal(2, dicts[1]["foo"]);
+        Assert.Equal(5.0, dicts[1]["bar"]);
+        Assert.Equal(3, dicts[2]["foo"]);
+        Assert.Equal(6.0, dicts[2]["bar"]);
     }    
 }

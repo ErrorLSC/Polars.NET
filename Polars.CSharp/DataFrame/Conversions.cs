@@ -24,6 +24,41 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         series.Rename(name);
         return series;
     }
+    /// <summary>
+    /// Convert the DataFrame to a dictionary of column name to Series.
+    /// </summary>
+    public IReadOnlyDictionary<string, Series> ToDict()
+    {
+        var dict = new Dictionary<string, Series>(StringComparer.Ordinal);
+        foreach (var series in this)
+        {
+            dict[series.Name] = series;
+        }
+        return dict;
+    }
+    /// <summary>
+    /// Convert every row to a dictionary of column name to value.
+    /// Corresponds to Python's <c>DataFrame.to_dicts()</c>.
+    /// </summary>
+    /// <returns>A list of dictionaries, one per row, mapping column names to their values as <c>object?</c>.</returns>
+    public List<Dictionary<string, object?>> ToDicts()
+    {
+        var columns = GetColumns();         
+        int rowCount = (int)Height;
+        var result = new List<Dictionary<string, object?>>(rowCount);
+
+        for (int i = 0; i < rowCount; i++)
+        {
+            var dict = new Dictionary<string, object?>(columns.Length, StringComparer.Ordinal);
+            foreach (var col in columns)
+            {
+                dict[col.Name] = col[i];
+            }
+            result.Add(dict);
+        }
+
+        return result;
+    }
 
     /// <summary>
     /// Convert the DataFrame into a LazyFrame.
