@@ -2362,7 +2362,6 @@ B,5";
         Assert.Contains("group_C", dummiesAll.ColumnNames);
         Assert.Contains("color_Red", dummiesAll.ColumnNames);
 
-        // 验证第一行 id=1, group=A, color=Red
         Assert.Equal(1, dummiesAll.GetValue<byte>(0, "group_A"));
         Assert.Equal(0, dummiesAll.GetValue<byte>(0, "group_B"));
 

@@ -1,7 +1,7 @@
 use polars::prelude::*;
 use polars_arrow::ffi;
-use crate::{types::{DataFrameContext, DataTypeContext, ExprContext, LazyFrameContext}, utils::consume_exprs_array};
-use std::sync::Arc;
+use crate::{types::{ DataTypeContext, ExprContext}, utils::consume_exprs_array};
+use std::{sync::Arc};
 use polars_arrow::datatypes::Field as ArrowField;
 use std::ffi::{CStr,c_void};
 
@@ -112,13 +112,15 @@ pub extern "C" fn pl_expr_map(
 // ==========================================
 
 //Define C# Callback for multi-column mapping
-pub type MultiUdfCallback = extern "C" fn(
+type MultiUdfCallback = extern "C" fn(
     num_args: usize,
     in_arrays: *const *const ffi::ArrowArray,
     in_schemas: *const *const ffi::ArrowSchema,
     out_array: *mut ffi::ArrowArray,
     out_schema: *mut ffi::ArrowSchema,
     user_data: *mut c_void,
+    error_buf: *mut std::os::raw::c_char,   
+    error_buf_len: usize,
 ) -> i32;
 
 #[derive(Clone)]
@@ -165,13 +167,17 @@ impl CSharpMultiUdf {
         let mut out_schema = ffi::ArrowSchema::empty();
 
         // Call C#
+        let mut error_buf: [std::os::raw::c_char; 1024] = [0; 1024];
+
         let res_code = (self.callback)(
             num_args,
             array_ptrs.as_ptr(),
             schema_ptrs.as_ptr(),
-            &mut out_array as *mut ffi::ArrowArray,
-            &mut out_schema as *mut ffi::ArrowSchema,
+            &mut out_array,
+            &mut out_schema,
             self.user_data,
+            error_buf.as_mut_ptr(),
+            1024,
         );
 
         // Free the allocated pointers for inputs
@@ -184,8 +190,13 @@ impl CSharpMultiUdf {
 
         // Handle Error
         if res_code != 0 {
+            let error_msg = unsafe {
+                std::ffi::CStr::from_ptr(error_buf.as_ptr())
+                    .to_string_lossy()
+                    .into_owned()
+            };
             return Err(PolarsError::ComputeError(
-                "C# Multi-Column UDF returned an error".into()
+                format!("C# Multi-Column UDF failed: {}", error_msg).into(),
             ));
         }
 
@@ -237,80 +248,6 @@ pub extern "C" fn pl_expr_map_many(
         );
 
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
-
-// Define UDF Callback for DataFrame -> DataFrame
-pub type DfUdfCallback = extern "C" fn(
-    *mut DataFrameContext, 
-    *mut std::ffi::c_void
-) -> *mut DataFrameContext;
-
-struct CSharpDataFrameUdf {
-    callback: DfUdfCallback,
-    cleanup: CleanupCallback,
-    user_data: *mut std::ffi::c_void,
-}
-
-// Polars requires the closure to be Send + Sync to run in parallel
-unsafe impl Send for CSharpDataFrameUdf {}
-unsafe impl Sync for CSharpDataFrameUdf {}
-
-impl Drop for CSharpDataFrameUdf {
-    fn drop(&mut self) {
-        (self.cleanup)(self.user_data);
-    }
-}
-
-// ==========================================
-// LazyFrame Map (map_batches)
-// ==========================================
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_lazyframe_map(
-    lf_ptr: *mut LazyFrameContext,
-    callback: DfUdfCallback,
-    cleanup: CleanupCallback,
-    user_data: *mut std::ffi::c_void,
-    predicate_pushdown: bool,
-    projection_pushdown: bool,
-    slice_pushdown: bool,
-) -> *mut LazyFrameContext {
-    ffi_try!({
-        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
-        let udf = Arc::new(CSharpDataFrameUdf { callback, cleanup, user_data });
-
-        // Map python-like pushdown flags to Rust AllowedOptimizations
-        let mut optimizations = AllowedOptimizations::default();
-
-        optimizations.set(AllowedOptimizations::PREDICATE_PUSHDOWN, predicate_pushdown);
-        optimizations.set(AllowedOptimizations::PROJECTION_PUSHDOWN, projection_pushdown);
-        optimizations.set(AllowedOptimizations::SLICE_PUSHDOWN, slice_pushdown);
-
-        let new_lf = lf_ctx.inner.map(
-            move |df: DataFrame| -> PolarsResult<DataFrame> {
-                // Box the incoming DataFrame and pass its pointer to C#
-                let df_ptr = Box::into_raw(Box::new(DataFrameContext { df }));
-                
-                // Call the C# UDF
-                let res_ptr = (udf.callback)(df_ptr, udf.user_data);
-                
-                // Check if C# returned an error/null
-                if res_ptr.is_null() {
-                    return Err(PolarsError::ComputeError(
-                        "C# LazyFrame.Map (map_batches) UDF failed or returned null".into()
-                    ));
-                }
-                
-                // Take back ownership from the returned pointer
-                let res_ctx = unsafe { Box::from_raw(res_ptr) };
-                Ok(res_ctx.df)
-            },
-            optimizations,
-            None, // Optional: schema inference isn't supported via pure pointer FFI yet
-            Some("csharp_lazy_map"),
-        );
-
-        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
     })
 }
 

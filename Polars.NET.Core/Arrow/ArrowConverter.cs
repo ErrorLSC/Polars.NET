@@ -158,7 +158,7 @@ public static class ArrowConverter
             // [SMART RECOVERY] Handle Object[] that actually contains Structs
             if (checkType == typeof(object))
             {
-                var dataList = data as IList<T> ?? data.ToList();
+                var dataList = data as IList<T> ?? [.. data];
                 var firstItem = dataList.FirstOrDefault(x => x != null);
 
                 if (firstItem != null)

@@ -1,8 +1,5 @@
 #pragma warning disable CS1591
 using System.Runtime.CompilerServices;
-using Polars.NET.Core;
-using Polars.NET.Core.Arrow;
-using Polars.NET.Core.Helpers;
 namespace Polars.CSharp;
 
 /// <summary>
@@ -241,6 +238,7 @@ public readonly partial struct Polars
     /// Type representing DataType values that could not be determined statically.
     /// </summary>
     public static DataType Unknown => DataType.Unknown;
+    public static DataType SameAsInput => Unknown;
     /// <summary>
     /// Generic extension data type.
     /// </summary>
@@ -260,5 +258,5 @@ public readonly partial struct Polars
     /// Create an empty Polars Schema.
     /// </summary>
     /// <returns></returns>
-    public static PolarsSchema Schema() => new();
+    public static PolarsSchema Schema() => [];
 }

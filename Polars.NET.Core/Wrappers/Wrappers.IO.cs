@@ -1171,12 +1171,12 @@ public readonly partial struct PolarsWrapper
             IntPtr rowsPtr = nRows.HasValue ? (IntPtr)(&rowsVal) : IntPtr.Zero;
 
             using var schemaLock = new SafeHandleLock<SchemaHandle>(
-                schema != null ? new[] { schema } : null
+                schema != null ? [schema] : null
             );
             IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
 
             using var hiveLock = new SafeHandleLock<SchemaHandle>(
-                hivePartitionSchema != null ? new[] { hivePartitionSchema } : null
+                hivePartitionSchema != null ? [hivePartitionSchema] : null
             );
             IntPtr hiveSchemaPtr = hivePartitionSchema != null ? hiveLock.Pointers[0] : IntPtr.Zero;
 

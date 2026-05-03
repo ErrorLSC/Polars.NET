@@ -3497,13 +3497,9 @@ TooShort,1990-05-20,1.60";
             ("b", new double[] { 2, 4, 6, 8, 10 })
         );
 
-        // 1. 样本协方差 (Sample Covariance), 默认 ddof = 1
-        // 计算结果应为: 20 / (5 - 1) = 5.0
         using var covSample = df.Select(Pl.Cov("a", "b"));
         Assert.Equal(5.0, covSample[0].ToArray<double>()[0], precision: 5);
 
-        // 2. 总体协方差 (Population Covariance), ddof = 0
-        // 计算结果应为: 20 / 5 = 4.0
         using var covPop = df.Select(Pl.Cov("a", "b", ddof: 0));
         Assert.Equal(4.0, covPop[0].ToArray<double>()[0], precision: 5);
     }

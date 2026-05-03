@@ -608,6 +608,35 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     public Expr Map(Func<IArrowArray, IArrowArray> function, DataType outputType)
         => new(PolarsWrapper.Map(CloneHandle(), function, outputType.Handle));
 
+    /// <summary>
+    /// Apply a multi-column UDF that receives multiple Arrow arrays and returns a single new column.
+    /// The first expression is <c>this</c>.
+    /// </summary>
+    /// <param name="function">Receives all input arrays (note: including <c>this</c> as the first element).</param>
+    /// <param name="outputType">The expected output data type.</param>
+    /// <param name="additionalExprs">Other columns/expressions as IntoExprColumn.</param>
+    public Expr Map(
+        Func<IReadOnlyList<IArrowArray>, IArrowArray> function,
+        DataType outputType,
+        params IntoExprColumn[] additionalExprs)
+    {
+        if (additionalExprs == null || additionalExprs.Length == 0)
+            throw new ArgumentException("At least one additional expression is required for MapMany.");
+        
+        // Convert IntoExprColumn -> Expr (dealing with ownership)
+        var otherExprs = additionalExprs
+            .Select(e => e.Consume())      
+            .Select(e => e.Handle)         
+            .ToArray();
+        
+        // this will be transferred in the wrapper
+        return new(PolarsWrapper.MapMany(
+            CloneHandle(),
+            otherExprs,
+            function,
+            outputType.Handle));
+    }
+
     // ==========================================
     // Window & Offset
     // ==========================================

@@ -156,6 +156,23 @@ public static class ArrowFfiBridge
             throw;
         }
     }
+    public static RecordBatch ToRecordBatch(StructArray structArray)
+    {
+        var structType = (StructType)structArray.Data.DataType;
+        var schema = new Apache.Arrow.Schema(structType.Fields, metadata: null);
+        return new RecordBatch(schema, structArray.Fields, structArray.Length);
+    }
+
+    public static StructArray ToStructArray(RecordBatch batch)
+    {
+        var structType = new StructType(batch.Schema.FieldsList);
+        return new StructArray(
+            structType,
+            batch.Length,
+            batch.Arrays,
+            nullBitmapBuffer: ArrowBuffer.Empty,
+            nullCount: 0);
+    }
 }
 public static class ArrowStreamingExtensions
 {
