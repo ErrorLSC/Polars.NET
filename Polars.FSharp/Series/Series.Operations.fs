@@ -10,7 +10,7 @@ module SeriesOperationExtensions =
         /// <summary> Slice the Series. Returns a new Series. </summary>
         /// <param name="offset">Start index.</param>
         /// <param name="length">Length of the slice.</param>
-        member this.Slice(offset: int64, length: int64) =
+        member this.Slice(offset: int64, length: uint64) =
             new Series(PolarsWrapper.SeriesSlice(this.Handle, offset, length))
         /// <summary>
         /// Append a Series to this one.

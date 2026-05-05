@@ -45,7 +45,8 @@ and Expr(handle: ExprHandle) =
     /// </example>
     static member Col (names: seq<string>) =
         let arr = Seq.toArray names
-        new Expr(PolarsWrapper.Cols arr)
+        let sel: Selector = Selector.ByName arr
+        sel.ToExpr()
     
     /// <summary>
     /// Create an expression representing all columns. Same as Col("*").
@@ -64,7 +65,7 @@ and Expr(handle: ExprHandle) =
 
     // --- Rounding & Sign ---
     /// <summary> Round the underlying floating point data to the given number of decimals. </summary>
-    member this.Round(decimals: int) = new Expr(PolarsWrapper.Round(this.CloneHandle(), uint decimals))
+    member this.Round(decimals: uint) = new Expr(PolarsWrapper.Round(this.CloneHandle(), uint decimals))
     /// <summary> Compute the element-wise sign (-1, 0, 1). </summary>
     member this.Sign() = new Expr(PolarsWrapper.Sign(this.CloneHandle()))
     /// <summary> Round up to the nearest integer. </summary>
@@ -147,10 +148,11 @@ and Expr(handle: ExprHandle) =
     /// </summary>
     /// <param name="dtype">Target Polars DataType.</param>
     /// <param name="strict">If true, raise error on invalid cast. If false, convert to null.</param>
-    member this.Cast(dtype: DataType, ?strict: bool) =
+    member this.Cast(dtype: DataTypeExpr, ?strict: bool, ?wrapNumerical :bool) =
         let isStrict = defaultArg strict false
-        use typeHandle = dtype.CreateHandle()
-        let newHandle = PolarsWrapper.ExprCast(this.CloneHandle(), typeHandle, isStrict)
+        let wn = defaultArg wrapNumerical false
+        use typeHandle = dtype.CloneHandle()
+        let newHandle = PolarsWrapper.ExprCast(this.CloneHandle(), typeHandle, isStrict, wn)
         new Expr(newHandle)
     // Aggregations
     /// <summary>
@@ -208,7 +210,7 @@ and Expr(handle: ExprHandle) =
         this.Pow(PolarsWrapper.Lit exponent |> fun h -> new Expr(h))
     /// <summary> Calculate the logarithm with the given base. </summary>
     member this.Log(baseVal: double) = 
-        new Expr(PolarsWrapper.Log(this.CloneHandle(), baseVal))
+        new Expr(PolarsWrapper.Log(this.CloneHandle(), PolarsWrapper.Lit baseVal))
     member this.Log(baseExpr: Expr) = 
         this.Ln() / baseExpr.Ln()
     /// <summary> Calculate the natural logarithm (base e). </summary>
@@ -1986,7 +1988,155 @@ and Selector(handle: SelectorHandle) =
     static member (^^) (l: Selector, r: Selector) =
          new Selector(PolarsWrapper.SelectorXor(l.CloneHandle(), r.CloneHandle()))
 
+and DataTypeExpr =
+    val private handle : DataTypeExprHandle
+    internal new (handle: DataTypeExprHandle) = { handle = handle }
 
+    interface IDisposable with
+        member this.Dispose() =
+            if not (isNull (box this.handle)) && not this.handle.IsInvalid then
+                this.handle.Dispose()
+            GC.SuppressFinalize(this)
+
+    member internal this.CloneHandle() = 
+        PolarsWrapper.DataTypeExprClone(this.handle)
+
+    /// <summary>Clone this DataTypeExpr.</summary>
+    member this.Clone() = 
+        new DataTypeExpr(this.CloneHandle())
+
+    /// <summary>
+    /// Convert DataTypeExpr into a DataType literal.
+    /// Returns None if the expression is not a literal.
+    /// </summary>
+    member this.ToLiteral() : DataType option =
+        let cloned = this.CloneHandle()
+        try
+            let literalHandle = PolarsWrapper.DataTypeExprIntoLiteral(cloned)
+            if literalHandle.IsInvalid then
+                literalHandle.Dispose()
+                None
+            else
+                Some (DataType.FromHandle literalHandle)
+        finally
+            if not cloned.IsInvalid then cloned.Dispose()
+
+        /// <summary>
+    /// Get a default value of a specific type.
+    /// </summary>
+    /// <param name="n">Number of types you want the value</param>
+    /// <param name="numericToOne">Use 1 instead of 0 as the default value for numeric types</param>
+    /// <param name="numListValues">The amount of values a list contains</param>
+    member this.DefaultValue(?n: int, ?numericToOne: bool, ?numListValues: int) =
+        let n = defaultArg n 1
+        let numericToOne = defaultArg numericToOne false
+        let numListValues = defaultArg numListValues 0
+        let handle = PolarsWrapper.DataTypeExprDefaultValue(this.CloneHandle(), n, numericToOne, numListValues)
+        new Expr(handle)
+
+    /// <summary>
+    /// Get a formatted version of the output DataType.
+    /// </summary>
+    member this.Display() =
+        let handle = PolarsWrapper.DataTypeExprDisplay(this.CloneHandle())
+        new Expr(handle)
+
+    /// <summary>
+    /// Get the inner DataType of a List or Array.
+    /// </summary>
+    member this.InnerDataType() =
+        let handle = PolarsWrapper.DataTypeExprInnerDtype(this.CloneHandle())
+        new DataTypeExpr(handle)
+
+    /// <summary>
+    /// Get whether the output DataType matches a certain selector.
+    /// </summary>
+    member this.Matches(selector: Selector) =
+        let handle = PolarsWrapper.DataTypeExprMatches(this.CloneHandle(), selector.CloneHandle())
+        new Expr(handle)
+
+    /// <summary>
+    /// Get the DataType wrapped in a list.
+    /// </summary>
+    member this.WrapInList() =
+        let handle = PolarsWrapper.DataTypeExprWrapInList(this.CloneHandle())
+        new DataTypeExpr(handle)
+
+    /// <summary>
+    /// Get the DataType wrapped in an array.
+    /// </summary>
+    /// <param name="width">Array Width</param>
+    member this.WrapInArray(width: uint) =
+        let handle = PolarsWrapper.DataTypeExprWrapInArray(this.CloneHandle(), width)
+        new DataTypeExpr(handle)
+
+    /// <summary>
+    /// Get the signed integer version of the same bitsize.
+    /// </summary>
+    member this.ToSignedInteger() =
+        let handle = PolarsWrapper.DataTypeExprIntToSigned(this.CloneHandle())
+        new DataTypeExpr(handle)
+
+    /// <summary>
+    /// Get the unsigned integer version of the same bitsize.
+    /// </summary>
+    member this.ToUnsignedInteger() =
+        let handle = PolarsWrapper.DataTypeExprIntToUnsigned(this.CloneHandle())
+        new DataTypeExpr(handle)
+
+    member this.List = ListNameSpace(this)
+    member this.Array = ArrayNameSpace(this)
+    member this.Struct = StructNameSpace(this)
+    
+/// <summary>Namespace for list-related operations on a DataTypeExpr.</summary>
+and ListNameSpace (parent: DataTypeExpr) =
+    /// <summary>Get the inner DataType of a list.</summary>
+    member this.InnerDataType() =
+        let handle = PolarsWrapper.DataTypeExprListInnerDtype(parent.CloneHandle())
+        new DataTypeExpr(handle)
+
+/// <summary>Namespace for array-related operations on a DataTypeExpr.</summary>
+and ArrayNameSpace (parent: DataTypeExpr) =
+    /// <summary>Get the inner DataType of an array.</summary>
+    member this.InnerDataType() =
+        let handle = PolarsWrapper.DataTypeExprArrayInnerDtype(parent.CloneHandle())
+        new DataTypeExpr(handle)
+
+    /// <summary>Get the array width.</summary>
+    member this.Width() =
+        let handle = PolarsWrapper.DataTypeExprArrayWidth(parent.CloneHandle())
+        new Expr(handle)
+
+    /// <summary>Get the array shape.</summary>
+    member this.Shape() =
+        let handle = PolarsWrapper.DataTypeExprArrayShape(parent.CloneHandle())
+        new Expr(handle)
+
+/// <summary>Namespace for struct-related operations on a DataTypeExpr.</summary>
+and StructNameSpace (parent: DataTypeExpr) =
+    /// <summary>Get the field names in a struct as a list.</summary>
+    member this.FieldNames() =
+        let handle = PolarsWrapper.DataTypeExprStructFieldNames(parent.CloneHandle())
+        new Expr(handle)
+
+    /// <summary>Get the DataType of a field by name.</summary>
+    member this.FieldDataType(name: string) =
+        let handle = PolarsWrapper.DataTypeExprStructFieldDtypeByName(parent.CloneHandle(), name)
+        new DataTypeExpr(handle)
+
+    /// <summary>Get the DataType of a field by index (int64).</summary>
+    member this.FieldDataType(index: int64) =
+        let handle = PolarsWrapper.DataTypeExprStructFieldDtypeByIndex(parent.CloneHandle(), index)
+        new DataTypeExpr(handle)
+
+    /// <summary>Indexer: get DataType by int64 index.</summary>
+    member this.Item with get(index: int64) = this.FieldDataType(index)
+
+    /// <summary>Indexer: get DataType by int index.</summary>
+    member this.Item with get(index: int) = this.FieldDataType(int64 index)
+
+    /// <summary>Indexer: get DataType by field name.</summary>
+    member this.Item with get(name: string) = this.FieldDataType(name)
 
 /// <summary>
 /// Let Expr & Selector in same line possible

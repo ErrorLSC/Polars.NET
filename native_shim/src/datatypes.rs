@@ -145,19 +145,6 @@ pub extern "C" fn pl_datatype_new_categorical(
     })
 }
 
-// #[unsafe(no_mangle)]
-// pub extern "C" fn pl_datatype_new_enum() -> *mut DataTypeContext {
-//     ffi_try!({
-//         let frozen = FrozenCategories::new(std::iter::empty::<&str>()).unwrap();
-
-//         let mapping = frozen.mapping().clone();
-        
-//         let dtype = DataType::Enum(frozen, mapping);
-        
-//         Ok(Box::into_raw(Box::new(DataTypeContext { dtype })))
-//     })
-// }
-
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_new_enum(
     frozen_ptr: *mut FrozenCategoriesContext

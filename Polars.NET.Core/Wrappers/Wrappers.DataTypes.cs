@@ -15,8 +15,6 @@ public readonly partial struct PolarsWrapper
         => ErrorHelper.Check(NativeBindings.pl_datatype_new_datetime(unit,timezone));
     public static DataTypeHandle NewDurationType(byte unit) 
         => ErrorHelper.Check(NativeBindings.pl_datatype_new_duration(unit));
-    // public static DataTypeHandle NewArrayType(DataTypeHandle inner, ulong width)
-    //     => ErrorHelper.Check(NativeBindings.pl_datatype_new_array(inner, (UIntPtr)width));
     public static DataTypeHandle NewArrayType(DataTypeHandle inner, uint width)
         => NewArrayType(inner, new ReadOnlySpan<uint>([width])); 
     public static DataTypeHandle NewArrayType(DataTypeHandle inner, ReadOnlySpan<uint> shape)

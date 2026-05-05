@@ -4,7 +4,7 @@ namespace Polars.FSharp
 
 open System
 open Polars.NET.Core
-open Apache.Arrow
+// open Apache.Arrow
 open System.Collections.Generic
 open Polars.NET.Core.Arrow
 open Polars.NET.Core.Helpers
@@ -409,7 +409,7 @@ type Series(handle: SeriesHandle) =
 
             // --- Complex Types (Arrow Fallback) ---
             else
-                use slicedHandle = PolarsWrapper.SeriesSlice(this.Handle, index, 1L)
+                use slicedHandle = PolarsWrapper.SeriesSlice(this.Handle, index, 1UL)
                 use dfHandle = PolarsWrapper.SeriesToFrame slicedHandle
                 use batch = ArrowFfiBridge.ExportDataFrame dfHandle
                 let column = batch.Column(0)
@@ -483,13 +483,15 @@ type Series(handle: SeriesHandle) =
         let h = PolarsWrapper.SeriesToFrame handle
         new DataFrame(h)
 
-    member this.Cast(dtype: DataType) : Series =
+    member this.Cast(dtype: DataType,?strict: bool, ?wrapNumerical: bool) : Series =
         use typeHandle = dtype.CreateHandle()
-        let newHandle = PolarsWrapper.SeriesCast(handle, typeHandle)
+        let st = defaultArg strict true
+        let wN = defaultArg wrapNumerical false
+        let newHandle = PolarsWrapper.SeriesCast(handle, typeHandle,st,wN)
         new Series(newHandle)
-    member this.ToArrow() : IArrowArray =
+    member this.ToArrow() : Apache.Arrow.IArrowArray =
         PolarsWrapper.SeriesToArrow handle
-    member this.FromArrow(name:string,arrowArray:IArrowArray) : Series = 
+    member this.FromArrow(name:string,arrowArray:Apache.Arrow.IArrowArray) : Series = 
         new Series(ArrowFfiBridge.ImportSeries(name,arrowArray))
     member this.ToArray<'T>() =
         let col = this.ToArrow()
@@ -759,7 +761,7 @@ and DataFrame(handle: DataFrameHandle) =
         ArrowReader.ReadRecordBatch<'T> batch |> Seq.toList |> List.toSeq
 
     /// <summary> Create a DataFrame directly from an Apache Arrow RecordBatch. </summary>
-    static member FromArrow (batch: RecordBatch) : DataFrame =
+    static member FromArrow (batch: Apache.Arrow.RecordBatch) : DataFrame =
         new DataFrame(PolarsWrapper.FromArrow batch)
 
     // ---- ADBC ----
@@ -795,7 +797,7 @@ and DataFrame(handle: DataFrameHandle) =
     /// Calls 'onBatch' for each chunk in the DataFrame.
     /// Useful for custom eager sinks (e.g. WriteDatabase).
     /// </summary>
-    member this.ExportBatches(onBatch: Action<RecordBatch>) : unit =
+    member this.ExportBatches(onBatch: Action<Apache.Arrow.RecordBatch>) : unit =
         PolarsWrapper.ExportBatches(this.Handle, onBatch)
 
     member this.ToArrow() = ArrowFfiBridge.ExportDataFrame handle
@@ -930,49 +932,47 @@ and LazyFrame(handle: LazyFrameHandle) =
 
     interface IDisposable with
         member x.Dispose() = x.Dispose()
-
-    interface IPolarsLazyFrame with
         
-        member this.Collect(useStreaming: bool) = 
-            this.Collect useStreaming :> IPolarsDataFrame
+    interface IPolarsLazyFrame with
+        member this.Collect(engine, useStreaming) =
+            let dfHandle = PolarsWrapper.LazyCollect(this.Handle, engine, useStreaming)
+            new DataFrame(dfHandle) :> IPolarsDataFrame
             
         member this.Schema = 
             this.Schema :> IPolarsSchema
             
         member this.Explain(optimized: bool) = 
             this.Explain optimized
-        member this.CollectAsync(useStreaming: bool, cancellationToken: CancellationToken) =
+        member this.CollectAsync(engine:PlEngine,useStreaming: bool, cancellationToken: CancellationToken) =
             task {
-                let! df = this.CollectAsync(useStreaming, cancellationToken)
+                let! dfHandle = PolarsWrapper.LazyCollectAsync(this.Handle,engine,useStreaming, cancellationToken)
                 
-                return df :> IPolarsDataFrame
+                return new DataFrame(dfHandle) :> IPolarsDataFrame
             }
     member internal this.CloneHandle() = PolarsWrapper.LazyClone handle
     member this.Clone() = new LazyFrame(this.CloneHandle())
     /// <summary> Execute the plan and return a DataFrame. </summary>
-    member this.Collect(?streaming:bool) = 
+    member this.Collect(?engine:Engine,?streaming:bool) = 
         let stream = defaultArg streaming false
-        let dfHandle = PolarsWrapper.LazyCollect(handle,stream)
+        let eng = defaultArg engine Engine.Auto
+        let dfHandle = PolarsWrapper.LazyCollect(handle,eng.ToNative(),stream)
         new DataFrame(dfHandle)
     member this.CollectAsync
         (
+            ?engine:Engine,
             ?useStreaming: bool, 
             ?cancellationToken: CancellationToken
         ) : Task<DataFrame> =
         let us = defaultArg useStreaming false
         let cct = defaultArg cancellationToken CancellationToken.None
-        
+        let eng = defaultArg engine Engine.Auto
         task {
             cct.ThrowIfCancellationRequested()
 
-            let! dfHandle = PolarsWrapper.LazyCollectAsync(handle, us,cct)
+            let! dfHandle = PolarsWrapper.LazyCollectAsync(handle,eng.ToNative(), us,cct)
             
             return new DataFrame(dfHandle)
         }
-    /// <summary> Execute the plan using the streaming engine. </summary>
-    member _.CollectStreaming() =
-        let dfHandle = PolarsWrapper.CollectStreaming handle
-        new DataFrame(dfHandle)
 
     /// <summary>
     /// Get the schema of the LazyFrame without executing it.
@@ -1004,7 +1004,7 @@ and LazyFrame(handle: LazyFrameHandle) =
     /// Stream the query result in batches.
     /// This executes the query and calls 'onBatch' for each RecordBatch produced.
     /// </summary>
-    member this.SinkBatches(onBatch: Action<RecordBatch>) : unit =
+    member this.SinkBatches(onBatch: Action<Apache.Arrow.RecordBatch>) : unit =
         let newHandle = PolarsWrapper.SinkBatches(this.CloneHandle(), onBatch)
         
         let lfRes = new LazyFrame(newHandle)
@@ -1026,16 +1026,6 @@ and LazyFrame(handle: LazyFrameHandle) =
                 |> Seq.toList
             
             this.Select exprs
- 
-    /// <summary>
-    /// Limit the number of rows in the LazyFrame.
-    /// This is an optimization hint that pushes down the limit to the scan if possible.
-    /// </summary>
-    /// <param name="n">Maximum number of rows to return.</param>
-    member this.Limit (n: uint) : LazyFrame =
-        let lfClone = this.CloneHandle()
-        let h = PolarsWrapper.LazyLimit(lfClone, n)
-        new LazyFrame(h)
     /// <summary>
     /// Rename the lazyframe columns
     /// Example: lf.Rename ["colA", "col1"; "colB", "col2"]
@@ -1110,7 +1100,6 @@ and PolarsSchema (handle: SchemaHandle) =
     static member ofList (fields: (string * DataType) list) = new PolarsSchema(fields)
 
     // --- Inspection API (Alignment with C#) ---
-
     member this.Len() = PolarsWrapper.GetSchemaLen this.Handle
 
     /// <summary> Get column name and type at specific index </summary>
@@ -1126,48 +1115,22 @@ and PolarsSchema (handle: SchemaHandle) =
         finally
             if not typeHandle.IsInvalid then 
                 typeHandle.Dispose()
-
+    member private this.GetFields() =
+        seq {
+            for i in 0UL .. this.Len() - 1UL do
+                yield this.GetFieldAt(i)
+        }
     /// <summary> Get all column names </summary>
-    member this.Names =
-        let len = this.Len()
-        [ for i in 0UL .. (len - 1UL) -> 
-            let mutable name = Unchecked.defaultof<string>
-            let mutable _th = Unchecked.defaultof<DataTypeHandle>
-            PolarsWrapper.GetSchemaFieldAt(this.Handle, i, &name, &_th)
-            if not _th.IsInvalid then _th.Dispose() 
-            name 
-        ]
+    member this.Names = this.GetFields() |> Seq.map fst |> Seq.toList
 
     /// <summary> Get all column datatypes </summary>
-    member this.DataTypes =
-        let len = this.Len()
-        [ for i in 0UL .. (len - 1UL) -> 
-            let mutable name = Unchecked.defaultof<string>
-            let mutable _th = Unchecked.defaultof<DataTypeHandle>
-            PolarsWrapper.GetSchemaFieldAt(this.Handle, i, &name, &_th)
-            
-            DataType.FromHandle _th 
-        ]
+    member this.DataTypes = this.GetFields() |> Seq.map snd |> Seq.toList
 
     /// <summary> Convert to F# ordered List of fields </summary>
-    member this.ToList() =
-        let len = this.Len()
-        [ for i in 0UL .. (len - 1UL) do
-            yield this.GetFieldAt i 
-        ]
+    member this.ToList() = this.GetFields() |> Seq.toList
 
     /// <summary> Convert to F# Map (Warning: Does not preserve column order!) </summary>
-    member this.ToMap() =
-        this.ToList() |> Map.ofList
-
-    /// <summary> Convert to Dictionary </summary>
-    member this.ToDictionary() =
-        let len = this.Len()
-        let dict = Dictionary<string, DataType>(int len)
-        for i in 0UL .. (len - 1UL) do
-            let name, dtype = this.GetFieldAt i
-            dict.[name] <- dtype
-        dict
+    member this.ToMap() = this.GetFields() |> Map.ofSeq
 
     /// <summary> Indexer: schema["col_name"] </summary>
     member this.Item 
@@ -1256,20 +1219,52 @@ and PolarsSchema (handle: SchemaHandle) =
                 this.Handle.Dispose()
 
     interface IPolarsSchema with
-        member this.Length = 
-            int (this.Len())
-            
-        member this.ColumnNames = 
-            List<string> this.Names
-            
-        member this.Item
-            with get (name: string) = 
-                this.[name] :> IPolarsDataType
-        member this.ToDictionary() =
-            let dict = Dictionary<string, IPolarsDataType>()
-            for kvp in this.ToDictionary() do
-                dict.[kvp.Key] <- kvp.Value :> IPolarsDataType
-            dict
+        member this.Item with get(key: string) : IPolarsDataType = 
+            this.get_Item(key) :> IPolarsDataType
+        member this.Keys : IEnumerable<string> = 
+            this.Names :> IEnumerable<string>
+        member this.Values : IEnumerable<IPolarsDataType> =
+            this.DataTypes |> Seq.map (fun dt -> dt :> IPolarsDataType)
+        member this.Count = int (this.Len())
+        member this.ContainsKey(key: string) =
+            let len = this.Len()
+            let rec check i =
+                if i >= len then false
+                else
+                    let mutable name = Unchecked.defaultof<string>
+                    let mutable _th = Unchecked.defaultof<DataTypeHandle>
+                    PolarsWrapper.GetSchemaFieldAt(this.Handle, i, &name, &_th)
+                    if not _th.IsInvalid then _th.Dispose()
+                    if name = key then true
+                    else check (i + 1UL)
+            check 0UL
+        member this.TryGetValue(key: string, value: byref<IPolarsDataType>) : bool =
+            let len = this.Len()
+            let mutable found = false
+            let mutable result = Unchecked.defaultof<IPolarsDataType>
+            let mutable i = 0UL
+            while not found && i < len do
+                let mutable name = Unchecked.defaultof<string>
+                let mutable th = Unchecked.defaultof<DataTypeHandle>
+                PolarsWrapper.GetSchemaFieldAt(this.Handle, i, &name, &th)
+                try
+                    if name = key then
+                        result <- DataType.FromHandle th :> IPolarsDataType
+                        found <- true
+                finally
+                    if not th.IsInvalid then th.Dispose()
+                i <- i + 1UL
+            if found then
+                value <- result
+                true
+            else
+                false
+
+        member this.GetEnumerator() : IEnumerator<KeyValuePair<string, IPolarsDataType>> =
+            (this.ToList() |> Seq.map (fun (n, dt) -> KeyValuePair(n, dt :> IPolarsDataType))).GetEnumerator()
+
+        member this.GetEnumerator() : System.Collections.IEnumerator =
+            (this :> IPolarsSchema).GetEnumerator() :> System.Collections.IEnumerator
 
 /// <summary>
 /// SQL Context for executing SQL queries on registered LazyFrames.

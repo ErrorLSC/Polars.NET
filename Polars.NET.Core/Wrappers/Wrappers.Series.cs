@@ -1162,23 +1162,11 @@ public readonly partial struct PolarsWrapper
 
         bool schemaSuccess = NativeBindings.pl_arrow_schema_export(contextHandle, out cSchema);
         ErrorHelper.CheckBool(schemaSuccess);
-        bool ownershipTransferred = false;
-        try
-        {
-            var importedField = CArrowSchemaImporter.ImportField(&cSchema);
-            
-            var array = CArrowArrayImporter.ImportArray(&cArray, importedField.DataType);
-            ownershipTransferred = true;
-            return array;
-        }
-        finally
-        {
-            if (!ownershipTransferred)
-            {
-                // CArrowArray.Free(&cArray);
-                // CArrowSchema.Free(&cSchema);
-            }
-        }
+
+        var importedField = CArrowSchemaImporter.ImportField(&cSchema);
+        
+        var array = CArrowArrayImporter.ImportArray(&cArray, importedField.DataType);
+        return array;
     }
     /// <summary>
     /// Imports an Arrow Array via C Data Interface.
@@ -1186,10 +1174,7 @@ public readonly partial struct PolarsWrapper
     public static unsafe SeriesHandle SeriesFromArrow(string name, CArrowArray* cArray, CArrowSchema* cSchema)
         => ErrorHelper.Check(NativeBindings.pl_arrow_to_series(name, cArray, cSchema));
     public static SeriesHandle SeriesCast(SeriesHandle series, DataTypeHandle dtype, bool strict, bool wrapNumerical)
-    {
-        var h = NativeBindings.pl_series_cast(series, dtype, strict, wrapNumerical);
-        return ErrorHelper.Check(h); 
-    }
+        => ErrorHelper.Check(NativeBindings.pl_series_cast(series, dtype, strict, wrapNumerical)); 
     public static SeriesHandle SeriesIsNull(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_null(s));
     public static SeriesHandle SeriesIsNotNull(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_not_null(s));
     public static SeriesHandle SeriesDropNulls(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_drop_nulls(s));

@@ -389,9 +389,6 @@ module pl =
         lf.Sort (expr,desc)
     /// <summary> Alias for sortLazy </summary>
     let orderByLazy (expr: Expr) (desc: bool) (lf: LazyFrame) = sortLazy expr desc lf
-    /// <summary> Limit the number of rows in the LazyFrame. </summary>
-    let limit (n: uint) (lf: LazyFrame) : LazyFrame =
-        lf.Limit n
     /// <summary> Add or replace columns in the LazyFrame. </summary>
     let withColumnLazy (expr: Expr) (lf: LazyFrame) : LazyFrame =
         lf.WithColumn expr
@@ -444,9 +441,6 @@ module pl =
     /// <summary> Concatenate multiple LazyFrames. </summary>
     let concatLazy (lfs: LazyFrame list) (how: ConcatType) : LazyFrame =
         LazyFrame.Concat lfs how
-    /// <summary> Collect LazyFrame into DataFrame (Streaming execution). </summary>
-    let collectStreaming (lf: LazyFrame) : DataFrame =
-        lf.CollectStreaming()
     /// <summary> Define a window over which to perform an aggregation. </summary>
     let over (partitionBy: Expr list) (e: Expr) = e.Over partitionBy
     /// <summary> Create a SQL context for executing SQL queries on LazyFrames. </summary>
@@ -471,7 +465,7 @@ module pl =
             let lfClone = lf.CloneHandle()
             
             let! dfHandle = 
-                Task.Run(fun () -> PolarsWrapper.LazyCollect(lfClone,true)) 
+                Task.Run(fun () -> PolarsWrapper.LazyCollect(lfClone,PlEngine.Auto,true)) 
                 |> Async.AwaitTask
                 
             return new DataFrame(dfHandle)
@@ -762,9 +756,6 @@ module pl =
         let expandLf (selector: Selector) (target: LazyFrame) : string array =
             target.Select(selector.ToExpr()).Schema.Names |> Seq.toArray
 
-
-
-
 [<AutoOpen>]
 module PolarsAutoOpen =
     let inline col name = pl.col name
@@ -775,4 +766,3 @@ module PolarsAutoOpen =
     /// Helps mixing types in a list.
     /// </summary>
     let inline (!>) (x: #IColumnExpr) = x :> IColumnExpr
-    let inline (.%) (s: Series) (i: int) : 'T = s.GetValue<'T>(int64 i)

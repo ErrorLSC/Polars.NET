@@ -215,3 +215,11 @@ module InterfaceUnwrapperExtensions =
     let internal asSeries (ips: IPolarsSeries) : Series =
         ips.AsSeries()
 
+[<AutoOpen>]
+module CategoriesExtensions =
+    open Polars.NET.Core
+    type FrozenCategories with
+        member this.GetCategories() =
+            let seriesHandle = PolarsWrapper.FrozenCategoriesGetCategories(this.Handle)
+            let series = new Series(seriesHandle)
+            series.ToArray<string>()
