@@ -3622,4 +3622,21 @@ TooShort,1990-05-20,1.60";
         Assert.Null(result[0, "NullCol"]);
         Assert.Null(result[2, "NullCol"]);
     }
+    [Fact]
+    [Trait("Expr", "Pipe")]
+    public void Test_Expr_Pipe()
+    {
+        using var df = Pl.DataFrame(
+            ("raw", new[] { -3.7, 2.9, -1.2, 5.5 })
+        );
+
+        static Expr clean(Expr e) =>
+            e.Floor().Abs().Cast(DataType.Int32);
+
+        using var res = df.Select(
+            Pl.Col("raw").Pipe(clean).Alias("cleaned")
+        );
+        var cleaned = res[0].ToArray<int>();
+        Assert.Equal([4, 2, 2, 5], cleaned);
+    }
 }   

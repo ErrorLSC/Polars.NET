@@ -869,6 +869,18 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="by">Numeric column that determines how often the values will be repeated. The column will be coerced to UInt32. Give this dtype to make the coercion a no-op.</param>
     /// <returns>Expression/Series of data type List, where the inner data type is equal to the original data type.</returns>
     public Expr RepeatBy(IntoExpr by) => new(PolarsWrapper.ExprRepeatBy(CloneHandle(),by.Consume().Handle));
+   /// <summary>
+    /// Apply a user-defined function to this expression, returning the result of the function.
+    /// This allows encapsulating a sequence of Polars expression operations into a reusable function.
+    /// </summary>
+    /// <typeparam name="T">The return type of the function.</typeparam>
+    /// <param name="function">
+    /// A function that receives the current expression and returns a value of type <typeparamref name="T"/>.
+    /// Typically this function wraps several Polars API calls that operate on the given expression.
+    /// </param>
+    /// <returns>The result of applying <paramref name="function"/> to this expression.</returns>
+    public T Pipe<T>(Func<Expr, T> function) => function(this);
+    
     // ==========================================
     // Namespaces
     // ==========================================

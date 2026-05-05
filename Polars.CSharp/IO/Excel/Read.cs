@@ -30,7 +30,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         string path,
         string? sheetName = null,
         ulong sheetIndex = 0,
-        PolarsSchema? schema = null,
+        IntoSchema? schema = null,
         bool hasHeader = true,
         ulong inferSchemaLen = 100,
         bool dropEmptyRows = true,
@@ -39,7 +39,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         if (!File.Exists(path))
             throw new FileNotFoundException($"Excel file not found: {path}");
 
-        var schemaHandle = schema?.Handle;
+        var schemaHandle = schema?.Consume().Handle;
 
         var h = PolarsWrapper.ReadExcel(
             path,

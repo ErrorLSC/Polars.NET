@@ -1252,4 +1252,55 @@ David,40,80000";
         Assert.Equal(1u, results[1].Height);
         Assert.Equal(200, results[1][0, "MaxScore"]);
     }
+    [Fact]
+    [Trait("LazyFrame", "Pipe")]
+    public void Test_LazyFrame_Pipe()
+    {
+        using var df = Pl.DataFrame(
+            ("name", new[] { "Alice", "Bob", "Charlie", "Diana" }),
+            ("score", new[] { 85, 92, 78, 88 })
+        );
+
+        static DataFrame topStudents(LazyFrame lf) =>
+            lf.Filter(Pl.Col("score") > 80)
+            .Select(Pl.Col("name"))
+            .Sort("name")
+            .Collect();
+
+        var result = df.Lazy().Pipe(topStudents);
+
+        Assert.Equal(3, result.Height);
+        var names = result[0].ToArray<string>();
+        Assert.Equal(new[] { "Alice", "Bob", "Diana" }, names);
+    }
+    [Fact]
+    [Trait("LazyFrame", "PipeWithSchema")]
+    public void Test_LazyFrame_PipeWithSchema()
+    {
+        using var df = Pl.DataFrame(
+            ("a", new[] { 1, 2, 3 }),
+            ("b", new[] { 10.0, 20.0, 30.0 })
+        );
+
+        static LazyFrame doubleNumericColumns(LazyFrame lf, PolarsSchema schema)
+        {
+            var exprs = new List<Expr>();
+            foreach (var col in schema.ColumnNames)
+            {
+                var dtype = schema[col];
+                if (dtype.IsNumeric)
+                    exprs.Add((Pl.Col(col) * 2).Alias(col));
+                else
+                    exprs.Add(Pl.Col(col));
+            }
+            return lf.WithColumns(exprs);
+        }
+
+        using var result = df.Lazy()
+            .PipeWithSchema(doubleNumericColumns)
+            .Collect();
+
+        Assert.Equal([2, 4, 6], result["a"].ToArray<int?>());
+        Assert.Equal([20.0, 40.0, 60.0], result["b"].ToArray<double?>());
+    }
 }

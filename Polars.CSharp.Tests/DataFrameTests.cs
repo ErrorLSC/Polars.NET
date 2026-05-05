@@ -2798,4 +2798,36 @@ B,5";
         Assert.Equal(3, dicts[2]["foo"]);
         Assert.Equal(6.0, dicts[2]["bar"]);
     }    
+    [Fact]
+    [Trait("DataFrame", "Pipe")]
+    public void Test_DataFrame_Pipe()
+    {
+        using var df = Pl.DataFrame(
+            ("name", new[] { "Alice", "Bob", "Charlie", "Diana" }),
+            ("score", new[] { 85, 92, 78, 88 })
+        );
+
+        static DataFrame process(DataFrame input)
+        {
+            var filtered = input.Filter(Pl.Col("score") > 80);
+            var withGrade = filtered.WithColumns(
+                Pl.When(Pl.Col("score") >= 90)
+                .Then(Pl.Lit("A"))
+                .Otherwise(Pl.Lit("B"))
+                .Alias("grade")
+            );
+            return withGrade.Sort("score", descending: true);
+        }
+
+        using var result = df.Pipe(process);
+
+        Assert.Equal(3, result.Height);
+        var names = result[0].ToArray<string>();
+        var scores = result[1].ToArray<int>();
+        var grades = result[2].ToArray<string>();
+
+        Assert.Equal(new[] { "Bob", "Diana", "Alice" }, names);
+        Assert.Equal([92, 88, 85], scores);
+        Assert.Equal(new[] { "A", "B", "B" }, grades);
+    }
 }
