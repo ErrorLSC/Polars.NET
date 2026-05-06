@@ -136,6 +136,6 @@ public readonly struct SeriesDtOps
         AmbiguousArg? ambiguous = null)
     => Apply(e => e.Dt.Replace(year,month,day,hour,minute,second,microsecond,ambiguous));
     /// <inheritdoc cref="DtOps.Epoch"/>
-    public Series Epoch(TimeUnit timeUnit = TimeUnit.Microseconds) => Apply(e => e.Dt.Epoch(timeUnit));
+    public Series Epoch(EpochTimeUnit timeUnit = EpochTimeUnit.Microseconds) => Apply(e => e.Dt.Epoch(timeUnit));
     
 }

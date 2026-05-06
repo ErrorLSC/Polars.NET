@@ -603,7 +603,7 @@ public class SeriesDtOpsTests
         long epochSec2 = 86400; 
         long epochSec3 = new DateTimeOffset(data[2].Value).ToUnixTimeSeconds();
 
-        using Series epochDays = s.Dt.Epoch(TimeUnit.Day);
+        using Series epochDays = s.Dt.Epoch(EpochTimeUnit.Day);
         Assert.Equal(DataType.Int32, epochDays.DataType);
         Assert.Equal([
             0,
@@ -612,7 +612,7 @@ public class SeriesDtOpsTests
             null
         ], epochDays.ToArray<int?>());
 
-        using Series epochSeconds = s.Dt.Epoch(TimeUnit.Second);
+        using Series epochSeconds = s.Dt.Epoch(EpochTimeUnit.Second);
         Assert.Equal(DataType.Int64, epochSeconds.DataType);
         Assert.Equal([
             epochSec1,
@@ -621,7 +621,7 @@ public class SeriesDtOpsTests
             null
         ], epochSeconds.ToArray<long?>());
 
-        using Series epochMilli = s.Dt.Epoch(TimeUnit.Milliseconds);
+        using Series epochMilli = s.Dt.Epoch(EpochTimeUnit.Milliseconds);
         Assert.Equal([
             epochSec1 * 1_000L,
             epochSec2 * 1_000L,
@@ -637,7 +637,7 @@ public class SeriesDtOpsTests
             null
         ], epochMicro.ToArray<long?>());
 
-        using Series epochNano = s.Dt.Epoch(TimeUnit.Nanoseconds);
+        using Series epochNano = s.Dt.Epoch(EpochTimeUnit.Nanoseconds);
         Assert.Equal([
             epochSec1 * 1_000_000_000L,
             epochSec2 * 1_000_000_000L,

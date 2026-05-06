@@ -596,26 +596,26 @@ public readonly partial struct Polars
     /// <summary>
     /// Parses an integer column (seconds, milliseconds, etc.) into a Datetime or Date expression.
     /// </summary>
-    public static Expr FromEpoch(IntoExprColumn column, TimeUnit timeUnit = TimeUnit.Second)
+    public static Expr FromEpoch(IntoExprColumn column, EpochTimeUnit timeUnit = EpochTimeUnit.Second)
     {
         var expr = column.Consume();
 
         return timeUnit switch
         {
-            TimeUnit.Day => 
+            EpochTimeUnit.Day => 
                 expr.Cast(DataType.Date),
                 
-            TimeUnit.Second => 
+            EpochTimeUnit.Second => 
                 // Multiply by Int64 literal to prevent overflow
                 (expr * 1_000_000L).Cast(DataType.Datetime(TimeUnit.Microseconds)),
                 
-            TimeUnit.Milliseconds => 
+            EpochTimeUnit.Milliseconds => 
                 (expr * 1_000L).Cast(DataType.Datetime(TimeUnit.Microseconds)),
                 
-            TimeUnit.Microseconds => 
+            EpochTimeUnit.Microseconds => 
                 expr.Cast(DataType.Datetime(TimeUnit.Microseconds)),
                 
-            TimeUnit.Nanoseconds => 
+            EpochTimeUnit.Nanoseconds => 
                 expr.Cast(DataType.Datetime(TimeUnit.Nanoseconds)),
                 
             _ => throw new ArgumentException(

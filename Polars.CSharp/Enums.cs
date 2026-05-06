@@ -24,12 +24,16 @@ public enum TimeUnit
     Nanoseconds = 0,
     Microseconds = 1,
     Milliseconds = 2,
+}
+
+public enum EpochTimeUnit
+{
+    Nanoseconds = 0,
+    Microseconds = 1,
+    Milliseconds = 2,
     Second = 3,
-    Minute = 4,
-    Hour = 5,
-    Day = 6,
-    Month = 7,
-    Year = 8
+    Day = 6
+
 }
 
 public enum RoundMode
@@ -640,13 +644,13 @@ internal static class EnumExtensions
         TimeUnit.Nanoseconds => CoreEnums.PlTimeUnit.Nanoseconds,
         TimeUnit.Microseconds => CoreEnums.PlTimeUnit.Microseconds,
         TimeUnit.Milliseconds => CoreEnums.PlTimeUnit.Milliseconds,
-        TimeUnit.Second => CoreEnums.PlTimeUnit.Second,
-        TimeUnit.Minute => CoreEnums.PlTimeUnit.Minute,
-        TimeUnit.Hour => CoreEnums.PlTimeUnit.Hour,
-        TimeUnit.Day => CoreEnums.PlTimeUnit.Day,
-        TimeUnit.Month => CoreEnums.PlTimeUnit.Month,
-        TimeUnit.Year => CoreEnums.PlTimeUnit.Year,
-        _ => CoreEnums.PlTimeUnit.Nanoseconds
+        // TimeUnit.Second => CoreEnums.PlTimeUnit.Second,
+        // TimeUnit.Minute => CoreEnums.PlTimeUnit.Minute,
+        // TimeUnit.Hour => CoreEnums.PlTimeUnit.Hour,
+        // TimeUnit.Day => CoreEnums.PlTimeUnit.Day,
+        // TimeUnit.Month => CoreEnums.PlTimeUnit.Month,
+        // TimeUnit.Year => CoreEnums.PlTimeUnit.Year,
+        _ => CoreEnums.PlTimeUnit.Microseconds
     };
     internal static CoreEnums.PlJoinType ToNative(this JoinType type) => type switch
     {

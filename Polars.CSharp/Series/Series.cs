@@ -693,23 +693,23 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <summary>
     /// Parses an integer Series into a Datetime or Date Series.
     /// </summary>
-    public Series FromEpoch(TimeUnit timeUnit = TimeUnit.Second)
+    public Series FromEpoch(EpochTimeUnit timeUnit = EpochTimeUnit.Second)
     {
         return timeUnit switch
         {
-            TimeUnit.Day => 
+            EpochTimeUnit.Day => 
                 this.Cast(DataType.Date),
 
-            TimeUnit.Second => 
+            EpochTimeUnit.Second => 
                 (EnsureInt64(this) * 1_000_000L).Cast(DataType.Datetime(TimeUnit.Microseconds)),
 
-            TimeUnit.Milliseconds => 
+            EpochTimeUnit.Milliseconds => 
                 (EnsureInt64(this) * 1_000L).Cast(DataType.Datetime(TimeUnit.Microseconds)),
 
-            TimeUnit.Microseconds => 
+            EpochTimeUnit.Microseconds => 
                 this.Cast(DataType.Datetime(TimeUnit.Microseconds)),
 
-            TimeUnit.Nanoseconds => 
+            EpochTimeUnit.Nanoseconds => 
                 this.Cast(DataType.Datetime(TimeUnit.Nanoseconds)),
 
             _ => throw new ArgumentException(

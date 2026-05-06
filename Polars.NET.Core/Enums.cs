@@ -64,11 +64,7 @@ public enum PlTimeUnit: byte
     Microseconds = 1,
     Milliseconds = 2,
     Second = 3,
-    Minute = 4,
-    Hour = 5,
     Day = 6,
-    Month =7,
-    Year =8,
     All = 100
 }
 

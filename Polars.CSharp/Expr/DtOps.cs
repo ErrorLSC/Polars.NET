@@ -469,17 +469,17 @@ public readonly struct DtOps
     /// </param>
     /// <returns>A new expression/Series representing the epoch time.</returns>
     /// <exception cref="ArgumentException">Thrown when an unsupported TimeUnit is provided.</exception>
-    public Expr Epoch(TimeUnit timeUnit = TimeUnit.Microseconds)
+    public Expr Epoch(EpochTimeUnit timeUnit = EpochTimeUnit.Microseconds)
     {
         return timeUnit switch
         {
-            TimeUnit.Nanoseconds  => Timestamp(TimeUnit.Nanoseconds),
-            TimeUnit.Microseconds => Timestamp(TimeUnit.Microseconds),
-            TimeUnit.Milliseconds => Timestamp(TimeUnit.Milliseconds),
+            EpochTimeUnit.Nanoseconds  => Timestamp(TimeUnit.Nanoseconds),
+            EpochTimeUnit.Microseconds => Timestamp(TimeUnit.Microseconds),
+            EpochTimeUnit.Milliseconds => Timestamp(TimeUnit.Milliseconds),
             
-            TimeUnit.Second => Timestamp(TimeUnit.Milliseconds).FloorDiv(1000L),
+            EpochTimeUnit.Second => Timestamp(TimeUnit.Milliseconds).FloorDiv(1000L),
             
-            TimeUnit.Day => _expr.Cast<DateOnly>().Cast<int>(),
+            EpochTimeUnit.Day => _expr.Cast<DateOnly>().Cast<int>(),
             
             _ => throw new ArgumentException($"`timeUnit` must be one of {{Nanoseconds, Microseconds, Milliseconds, Second, Day}}, got {timeUnit}")
         };
