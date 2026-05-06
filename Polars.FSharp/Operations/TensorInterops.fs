@@ -13,9 +13,9 @@ module TensorInterops =
         member this.AsReadOnlySpan<'T when 'T : unmanaged and 'T : struct and 'T :> ValueType and 'T : (new: unit -> 'T)>() : ReadOnlySpan<'T> =
             
             let checkDataType () =
-                let dataType = this.DataType
+                let dataType = this.DataType.Kind
                 match dataType with
-                | DataType.String | DataType.Categorical ->
+                | DataTypeKind.String | DataTypeKind.Categorical(None) ->
                     raise (InvalidOperationException(
                         $"Cannot create Tensor/Span from a {dataType} Series. \
                         Machine learning models and Spans require numeric inputs. \

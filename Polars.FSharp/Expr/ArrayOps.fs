@@ -1,5 +1,6 @@
 namespace Polars.FSharp
 
+open System
 open Polars.NET.Core
 
 type [<Struct>] ArrayOps(handle: ExprHandle) = 
@@ -125,4 +126,4 @@ type [<Struct>] ArrayOps(handle: ExprHandle) =
     member _.ToList() = new Expr(PolarsWrapper.ArrayToList handle)
 
     /// <summary> Convert Array to Struct. </summary>
-    member _.ToStruct() = new Expr(PolarsWrapper.ArrayToStruct handle)
+    member _.ToStruct([<ParamArray>]names:string array) = new Expr(PolarsWrapper.ArrayToStruct(handle,names))

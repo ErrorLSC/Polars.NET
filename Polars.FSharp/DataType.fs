@@ -4,250 +4,78 @@ open Polars.NET.Core
 open Polars.NET.Core.Arrow
 open System
 
-/// <summary>
-/// Polars data types for casting and schema definitions.
-/// </summary>
-type DataType =
+type DataTypeKind =
+    | SameAsInput
+    | Null
     | Boolean
     | Int8 | Int16 | Int32 | Int64
     | UInt8 | UInt16 | UInt32 | UInt64
     | Float32 | Float64
     | String
-    | Date | Datetime of TimeUnit * string option | Time
-    | Duration of TimeUnit
     | Binary
-    | Categorical of Categories option 
-    | Decimal of precision: int option * scale: int option
-    | Unknown | SameAsInput | Null | List of DataType | Array of DataType * shape: uint[] 
-    | Struct of Field list 
-    | Int128 | UInt128 | Float16 | Enum of FrozenCategories
+    | Date
+    | Time
+    | Int128 | UInt128
+    | Float16
+    | Datetime of TimeUnit * string option
+    | Duration of TimeUnit
+    | Categorical of Categories option
+    | Decimal of int option * int option
+    | List of DataType
+    | Struct of Field list
+    | Array of DataType * uint[]
+    | Enum of FrozenCategories
     | Extension of {| Name: string; Storage: DataType; Metadata: string option |}
-    member this.Code : int =
-        match this with
-        | Unknown | SameAsInput -> 0
-        | Boolean -> 1
-        | Int8 -> 2
-        | Int16 -> 3
-        | Int32 -> 4
-        | Int64 -> 5
-        | UInt8 -> 6
-        | UInt16 -> 7
-        | UInt32 -> 8
-        | UInt64 -> 9
-        | Float32 -> 10
-        | Float64 -> 11
-        | String -> 12
-        | Date -> 13
-        | Datetime _ -> 14 
-        | Time -> 15
-        | Duration _ -> 16
-        | Binary -> 17
-        | Null -> 18
-        | Struct _ -> 19
-        | List _ -> 20
-        | Categorical _ -> 21
-        | Decimal _ -> 22
-        | Array _ -> 23
-        | Int128 -> 24
-        | UInt128 -> 25
-        | Float16 -> 26
-        | Enum _ -> 27
-        | Extension _ -> 28
-    static member FromHandle (handle: DataTypeHandle) : DataType =
-        let kind = PolarsWrapper.GetDataTypeKind handle
+    | Unknown
 
-        match kind with
-        | PlDataType.Boolean -> Boolean
-        | PlDataType.Int8 -> Int8
-        | PlDataType.Int16 -> Int16
-        | PlDataType.Int32 -> Int32
-        | PlDataType.Int64 -> Int64
-        | PlDataType.UInt8 -> UInt8
-        | PlDataType.UInt16 -> UInt16
-        | PlDataType.UInt32 -> UInt32
-        | PlDataType.UInt64 -> UInt64
-        | PlDataType.Float32 -> Float32
-        | PlDataType.Float64 -> Float64
-        | PlDataType.String -> String 
-        | PlDataType.Date -> Date
-        | PlDataType.Int128 -> Int128
-        | PlDataType.UInt128 -> UInt128
-        | PlDataType.Float16 -> Float16
-        
-        // --- Complex Type ---
-        
-        // Datetime
-        | PlDataType.Datetime -> 
-            let unitCode = PolarsWrapper.GetTimeUnit handle
-            let unit = 
-                match unitCode with 
-                | PlTimeUnit.Nanoseconds -> Nanoseconds 
-                | PlTimeUnit.Microseconds -> Microseconds 
-                | PlTimeUnit.Milliseconds -> Milliseconds 
-                | _ -> Microseconds
-            
-            let tz = Option.ofObj (PolarsWrapper.GetTimeZone handle)
-            Datetime(unit, tz)
+/// <summary>
+/// Polars data types for casting and schema definitions.
+/// </summary>
+and DataType private (handle: DataTypeHandle, kind: DataTypeKind) =
+    let mutable disposed = false
+    static let toUnitCode tu =
+        match tu with
+        | Nanoseconds -> 0uy
+        | Microseconds -> 1uy
+        | Milliseconds -> 2uy
+    member internal this.Handle = handle
+    member this.Kind = kind
 
-        | PlDataType.Time -> Time
-        
-        // Duration
-        | PlDataType.Duration-> 
-            let unitCode = PolarsWrapper.GetTimeUnit handle
-            let unit = 
-                match unitCode with 
-                | PlTimeUnit.Nanoseconds -> Nanoseconds 
-                | PlTimeUnit.Microseconds -> Microseconds 
-                | PlTimeUnit.Milliseconds -> Milliseconds 
-                | _ -> Microseconds
-            Duration unit
+    static member SameAsInput = new DataType(PolarsWrapper.NewPrimitiveType(0), DataTypeKind.SameAsInput)
+    static member Null        = new DataType(PolarsWrapper.NewPrimitiveType(18), DataTypeKind.Null)
+    static member Boolean     = new DataType(PolarsWrapper.NewPrimitiveType(1), DataTypeKind.Boolean)
+    static member Int8        = new DataType(PolarsWrapper.NewPrimitiveType(2), DataTypeKind.Int8)
+    static member Int16       = new DataType(PolarsWrapper.NewPrimitiveType(3), DataTypeKind.Int16)
+    static member Int32       = new DataType(PolarsWrapper.NewPrimitiveType(4), DataTypeKind.Int32)
+    static member Int64       = new DataType(PolarsWrapper.NewPrimitiveType(5), DataTypeKind.Int64)
+    static member UInt8       = new DataType(PolarsWrapper.NewPrimitiveType(6), DataTypeKind.UInt8)
+    static member UInt16      = new DataType(PolarsWrapper.NewPrimitiveType(7), DataTypeKind.UInt16)
+    static member UInt32      = new DataType(PolarsWrapper.NewPrimitiveType(8), DataTypeKind.UInt32)
+    static member UInt64      = new DataType(PolarsWrapper.NewPrimitiveType(9), DataTypeKind.UInt64)
+    static member Float32     = new DataType(PolarsWrapper.NewPrimitiveType(10), DataTypeKind.Float32)
+    static member Float64     = new DataType(PolarsWrapper.NewPrimitiveType(11), DataTypeKind.Float64)
+    static member String      = new DataType(PolarsWrapper.NewPrimitiveType(12), DataTypeKind.String)
+    static member Binary      = new DataType(PolarsWrapper.NewPrimitiveType(17), DataTypeKind.Binary)
+    static member Date        = new DataType(PolarsWrapper.NewPrimitiveType(13), DataTypeKind.Date)
+    static member Time        = new DataType(PolarsWrapper.NewPrimitiveType(15), DataTypeKind.Time)
+    static member Int128      = new DataType(PolarsWrapper.NewPrimitiveType(24), DataTypeKind.Int128)
+    static member UInt128     = new DataType(PolarsWrapper.NewPrimitiveType(25), DataTypeKind.UInt128)
+    static member Float16     = new DataType(PolarsWrapper.NewPrimitiveType(26), DataTypeKind.Float16)
 
-        | PlDataType.Binary -> Binary
-        | PlDataType.Null -> Null
-        
-        // Struct
-        | PlDataType.Struct -> 
-            let len = PolarsWrapper.GetStructLen handle
-            let fields = 
-                [ for i in 0UL .. len - 1UL do
-                    let mutable name = Unchecked.defaultof<string>
-                    let mutable fieldHandle = Unchecked.defaultof<DataTypeHandle>
-                    
-                    PolarsWrapper.GetStructField(handle, i, &name, &fieldHandle)
+    interface IDisposable with
+        member this.Dispose() =
+            if not disposed then
+                if not (isNull (box handle)) && not handle.IsInvalid then
+                    handle.Dispose()
+                disposed <- true
+                GC.SuppressFinalize(this)
 
-                    use h = fieldHandle 
-                    yield { Name = name; DataType = DataType.FromHandle h }
-                ]
-            Struct fields
+    interface IPolarsDataType with
+        member this.GetArrowType() : Apache.Arrow.Types.IArrowType =
+            ArrowFfiBridge.ImportDataType this.Handle
 
-        // List
-        | PlDataType.List -> 
-            use innerHandle = PolarsWrapper.GetInnerType handle
-            let innerType = DataType.FromHandle innerHandle
-            List innerType
-
-        | PlDataType.Categorical ->
-            let maybeCatHandle = PolarsWrapper.GetCategories handle
-            let maybeCat = 
-                if maybeCatHandle = null || maybeCatHandle.IsInvalid then 
-                    None
-                else 
-                    Some (new Categories(maybeCatHandle))
-            Categorical maybeCat
-        | PlDataType.Enum ->
-            let frozenHandle = PolarsWrapper.GetEnumCategories handle
-            if frozenHandle = null || frozenHandle.IsInvalid then
-                raise (InvalidOperationException "Invalid FrozenCategoriesHandle in Enum type")
-            else
-                Enum (new FrozenCategories(frozenHandle))
-        // Decimal
-        | PlDataType.Decimal -> 
-            let mutable prec = 0
-            let mutable scale = 0
-            PolarsWrapper.GetDecimalInfo(handle, &prec, &scale)
-            Decimal(Some prec,Some scale)
-
-        | PlDataType.Array -> 
-            use innerHandle = PolarsWrapper.GetInnerType handle
-            let shape = PolarsWrapper.GetArrayShape handle       // 返回 uint[]
-            let innerType = DataType.FromHandle innerHandle
-            Array(innerType, shape)
-
-        | PlDataType.Extension ->
-            let name = PolarsWrapper.DataTypeGetExtensionName(handle)       // 假设已添加
-            let storage = DataType.FromHandle(PolarsWrapper.GetInnerType(handle))
-            let metadata = Option.ofObj (PolarsWrapper.DataTypeGetExtensionMetadata(handle))
-            
-            // 通过注册表尝试解析
-            match ExtensionRegistry.TryResolve(name) with
-            | Some factory -> factory(storage, metadata)
-            | None -> Extension {| Name = name; Storage = storage; Metadata = metadata |}
-
-        | _ -> Unknown
-
-    member this.IsNumeric =
-        match this with
-        | UInt8 | UInt16 | UInt32 | UInt64
-        | Int8 | Int16 | Int32 | Int64
-        | Float32 | Float64 | Int128 | Float16
-        | Decimal _ -> true
-        | _ -> false
-    /// <summary>
-    /// Get Apache Arrow Type back to Polars.NET DataType.
-    /// </summary>
-    static member FromArrowType (arrowType: Apache.Arrow.Types.IArrowType) : DataType =
-        match arrowType with
-        | :? Apache.Arrow.Types.Int8Type -> Int8
-        | :? Apache.Arrow.Types.Int16Type -> Int16
-        | :? Apache.Arrow.Types.Int32Type -> Int32
-        | :? Apache.Arrow.Types.Int64Type -> Int64
-        | :? Apache.Arrow.Types.UInt8Type -> UInt8
-        | :? Apache.Arrow.Types.UInt16Type -> UInt16
-        | :? Apache.Arrow.Types.UInt32Type -> UInt32
-        | :? Apache.Arrow.Types.UInt64Type -> UInt64
-        | :? Apache.Arrow.Types.HalfFloatType -> Float16
-        | :? Apache.Arrow.Types.FloatType -> Float32
-        | :? Apache.Arrow.Types.DoubleType -> Float64
-        | :? Apache.Arrow.Types.BooleanType -> Boolean
-        
-        | :? Apache.Arrow.Types.Decimal128Type as d -> Decimal(Some d.Precision, Some d.Scale)
-        | :? Apache.Arrow.Types.Decimal256Type as d -> Decimal(Some d.Precision, Some d.Scale)
-        
-        | :? Apache.Arrow.Types.StringType
-        | :? Apache.Arrow.Types.StringViewType -> String
-        | :? Apache.Arrow.Types.BinaryType
-        | :? Apache.Arrow.Types.BinaryViewType -> Binary
-        
-        | :? Apache.Arrow.Types.Date32Type -> Date
-        | :? Apache.Arrow.Types.Time64Type -> Time
-        
-        | :? Apache.Arrow.Types.TimestampType as t ->
-            let unit = 
-                match t.Unit with
-                | Apache.Arrow.Types.TimeUnit.Microsecond -> Microseconds
-                | Apache.Arrow.Types.TimeUnit.Millisecond -> Milliseconds
-                | Apache.Arrow.Types.TimeUnit.Nanosecond -> Nanoseconds
-                | _ -> Microseconds
-            Datetime(unit, Option.ofObj t.Timezone)
-            
-        | :? Apache.Arrow.Types.DurationType as d ->
-            let unit = 
-                match d.Unit with
-                | Apache.Arrow.Types.TimeUnit.Microsecond -> Microseconds
-                | Apache.Arrow.Types.TimeUnit.Millisecond -> Milliseconds
-                | Apache.Arrow.Types.TimeUnit.Nanosecond -> Nanoseconds
-                | _ -> Microseconds
-            Duration unit
-            
-        | :? Apache.Arrow.Types.ListType as l -> 
-            List(DataType.FromArrowType l.ValueDataType)
-        | :? Apache.Arrow.Types.LargeListType as l -> 
-            List(DataType.FromArrowType l.ValueDataType)
-        | :? Apache.Arrow.Types.FixedSizeListType as l -> 
-            Array(DataType.FromArrowType l.ValueDataType, [| uint l.ListSize |])
-            
-        | :? Apache.Arrow.Types.StructType as s ->
-            let fields = 
-                s.Fields 
-                |> Seq.map (fun f -> { Name = f.Name; DataType = DataType.FromArrowType f.DataType })
-                |> Seq.toList
-            Struct fields
-            
-        | _ -> 
-            raise (NotSupportedException(sprintf "ArrowType %s is not supported yet." (arrowType.GetType().Name)))
-    /// <summary>
-    /// Creates a native Polars DataTypeHandle from this F# DataType.
-    /// Recursive structures (List, Struct) are handled automatically.
-    /// </summary>
     member internal this.CreateHandle() : DataTypeHandle =
-        
-        let toUnitCode tu = 
-            match tu with 
-            | Nanoseconds -> 0 
-            | Microseconds -> 1 
-            | Milliseconds -> 2
-
-        match this with
+        match this.Kind with
         | SameAsInput -> PolarsWrapper.NewPrimitiveType 0
         | Null -> PolarsWrapper.NewPrimitiveType 18
         | Boolean -> PolarsWrapper.NewPrimitiveType 1
@@ -268,48 +96,33 @@ type DataType =
         | Int128 -> PolarsWrapper.NewPrimitiveType 24
         | UInt128 -> PolarsWrapper.NewPrimitiveType 25
         | Float16 -> PolarsWrapper.NewPrimitiveType 26
-        
-        // --- Complex Type ---
 
-        // Datetime: Unit and Timezone
         | Datetime(unit, tz) ->
-            let code = toUnitCode unit
-            let tzStr = Option.toObj tz // None -> null
-            PolarsWrapper.NewDateTimeType(byte code, tzStr)
+            let tzStr = Option.toObj tz
+            PolarsWrapper.NewDateTimeType(toUnitCode unit, tzStr)
 
-        // Duration
         | Duration unit ->
-            let code = toUnitCode unit
-            PolarsWrapper.NewDurationType (byte code)
+            PolarsWrapper.NewDurationType(toUnitCode unit)
 
-        // Categorical
         | Categorical maybeCat ->
-            let cat = 
-                match maybeCat with
-                | Some c -> c
-                | None -> Categories.Global()
-            PolarsWrapper.NewCategoricalType cat.Handle
-        | Enum frozenCat ->
-            PolarsWrapper.NewEnumType frozenCat.Handle
+            let cat = defaultArg maybeCat (Categories.Global())
+            PolarsWrapper.NewCategoricalType(cat.Handle)
 
-        // Decimal: precision (p, s)
+        | Enum frozenCat ->
+            PolarsWrapper.NewEnumType(frozenCat.Handle)
+
         | Decimal(p, s) ->
             let prec = defaultArg p 0
-            let scale = defaultArg s 0 
+            let scale = defaultArg s 0
             PolarsWrapper.NewDecimalType(prec, scale)
 
-        // List:
         | List innerType ->
             use innerHandle = innerType.CreateHandle()
-            
-            PolarsWrapper.NewListType innerHandle
+            PolarsWrapper.NewListType(innerHandle)
 
-        // Struct
         | Struct fields ->
             let names = fields |> List.map (fun f -> f.Name) |> List.toArray
-
             let typeHandles = fields |> List.map (fun f -> f.DataType.CreateHandle()) |> List.toArray
-            
             try
                 PolarsWrapper.NewStructType(names, typeHandles)
             finally
@@ -323,19 +136,304 @@ type DataType =
             PolarsWrapper.NewArrayType(innerHandle, span)
 
         | Extension ext ->
-            PolarsWrapper.NewExtensionType(ext.Name, ext.Storage.CreateHandle() , Option.toObj ext.Metadata)
+            PolarsWrapper.NewExtensionType(ext.Name, ext.Storage.CreateHandle(), Option.toObj ext.Metadata)
 
         | Unknown -> PolarsWrapper.NewPrimitiveType 0
-       
-    interface IDisposable with
-        member this.Dispose() = 
-            ()
 
-    interface IPolarsDataType with
-        member this.GetArrowType (): Apache.Arrow.Types.IArrowType = 
-            use handle = this.CreateHandle()
-            
-            ArrowFfiBridge.ImportDataType handle
+    static member Datetime(unit, ?tz) =
+        let handle = PolarsWrapper.NewDateTimeType(toUnitCode unit, Option.toObj tz)
+        new DataType(handle, DataTypeKind.Datetime(unit, tz))
+
+    static member Duration unit =
+        let handle = PolarsWrapper.NewDurationType(toUnitCode unit)
+        new DataType(handle, DataTypeKind.Duration unit)
+
+    static member Categorical(?categories) =
+        let cat = defaultArg categories (Categories.Global())
+        let handle = PolarsWrapper.NewCategoricalType(cat.Handle)
+        new DataType(handle, DataTypeKind.Categorical(Some cat))
+
+    static member Enum(frozen: FrozenCategories) =
+        let handle = PolarsWrapper.NewEnumType(frozen.Handle)
+        new DataType(handle, DataTypeKind.Enum frozen)
+
+    static member Decimal(?precision, ?scale) =
+        let prec = defaultArg precision 0
+        let sc = defaultArg scale 0
+        let handle = PolarsWrapper.NewDecimalType(prec, sc)
+        new DataType(handle, DataTypeKind.Decimal(Some prec, Some sc))
+
+    static member List(inner: DataType) =
+        use innerHandle = inner.CreateHandle()
+        let handle = PolarsWrapper.NewListType(innerHandle)
+        new DataType(handle, DataTypeKind.List inner)
+
+    static member Struct(fields: Field list) =
+        let names = fields |> List.map (fun f -> f.Name) |> List.toArray
+        let typeHandles = fields |> List.map (fun f -> f.DataType.CreateHandle()) |> List.toArray
+        try
+            let handle = PolarsWrapper.NewStructType(names, typeHandles)
+            new DataType(handle, DataTypeKind.Struct fields)
+        finally
+            for h in typeHandles do h.Dispose()
+
+    static member Array(inner: DataType, shape: uint[]) =
+        if shape.Length = 0 then invalidArg "shape" "Shape must not be empty."
+        use innerHandle = inner.CreateHandle()
+        let span = System.ReadOnlySpan(shape)
+        let handle = PolarsWrapper.NewArrayType(innerHandle, span)
+        new DataType(handle, DataTypeKind.Array(inner, shape))
+
+    static member Extension(name: string, storage: DataType, ?metadata: string) =
+        let handle = PolarsWrapper.NewExtensionType(name, storage.CreateHandle(), Option.toObj metadata)
+        new DataType(handle, DataTypeKind.Extension {| Name = name; Storage = storage; Metadata = metadata |})
+    static member FromHandle(handle: DataTypeHandle) : DataType =
+        let kind = PolarsWrapper.GetDataTypeKind handle
+        match kind with
+        | PlDataType.Boolean -> DataType.Boolean
+        | PlDataType.Int8 -> DataType.Int8
+        | PlDataType.Int16 -> DataType.Int16
+        | PlDataType.Int32 -> DataType.Int32
+        | PlDataType.Int64 -> DataType.Int64
+        | PlDataType.UInt8 -> DataType.UInt8
+        | PlDataType.UInt16 -> DataType.UInt16
+        | PlDataType.UInt32 -> DataType.UInt32
+        | PlDataType.UInt64 -> DataType.UInt64
+        | PlDataType.Float32 -> DataType.Float32
+        | PlDataType.Float64 -> DataType.Float64
+        | PlDataType.String -> DataType.String
+        | PlDataType.Date -> DataType.Date
+        | PlDataType.Int128 -> DataType.Int128
+        | PlDataType.UInt128 -> DataType.UInt128
+        | PlDataType.Float16 -> DataType.Float16
+
+        | PlDataType.Datetime ->
+            let unitCode = PolarsWrapper.GetTimeUnit handle
+            let unit =
+                match unitCode with
+                | PlTimeUnit.Nanoseconds -> Nanoseconds
+                | PlTimeUnit.Microseconds -> Microseconds
+                | PlTimeUnit.Milliseconds -> Milliseconds
+                | _ -> Microseconds
+            let tz = Option.ofObj (PolarsWrapper.GetTimeZone handle)
+            DataType.Datetime(unit, ?tz=tz)
+
+        | PlDataType.Time -> DataType.Time
+        | PlDataType.Duration ->
+            let unitCode = PolarsWrapper.GetTimeUnit handle
+            let unit =
+                match unitCode with
+                | PlTimeUnit.Nanoseconds -> Nanoseconds
+                | PlTimeUnit.Microseconds -> Microseconds
+                | PlTimeUnit.Milliseconds -> Milliseconds
+                | _ -> Microseconds
+            DataType.Duration unit
+
+        | PlDataType.Binary -> DataType.Binary
+        | PlDataType.Null -> DataType.Null
+
+        | PlDataType.Struct ->
+            let len = PolarsWrapper.GetStructLen handle
+            let fields =
+                [ for i in 0UL .. len - 1UL do
+                    let mutable name = Unchecked.defaultof<string>
+                    let mutable fieldHandle = Unchecked.defaultof<DataTypeHandle>
+                    PolarsWrapper.GetStructField(handle, i, &name, &fieldHandle)
+                    use h = fieldHandle
+                    yield { Name = name; DataType = DataType.FromHandle h }
+                ]
+            DataType.Struct fields
+
+        | PlDataType.List ->
+            use innerHandle = PolarsWrapper.GetInnerType handle
+            let innerType = DataType.FromHandle innerHandle
+            DataType.List innerType
+
+        | PlDataType.Categorical ->
+            let maybeCatHandle = PolarsWrapper.GetCategories handle
+            let maybeCat =
+                if maybeCatHandle = null || maybeCatHandle.IsInvalid then None
+                else Some (new Categories(maybeCatHandle))
+            new DataType(handle, DataTypeKind.Categorical maybeCat)
+
+        | PlDataType.Enum ->
+            let frozenHandle = PolarsWrapper.GetEnumCategories handle
+            if frozenHandle = null || frozenHandle.IsInvalid then
+                raise (InvalidOperationException "Invalid FrozenCategoriesHandle in Enum type")
+            else
+                new DataType(handle, DataTypeKind.Enum (new FrozenCategories(frozenHandle)))
+
+        | PlDataType.Decimal ->
+            let mutable prec = 0
+            let mutable scale = 0
+            PolarsWrapper.GetDecimalInfo(handle, &prec, &scale)
+            DataType.Decimal(prec, scale)
+
+        | PlDataType.Array ->
+            use innerHandle = PolarsWrapper.GetInnerType handle
+            let shape = PolarsWrapper.GetArrayShape handle
+            let innerType = DataType.FromHandle innerHandle
+            DataType.Array(innerType, shape)
+
+        | PlDataType.Extension ->
+            let name = PolarsWrapper.DataTypeGetExtensionName handle
+            let storage = DataType.FromHandle(PolarsWrapper.GetInnerType handle)
+            let metadata = Option.ofObj (PolarsWrapper.DataTypeGetExtensionMetadata handle)
+            match ExtensionRegistry.TryResolve(name) with
+            | Some factory -> factory(storage, metadata)
+            | None -> DataType.Extension(name, storage, ?metadata=metadata)
+
+        | _ -> DataType.SameAsInput // fallback
+    member this.IsNumeric =
+        match this.Kind with
+        | UInt8 | UInt16 | UInt32 | UInt64
+        | Int8 | Int16 | Int32 | Int64
+        | Float32 | Float64 | Int128 | Float16
+        | Decimal _ -> true
+        | _ -> false
+    member this.IsInteger =
+        match this.Kind with
+        | Int8 | Int16 | Int32 | Int64
+        | UInt8 | UInt16 | UInt32 | UInt64
+        | Int128 | UInt128 -> true
+        | _ -> false
+
+    member this.IsFloat =
+        match this.Kind with
+        | Float16 | Float32 | Float64 -> true
+        | _ -> false
+
+    member this.IsDecimal =
+        match this.Kind with
+        | Decimal _ -> true
+        | _ -> false
+
+    member this.IsExtension =
+        match this.Kind with
+        | Extension _ -> true
+        | _ -> false
+
+    member this.IsNested =
+        match this.Kind with
+        | List _ | Array _ | Struct _ -> true
+        | _ -> false
+
+    member this.IsTemporal =
+        match this.Kind with
+        | Duration _ | Date | Datetime _ | Time -> true
+        | _ -> false
+
+    member this.IsSignedInteger =
+        match this.Kind with
+        | Int8 | Int16 | Int32 | Int64 | Int128 -> true
+        | _ -> false
+
+    member this.IsUnsignedInteger =
+        match this.Kind with
+        | UInt8 | UInt16 | UInt32 | UInt64 | UInt128 -> true
+        | _ -> false
+    member this.Code =
+        match this.Kind with
+        | SameAsInput | Unknown -> 0
+        | Boolean -> 1
+        | Int8 -> 2
+        | Int16 -> 3
+        | Int32 -> 4
+        | Int64 -> 5
+        | UInt8 -> 6
+        | UInt16 -> 7
+        | UInt32 -> 8
+        | UInt64 -> 9
+        | Float32 -> 10
+        | Float64 -> 11
+        | String -> 12
+        | Date -> 13
+        | Datetime _ -> 14
+        | Time -> 15
+        | Duration _ -> 16
+        | Binary -> 17
+        | Null -> 18
+        | Struct _ -> 19
+        | List _ -> 20
+        | Categorical _ -> 21
+        | Decimal _ -> 22
+        | Array _ -> 23
+        | Int128 -> 24
+        | UInt128 -> 25
+        | Float16 -> 26
+        | Enum _ -> 27
+        | Extension _ -> 28 
+    /// <summary>Get the corresponding PlDataType enum value.</summary>
+    member this.ToPlDataType() = enum<PlDataType>(this.Code)
+    override this.Equals(obj) =
+        match obj with
+        | :? DataType as other -> this.Handle = other.Handle
+        | _ -> false
+    override this.GetHashCode() = this.Handle.GetHashCode()
+    member this.GetArrowType() : Apache.Arrow.Types.IArrowType =
+        ArrowFfiBridge.ImportDataType(this.Handle)
+
+    member this.GetNetType() : Type =
+        ArrowTypeResolver.GetNetTypeFromArrowType(this.GetArrowType())
+
+    static member FromNetType<'T>() =
+        let arrowType = ArrowTypeResolver.GetArrowTypeFromNetType(typeof<'T>)
+        DataType.FromArrowType(arrowType)
+
+    static member FromNetType(t: Type) =
+        let arrowType = ArrowTypeResolver.GetArrowTypeFromNetType(t)
+        DataType.FromArrowType(arrowType)
+
+    static member op_Implicit(t: Type) = DataType.FromNetType(t)
+
+    // ---------- FromArrowType 静态方法 ----------
+    static member FromArrowType(arrowType: Apache.Arrow.Types.IArrowType) =
+        match arrowType with
+        | :? Apache.Arrow.Types.Int8Type -> DataType.Int8
+        | :? Apache.Arrow.Types.Int16Type -> DataType.Int16
+        | :? Apache.Arrow.Types.Int32Type -> DataType.Int32
+        | :? Apache.Arrow.Types.Int64Type -> DataType.Int64
+        | :? Apache.Arrow.Types.UInt8Type -> DataType.UInt8
+        | :? Apache.Arrow.Types.UInt16Type -> DataType.UInt16
+        | :? Apache.Arrow.Types.UInt32Type -> DataType.UInt32
+        | :? Apache.Arrow.Types.UInt64Type -> DataType.UInt64
+        | :? Apache.Arrow.Types.HalfFloatType -> DataType.Float16
+        | :? Apache.Arrow.Types.FloatType -> DataType.Float32
+        | :? Apache.Arrow.Types.DoubleType -> DataType.Float64
+        | :? Apache.Arrow.Types.BooleanType -> DataType.Boolean
+        | :? Apache.Arrow.Types.Decimal128Type as d -> DataType.Decimal(d.Precision, d.Scale)
+        | :? Apache.Arrow.Types.Decimal256Type as d -> DataType.Decimal(d.Precision, d.Scale)
+        | :? Apache.Arrow.Types.StringType
+        | :? Apache.Arrow.Types.StringViewType -> DataType.String
+        | :? Apache.Arrow.Types.BinaryType
+        | :? Apache.Arrow.Types.BinaryViewType -> DataType.Binary
+        | :? Apache.Arrow.Types.Date32Type -> DataType.Date
+        | :? Apache.Arrow.Types.Time64Type -> DataType.Time
+        | :? Apache.Arrow.Types.TimestampType as t ->
+            let unit =
+                match t.Unit with
+                | Apache.Arrow.Types.TimeUnit.Microsecond -> Microseconds
+                | Apache.Arrow.Types.TimeUnit.Millisecond -> Milliseconds
+                | Apache.Arrow.Types.TimeUnit.Nanosecond -> Nanoseconds
+                | _ -> Microseconds
+            DataType.Datetime(unit, ?tz=Option.ofObj t.Timezone)
+        | :? Apache.Arrow.Types.DurationType as d ->
+            let unit =
+                match d.Unit with
+                | Apache.Arrow.Types.TimeUnit.Microsecond -> Microseconds
+                | Apache.Arrow.Types.TimeUnit.Millisecond -> Milliseconds
+                | Apache.Arrow.Types.TimeUnit.Nanosecond -> Nanoseconds
+                | _ -> Microseconds
+            DataType.Duration unit
+        | :? Apache.Arrow.Types.ListType as l -> DataType.List(DataType.FromArrowType l.ValueDataType)
+        | :? Apache.Arrow.Types.LargeListType as l -> DataType.List(DataType.FromArrowType l.ValueDataType)
+        | :? Apache.Arrow.Types.FixedSizeListType as l ->
+            DataType.Array(DataType.FromArrowType l.ValueDataType, [| uint l.ListSize |])
+        | :? Apache.Arrow.Types.StructType as s ->
+            let fields =
+                s.Fields |> Seq.map (fun f -> { Name = f.Name; DataType = DataType.FromArrowType f.DataType }) |> Seq.toList
+            DataType.Struct fields
+        | _ -> raise (NotSupportedException(sprintf "ArrowType %s is not supported yet." (arrowType.GetType().Name)))
 
 and Field = { Name: string; DataType: DataType }
 

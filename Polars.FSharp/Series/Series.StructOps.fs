@@ -1,5 +1,6 @@
 namespace Polars.FSharp
 
+open System
 open Polars.NET.Core
 
 type SeriesStructNameSpace(parent: Series) =
@@ -17,7 +18,7 @@ type SeriesStructNameSpace(parent: Series) =
         apply (fun e -> e.Struct.Field index)
 
     /// <summary> Rename the fields of the struct. </summary>
-    member _.RenameFields(names: string list) =
+    member _.RenameFields([<ParamArray>] names:string array) =
         apply (fun e -> e.Struct.RenameFields names)
 
     /// <summary> Convert struct to JSON string. </summary>

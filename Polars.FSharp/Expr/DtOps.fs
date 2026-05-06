@@ -2,7 +2,6 @@ namespace Polars.FSharp
 
 open System
 open Polars.NET.Core
-open Polars.NET.Core.Helpers
 
 type [<Struct>] DtOps(handle: ExprHandle) =
     /// <summary>Get the year from the underlying date/datetime.</summary>
@@ -49,32 +48,22 @@ type [<Struct>] DtOps(handle: ExprHandle) =
     /// <summary>
     /// Truncate dates to the specified interval (e.g., "1d", "1h", "15m").
     /// </summary>
-    member _.Truncate(every: string) = 
-        new Expr(PolarsWrapper.DtTruncate(handle, every))
-    member _.Truncate(every: TimeSpan) = 
-        new Expr(PolarsWrapper.DtTruncate(handle, DurationFormatter.ToPolarsString every))
+    member _.Truncate(every: Dur) = 
+        let everyStr = Dur.consume every
+        new Expr(PolarsWrapper.DtTruncate(handle, PolarsWrapper.Lit everyStr))
     /// <summary>
     /// Round dates to the nearest interval.
     /// </summary>
-    member _.Round(every: string) = 
-        new Expr(PolarsWrapper.DtRound(handle, every))
-    member _.Round(every: TimeSpan) = 
-        new Expr(PolarsWrapper.DtRound(handle, DurationFormatter.ToPolarsString every))
+    member _.Round(every: Dur) = 
+        let everyStr = Dur.consume every
+        new Expr(PolarsWrapper.DtRound(handle, PolarsWrapper.Lit everyStr))
     /// <summary>
     /// Offset the date by a given duration string (e.g., "1d", "-2h").
     /// </summary>
-    member _.OffsetBy(duration: string) =
-        let durExpr = PolarsWrapper.Lit duration
-        new Expr(PolarsWrapper.DtOffsetBy(handle, durExpr))
+    member _.OffsetBy(duration: Dur) =
+        let durationStr = Dur.consume duration
+        new Expr(PolarsWrapper.DtOffsetBy(handle, PolarsWrapper.Lit durationStr))
 
-    /// <summary>
-    /// Offset the date by a duration expression (dynamic offset).
-    /// </summary>
-    member _.OffsetBy(duration: Expr) =
-        new Expr(PolarsWrapper.DtOffsetBy(handle, duration.CloneHandle()))
-    member _.OffsetBy(duration: TimeSpan) =
-        let durExpr = PolarsWrapper.Lit(DurationFormatter.ToPolarsString duration)
-        new Expr(PolarsWrapper.DtOffsetBy(handle, durExpr))
     // --- Conversion ---
 
     /// <summary>

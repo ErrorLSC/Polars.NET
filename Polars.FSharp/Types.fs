@@ -433,40 +433,40 @@ type Series(handle: SeriesHandle) =
     member this.Item (index: int) : obj =
         let idx = int64 index
         
-        match this.DataType with
-        | DataType.Boolean -> box (this.GetValue<bool option> idx) 
+        match this.DataType.Kind with
+        | DataTypeKind.Boolean -> box (this.GetValue<bool option> idx) 
         
-        | DataType.Int8 -> box (this.GetValue<int8 option> idx)
-        | DataType.Int16 -> box (this.GetValue<int16 option> idx)
-        | DataType.Int32 -> box (this.GetValue<int32 option> idx)
-        | DataType.Int64 -> box (this.GetValue<int64 option> idx)
-        | DataType.Int128 -> box (this.GetValue<Int128 option> idx)
+        | DataTypeKind.Int8 -> box (this.GetValue<int8 option> idx)
+        | DataTypeKind.Int16 -> box (this.GetValue<int16 option> idx)
+        | DataTypeKind.Int32 -> box (this.GetValue<int32 option> idx)
+        | DataTypeKind.Int64 -> box (this.GetValue<int64 option> idx)
+        | DataTypeKind.Int128 -> box (this.GetValue<Int128 option> idx)
         
-        | DataType.UInt8 -> box (this.GetValue<uint8 option> idx)
-        | DataType.UInt16 -> box (this.GetValue<uint16 option> idx)
-        | DataType.UInt32 -> box (this.GetValue<uint32 option> idx)
-        | DataType.UInt64 -> box (this.GetValue<uint64 option> idx)
-        | DataType.UInt128 -> box (this.GetValue<UInt128 option> idx)
+        | DataTypeKind.UInt8 -> box (this.GetValue<uint8 option> idx)
+        | DataTypeKind.UInt16 -> box (this.GetValue<uint16 option> idx)
+        | DataTypeKind.UInt32 -> box (this.GetValue<uint32 option> idx)
+        | DataTypeKind.UInt64 -> box (this.GetValue<uint64 option> idx)
+        | DataTypeKind.UInt128 -> box (this.GetValue<UInt128 option> idx)
 
-        | DataType.Float16 -> box (this.GetValue<Half option> idx)
-        | DataType.Float32 -> box (this.GetValue<float32 option> idx)
-        | DataType.Float64 -> box (this.GetValue<double option> idx)
+        | DataTypeKind.Float16 -> box (this.GetValue<Half option> idx)
+        | DataTypeKind.Float32 -> box (this.GetValue<float32 option> idx)
+        | DataTypeKind.Float64 -> box (this.GetValue<double option> idx)
         
-        | DataType.Decimal _ -> box (this.GetValue<decimal option> idx)
+        | DataTypeKind.Decimal _ -> box (this.GetValue<decimal option> idx)
         
-        | DataType.String -> box (this.GetValue<string option> idx)
+        | DataTypeKind.String -> box (this.GetValue<string option> idx)
         
-        | DataType.Date -> box (this.GetValue<DateOnly option> idx)
-        | DataType.Time -> box (this.GetValue<TimeOnly option> idx)
-        | DataType.Datetime _ -> box (this.GetValue<DateTime option> idx)
-        | DataType.Duration _ -> box (this.GetValue<TimeSpan option> idx)
+        | DataTypeKind.Date -> box (this.GetValue<DateOnly option> idx)
+        | DataTypeKind.Time -> box (this.GetValue<TimeOnly option> idx)
+        | DataTypeKind.Datetime _ -> box (this.GetValue<DateTime option> idx)
+        | DataTypeKind.Duration _ -> box (this.GetValue<TimeSpan option> idx)
         
-        | DataType.Binary -> box (this.GetValue<byte[] option> idx)
+        | DataTypeKind.Binary -> box (this.GetValue<byte[] option> idx)
 
         // Complex Type
-        | DataType.List _ -> this.GetValue<obj> idx
-        | DataType.Struct _ -> this.GetValue<obj> idx
-        | DataType.Array _ -> this.GetValue<obj> idx
+        | DataTypeKind.List _ -> this.GetValue<obj> idx
+        | DataTypeKind.Struct _ -> this.GetValue<obj> idx
+        | DataTypeKind.Array _ -> this.GetValue<obj> idx
         
         | _ -> failwithf "Indexer not fully implemented for type: %A" this.DataType
     /// <summary>
@@ -482,13 +482,6 @@ type Series(handle: SeriesHandle) =
     member this.ToFrame() : DataFrame =
         let h = PolarsWrapper.SeriesToFrame handle
         new DataFrame(h)
-
-    member this.Cast(dtype: DataType,?strict: bool, ?wrapNumerical: bool) : Series =
-        use typeHandle = dtype.CreateHandle()
-        let st = defaultArg strict true
-        let wN = defaultArg wrapNumerical false
-        let newHandle = PolarsWrapper.SeriesCast(handle, typeHandle,st,wN)
-        new Series(newHandle)
     member this.ToArrow() : Apache.Arrow.IArrowArray =
         PolarsWrapper.SeriesToArrow handle
     member this.FromArrow(name:string,arrowArray:Apache.Arrow.IArrowArray) : Series = 

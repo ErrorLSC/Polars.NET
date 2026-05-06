@@ -129,7 +129,7 @@ module pl =
         new Expr(PolarsWrapper.Lit sHandle)
     // --- Expr Helpers ---
     /// <summary> Cast an expression to a different data type. </summary>
-    let cast (dtype: DataType) (e: Expr) = e.Cast dtype
+    let cast (dtype: Dtype) (e: Expr) = e.Cast dtype
     /// <summary> Boolean data type. </summary>
     let boolean = DataType.Boolean
     /// <summary> 32-bit Integer data type. </summary>
