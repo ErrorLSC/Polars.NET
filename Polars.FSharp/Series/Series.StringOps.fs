@@ -20,8 +20,8 @@ type SeriesStrNameSpace(parent: Series) =
         apply (fun e -> e.Str.Slice(offset, length))
 
     /// <summary> Replace all occurrences of a pattern. </summary>
-    member _.ReplaceAll(pattern: string, value: string, ?useRegex: bool) =
-        apply (fun e -> e.Str.ReplaceAll(pattern, value, ?useRegex=useRegex))
+    member _.ReplaceAll(pattern: string, value: string, ?literal: bool) =
+        apply (fun e -> e.Str.ReplaceAll(pattern, value, ?literal=literal))
 
     /// <summary> Extract the target capture group from regex pattern. </summary>
     member _.Extract(pattern: string, groupIndex: int) =

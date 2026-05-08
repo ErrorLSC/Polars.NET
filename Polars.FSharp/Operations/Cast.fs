@@ -12,14 +12,16 @@ module ExprCastExtension =
             let wn = defaultArg wrapNumerical false
             if strict && wn then
                 invalidArg "strict/wrapNumerical" "Cannot set both 'strict' and 'wrapNumerical' to true."
-            use target = DtypeExpr.consume source
+            use target = Dtype.consume source
             let h = PolarsWrapper.ExprCast(this.CloneHandle(), target.handle, strict, wn)
             new Expr(h)
 
         /// <summary>Cast expression to the type of 'T.</summary>
         member this.Cast<'T>(?strict: bool, ?wrapNumerical: bool) =
             this.Cast(Dtype.NetType typeof<'T>, ?strict=strict, ?wrapNumerical=wrapNumerical)
-
+        /// <summary>Cast expression to the polars datatype.</summary>
+        member this.Cast(dtype:DataType,?strict:bool, ?wrapNumerical:bool) =
+            this.Cast(Dtype.PlDataType dtype,?strict=strict, ?wrapNumerical=wrapNumerical)
 [<AutoOpen>]
 module SeriesCastExtension =
     type Series with

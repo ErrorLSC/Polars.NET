@@ -283,7 +283,7 @@ type Delta =
 
         // i64 -> Datetime
         if Seq.contains "timestamp" cols then
-            let expr = Expr.Col("timestamp").Cast(DataType.Datetime(TimeUnit.Milliseconds, Some "UCT")).Alias "timestamp"
+            let expr = Expr.Col("timestamp").Cast(Dtype.PlDataType (DataType.Datetime(TimeUnit.Milliseconds, "UCT"))).Alias "timestamp"
             df <- df.WithColumns [ expr :> IColumnExpr ]
 
         // operationParameters (Struct -> Columns)
@@ -1075,7 +1075,7 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
 
         // i64 -> Datetime
         if Seq.contains "timestamp" cols then
-            let expr = Expr.Col("timestamp").Cast(DataType.Datetime(TimeUnit.Milliseconds, Some "UCT")).Alias("timestamp")
+            let expr = Expr.Col("timestamp").Cast(Dtype.PlDataType (DataType.Datetime(TimeUnit.Milliseconds,"UCT"))).Alias("timestamp")
             df <- df.WithColumns [ expr :> IColumnExpr ]
 
         // operationMetrics (Struct -> Columns)

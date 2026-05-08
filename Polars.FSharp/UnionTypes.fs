@@ -5,15 +5,15 @@ open System
 [<RequireQualifiedAccess>]
 type Dtype =
     | DataTypeExpr of DataTypeExpr         
-    | DataType of DataType        
+    | PlDataType of DataType        
     | NetType of Type            
 
 [<RequireQualifiedAccess>]
-module DtypeExpr =
+module Dtype =
     let consume (src: Dtype) : DataTypeExpr =
         match src with
         | Dtype.DataTypeExpr e -> e.Clone()
-        | Dtype.DataType dt -> dt.ToDataTypeExpr()
+        | Dtype.PlDataType dt -> dt.ToDataTypeExpr()
         | Dtype.NetType t ->
             let dt = DataType.op_Implicit t
             dt.ToDataTypeExpr()           
@@ -46,20 +46,3 @@ module Sel =
                 invalidArg "expr" 
                     "Invalid conversion to Selector. A Selector must strictly be a column selection (e.g., pl.col(\"name\"), pl.cs.numeric(), or regex). Mathematical computations, aggregations, or literals cannot be used as Selectors."
             expr.ToSelector()
-
-[<RequireQualifiedAccess>]
-type Dur =
-    | String of string
-    | TimeSpan of TimeSpan
-
-[<RequireQualifiedAccess>]
-module Dur =
-    open Polars.NET.Core.Helpers
-    let consume (src: Dur) =
-        match src with
-        | Dur.String s ->
-            if String.IsNullOrWhiteSpace s then
-                invalidArg "src" "Duration string cannot be null or empty."
-            s
-        | Dur.TimeSpan ts ->
-            ts.ToPolarsDuration()

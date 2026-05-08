@@ -657,15 +657,16 @@ module ManipulateOps =
             let shuff = defaultArg shuffle true
             let s = Option.toNullable seed
             
-            new DataFrame(PolarsWrapper.SampleN(this.Handle, uint64 n, replace, shuff, s))
+            new DataFrame(PolarsWrapper.SampleNLiteral(this.Handle, uint64 n, replace, shuff, s))
 
         /// <summary>
         /// Sample a fraction of rows from the DataFrame.
         /// </summary>
         member this.Sample(frac: double, ?withReplacement: bool, ?shuffle: bool, ?seed: uint64) : DataFrame =
             let replace = defaultArg withReplacement false
+            let sf = Series.create("",[frac]).Handle
             let shuff = defaultArg shuffle true
             let s = Option.toNullable seed
             
-            new DataFrame(PolarsWrapper.SampleFrac(this.Handle, frac, replace, shuff, s))
+            new DataFrame(PolarsWrapper.SampleFrac(this.Handle, sf, replace, shuff, s))
         

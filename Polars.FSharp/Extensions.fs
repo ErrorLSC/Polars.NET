@@ -22,15 +22,15 @@ module Describe =
                 failwith "No numeric columns to describe."
 
             let metrics = [
-                "count",      fun (c: string) -> Expr.Col(c).Count().Cast(Dtype.DataType DataType.Float64)
-                "null_count", fun c -> Expr.Col(c).IsNull().Sum().Cast(Dtype.DataType DataType.Float64)
+                "count",      fun (c: string) -> Expr.Col(c).Count().Cast<float>()
+                "null_count", fun c -> Expr.Col(c).IsNull().Sum().Cast<float>()
                 "mean",       fun c -> Expr.Col(c).Mean()
                 "std",        fun c -> Expr.Col(c).Std()
-                "min",        fun c -> Expr.Col(c).Min().Cast(Dtype.DataType DataType.Float64)
+                "min",        fun c -> Expr.Col(c).Min().Cast<float>()
                 "25%",        fun c -> Expr.Col(c).Quantile 0.25
-                "50%",        fun c -> Expr.Col(c).Median().Cast(Dtype.DataType DataType.Float64)
+                "50%",        fun c -> Expr.Col(c).Median().Cast<float>()
                 "75%",        fun c -> Expr.Col(c).Quantile 0.75
-                "max",        fun c -> Expr.Col(c).Max().Cast(Dtype.DataType DataType.Float64)
+                "max",        fun c -> Expr.Col(c).Max().Cast<float>()
             ]
 
             let rowFrames = 
@@ -59,7 +59,7 @@ module Describe =
             let cols = schema.ToList()
 
             use headDf = this.Head limit
-            use strDf = headDf.Select [| Expr.All().Cast(Dtype.DataType DataType.String) |]
+            use strDf = headDf.Select [| Expr.All().Cast<string>() |]
 
             let mutable maxNameLen = 0
             let mutable maxDtypeLen = 0
@@ -129,7 +129,7 @@ module Describe =
 
             use headDf = this.Head limit
 
-            use strDf = headDf.Select [| Expr.All().Cast(Dtype.DataType DataType.String) |]
+            use strDf = headDf.Select [| Expr.All().Cast(Dtype.PlDataType DataType.String) |]
 
             let outColNames, outDtypes, outValues =
                 cols 

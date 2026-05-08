@@ -295,9 +295,9 @@ public readonly struct StringOps
     /// <code>
     /// df.Select(
     ///     // "  Data  " -> "Data"
-    ///     Col("text").Str.StripChars().Alias("trimmed"),
+    ///     Pl.Col("text").Str.StripChars().Alias("trimmed"),
     ///     // Remove "ID-" prefix
-    ///     Col("code").Str.StripPrefix("ID-").Alias("no_prefix")
+    ///     Pl.Col("code").Str.StripPrefix("ID-").Alias("no_prefix")
     /// );
     /// </code>
     /// </example>

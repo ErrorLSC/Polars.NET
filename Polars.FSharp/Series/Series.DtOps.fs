@@ -37,15 +37,13 @@ type SeriesDtNameSpace(parent: Series) =
 
     // --- Manipulation ---
 
-    member _.Truncate(every: string) = 
+    member _.Truncate(every: Dur) = 
         apply (fun e -> e.Dt.Truncate every)
 
-    member _.Round(every: string) = 
+    member _.Round(every: Dur) = 
         apply (fun e -> e.Dt.Round every)
 
-    member _.OffsetBy(duration: string) =
-        apply (fun e -> e.Dt.OffsetBy duration)
-    member _.OffsetBy(duration: Expr) =
+    member _.OffsetBy(duration: Dur) =
         apply (fun e -> e.Dt.OffsetBy duration)
 
     // --- Conversion ---
@@ -59,7 +57,7 @@ type SeriesDtNameSpace(parent: Series) =
     member _.ConvertTimeZone(timeZone: string) =
         apply (fun e -> e.Dt.ConvertTimeZone timeZone)
 
-    member _.ReplaceTimeZone(timeZone: string option, ?ambiguous: string, ?nonExistent: string) =
+    member _.ReplaceTimeZone(timeZone: string option, ?ambiguous: Expr, ?nonExistent: NonExistent) =
         apply (fun e -> e.Dt.ReplaceTimeZone(timeZone, ?ambiguous=ambiguous, ?nonExistent=nonExistent))
 
     member this.ReplaceTimeZone(timeZone: string, ?ambiguous, ?nonExistent) =

@@ -12,60 +12,77 @@ type [<Struct>] StringOps(handle: ExprHandle) =
     member _.Len() = new Expr(PolarsWrapper.StrLenBytes handle)
     // F# uint64 = C# ulong
     member _.Slice(offset: int64, length: uint64) = 
-        new Expr(PolarsWrapper.StrSlice(handle, offset, length))
-    member _.ReplaceAll(pattern: string, value: string, ?useRegex: bool) =
-        let regex = defaultArg useRegex false
-        new Expr(PolarsWrapper.StrReplaceAll(handle, pattern, value,regex))
+        new Expr(PolarsWrapper.StrSlice(handle, PolarsWrapper.Lit offset, PolarsWrapper.Lit length))
+    member _.ReplaceAll(pattern: string, value: string, ?literal: bool) =
+        let regex = defaultArg literal true
+        new Expr(PolarsWrapper.StrReplaceAll(handle,PolarsWrapper.Lit pattern, PolarsWrapper.Lit value,regex))
     member _.Extract(pattern: string, groupIndex: int) =
-        new Expr(PolarsWrapper.StrExtract(handle, pattern, uint groupIndex))
-    member _.Contains(pat: string) = 
-        new Expr(PolarsWrapper.StrContains(handle, pat))
-    member _.Split(separator: string) = new Expr(PolarsWrapper.StrSplit(handle, separator))
+        new Expr(PolarsWrapper.StrExtract(handle,PolarsWrapper.Lit pattern, int groupIndex))
+    member _.Contains(pat: string,?literal:bool,?strict:bool) = 
+        let li = defaultArg literal false
+        let st = defaultArg strict true 
+        new Expr(PolarsWrapper.StrContains(handle,PolarsWrapper.Lit pat,li,st))
+    member _.Split(separator: string,?inclusive:bool,?literal:bool,?strict:bool) = 
+        let inc = defaultArg inclusive false
+        let li = defaultArg literal true
+        let st = defaultArg strict true 
+        new Expr(PolarsWrapper.StrSplit(handle,PolarsWrapper.Lit separator,inc,li,st))
     /// <summary>
     /// Remove leading and trailing characters.
     /// If 'matches' is omitted, whitespace is removed.
     /// </summary>
-    member _.Strip(?matches: string) = 
-        // Option.toObj: None -> null, Some s -> s
-        new Expr(PolarsWrapper.StrStripChars(handle, Option.toObj matches))
+    member this.Strip(?matches: string) =
+        let charsExprHandle =
+            match matches with
+            | Some s -> PolarsWrapper.Lit(s)      
+            | None   -> PolarsWrapper.LitNull()   
+        new Expr(PolarsWrapper.StrStripChars(handle, charsExprHandle))
 
     /// <summary>
     /// Remove leading characters (Left Trim).
     /// If 'matches' is omitted, whitespace is removed.
     /// </summary>
     member _.LStrip(?matches: string) = 
-        new Expr(PolarsWrapper.StrStripCharsStart(handle, Option.toObj matches))
+        let charsExprHandle =
+            match matches with
+            | Some s -> PolarsWrapper.Lit(s)      
+            | None   -> PolarsWrapper.LitNull()  
+        new Expr(PolarsWrapper.StrStripCharsStart(handle, charsExprHandle))
 
     /// <summary>
     /// Remove trailing characters (Right Trim).
     /// If 'matches' is omitted, whitespace is removed.
     /// </summary>
     member _.RStrip(?matches: string) = 
-        new Expr(PolarsWrapper.StrStripCharsEnd(handle, Option.toObj matches))
+        let charsExprHandle =
+            match matches with
+            | Some s -> PolarsWrapper.Lit(s)      
+            | None   -> PolarsWrapper.LitNull()  
+        new Expr(PolarsWrapper.StrStripCharsEnd(handle, charsExprHandle))
 
     /// <summary>
     /// Remove a specific prefix string.
     /// </summary>
     member _.StripPrefix(prefix: string) = 
-        new Expr(PolarsWrapper.StrStripPrefix(handle, prefix))
+        new Expr(PolarsWrapper.StrStripPrefix(handle,PolarsWrapper.Lit prefix))
 
     /// <summary>
     /// Remove a specific suffix string.
     /// </summary>
     member _.StripSuffix(suffix: string) = 
-        new Expr(PolarsWrapper.StrStripSuffix(handle, suffix))
+        new Expr(PolarsWrapper.StrStripSuffix(handle, PolarsWrapper.Lit suffix))
 
     /// <summary>
     /// Check if string starts with a specific prefix.
     /// </summary>
     member _.StartsWith(prefix: string) = 
-        new Expr(PolarsWrapper.StrStartsWith(handle, prefix))
+        new Expr(PolarsWrapper.StrStartsWith(handle, PolarsWrapper.Lit prefix))
 
     /// <summary>
     /// Check if string ends with a specific suffix.
     /// </summary>
     member _.EndsWith(suffix: string) = 
-        new Expr(PolarsWrapper.StrEndsWith(handle, suffix))
+        new Expr(PolarsWrapper.StrEndsWith(handle, PolarsWrapper.Lit suffix))
 
     /// <summary>
     /// Parse string to Date using a format string (e.g., "%Y-%m-%d").
@@ -96,7 +113,8 @@ type [<Struct>] StringOps(handle: ExprHandle) =
         ?timeZone: string,
         ?strict: bool,
         ?exact: bool,
-        ?cache: bool) = 
+        ?cache: bool,
+        ?ambiguous: Expr) = 
         
         let tu = 
             match timeUnit with
@@ -109,6 +127,10 @@ type [<Struct>] StringOps(handle: ExprHandle) =
         let st = defaultArg strict true
         let ex = defaultArg exact true
         let ca = defaultArg cache true
+        let amb = 
+            match ambiguous with
+            | Some a -> a.CloneHandle()
+            | None -> PolarsWrapper.Lit "raise"
         
         let h = PolarsWrapper.StrToDatetime(
             handle, 
@@ -117,7 +139,8 @@ type [<Struct>] StringOps(handle: ExprHandle) =
             fmt, 
             st, 
             ex, 
-            ca
+            ca,
+            amb
         )
         
         new Expr(h)

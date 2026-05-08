@@ -39,16 +39,10 @@ public readonly struct ListOps
     ///     student = new[] { "Alice", "Bob", "Charlie" },
     ///     scores = new[] { 
     ///         new[] { 100, 90, 80 },
-    ///         new[] { 60, 60 },
-    ///         new int[] { }
-    ///     }
-    /// });
-    /// 
-    /// df.Select(
-    ///     Col("student"),
-    ///     Col("scores").List.Len().Alias("course_count"),
-    ///     Col("scores").List.Sum().Alias("total_score"),
-    ///     Col("scores").List.Get(0).Alias("first_score")
+    ///     Pl.Col("student"),
+    ///     Pl.Col("scores").List.Len().Alias("course_count"),
+    ///     Pl.Col("scores").List.Sum().Alias("total_score"),
+    ///     Pl.Col("scores").List.Get(0).Alias("first_score")
     /// ).Show();
     /// /* Output:
     /// shape: (3, 4)

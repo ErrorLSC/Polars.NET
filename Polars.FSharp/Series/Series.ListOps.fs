@@ -10,6 +10,7 @@ type SeriesListNameSpace(parent: Series) =
     // --- Unary Ops (Forward to Expr.List) ---
     
     member _.First() = apply (fun e -> e.List.First())
+    member _.Last() = apply (fun e -> e.List.Last())
     member _.Get(index: int) = apply (fun e -> e.List.Get index)
     member _.Join(sep: string) = apply (fun e -> e.List.Join sep)
     member _.Len() = apply (fun e -> e.List.Len())

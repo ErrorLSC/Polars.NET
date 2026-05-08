@@ -46,7 +46,8 @@ module SeriesOperationExtensions =
         /// Shortcut for <see cref="SeriesStructOps.Unnest"/>.
         /// </summary>
         member this.Unnest() =
-            this.Struct.Unnest()
+            let dfHandle = PolarsWrapper.SeriesStructUnnest this.Handle
+            new DataFrame(dfHandle)
         // ==========================================
         // Indexing & Searching (Forwarded to Expr)
         // ==========================================
@@ -337,8 +338,9 @@ module SeriesOperationExtensions =
         // --- 1. Unary Operations (Scalar / Self) ---
 
         /// <summary> Round to given decimals. </summary>
-        member this.Round(decimals: int) = 
-            this.ApplyExpr(Expr.Col(this.Name).Round decimals)
+        member this.Round(decimals: uint,?mode: RoundMode) =
+            let mo = defaultArg mode RoundMode.HalfToEven 
+            this.ApplyExpr(Expr.Col(this.Name).Round(decimals,mo))
 
         /// <summary> Round up to the nearest integer. </summary>
         member this.Ceil() = this.ApplyExpr(Expr.Col(this.Name).Ceil())

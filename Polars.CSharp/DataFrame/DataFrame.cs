@@ -341,9 +341,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     public DataFrame Sample(ulong n=1, bool withReplacement = false, bool shuffle = false, ulong? seed = null)
         => new(PolarsWrapper.SampleNLiteral(Handle, n, withReplacement, shuffle, seed));
 
-    // /// <inheritdoc cref="DataFrame.Sample(ulong, bool, bool, ulong?)"/> 
-    // public DataFrame Sample(Series n, bool withReplacement = false, bool shuffle = false, ulong? seed = null)
-    //     => new(PolarsWrapper.SampleN(Handle, n.Handle, withReplacement, shuffle, seed));
     /// <summary>
     /// Sample from this DataFrame.
     /// </summary>
@@ -357,8 +354,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
         using Series frac = Pl.Series("",[fraction]);
         return new(PolarsWrapper.SampleFrac(Handle,frac.Handle , withReplacement, shuffle, seed));
     }
-    // public DataFrame SampleFrac(Series fraction,bool withReplacement = false, bool shuffle = false, ulong? seed = null)
-       
     /// <summary>
     /// Create an empty (n=0) or n-row null-filled (n>0) copy of the DataFrame.
     /// Returns a n-row null-filled DataFrame with an identical schema.

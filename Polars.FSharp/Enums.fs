@@ -66,6 +66,17 @@ type JoinSide =
         | ForceLeft -> PlJoinSide.ForceLeft
         | ForceRight -> PlJoinSide.ForceRight
 
+type WindowMappingStrategy = 
+    | GroupsToRows
+    | Explode
+    | Join
+    member internal this.ToNative() =
+        match this with
+        | GroupsToRows -> PlWindowMapping.GroupsToRows
+        | Explode -> PlWindowMapping.Explode
+        | Join -> PlWindowMapping.Join 
+
+
 
 /// <summary>
 /// Specifies the aggregation function for pivot operations.
@@ -142,6 +153,14 @@ type ClosedWindow =
         | Both -> PlClosedInterval.Both
         | NoWindow -> PlClosedInterval.None
 
+type NonExistent =
+    | Raise
+    | SetNull
+    member internal this.ToNative() =
+        match this with
+        | Raise -> PlNonExistent.Raise
+        | SetNull -> PlNonExistent.Null
+
 type Roll =
     | Raise 
     | Forward 
@@ -177,6 +196,42 @@ type QuantileMethod =
         | Lower -> PlQuantileMethod.Lower
         | Midpoint -> PlQuantileMethod.Midpoint
         | Linear -> PlQuantileMethod.Linear
+
+type RoundMode =
+    | HalfAwayFromZero
+    | HalfToEven
+    | ToZero
+    member internal this.ToNative() =
+        match this with
+        | HalfAwayFromZero -> PlRoundMode.HalfAwayFromZero
+        | HalfToEven -> PlRoundMode.HalfToEven
+        | ToZero -> PlRoundMode.ToZero
+
+type NullBehavior = 
+    | Ignore
+    | Drop 
+    member internal this.ToNative() =
+        match this with
+        | Ignore -> PlNullBehavior.Ignore
+        | Drop -> PlNullBehavior.Drop
+
+type FillNullStrategy = 
+    | Forward
+    | Backward
+    | Max 
+    | Min
+    | Mean
+    | Zero
+    | One 
+    member internal this.ToNative() =
+        match this with
+        | Forward -> PlFillNullStrategy.Forward
+        | Backward -> PlFillNullStrategy.Backward
+        | Max -> PlFillNullStrategy.Max
+        | Min -> PlFillNullStrategy.Min
+        | Mean -> PlFillNullStrategy.Mean
+        | Zero -> PlFillNullStrategy.Zero
+        | One -> PlFillNullStrategy.One
 
 type RankMethod =
     | Average 

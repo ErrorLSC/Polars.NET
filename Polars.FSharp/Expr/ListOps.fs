@@ -3,12 +3,18 @@ namespace Polars.FSharp
 open Polars.NET.Core
 
 type [<Struct>] ListOps(handle: ExprHandle) =
-    /// <summary> Get the first element of the list. </summary>
-    member _.First() = new Expr(PolarsWrapper.ListFirst handle)
+
     /// <summary> Get element at index. </summary>
-    member _.Get(index: int) = new Expr(PolarsWrapper.ListGet(handle, int64 index))
+    member _.Get(index: int,?nullOnOob:bool) = 
+        let nob = defaultArg nullOnOob false
+        new Expr(PolarsWrapper.ListGet(handle, PolarsWrapper.Lit index,nob))
+    /// <summary> Get the first element of the list. </summary>
+    member this.First() = this.Get(0,true)
+    member this.Last() = this.Get(-1,true)
     /// <summary> Join list elements with separator. </summary>
-    member _.Join(separator: string) = new Expr(PolarsWrapper.ListJoin(handle, separator))
+    member _.Join(separator: string,?ignoreNulls:bool) = 
+        let ign = defaultArg ignoreNulls true
+        new Expr(PolarsWrapper.ListJoin(handle, separator,ign))
     /// <summary> Get list length. </summary>
     member _.Len() = new Expr(PolarsWrapper.ListLen handle)
     /// <summary> Reverse the list. </summary>

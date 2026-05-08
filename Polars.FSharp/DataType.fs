@@ -31,7 +31,7 @@ type DataTypeKind =
 /// <summary>
 /// Polars data types for casting and schema definitions.
 /// </summary>
-and DataType private (handle: DataTypeHandle, kind: DataTypeKind) =
+and DataType internal (handle: DataTypeHandle, kind: DataTypeKind) =
     let mutable disposed = false
     static let toUnitCode tu =
         match tu with

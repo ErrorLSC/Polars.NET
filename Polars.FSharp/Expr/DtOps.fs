@@ -3,6 +3,23 @@ namespace Polars.FSharp
 open System
 open Polars.NET.Core
 
+[<RequireQualifiedAccess>]
+type Dur =
+    | String of string
+    | TimeSpan of TimeSpan
+
+[<RequireQualifiedAccess>]
+module Dur =
+    open Polars.NET.Core.Helpers
+    let consume (src: Dur) =
+        match src with
+        | Dur.String s ->
+            if String.IsNullOrWhiteSpace s then
+                invalidArg "src" "Duration string cannot be null or empty."
+            s
+        | Dur.TimeSpan ts ->
+            ts.ToPolarsDuration()
+
 type [<Struct>] DtOps(handle: ExprHandle) =
     /// <summary>Get the year from the underlying date/datetime.</summary>
     member _.Year() = new Expr(PolarsWrapper.DtYear handle)
@@ -104,16 +121,19 @@ type [<Struct>] DtOps(handle: ExprHandle) =
     /// ambiguous: Strategy for DST overlaps ("raise", "earliest", "latest", "null").
     /// nonExistent: Strategy for missing DST times ("raise", "null").
     /// </summary>
-    member _.ReplaceTimeZone(timeZone: string option, ?ambiguous: string, ?nonExistent: string) =
+    member _.ReplaceTimeZone(timeZone: string option, ?ambiguous: Expr, ?nonExistent: NonExistent) =
         let tz = Option.toObj timeZone
-        let amb = Option.toObj ambiguous
-        let ne = Option.toObj nonExistent
-        new Expr(PolarsWrapper.DtReplaceTimeZone(handle, tz, amb, ne))
+        let amb = 
+            match ambiguous with
+            | Some a -> a.CloneHandle()
+            | None -> PolarsWrapper.Lit "raise"
+        let ne = defaultArg nonExistent NonExistent.Raise
+        new Expr(PolarsWrapper.DtReplaceTimeZone(handle, tz, amb, ne.ToNative()))
 
     /// <summary>
     /// Helper: Replace time zone with a specific string.
     /// </summary>
-    member this.ReplaceTimeZone(timeZone: string, ?ambiguous: string, ?nonExistent: string) =
+    member this.ReplaceTimeZone(timeZone: string, ?ambiguous: Expr, ?nonExistent: NonExistent) =
         this.ReplaceTimeZone(Some timeZone, ?ambiguous=ambiguous, ?nonExistent=nonExistent)
     /// <summary>
     /// Add business days to a date column.

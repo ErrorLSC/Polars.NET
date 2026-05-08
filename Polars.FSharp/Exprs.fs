@@ -65,7 +65,9 @@ and Expr(handle: ExprHandle) =
 
     // --- Rounding & Sign ---
     /// <summary> Round the underlying floating point data to the given number of decimals. </summary>
-    member this.Round(decimals: uint) = new Expr(PolarsWrapper.Round(this.CloneHandle(), uint decimals))
+    member this.Round(decimals: uint,?mode:RoundMode) = 
+        let mo = defaultArg mode RoundMode.HalfToEven
+        new Expr(PolarsWrapper.Round(this.CloneHandle(), uint decimals,mo.ToNative()))
     /// <summary> Compute the element-wise sign (-1, 0, 1). </summary>
     member this.Sign() = new Expr(PolarsWrapper.Sign(this.CloneHandle()))
     /// <summary> Round up to the nearest integer. </summary>
@@ -577,8 +579,6 @@ and Expr(handle: ExprHandle) =
     /// <returns>A new expression with filtered values.</returns>
     member this.Filter(predicate:Expr) : Expr =
         new Expr(PolarsWrapper.Filter(this.CloneHandle(),predicate.CloneHandle()))
-    member this.FillNull(fillValue: Expr) = 
-        new Expr(PolarsWrapper.FillNull(this.CloneHandle(), fillValue.CloneHandle()))
     /// <summary>
     /// Interpolate intermediate values. The interpolation method can be configured.
     /// <para>Nulls at the beginning and end of the series remain null.</para>
@@ -705,14 +705,47 @@ and Expr(handle: ExprHandle) =
     /// </summary>
     /// <example>
     /// <code>
-    /// // Calculate sum of "Value" per "Group"
+    /// Calculate sum of "Value" per "Group"
     /// pl.col("Value").Sum().Over(pl.col("Group"))
     /// </code>
     /// </example>
-    member this.Over(partitionBy: Expr list) =
-        let mainHandle = this.CloneHandle()
-        let partHandles = partitionBy |> List.map (fun e -> e.CloneHandle()) |> List.toArray
-        new Expr(PolarsWrapper.Over(mainHandle, partHandles))
+    member this.Over(
+        ?partitionBy: seq<Expr>,
+        ?orderBy: seq<Expr>,
+        ?descending: bool,
+        ?nullsLast: bool,
+        ?multithreaded: bool,
+        ?maintainOrder: bool,
+        ?mapping: WindowMappingStrategy
+    ) =
+        let partitionBy = defaultArg partitionBy Seq.empty
+        let orderBy = defaultArg orderBy Seq.empty
+        let descending = defaultArg descending false
+        let nullsLast = defaultArg nullsLast false
+        let multithreaded = defaultArg multithreaded true
+        let maintainOrder = defaultArg maintainOrder false
+        let mapping = defaultArg mapping WindowMappingStrategy.GroupsToRows
+
+        let partArr = partitionBy |> Seq.toArray
+        let orderArr = orderBy |> Seq.toArray
+
+        if partArr.Length = 0 && orderArr.Length = 0 then
+            this
+        else
+            let partHandles = partArr |> Array.map (fun e -> e.CloneHandle())
+            let orderHandles = orderArr |> Array.map (fun e -> e.CloneHandle())
+            let mainHandle = this.CloneHandle()  
+
+            new Expr(PolarsWrapper.Over(
+                mainHandle,
+                partHandles,
+                orderHandles,
+                descending,
+                nullsLast,
+                multithreaded,
+                maintainOrder,
+                mapping.ToNative()
+            ))
 
     member this.Over(partitionCol: Expr) =
         this.Over [partitionCol]
@@ -720,7 +753,7 @@ and Expr(handle: ExprHandle) =
     /// Shift values by the given number of indices.
     /// Positive values shift downstream, negative values shift upstream.
     /// </summary>
-    member this.Shift(n: int64) = new Expr(PolarsWrapper.Shift(this.CloneHandle(), n))
+    member this.Shift(n: int64) = new Expr(PolarsWrapper.Shift(this.CloneHandle(), PolarsWrapper.Lit n))
     // Default shift 1
     member this.Shift() = this.Shift 1L
 
@@ -728,24 +761,30 @@ and Expr(handle: ExprHandle) =
     /// Calculate the difference with the previous value (n-th lag).
     /// Null values are propagated.
     /// </summary>
-    member this.Diff(n: int64) = new Expr(PolarsWrapper.Diff(this.CloneHandle(), n))
+    member this.Diff(n: int64, ?nullBehavior: NullBehavior) = 
+        let nb = defaultArg nullBehavior NullBehavior.Ignore
+        new Expr(PolarsWrapper.Diff(this.CloneHandle(), PolarsWrapper.Lit n,nb.ToNative()))
     // Default diff 1
     member this.Diff() = this.Diff 1L
-
+    member this.FillNull(value:Expr) = new Expr(PolarsWrapper.FillNull(this.CloneHandle(),value.CloneHandle())) 
+    member this.FillNull(strategy: FillNullStrategy, ?limit: int) =
+        let l = defaultArg limit 0
+        let nullableLimit = System.Nullable<uint32>(uint32 l)
+        let exprHandle = this.CloneHandle() 
+        new Expr(PolarsWrapper.FillNullWithStrategy(exprHandle, strategy.ToNative(), nullableLimit))
     /// <summary>
     /// Fill null values with a specific strategy (Forward).
     /// </summary>
     /// <param name="limit">Max number of consecutive nulls to fill. (Default null = infinite)</param>
     member this.ForwardFill(?limit: int) = 
         let l = defaultArg limit 0
-        new Expr(PolarsWrapper.ForwardFill(this.CloneHandle(), uint l))
+        this.FillNull(FillNullStrategy.Forward, l)
     /// <summary>
     /// Fill null values with a specific strategy (Backward).
     /// </summary>
     member this.BackwardFill(?limit: int) = 
         let l = defaultArg limit 0
-        new Expr(PolarsWrapper.BackwardFill(this.CloneHandle(), uint l))
-
+        this.FillNull(FillNullStrategy.Backward,l)
     // ==========================================
     // Uniqueness & Duplication
     // ==========================================
