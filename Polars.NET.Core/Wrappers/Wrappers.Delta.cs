@@ -33,9 +33,9 @@ public readonly partial struct PolarsWrapper
         ErrorHelper.CheckVoid();
         return (long)filesDeleted;
     }
-    public static long Restore(
+    public static ulong Restore(
         string path,
-        long targetVersion,
+        ulong targetVersion,
         long targetTimestamp,
         bool ignoreMissingFiles,
         bool protocolDowngradeAllowed,
@@ -191,7 +191,7 @@ public readonly partial struct PolarsWrapper
     // ---------------------------------------------------------
     public unsafe static LazyFrameHandle ScanDelta(
         string path,
-        long? version,
+        ulong? version,
         string? datetime,
         ulong? nRows,
         PlParallelStrategy parallel,
@@ -217,7 +217,7 @@ public readonly partial struct PolarsWrapper
         string[]? cloudKeys,
         string[]? cloudValues)
     {
-        long versionVal = version.GetValueOrDefault();
+        ulong versionVal = version.GetValueOrDefault();
         IntPtr versionPtr = version.HasValue ? (IntPtr)(&versionVal) : IntPtr.Zero;
 
         ulong nRowsVal = nRows.GetValueOrDefault();

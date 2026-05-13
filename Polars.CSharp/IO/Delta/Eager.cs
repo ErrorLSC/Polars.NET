@@ -10,10 +10,10 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <summary>
     /// Read a delta table into a new DataFrame
     /// </summary>
-    /// <inheritdoc cref="LazyFrame.ScanDelta(string, long?, string?, ulong?, ParallelStrategy, bool, bool, bool, bool, bool, string?, uint, string?, IntoSchema?, bool, IntoSchema?, bool, CloudOptions?)"/>
+    /// <inheritdoc cref="LazyFrame.ScanDelta(string, ulong?, string?, ulong?, ParallelStrategy, bool, bool, bool, bool, bool, string?, uint, string?, IntoSchema?, bool, IntoSchema?, bool, CloudOptions?)"/>
     public static DataFrame ReadDelta(
         string path,
-        long? version = null,
+        ulong? version = null,
         string? datetime = null,
         ulong? nRows = null,
         ParallelStrategy parallel = ParallelStrategy.Auto,

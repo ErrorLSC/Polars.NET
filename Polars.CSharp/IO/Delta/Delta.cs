@@ -204,9 +204,9 @@ public static class Delta
     /// <param name="cloudOptions">Cloud storage credentials.</param>
     /// <returns>The new version number of the table after the restore operation.</returns>
     /// <exception cref="ArgumentException">Thrown if neither or both version and timestamp are provided.</exception>
-    public static long Restore(
+    public static ulong Restore(
         string path,
-        long? version = null,
+        ulong? version = null,
         DateTime? timestamp = null,
         bool ignoreMissingFiles = false,
         bool protocolDowngradeAllowed = false,
@@ -221,14 +221,24 @@ public static class Delta
 
         // 2. Prepare Parameters
         // Rust uses -1 to indicate "not set"
-        long targetVer = version ?? -1;
         long targetTs = -1;
-
+        ulong targetVer = 0;
         if (timestamp.HasValue)
         {
             // Convert DateTime to Unix Milliseconds
             DateTime utcTime = timestamp.Value.ToUniversalTime();
             targetTs = new DateTimeOffset(utcTime).ToUnixTimeMilliseconds();
+            
+            // FFI Defense: Unix timestamp could theoretically be negative (pre-1970).
+            // Since we use -1 as a sentinel, we must disallow timestamps before 1970-01-01 00:00:00.000 UTC.
+            if (targetTs < 0)
+            {
+                throw new ArgumentException("Restore timestamp must be >= 1970-01-01T00:00:00.000Z");
+            }
+        }
+        else if (version.HasValue)
+        {
+            targetVer = version.Value;
         }
 
         // 3. Parse Cloud Options

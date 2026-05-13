@@ -15,7 +15,7 @@ use crate::delta::read::scan_delta_internal;
 pub extern "C" fn pl_scan_catalog_table(
     ctx_ptr: *mut CatalogContext,
     catalog_name_ptr: *const c_char, schema_name_ptr: *const c_char, table_name_ptr: *const c_char,
-    version: *const i64, datetime_ptr: *const c_char,
+    version: *const u64, datetime_ptr: *const c_char,
     n_rows: *const usize, parallel_code: u8, low_memory: bool, use_statistics: bool,
     glob: bool, rechunk: bool, cache: bool, row_index_name_ptr: *const c_char,
     row_index_offset: u32, include_path_col_ptr: *const c_char, schema_ptr: *mut SchemaContext, 

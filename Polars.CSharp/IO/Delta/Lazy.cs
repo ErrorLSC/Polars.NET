@@ -21,7 +21,7 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <returns>A new LazyFrame.</returns>
     public static LazyFrame ScanDelta(
         string path,
-        long? version = null,
+        ulong? version = null,
         string? datetime = null,
         ulong? nRows = null,
         ParallelStrategy parallel = ParallelStrategy.Auto,

@@ -237,8 +237,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     ///     indexColumn: "time", 
     ///     every: TimeSpan.FromHours(1)
     /// ).Agg(
-    ///     Col("val").Sum().Alias("total_val"),
-    ///     Col("val").Count().Alias("count")
+    ///     Pl.Col("val").Sum().Alias("total_val"),
+    ///     Pl.Col("val").Count().Alias("count")
     /// );
     /// 
     /// dynamicGrouped.Show();

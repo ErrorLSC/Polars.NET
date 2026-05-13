@@ -14,7 +14,7 @@ public readonly partial struct PolarsWrapper
         string catalogName,
         string schemaName,
         string tableName,
-        long? version,
+        ulong? version,
         string? datetime,
         ulong? nRows,
         PlParallelStrategy parallel,
@@ -40,7 +40,7 @@ public readonly partial struct PolarsWrapper
         string[]? cloudKeys,
         string[]? cloudValues)
     {
-        long versionVal = version.GetValueOrDefault();
+        ulong versionVal = version.GetValueOrDefault();
         IntPtr versionPtr = version.HasValue ? (IntPtr)(&versionVal) : IntPtr.Zero;
 
         ulong nRowsVal = nRows.GetValueOrDefault();
@@ -418,12 +418,12 @@ public readonly partial struct PolarsWrapper
         ErrorHelper.CheckVoid();
         return (long)filesDeleted;
     }
-    public static long CatalogRestore(
+    public static ulong CatalogRestore(
         CatalogHandle handle,
         string catalogName,
         string schemaName,
         string tableName,
-        long targetVersion,
+        ulong targetVersion,
         long targetTimestamp,
         bool ignoreMissingFiles,
         bool protocolDowngradeAllowed,

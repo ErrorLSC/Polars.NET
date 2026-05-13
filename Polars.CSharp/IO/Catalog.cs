@@ -34,7 +34,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
         string catalogName,
         string schemaName,
         string tableName,
-        long? version = null,
+        ulong? version = null,
         string? datetime = null,
         ulong? nRows = null,
         ParallelStrategy parallel = ParallelStrategy.Auto,
@@ -505,42 +505,43 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
     /// Thrown when both <paramref name="version"/> and <paramref name="timestamp"/> are provided, 
     /// or when neither is provided.
     /// </exception>
-    public long DeltaRestore(
+    public ulong RestoreTable(
         string catalogName,
         string schemaName,
         string tableName,
-        long? version = null,
+        ulong? version = null,
         DateTime? timestamp = null,
         bool ignoreMissingFiles = false,
         bool protocolDowngradeAllowed = false,
         CloudOptions? cloudOptions = null)
     {
-        // Validation: Version and Timestamp are mutually exclusive
         if (version.HasValue && timestamp.HasValue)
-            throw new ArgumentException("Cannot specify both 'version' and 'timestamp' for Restore.");
-
+            throw new ArgumentException("Cannot specify both 'version' and 'timestamp'.");
+            
         if (!version.HasValue && !timestamp.HasValue)
-            throw new ArgumentException("Must specify either 'version' or 'timestamp' for Restore.");
+            throw new ArgumentException("Must specify either 'version' or 'timestamp'.");
 
-        // Prepare Parameters
-        // Rust uses -1 to indicate "not set"
-        long targetVer = version ?? -1;
         long targetTs = -1;
+        ulong targetVer = 0;
 
         if (timestamp.HasValue)
         {
-            // Convert DateTime to Unix Milliseconds
-            DateTime utcTime = timestamp.Value.ToUniversalTime();
-            targetTs = new DateTimeOffset(utcTime).ToUnixTimeMilliseconds();
+            targetTs = new DateTimeOffset(timestamp.Value.ToUniversalTime()).ToUnixTimeMilliseconds();
+            if (targetTs < 0)
+                throw new ArgumentException("Restore timestamp must be >= 1970-01-01T00:00:00.000Z");
+        }
+        else if (version.HasValue)
+        {
+            targetVer = version.Value;
         }
 
         var (_, _, _, _, _, _, keys, values) = CloudOptions.ParseCloudOptions(cloudOptions);
 
         return PolarsWrapper.CatalogRestore(
             Handle,
-            catalogName, 
-            schemaName, 
-            tableName, 
+            catalogName,
+            schemaName,
+            tableName,
             targetVer,
             targetTs,
             ignoreMissingFiles,
@@ -549,6 +550,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
             values
         );
     }
+
     /// <summary>
     /// Retrieves the commit history (audit trail) for a Unity Catalog Delta table as a <see cref="DataFrame"/>.
     /// This includes metadata about who performed what operation, when it occurred, and what parameters were used.

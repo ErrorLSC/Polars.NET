@@ -1,5 +1,5 @@
 use std::{collections::HashMap, ffi::c_char, time::{SystemTime, UNIX_EPOCH}};
-use deltalake::{DeltaTable, Path, kernel::{Action, Remove, transaction}, protocol::DeltaOperation};
+use deltalake::{DeltaTable, Path, kernel::{Action, Remove, transaction}, logstore::object_store::ObjectStoreExt, protocol::DeltaOperation};
 use futures::StreamExt;
 use rand::RngExt;
 use serde_json::Value;
@@ -220,7 +220,7 @@ pub(crate) async fn phase_init_and_validate_sink(
 
         let snapshot = table.snapshot()
             .map_err(|e| PolarsError::ComputeError(format!("Snapshot: {}", e).into()))?;
-        let existing_part_cols = snapshot.metadata().partition_columns().clone();
+        let existing_part_cols = snapshot.metadata().partition_columns().to_vec();
 
         if !existing_part_cols.is_empty() {
             if partition_cols.is_empty() {

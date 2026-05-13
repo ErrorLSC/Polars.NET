@@ -16,7 +16,7 @@ use crate::delta::deletion_vector::*;
 pub extern "C" fn pl_scan_delta(
     path_ptr: *const c_char,
     // --- Time Travel Args ---
-    version: *const i64,
+    version: *const u64,
     datetime_ptr: *const c_char,
     // --- Scan Args ---
     n_rows: *const usize,
@@ -81,7 +81,6 @@ pub extern "C" fn pl_scan_delta(
 
         let hive_schema_is_null = hive_schema_ptr.is_null();
 
-        // 核心移交：将准备好的干净数据传给内部执行引擎
         let final_lf = scan_delta_internal(
             table_url, 
             delta_opts, 
@@ -99,7 +98,7 @@ pub extern "C" fn pl_scan_delta(
 pub(crate) fn scan_delta_internal(
     table_url: Url,
     delta_opts: HashMap<String, String>,
-    version_val: Option<i64>,
+    version_val: Option<u64>,
     datetime_str: Option<String>,
     mut args: polars::prelude::ScanArgsParquet,
     hive_schema_is_null: bool,
@@ -118,7 +117,6 @@ pub(crate) fn scan_delta_internal(
     // =========================================================
     // Phase 2: Schema & Hive Partition Injection
     // =========================================================
-    // 就地修改 args，注入 Schema 和 Hive Options
     phase_inject_schema(
         &mut args, 
         &polars_schema, 
@@ -142,7 +140,7 @@ pub(crate) fn scan_delta_internal(
 pub(crate) async fn phase_load_metadata(
     table_url: Url,
     delta_opts: HashMap<String, String>,
-    version_val: Option<i64>,
+    version_val: Option<u64>,
     datetime_str: Option<String>,
 ) -> PolarsResult<(
     DeltaTable,
@@ -171,7 +169,7 @@ pub(crate) async fn phase_load_metadata(
     // 3. Extract Partition Columns
     let snapshot = table.snapshot()
         .map_err(|e| PolarsError::ComputeError(format!("Snapshot error: {}", e).into()))?;
-    let partition_cols = snapshot.metadata().partition_columns().clone();
+    let partition_cols = snapshot.metadata().partition_columns().to_vec();
 
     // 4. Sort files into Clean and Dirty (with Deletion Vectors)
     let mut clean_paths = Vec::new();

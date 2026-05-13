@@ -1,6 +1,6 @@
 [package]
 name = "native_shim"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2024"
 
 [dependencies]
@@ -21,11 +21,11 @@ polars-plan = {version="0.53.0"}
 polars-ops = {version="0.53.0"}
 flate2 = { version = "1.1.8", features = ["rust_backend"] }
 serde_json = "*"
-calamine = { version = "0.34", features = ["dates","chrono"] }
+calamine = { version = "0.35", features = ["dates","chrono"] }
 chrono = "0.4.41"
-rust_xlsxwriter = { version = "0.94", features = ["chrono"] }
+rust_xlsxwriter = { version = "0.95", features = ["chrono"] }
 mimalloc = { version = "*", default-features = false }
-deltalake = { version = "0.31.1", default-features = false, features = ["s3", "azure", "gcs", "rustls"] }
+deltalake = { version = "0.32.1", default-features = false, features = ["s3", "azure", "gcs", "rustls"] }
 tokio = { version = "1.49.0"}
 url = "2.5.8"
 uuid = {version="1.20.0", features=["v4"]}
