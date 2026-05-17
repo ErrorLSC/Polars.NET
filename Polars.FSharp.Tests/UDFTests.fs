@@ -176,12 +176,12 @@ type ``UDF Tests`` () =
         let s = Series.create("str_vals", data)
 
         // Cast to Decimal(10, 2)
-        let sDec = s.Cast(DataType.Decimal(Some 10, Some 2))
+        let sDec = s.Cast(DataType.Decimal(10, 2))
 
         let logic (opt: decimal option) =
             opt |> Option.map (fun d -> d * 2m)
 
-        let res = sDec.MapOption(logic, DataType.Decimal(Some 10, Some 2))
+        let res = sDec.MapOption(logic, DataType.Decimal(10, 2))
 
         // 10.50 * 2 = 21.00
         Assert.Equal(21.00m, res.GetValue<decimal> 0)

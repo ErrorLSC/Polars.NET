@@ -31,8 +31,8 @@ type ``Complex Query Tests`` () =
         let df = 
             lf
             |> pl.filterLazy (pl.col "a" .> pl.lit 1)
-            |> pl.limit 1u
-            |> pl.collectStreaming
+            |> pl.collect
+            |> pl.head 1
 
         Assert.Equal(1L, df.Rows)
 
@@ -58,10 +58,12 @@ type ``Complex Query Tests`` () =
         let aggs = [ pl.count().Alias "cnt" ]
         let havingCond = pl.count() .> pl.lit 1
         
-        use res = 
-            lf.GroupBy(keys, aggs,havingCond)
-              .Sort("decade")
-              .Collect()
+        use res =
+            lf.GroupBy(keys)
+            |> pl.havingLazy havingCond
+            |> pl.aggLazy aggs
+            |> pl.sortLazy [pl.col "decade"] false
+            |> pl.collect
 
         Assert.Equal(1L, res.Height) 
         
@@ -96,8 +98,8 @@ type ``Complex Query Tests`` () =
                 // Aggs
                 [
                     pl.col "name"
-                    (pl.col "weight").Mean().Round(2).Name.Prefix "avg_"
-                    (pl.col "height").Mean().Round(2).Name.Prefix "avg_"
+                    (pl.col "weight").Mean().Round(2u).Name.Prefix "avg_"
+                    (pl.col "height").Mean().Round(2u).Name.Prefix "avg_"
                 ]
             |> pl.collect
             |> pl.sort (pl.col "decade",false)
@@ -395,12 +397,12 @@ type ``Complex Query Tests`` () =
 
         let res = 
             lf
-            |> pl.sortLazy (pl.col "date") false 
+            |> pl.sortLazy [pl.col "date"] false 
             |> pl.withColumnLazy (
                 // 1.1: 10
                 // 1.2: (10+20)/2 = 15
                 // 1.3: (20+30)/2 = 25
-                (pl.col "price").RollingMean("2i").Alias "ma_2"
+                (pl.col "price").RollingMean(Dur.String "2i").Alias "ma_2"
             )
             |> pl.collect
 
@@ -418,13 +420,13 @@ type ``Complex Query Tests`` () =
         let res = 
             lf
 
-            |> pl.sortLazy (pl.col "time") false
+            |> pl.sortLazy [pl.col "time"] false
             |> pl.withColumnLazy (
                 // 10:00: [09:00, 10:00) -> 10
                 // 10:30: [09:30, 10:30) -> 10 + 20 = 30
                 // 12:00: [11:00, 12:00) -> 30
                 (pl.col "val")
-                    .RollingSumBy("1h", pl.col "time", closed= ClosedWindow.Right) // closed="left" means [ )
+                    .RollingSumBy(Dur.String "1h", pl.col "time", closed= ClosedWindow.Right) // closed="left" means [ )
                     .Alias "sum_1h"
             )
             |> pl.collect
@@ -496,8 +498,8 @@ type ``Complex Query Tests`` () =
             "1001,AAPL,101.0"
         use quotesCsv = new TempCsv(quotesContent)
 
-        let lfTrades = LazyFrame.ScanCsv tradesCsv.Path |> pl.sortLazy (pl.col "time") false
-        let lfQuotes = LazyFrame.ScanCsv quotesCsv.Path |> pl.sortLazy (pl.col "time") false
+        let lfTrades = LazyFrame.ScanCsv tradesCsv.Path |> pl.sortLazy [pl.col "time"] false
+        let lfQuotes = LazyFrame.ScanCsv quotesCsv.Path |> pl.sortLazy [pl.col "time"] false
 
         let res = 
             lfTrades.JoinAsOf(
@@ -509,8 +511,8 @@ type ``Complex Query Tests`` () =
                 byLeft = [pl.col "ticker"], 
                 byRight = [pl.col "ticker"]
             )
-            |> pl.sortLazy (pl.col "ticker") false
-            |> pl.sortLazy (pl.col "time") false
+            |> pl.sortLazy [pl.col "ticker"] false
+            |> pl.sortLazy [pl.col "time"] false
             |> pl.collect
 
 
@@ -639,7 +641,7 @@ type ``Complex Query Tests`` () =
         let df = DataFrame.ofRecords data
         let lf = df.Lazy()
 
-        let res = 
+        use res = 
             lf.GroupByDynamic(
                 indexCol = "Time",
                 every = TimeSpan.FromHours 1.0,      
@@ -648,15 +650,15 @@ type ``Complex Query Tests`` () =
                 by = [ !> pl.col("Category") ],
                 
                 // [t, t + period)
-                closedWindow = ClosedWindow.Left,
-
-                aggs = [
-                    !> pl.col("Value").Count().Alias("Count")
-                    !> pl.col("Value").Mean().Alias("Mean")
-
-                    !> pl.cs.numeric().ToExpr().Sum().Name.Suffix("_Sum") 
-                ]
-            ).Collect().Sort([pl.col "Category"; pl.col "Time"], false) 
+                closedWindow = ClosedWindow.Left
+            )
+            |> pl.aggLazy [
+                pl.col("Value").Count().Alias("Count")
+                pl.col("Value").Mean().Alias("Mean")
+                pl.cs.numeric().ToExpr().Sum().Name.Suffix("_Sum") 
+            ]
+            |> pl.sortLazy [ pl.col "Category"; pl.col "Time" ] false
+            |> pl.collect
 
         // Window 1 (10:00): [10:00, 12:00) -> 10:00, 10:30, 11:00, 11:30
         // Window 2 (11:00): [11:00, 13:00) -> 11:00, 11:30

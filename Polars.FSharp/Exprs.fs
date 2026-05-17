@@ -3,7 +3,6 @@ namespace Polars.FSharp
 open System
 open Polars.NET.Core
 open Apache.Arrow
-open Polars.NET.Core.Helpers
 /// <summary>
 /// Interface for types that can be converted to one or more Polars Expressions.
 /// </summary>

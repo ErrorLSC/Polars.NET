@@ -208,7 +208,8 @@ module pl =
     let orderBy (expr: Expr) (desc: bool) (df: DataFrame) = sort(expr,desc) df
     /// <summary> Group by keys and apply aggregations. </summary>
     let groupBy (keys: Expr list) (aggs: Expr list) (df: DataFrame) : DataFrame =
-        df.GroupBy (keys,aggs)
+        use builder = df.GroupBy(keys)
+        builder.Agg(aggs)
     /// <summary> Perform a join between two DataFrames. </summary>
     let join (other: DataFrame) (leftOn: Expr list) (rightOn: Expr list) (how: JoinType) (left: DataFrame) : DataFrame =
         left.Join (other, leftOn, rightOn, how)
@@ -382,22 +383,25 @@ module pl =
         lf.Filter expr
 
     /// <summary> Select columns from LazyFrame. </summary>
-    let selectLazy (exprs: Expr list) (lf: LazyFrame) : LazyFrame =
+    let selectLazy (exprs: seq<Expr>) (lf: LazyFrame) : LazyFrame =
         lf.Select exprs
     /// <summary> Sort (Order By) the LazyFrame. </summary>
-    let sortLazy (expr: Expr) (desc: bool) (lf: LazyFrame) : LazyFrame =
-        lf.Sort (expr,desc)
+    let sortLazy (exprs: seq<Expr>) (desc: bool) (lf: LazyFrame) : LazyFrame =
+        lf.Sort (exprs,desc)
     /// <summary> Alias for sortLazy </summary>
-    let orderByLazy (expr: Expr) (desc: bool) (lf: LazyFrame) = sortLazy expr desc lf
+    let orderByLazy (expr: seq<Expr>) (desc: bool) (lf: LazyFrame) = sortLazy expr desc lf
     /// <summary> Add or replace columns in the LazyFrame. </summary>
     let withColumnLazy (expr: Expr) (lf: LazyFrame) : LazyFrame =
         lf.WithColumn expr
     /// <summary> Add or replace multiple columns in the LazyFrame. </summary>
-    let withColumnsLazy (exprs: Expr list) (lf: LazyFrame) : LazyFrame =
+    let withColumnsLazy (exprs: seq<Expr>) (lf: LazyFrame) : LazyFrame =
         lf.WithColumns exprs
     /// <summary> Group by keys and apply aggregations. </summary>
-    let groupByLazy (keys: Expr list) (aggs: Expr list) (lf: LazyFrame) : LazyFrame =
-        lf.GroupBy(keys, aggs)
+    let groupByLazy (keys: seq<Expr>) (aggs: seq<Expr>) (lf: LazyFrame) : LazyFrame =
+        use builder = lf.GroupBy(keys)
+        builder.Agg(aggs)
+    let havingLazy (predicate: Expr) (builder: LazyGroupBy) = builder.Having(predicate)
+    let aggLazy (aggs: seq<Expr>) (builder: LazyGroupBy) = builder.Agg(aggs)
     /// <summary>
     /// Unpivot (Melt) the LazyFrame.
     /// Usage: lf |> LazyFrame.unpivot ["ID"] ["Val"] None None

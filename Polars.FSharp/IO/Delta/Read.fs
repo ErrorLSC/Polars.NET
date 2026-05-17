@@ -14,7 +14,7 @@ module DeltaRead =
         /// <returns>A new LazyFrame.</returns>
         static member ScanDelta(
             path: string,
-            ?version: int64,
+            ?version: uint64,
             ?datetime: string,
             ?nRows: uint64,
             ?parallelStrategy: ParallelStrategy,
@@ -104,7 +104,7 @@ module DeltaRead =
         /// <returns>A new LazyFrame.</returns>
         static member ReadDelta(
             path: string,
-            ?version: int64,
+            ?version: uint64,
             ?datetime: string,
             ?nRows: uint64,
             ?parallelStrategy: ParallelStrategy,

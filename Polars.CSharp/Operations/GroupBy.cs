@@ -54,7 +54,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// <code>
     /// df.Lazy()
     ///   .GroupByDynamic("time", every: TimeSpan.FromHours(1))
-    ///   .Agg(Col("val").Sum().Alias("total"))
+    ///   .Agg(Pl.Col("val").Sum().Alias("total"))
     ///   .Collect();
     /// </code>
     /// </example>
@@ -165,9 +165,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// // 2. Max of val2 (aliased to "max_val2")
     /// // 3. Count of elements in the group
     /// var grouped = df.GroupBy(Col("group")).Agg(
-    ///     Col("val1").Sum(),
-    ///     Col("val2").Max().Alias("max_val2"),
-    ///     Col("val1").Count().Alias("count")
+    ///     Pl.Col("val1").Sum(),
+    ///     Pl.Col("val2").Max().Alias("max_val2"),
+    ///     Pl.Col("val1").Count().Alias("count")
     /// );
     /// 
     /// grouped.Sort("group").Show();

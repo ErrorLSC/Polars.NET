@@ -1,6 +1,5 @@
 #pragma warning disable CS1591 
 using System.Collections;
-using Cs = Polars.CSharp.Polars.Selectors;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;

@@ -901,7 +901,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         Assert.Contains(201, remainingIds);
         Assert.Contains(250, remainingIds);
 
-        long newVersion = uc.DeltaRestore(
+        ulong newVersion = uc.DeltaRestore(
             catalog, schema, table, 
             version: 1, 
             cloudOptions: cloudOptions
@@ -1418,13 +1418,13 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         
         Assert.True(historyDf.Height >= 2);
 
-        long newVersion = uc.DeltaRestore(
+        ulong newVersion = uc.DeltaRestore(
             catalog, schema, table, 
             version: 1, 
             cloudOptions: cloudOptions
         );
 
-        Assert.Equal(3, newVersion);
+        Assert.Equal(3UL, newVersion);
 
         using var restoredLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
         using var restoredDf = restoredLf.Collect().Sort("Id");

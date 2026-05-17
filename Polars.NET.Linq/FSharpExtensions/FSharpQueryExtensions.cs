@@ -35,7 +35,7 @@ public static class FSharpQueryExtensions
     /// Translates and eagerly executes the query, materializing the results into a fully computed Polars DataFrame.
     /// </summary>
     public static Polars.FSharp.DataFrame ToDataFrame<T>(this IQueryable<T> query)
-        => query.ToLazyFrame().Collect(false);
+        => query.ToLazyFrame().Collect(engine:Engine.Auto,streaming:false);
 
     /// <summary>
     /// Asynchronously translates the query into a Polars LazyFrame. 
@@ -62,7 +62,7 @@ public static class FSharpQueryExtensions
         CancellationToken cancellationToken = default)
     {
         IPolarsDataFrame coreInterface = await PolarsQueryableExtensions
-            .ToIDataFrameAsync(query, useStreaming, cancellationToken)
+            .ToIDataFrameAsync(query, useStreaming:useStreaming, cancellationToken:cancellationToken)
             .ConfigureAwait(false);
             
         return InterfaceUnwrapperExtensions.asDataFrame(coreInterface);

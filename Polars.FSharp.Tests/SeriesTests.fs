@@ -70,7 +70,7 @@ type ``Series Tests`` () =
         let data = ["apple"; "banana"; "apple"; "apple"; "banana"]
         use s = Series.create("fruits", data)
         
-        use sCat = s.Cast DataType.Categorical
+        use sCat = s.Cast(DataType.Categorical())
         
         let arrow = sCat.ToArrow()
         
@@ -93,7 +93,7 @@ type ``Series Tests`` () =
         use s = Series.create("money", data)
         
         // String -> Decimal (Precision=10, Scale=2)
-        use sDec = s.Cast(DataType.Decimal(Some 10,Some 2))
+        use sDec = s.Cast(DataType.Decimal(10,2))
         
         let arrow = sDec.ToArrow()
         let decArr = arrow :?> Decimal128Array
@@ -160,12 +160,12 @@ type ``Series Tests`` () =
         let s = Series.create("dates", [dt])
 
         // Truncate to 1h -> 10:00:00
-        let sTrunc = s.Dt.Truncate("1h")
+        let sTrunc = s.Dt.Truncate(Dur.String "1h")
         let valTrunc = sTrunc.GetValue<DateTime>(0)
         Assert.Equal(DateTime(2023, 1, 1, 10, 0, 0), valTrunc)
 
         // Offset by 1d -> 2023-01-02
-        let sOffset = s.Dt.OffsetBy("1d")
+        let sOffset = s.Dt.OffsetBy(Dur.String "1d")
         let valOffset = sOffset.GetValue<DateTime>(0)
         Assert.Equal(DateTime(2023, 1, 2, 10, 30, 45), valOffset)
 
@@ -206,7 +206,7 @@ type ``Series Tests`` () =
         let s = Series.create("txt", ["a1b"; "c2d"])
 
         // Replace Digit with * (Regex)
-        let sRep = s.Str.ReplaceAll("\d", "*", useRegex=true)
+        let sRep = s.Str.ReplaceAll("\d", "*", literal=false)
         Assert.Equal("a*b", sRep.GetValue<string> 0)
         Assert.Equal("c*d", sRep.GetValue<string> 1)
 
@@ -307,7 +307,7 @@ type ``Series Tests`` () =
         let df = 
             DataFrame.ofRecords(data)
                 .WithColumns([
-                    pl.col("Vals").Cast(DataType.Array(DataType.Int32, 3UL))
+                    pl.col("Vals").Cast(DataType.Array(DataType.Int32, [|3u|]))
                 ])
 
         let s = df.Column "Vals"
@@ -330,7 +330,7 @@ type ``Series Tests`` () =
         let df = 
             DataFrame.ofRecords(data)
                 .WithColumns([
-                    pl.col("Vals").Cast(DataType.Array(DataType.Int32, 3UL))
+                    pl.col("Vals").Cast(DataType.Array(DataType.Int32, [|3u|]))
                 ])
         
         let s = df.Column "Vals"
@@ -352,7 +352,7 @@ type ``Series Tests`` () =
         let df = 
             DataFrame.ofRecords(data)
                 .WithColumns([
-                    pl.col("Vals").Cast(DataType.Array(DataType.String, 3UL))
+                    pl.col("Vals").Cast(DataType.Array(DataType.String, [|3u|]))
                 ])
         
         let s = df.Column "Vals"
@@ -398,7 +398,7 @@ type ``Series Tests`` () =
 
         // Rename Fields
         // A -> X, B -> Y
-        let sRenamed = s.Struct.RenameFields ["X"; "Y"]
+        let sRenamed = s.Struct.RenameFields [|"X"; "Y"|]
 
         let valX = sRenamed.Struct.Field("X")
         Assert.Equal(10, valX.GetValue<int> 0)
@@ -520,7 +520,7 @@ type ``Series Tests`` () =
         // 1: 1+2=3
         // 2: 2+3=5
         // 3: 3+4=7
-        let sRoll = s.RollingSum("2i", minPeriod=1)
+        let sRoll = s.RollingSum(Dur.String "2i", minPeriod=1)
         
         Assert.Equal(1, sRoll.GetValue<int> 0)
         Assert.Equal(3, sRoll.GetValue<int> 1)

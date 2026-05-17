@@ -505,7 +505,7 @@ public class UnityCatalog(string workspaceUrl, string bearerToken) : IDisposable
     /// Thrown when both <paramref name="version"/> and <paramref name="timestamp"/> are provided, 
     /// or when neither is provided.
     /// </exception>
-    public ulong RestoreTable(
+    public ulong DeltaRestore(
         string catalogName,
         string schemaName,
         string tableName,

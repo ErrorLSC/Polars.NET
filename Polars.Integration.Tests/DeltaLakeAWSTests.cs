@@ -1808,14 +1808,14 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         using var currentDf = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect();
         Assert.Equal("Bad", currentDf["Val"][0]);
 
-        long newVersion = Delta.Restore(
+        ulong newVersion = Delta.Restore(
             rootUrl, 
             version: 1, 
             cloudOptions: options
         );
 
         // V1 (Good) -> V2 (Bad) -> V3 (Restore to V1 content)
-        Assert.Equal(3, newVersion);
+        Assert.Equal(3UL, newVersion);
 
         using var restoredDf = LazyFrame.ScanDelta(rootUrl, cloudOptions: options).Collect();
         Assert.Equal("Good", restoredDf["Val"][0]);

@@ -216,12 +216,12 @@ type Delta =
     /// <returns>The new version number of the table after the restore operation.</returns>
     static member Restore(
         path: string,
-        ?version: int64,
+        ?version: uint64,
         ?timestamp: System.DateTime,
         ?ignoreMissingFiles: bool,
         ?protocolDowngradeAllowed: bool,
         ?cloudOptions: CloudOptions
-    ) : int64 =
+    ) : uint64 =
         // 1. Validation: Version and Timestamp are mutually exclusive
         if version.IsSome && timestamp.IsSome then
             invalidArg "version/timestamp" "Cannot specify both 'version' and 'timestamp' for Restore."
@@ -230,19 +230,28 @@ type Delta =
             invalidArg "version/timestamp" "Must specify either 'version' or 'timestamp' for Restore."
 
         // 2. Prepare Parameters
-        let targetVer = defaultArg version -1L
+        // Rust uses -1 to indicate "not set" for timestamp, and 0 for version
+        let targetVer = defaultArg version 0UL
         
         let targetTs = 
             match timestamp with
             | Some dt -> 
+                // Convert DateTime to Unix Milliseconds
                 let utcTime = dt.ToUniversalTime()
-                System.DateTimeOffset(utcTime).ToUnixTimeMilliseconds()
+                let ts = System.DateTimeOffset(utcTime).ToUnixTimeMilliseconds()
+                
+                // FFI Defense: Unix timestamp could theoretically be negative (pre-1970).
+                // Since we use -1 as a sentinel, we must disallow timestamps before 1970-01-01 00:00:00.000 UTC.
+                if ts < 0L then
+                    invalidArg "timestamp" "Restore timestamp must be >= 1970-01-01T00:00:00.000Z"
+                ts
             | None -> -1L
 
         let pIgnore = defaultArg ignoreMissingFiles false
         let pDowngrade = defaultArg protocolDowngradeAllowed false
 
         // 3. Parse Cloud Options
+        // We only need keys/values for the Delta Lake object store
         let _, _, _, _, _, _, cKeys, cVals = CloudOptions.ParseCloudOptions cloudOptions
 
         // 4. Call Wrapper
@@ -500,7 +509,7 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
         catalogName: string,
         schemaName: string,
         tableName: string,
-        ?version: int64,
+        ?version: uint64,
         ?datetime: string,
         ?nRows: uint64,
         ?parallelStrategy: ParallelStrategy,
@@ -991,31 +1000,45 @@ and UnityCatalog(workspaceUrl: string, bearerToken: string) =
         catalogName: string,
         schemaName: string,
         tableName: string,
-        ?version: int64,
-        ?timestamp: DateTime,
+        ?version: uint64,
+        ?timestamp: System.DateTime,
         ?ignoreMissingFiles: bool,
         ?protocolDowngradeAllowed: bool,
-        ?cloudOptions: CloudOptions) =
-
-        match version, timestamp with
-        | Some _, Some _ -> invalidArg "version" "Cannot specify both 'version' and 'timestamp' for Restore."
-        | None, None -> invalidArg "version" "Must specify either 'version' or 'timestamp' for Restore."
-        | _ -> ()
-
-        let targetVer = defaultArg version -1L
+        ?cloudOptions: CloudOptions
+    ) =
+        // 1. Validation: Version and Timestamp are mutually exclusive
+        if version.IsSome && timestamp.IsSome then
+            invalidArg "version/timestamp" "Cannot specify both 'version' and 'timestamp' for DeltaRestore."
         
+        if version.IsNone && timestamp.IsNone then
+            invalidArg "version/timestamp" "Must specify either 'version' or 'timestamp' for DeltaRestore."
+
+        // 2. Prepare Parameters
+        // Rust uses 0 to indicate "not set" for version
+        let targetVer = defaultArg version 0UL
+        
+        // Rust uses -1 to indicate "not set" for timestamp
         let targetTs = 
             match timestamp with
-            | Some ts -> 
-                let utcTime = ts.ToUniversalTime()
-                DateTimeOffset(utcTime).ToUnixTimeMilliseconds()
+            | Some dt -> 
+                // Convert DateTime to Unix Milliseconds
+                let utcTime = dt.ToUniversalTime()
+                let ts = System.DateTimeOffset(utcTime).ToUnixTimeMilliseconds()
+                
+                // FFI Defense: Unix timestamp could theoretically be negative (pre-1970).
+                // Since we use -1 as a sentinel, we must disallow timestamps before 1970-01-01 00:00:00.000 UTC.
+                if ts < 0L then
+                    invalidArg "timestamp" "DeltaRestore timestamp must be >= 1970-01-01T00:00:00.000Z"
+                ts
             | None -> -1L
 
         let ignoreMissing = defaultArg ignoreMissingFiles false
         let protocolDowngrade = defaultArg protocolDowngradeAllowed false
 
+        // 3. Parse Cloud Options
         let _, _, _, _, _, _, keys, values = CloudOptions.ParseCloudOptions cloudOptions
 
+        // 4. Call Wrapper
         PolarsWrapper.CatalogRestore(
             this.Handle,
             catalogName,

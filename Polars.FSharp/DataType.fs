@@ -31,7 +31,7 @@ type DataTypeKind =
 /// <summary>
 /// Polars data types for casting and schema definitions.
 /// </summary>
-and DataType internal (handle: DataTypeHandle, kind: DataTypeKind) =
+and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
     let mutable disposed = false
     static let toUnitCode tu =
         match tu with
@@ -62,6 +62,30 @@ and DataType internal (handle: DataTypeHandle, kind: DataTypeKind) =
     static member UInt128     = new DataType(PolarsWrapper.NewPrimitiveType(25), DataTypeKind.UInt128)
     static member Float16     = new DataType(PolarsWrapper.NewPrimitiveType(26), DataTypeKind.Float16)
 
+    // ---------- Equality & Hashing ----------
+
+    interface IEquatable<DataType> with
+        member this.Equals(other: DataType) =
+            if obj.ReferenceEquals(other, null) then false
+            elif obj.ReferenceEquals(this, other) then true
+            else PolarsWrapper.DataTypeEq(this.Handle, other.Handle)
+
+    override this.Equals(otherObj: obj) =
+        match otherObj with
+        | :? DataType as other -> (this :> IEquatable<DataType>).Equals(other)
+        | _ -> false
+
+    override this.GetHashCode() = 
+        this.ToString().GetHashCode()
+
+    static member op_Equality (left: DataType, right: DataType) =
+        if obj.ReferenceEquals(left, right) then true
+        elif obj.ReferenceEquals(left, null) then false
+        else left.Equals(right)
+
+    static member op_Inequality (left: DataType, right: DataType) =
+        not (left = right)
+
     interface IDisposable with
         member this.Dispose() =
             if not disposed then
@@ -73,6 +97,7 @@ and DataType internal (handle: DataTypeHandle, kind: DataTypeKind) =
     interface IPolarsDataType with
         member this.GetArrowType() : Apache.Arrow.Types.IArrowType =
             ArrowFfiBridge.ImportDataType this.Handle
+
 
     member internal this.CreateHandle() : DataTypeHandle =
         match this.Kind with
@@ -148,7 +173,7 @@ and DataType internal (handle: DataTypeHandle, kind: DataTypeKind) =
         let handle = PolarsWrapper.NewDurationType(toUnitCode unit)
         new DataType(handle, DataTypeKind.Duration unit)
 
-    static member Categorical(?categories) =
+    static member Categorical ?categories =
         let cat = defaultArg categories (Categories.Global())
         let handle = PolarsWrapper.NewCategoricalType(cat.Handle)
         new DataType(handle, DataTypeKind.Categorical(Some cat))
@@ -365,11 +390,6 @@ and DataType internal (handle: DataTypeHandle, kind: DataTypeKind) =
         | Extension _ -> 28 
     /// <summary>Get the corresponding PlDataType enum value.</summary>
     member this.ToPlDataType() = enum<PlDataType>(this.Code)
-    override this.Equals(obj) =
-        match obj with
-        | :? DataType as other -> this.Handle = other.Handle
-        | _ -> false
-    override this.GetHashCode() = this.Handle.GetHashCode()
     member this.GetArrowType() : Apache.Arrow.Types.IArrowType =
         ArrowFfiBridge.ImportDataType(this.Handle)
 
@@ -386,7 +406,7 @@ and DataType internal (handle: DataTypeHandle, kind: DataTypeKind) =
 
     static member op_Implicit(t: Type) = DataType.FromNetType(t)
 
-    // ---------- FromArrowType 静态方法 ----------
+    // ---------- FromArrowType ----------
     static member FromArrowType(arrowType: Apache.Arrow.Types.IArrowType) =
         match arrowType with
         | :? Apache.Arrow.Types.Int8Type -> DataType.Int8
@@ -440,7 +460,7 @@ and Field = { Name: string; DataType: DataType }
 /// <summary>
 /// Represents a Polars categorical type with optional name, namespace, and physical representation.
 /// </summary>
-and Categories internal (handle: CategoriesHandle) =
+and Categories (handle: CategoriesHandle) =
     let mutable disposed = false
 
     // --- Public constructors ---
@@ -531,7 +551,7 @@ and Categories internal (handle: CategoriesHandle) =
 /// <summary>
 /// Represents a frozen (immutable) categorical type with an explicit list of categories.
 /// </summary>
-and FrozenCategories internal (handle: FrozenCategoriesHandle) =
+and FrozenCategories (handle: FrozenCategoriesHandle) =
     let mutable disposed = false
 
     /// <summary>Create a FrozenCategories from a string array of categories.</summary>

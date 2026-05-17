@@ -127,13 +127,13 @@ type ``Expression Logic Tests`` () =
                 pl.col "ts"
 
                 // Truncate to 1 hour (10:15 -> 10:00)
-                pl.col("ts").Dt.Truncate("1h").Alias "truncated"
+                pl.col("ts").Dt.Truncate(Dur.String "1h").Alias "truncated"
 
                 // Round to 1 hour (10:45 -> 11:00)
-                pl.col("ts").Dt.Round("1h").Alias "rounded"
+                pl.col("ts").Dt.Round(Dur.String "1h").Alias "rounded"
 
                 // Offset by 30m (10:15 -> 10:45)
-                pl.col("ts").Dt.OffsetBy("30m").Alias "offset"
+                pl.col("ts").Dt.OffsetBy(Dur.String "30m").Alias "offset"
 
                 // Timestamp (Micros)
                 pl.col("ts").Dt.TimestampMicros().Alias "micros"
@@ -375,7 +375,7 @@ type ``String Logic Tests`` () =
             df 
             |> pl.select [
                 // 1. Regex Replace: number into #
-                (pl.col "text").Str.ReplaceAll("\d+", "#", useRegex=true).Alias "masked"
+                (pl.col "text").Str.ReplaceAll("\d+", "#", literal=false).Alias "masked"
                 
                 // 2. Regex Extract: extract number
                 (pl.col "text").Str.Extract("(\d+)", 1).Alias "extracted_id"
@@ -500,7 +500,7 @@ type ``String Logic Tests`` () =
         let lf = 
             df.Lazy()
               .WithColumns([
-                  pl.col("Vals").Cast(DataType.Array(DataType.Int32, 3UL))
+                  pl.col("Vals").Cast(DataType.Array(DataType.Int32, [|3u|]))
               ])
 
         // Arr.Sum, Min, Max
@@ -529,7 +529,7 @@ type ``String Logic Tests`` () =
         let lf = 
             DataFrame.ofRecords(data).Lazy()
                 .WithColumns([
-                    pl.col("Vals").Cast(Array(String, 3UL))
+                    pl.col("Vals").Cast(DataType.Array(DataType.String, [|3u|]))
                 ])
 
         let res = 
@@ -567,7 +567,7 @@ type ``String Logic Tests`` () =
         let lf = 
             DataFrame.ofRecords(data).Lazy()
                 .WithColumns([
-                    pl.col("Vals").Cast(DataType.Array(DataType.Int32, 3UL))
+                    pl.col("Vals").Cast(DataType.Array(DataType.Int32,[|3u|]))
                 ])
 
         let res = 

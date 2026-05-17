@@ -143,11 +143,10 @@ type SelectorTests() =
         // ==========================================
         // Case B: GroupBy & Agg
         // ==========================================
-        let dfAgg = 
-            df.GroupBy(
-                keys = pl.col "Region" , 
-                aggs = pl.cs.numeric().ToExpr().Sum() 
-            ).Sort (pl.col "Region", false)
+        let dfAgg =
+            df
+            |> pl.groupBy [pl.col "Region"] [pl.cs.numeric().ToExpr().Sum()]
+            |> pl.sort (pl.col "Region",false)
 
         Assert.Equal(2L, dfAgg.Rows)
         // US Sum: 100 + 150 = 250
