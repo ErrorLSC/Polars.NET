@@ -5,7 +5,7 @@
     <IsPackable>false</IsPackable>
     <GenerateProgramFile>true</GenerateProgramFile>
     <IsTestProject>true</IsTestProject>
-    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <DisableImplicitFSharpCoreReference>false</DisableImplicitFSharpCoreReference>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -36,7 +36,6 @@
     <PackageReference Include="Npgsql" Version="10.0.1" />
     <PackageReference Include="xunit" Version="2.5.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
-    <PackageReference Include="FSharp.Core" Version="10.0.104" />
     <PackageReference Include="System.Numerics.Tensors" Version="10.0.5" />
   </ItemGroup>
 

@@ -10,11 +10,11 @@ namespace Polars.NET.ML.FSharpExtensions;
 public static class PolarsFSharpDataViewExtensions
 {
     /// <summary>
-    /// Conver IDataView to Polars DataFrame
+    /// Convert IDataView to Polars DataFrame
     /// </summary>
-    public static DataFrame ToDataFrame(this IDataView dataview)
+    public static DataFrame ToDataFrame(this IDataView dataview,int batchSize = 64000)
     {
-        var handle = DataViewToPolarsExtensions.ToPolarsDataFrameHandle(dataview);
+        var handle = DataViewToPolarsExtensions.ToPolarsDataFrameHandle(dataview,batchSize);
         return new DataFrame(handle);
     }
 }

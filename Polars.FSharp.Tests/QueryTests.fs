@@ -489,7 +489,7 @@ module QueryTests =
         let orderQuery = dfOrders.AsQueryable<OrderDto>()
 
         
-        // 预期 SQL: GROUP BY EXTRACT(YEAR FROM o."OrderDate"), o."Region"
+        // SQL: GROUP BY EXTRACT(YEAR FROM o."OrderDate"), o."Region"
         let multiGroupQuery = 
             query {
                 for o in orderQuery do

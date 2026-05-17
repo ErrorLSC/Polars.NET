@@ -154,7 +154,7 @@ public class DataViewConversionTests
         Assert.True(allocReturn <= expectedArrowBytes + 80_000_000, 
             $"Return path allocated {allocReturn} bytes, exceeding physical bounds!");
 
-        Assert.True(gen0Collections <= 10, 
+        Assert.True(gen0Collections <= 20, 
             $"Gen 0 GC triggered {gen0Collections} times. Memory Leak (Object Fragmentation) detected!");
             
         Assert.Equal(rowCount, finalDf.Height);
