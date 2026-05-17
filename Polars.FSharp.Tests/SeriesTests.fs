@@ -63,7 +63,7 @@ type ``Series Tests`` () =
         // Series -> DataFrame
         let dfNew = sAge.ToFrame()
         Assert.Equal(1L, dfNew.Width)
-        Assert.Equal(2L, dfNew.Rows)
+        Assert.Equal(2L, dfNew.Height)
         Assert.Equal("age", dfNew.ColumnNames.[0])
     [<Fact>]
     member _.``Series: Cast to Categorical`` () =

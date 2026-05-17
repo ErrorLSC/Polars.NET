@@ -33,6 +33,8 @@ type DataTypeKind =
 /// </summary>
 and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
     let mutable disposed = false
+    [<DefaultValue>]
+    val mutable private _displayString : string
     static let toUnitCode tu =
         match tu with
         | Nanoseconds -> 0uy
@@ -309,6 +311,11 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
             | None -> DataType.Extension(name, storage, ?metadata=metadata)
 
         | _ -> DataType.SameAsInput // fallback
+
+    override this.ToString() =
+        if isNull this._displayString then
+            this._displayString <- PolarsWrapper.GetDataTypeString(this.Handle)
+        this._displayString
     member this.IsNumeric =
         match this.Kind with
         | UInt8 | UInt16 | UInt32 | UInt64

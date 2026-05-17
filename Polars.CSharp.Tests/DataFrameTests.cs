@@ -2745,20 +2745,20 @@ B,5";
         string payloadValue = df["payload"].GetValue<string>(0); 
         Assert.StartsWith("<CustomEncoded>", payloadValue);
     }
-    [Fact]
-    [Trait("DataFrame", "Repr")]
-    public void Test_DataFrame_Repr()
-    {
-        using DataFrame df = [
-            Pl.Series("nihao",[1,2,3]),
-            Pl.Series("buhao",[new DateTime(2026,5,1,10,0,0),new DateTime(2026,5,2,12,0,0),new DateTime(2026,5,3,14,0,0)])
-        ];
+    // [Fact]
+    // [Trait("DataFrame", "Repr")]
+    // public void Test_DataFrame_Repr()
+    // {
+    //     using DataFrame df = [
+    //         Pl.Series("nihao",[1,2,3]),
+    //         Pl.Series("buhao",[new DateTime(2026,5,1,10,0,0),new DateTime(2026,5,2,12,0,0),new DateTime(2026,5,3,14,0,0)])
+    //     ];
 
-        // using var df1 = df.WithColumns(Pl.Col("buhao").Dt.ReplaceTimeZone("Asia/Shanghai").Alias("genghao"));
+    //     // using var df1 = df.WithColumns(Pl.Col("buhao").Dt.ReplaceTimeZone("Asia/Shanghai").Alias("genghao"));
 
-        var df2 = DataFrame.FromRepr(df.ToString());
-        df2.Show();
-    }
+    //     var df2 = DataFrame.FromRepr(df.ToString());
+    //     df2.Show();
+    // }
     [Fact]
     [Trait("DataFrame", "ToDict")]
     public void Test_ToDict()

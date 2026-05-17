@@ -21,7 +21,7 @@ type ``Complex Query Tests`` () =
             |> pl.join sDf [pl.col "id"] [pl.col "uid"] JoinType.Left
         
         // Left join: id 1 (2 rows), id 2 (1 row null match) -> Total 3
-        Assert.Equal(3L, res.Rows)
+        Assert.Equal(3L, res.Height)
 
     [<Fact>]
     member _.``Lazy API Chain (Filter -> Collect)`` () =
@@ -34,7 +34,7 @@ type ``Complex Query Tests`` () =
             |> pl.collect
             |> pl.head 1
 
-        Assert.Equal(1L, df.Rows)
+        Assert.Equal(1L, df.Height)
 
     [<Fact>]
     [<Trait("LazyFrame","GroupBy")>]
@@ -161,7 +161,7 @@ type ``Complex Query Tests`` () =
             |> pl.select [ pl.col "my_name"; pl.col "my_tag_list" ]
             |> pl.explode ["my_tag_list"]  
         
-        Assert.Equal(3L, exploded.Rows)
+        Assert.Equal(3L, exploded.Height)
         Assert.Equal("coding", exploded.String("my_tag_list", 0).Value)
         Assert.Equal("reading", exploded.String("my_tag_list", 1).Value)
         Assert.Equal("gaming", exploded.String("my_tag_list", 2).Value)
@@ -297,7 +297,7 @@ type ``Complex Query Tests`` () =
             pl.concatLazy [lf1; lf2] Horizontal
             |> pl.collect
         
-        Assert.Equal(1L, dfHorz.Rows)
+        Assert.Equal(1L, dfHorz.Height)
         Assert.Equal(2L, dfHorz.Width)
         Assert.Equal(1L, dfHorz.Int("a", 0).Value)
         Assert.Equal(2L, dfHorz.Int("b", 0).Value)
@@ -307,7 +307,7 @@ type ``Complex Query Tests`` () =
             pl.concatLazy [lf1; lf3] Vertical
             |> pl.collect
         
-        Assert.Equal(2L, dfVert.Rows)
+        Assert.Equal(2L, dfVert.Height)
         Assert.Equal(1L, dfVert.Width)
 
         // Diagonal: [a, b] (rows=2)
@@ -317,7 +317,7 @@ type ``Complex Query Tests`` () =
             pl.concatLazy [lf1; lf2] Diagonal
             |> pl.collect
         
-        Assert.Equal(2L, dfDiag.Rows)
+        Assert.Equal(2L, dfDiag.Height)
         Assert.Equal(2L, dfDiag.Width)
 
     [<Fact>]
@@ -333,10 +333,10 @@ type ``Complex Query Tests`` () =
         // Concat
         let bigDf = pl.concat [df1; df2]
 
-        Assert.Equal(2L, bigDf.Rows)
+        Assert.Equal(2L, bigDf.Height)
 
-        Assert.Equal(1L, df1.Rows)
-        Assert.Equal(1L, df2.Rows)
+        Assert.Equal(1L, df1.Height)
+        Assert.Equal(1L, df2.Height)
         Assert.Equal(1L, df1.Int("val", 0).Value)
     [<Fact>]
     member _.``SQL Context: Register and Execute`` () =
@@ -350,7 +350,7 @@ type ``Complex Query Tests`` () =
         let resLf = ctx.Execute "SELECT name, age * 2 AS age_double FROM people WHERE age > 25"
         let res = resLf |> pl.collect
 
-        Assert.Equal(1L, res.Rows)
+        Assert.Equal(1L, res.Height)
         Assert.Equal("Bob", res.String("name", 0).Value)
         Assert.Equal(60L, res.Int("age_double", 0).Value)
     [<Fact>]
@@ -599,7 +599,7 @@ type ``Complex Query Tests`` () =
         )
 
         sw.Stop()
-        printfn "[ETL] Completed in %.3fs. Rows written: %d" sw.Elapsed.TotalSeconds targetTable.Rows.Count
+        printfn "[ETL] Completed in %.3fs. Height written: %d" sw.Elapsed.TotalSeconds targetTable.Rows.Count
 
 
         Assert.Equal(totalRows / 2, targetTable.Rows.Count)
@@ -663,7 +663,7 @@ type ``Complex Query Tests`` () =
         // Window 1 (10:00): [10:00, 12:00) -> 10:00, 10:30, 11:00, 11:30
         // Window 2 (11:00): [11:00, 13:00) -> 11:00, 11:30
         
-        Assert.Equal(3L, res.Rows) 
+        Assert.Equal(3L, res.Height) 
 
         // --- Row 0: Category A, Time 10:00 ---
         Assert.Equal("A", res.Cell<string>( "Category",0))
@@ -723,7 +723,7 @@ type ``Complex Query Tests`` () =
             lf.TopK(2, [pl.col "V"],reverse=false) 
             |>  pl.collect
         
-        Assert.Equal(2L, top2.Rows)
+        Assert.Equal(2L, top2.Height)
         Assert.Equal(5, top2.Cell<int>("V",0))
         Assert.Equal(4, top2.Cell<int>("V",1))
 

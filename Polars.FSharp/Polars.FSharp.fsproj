@@ -68,6 +68,7 @@
     <Compile Include="Operations/Pivot.fs" />
     <Compile Include="Operations/TensorInterops.fs" />
     <Compile Include="DataFrame/DataFrame.Factory.fs" />
+    <Compile Include="DataFrame/DataFrame.Conversions.fs" />
     <Compile Include="Ops.fs" />
     <Compile Include="Display.fs" />
     <Compile Include="Polars.fs" />

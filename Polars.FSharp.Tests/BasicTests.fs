@@ -54,6 +54,18 @@ type JoinItem = {
     Key: int
     Val: int
 }
+
+type Seitou = {
+    Id: int
+    Name: string
+    Score: double option 
+}
+
+type StrictSeitou = {
+    Id: int
+    Name: string
+    Score: double 
+}
 type ``Basic Functionality Tests`` () =
 
     [<Fact>]
@@ -68,8 +80,8 @@ type ``Basic Functionality Tests`` () =
         let lf = LazyFrame.ScanCsv(csv.Path)
         use df = lf.Collect()
         
-        Assert.Equal(2L, df.Rows)
-        printfn "Step A: Collect Success. Rows: %d" df.Rows
+        Assert.Equal(2L, df.Height)
+        printfn "Step A: Collect Success. Height: %d" df.Height
 
         df.WriteParquet parquetEager.Path |> ignore
         Assert.True(System.IO.File.Exists parquetEager.Path, "Step B: Eager Write Failed")
@@ -93,7 +105,7 @@ type ``Basic Functionality Tests`` () =
         Assert.Equal("bool", s3.DtypeStr)
 
         let schema = df.Schema
-        Assert.Equal(3L, df.Len)
+        Assert.Equal(3L, df.Width)
         Assert.Equal(DataType.Int32, schema.["id"])
         Assert.Equal(DataType.Float64, schema.["score"])
         Assert.Equal(DataType.Boolean, schema.["is_active"])
@@ -149,7 +161,7 @@ type ``Basic Functionality Tests`` () =
 
         let df = DataFrame.FromArrow batch
 
-        Assert.Equal(3L, df.Rows)
+        Assert.Equal(3L, df.Height)
         Assert.Equal(100L, df.Int("num", 0).Value)
         Assert.Equal(200L, df.Int("num", 1).Value)
         Assert.True(df.Int("num", 2).IsNone) 
@@ -178,7 +190,7 @@ type ``Basic Functionality Tests`` () =
 
         use df = DataFrame.create [s1; s2]
 
-        Assert.Equal(3L, df.Rows)
+        Assert.Equal(3L, df.Height)
         Assert.Equal(2L, df.Width)
         Assert.Equal<string seq>(["id"; "name"], df.ColumnNames)
         
@@ -205,18 +217,18 @@ type ``Basic Functionality Tests`` () =
 
         // DropNulls
         let dfClean = df.DropNulls()
-        Assert.Equal(2L, dfClean.Rows) 
+        Assert.Equal(2L, dfClean.Height) 
         Assert.Equal(Some 1L, dfClean.Int("a", 0))
         Assert.Equal(Some 2L, dfClean.Int("a", 1))
 
         // Sample (n=1)
         let dfSample = df.Sample(n=1, seed=12345UL)
-        Assert.Equal(1L, dfSample.Rows)
+        Assert.Equal(1L, dfSample.Height)
         
-        // Sample (frac=0.5) -> 3 * 0.5 = 1.5 -> 1 or 2 rows depending on algo, usually round/floor
+        // Sample (frac=0.5) -> 3 * 0.5 = 1.5 -> 1 or 2 Height depending on algo, usually round/floor
         // Polars sample_frac usually works well. 3 * 0.6 = 1.8. 
         let dfSampleFrac = df.Sample(frac=1.0) 
-        Assert.Equal(3L, dfSampleFrac.Rows)
+        Assert.Equal(3L, dfSampleFrac.Height)
     [<Fact>]
     member _.``Full Temporal Types: Create & Retrieve`` () =
         let date = DateOnly(2023, 1, 1)
@@ -302,10 +314,10 @@ type ``Basic Functionality Tests`` () =
             |> pl.filterLazy(pl.col "age" .> pl.lit 18)
             |> pl.collect
 
-        Assert.Equal(1L, res.Rows)
+        Assert.Equal(1L, res.Height)
         Assert.Equal(20L, res.Int("age", 0).Value)
 
-        Assert.Equal(2L, df.Rows)
+        Assert.Equal(2L, df.Height)
     [<Fact>]
     member _.``EDA: Describe (Manual Implementation)`` () =
         let s = Series.create("nums", [1.0; 2.0; 3.0; 4.0; 5.0])
@@ -315,7 +327,7 @@ type ``Basic Functionality Tests`` () =
         
         pl.show desc |> ignore
         
-        Assert.Equal(9L, desc.Rows)
+        Assert.Equal(9L, desc.Height)
         
         // 0: count, 1: null_count, 2: mean
         let meanVal = desc.Float("nums", 2).Value
@@ -338,7 +350,7 @@ type ``Basic Functionality Tests`` () =
         // Row 2 (from df2): a=3, b=null, c=4
         let res = pl.concatDiagonal [df1; df2]
 
-        Assert.Equal(2L, res.Rows)
+        Assert.Equal(2L, res.Height)
         Assert.Equal(3L, res.Width)
         
         let cols = res.ColumnNames
@@ -387,7 +399,7 @@ type ``Basic Functionality Tests`` () =
             |> pl.collectAsync 
             |> Async.RunSynchronously 
 
-        Assert.Equal(2L, df.Rows)
+        Assert.Equal(2L, df.Height)
         Assert.Equal(1L, df.Int("a", 0).Value)
     [<Fact>]
     member _.``Series: Arithmetic & Aggregation (Pandas Style)`` () =
@@ -487,7 +499,7 @@ type ``Basic Functionality Tests`` () =
 
         use df = DataFrame.ofSeqStream(data, batchSize = 10_000)
 
-        Assert.Equal(int64 count, df.Rows)
+        Assert.Equal(int64 count, df.Height)
         Assert.Equal("Val_99999", df.Column("Value").AsSeq<string>() |> Seq.last |> Option.get)
         let expectedType = Datetime(Microseconds, Some "")
         
@@ -507,7 +519,7 @@ type ``Basic Functionality Tests`` () =
                 |> pl.filterLazy(pl.col "Group" .== pl.lit "A")
                 |> pl.collect
 
-        Assert.Equal(2L, res.Rows) 
+        Assert.Equal(2L, res.Height) 
         Assert.Equal(1L, res.Int("Id", 0).Value)
         Assert.Equal(3L, res.Int("Id", 1).Value)
 
@@ -528,7 +540,7 @@ type ``Basic Functionality Tests`` () =
         // 1: 3 items -> 3*3 = 9
         // 2: 3 items -> 3*3 = 9
         // Total = 34
-        Assert.Equal(34L, res.Rows)
+        Assert.Equal(34L, res.Height)
     [<Fact>]
     member _.``Series: Uniqueness and ApplyExpr`` () =
         // Data: [1, 2, 2, 3]
@@ -682,9 +694,9 @@ type ``Basic Functionality Tests`` () =
         // Assert
         Assert.Equal(1000L, df.Height)
         
-        let lastRowScore = df.["Score"].[999] :?> double option
+        let lastHeightcore = df.["Score"].[999] :?> double option
         
-        Assert.Equal(Some (1000.0 * 1.5), lastRowScore)
+        Assert.Equal(Some (1000.0 * 1.5), lastHeightcore)
 
     [<Fact>]
     member _.``ScanSeq Empty Stream - Should preserve Schema without crashing`` () =
@@ -981,7 +993,7 @@ type LitTests() =
         let tensor = df.AsTensor<float32>("feature1", "feature2")
 
         Assert.Equal(2, tensor.Rank)
-        Assert.Equal(2, int tensor.Lengths.[0]) // 2 Rows
+        Assert.Equal(2, int tensor.Lengths.[0]) // 2 Height
         Assert.Equal(2, int tensor.Lengths.[1]) // 2 Columns
 
         let valAt r c = tensor.[ReadOnlySpan<nativeint>([| nativeint r; nativeint c |])]
@@ -994,7 +1006,7 @@ type LitTests() =
 
     [<Fact>]
     [<Trait("DataFrame","AsTensorEmpty")>]
-    member _.``DataFrame: AsTensor throws InvalidOperationException on empty DataFrame`` () =
+    member _.``DataFrame: AsTensor thHeight InvalidOperationException on empty DataFrame`` () =
         use df = DataFrame.create [||]
 
         let ex = Assert.Throws<InvalidOperationException>(fun () -> 
@@ -1005,14 +1017,124 @@ type LitTests() =
 
     [<Fact>]
     [<Trait("DataFrame","AsTensorException")>]
-    member _.``DataFrame: AsTensor throws Exception on type mismatch`` () =
+    member _.``DataFrame: AsTensor throw Exception on type mismatch`` () =
         // Arrange
         let s1 = Series.From("age", [| 25; 30 |]) 
         let s2 = Series.From("salary", [| 5000.5f; 6000.5f |]) 
         use df = DataFrame.FromColumns [| s1; s2 |]
 
-        let ex = Assert.ThrowsAny<Exception>(fun () -> 
+        let ex = Assert.Throws<InvalidOperationException>(fun () -> 
             df.AsTensor<float32>() |> ignore
         )
         
         Assert.NotNull ex
+    [<Fact>]
+    [<Trait("DataFrame", "Creation")>]
+    member _.``DataFrame: ofMaps infers schema, promotes types and handles missing values`` () =
+        
+        let data = [
+            Map [ "Id", box 1; "Name", box "Alice"; "Value", box 10.5 ]
+            
+            Map [ "Id", box 2; "Value", box 20; "Age", box 30 ]
+            
+            Map [ "Id", box 3; "Name", box "Bob"; "Age", box 25 ]
+        ]
+
+        // Act
+        use df = DataFrame.ofMaps data
+
+        // Assert - Shape
+        let columns = df.GetColumns() 
+        Assert.Equal(4, columns.Length)
+        Assert.Equal(3, int df.Height)
+
+        let getCol name = columns |> Array.find (fun c -> c.Name = name)
+        
+        let idCol = getCol "Id"
+        Assert.Equal(Some 1, idCol.GetValueOption<int>(0L))
+        Assert.Equal(Some 2, idCol.GetValueOption<int>(1L))
+        Assert.Equal(Some 3, idCol.GetValueOption<int>(2L))
+
+        let nameCol = getCol "Name"
+        Assert.Equal(Some "Alice", nameCol.GetValueOption<string>(0L))
+
+        Assert.Equal(None, nameCol.GetValueOption<string>(1L)) 
+        Assert.Equal(Some "Bob", nameCol.GetValueOption<string>(2L))
+
+        let valCol = getCol "Value"
+        Assert.Equal(Some 10.5, valCol.GetValueOption<double>(0L))
+
+        Assert.Equal(Some 20.0, valCol.GetValueOption<double>(1L)) 
+        Assert.Equal(None, valCol.GetValueOption<double>(2L))
+
+        let ageCol = getCol "Age"
+        Assert.Equal(None, ageCol.GetValueOption<int>(0L))
+        Assert.Equal(Some 30, ageCol.GetValueOption<int>(1L))
+        Assert.Equal(Some 25, ageCol.GetValueOption<int>(2L))
+    [<Fact>]
+    [<Trait("DataFrame", "ToRecords")>]
+    member _.``DataFrame: ToRecords<'T> instantiates F# Records and handles Options correctly`` () =
+        
+        // Arrange: 联动我们刚才写的 ofMaps，造出带有 null 的数据
+        let data = [
+            Map [ "Id", box 1; "Name", box "Alice"; "Score", box 95.5 ]
+            Map [ "Id", box 2; "Name", box "Bob" ] // Bob 缺考，没有 Score
+            Map [ "Id", box 3; "Name", box "Charlie"; "Score", box 88.0 ]
+        ]
+        use df = DataFrame.ofMaps data
+
+        // Act: 绕过 Arrow，直接转为强类型 F# 序列
+        // 注意：Height<'T>() 返回的是 seq (惰性)，我们用 toArray 将其物化
+        let employees = df.ToRecords<Seitou>() |> Seq.toArray
+
+        // Assert
+        Assert.Equal(3, employees.Length)
+
+        // 第一行：完整数据
+        Assert.Equal(1, employees.[0].Id)
+        Assert.Equal("Alice", employees.[0].Name)
+        Assert.Equal(Some 95.5, employees.[0].Score) // 完美映射为 Some
+
+        // 第二行：验证 None 映射 (绕过 Arrow 最核心的胜利点)
+        Assert.Equal(2, employees.[1].Id)
+        Assert.Equal("Bob", employees.[1].Name)
+        Assert.Equal(None, employees.[1].Score) // null 完美映射为 None
+
+        // 第三行：常规验证
+        Assert.Equal(3, employees.[2].Id)
+        Assert.Equal("Charlie", employees.[2].Name)
+        Assert.Equal(Some 88.0, employees.[2].Score)
+
+    [<Fact>]
+    [<Trait("DataFrame", "ToRecords")>]
+    member _.``DataFrame: ToRecords<'T> throw on null if Record field is not an Option`` () =
+        
+        // Arrange
+        let data = [
+            Map [ "Id", box 1; "Name", box "Alice"; "Score", box 95.5 ]
+            Map [ "Id", box 2; "Name", box "Bob" ] // Bob 缺考 -> null
+        ]
+        use df = DataFrame.ofMaps data
+
+        // Act & Assert
+        // StrictEmployee 的 Score 是 double，不支持 null。
+        // 读取第二行时，触发我们自定义的严格类型保护机制
+        let ex = Assert.Throws<Exception>(fun () -> 
+            df.ToRecords<StrictSeitou>() |> Seq.toArray |> ignore
+        )
+
+        // 断言错误信息是否符合预期
+        Assert.Contains("Record field 'Score' does not accept Option", ex.Message)
+
+    [<Fact>]
+    [<Trait("DataFrame", "ToRecords")>]
+    member _.``DataFrame: ToRecords<'T> rejects non-Record types`` () =
+        
+        use df = DataFrame.ofMaps [ Map ["Id", box 1] ]
+
+        // C# 的 Tuple 不是 F# Record，应该在预热阶段就直接拦截
+        let ex = Assert.Throws<Exception>(fun () -> 
+            df.ToRecords<Tuple<int, string>>() |> Seq.toArray |> ignore
+        )
+        
+        Assert.Contains("is not an F# Record", ex.Message)

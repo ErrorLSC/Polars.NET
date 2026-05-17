@@ -534,10 +534,8 @@ and DataFrame(handle: DataFrameHandle) =
     member internal this.CloneHandle() = PolarsWrapper.CloneDataFrame handle
     member _.Handle = handle
 
-        // Properties
-    member _.Rows = PolarsWrapper.DataFrameHeight handle
+    // Properties
     member _.Height = PolarsWrapper.DataFrameHeight handle
-    member _.Len = PolarsWrapper.DataFrameHeight handle
     member _.Width = PolarsWrapper.DataFrameWidth handle
     /// <summary>
     /// Get the number of chunks used by the first Column of this DataFrame.
@@ -581,7 +579,7 @@ and DataFrame(handle: DataFrameHandle) =
     /// <summary>
     /// Returns the shape of the DataFrame as (Height, Width).
     /// </summary>
-    member this.Shape = this.Len,this.Width
+    member this.Shape = this.Height,this.Width
     member _.ColumnNames = PolarsWrapper.GetColumnNames handle
     member _.Columns = PolarsWrapper.GetColumnNames handle
     member this.Column(name: string) : Series =
@@ -745,14 +743,6 @@ and DataFrame(handle: DataFrameHandle) =
     // Interops
     // ==========================================
 
-    /// <summary>
-    /// [ToRecords] Transform DataFrame to F# Records
-    /// </summary>
-    member this.ToRecords<'T>() : seq<'T> =
-        use batch = ArrowFfiBridge.ExportDataFrame this.Handle
-        
-        ArrowReader.ReadRecordBatch<'T> batch |> Seq.toList |> List.toSeq
-
     /// <summary> Create a DataFrame directly from an Apache Arrow RecordBatch. </summary>
     static member FromArrow (batch: Apache.Arrow.RecordBatch) : DataFrame =
         new DataFrame(PolarsWrapper.FromArrow batch)
@@ -794,15 +784,6 @@ and DataFrame(handle: DataFrameHandle) =
         PolarsWrapper.ExportBatches(this.Handle, onBatch)
 
     member this.ToArrow() = ArrowFfiBridge.ExportDataFrame handle
-    /// <summary>
-    /// Convert a DataFrame to a Series of type Struct.
-    /// </summary>
-    /// <param name="name">Name for the struct Series.</param>
-    member this.ToStruct(?name:string) =   
-        let n = defaultArg name ""
-        use df: DataFrame = this.Select(Expr.AsStruct [|Expr.All()|])
-        let series = df[0]
-        series.Rename n
 
     /// <summary>
     /// Export DataFrame to Arrow C Data Interface Stream.

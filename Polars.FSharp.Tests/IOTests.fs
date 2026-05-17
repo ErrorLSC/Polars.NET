@@ -164,7 +164,7 @@ Charlie,35,true"""
         Assert.True(File.Exists parquet.Path, $"Parquet file should exist at {parquet.Path}")
 
         use df2 = DataFrame.ReadParquet parquet.Path
-        Assert.Equal(df.Rows, df2.Rows)
+        Assert.Equal(df.Height, df2.Height)
         Assert.Equal(4L, df2.Width)
 
     [<Fact>]    
@@ -182,7 +182,7 @@ Charlie,35,true"""
         // File
         // ---------------------------------------------------
         use dfFile = DataFrame.ReadJson jsonFile.Path
-        Assert.Equal(3L, dfFile.Rows)
+        Assert.Equal(3L, dfFile.Height)
         Assert.Equal(1L, dfFile.Int("a", 0).Value)
 
         // ---------------------------------------------------
@@ -191,7 +191,7 @@ Charlie,35,true"""
         let bytes = File.ReadAllBytes jsonFile.Path
         use dfBytes = DataFrame.ReadJson bytes
         
-        Assert.Equal(3L, dfBytes.Rows)
+        Assert.Equal(3L, dfBytes.Height)
         Assert.Equal("y", dfBytes.String("b", 1).Value) 
 
         // ---------------------------------------------------
@@ -200,7 +200,7 @@ Charlie,35,true"""
         use fs = File.OpenRead jsonFile.Path
         use dfStream = DataFrame.ReadJson fs
         
-        Assert.Equal(3L, dfStream.Rows)
+        Assert.Equal(3L, dfStream.Height)
         Assert.Equal("z", dfStream.String("b", 2).Value) 
     [<Fact>]
     member _.``Lazy: Scan NDJSON (All Modes - Manual IO)`` () =
@@ -227,7 +227,7 @@ Charlie,35,true"""
                 use lf = LazyFrame.ScanNdjson(path, schema=schema, nRows=3UL)
                 use df = lf.Collect()
 
-                Assert.Equal(3L, df.Rows)
+                Assert.Equal(3L, df.Height)
                 
                 Assert.Equal(DataType.Int32, df.Column("val").DataType)
                 Assert.Equal(100L, df.Int("val", 0).Value)
@@ -243,7 +243,7 @@ Charlie,35,true"""
                 use lf = LazyFrame.ScanNdjson bytes
                 use df = lf.Collect()
 
-                Assert.Equal(3L, df.Rows)
+                Assert.Equal(3L, df.Height)
                 
                 Assert.Equal(DataType.Int64, df.Column("val").DataType)
                 Assert.Equal(200L, df.Int("val", 1).Value)
@@ -260,7 +260,7 @@ Charlie,35,true"""
                 use lf = LazyFrame.ScanNdjson(fs)
                 use df = lf.Collect()
 
-                Assert.Equal(3L, df.Rows)
+                Assert.Equal(3L, df.Height)
 
                 Assert.Equal(3L, df.Int("id", 2).Value)
 
@@ -293,7 +293,7 @@ Charlie,35,true"""
                     nRows=3UL
                 )
 
-                Assert.Equal(3L, df.Rows)   
+                Assert.Equal(3L, df.Height)   
                 Assert.Equal(1L, df.Width)  
                 Assert.Equal("val", df.ColumnNames.[0])
                 
@@ -311,7 +311,7 @@ Charlie,35,true"""
             let testMemoryMode () =
                 use df = DataFrame.ReadIpc bytes
 
-                Assert.Equal(5L, df.Rows)
+                Assert.Equal(5L, df.Height)
                 Assert.Equal(2L, df.Width)
                 Assert.Equal(5L, df.Int("id", 4).Value) 
 
@@ -325,7 +325,7 @@ Charlie,35,true"""
                 
                 use df = DataFrame.ReadIpc fs
 
-                Assert.Equal(5L, df.Rows)
+                Assert.Equal(5L, df.Height)
                 Assert.Equal("E", df.String("val", 4).Value)
 
             testStreamMode()
@@ -364,7 +364,7 @@ Charlie,35,true"""
                 
                 use df = lf.Collect()
 
-                Assert.Equal(3L, df.Rows)
+                Assert.Equal(3L, df.Height)
                 
                 let cols = df.ColumnNames
                 Assert.Contains("idx_col", cols)
@@ -385,7 +385,7 @@ Charlie,35,true"""
                 use df = lf.Filter(col "id" .> pl.lit 3 ).Collect()
 
                 // id > 3 -> 4, 5 (2 rows)
-                Assert.Equal(2L, df.Rows)
+                Assert.Equal(2L, df.Height)
                 Assert.Equal(5L, df.Int("id", 1).Value)
 
             testMemoryMode()
@@ -400,7 +400,7 @@ Charlie,35,true"""
                 use lf = LazyFrame.ScanIpc fs
                 use df = lf.Collect()
 
-                Assert.Equal(5L, df.Rows)
+                Assert.Equal(5L, df.Height)
                 Assert.Equal("E", df.String("val", 4).Value)
 
             testStreamMode()

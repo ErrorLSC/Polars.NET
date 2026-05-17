@@ -138,7 +138,7 @@ type SelectorTests() =
         // ==========================================
         
         let dfTag = df.Explode(pl.cs.startsWith "Tag")
-        Assert.Equal(4L, dfTag.Rows) // 2 + 1 + 1
+        Assert.Equal(4L, dfTag.Height) // 2 + 1 + 1
 
         // ==========================================
         // Case B: GroupBy & Agg
@@ -148,7 +148,7 @@ type SelectorTests() =
             |> pl.groupBy [pl.col "Region"] [pl.cs.numeric().ToExpr().Sum()]
             |> pl.sort (pl.col "Region",false)
 
-        Assert.Equal(2L, dfAgg.Rows)
+        Assert.Equal(2L, dfAgg.Height)
         // US Sum: 100 + 150 = 250
         Assert.Equal(250, dfAgg.Cell<int>( "Sales",1)) 
         // US Profit: 20 + 30 = 50

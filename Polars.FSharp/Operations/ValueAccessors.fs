@@ -155,7 +155,7 @@ module ValueAccessorOps =
         /// Similar to DataTable.Rows[i].ItemArray.
         /// </summary>
         member this.Row (index: int) : obj[] =
-            let h = int64 this.Rows
+            let h = int64 this.Height
             if int64 index < 0L || int64 index >= h then
                 raise (IndexOutOfRangeException(sprintf "Row index %d is out of bounds. Height: %d" index h))
 

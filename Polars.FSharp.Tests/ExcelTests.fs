@@ -33,7 +33,7 @@ type FSharpExcelTests() =
             let testDefaultRead() =
                 use df = DataFrame.ReadExcel tempFile
                 
-                Assert.Equal(3L, df.Rows)
+                Assert.Equal(3L, df.Height)
                 
                 Assert.Equal(1.0, df.Float("Id", 0).Value) 
 

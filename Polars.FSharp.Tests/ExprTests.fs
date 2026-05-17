@@ -36,7 +36,7 @@ type ``Expression Logic Tests`` () =
         
         let res = df |> pl.filter (col "val" .> lit 15)
         
-        Assert.Equal(2L, res.Rows)
+        Assert.Equal(2L, res.Height)
     [<Fact>]
     member _.``Filter by numeric value (< operator)`` () =
         use csv = new TempCsv "name,birthdate,weight,height\nBen Brown,1985-02-15,72.5,1.77\nQinglei,2025-11-25,70.0,1.80\nZhang,2025-10-31,55,1.75"
@@ -44,7 +44,7 @@ type ``Expression Logic Tests`` () =
 
         let res = df |> pl.filter ((col "birthdate").Dt.Year() .< lit 1990 )
 
-        Assert.Equal(1L,res.Rows)
+        Assert.Equal(1L,res.Height)
 
     [<Fact>]
     member _.``Filter by string value (== operator)`` () =
@@ -54,7 +54,7 @@ type ``Expression Logic Tests`` () =
         // SRTP 魔法测试
         let res = df |> pl.filter (pl.col "name" .== pl.lit "Alice")
         
-        Assert.Equal(2L, res.Rows)
+        Assert.Equal(2L, res.Height)
 
     [<Fact>]
     member _.``Filter by double value (== operator)`` () =
@@ -63,7 +63,7 @@ type ``Expression Logic Tests`` () =
         
         let res = df |> pl.filter (col "value" .== lit 3.36)
         
-        Assert.Equal(2L, res.Rows)
+        Assert.Equal(2L, res.Height)
 
     [<Fact>]
     member _.``Null handling works`` () =
@@ -80,11 +80,11 @@ type ``Expression Logic Tests`` () =
             )
             |> pl.filterLazy (col "age_filled" .>= lit 0)
             |> pl.collect
-        Assert.Equal(3L, res.Rows)
+        Assert.Equal(3L, res.Height)
 
         let df= DataFrame.ReadCsv csv.Path 
         let nulls = df |> pl.filter (pl.col "age" |> pl.isNull)
-        Assert.Equal(1L, nulls.Rows)
+        Assert.Equal(1L, nulls.Height)
     [<Fact>]
     member _.``IsBetween with DateTime Literals`` () =
 
@@ -108,7 +108,7 @@ type ``Expression Logic Tests`` () =
                 (pl.col "height" .> pl.lit 1.7)
             )
 
-        Assert.Equal(1L, res.Rows)
+        Assert.Equal(1L, res.Height)
         Assert.Equal("Qinglei", res.String("name", 0).Value)
     [<Fact>]
     member _.``Expr: DateTime Ops (Truncate, Offset, Timestamp)`` () =

@@ -160,7 +160,7 @@ type ``UDF Tests`` () =
         
         use resultDf = df.WithColumn(pl.litSeries(gradeSeries).Alias "Grade")
         
-        Assert.Equal(5L, resultDf.Rows)
+        Assert.Equal(5L, resultDf.Height)
 
         Assert.Equal("S", resultDf.Cell<string>("Grade", 0))
         Assert.Equal("A", resultDf.Cell<string>("Grade", 1))
@@ -277,7 +277,7 @@ type ``UDF Tests`` () =
         // │ EMP-ERR  ┆ null  │
         // │ null     ┆ null  │
         // └──────────┴───────┘
-        Assert.Equal(5L, df.Rows)
+        Assert.Equal(5L, df.Height)
 
         // Row 0: "EMP-1024" -> 1024
         Assert.Equal(1024, df.Cell<int>("EmpId", 0))
