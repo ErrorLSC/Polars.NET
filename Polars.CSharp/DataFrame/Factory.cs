@@ -110,7 +110,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             seriesList[i] = buffers[i].ToSeries(props[i].Name);
         }
 
-        return new DataFrame(seriesList);
+        return [.. seriesList];
     }
 
     private static bool IsSimpleType(Type type)
@@ -580,104 +580,4 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
                type == typeof(float) || type == typeof(double) ||
                type == typeof(decimal) || type == typeof(Int128) || type == typeof(UInt128);
     }
-    // /// <summary>
-    // /// Reconstruct a DataFrame from a string representation (ASCII table).
-    // /// </summary>
-    // /// <param name="repr">The formatted table string.</param>
-    // public static DataFrame FromRepr(string repr)
-    // {
-    //     if (string.IsNullOrWhiteSpace(repr)) return [];
-
-    //     var lines = repr.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries)
-    //                     .Select(l => l.Trim())
-    //                     .Where(l => l.StartsWith('│') || l.StartsWith('|')) 
-    //                     .ToList();
-
-    //     if (lines.Count < 3) return []; 
-
-    //     var headers = ReprParser.SplitCells(lines[0]);
-        
-    //     var dtypeLineIndex = lines[1].Contains("---") ? 2 : 1;
-    //     var dtypesStr = ReprParser.SplitCells(lines[dtypeLineIndex]);
-        
-    //     var ellipsisIndexes = headers.Select((h, i) => h == "..." || h == "…" ? i : -1)
-    //                                  .Where(i => i != -1).ToHashSet();
-
-    //     var validHeaders = new List<string>();
-    //     var validDtypes = new List<DataType>();
-    //     var columnBuffers = new List<List<string?>>();
-
-    //     for (int i = 0; i < headers.Length; i++)
-    //     {
-    //         if (ellipsisIndexes.Contains(i)) continue; 
-            
-    //         validHeaders.Add(headers[i]);
-    //         validDtypes.Add(ReprParser.ParseShortDtype(dtypesStr[i]));
-    //         columnBuffers.Add([]);
-    //     }
-
-    //     for (int i = dtypeLineIndex + 1; i < lines.Count; i++)
-    //     {
-    //         if (lines[i].Contains("╞══") || lines[i].Contains("|---")) continue; 
-
-    //         var cells = ReprParser.SplitCells(lines[i]);
-            
-    //         int bufferIdx = 0;
-    //         for (int col = 0; col < cells.Length; col++)
-    //         {
-    //             if (ellipsisIndexes.Contains(col)) continue;
-
-    //             string rawVal = cells[col];
-    //             if (rawVal.Equals("null", StringComparison.OrdinalIgnoreCase))
-    //             {
-    //                 columnBuffers[bufferIdx].Add(null);
-    //             }
-    //             else
-    //             {
-    //                 if (rawVal.StartsWith('\"') && rawVal.EndsWith('\"'))
-    //                     rawVal = rawVal[1..^1];
-    //                 columnBuffers[bufferIdx].Add(rawVal);
-    //             }
-    //             bufferIdx++;
-    //         }
-    //     }
-
-    //     var stringSeries = new Series[validHeaders.Count];
-    //     for (int i = 0; i < validHeaders.Count; i++)
-    //     {
-    //         stringSeries[i] = Series.From(validHeaders[i], columnBuffers[i].ToArray());
-    //     }
-
-    //     var df = new DataFrame(stringSeries);
-
-    //     var castExprs = new List<Expr>();
-    //     for (int i = 0; i < df.Columns.Length; i++)
-    //     {
-    //         var colName = df.Columns[i];
-    //         var targetDtype = validDtypes[i];
-            
-    //         if (targetDtype.Kind == DataTypeKind.Datetime)
-    //         {
-    //             castExprs.Add(Pl.Col(colName).Str.ToDatetime("%Y-%m-%d %H:%M:%S%.f").Cast(targetDtype));
-    //         }
-    //         else if (targetDtype.Kind == DataTypeKind.Date)
-    //         {
-    //             castExprs.Add(Pl.Col(colName).Str.ToDate("%Y-%m-%d").Cast(targetDtype));
-    //         }
-    //         else if (targetDtype.Kind == DataTypeKind.Time)
-    //         {
-    //             castExprs.Add(Pl.Col(colName).Str.ToTime("%H:%M:%S%.f").Cast(targetDtype));
-    //         }
-    //         else if (targetDtype.Kind != DataTypeKind.String)
-    //         {
-    //             castExprs.Add(Pl.Col(colName).Cast(targetDtype));
-    //         }
-    //         else
-    //         {
-    //             castExprs.Add(Pl.Col(colName));
-    //         }
-    //     }
-
-    //     return df.Select([.. castExprs]);
-    // }
 }

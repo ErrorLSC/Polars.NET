@@ -284,14 +284,14 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         
         sb.Append(@"
 <style>
-.pl-dataframe { font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; border-collapse: collapse; border: 1px solid #e0e0e0; }
-.pl-dataframe th { background-color: #f0f0f0; font-weight: bold; text-align: left; padding: 6px 12px; border-bottom: 2px solid #ccc; }
-.pl-dataframe td { padding: 6px 12px; border-bottom: 1px solid #f0f0f0; white-space: pre; color: #333; }
-.pl-dataframe tr:nth-child(even) { background-color: #f9f9f9; }
-.pl-dataframe tr:hover { background-color: #f1f1f1; }
-.pl-dtype { font-size: 10px; color: #999; display: block; margin-top: 2px; font-weight: normal; }
-.pl-null { color: #d0d0d0; font-style: italic; }
-.pl-dim { font-family: sans-serif; font-size: 12px; color: #666; margin-bottom: 8px; }
+.pl-dataframe { font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; border-collapse: collapse; border: 1px solid rgba(128, 128, 128, 0.2); }
+.pl-dataframe th { font-weight: bold; text-align: left; padding: 6px 12px; border-bottom: 2px solid rgba(128, 128, 128, 0.3); }
+.pl-dataframe td { padding: 6px 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.2); white-space: pre; }
+.pl-dataframe tr:nth-child(even) { background-color: rgba(128, 128, 128, 0.05); }
+.pl-dataframe tr:hover { background-color: rgba(128, 128, 128, 0.1); }
+.pl-dtype { font-size: 10px; color: rgba(128, 128, 128, 0.8); display: block; margin-top: 2px; font-weight: normal; }
+.pl-null { color: rgba(128, 128, 128, 0.5); font-style: italic; }
+.pl-dim { font-family: sans-serif; font-size: 12px; opacity: 0.8; margin-bottom: 8px; }
 </style>");
 
         // Dimensions Info
@@ -357,7 +357,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         long remaining = Height - rowsToShow;
         if (remaining > 0)
         {
-             sb.Append($"<tr><td colspan='{colCount}' style='text-align:center; font-style:italic; color:#999; padding: 10px'>... {remaining} more rows ...</td></tr>");
+             sb.Append($"<tr><td colspan='{colCount}' style='text-align:center; font-style:italic; opacity: 0.6; padding: 10px'>... {remaining} more rows ...</td></tr>");
         }
 
         sb.Append("</tbody></table></div>");
