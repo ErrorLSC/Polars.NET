@@ -1,19 +1,18 @@
-using static Polars.CSharp.Polars;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;
 
 public class CleaningTests
 {
     [Fact]
+    [Trait("Cleaning","Fill")]
     public void Test_Forward_Backward_Fill()
     {
-        var content = "val\n1\n\n\n2\n\n"; 
-        
-        using var csv = new DisposableFile(content, ".csv");
-        using var df = DataFrame.ReadCsv(csv.Path);
-        
+        using DataFrame df = [
+          Series.From("val",new int?[] {1,null,null,2,null})  
+        ];
         // Forward Fill (limit=null -> 0 -> Infinite)
-        using var ff = df.Select(Col("val").ForwardFill().Alias("ff"));
+        using var ff = df.Select(Pl.Col("val").ForwardFill().Alias("ff"));
         
         Assert.Equal(1, ff.GetValue<int>(0,"ff"));
         Assert.Equal(1, ff.GetValue<int>(1,"ff")); 
@@ -47,8 +46,8 @@ public class CleaningTests
 
         // --- 1. FillNull ---
         using var filledDf = df.WithColumns(
-            Col("A").FillNull(0), 
-            Col("B").FillNull("unknown")
+            Pl.Col("A").FillNull(0), 
+            Pl.Col("B").FillNull("unknown")
         );
         
         Assert.Equal(0, filledDf.GetValue<int>(1,"A")); // null -> 0
@@ -70,7 +69,7 @@ public class CleaningTests
         });
 
         // Clean
-        var cleanExpr = Col("RawData")
+        var cleanExpr = Pl.Col("RawData")
             // Step A: cast to Double，strict=false
             // "100" -> 100.0
             // "200.5" -> 200.5
@@ -136,10 +135,10 @@ public class CleaningTests
         });
 
         using var res = df.Lazy()
-            .GroupBy(Col("Group"))
+            .GroupBy(Pl.Col("Group"))
             .Agg(
-                Col("Val").Unique().Alias("UniqueVals"),
-                Col("Val").IsDuplicated().Sum().Alias("DupCount") 
+                Pl.Col("Val").Unique().Alias("UniqueVals"),
+                Pl.Col("Val").IsDuplicated().Sum().Alias("DupCount") 
             )
             .Sort("Group")
             .Collect();
@@ -166,7 +165,7 @@ public class CleaningTests
             vals = new int?[] { 10, null, 20 }
         });
 
-        var resultDf = df.Select(Col("vals").DropNulls());
+        var resultDf = df.Select(Pl.Col("vals").DropNulls());
         
         Assert.Equal(2, resultDf.Height);
         Assert.Equal(10, resultDf["vals"][0]);
@@ -190,7 +189,7 @@ public class CleaningTests
             Series.From("f",[double.NaN, 100.0, double.NaN])
         );
 
-        var resultDf = df.Select(Col("f").DropNans());
+        var resultDf = df.Select(Pl.Col("f").DropNans());
         
         Assert.Equal(1, resultDf.Height);
         Assert.Equal(100.0, resultDf["f"][0]);

@@ -11,6 +11,7 @@ namespace Polars.CSharp.Tests;
 public class DataFrameTests
 {
     [Fact]
+    [Trait("DataFrame","Arrow")]
     public void Test_FromArrow_RoundTrip()
     {
         var builder = new RecordBatch.Builder(new NativeMemoryAllocator())
@@ -161,6 +162,7 @@ public class DataFrameTests
         Assert.Contains("salary", headDf.ColumnNames); 
     }
     [Fact]
+    [Trait("DataFrame", "GroupByAdvanced")]
     public void Test_GroupBy_Advanced_Aggregations()
     {
         string[] groups = ["A", "A", "B", "C", "C"];
@@ -206,6 +208,7 @@ public class DataFrameTests
     }
 
     [Fact]
+    [Trait("DataFrame", "GroupByItem")]
     public void Test_GroupBy_Item_Safe()
     {
         string[] groups = ["X", "Y"];
@@ -225,6 +228,7 @@ public class DataFrameTests
     }
 
     [Fact]
+    [Trait("DataFrame", "Reverse")]
     public void Test_Expr_Reverse_Standalone()
     {
         // [1, 2, 3] -> [3, 2, 1]
@@ -306,6 +310,7 @@ public class DataFrameTests
     // Concat Tests (Vertical, Horizontal, Diagonal)
     // ==========================================
     [Fact]
+    [Trait("DataFrame", "Concat")]
     public void Test_Concat_All_Types()
     {
         // --- Vertical ---
@@ -438,6 +443,7 @@ public class DataFrameTests
     // Display Tests (Head & Show)
     // ==========================================
     [Fact]
+    [Trait("DataFrame", "Head")]
     public void Test_Head_And_Show()
     {
         // 0..14
@@ -470,16 +476,13 @@ public class DataFrameTests
         tailDf.Show();
     }
     [Fact]
+    [Trait("DataFrame", "Describe")]
     public void Test_Describe_Logic()
     {
-        var content = "val\n1\n2\n3\n4\n5\n"; 
-        using var csv = new DisposableFile(content,".csv");
-        using var df = DataFrame.ReadCsv(csv.Path);
+        using DataFrame df = [new Series("val",[1,2,3,4,5])];
 
         using var summary = df.Describe();
         
-        summary.Show(); 
-
         Assert.Equal(9, summary.Height);
         
         using var meanRow = summary.Filter(Pl.Col("statistic") == Pl.Lit("mean"));
@@ -493,17 +496,13 @@ public class DataFrameTests
     // ==========================================
 
     [Fact]
+    [Trait("DataFrame", "Rolling")]
     public void Test_Rolling_Functions()
     {
-        var content = @"date,val
-2024-01-01,10
-2024-01-02,20
-2024-01-03,30
-2024-01-04,40
-2024-01-05,50";
-        using var csv = new DisposableFile(content,".csv");
-        using var df = DataFrame.ReadCsv(csv.Path, tryParseDates: true);
-
+        using DataFrame df = [
+            Pl.DateRangeAsSeries(new DateOnly(2024,1,1),new DateOnly(2024,1,5),name:"date"),
+            Pl.IntRangeAsSeries(10,60,10,name:"val")
+        ];
         // Rolling Mean
         // 10
         // 10,20 -> 15
@@ -524,17 +523,13 @@ public class DataFrameTests
     }
 
     [Fact]
+    [Trait("DataFrame", "ListAggregations")]
     public void Test_List_Aggregations_And_Name()
     {
-        var content = @"group,val
-A,1
-A,2
-B,3
-B,4
-B,5";
-        using var csv = new DisposableFile(content,".csv");
-        using var df = DataFrame.ReadCsv(csv.Path);
-
+        using DataFrame df = [
+            Pl.Series("group",["A","A","B","B","B"]),
+            Pl.IntRangeAsSeries(1,6,1,name:"val")
+        ];
         using var res = df
             .GroupBy(Pl.Col("group"))
             .Agg(
@@ -1658,7 +1653,7 @@ B,5";
             Sales  = new[] { 100,  200,  300 }
         });
 
-        // Act: 根据两列进行 Partition
+        // Act: Partition
         var dict = df.PartitionByAsDict(["Region", "Year"],maintainOrder: true, includeKey: true);
 
         // Assert

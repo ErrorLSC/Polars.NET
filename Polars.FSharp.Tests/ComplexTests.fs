@@ -133,7 +133,6 @@ type ``Complex Query Tests`` () =
         let res = 
             lf
             |> pl.withColumnLazy (
-                // Split 变成 List
                 (pl.col "tags").Str.Split(" ").Alias "tag_list"
             )
             |> pl.withColumnLazy (
