@@ -85,7 +85,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         long? offset = null, 
         long? len = null)
     {
-        var columns = subset as string[] ?? subset.ToArray();
+        var columns = subset as string[] ?? [.. subset];
         
         if (columns.Length == 0)
         {

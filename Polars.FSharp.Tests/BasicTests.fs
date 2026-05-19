@@ -526,7 +526,7 @@ type ``Basic Functionality Tests`` () =
     [<Fact>]
     member _.``Stream: Lazy Multi-pass Scan (Self Join)`` () =
         
-        let data = Seq.init 10 (fun i -> { Key = i % 3; Val = i }) // Key: 0, 1, 2 重复
+        let data = Seq.init 10 (fun i -> { Key = i % 3; Val = i }) // Key: 0, 1, 2 
         
         let lf = LazyFrame.scanSeq data
         
@@ -1075,32 +1075,26 @@ type LitTests() =
     [<Trait("DataFrame", "ToRecords")>]
     member _.``DataFrame: ToRecords<'T> instantiates F# Records and handles Options correctly`` () =
         
-        // Arrange: 联动我们刚才写的 ofMaps，造出带有 null 的数据
         let data = [
             Map [ "Id", box 1; "Name", box "Alice"; "Score", box 95.5 ]
-            Map [ "Id", box 2; "Name", box "Bob" ] // Bob 缺考，没有 Score
+            Map [ "Id", box 2; "Name", box "Bob" ]
             Map [ "Id", box 3; "Name", box "Charlie"; "Score", box 88.0 ]
         ]
         use df = DataFrame.ofMaps data
 
-        // Act: 绕过 Arrow，直接转为强类型 F# 序列
-        // 注意：Height<'T>() 返回的是 seq (惰性)，我们用 toArray 将其物化
         let employees = df.ToRecords<Seitou>() |> Seq.toArray
 
         // Assert
         Assert.Equal(3, employees.Length)
 
-        // 第一行：完整数据
         Assert.Equal(1, employees.[0].Id)
         Assert.Equal("Alice", employees.[0].Name)
-        Assert.Equal(Some 95.5, employees.[0].Score) // 完美映射为 Some
+        Assert.Equal(Some 95.5, employees.[0].Score) 
 
-        // 第二行：验证 None 映射 (绕过 Arrow 最核心的胜利点)
         Assert.Equal(2, employees.[1].Id)
         Assert.Equal("Bob", employees.[1].Name)
-        Assert.Equal(None, employees.[1].Score) // null 完美映射为 None
+        Assert.Equal(None, employees.[1].Score) 
 
-        // 第三行：常规验证
         Assert.Equal(3, employees.[2].Id)
         Assert.Equal("Charlie", employees.[2].Name)
         Assert.Equal(Some 88.0, employees.[2].Score)
@@ -1117,13 +1111,10 @@ type LitTests() =
         use df = DataFrame.ofMaps data
 
         // Act & Assert
-        // StrictEmployee 的 Score 是 double，不支持 null。
-        // 读取第二行时，触发我们自定义的严格类型保护机制
         let ex = Assert.Throws<Exception>(fun () -> 
             df.ToRecords<StrictSeitou>() |> Seq.toArray |> ignore
         )
 
-        // 断言错误信息是否符合预期
         Assert.Contains("Record field 'Score' does not accept Option", ex.Message)
 
     [<Fact>]
@@ -1132,9 +1123,41 @@ type LitTests() =
         
         use df = DataFrame.ofMaps [ Map ["Id", box 1] ]
 
-        // C# 的 Tuple 不是 F# Record，应该在预热阶段就直接拦截
         let ex = Assert.Throws<Exception>(fun () -> 
             df.ToRecords<Tuple<int, string>>() |> Seq.toArray |> ignore
         )
         
         Assert.Contains("is not an F# Record", ex.Message)
+    [<Fact>]
+    [<Trait("DataFrame", "Slice")>]
+    member _. ``DataFrame slicing using F# native syntax works correctly`` () =
+        // Arrange: Create a simple DataFrame with 5 rows (0, 1, 2, 3, 4)
+        let s = Series.create("values", [| 0; 1; 2; 3; 4 |])
+        let df = DataFrame.create [| s |]
+
+        // Act & Assert: Test various F# slicing patterns
+
+        // 1. Standard slice [start..finish] (Inclusive in F#)
+        // Should include index 1, 2, 3 -> Height = 3
+        let slice1 = df.[1..3]
+        Assert.Equal(3L, slice1.Height)
+
+        // 2. Open-ended right [start..] 
+        // Should include index 2 to the end (2, 3, 4) -> Height = 3
+        let slice2 = df.[2..]
+        Assert.Equal(3L, slice2.Height)
+
+        // 3. Open-ended left [..finish]
+        // Should include from start to index 2 (0, 1, 2) -> Height = 3
+        let slice3 = df.[..2]
+        Assert.Equal(3L, slice3.Height)
+
+        // 4. Negative start index [-start..] (Counting from the end)
+        // Should include the last two elements (3, 4) -> Height = 2
+        let slice4 = df.[-2..]
+        Assert.Equal(2L, slice4.Height)
+
+        // 6. Out of bounds slice
+        // Should gracefully return an empty DataFrame instead of throwing
+        let slice6 = df.[10..20]
+        Assert.Equal(0L, slice6.Height)

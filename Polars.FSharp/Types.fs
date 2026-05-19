@@ -620,6 +620,21 @@ and DataFrame(handle: DataFrameHandle) =
     /// </summary>
     member this.Rename(oldName: string, newName: string) : DataFrame =
         new DataFrame(PolarsWrapper.Rename(this.Handle, oldName, newName))
+    /// <summary>
+    /// Rename a list of columns.
+    /// </summary>
+    member this.Rename(oldNames: seq<string> , newNames: seq<string> ) =
+        let oldNamesArray = oldNames |> Seq.toArray
+        let newNamesArray = newNames |> Seq.toArray
+        new DataFrame(PolarsWrapper.Rename(this.Handle, oldNamesArray, newNamesArray))
+
+    /// <summary>
+    /// Rename columns using a dictionary mapping old names to new names.
+    /// </summary>
+    member this.Rename(mapping: IReadOnlyDictionary<string, string>) =
+        let oldNames = mapping.Keys 
+        let newNames = mapping.Values 
+        this.Rename(oldNames, newNames)
 
     /// <summary> Select columns using expressions. </summary>
     member this.Select(exprs: seq<Expr>) : DataFrame =

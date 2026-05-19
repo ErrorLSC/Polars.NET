@@ -224,21 +224,55 @@ module ManipulateOps =
     type LazyFrame with
         /// <summary>
         /// Slice the LazyFrame along the rows.
+        /// If length is omitted, it slices to the end of the LazyFrame.
         /// </summary>
-        member this.Slice(offset: int64, length: uint32) = 
-            new LazyFrame(PolarsWrapper.LazySlice(this.Handle,offset, length))
-        member this.Slice(offset: int64, length: int32) = 
-            if length < 0 then raise(ArgumentOutOfRangeException(sprintf "Length must be non-negative."))
-            else this.Slice(offset,length)
+        member this.Slice(offset: int64, ?length: uint32) =
+            // Use UInt32.MaxValue as a sentinel value for "to the end" in lazy execution
+            let realLength = defaultArg length UInt32.MaxValue
+            new LazyFrame(PolarsWrapper.LazySlice(this.CloneHandle(), offset, realLength))
     type DataFrame with
         /// <summary>
         /// Slice the DataFrame along the rows.
+        /// Negative offsets count from the end of the DataFrame.
+        /// If length is omitted, it slices to the end of the DataFrame.
         /// </summary>
-        member this.Slice(offset: int64, length: uint64) = 
-            new DataFrame(PolarsWrapper.Slice(this.Handle,offset, length))
-        member this.Slice(offset: int64, length: int32) = 
-            if length < 0 then raise(ArgumentOutOfRangeException(sprintf "Length must be non-negative."))
-            else this.Slice(offset,length)
+        member this.Slice(offset: int64, ?length: uint64) =
+            let absoluteOffset = 
+                if offset < 0L then this.Height + offset
+                else offset
+
+            // Out of bounds check, safely return an empty slice
+            if absoluteOffset < 0L || absoluteOffset >= this.Height then
+                new DataFrame(PolarsWrapper.Slice(this.Handle, absoluteOffset, 0UL))
+            else
+                // Use 'defaultArg' to elegantly handle the optional length
+                let realLength = defaultArg length (uint64 (this.Height - absoluteOffset))
+                new DataFrame(PolarsWrapper.Slice(this.Handle, absoluteOffset, realLength))
+        /// <summary>
+        /// Slice the DataFrame using F# slicing syntax (e.g., df.[start..finish]).
+        /// Note: F# slicing bounds are inclusive at the end.
+        /// </summary>
+        member this.GetSlice(start: int option, finish: int option) =
+            let height = this.Height 
+
+            let s = 
+                match start with
+                | Some v when v < 0 -> max 0L (height + int64 v)
+                | Some v -> min height (int64 v)
+                | None -> 0L
+                
+            let f = 
+                match finish with
+                | Some v when v < 0 -> max 0L (height + int64 v + 1L)
+                | Some v -> min height (int64 v + 1L) 
+                | None -> height
+                
+            let length = max 0L (f - s)
+            
+            if length <= 0L then
+                this.Slice(0L, 0UL)
+            else
+                this.Slice(s, uint64 length)
     /// ========================
     /// Drop
     /// ========================
@@ -484,7 +518,7 @@ module ManipulateOps =
                 match offset, len with
                 | Some o, Some l ->
                     let safeLen = uint64 (Math.Max(0L, l))
-                    Nullable<struct (int64 * uint64)>(struct (o, safeLen)) 
+                    Nullable<struct (int64 * uint64)> struct (o, safeLen) 
                 | _ ->
                     Nullable<struct (int64 * uint64)>()
 
