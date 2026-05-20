@@ -594,6 +594,35 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
 
         return new DataFrame(newHandle);
     }
+    /// <summary>
+    /// Apply a horizontal reduction on a DataFrame.
+    /// </summary>
+    /// <param name="operation">function that takes two Series and returns a Series.</param>
+    /// <exception cref="InvalidOperationException"></exception>
+    public Series Fold(Func<Series, Series, Series> operation)
+    {
+        if (IsEmpty)
+            throw new InvalidOperationException("Cannot fold an empty DataFrame.");
+        var columns = GetColumns();
+        Series acc = columns[0];
+        for (int i = 1; i < columns.Length; i++)
+        {
+            acc = operation(acc, columns[i]);
+        }
+        return acc;
+    }
+    /// <summary>
+    /// Fold over all columns with a custom starting accumulator.
+    /// </summary>
+    public Series Fold(Series initial, Func<Series, Series, Series> operation)
+    {
+        Series acc = initial;
+        foreach (var col in GetColumns())   
+        {
+            acc = operation(acc, col);
+        }
+        return acc;
+    }
     // ==========================================
     // LifeCycle
     // ==========================================

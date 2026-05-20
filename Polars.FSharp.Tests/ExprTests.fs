@@ -819,7 +819,6 @@ type ``String Logic Tests`` () =
         use resultDf = df.Select [| foldExpr |]
         let col = resultDf.Column "folded_sum"
 
-        // 验证结果
         Assert.Equal(22, col.GetValue<int>(0))
         Assert.Equal(25, col.GetValue<int>(1))
         Assert.Equal(28, col.GetValue<int>(2))

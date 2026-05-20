@@ -2825,4 +2825,69 @@ public class DataFrameTests
         Assert.Equal([92, 88, 85], scores);
         Assert.Equal(new[] { "A", "B", "B" }, grades);
     }
+    [Fact]
+    [Trait("DataFrame", "Fold")]
+    public void Test_DataFrame_Fold_Empty_WithInitial_ReturnsInitial()
+    {
+        var init = Series.From("init", [1.0, 2.0]);
+        using var result = new DataFrame().Fold(init, (acc, col) => acc + col);
+
+        Assert.Equal(2, result.Length);
+        Assert.Equal(1.0, result.GetValue<double>(0));
+        Assert.Equal(2.0, result.GetValue<double>(1));
+        Assert.Equal("init", result.Name);
+    }
+    [Fact]
+    [Trait("DataFrame", "Fold")]
+    public void Test_DataFrame_Fold_String_Concat_WithCustomInitial()
+    {
+        using var strDf = DataFrame.FromColumns(
+            Series.From("first", ["foo", "bar"]),
+            Series.From("second", ["baz", "qux"])
+        );
+
+        var init = Series.From("prefix", ["start:", "start:"]);
+        using var result = strDf.Fold(init, (acc, col) => acc + col);
+
+        Assert.Equal(2, result.Length);
+        Assert.Equal("start:foobaz", result.GetValue<string>(0));
+        Assert.Equal("start:barqux", result.GetValue<string>(1));
+    }
+    [Fact]
+    [Trait("DataFrame", "Fold")]
+    public void Test_DataFrame_Fold_TypePromotion()
+    {
+        // 1. Int8 + String → String
+        using var strDf = DataFrame.FromColumns(
+            Series.From("int8", new sbyte[] { 1, 2 }),
+            Series.From("str", ["a", "b"])
+        );
+        using var strResult = strDf.Fold((acc, col) => acc + col);
+
+        Assert.Equal(typeof(string), strResult.DataType);
+        Assert.Equal("1a", strResult.GetValue<string>(0));
+        Assert.Equal("2b", strResult.GetValue<string>(1));
+
+        // 2. Float32 + Int64 → Float64
+        using var floatIntDf = DataFrame.FromColumns(
+            Series.From("f32", [1.5f, 2.5f]),
+            Series.From("i64", [10L, 20L])
+        );
+        using var floatIntResult = floatIntDf.Fold((acc, col) => acc + col);
+
+        Assert.Equal(typeof(double), floatIntResult.DataType);
+        Assert.Equal(11.5, floatIntResult.GetValue<double>(0), 4);
+        Assert.Equal(22.5, floatIntResult.GetValue<double>(1), 4);
+
+        // 3. Float32 + Float64 → Float64
+        using var floatDoubleDf = DataFrame.FromColumns(
+            Series.From("f32", [1.2f, 3.4f]),
+            Series.From("f64", [5.6, 7.8])
+        );
+        using var floatDoubleResult = floatDoubleDf.Fold((acc, col) => acc + col);
+
+        Assert.Equal(typeof(double), floatDoubleResult.DataType);
+        Assert.Equal(1.2 + 5.6, floatDoubleResult.GetValue<double>(0), 3);
+        Assert.Equal(3.4 + 7.8, floatDoubleResult.GetValue<double>(1), 3);
+    }
 }
