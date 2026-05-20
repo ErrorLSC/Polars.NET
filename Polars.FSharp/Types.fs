@@ -537,6 +537,8 @@ and DataFrame(handle: DataFrameHandle) =
     // Properties
     member _.Height = PolarsWrapper.DataFrameHeight handle
     member _.Width = PolarsWrapper.DataFrameWidth handle
+    member this.IsEmpty = this.Height = 0L
+    member this.IsVoid = this.Width = 0L
     /// <summary>
     /// Get the number of chunks used by the first Column of this DataFrame.
     /// </summary>
@@ -563,6 +565,12 @@ and DataFrame(handle: DataFrameHandle) =
     member this.Column(index: int) : Series =
         let h = PolarsWrapper.DataFrameGetColumnAt(this.Handle, index)
         new Series(h)
+    /// <summary>
+    /// Returns all columns as a Series array.
+    /// </summary>
+    member this.GetColumns() : Series[] =
+        let width = int this.Width
+        Array.init width (fun i -> this.Column(i))
     /// <summary>
     /// Get the schema
     /// </summary>
@@ -702,7 +710,24 @@ and DataFrame(handle: DataFrameHandle) =
     member this.Extend(other: DataFrame) : DataFrame =
         PolarsWrapper.DataFrameExtend(this.Handle, other.Handle)
         this
+    /// <summary>
+    /// Fold over all columns (left to right) using the first column as the initial accumulator.
+    /// Throws if the DataFrame is empty.
+    /// </summary>
+    member this.Fold(operation: Func<Series, Series, Series>) : Series =
+        if this.IsEmpty then
+            invalidOp "Cannot fold an empty DataFrame."
+        let columns = this.GetColumns()
+        let acc = columns.[0]
+        // Start folding from the second column (index 1)
+        Array.fold (fun acc col -> operation.Invoke(acc, col)) acc columns.[1..]
 
+    /// <summary>
+    /// Fold over all columns with a custom starting accumulator.
+    /// </summary>
+    member this.Fold(initial: Series, operation: Func<Series, Series, Series>) : Series =
+        let columns = this.GetColumns()
+        Array.fold (fun acc col -> operation.Invoke(acc, col)) initial columns
     // ==========================================
     // Printing / String Representation
     // ==========================================
