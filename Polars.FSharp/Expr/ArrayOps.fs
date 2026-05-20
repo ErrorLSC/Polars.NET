@@ -5,7 +5,8 @@ open Polars.NET.Core
 
 type [<Struct>] ArrayOps(handle: ExprHandle) = 
     // --- Aggregations ---
-
+    ///
+    member _.Len() = new Expr(PolarsWrapper.ArrayLen handle)
     /// <summary> Compute the sum of the values in the array. </summary>
     member _.Sum() = new Expr(PolarsWrapper.ArraySum handle)
 
@@ -20,7 +21,10 @@ type [<Struct>] ArrayOps(handle: ExprHandle) =
 
     /// <summary> Compute the median value in the array. </summary>
     member _.Median() = new Expr(PolarsWrapper.ArrayMedian handle)
-
+    /// <summary>
+    /// Count the number of unique values in every sub-arrays.
+    /// </summary>
+    member _.NUnique() = new Expr(PolarsWrapper.ArrayNUnique handle)
     /// <summary> Compute the standard deviation of the values in the array. </summary>
     member _.Std(?ddof: int) = 
         let d = defaultArg ddof 1 |> byte
@@ -30,9 +34,20 @@ type [<Struct>] ArrayOps(handle: ExprHandle) =
     member _.Var(?ddof: int) = 
         let d = defaultArg ddof 1 |> byte
         new Expr(PolarsWrapper.ArrayVar(handle, d))
-
-    // --- Boolean / Search ---
-
+    /// <summary>
+    /// Count how often the value produced by element occurs.
+    /// </summary>
+    /// <param name="element">An expression that produces a single value</param>
+    member _.CountMatches(element:Expr) = new Expr(PolarsWrapper.ArrayCountMatches(handle,element.CloneHandle()))
+    member _.Agg(element:Expr) = new Expr(PolarsWrapper.ArrayAgg(handle,element.CloneHandle()))
+    /// <summary>
+    /// Run any polars expression against the arrays’ elements.
+    /// </summary>
+    /// <param name="expr">Expression to run. Note that you can select an element with pl.element()</param>
+    /// <param name="asList">Collect the resulting data as a list. This allows for expressions which output a variable amount of data.</param>
+    member _.Eval(expr:Expr,?asList:bool) =
+        let asL = defaultArg asList false
+        new Expr(PolarsWrapper.ArrayEval(handle,expr.CloneHandle(),asL))
     /// <summary> Check if any value in the array is true. </summary>
     member _.Any() = new Expr(PolarsWrapper.ArrayAny handle)
 
@@ -88,18 +103,19 @@ type [<Struct>] ArrayOps(handle: ExprHandle) =
         let kn = defaultArg keepNulls true
         new Expr(PolarsWrapper.ArrayExplode(handle,emp,kn))
 
-    // --- Indexing ---
-
-    /// <summary> Get value at index. </summary>
-    member _.Get(index: Expr, ?nullOnOob: bool) =
-        let oob = defaultArg nullOnOob false
-        new Expr(PolarsWrapper.ArrayGet(handle, index.CloneHandle(), oob))
-
     /// <summary> Get value at integer index. </summary>
     member this.Get(index: int, ?nullOnOob) =
         let oob = defaultArg nullOnOob false
         let indexHandle = PolarsWrapper.Lit index
         new Expr(PolarsWrapper.ArrayGet(handle, indexHandle, oob))
+    /// <summary>
+    /// Get the first value of the sub-arrays.
+    /// </summary>
+    member this.First() = this.Get(0,true)
+    /// <summary>
+    /// Get the last value of the sub-arrays.
+    /// </summary>
+    member this.Last() = this.Get(-1,true)
 
     /// <summary>
     /// Combine the current expression with other expressions into an Array.

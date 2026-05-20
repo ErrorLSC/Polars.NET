@@ -11,7 +11,6 @@ public readonly struct SeriesArrayOps
     private Series Apply(Func<Expr, Expr> op) 
         => _series.ApplyExpr(op(Polars.Col(_series.Name)));
 
-    // --- Aggregations ---
     /// <summary>
     /// Get the first value of the sub-arrays.
     /// </summary>
@@ -46,20 +45,17 @@ public readonly struct SeriesArrayOps
     /// <summary>
     /// Run any polars aggregation expression against the arrays’ elements.
     /// </summary>
-    /// <returns></returns>
     public Series Agg(Expr expr) => Apply(e => e.Array.Agg(expr));
     /// <summary>
     /// Count how often the value produced by element occurs.
     /// </summary>
     /// <param name="element">An expression that produces a single value</param>
-    /// <returns></returns>
     public Series CountMatches(Expr element) => Apply(e => e.Array.CountMatches(element));
     /// <summary>
     /// Run any polars expression against the arrays’ elements.
     /// </summary>
     /// <param name="expr">Expression to run. Note that you can select an element with pl.element()</param>
     /// <param name="asList">Collect the resulting data as a list. This allows for expressions which output a variable amount of data.</param>
-    /// <returns></returns>
     public Series Eval(Expr expr, bool asList=false) => Apply(e => e.Array.Eval(expr,asList));
     /// <summary>Compute the standard deviation of every sub-array.</summary>
     public Series Std(byte ddof = 1) => Apply(e => e.Array.Std(ddof));
@@ -67,15 +63,11 @@ public readonly struct SeriesArrayOps
     /// <summary>Compute the variance of every sub-array.</summary>
     public Series Var(byte ddof = 1) => Apply(e => e.Array.Var(ddof));
 
-    // --- Boolean ---
-
     /// <summary>Check if any element in the sub-array is true.</summary>
     public Series Any() => Apply(e => e.Array.Any());
 
     /// <summary>Check if all elements in the sub-array are true.</summary>
     public Series All() => Apply(e => e.Array.All());
-
-    // --- Sort & Search ---
 
     /// <summary>Sort elements in every sub-array.</summary>
     public Series Sort(bool descending = false, bool nullsLast = false, bool maintainOrder = false) 
@@ -89,8 +81,6 @@ public readonly struct SeriesArrayOps
 
     /// <summary>Get the index of the maximum value in every sub-array.</summary>
     public Series ArgMax() => Apply(e => e.Array.ArgMax());
-
-    // --- Structure ---
 
     /// <summary>Get element at index from every sub-array.</summary>
     public Series Get(long index, bool nullOnOob = true) 
@@ -116,8 +106,6 @@ public readonly struct SeriesArrayOps
     /// Cast to variable-size List.
     /// </summary>
     public Series ToList() => Apply(e => e.Array.ToList());
-
-    // --- Logic / Set ---
 
     /// <summary>Check if sub-array contains a specific item.</summary>
     public Series Contains(Expr item, bool nullsEqual = false) 
