@@ -12,6 +12,14 @@ type TimeUnit =
         | Microseconds -> PlTimeUnit.Microseconds
         | Milliseconds -> PlTimeUnit.Milliseconds
 
+type TransferEncoding =
+    | Base64
+    | Hex
+
+type Endianness =
+    | Little
+    | Big
+
 type CategoricalPhysical =
     | U32
     | U16

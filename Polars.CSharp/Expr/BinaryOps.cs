@@ -29,10 +29,8 @@ public readonly struct BinaryOps
     /// <returns>A new Polars Expression representing the scaled size.</returns>
     public Expr Size(SizeUnit unit = SizeUnit.Bytes)
     {
-        // 1. Get the base expression (returns size in raw bytes as UInt32/UInt64)
         Expr byteSizeExpr = Wrap(PolarsWrapper.BinSizeBytes);
 
-        // 2. Apply scaling logic directly into the Polars AST using C# 8.0+ switch expression
         return unit switch
         {
             SizeUnit.Bytes     => byteSizeExpr,

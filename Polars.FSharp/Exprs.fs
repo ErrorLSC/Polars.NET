@@ -567,7 +567,7 @@ and Expr(handle: ExprHandle) =
         let revArr = 
             match reverse with
             | Some r -> r |> Seq.toArray
-            | None -> [| false |] // C# 端会广播
+            | None -> [| false |] 
 
         new Expr(PolarsWrapper.TopKBy(this.CloneHandle(), uint k, byHandles, revArr))
 

@@ -4,8 +4,6 @@ open System
 open Polars.NET.Core
 
 type [<Struct>] ArrayOps(handle: ExprHandle) = 
-    // --- Aggregations ---
-    ///
     member _.Len() = new Expr(PolarsWrapper.ArrayLen handle)
     /// <summary> Compute the sum of the values in the array. </summary>
     member _.Sum() = new Expr(PolarsWrapper.ArraySum handle)

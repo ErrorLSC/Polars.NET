@@ -20,3 +20,5 @@ module ExprNamespaces =
 
         /// <summary> Access meta operations. </summary>
         member this.Meta = new MetaOps(this.Handle)
+        /// <summary> Access binary operations. </summary>
+        member this.Bin = new BinaryOps(this.CloneHandle())
