@@ -27,6 +27,7 @@
     <Compile Include="CloudOptions.fs" />
     <Compile Include="UdfUtils.fs" />
     <Compile Include="Exprs.fs" />
+    <Compile Include="Expr/Aggregation.fs" />
     <Compile Include="Expr/StringOps.fs" />
     <Compile Include="Expr/ListOps.fs" />
     <Compile Include="Expr/ArrayOps.fs" />

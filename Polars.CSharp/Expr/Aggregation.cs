@@ -1,4 +1,3 @@
-#pragma warning disable CS1591
 using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 
@@ -92,12 +91,10 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <summary>
     /// Get maximum value, but propagate/poison encountered NaN values.
     /// </summary>
-    /// <returns></returns>
     public Expr NanMax() => new(PolarsWrapper.NanMax(CloneHandle()));
     /// <summary>
     /// Get minimum value, but propagate/poison encountered NaN values.
     /// </summary>
-    /// <returns></returns>
     public Expr NanMin() => new(PolarsWrapper.NanMin(CloneHandle()));
     /// <summary>
     /// Compute the min of an expression
@@ -116,12 +113,10 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Approximate count of unique values.
     /// This is done using the HyperLogLog++ algorithm for cardinality estimation.
     /// </summary>
-    /// <returns></returns>
     public Expr ApproxNUnique() => new(PolarsWrapper.ApproxNUnique(CloneHandle()));
     /// <summary>
     /// Compute the product of an expression
     /// </summary>
-    /// <returns></returns>
     public Expr Product() => new(PolarsWrapper.Product(CloneHandle()));
     /// <summary>
     /// Get maximum value, ordered by another expression.
@@ -143,7 +138,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
         Expr realBy = by.Consume();
         return new(PolarsWrapper.MinBy(CloneHandle(),realBy.Handle));
     }
-        /// <summary>
+    /// <summary>
     /// Get the first value of the group/series.
     /// </summary>
     /// <returns>A new expression representing the first value.</returns>
@@ -250,11 +245,9 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <summary>
     /// Perform an aggregation of bitwise Ors.
     /// </summary>
-    /// <returns></returns>
     public Expr BitwiseOr() => new(PolarsWrapper.BitwiseOr(CloneHandle()));
     /// <summary>
     /// Perform an aggregation of bitwise Xors.
     /// </summary>
-    /// <returns></returns>
     public Expr BitwiseXor() => new(PolarsWrapper.BitwiseXor(CloneHandle()));
 }
