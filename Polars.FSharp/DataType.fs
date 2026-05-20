@@ -37,9 +37,9 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
     val mutable private _displayString : string
     static let toUnitCode tu =
         match tu with
-        | Nanoseconds -> 0uy
-        | Microseconds -> 1uy
-        | Milliseconds -> 2uy
+        | TimeUnit.Nanoseconds -> 0uy
+        | TimeUnit.Microseconds -> 1uy
+        | TimeUnit.Milliseconds -> 2uy
     member internal this.Handle = handle
     member this.Kind = kind
 
@@ -167,11 +167,11 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
 
         | Unknown -> PolarsWrapper.NewPrimitiveType 0
 
-    static member Datetime(unit, ?tz) =
+    static member Datetime(unit:TimeUnit, ?tz) =
         let handle = PolarsWrapper.NewDateTimeType(toUnitCode unit, Option.toObj tz)
         new DataType(handle, DataTypeKind.Datetime(unit, tz))
 
-    static member Duration unit =
+    static member Duration unit:DataType =
         let handle = PolarsWrapper.NewDurationType(toUnitCode unit)
         new DataType(handle, DataTypeKind.Duration unit)
 
@@ -238,10 +238,10 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
             let unitCode = PolarsWrapper.GetTimeUnit handle
             let unit =
                 match unitCode with
-                | PlTimeUnit.Nanoseconds -> Nanoseconds
-                | PlTimeUnit.Microseconds -> Microseconds
-                | PlTimeUnit.Milliseconds -> Milliseconds
-                | _ -> Microseconds
+                | PlTimeUnit.Nanoseconds -> TimeUnit.Nanoseconds
+                | PlTimeUnit.Microseconds -> TimeUnit.Microseconds
+                | PlTimeUnit.Milliseconds -> TimeUnit.Milliseconds
+                | _ -> TimeUnit.Microseconds
             let tz = Option.ofObj (PolarsWrapper.GetTimeZone handle)
             DataType.Datetime(unit, ?tz=tz)
 
@@ -250,10 +250,10 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
             let unitCode = PolarsWrapper.GetTimeUnit handle
             let unit =
                 match unitCode with
-                | PlTimeUnit.Nanoseconds -> Nanoseconds
-                | PlTimeUnit.Microseconds -> Microseconds
-                | PlTimeUnit.Milliseconds -> Milliseconds
-                | _ -> Microseconds
+                | PlTimeUnit.Nanoseconds -> TimeUnit.Nanoseconds
+                | PlTimeUnit.Microseconds -> TimeUnit.Microseconds
+                | PlTimeUnit.Milliseconds -> TimeUnit.Milliseconds
+                | _ -> TimeUnit.Microseconds
             DataType.Duration unit
 
         | PlDataType.Binary -> DataType.Binary
@@ -439,18 +439,18 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         | :? Apache.Arrow.Types.TimestampType as t ->
             let unit =
                 match t.Unit with
-                | Apache.Arrow.Types.TimeUnit.Microsecond -> Microseconds
-                | Apache.Arrow.Types.TimeUnit.Millisecond -> Milliseconds
-                | Apache.Arrow.Types.TimeUnit.Nanosecond -> Nanoseconds
-                | _ -> Microseconds
+                | Apache.Arrow.Types.TimeUnit.Microsecond -> TimeUnit.Microseconds
+                | Apache.Arrow.Types.TimeUnit.Millisecond -> TimeUnit.Milliseconds
+                | Apache.Arrow.Types.TimeUnit.Nanosecond -> TimeUnit.Nanoseconds
+                | _ -> TimeUnit.Microseconds
             DataType.Datetime(unit, ?tz=Option.ofObj t.Timezone)
         | :? Apache.Arrow.Types.DurationType as d ->
             let unit =
                 match d.Unit with
-                | Apache.Arrow.Types.TimeUnit.Microsecond -> Microseconds
-                | Apache.Arrow.Types.TimeUnit.Millisecond -> Milliseconds
-                | Apache.Arrow.Types.TimeUnit.Nanosecond -> Nanoseconds
-                | _ -> Microseconds
+                | Apache.Arrow.Types.TimeUnit.Microsecond -> TimeUnit.Microseconds
+                | Apache.Arrow.Types.TimeUnit.Millisecond -> TimeUnit.Milliseconds
+                | Apache.Arrow.Types.TimeUnit.Nanosecond -> TimeUnit.Nanoseconds
+                | _ -> TimeUnit.Microseconds
             DataType.Duration unit
         | :? Apache.Arrow.Types.ListType as l -> DataType.List(DataType.FromArrowType l.ValueDataType)
         | :? Apache.Arrow.Types.LargeListType as l -> DataType.List(DataType.FromArrowType l.ValueDataType)

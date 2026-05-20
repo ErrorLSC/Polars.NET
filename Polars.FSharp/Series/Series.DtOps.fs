@@ -8,24 +8,36 @@ type SeriesDtNameSpace(parent: Series) =
         let expr = Expr.Col parent.Name |> op
         parent.ApplyExpr expr
 
-    // --- Extraction ---
-    
+    member _.Millennium() = apply (fun e -> e.Dt.Millennium())
+    member _.Century() = apply (fun e -> e.Dt.Century())
     member _.Year() = apply (fun e -> e.Dt.Year())
+    member _.IsoYear() = apply (fun e -> e.Dt.IsoYear())
     member _.Quarter() = apply (fun e -> e.Dt.Quarter())
     member _.Month() = apply (fun e -> e.Dt.Month())
     member _.Day() = apply (fun e -> e.Dt.Day())
+    member _.DayInMonth() = apply (fun e -> e.Dt.DayInMonth())
     member _.Hour() = apply (fun e -> e.Dt.Hour())
     member _.Minute() = apply (fun e -> e.Dt.Minute())
-    member _.Second() = apply (fun e -> e.Dt.Second())
+    member _.Second(?fractional:bool) = apply (fun e -> e.Dt.Second(?fractional=fractional))
     member _.Millisecond() = apply (fun e -> e.Dt.Millisecond())
     member _.Microsecond() = apply (fun e -> e.Dt.Microsecond())
     member _.Nanosecond() = apply (fun e -> e.Dt.Nanosecond())
     member _.OrdinalDay() = apply (fun e -> e.Dt.OrdinalDay())
     member _.Weekday() = apply (fun e -> e.Dt.Weekday())
+    member _.IsLeapYear() = apply (fun e -> e.Dt.IsLeapYear())
+    member _.MonthStart() = apply (fun e -> e.Dt.MonthStart())
+    member _.MonthEnd() = apply (fun e -> e.Dt.MonthEnd())
+    member _.BaseUtcOffset() = apply (fun e -> e.Dt.BaseUtcOffset())
+    member _.DstOffset() = apply (fun e -> e.Dt.DstOffset())
+    member _.TotalDays(?fractional) = apply (fun e -> e.Dt.TotalDays(?fractional=fractional))
+    member _.TotalHours(?fractional) = apply (fun e -> e.Dt.TotalHours(?fractional=fractional))
+    member _.TotalMinutes(?fractional) = apply (fun e -> e.Dt.TotalMinutes(?fractional=fractional))
+    member _.TotalSeconds(?fractional) = apply (fun e -> e.Dt.TotalSeconds(?fractional=fractional))
+    member _.TotalMilliseconds(?fractional) = apply (fun e -> e.Dt.TotalMilliseconds(?fractional=fractional))
+    member _.TotalMicroseconds(?fractional) = apply (fun e -> e.Dt.TotalMicroseconds(?fractional=fractional))
+    member _.TotalNanoseconds(?fractional) = apply (fun e -> e.Dt.TotalNanoseconds(?fractional=fractional))
     member _.Date() = apply (fun e -> e.Dt.Date())
     member _.Time() = apply (fun e -> e.Dt.Time())
-
-    // --- Formatting ---
 
     /// <summary> Format datetime to string using the given format string (strftime). </summary>
     member _.ToString(format: string) = 
@@ -34,6 +46,7 @@ type SeriesDtNameSpace(parent: Series) =
     /// <summary> Default ISO format. </summary>
     member this.ToString() = 
         this.ToString "%Y-%m-%dT%H:%M:%S%.f"
+    member this.Strftime(format:string) = apply (fun e -> e.Dt.Strftime format)
 
     // --- Manipulation ---
 
@@ -48,9 +61,8 @@ type SeriesDtNameSpace(parent: Series) =
 
     // --- Conversion ---
 
-    member _.TimestampMicros() = apply (fun e -> e.Dt.TimestampMicros())
-    member _.TimestampMillis() = apply (fun e -> e.Dt.TimestampMillis())
-    member _.Combine(time:Expr,timeUnit:TimeUnit) = apply (fun e -> e.Dt.Combine(time,timeUnit))
+    member _.Timestamp(?timeUnit) = apply (fun e -> e.Dt.Timestamp(?timeUnit=timeUnit))
+    member _.Combine(time:Expr,?timeUnit:TimeUnit) = apply (fun e -> e.Dt.Combine(time,?timeUnit=timeUnit))
 
     // --- TimeZone ---
 
@@ -85,3 +97,10 @@ type SeriesDtNameSpace(parent: Series) =
         apply (fun e -> 
             e.Dt.IsBusinessDay(?weekMask=weekMask, ?holidays=holidays)
         )
+    member _.Epoch(?timeUnit) = apply (fun e -> e.Dt.Epoch(?timeUnit=timeUnit))
+    member _.Replace(
+        ?year:int,?month:int,?day:int,?hour:int,
+        ?minute:int,?second:int,?microsecond:int,
+        ?ambiguous:Expr) = 
+        apply(fun e -> e.Dt.Replace(?year=year,?month=month,?day=day,
+            ?hour=hour,?minute=minute,?second=second,?microsecond=microsecond,?ambiguous=ambiguous))

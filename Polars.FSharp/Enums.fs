@@ -12,6 +12,14 @@ type TimeUnit =
         | Microseconds -> PlTimeUnit.Microseconds
         | Milliseconds -> PlTimeUnit.Milliseconds
 
+[<RequireQualifiedAccess>]
+type EpochTimeUnit = 
+    | Nanoseconds
+    | Microseconds
+    | Milliseconds
+    | Second
+    | Day
+
 type TransferEncoding =
     | Base64
     | Hex
