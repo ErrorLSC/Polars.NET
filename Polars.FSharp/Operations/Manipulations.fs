@@ -273,6 +273,28 @@ module ManipulateOps =
                 this.Slice(0L, 0UL)
             else
                 this.Slice(s, uint64 length)
+        /// <summary>
+        /// Returns an iterator over slices of the DataFrame.
+        /// </summary>
+        /// <param name="nRows">The number of rows per slice. Defaults to 10,000.</param>
+        member this.IterSlices(?nRows: int32) =
+            let rowsPerSlice = defaultArg nRows 10_000
+            
+            if rowsPerSlice <= 0 then
+                raise (ArgumentOutOfRangeException("nRows", "Number of rows per slice must be greater than zero."))
+                
+            let totalRows = this.Height
+            let step = int64 rowsPerSlice
+
+            Seq.unfold (fun offset ->
+                if offset < totalRows then
+                    let currentLength = uint64 (min step (totalRows - offset))
+                    let slice = this.Slice(offset, currentLength)
+                    Some(slice, offset + step)
+                else
+                    None
+            ) 0L
+            
     /// ========================
     /// Drop
     /// ========================
@@ -682,7 +704,6 @@ module ManipulateOps =
     /// ========================
     /// Sample
     /// ========================
-    type DataFrame with
         /// <summary>
         /// Sample n rows from the DataFrame.
         /// </summary>
@@ -703,4 +724,174 @@ module ManipulateOps =
             let s = Option.toNullable seed
             
             new DataFrame(PolarsWrapper.SampleFrac(this.Handle, sf, replace, shuff, s))
-        
+    /// ========================
+    /// Shrink
+    /// ========================
+        /// <summary>
+        /// Shrink DataFrame memory usage.This won't return a new DataFrame
+        /// </summary>
+        member this.ShrinkToFitInplace() = PolarsWrapper.DataFrameShrinkToFit(this.Handle)
+        /// <summary>
+        /// Shrink DataFrame memory usage.
+        /// </summary>
+        /// <returns>A new DataFrame</returns>
+        member this.ShrinkToFit() = 
+            let newDf = this.Clone()
+            PolarsWrapper.DataFrameShrinkToFit(newDf.Handle)
+            newDf
+    /// ========================
+    /// Take
+    /// ========================
+        /// <summary>
+        /// Take rows by physical integer indices.
+        /// Note: Negative indices are not supported. All values must be >= 0.
+        /// </summary>
+        /// <param name="indices">A Series containing integer indices (e.g., UInt32, Int32).</param>
+        /// <exception cref="ArgumentException">Thrown when the series is not an integer type.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when indices are out of bounds or negative.</exception>
+        member this.Take(indices: Series) =
+            if not indices.DataType.IsInteger then
+                raise (ArgumentException("Take requires an integer Series, but got {indices.DataType.Kind}.", nameof(indices)))
+
+            try
+                new DataFrame(PolarsWrapper.DataFrameTake(this.Handle, indices.Handle))
+            with
+            | ex when ex.Message.Contains("OutOfBounds") || ex.Message.Contains("out of bounds") ->
+                raise (ArgumentOutOfRangeException(
+                    nameof(indices), 
+                    "Index out of bounds. This may be caused by index values exceeding the DataFrame's height, or by using negative indices which are not supported in Take."
+                ))
+
+    /// ========================
+    /// Gather Every
+    /// ========================
+    type LazyFrame with
+        /// <summary>
+        /// Take every nth row in the Frame and return as a new Frame.
+        /// </summary>
+        /// <param name="n">Gather every n-th row.</param>
+        /// <param name="offset">Starting Index</param>
+        /// <returns></returns>
+        member this.GatherEvery(n: uint64, ?offset: uint64) =
+            let offsetD = defaultArg offset 0UL
+            this.Select(Expr.All().GatherEvery(n,offsetD))
+    type DataFrame with
+        /// <summary>
+        /// Take every nth row in the Frame and return as a new Frame.
+        /// </summary>
+        /// <param name="n">Gather every n-th row.</param>
+        /// <param name="offset">Starting Index</param>
+        /// <returns></returns>
+        member this.GatherEvery(n: uint64, ?offset: uint64) =
+            let offsetD = defaultArg offset 0UL
+            this.Select(Expr.All().GatherEvery(n,offsetD))
+    /// ========================
+    /// Interpolate
+    /// ========================
+    type LazyFrame with
+        /// <summary>
+        /// Interpolate intermediate values. The interpolation method is linear.
+        /// Nulls at the beginning and end of the series remain null.
+        /// </summary>
+        member this.Interpolate() =
+            this.Select(Expr.All().Interpolate(method=InterpolationMethod.Linear))
+    type DataFrame with
+        /// <summary>
+        /// Interpolate intermediate values. The interpolation method is linear.
+        /// Nulls at the beginning and end of the series remain null.
+        /// </summary>
+        member this.Interpolate() =
+            this.Select(Expr.All().Interpolate(method=InterpolationMethod.Linear))
+    /// ========================
+    /// Column Manipulation
+    /// ========================
+        /// <summary>
+        /// Insert a column into the DataFrame at a specified index.
+        /// Accepts a specific index and a Series to be inserted.
+        /// </summary>
+        /// <param name="index">The index at which to insert the column. Negative indices count from the end.</param>
+        /// <param name="column">The Series to insert as a column.</param>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the index is out of bounds.</exception>
+        member this.InsertColumn(index: int, column: Series) =
+            let originalIndex = index
+            let width = int this.Width
+
+            let targetIndex = 
+                if index < 0 then width + index
+                else index
+
+            if targetIndex < 0 || targetIndex > width then
+                let msg = String.Format("Column index {0} is out of range (frame has {1} columns)", originalIndex, width)
+                raise (ArgumentOutOfRangeException("index", msg))
+
+            // Convert existing column names to a list of Expr.Col
+            let currentCols = 
+                this.Columns 
+                |> Array.map Expr.Col 
+                |> Array.toList
+
+            // Convert the incoming Series to a literal Expr[cite: 1]
+            let h = PolarsWrapper.CloneSeries column.Handle 
+            let exprToInsert = new Expr(PolarsWrapper.Lit h)
+
+            // Imperative mutation is avoided.
+            // We split the list at targetIndex, insert the new expression, and recombine.
+            let left, right = List.splitAt targetIndex currentCols
+            let newCols = left @ [ exprToInsert ] @ right
+
+            this.Select(List.toArray newCols)
+        /// <summary>
+        /// Replace a column by its index in-place.
+        /// Supports negative indexing (e.g., -1 replaces the last column).
+        /// </summary>
+        /// <param name="index">The index of the column to replace. Negative values count from the end.</param>
+        /// <param name="newColumn">The new Series to insert.</param>
+        /// <param name="keepName">If true, keeps the original column name. If false, uses the new Series's name. Default is false.</param>
+        /// <returns>The current DataFrame instance to support method chaining.</returns>
+        member this.ReplaceColumn(index: int, newColumn: Series, ?keepName: bool) =
+            if box newColumn = null then
+                raise (ArgumentNullException(nameof(newColumn)))
+
+            let shouldKeepName = defaultArg keepName false
+            let width = int this.Width
+            
+            let targetIndex = 
+                if index < 0 then width + index
+                else index
+
+            if targetIndex < 0 || targetIndex >= width then
+                let msg = String.Format("Column index {0} is out of bounds. DataFrame width is {1}.", index, width)
+                raise (ArgumentOutOfRangeException(nameof(index), msg))
+
+            if shouldKeepName then
+                let originalName = this.Columns.[targetIndex]
+                PolarsWrapper.Replace(this.Handle, originalName, newColumn.Handle)
+            else
+                PolarsWrapper.ReplaceColumnAt(this.Handle, targetIndex, newColumn.Handle)
+                
+            this
+        /// <summary>
+        /// Replace a column by its name in-place.
+        /// </summary>
+        /// <param name="columnName">The name of the column to replace.</param>
+        /// <param name="newColumn">The new Series to insert.</param>
+        /// <param name="keepName">If true, keeps the original column name. If false, uses the new Series's name. Default is true.</param>
+        /// <returns>The current DataFrame instance to support method chaining.</returns>
+        member this.ReplaceColumn(columnName: string, newColumn: Series, ?keepName: bool) =
+            if box newColumn = null then
+                raise (ArgumentNullException(nameof(newColumn)))
+
+            let shouldKeepName = defaultArg keepName true
+
+            if shouldKeepName then
+                PolarsWrapper.Replace(this.Handle, columnName, newColumn.Handle)
+            else
+                let index = Array.IndexOf(this.Columns, columnName)
+                if index = -1 then
+                    let msg = String.Format("Column '{0}' does not exist in the DataFrame.", columnName)
+                    raise (ArgumentException(msg))
+                PolarsWrapper.ReplaceColumnAt(this.Handle, index, newColumn.Handle)
+
+            this
+
+     

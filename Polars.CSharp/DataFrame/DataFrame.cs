@@ -476,7 +476,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     /// <param name="columns">The series to stack.</param>
     public DataFrame HStack(IEnumerable<Series> columns)
     {
-        var colsArray = columns as Series[] ?? columns.ToArray();
+        var colsArray = columns as Series[] ?? [.. columns];
         var handles = colsArray.Select(s => s.Handle).ToArray();
         
         return new DataFrame(PolarsWrapper.HStack(Handle, handles));

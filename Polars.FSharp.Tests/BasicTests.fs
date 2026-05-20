@@ -4,6 +4,7 @@ open Xunit
 open Polars.FSharp
 open System
 open System.IO
+open Polars.NET.Core
 
 type DisposableFile (extension: string, ?content: string) =
     let ext = if extension.StartsWith "." then extension else "." + extension
@@ -1161,3 +1162,93 @@ type LitTests() =
         // Should gracefully return an empty DataFrame instead of throwing
         let slice6 = df.[10..20]
         Assert.Equal(0L, slice6.Height)
+    [<Fact>]
+    [<Trait("DataFrame", "InsertColumn")>]
+    member _. ``InsertColumn with Series inserts at correct index and supports negative indexing`` () =
+        // Arrange: Create a DataFrame with columns "A" and "C"
+        let sA = Series.create("A", [| 1; 2; 3 |])
+        let sC = Series.create("C", [| 7; 8; 9 |])
+        let df = DataFrame.create([| sA; sC |])
+        
+        // New column to insert
+        let sB = Series.create("B", [| 4; 5; 6 |])
+
+        // Act 1: Insert "B" at index 1 (between "A" and "C")
+        let result1 = df.InsertColumn(1, sB)
+
+        // Assert 1
+        Assert.Equal(3, int result1.Width)
+        Assert.Equal("A", result1.Columns.[0])
+        Assert.Equal("B", result1.Columns.[1])
+        Assert.Equal("C", result1.Columns.[2])
+
+        // Act 2: Test negative indexing (-1 meaning before the last column)
+        let sNew = Series.create("New", [| 10; 11; 12 |])
+        let result2 = df.InsertColumn(-1, sNew)
+
+        // Assert 2: Original df had 2 columns, -1 index resolves to index 1 (width 2 + (-1) = 1)
+        Assert.Equal(3, int result2.Width)
+        Assert.Equal("A", result2.Columns.[0])
+        Assert.Equal("New", result2.Columns.[1])
+        Assert.Equal("C", result2.Columns.[2])
+
+        // Act 3: Test out-of-bounds error handling
+        let action = fun () -> df.InsertColumn(5, sNew) |> ignore
+        Assert.Throws<ArgumentOutOfRangeException>(action) |> ignore
+
+    [<Fact>]
+    [<Trait("DataFrame", "ReplaceColumn")>]
+    member _.``ReplaceColumn by index replaces in-place with correct keepName behavior`` () =
+        // Arrange: Create a DataFrame with columns "A" and "B"
+        let sA = Series.create("A", [| 10; 20 |])
+        let sB = Series.create("B", [| 30; 40 |])
+        let df = DataFrame.create([| sA; sB |])
+
+        let sNew = Series.create("NewName", [| 100; 200 |])
+
+        // Act 1: Replace column at index 1 ("B"), keepName = false (defaultArg fallback)
+        let result1 = df.ReplaceColumn(1, sNew)
+
+        // Assert 1: The instance is updated and the name is replaced by the new Series's name
+        Assert.Equal("A", result1.Columns.[0])
+        Assert.Equal("NewName", result1.Columns.[1])
+
+        // Act 2: Replace column at index 0 ("A"), keepName = true
+        let sAnother = Series.create("AnotherName", [| 500; 600 |])
+        let result2 = df.ReplaceColumn(0, sAnother, keepName = true)
+
+        // Assert 2: The column at index 0 is updated but retains its original name "A"
+        Assert.Equal("A", result2.Columns.[0])
+
+        // Act 3: Test negative indexing for replacement (-1 replaces the last column)
+        let sLast = Series.create("FinalName", [| 99; 99 |])
+        let result3 = df.ReplaceColumn(-1, sLast)
+        Assert.Equal("FinalName", result3.Columns.[1])
+
+    [<Fact>]
+    [<Trait("DataFrame", "ReplaceColumn")>]
+    member _.``ReplaceColumn by name replaces in-place with correct keepName behavior`` () =
+        // Arrange: Create a DataFrame with columns "X" and "Y"
+        let sX = Series.create("X", [| 1.0; 2.0 |])
+        let sY = Series.create("Y", [| 3.0; 4.0 |])
+        let df = DataFrame.create([| sX; sY |])
+
+        let sNew = Series.create("Replacement", [| 5.0; 6.0 |])
+
+        // Act 1: Replace column "Y", keepName = true (defaultArg fallback)
+        let result1 = df.ReplaceColumn("Y", sNew)
+
+        // Assert 1: Name "Y" should be kept
+        Assert.Equal("X", result1.Columns.[0])
+        Assert.Equal("Y", result1.Columns.[1])
+
+        // Act 2: Replace column "X", keepName = false
+        let sAnother = Series.create("NoKeep", [| 7.0; 8.0 |])
+        let result2 = df.ReplaceColumn("X", sAnother, keepName = false)
+
+        // Assert 2: Name should change to the series name "NoKeep"
+        Assert.Equal("NoKeep", result2.Columns.[0])
+
+        // Act 3: Attempting to replace a non-existent column name should throw
+        let action = fun () -> df.ReplaceColumn("NonExistent", sNew) |> ignore
+        Assert.Throws<PolarsException>(action) |> ignore
