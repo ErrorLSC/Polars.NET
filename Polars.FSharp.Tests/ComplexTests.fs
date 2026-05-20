@@ -5,6 +5,7 @@ open Polars.FSharp
 open System
 open System.Data
 open System.Diagnostics
+open Polars.NET.Core
 
 type ``Complex Query Tests`` () =
     
@@ -733,3 +734,37 @@ type ``Complex Query Tests`` () =
         
         Assert.Equal(1, bot2.Cell<int>("V",0))
         Assert.Equal(2, bot2.Cell<int>("V",1))
+    [<Fact>]
+    [<Trait("DataFrame", "Upsample")>]
+    member _.``Upsample with Duration and Selector resolves columns and handles missing intervals correctly`` () =
+        // Arrange: Setup a simple time-series dataframe
+        // Assume columns are populated with appropriate time indices and values
+        let timeSeries = Series.create("datetime", [| new DateTime(2026,5,20,10,0,0); new DateTime(2026,5,20,10,2,0) |])
+        let values = Series.create("metrics", [| 42.0; 45.0 |])
+        let groups = Series.create("category", [| "A"; "A" |])
+        let df = DataFrame.create([| timeSeries; values; groups |])
+
+        // Create selectors based on the project core implementation
+        let timeSel = pl.cs.temporal()
+        let groupSel = pl.cs.string()
+
+        // Act 1: Upsample using Duration.String
+        let durationStr = Dur.String "1m" // Upsample to 1 minute intervals
+        let result1 = df.Upsample(timeSel, durationStr, groupBy = groupSel)
+
+        // Assert 1: The gap at 10:01:00 should be upsampled and filled with nulls
+        // Initial rows were 2, upsampling 10:00 to 10:02 at 1m interval should create 3 rows total
+        Assert.Equal(3L, result1.Height)
+        Assert.Equal(3, int result1.Width)
+
+        // Act 2: Upsample using Dur.TimeSpan
+        let durationTs = Dur.TimeSpan(TimeSpan.FromMinutes(1.0))
+        let result2 = df.Upsample(timeSel, durationTs, maintainOrder = true)
+
+        // Assert 2
+        Assert.Equal(3L, result2.Height)
+
+        // Act 3: Test exception when timeColumn selector matches multiple columns
+        let invalidTimeSel = pl.cs.all() // Matches all columns, which is invalid for time index
+        let action = fun () -> df.Upsample(invalidTimeSel, durationStr) |> ignore
+        Assert.Throws<ArgumentException>(action) |> ignore

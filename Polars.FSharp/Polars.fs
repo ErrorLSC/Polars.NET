@@ -598,7 +598,7 @@ module pl =
         let inline enum() = new Selector(PolarsWrapper.SelectorEnum());
         let inline nested() = new Selector(PolarsWrapper.SelectorNested());
         let inline struct_() = new Selector(PolarsWrapper.SelectorStruct());
-        let inline Temporal() = new Selector(PolarsWrapper.SelectorTemporal());
+        let inline temporal() = new Selector(PolarsWrapper.SelectorTemporal());
         /// <summary>
         /// Select list columns. Optionally filter by the inner data type.
         /// Example: pl.cs.list(Some(pl.cs.numeric()))

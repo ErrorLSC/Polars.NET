@@ -526,12 +526,6 @@ type ``Series Tests`` () =
         Assert.Equal(3, sRoll.GetValue<int> 1)
         Assert.Equal(5, sRoll.GetValue<int> 2)
         Assert.Equal(7, sRoll.GetValue<int> 3)
-    
-
-    // ==========================================
-    // 1. 测试标准 Option<'T> (引用类型包装)
-    // ==========================================
-
     [<Fact>]
     member _.``Series.ofOptionSeq: Int32 (Fast Path)`` () =
         // 准备数据: [Some 0, Some 1, Some 2, Some 3, None, Some 5 ...]
@@ -646,7 +640,6 @@ type ``Series Tests`` () =
         
         using (Series.ofArray2D("decimal_matrix", data)) (fun s ->
             
-            // 3. 验证
             Assert.Equal(2L, s.Length)
             
             let result = s.ToArray<decimal[]>()

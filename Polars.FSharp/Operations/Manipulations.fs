@@ -245,7 +245,6 @@ module ManipulateOps =
             if absoluteOffset < 0L || absoluteOffset >= this.Height then
                 new DataFrame(PolarsWrapper.Slice(this.Handle, absoluteOffset, 0UL))
             else
-                // Use 'defaultArg' to elegantly handle the optional length
                 let realLength = defaultArg length (uint64 (this.Height - absoluteOffset))
                 new DataFrame(PolarsWrapper.Slice(this.Handle, absoluteOffset, realLength))
         /// <summary>
@@ -893,5 +892,46 @@ module ManipulateOps =
                 PolarsWrapper.ReplaceColumnAt(this.Handle, index, newColumn.Handle)
 
             this
+
+        /// <summary>
+        /// Upsample a DataFrame at a regular frequency.
+        /// </summary>
+        /// <param name="timeColumn">The column used for the time/datetime index. Must resolve to exactly one column.</param>
+        /// <param name="every">The interval to upsample to (e.g., Duration.String "1d", or Duration.TimeSpan ts).</param>
+        /// <param name="groupBy">Optional. Group by this selector before upsampling.</param>
+        /// <param name="maintainOrder">If true, maintains the original order of the groups. Default is false.</param>
+        /// <returns>A new DataFrame with missing time steps filled with nulls.</returns>
+        member this.Upsample(timeColumn: Selector, every: Dur, ?groupBy: Selector, ?maintainOrder: bool) =
+                let shouldMaintainOrder = defaultArg maintainOrder false
+
+                // 1. Inline ExpandSelector logic for timeColumn
+                // F# uses 'use' keyword for deterministic disposal (equivalent to C# 'using var')
+                use emptyDfForTime = this.Clear()
+                use resolvedTimeDf = emptyDfForTime.Select(timeColumn.ToExpr())
+                let expandedTimeCols = resolvedTimeDf.Columns
+
+                if expandedTimeCols.Length <> 1 then
+                    let colsStr = if expandedTimeCols.Length > 0 then String.Join(", ", expandedTimeCols) else "None"
+                    let msg = String.Format("The timeColumn selector must resolve to exactly one column, but it resolved to {0} columns: {1}", expandedTimeCols.Length, colsStr)
+                    raise (ArgumentException(msg, nameof(timeColumn)))
+                
+                let resolvedTimeColumn = expandedTimeCols.[0]
+
+                // 2. Consume Duration DU to FFI string representation
+                let durationStr = Dur.consume every
+
+                // 3. Inline ExpandSelector logic for optional groupBy
+                let groupByCols = 
+                    match groupBy with
+                    | Some selector ->
+                        use emptyDfForGroup = this.Clear()
+                        use resolvedGroupDf = emptyDfForGroup.Select(selector.ToExpr())
+                        let cols = resolvedGroupDf.Columns
+                        if cols.Length = 0 then null else cols
+                    | None -> null
+
+                // 4. Call Core Layer (LibraryImport Wrapper)
+                let newHandle = PolarsWrapper.DataFrameUpsample(this.Handle, resolvedTimeColumn, durationStr, groupByCols, shouldMaintainOrder)
+                new DataFrame(newHandle)
 
      
