@@ -1259,7 +1259,11 @@ type LitTests() =
         let sColor = Series.create("color", [| "red"; "blue" |])
         let sId = Series.create("id", [| 1; 2 |])
         let df = DataFrame.create([| sColor; sId |])
-
+        // Act 1: Call ToDummies with default parameters (auto-detect string/categorical columns)
+        let result1 = df.ToDummies()
+        // Assert 1: "color" should be converted into dummy columns "color_blue" and "color_red"
+        Assert.Equal(3, int result1.Width)
+        Assert.Equal("id", result1.Columns.[2])
         // Act 2: Test specifying columns explicitly using native F# List (implied as seq)
         let result2 = df.ToDummies(columns = [ "color" ], separator = "-")
         // Assert 2: Separator should be modified

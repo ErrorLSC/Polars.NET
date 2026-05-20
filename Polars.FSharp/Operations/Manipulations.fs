@@ -892,7 +892,9 @@ module ManipulateOps =
                 PolarsWrapper.ReplaceColumnAt(this.Handle, index, newColumn.Handle)
 
             this
-
+    /// ========================
+    /// Upsample and dummies
+    /// ========================
         /// <summary>
         /// Upsample a DataFrame at a regular frequency.
         /// </summary>
@@ -943,22 +945,51 @@ module ManipulateOps =
         /// <returns>A new DataFrame with dummy variables.</returns>
         /// <exception cref="ArgumentException">Thrown when the provided columns array is empty.</exception>
         member this.ToDummies(?columns: seq<string>, ?separator: string, ?dropFirst: bool, ?dropNulls: bool) =
-                let sep = defaultArg separator "_"
-                let shouldDropFirst = defaultArg dropFirst false
-                let shouldDropNulls = defaultArg dropNulls false
+            if box this = null then raise (NullReferenceException())
+            
+            let sep = defaultArg separator "_"
+            let shouldDropFirst = defaultArg dropFirst false
+            let shouldDropNulls = defaultArg dropNulls false
 
-                let columnsArray = 
-                    match columns with
-                    | Some cols ->
-                        // Convert seq to array for the underlying C# Core Layer FFI mapping
-                        let arr = Seq.toArray cols
-                        if arr.Length = 0 then
-                            let msg = "The provided columns sequence cannot be empty. Pass None to convert all categorical columns."
-                            raise (ArgumentException(msg, nameof(columns)))
-                        arr
-                    | None -> null
+            let columnsArray = 
+                match columns with
+                | Some cols ->
+                    let arr = Seq.toArray cols
+                    if arr.Length = 0 then
+                        let msg = "The provided columns sequence cannot be empty. Pass None to convert all default categorical columns."
+                        raise (ArgumentException(msg, nameof(columns)))
+                    arr
+                | None ->
+                    // Replicate C# fallback behavior: Cs.String() | Cs.ByDtype(DataType.Categorical()) | Cs.Enum()
+                    // Use Selector.ByDtype to probe the structure via deterministic memory disposal
+                    use emptyDf = this.Clear()
+                    
+                    let stringCols = 
+                        use sel = Selector.ByDtype(DataType.String)
+                        use res = emptyDf.Select(sel.ToExpr())
+                        res.Columns
+                        
+                    let catCols = 
+                        use sel = Selector.ByDtype(DataType.Categorical())
+                        use res = emptyDf.Select(sel.ToExpr())
+                        res.Columns
+                        
+                    let enumCols = 
+                        use sel =  new Selector(PolarsWrapper.SelectorEnum())
+                        use res = emptyDf.Select(sel.ToExpr())
+                        res.Columns
 
-                let newHandle = PolarsWrapper.DataFrameToDummies(this.Handle, columnsArray, sep, shouldDropFirst, shouldDropNulls)
-                new DataFrame(newHandle)
+                    // Merge all propped columns distinctly
+                    let mergedCols = 
+                        Array.concat [ stringCols; catCols; enumCols ] 
+                        |> Array.distinct
+                    
+                    if mergedCols.Length = 0 then
+                        let msg = "The DataFrame contains no string, categorical, or enum columns to convert."
+                        raise (ArgumentException(msg))
+                    mergedCols
+
+            let newHandle = PolarsWrapper.DataFrameToDummies(this.Handle, columnsArray, sep, shouldDropFirst, shouldDropNulls)
+            new DataFrame(newHandle)
 
      

@@ -870,9 +870,11 @@ and Selector(handle: SelectorHandle) =
     // Methods
     // ==========================================
 
-    static member ByName([<ParamArray>]columns: string array) =
+    static member internal ByName([<ParamArray>]columns: string array) =
         new Selector(PolarsWrapper.SelectorCols columns)
-
+    static member internal ByDtype(dtype:DataType) = 
+        new Selector(PolarsWrapper.SelectorByDtype(dtype.ToPlDataType()))
+       
     /// <summary> Exclude columns from a wildcard selection (col("*")). </summary>
     member this.Exclude(names: seq<string>) =
         let arr = Seq.toArray names
