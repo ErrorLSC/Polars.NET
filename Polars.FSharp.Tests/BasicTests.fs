@@ -1252,3 +1252,19 @@ type LitTests() =
         // Act 3: Attempting to replace a non-existent column name should throw
         let action = fun () -> df.ReplaceColumn("NonExistent", sNew) |> ignore
         Assert.Throws<PolarsException>(action) |> ignore
+    [<Fact>]
+    [<Trait("DataFrame", "ToDummies")>]
+    member _.``ToDummies converts categorical columns and respects optional parameters`` () =
+        // Arrange: Setup a dataframe with a string column and an integer column
+        let sColor = Series.create("color", [| "red"; "blue" |])
+        let sId = Series.create("id", [| 1; 2 |])
+        let df = DataFrame.create([| sColor; sId |])
+
+        // Act 2: Test specifying columns explicitly using native F# List (implied as seq)
+        let result2 = df.ToDummies(columns = [ "color" ], separator = "-")
+        // Assert 2: Separator should be modified
+        Assert.Equal(3, int result2.Width)
+
+        // Act 3: Test empty columns sequence exception branch
+        let action = fun () -> df.ToDummies(columns = []) |> ignore
+        Assert.Throws<ArgumentException>(action) |> ignore

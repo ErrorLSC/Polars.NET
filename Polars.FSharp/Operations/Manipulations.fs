@@ -933,5 +933,32 @@ module ManipulateOps =
                 // 4. Call Core Layer (LibraryImport Wrapper)
                 let newHandle = PolarsWrapper.DataFrameUpsample(this.Handle, resolvedTimeColumn, durationStr, groupByCols, shouldMaintainOrder)
                 new DataFrame(newHandle)
+        /// <summary>
+        /// Convert categorical columns to dummy/one-hot encoded variables.
+        /// </summary>
+        /// <param name="columns">Optional. Specific column names to convert. If omitted, all string and categorical columns are converted.</param>
+        /// <param name="separator">The separator between the original column name and the dummy category. Default is "_".</param>
+        /// <param name="dropFirst">If true, drops the first dummy column to avoid multicollinearity. Default is false.</param>
+        /// <param name="dropNulls">If true, drops dummy columns representing null values. Default is false.</param>
+        /// <returns>A new DataFrame with dummy variables.</returns>
+        /// <exception cref="ArgumentException">Thrown when the provided columns array is empty.</exception>
+        member this.ToDummies(?columns: seq<string>, ?separator: string, ?dropFirst: bool, ?dropNulls: bool) =
+                let sep = defaultArg separator "_"
+                let shouldDropFirst = defaultArg dropFirst false
+                let shouldDropNulls = defaultArg dropNulls false
+
+                let columnsArray = 
+                    match columns with
+                    | Some cols ->
+                        // Convert seq to array for the underlying C# Core Layer FFI mapping
+                        let arr = Seq.toArray cols
+                        if arr.Length = 0 then
+                            let msg = "The provided columns sequence cannot be empty. Pass None to convert all categorical columns."
+                            raise (ArgumentException(msg, nameof(columns)))
+                        arr
+                    | None -> null
+
+                let newHandle = PolarsWrapper.DataFrameToDummies(this.Handle, columnsArray, sep, shouldDropFirst, shouldDropNulls)
+                new DataFrame(newHandle)
 
      
