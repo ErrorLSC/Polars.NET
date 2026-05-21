@@ -791,7 +791,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     public Expr Explode(bool emptyAsNull=true,bool keepNulls=true) => new(PolarsWrapper.Explode(CloneHandle(),emptyAsNull,keepNulls));
     /// <summary>
     /// Returns the first non-null value between this expression and other expressions.
-    /// Syntactic sugar for <c>Polars.Coalesce(this, others)</c>.
+    /// Syntactic sugar for <c>Pl.Coalesce(this, others)</c>.
     /// </summary>
     /// <param name="others">Fallback expressions, column names, or literals.</param>
     /// <returns>A new coalesced expression.</returns>

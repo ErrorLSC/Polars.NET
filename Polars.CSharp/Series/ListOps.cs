@@ -61,7 +61,8 @@ public readonly struct SeriesListOps
     /// <summary>
     /// Shift list values by the given number of indices.
     /// </summary>
-    /// <param name="n">Number of indices to shift forward. If a negative value is passed, values are shifted in the opposite direction instead.</param>
+    /// <param name="n">Number of indices to shift forward. 
+    /// If a negative value is passed, values are shifted in the opposite direction instead.</param>
     public Series Shift(Expr n) => Apply(e=>e.List.Shift(n));
     /// <inheritdoc cref="Shift(Expr)"/>
     public Series Shift() => Shift(1);
@@ -77,7 +78,8 @@ public readonly struct SeriesListOps
     /// <param name="n">Number of items to return.Defaults to 1</param>
     /// <param name="withReplacement">Allow values to be sampled more than once.</param>
     /// <param name="shuffle">Shuffle the order of sampled data points.</param>
-    /// <param name="seed">Seed for the random number generator. If set to None (default), a random seed is generated for each sample operation.</param>
+    /// <param name="seed">Seed for the random number generator. 
+    /// If set to None (default), a random seed is generated for each sample operation.</param>
     public Series SampleN(IntoExprColumn n,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
         => Apply(e=>e.List.SampleN(n,withReplacement,shuffle,seed));
     /// <inheritdoc cref="SeriesListOps.SampleN(IntoExprColumn,bool,bool,ulong?)"/>
@@ -129,7 +131,6 @@ public readonly struct SeriesListOps
     /// Run any polars aggregation expression against the list’ elements.
     /// </summary>
     /// <param name="expr">Expression to run. Note that you can select an element with Pl.Element().</param>
-    /// <returns></returns>
     public Series Agg(Expr expr) => Apply(e=>e.List.Agg(expr));
     /// <summary>
     /// Get the length of the sublists.
@@ -194,16 +195,13 @@ public readonly struct SeriesListOps
     public Series Std(byte ddof=1) => Apply(e => e.List.Std(ddof));
     /// <inheritdoc cref="Expr.Var"/>
     public Series Var(byte ddof=1) => Apply(e => e.List.Var(ddof));
-    /// <summary>
-    /// Sort the arrays in the list.
-    /// </summary>
+    /// <inheritdoc cref="ListOps.Sort"/>
     public Series Sort(bool descending = false,bool nullsLast=false,bool maintainOrder= false) 
         => Apply(e => e.List.Sort(descending,nullsLast,maintainOrder));
     /// <summary>
     /// Get the unique/distinct values in the list.
     /// </summary>
     /// <param name="maintainOrder">Maintain order of data. This requires more work.</param>
-    /// <returns></returns>
     public Series Unique(bool maintainOrder=false) => Apply(e => e.List.Unique(maintainOrder));
 
     /// <summary>

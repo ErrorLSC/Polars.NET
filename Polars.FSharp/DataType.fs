@@ -4,6 +4,7 @@ open Polars.NET.Core
 open Polars.NET.Core.Arrow
 open System
 
+[<RequireQualifiedAccess>]
 type DataTypeKind =
     | SameAsInput
     | Null
@@ -31,6 +32,7 @@ type DataTypeKind =
 /// <summary>
 /// Polars data types for casting and schema definitions.
 /// </summary>
+
 and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
     let mutable disposed = false
     [<DefaultValue>]
@@ -103,51 +105,51 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
 
     member internal this.CreateHandle() : DataTypeHandle =
         match this.Kind with
-        | SameAsInput -> PolarsWrapper.NewPrimitiveType 0
-        | Null -> PolarsWrapper.NewPrimitiveType 18
-        | Boolean -> PolarsWrapper.NewPrimitiveType 1
-        | Int8 -> PolarsWrapper.NewPrimitiveType 2
-        | Int16 -> PolarsWrapper.NewPrimitiveType 3
-        | Int32 -> PolarsWrapper.NewPrimitiveType 4
-        | Int64 -> PolarsWrapper.NewPrimitiveType 5
-        | UInt8 -> PolarsWrapper.NewPrimitiveType 6
-        | UInt16 -> PolarsWrapper.NewPrimitiveType 7
-        | UInt32 -> PolarsWrapper.NewPrimitiveType 8
-        | UInt64 -> PolarsWrapper.NewPrimitiveType 9
-        | Float32 -> PolarsWrapper.NewPrimitiveType 10
-        | Float64 -> PolarsWrapper.NewPrimitiveType 11
-        | String -> PolarsWrapper.NewPrimitiveType 12
-        | Binary -> PolarsWrapper.NewPrimitiveType 17
-        | Date -> PolarsWrapper.NewPrimitiveType 13
-        | Time -> PolarsWrapper.NewPrimitiveType 15
-        | Int128 -> PolarsWrapper.NewPrimitiveType 24
-        | UInt128 -> PolarsWrapper.NewPrimitiveType 25
-        | Float16 -> PolarsWrapper.NewPrimitiveType 26
+        | DataTypeKind.SameAsInput -> PolarsWrapper.NewPrimitiveType 0
+        | DataTypeKind.Null -> PolarsWrapper.NewPrimitiveType 18
+        | DataTypeKind.Boolean -> PolarsWrapper.NewPrimitiveType 1
+        | DataTypeKind.Int8 -> PolarsWrapper.NewPrimitiveType 2
+        | DataTypeKind.Int16 -> PolarsWrapper.NewPrimitiveType 3
+        | DataTypeKind.Int32 -> PolarsWrapper.NewPrimitiveType 4
+        | DataTypeKind.Int64 -> PolarsWrapper.NewPrimitiveType 5
+        | DataTypeKind.UInt8 -> PolarsWrapper.NewPrimitiveType 6
+        | DataTypeKind.UInt16 -> PolarsWrapper.NewPrimitiveType 7
+        | DataTypeKind.UInt32 -> PolarsWrapper.NewPrimitiveType 8
+        | DataTypeKind.UInt64 -> PolarsWrapper.NewPrimitiveType 9
+        | DataTypeKind.Float32 -> PolarsWrapper.NewPrimitiveType 10
+        | DataTypeKind.Float64 -> PolarsWrapper.NewPrimitiveType 11
+        | DataTypeKind.String -> PolarsWrapper.NewPrimitiveType 12
+        | DataTypeKind.Binary -> PolarsWrapper.NewPrimitiveType 17
+        | DataTypeKind.Date -> PolarsWrapper.NewPrimitiveType 13
+        | DataTypeKind.Time -> PolarsWrapper.NewPrimitiveType 15
+        | DataTypeKind.Int128 -> PolarsWrapper.NewPrimitiveType 24
+        | DataTypeKind.UInt128 -> PolarsWrapper.NewPrimitiveType 25
+        | DataTypeKind.Float16 -> PolarsWrapper.NewPrimitiveType 26
 
-        | Datetime(unit, tz) ->
+        | DataTypeKind.Datetime(unit, tz) ->
             let tzStr = Option.toObj tz
             PolarsWrapper.NewDateTimeType(toUnitCode unit, tzStr)
 
-        | Duration unit ->
+        | DataTypeKind.Duration unit ->
             PolarsWrapper.NewDurationType(toUnitCode unit)
 
-        | Categorical maybeCat ->
+        | DataTypeKind.Categorical maybeCat ->
             let cat = defaultArg maybeCat (Categories.Global())
             PolarsWrapper.NewCategoricalType(cat.Handle)
 
-        | Enum frozenCat ->
+        | DataTypeKind.Enum frozenCat ->
             PolarsWrapper.NewEnumType(frozenCat.Handle)
 
-        | Decimal(p, s) ->
+        | DataTypeKind.Decimal(p, s) ->
             let prec = defaultArg p 0
             let scale = defaultArg s 0
             PolarsWrapper.NewDecimalType(prec, scale)
 
-        | List innerType ->
+        | DataTypeKind.List innerType ->
             use innerHandle = innerType.CreateHandle()
             PolarsWrapper.NewListType(innerHandle)
 
-        | Struct fields ->
+        | DataTypeKind.Struct fields ->
             let names = fields |> List.map (fun f -> f.Name) |> List.toArray
             let typeHandles = fields |> List.map (fun f -> f.DataType.CreateHandle()) |> List.toArray
             try
@@ -155,17 +157,17 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
             finally
                 for h in typeHandles do h.Dispose()
 
-        | Array(innerType, shape) ->
+        | DataTypeKind.Array(innerType, shape) ->
             if shape.Length = 0 then
                 invalidArg "shape" "Shape must not be empty."
             use innerHandle = innerType.CreateHandle()
             let span = System.ReadOnlySpan(shape)
             PolarsWrapper.NewArrayType(innerHandle, span)
 
-        | Extension ext ->
+        | DataTypeKind.Extension ext ->
             PolarsWrapper.NewExtensionType(ext.Name, ext.Storage.CreateHandle(), Option.toObj ext.Metadata)
 
-        | Unknown -> PolarsWrapper.NewPrimitiveType 0
+        | DataTypeKind.Unknown -> PolarsWrapper.NewPrimitiveType 0
 
     static member Datetime(unit:TimeUnit, ?tz) =
         let handle = PolarsWrapper.NewDateTimeType(toUnitCode unit, Option.toObj tz)
@@ -318,83 +320,84 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         this._displayString
     member this.IsNumeric =
         match this.Kind with
-        | UInt8 | UInt16 | UInt32 | UInt64
-        | Int8 | Int16 | Int32 | Int64
-        | Float32 | Float64 | Int128 | Float16
-        | Decimal _ -> true
+        | DataTypeKind.UInt8 | DataTypeKind.UInt16 | DataTypeKind.UInt32 | DataTypeKind.UInt64
+        | DataTypeKind.Int8 | DataTypeKind.Int16 | DataTypeKind.Int32 | DataTypeKind.Int64
+        | DataTypeKind.Float32 | DataTypeKind.Float64 | DataTypeKind.Int128 | DataTypeKind.Float16
+        | DataTypeKind.Decimal _ -> true
         | _ -> false
     member this.IsInteger =
         match this.Kind with
-        | Int8 | Int16 | Int32 | Int64
-        | UInt8 | UInt16 | UInt32 | UInt64
-        | Int128 | UInt128 -> true
+        | DataTypeKind.Int8 | DataTypeKind.Int16 | DataTypeKind.Int32 | DataTypeKind.Int64
+        | DataTypeKind.UInt8 | DataTypeKind.UInt16 | DataTypeKind.UInt32 | DataTypeKind.UInt64
+        | DataTypeKind.Int128 | DataTypeKind.UInt128 -> true
         | _ -> false
 
     member this.IsFloat =
         match this.Kind with
-        | Float16 | Float32 | Float64 -> true
+        | DataTypeKind.Float16 | DataTypeKind.Float32 | DataTypeKind.Float64 -> true
         | _ -> false
 
     member this.IsDecimal =
         match this.Kind with
-        | Decimal _ -> true
+        | DataTypeKind.Decimal _ -> true
         | _ -> false
 
     member this.IsExtension =
         match this.Kind with
-        | Extension _ -> true
+        | DataTypeKind.Extension _ -> true
         | _ -> false
 
     member this.IsNested =
         match this.Kind with
-        | List _ | Array _ | Struct _ -> true
+        | DataTypeKind.List _ | DataTypeKind.Array _ | DataTypeKind.Struct _ -> true
         | _ -> false
 
     member this.IsTemporal =
         match this.Kind with
-        | Duration _ | Date | Datetime _ | Time -> true
+        | DataTypeKind.Duration _ | DataTypeKind.Date 
+        | DataTypeKind.Datetime _ | DataTypeKind.Time -> true
         | _ -> false
 
     member this.IsSignedInteger =
         match this.Kind with
-        | Int8 | Int16 | Int32 | Int64 | Int128 -> true
+        | DataTypeKind.Int8 | DataTypeKind.Int16 | DataTypeKind.Int32 | DataTypeKind.Int64 | DataTypeKind.Int128 -> true
         | _ -> false
 
     member this.IsUnsignedInteger =
         match this.Kind with
-        | UInt8 | UInt16 | UInt32 | UInt64 | UInt128 -> true
+        | DataTypeKind.UInt8 | DataTypeKind.UInt16 | DataTypeKind.UInt32 | DataTypeKind.UInt64 | DataTypeKind.UInt128 -> true
         | _ -> false
     member this.Code =
         match this.Kind with
-        | SameAsInput | Unknown -> 0
-        | Boolean -> 1
-        | Int8 -> 2
-        | Int16 -> 3
-        | Int32 -> 4
-        | Int64 -> 5
-        | UInt8 -> 6
-        | UInt16 -> 7
-        | UInt32 -> 8
-        | UInt64 -> 9
-        | Float32 -> 10
-        | Float64 -> 11
-        | String -> 12
-        | Date -> 13
-        | Datetime _ -> 14
-        | Time -> 15
-        | Duration _ -> 16
-        | Binary -> 17
-        | Null -> 18
-        | Struct _ -> 19
-        | List _ -> 20
-        | Categorical _ -> 21
-        | Decimal _ -> 22
-        | Array _ -> 23
-        | Int128 -> 24
-        | UInt128 -> 25
-        | Float16 -> 26
-        | Enum _ -> 27
-        | Extension _ -> 28 
+        | DataTypeKind.SameAsInput | DataTypeKind.Unknown -> 0
+        | DataTypeKind.Boolean -> 1
+        | DataTypeKind.Int8 -> 2
+        | DataTypeKind.Int16 -> 3
+        | DataTypeKind.Int32 -> 4
+        | DataTypeKind.Int64 -> 5
+        | DataTypeKind.UInt8 -> 6
+        | DataTypeKind.UInt16 -> 7
+        | DataTypeKind.UInt32 -> 8
+        | DataTypeKind.UInt64 -> 9
+        | DataTypeKind.Float32 -> 10
+        | DataTypeKind.Float64 -> 11
+        | DataTypeKind.String -> 12
+        | DataTypeKind.Date -> 13
+        | DataTypeKind.Datetime _ -> 14
+        | DataTypeKind.Time -> 15
+        | DataTypeKind.Duration _ -> 16
+        | DataTypeKind.Binary -> 17
+        | DataTypeKind.Null -> 18
+        | DataTypeKind.Struct _ -> 19
+        | DataTypeKind.List _ -> 20
+        | DataTypeKind.Categorical _ -> 21
+        | DataTypeKind.Decimal _ -> 22
+        | DataTypeKind.Array _ -> 23
+        | DataTypeKind.Int128 -> 24
+        | DataTypeKind.UInt128 -> 25
+        | DataTypeKind.Float16 -> 26
+        | DataTypeKind.Enum _ -> 27
+        | DataTypeKind.Extension _ -> 28 
     /// <summary>Get the corresponding PlDataType enum value.</summary>
     member this.ToPlDataType() = enum<PlDataType>(this.Code)
     member this.GetArrowType() : Apache.Arrow.Types.IArrowType =

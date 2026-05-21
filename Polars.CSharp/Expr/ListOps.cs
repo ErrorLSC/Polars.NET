@@ -1,4 +1,3 @@
-#pragma warning disable CS1591
 using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 
@@ -58,15 +57,19 @@ public readonly struct ListOps
     /// */
     /// 
     /// // To Explode (Flatten) the list, use DataFrame.Explode:
-    /// // df.Explode(Col("scores")).Show();
+    /// // df.Explode(Pl.Col("scores"));
     /// </code>
     /// </example>
     public Expr Get(long index,bool nullOnOob=false)=> GetImpl(index,nullOnOob);
     internal Expr GetImpl(Expr index, bool nullOnOob= false)
         => new(PolarsWrapper.ListGet(_expr.CloneHandle(), index.CloneHandle(),nullOnOob));
+    /// <inheritdoc cref="SeriesListOps.Gather(IntoExprColumn, bool)"/>
     public Expr Gather(IntoExprColumn indices,bool nullOnOob=false) => new(PolarsWrapper.ListGather(_expr.CloneHandle(),indices.Consume().Handle,nullOnOob));
+    /// <inheritdoc cref="SeriesListOps.Gather(IntoExprColumn, bool)"/>
     public Expr Gather(ReadOnlySpan<int> indices,bool nullOnOob=false) => Gather(Pl.Lit(indices),nullOnOob);
+    /// <inheritdoc cref="SeriesListOps.GatherEvery(IntoExprColumn,IntoExprColumn)"/>
     public Expr GatherEvery(IntoExprColumn n,IntoExprColumn offset) => new(PolarsWrapper.ListGatherEvery(_expr.CloneHandle(),n.Consume().Handle,offset.Consume().Handle));
+    /// <inheritdoc cref="SeriesListOps.GatherEvery(IntoExprColumn)"/>
     public Expr GatherEvery(IntoExprColumn n) => GatherEvery(n,0);
     /// <summary>
     /// Slice every sublist.
@@ -85,36 +88,57 @@ public readonly struct ListOps
             lengthExpr.CloneHandle()
         ));
     }
+    /// <inheritdoc cref="SeriesListOps.Head(IntoExprColumn)"/>
     public Expr Head(IntoExprColumn n) => new(PolarsWrapper.ListHead(_expr.CloneHandle(),n.Consume().Handle));
+    /// <inheritdoc cref="SeriesListOps.Head(IntoExprColumn)"/>
     public Expr Head(long n=5) => Head(Pl.Lit(n));
+    /// <inheritdoc cref="SeriesListOps.Tail(IntoExprColumn)"/>
     public Expr Tail(IntoExprColumn n) => new(PolarsWrapper.ListTail(_expr.CloneHandle(),n.Consume().Handle));
+    /// <inheritdoc cref="SeriesListOps.Tail(IntoExprColumn)"/>
     public Expr Tail(long n=5) => Tail(Pl.Lit(n));
+    /// <inheritdoc cref="SeriesListOps.Agg(Expr)"/>
     public Expr Agg(Expr expr) => new(PolarsWrapper.ListAgg(_expr.CloneHandle(),expr.CloneHandle()));
+    /// <inheritdoc cref="SeriesListOps.Shift(Expr)"/>
     public Expr Shift(Expr n) => new(PolarsWrapper.ListShift(_expr.CloneHandle(),n.CloneHandle()));
+    /// <inheritdoc cref="SeriesListOps.Agg(Expr)"/>
     public Expr Shift() => Shift(1);
+    /// <inheritdoc cref="SeriesListOps.Diff"/>
     public Expr Diff(long n=1,NullBehavior nullBehavior=NullBehavior.Ignore) => new(PolarsWrapper.ListDiff(_expr.CloneHandle(),n,nullBehavior.ToNative()));
+    /// <inheritdoc cref="SeriesListOps.SampleN(IntoExprColumn, bool, bool, ulong?)"/>
     public Expr SampleN(IntoExprColumn n,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
     {
         ExprHandle nE = n.Consume().Handle;
         return new Expr(PolarsWrapper.ListSampleN(_expr.CloneHandle(),nE,withReplacement,shuffle,seed));
     }
+    /// <inheritdoc cref="SeriesListOps.SampleN(IntoExprColumn, bool, bool, ulong?)"/>
     public Expr SampleN(bool withReplacement=false,bool shuffle=false,ulong? seed=null) => SampleN(1,withReplacement,shuffle,seed);
+    /// <inheritdoc cref="SeriesListOps.SampleFrac(IntoExprColumn, bool, bool, ulong?)"/>
     public Expr SampleFrac(IntoExprColumn fraction,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
         => new(PolarsWrapper.ListSampleFraction(_expr.CloneHandle(),fraction.Consume().Handle,withReplacement,shuffle,seed));
+    /// <inheritdoc cref="SeriesListOps.SetUnion"/>
     public Expr SetUnion(IntoExprColumn other) => new(PolarsWrapper.ListSetUnion(_expr.CloneHandle(),other.Consume().Handle));
+    /// <inheritdoc cref="SeriesListOps.SetUnion"/>
     public Expr SetUnion<T>(ReadOnlySpan<T> other) => SetUnion(Pl.Lit(other));
+    /// <inheritdoc cref="SeriesListOps.SetUnion"/>
     public Expr SetUnion<T>(IEnumerable<T> other) => SetUnion(Pl.Lit(other));
+    /// <inheritdoc cref="SeriesListOps.SetDifference"/>
     public Expr SetDifference(IntoExprColumn other) => new(PolarsWrapper.ListSetDifference(_expr.CloneHandle(),other.Consume().Handle));
+    /// <inheritdoc cref="SeriesListOps.SetDifference"/>
     public Expr SetDifference<T>(ReadOnlySpan<T> other) => SetDifference(Pl.Lit(other));
+    /// <inheritdoc cref="SeriesListOps.SetDifference"/>
     public Expr SetDifference<T>(IEnumerable<T> other) => SetDifference(Pl.Lit(other));
+    /// <inheritdoc cref="SeriesListOps.SetIntersection"/>
     public Expr SetIntersection(IntoExprColumn other) => new(PolarsWrapper.ListSetIntersection(_expr.CloneHandle(),other.Consume().Handle));
+    /// <inheritdoc cref="SeriesListOps.SetIntersection"/>
     public Expr SetIntersection<T>(ReadOnlySpan<T> other) => SetIntersection(Pl.Lit(other));
+    /// <inheritdoc cref="SeriesListOps.SetIntersection"/>
     public Expr SetIntersection<T>(IEnumerable<T> other) => SetIntersection(Pl.Lit(other));
+    /// <inheritdoc cref="SeriesListOps.SetSymmetricDifference"/>
     public Expr SetSymmetricDifference(IntoExprColumn other) => new(PolarsWrapper.ListSetSymmetricDifference(_expr.CloneHandle(),other.Consume().Handle));
+    /// <inheritdoc cref="SeriesListOps.SetSymmetricDifference"/>
     public Expr SetSymmetricDifference<T>(ReadOnlySpan<T> other) => SetSymmetricDifference(Pl.Lit(other));
+    /// <inheritdoc cref="SeriesListOps.SetSymmetricDifference"/>
     public Expr SetSymmetricDifference<T>(IEnumerable<T> other) => SetSymmetricDifference(Pl.Lit(other));
-    
-    // public Expr SampleFrac
     /// <summary>
     /// Return the number of elements in each list.
     /// </summary>
@@ -129,51 +153,41 @@ public readonly struct ListOps
     public Expr Join(string separator,bool ignoreNulls=true)
         => new(PolarsWrapper.ListJoin(_expr.CloneHandle(), separator,ignoreNulls));
     /// <summary>
-    /// Sort the list elements.
+    /// Sort the lists in this column.
     /// </summary>
-    /// <param name="descending"></param>
-    /// <param name="nullsLast"></param>
+    /// <param name="descending">Sort in descending order.</param>
+    /// <param name="nullsLast">Place null values last.</param>
     /// <param name="maintainOrder"></param>
-    /// <returns></returns>
     public Expr Sort(bool descending = false, bool nullsLast = false, bool maintainOrder = false)
         => new(PolarsWrapper.ListSort(_expr.CloneHandle(), descending, nullsLast, maintainOrder));
     
-    /// <summary>
-    /// Calculate the sum of the values in the list (row-wise).
-    /// </summary>
-    /// <example>
-    /// <code>
-    /// // Input: [100, 90, 80]
-    /// df.Select(Col("scores").List.Sum()); // Output: 270
-    /// </code>
-    /// </example>
+    /// <inheritdoc cref="SeriesListOps.Sum"/>
     public Expr Sum() => Wrap(PolarsWrapper.ListSum);
-    /// <summary>
-    /// Calculate the minimum of the list elements.
-    /// </summary>
-    /// <returns></returns>
+    /// <inheritdoc cref="SeriesListOps.Min"/>
     public Expr Min() => Wrap(PolarsWrapper.ListMin);
-    /// <summary>
-    /// Calculate the maximum of the list elements.
-    /// </summary>
-    /// <returns></returns>
+    /// <inheritdoc cref="SeriesListOps.Max"/>
     public Expr Max() => Wrap(PolarsWrapper.ListMax);
-    /// <summary>
-    /// Calculate the mean of the list elements.
-    /// </summary>
-    /// <returns></returns>
+    /// <inheritdoc cref="SeriesListOps.Mean"/>
     public Expr Mean() => Wrap(PolarsWrapper.ListMean);
+    /// <inheritdoc cref="SeriesListOps.Median"/>
     public Expr Median() => Wrap(PolarsWrapper.ListMedian);
+    /// <inheritdoc cref="SeriesListOps.All"/>
     public Expr All() => Wrap(PolarsWrapper.ListAll);
+    /// <inheritdoc cref="SeriesListOps.Any"/>
     public Expr Any() => Wrap(PolarsWrapper.ListAny);
+    /// <inheritdoc cref="SeriesListOps.DropNulls"/>
     public Expr DropNulls() => Wrap(PolarsWrapper.ListDropNulls);
+    /// <inheritdoc cref="SeriesListOps.NUnique"/>
     public Expr NUnique() => Wrap(PolarsWrapper.ListNUnique);
+    /// <inheritdoc cref="SeriesListOps.ArgMax"/>
     public Expr ArgMax() => Wrap(PolarsWrapper.ListArgMax);
+    /// <inheritdoc cref="SeriesListOps.ArgMin"/>
     public Expr ArgMin() => Wrap(PolarsWrapper.ListArgMin);
     /// <inheritdoc cref="Expr.Std"/>
     public Expr Std(byte ddof=1) => new(PolarsWrapper.ListStd(_expr.CloneHandle(),ddof));
     /// <inheritdoc cref="Expr.Var"/>
     public Expr Var(byte ddof=1) => new(PolarsWrapper.ListVar(_expr.CloneHandle(),ddof));
+    /// <inheritdoc cref="SeriesListOps.Unique"/>
     public Expr Unique(bool maintainOrder=false) => new(PolarsWrapper.ListUnique(_expr.CloneHandle(),maintainOrder));
     /// <summary>
     /// Check if the list contains a specific item.
@@ -211,13 +225,18 @@ public readonly struct ListOps
     public Expr Concat<T>(ReadOnlySpan<T> other) 
         => Concat(Pl.Lit(other)); 
 
-    // / <inheritdoc cref="Concat{T}(ReadOnlySpan{T})"/>
+    /// <inheritdoc cref="Concat{T}(ReadOnlySpan{T})"/>
     public Expr Concat<T>(IEnumerable<T> other) 
         => Concat(Pl.Lit(other));
+    /// <inheritdoc cref="SeriesListOps.Reverse"/>
     public Expr Reverse() => Wrap(PolarsWrapper.ListReverse);
+    /// <inheritdoc cref="SeriesListOps.Explode"/>
     public Expr Explode(bool emptyAsNull=true,bool keepNulls=true) => _expr.Explode(emptyAsNull,keepNulls);
+    /// <inheritdoc cref="SeriesListOps.ToArray"/>
     public Expr ToArray(long width) => new(PolarsWrapper.ListToArray(_expr.CloneHandle(),width));
+    /// <inheritdoc cref="SeriesListOps.ToStruct(string[])"/>
     public Expr ToStruct(params string[] fields) => new(PolarsWrapper.ListToStruct(_expr.CloneHandle(),fields));
+    /// <inheritdoc cref="SeriesListOps.ToStruct(Func{int,string},int)"/>
     public Expr ToStruct(Func<int, string> nameGenerator, int fieldCount)
     {
         if (fieldCount <= 0) 
@@ -230,7 +249,6 @@ public readonly struct ListOps
         }
         return ToStruct(fields);
     }
-
     /// <summary>
     /// Convert the list to a struct type.
     /// </summary>

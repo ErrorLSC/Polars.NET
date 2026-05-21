@@ -210,14 +210,16 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <summary>
     /// Get the standard deviation.
     /// </summary>
-    /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
+    /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. 
+    /// By default ddof is 1.</param>
     /// <returns>A series which length is 1</returns>
     public Expr Std(int ddof = 1) => new(PolarsWrapper.Std(CloneHandle(), ddof));
 
     /// <summary>
     /// Get the variance.
     /// </summary>
-    /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
+    /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. 
+    /// By default ddof is 1.</param>
     /// <returns>A series which length is 1</returns>
     public Expr Var(int ddof = 1) => new(PolarsWrapper.Var(CloneHandle(), ddof));
 
