@@ -28,6 +28,7 @@
     <Compile Include="UdfUtils.fs" />
     <Compile Include="Exprs.fs" />
     <Compile Include="Expr/Aggregation.fs" />
+    <Compile Include="Expr/Boolean.fs" />
     <Compile Include="Expr/ExtOps.fs" />
     <Compile Include="Expr/BinaryOps.fs" />
     <Compile Include="Expr/CatOps.fs" />

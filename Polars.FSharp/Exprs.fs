@@ -463,15 +463,7 @@ and Expr(handle: ExprHandle) =
     // ==========================================
     // Logic / Comparison
     // ==========================================
-    /// <summary> Check if the value is between lower and upper bounds (inclusive). </summary>
-    member this.IsBetween(lower: Expr, upper: Expr) =
-        new Expr(PolarsWrapper.IsBetween(this.CloneHandle(), lower.CloneHandle(), upper.CloneHandle()))
-    /// <summary>
-    /// Check if the value is in given collection.
-    /// </summary>
-    member this.IsIn(other: Expr,?nullsEqual: bool) : Expr = 
-        let nE = defaultArg nullsEqual false
-        new Expr(PolarsWrapper.IsIn(this.CloneHandle(), other.CloneHandle(),nE))
+
     /// <summary>
     /// Filter a single column.
     /// <br/>
@@ -501,10 +493,6 @@ and Expr(handle: ExprHandle) =
         new Expr(PolarsWrapper.InterpolateBy(this.CloneHandle(), by.CloneHandle()))
     member this.FillNan(fillValue:Expr) =
         new Expr(PolarsWrapper.FillNan(this.CloneHandle(), fillValue.CloneHandle()));
-    member this.IsNull() = 
-        new Expr(PolarsWrapper.IsNull(this.CloneHandle()))
-    member this.IsNotNull() = 
-        new Expr(PolarsWrapper.IsNotNull(this.CloneHandle()))
     member this.DropNulls() =
         new Expr(PolarsWrapper.DropNulls(this.CloneHandle()))
     member this.DropNans() =
@@ -689,18 +677,6 @@ and Expr(handle: ExprHandle) =
     // ==========================================
     // Uniqueness & Duplication
     // ==========================================
-
-    /// <summary>
-    /// Get a boolean mask indicating which values are unique.
-    /// </summary>
-    member this.IsUnique() =
-        new Expr(PolarsWrapper.ExprIsUnique(this.CloneHandle()))
-
-    /// <summary>
-    /// Get a boolean mask indicating which values are duplicated.
-    /// </summary>
-    member this.IsDuplicated() =
-        new Expr(PolarsWrapper.ExprIsDuplicated(this.CloneHandle()))
 
     /// <summary>
     /// Get unique values of this expression.

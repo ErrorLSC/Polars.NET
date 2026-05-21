@@ -51,7 +51,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <summary>
     /// Returns a boolean Series indicating which values are not NaN.
     /// </summary>
-    /// <returns></returns>
     public Expr IsNotNan() => new(PolarsWrapper.ExprIsNotNan(CloneHandle()));
     /// <summary>
     /// Returns a boolean Series indicating which values are infinite.
