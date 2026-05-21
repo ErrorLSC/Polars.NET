@@ -29,6 +29,7 @@
     <Compile Include="Exprs.fs" />
     <Compile Include="Expr/Aggregation.fs" />
     <Compile Include="Expr/BinaryOps.fs" />
+    <Compile Include="Expr/CatOps.fs" />
     <Compile Include="Expr/StringOps.fs" />
     <Compile Include="Expr/ListOps.fs" />
     <Compile Include="Expr/ArrayOps.fs" />
@@ -39,6 +40,7 @@
     <Compile Include="Expr/ExprNamespaces.fs" />
     <Compile Include="Types.fs" />  
     <Compile Include="UnionTypes.fs" />
+    <Compile Include="Series/Series.CatOps.fs" />
     <Compile Include="Series/Series.StringOps.fs" />
     <Compile Include="Series/Series.BinaryOps.fs" />
     <Compile Include="Series/Series.ListOps.fs" />

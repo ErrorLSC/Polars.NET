@@ -22,3 +22,5 @@ module ExprNamespaces =
         member this.Meta = new MetaOps(this.Handle)
         /// <summary> Access binary operations. </summary>
         member this.Bin = new BinaryOps(this.CloneHandle())
+        /// <summary> Access categorical operations. </summary>
+        member this.Cat = new CategoricalOps(this.CloneHandle())

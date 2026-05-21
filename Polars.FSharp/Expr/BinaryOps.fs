@@ -1,6 +1,5 @@
 namespace Polars.FSharp
 
-open System
 open Polars.NET.Core
 
 type [<Struct>] BinaryOps(handle: ExprHandle) = 

@@ -13,3 +13,7 @@ module SeriesNamespaces =
         member this.Array = SeriesArrayNameSpace this
         /// <summary> Access struct operations. </summary>
         member this.Struct = SeriesStructNameSpace this
+        /// <summary> Access binary operations. </summary>
+        member this.Bin = SeriesBinaryNameSpace this
+        /// <summary> Access categorical operations. </summary>
+        member this.Cat = SeriesCategoricalNameSpace this

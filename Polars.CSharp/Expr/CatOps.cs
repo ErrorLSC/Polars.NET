@@ -1,10 +1,9 @@
 using Polars.NET.Core;
-using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
 /// <summary>
-/// Operations on Catgorical columns. Access via <see cref="Expr.Bin"/>.
+/// Operations on Catgorical columns. Access via <see cref="Expr.Cat"/>.
 /// </summary>
 public readonly struct CategoricalOps
 {
