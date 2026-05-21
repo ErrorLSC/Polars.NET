@@ -43,8 +43,9 @@ public readonly struct SeriesStructOps
     /// <summary>
     /// Add or overwrite fields of this struct.This is similar to with_columns on DataFrame.
     /// </summary>
-    /// <param name="expr">Field(s) to add, specified as positional arguments. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
-    /// <returns></returns>
+    /// <param name="expr">Field(s) to add, specified as positional arguments. 
+    /// Accepts expression input. 
+    /// Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
     public Series WithFields(params IntoExprColumn[] expr) => Apply(e => e.Struct.WithFields(expr));
 
     /// <inheritdoc cref="Field(long)"/>

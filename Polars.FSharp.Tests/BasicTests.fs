@@ -502,9 +502,9 @@ type ``Basic Functionality Tests`` () =
 
         Assert.Equal(int64 count, df.Height)
         Assert.Equal("Val_99999", df.Column("Value").AsSeq<string>() |> Seq.last |> Option.get)
-        let expectedType = Datetime(Microseconds, Some "")
+        let expectedType = DataType.Datetime(TimeUnit.Microseconds, "")
         
-        Assert.Equal(expectedType, df.Schema.["Timestamp"].Kind)
+        Assert.Equal(expectedType, df.Schema.["Timestamp"])
 
     [<Fact>]
     member _.``Stream: Lazy Scan (scanSeq) with Filter`` () =

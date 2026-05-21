@@ -1,4 +1,3 @@
-#pragma warning disable CS1591
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
@@ -31,10 +30,10 @@ public readonly struct StructOps
     /// });
     /// 
     /// df.Select(
-    ///     Col("id"),
-    ///     Col("product").Struct.Field("Name").Alias("prod_name"),
+    ///     Pl.Col("id"),
+    ///     Pl.Col("product").Struct.Field("Name").Alias("prod_name"),
     ///     // Nested Access
-    ///     Col("product").Struct.Field("Specs").Struct.Field("Ram").Alias("ram_gb")
+    ///     Pl.Col("product").Struct.Field("Specs").Struct.Field("Ram").Alias("ram_gb")
     /// ).Show();
     /// /* Output:
     /// shape: (2, 3)
@@ -56,11 +55,7 @@ public readonly struct StructOps
     /// </summary>
     public Expr Field(long index)
         => new(PolarsWrapper.StructFieldByIndex(_expr.CloneHandle(), index));
-    
-    /// <inheritdoc cref="Field(long)"/>
-    public Expr this[int index] => Field(index);
-    /// <inheritdoc cref="Field(string[])"/>
-    public Expr this[string[] name] => Field(name);
+
     /// <summary>
     /// Rename the fields of the struct.
     /// </summary>
@@ -68,7 +63,7 @@ public readonly struct StructOps
     /// <example>
     /// <code>
     /// df.Select(
-    ///     Col("product").Struct.RenameFields(new[] { "NewName", "NewSpecs" })
+    ///     Pl.Col("product").Struct.RenameFields(["NewName", "NewSpecs"])
     /// );
     /// </code>
     /// </example>
@@ -80,11 +75,10 @@ public readonly struct StructOps
     /// </summary>
     public Expr JsonEncode() => new(PolarsWrapper.StructJsonEncode(_expr.CloneHandle()));
     /// <summary>
-    /// Expand the struct into its individual fields.Alias for Expr.struct.field("*").
+    /// Expand the struct into its individual fields.Alias for Expr.Struct.field("*").
     /// </summary>
-    /// <returns></returns>
     public Expr Unnest() => Field("*");
-
+    /// <inheritdoc cref="SeriesStructOps.WithFields(IntoExprColumn[])"/>
     public Expr WithFields(params IntoExprColumn[] fields)
     {
         if (fields == null || fields.Length == 0)
@@ -103,9 +97,10 @@ public readonly struct StructOps
 
     /// <inheritdoc cref="Field(long)"/>
     public Expr this[long index] => Field(index);
-
     /// <summary>
     /// Retrieve one of the fields of this Struct as a new expr.
     /// </summary>
     public Expr this[string name] => Field(name);
+    /// <inheritdoc cref="Field(string[])"/>
+    public Expr this[string[] name] => Field(name);
 }

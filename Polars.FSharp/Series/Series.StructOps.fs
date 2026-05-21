@@ -10,8 +10,8 @@ type SeriesStructNameSpace(parent: Series) =
         parent.ApplyExpr expr
 
     /// <summary> Retrieve a field from the struct by name. </summary>
-    member _.Field(name: string) = 
-        apply (fun e -> e.Struct.Field name)
+    member _.Field([<ParamArray>]names: string array) = 
+        apply (fun e -> e.Struct.Field names)
 
     /// <summary> Retrieve a field from the struct by index. </summary>
     member _.Field(index: int) = 
@@ -31,3 +31,8 @@ type SeriesStructNameSpace(parent: Series) =
     member _.Unnest() =
         let dfHandle = PolarsWrapper.SeriesStructUnnest parent.Handle
         new DataFrame(dfHandle)
+    member _.WithFields([<ParamArray>]fields: Expr array) =
+        apply (fun e -> e.Struct.WithFields fields)
+    member this.Item with get (index:int) = this.Field index
+    member this.Item with get (name:string) = this.Field name
+    member this.Item with get (names:string array) = this.Field names

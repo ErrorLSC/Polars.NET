@@ -245,11 +245,11 @@ type ``Series Tests`` () =
         let s = Series.create("txt", ["  hello  "; "__world__"])
 
         // Strip Whitespace
-        let sTrim = s.Str.Strip()
+        let sTrim = s.Str.StripChars()
         Assert.Equal("hello", sTrim.GetValue<string> 0)
 
         // Strip custom chars
-        let sStripCustom = s.Str.Strip("_")
+        let sStripCustom = s.Str.StripChars("_")
         Assert.Equal("world", sStripCustom.GetValue<string> 1)
     [<Fact>]
     member _.``Series: List Basic Ops`` () =

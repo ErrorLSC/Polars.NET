@@ -136,7 +136,7 @@ type ``Expression Logic Tests`` () =
                 pl.col("ts").Dt.OffsetBy(Dur.String "30m").Alias "offset"
 
                 // Timestamp (Micros)
-                pl.col("ts").Dt.TimestampMicros().Alias "micros"
+                pl.col("ts").Dt.Timestamp(TimeUnit.Microseconds).Alias "micros"
             ])
             |> pl.show
         
@@ -180,14 +180,14 @@ type ``String Logic Tests`` () =
                 pl.col "raw"
 
                 // "  abc  " -> "abc"
-                pl.col("raw").Str.Strip().Alias "strip_default"
+                pl.col("raw").Str.StripChars().Alias "strip_default"
                 
                 // "  abc  " -> "abc  " / "  abc"
                 pl.col("raw").Str.StripCharsStart().Alias "lstrip"
                 pl.col("raw").Str.StripCharsEnd().Alias "rstrip"
 
                 // "__key__" -> "key"
-                pl.col("raw").Str.Strip(matches="_").Alias "strip_custom"
+                pl.col("raw").Str.StripChars("_").Alias "strip_custom"
 
                 // "https://pl.rs" -> "pl.rs"
                 // "data.csv" -> "data"
@@ -203,7 +203,7 @@ type ``String Logic Tests`` () =
                 pl.col("raw").Str.ToDate("%Y%m%d",false).Alias "parsed_date"
 
                 // "  2025-12-31  " -> "2025-12-31" -> Date
-                pl.col("raw").Str.Strip().Str.ToDate("%Y-%m-%d",false).Alias "chain_date"
+                pl.col("raw").Str.StripChars().Str.ToDate("%Y-%m-%d",false).Alias "chain_date"
             ])
 
         // Strip
