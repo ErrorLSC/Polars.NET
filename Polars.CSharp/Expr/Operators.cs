@@ -41,9 +41,9 @@ public partial class Expr : IDisposable
     /// // Compare columns: b > 20
     /// // Note: Null comparisons propagate null (Logic: 50 > null is null)
     /// df.Select(
-    ///     Col("b"),
-    ///     (Col("b") > 20).Alias("b_gt_20"),
-    ///     (Col("a") == 2).Alias("a_eq_2")
+    ///     Pl.Col("b"),
+    ///     (Pl.Col("b") > 20).Alias("b_gt_20"),
+    ///     (Pl.Col("a") == 2).Alias("a_eq_2")
     /// ).Show();
     /// /* Output:
     /// shape: (5, 3)
@@ -385,9 +385,9 @@ public partial class Expr : IDisposable
     /// 
     /// // Logical AND: (b > 20) AND cond
     /// df.Select(
-    ///     Col("b"),
-    ///     Col("cond"),
-    ///     ((Col("b") &gt; 20) &amp; Col("cond")).Alias("logic_and")
+    ///     Pl.Col("b"),
+    ///     Pl.Col("cond"),
+    ///     ((Pl.Col("b") &gt; 20) &amp; Pl.Col("cond")).Alias("logic_and")
     /// ).Show();
     /// /* Output:
     /// shape: (5, 3)

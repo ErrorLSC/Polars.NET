@@ -56,7 +56,51 @@ type LitMechanism = LitMechanism with
     static member ($) (LitMechanism, v: float option list)  = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
     static member ($) (LitMechanism, v: string option list) = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
 
-    
+/// <summary>
+/// Intermediate F# state holder after calling 'pl.when''.
+/// </summary>
+type FSharpWhen (condition: Expr) =
+    member internal _.Condition = condition
+
+/// <summary>
+/// Intermediate F# state holder that collects branch pairs.
+/// </summary>
+type FSharpThen (conditions: Expr list, statements: Expr list) =
+    member internal _.Conditions = conditions
+    member internal _.Statements = statements
+
+    /// <summary>
+    /// Chain another condition block (equivalent to Python/C# multi-branch .when()).
+    /// </summary>
+    member this.when'(condition: Expr) =
+        if box condition = null then raise (ArgumentNullException(nameof(condition)))
+        FSharpChainedWhen(this, condition)
+
+    /// <summary>
+    /// Terminal operator that provides the default fallback value and compiles to the underlying Ternary Expr tree.
+    /// </summary>
+    member this.otherwise(statement: Expr) =
+        if box statement = null then raise (ArgumentNullException(nameof(statement)))
+        
+        // Unroll branches in reverse order to correctly nest the Ternary Expression tree
+        let mutable currentExpr = statement
+        let condArr = List.toArray conditions
+        let stmtArr = List.toArray statements
+        
+        for i = condArr.Length - 1 downto 0 do
+            currentExpr <- Expr.Ternary(condArr.[i], stmtArr.[i], currentExpr)
+            
+        currentExpr
+
+/// <summary>
+/// Intermediate F# state holder after chaining an extra .when() onto a Then block.
+/// </summary>
+and FSharpChainedWhen (parent: FSharpThen, condition: Expr) =
+    member this.then'(statement: Expr) =
+        if box statement = null then raise (ArgumentNullException(nameof(statement)))
+        // Append the new condition and statement to the accumulated branch lists
+        FSharpThen(parent.Conditions @ [condition], parent.Statements @ [statement])
+
 /// <summary>
 /// The main entry point for Polars.NET F# API.
 /// <para>Contains factories for Expressions (pl.col, pl.lit), shortcuts for DataFrame operations, and types.</para>
@@ -501,6 +545,25 @@ module pl =
     let showSeries (s: Series) : Series =
         s.Show()
         s
+    /// <summary>
+    /// Starts a conditional when-then-otherwise expression branch logic natively in F#.
+    /// </summary>
+    /// <param name="condition">The initial filter condition expression.</param>
+    /// <returns>An intermediate FSharpWhen state object.</returns>
+    let when' (condition: Expr) =
+        if box condition = null then raise (ArgumentNullException(nameof(condition)))
+        FSharpWhen(condition)
+
+    /// <summary>
+    /// Connects a statement to the preceding when' condition.
+    /// </summary>
+    /// <param name="statement">The expression to evaluate if the condition is true.</param>
+    /// <param name="whenBlock">The FSharpWhen block built by pl.when'.</param>
+    /// <returns>A new FSharpThen collector block.</returns>
+    let then' (statement: Expr) (whenBlock: FSharpWhen) =
+        if box statement = null then raise (ArgumentNullException(nameof(statement)))
+        if box whenBlock = null then raise (ArgumentNullException(nameof(whenBlock)))
+        FSharpThen([whenBlock.Condition], [statement])
     // ==========================================
     // Column Selectors (pl.cs)
     // ==========================================

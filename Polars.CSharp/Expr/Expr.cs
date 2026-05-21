@@ -167,7 +167,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Shuffle the contents of this expression.Note this is shuffled independently of any other column or Expression. If you want each row to stay the same use df.sample(shuffle=True)
     /// </summary>
     /// <param name="seed">Seed for the random number generator. If set to None (default), a random seed is generated each time the shuffle is called.</param>
-    /// <returns></returns>
     public Expr Shuffle(ulong? seed=null) => new(PolarsWrapper.ExprShuffle(CloneHandle(),seed));
     /// <summary>
     /// Sample from this expression.
@@ -191,14 +190,13 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <param name="decimals">Number of decimals to round by.</param>
     /// <param name="mode">The rounding strategy used. A “rounded value” is a value with at most decimals decimal places (e.g. integers when decimals=0, multiples of 0.1 when decimals=1, 0.01 when decimals=2, and so on).
-    /// Strategies that start with half_ round all values to the nearest rounded value, only using the strategy to break ties when a value falls exactly between two rounded values (e.g. 0.5 when decimals=0, 0.05 when decimals=1). Other rounding strategies specify explicitly which rounded value is chosen and always apply (not just for tiebreaks).</param>
-    /// <returns></returns>
+    /// Strategies that start with half_ round all values to the nearest rounded value, only using the strategy to break ties when a value falls exactly between two rounded values (e.g. 0.5 when decimals=0, 0.05 when decimals=1). 
+    /// Other rounding strategies specify explicitly which rounded value is chosen and always apply (not just for tiebreaks).</param>
     public Expr Round(uint decimals=0,RoundMode mode=RoundMode.HalfToEven) => new(PolarsWrapper.Round(CloneHandle(), decimals,mode.ToNative()));
     /// <summary>
     /// Round to a number of significant figures.
     /// </summary>
     /// <param name="digits">Number of significant figures to round to.</param>
-    /// <returns></returns>
     public Expr RoundSigFigs(int digits) => new(PolarsWrapper.RoundSigFigs(CloneHandle(),digits));
     /// <summary>Compute the element-wise sign (-1, 0, 1).</summary>
     public Expr Sign() => new(PolarsWrapper.Sign(CloneHandle()));
@@ -456,7 +454,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <param name="old">Value or sequence of values to replace. Accepts expression input. Sequences are parsed as Series, other non-expression inputs are parsed as literals.</param>
     /// <param name="newExpr">Value or sequence of values to replace by. Accepts expression input. Sequences are parsed as Series, other non-expression inputs are parsed as literals.</param>
-    /// <returns></returns>
     public Expr Replace(IntoExpr old,IntoExpr newExpr) => new(PolarsWrapper.ExprReplace(CloneHandle(),old.Consume().Handle,newExpr.Consume().Handle));
     /// <summary>
     /// Replace all values by different values.
@@ -465,7 +462,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="newExpr">Value or sequence of values to replace by. Accepts expression input. Sequences are parsed as Series, other non-expression inputs are parsed as literals. Length must match the length of old or have length 1.</param>
     /// <param name="defaultExpr">Set values that were not replaced to this value. If no default is specified, (default), an error is raised if any values were not replaced. Accepts expression input. Non-expression inputs are parsed as literals.</param>
     /// <param name="returnDataType">The data type of the resulting expression. If set to null (default), the data type is determined automatically based on the other inputs.</param>
-    /// <returns></returns>
     public Expr ReplaceStrict(IntoExpr old,IntoExpr newExpr,IntoExpr? defaultExpr=null,IntoDataTypeExpr? returnDataType=null)
     {
         ExprHandle? realDefault = defaultExpr?.Consume().Handle;
@@ -522,7 +518,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <param name="value">A constant literal value or a unit expression with which to extend the expression result Series; can pass None to extend with nulls.</param>
     /// <param name="n">The number of additional values that will be added.</param>
-    /// <returns></returns>
     public Expr ExtendConstant(IntoExpr value,Expr n)
         => new(PolarsWrapper.ExtendConstant(CloneHandle(),value.Consume().Handle,n.CloneHandle()));
     /// <summary>
@@ -530,8 +525,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <param name="lowerBound">Lower bound. Accepts expression input. Non-expression inputs are parsed as literals. Strings are parsed as column names.</param>
     /// <param name="upperBound">Upper bound. Accepts expression input. Non-expression inputs are parsed as literals. Strings are parsed as column names.</param>
-    /// <returns></returns>
-    /// <exception cref="ArgumentException"></exception>
     public Expr Clip(IntoExprColumn? lowerBound = null, IntoExprColumn? upperBound = null)
     {
         if (lowerBound is null && upperBound is null)
@@ -769,7 +762,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// 
     /// // Example 1: Expression Explode (Flatten single column)
     /// df.Select(
-    ///     Col("tags").Explode().Alias("tags_flat")
+    ///     Pl.Col("tags").Explode().Alias("tags_flat")
     /// ).Show();
     /// /* Output:
     /// shape: (3, 1)
@@ -799,7 +792,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <code>
     /// // Fill nulls in "val_a" with values from "val_b", and fallback to 0 if both are null
     /// df.Select(
-    ///     Col("val_a").Coalesce("val_b", 0).Alias("merged_val")
+    ///     Pl.Col("val_a").Coalesce("val_b", 0).Alias("merged_val")
     /// );
     /// </code>
     /// </example>
@@ -845,7 +838,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <param name="offset">Start index. Negative indexing is supported.</param>
     /// <param name="length">Length of the slice. If set to None, all rows starting at the offset will be selected.</param>
-    /// <returns></returns>
     public Expr Slice(long offset,ulong? length=null)
     {
         ulong realLength = length ?? ulong.MaxValue;
@@ -860,7 +852,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// This operation is only allowed for numeric types of the same size. For lower bits numbers, you can safely use the cast operation.
     /// </summary>
     /// <param name="signed">If True, reinterpret as signed integer. Otherwise, reinterpret as unsigned integer.</param>
-    /// <returns></returns>
     public Expr Reinterpret(bool signed=true) => new(PolarsWrapper.ExprReinterpret(CloneHandle(),signed));
     /// <summary>
     /// Repeat the elements in this Series as specified in the given expression.
