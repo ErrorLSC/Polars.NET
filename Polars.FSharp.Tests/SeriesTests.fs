@@ -189,7 +189,7 @@ type ``Series Tests`` () =
         let s = Series.create("txt", ["Hello"; "World"; "Polars"])
 
         // ToUpper
-        let sUpper = s.Str.ToUpper()
+        let sUpper = s.Str.ToUppercase()
         Assert.Equal("HELLO", sUpper.GetValue<string>(0))
 
         // Slice (Offset 1, Len 2) -> "el", "or", "ol"
@@ -198,7 +198,7 @@ type ``Series Tests`` () =
         Assert.Equal("or", sSlice.GetValue<string> 1)
         
         // Len
-        let sLen = s.Str.Len()
+        let sLen = s.Str.LenBytes()
         Assert.Equal(5u, sLen.GetValue<uint32> 0) // Polars len returns uint32
 
     [<Fact>]

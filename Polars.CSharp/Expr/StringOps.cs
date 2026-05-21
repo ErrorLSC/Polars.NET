@@ -33,7 +33,6 @@ public readonly struct StringOps
     /// Non-alphanumeric characters define the word boundaries.
     /// </para>
     /// </summary>
-    /// <returns></returns>
     public Expr ToTitlecase() => Wrap(PolarsWrapper.StrToTitlecase);
     /// <summary>
     /// Returns string values with all regular expression meta characters escaped.
@@ -49,6 +48,9 @@ public readonly struct StringOps
     /// </summary>
     /// <returns>Expression of data type UInt32.</returns>
     public Expr LenChars() => Wrap(PolarsWrapper.StrLenChars);
+    /// <summary>
+    /// Returns string values in reversed order.
+    /// </summary>
     public Expr Reverse() => Wrap(PolarsWrapper.StrReverse);
     /// <summary>
     /// Slice the string by offset and length.
@@ -66,10 +68,10 @@ public readonly struct StringOps
     /// // 2. Len (bytes)
     /// // 3. Slice (offset=1, len=3)
     /// df.Select(
-    ///     Col("text"),
-    ///     Col("text").Str.ToUpper().Alias("upper"),
-    ///     Col("text").Str.Len().Alias("len_bytes"), 
-    ///     Col("text").Str.Slice(1, 3).Alias("sliced") 
+    ///     Pl.Col("text"),
+    ///     Pl.Col("text").Str.ToUpper().Alias("upper"),
+    ///     Pl.Col("text").Str.Len().Alias("len_bytes"), 
+    ///     Pl.Col("text").Str.Slice(1, 3).Alias("sliced") 
     /// ).Show();
     /// /* Output:
     /// shape: (5, 4)
@@ -106,7 +108,6 @@ public readonly struct StringOps
     /// <param name="value">String that will replace the matched substring.</param>
     /// <param name="literal">Treat pattern as a literal string, not a regex.</param>
     /// <param name="n">Number of matches to replace.</param>
-    /// <returns></returns>
     public Expr Replace(StringOrExpr pattern,StringOrExpr value,bool literal=false, int n=1)
         => new(PolarsWrapper.StrReplace(_expr.CloneHandle(), pattern.Expression.CloneHandle(),value.Expression.CloneHandle(),literal,n));
     /// <summary>
@@ -158,7 +159,8 @@ public readonly struct StringOps
     /// <param name="patterns">String patterns to search.Notice:string will be parsed as column name</param>
     /// <param name="asciiCaseInsensitive">Enable ASCII-aware case-insensitive matching. When this option is enabled, searching will be performed without respect to case for ASCII letters (a-z and A-Z) only.</param>
     /// <param name="overlapping">Whether matches may overlap.</param>
-    /// <param name="leftmost">Guarantees in case there are overlapping matches that the leftmost match is used. In case there are multiple candidates for the leftmost match the pattern which comes first in patterns is used. May not be used together with overlapping = True.</param>
+    /// <param name="leftmost">Guarantees in case there are overlapping matches that the leftmost match is used. In case there are multiple candidates for the leftmost match the pattern which comes first in patterns is used. 
+    /// May not be used together with overlapping = True.</param>
     public Expr ExtractMany(IntoExprColumn patterns,bool asciiCaseInsensitive=false,bool overlapping=false,bool leftmost=false)
         => new(PolarsWrapper.StrExtractMany(_expr.CloneHandle(),patterns.Consume().Handle,asciiCaseInsensitive,overlapping,leftmost));
     /// <summary>
@@ -217,8 +219,9 @@ public readonly struct StringOps
     /// Determines if any of the patterns are contained in the string.
     /// </summary>
     /// <param name="patterns">String patterns to search.</param>
-    /// <param name="asciiCaseInsensitive">Enable ASCII-aware case-insensitive matching. When this option is enabled, searching will be performed without respect to case for ASCII letters (a-z and A-Z) only.</param>
-    /// <returns></returns>
+    /// <param name="asciiCaseInsensitive">Enable ASCII-aware case-insensitive matching. 
+    /// When this option is enabled, searching will be performed without respect to case for ASCII letters 
+    /// (a-z and A-Z) only.</param>
     public Expr ContainsAny(StringOrExpr patterns,bool asciiCaseInsensitive=false) 
         => new(PolarsWrapper.StrContainsAny(_expr.CloneHandle(),patterns.Expression.CloneHandle(),asciiCaseInsensitive));
     /// <summary>
@@ -259,8 +262,8 @@ public readonly struct StringOps
     /// </summary>
     /// <param name="pattern">A valid regular expression pattern, compatible with the regex crate.</param>
     /// <param name="literal">Treat pattern as a literal string, not as a regular expression.</param>
-    /// <param name="strict">Raise an error if the underlying pattern is not a valid regex, otherwise mask out with a null value.</param>
-    /// <returns></returns>
+    /// <param name="strict">Raise an error if the underlying pattern is not a valid regex, 
+    /// otherwise mask out with a null value.</param>
     public Expr Find(StringOrExpr pattern, bool literal=false, bool strict=true)
         => new(PolarsWrapper.StrFind(_expr.CloneHandle(),pattern.Expression.CloneHandle(),literal,strict));
     /// <summary>
@@ -362,7 +365,7 @@ public readonly struct StringOps
     /// </summary>
     /// <param name="n">Length of the slice (integer or expression)
     /// <para>When the n input is negative, head returns characters up to the n`th from the end of the string.
-    /// For example, if `n = -3, then all characters except the last three are returned.</para></param>
+    /// For example, if n = -3, then all characters except the last three are returned.</para></param>
     /// <returns>Expression of data type String.</returns>
     public Expr Head(IntOrExpr n) => new(PolarsWrapper.StrHead(_expr.CloneHandle(),n.Expression.CloneHandle()));
     /// <summary>
@@ -370,7 +373,7 @@ public readonly struct StringOps
     /// </summary>
     /// <param name="n">Length of the slice (integer or expression)
     /// <para>When the n input is negative, head returns characters up to the n`th from the start of the string.
-    /// For example, if `n = -3, then all characters except the first three are returned.</para></param>
+    /// For example, if n = -3, then all characters except the first three are returned.</para></param>
     /// <returns>Expression of data type String.</returns>
     public Expr Tail(IntOrExpr n) => new(PolarsWrapper.StrTail(_expr.CloneHandle(),n.Expression.CloneHandle()));
     // ==========================================
@@ -524,7 +527,6 @@ public readonly struct StringOps
     /// <param name="strict">Raise an error if any conversion fails.</param>
     /// <param name="exact">If true, requires an exact match. If false, allows matching substrings.</param>
     /// <param name="cache">Use a cache of unique, converted times to apply the conversion.</param>
-    /// <returns></returns>
     public Expr ToTime(
         string? format = null,
         bool strict = true,
@@ -654,7 +656,6 @@ public readonly struct StringOps
     /// Returns the Unicode normal form of the string values.
     /// </summary>
     /// <param name="form">Unicode form to use.</param>
-    /// <returns></returns>
     public Expr Normalize(NormalizationForm form) => new(PolarsWrapper.StrNormalize(_expr.CloneHandle(),form));
 }
 

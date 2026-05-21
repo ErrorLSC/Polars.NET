@@ -183,8 +183,8 @@ type ``String Logic Tests`` () =
                 pl.col("raw").Str.Strip().Alias "strip_default"
                 
                 // "  abc  " -> "abc  " / "  abc"
-                pl.col("raw").Str.LStrip().Alias "lstrip"
-                pl.col("raw").Str.RStrip().Alias "rstrip"
+                pl.col("raw").Str.StripCharsStart().Alias "lstrip"
+                pl.col("raw").Str.StripCharsEnd().Alias "rstrip"
 
                 // "__key__" -> "key"
                 pl.col("raw").Str.Strip(matches="_").Alias "strip_custom"

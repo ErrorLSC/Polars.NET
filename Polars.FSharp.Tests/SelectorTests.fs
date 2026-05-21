@@ -111,7 +111,7 @@ type SelectorTests() =
                     .Truediv(pl.lit 100.0)
                     .Name.Suffix("_pct")
                 
-                pl.cs.byType(pl.string).ToExpr().Str.ToUpper()
+                pl.cs.byType(pl.string).ToExpr().Str.ToUppercase()
                 
                 (~~~(pl.cs.numeric() ||| pl.cs.byType pl.string)).ToExpr()
             ])
