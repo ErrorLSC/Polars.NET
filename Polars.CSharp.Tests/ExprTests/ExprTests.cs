@@ -511,7 +511,6 @@ TooShort,1990-05-20,1.60";
         // Sort (Ascending) -> null first
         // [null, 1, 3]
         using var df1 = df.Select(Pl.Col("list_col").List.Sort(descending: false, nullsLast: false));
-        // 验证逻辑...
 
         // 2. Sort (Ascending + NullsLast)
         // [1, 3, null]

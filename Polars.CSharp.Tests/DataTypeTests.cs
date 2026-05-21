@@ -75,7 +75,6 @@ public class DataTypeTests
         // To (Polars -> C#)
         var result = df.Rows<LogEntry>().ToList();
 
-        // 验证
         var row1 = result[0];
         Assert.Equal(1, row1.Id);
         Assert.Equal(now, row1.Timestamp);

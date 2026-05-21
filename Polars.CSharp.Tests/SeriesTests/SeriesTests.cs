@@ -1717,8 +1717,7 @@ public class SeriesTests
     [Trait("Series","TimeSpanStatistics")]
     public void Test_Series_TimeSpan_Statistics()
     {
-        // Arrange (准备阶段)
-        // 构造一个间隔均匀的延迟时间序列 (100ms, 120ms, 140ms)
+        // Arrange
         var latencies = Pl.Series("latency",
         [
             TimeSpan.FromMilliseconds(100), 
@@ -1726,15 +1725,15 @@ public class SeriesTests
             TimeSpan.FromMilliseconds(140) 
         ]);
 
-        // Act (执行阶段)
+        // Act 
         TimeSpan? meanVal = latencies.Mean<TimeSpan>();
         
         TimeSpan? medianVal = latencies.Median<TimeSpan>();
 
-        // 4. Std (标准差, ddof=1)
+        // Std
         TimeSpan? stdVal = latencies.Std<TimeSpan>();
 
-        // Assert (断言阶段)
+        // Assert
         Assert.Equal(TimeSpan.FromMilliseconds(120), meanVal);
         Assert.Equal(TimeSpan.FromMilliseconds(120), medianVal);
         // Assert.Equal(TimeSpan.FromMilliseconds(400), varVal);

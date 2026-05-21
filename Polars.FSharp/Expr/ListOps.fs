@@ -339,5 +339,4 @@ type [<Struct>] ListOps(handle: ExprHandle) =
             let newHandle = PolarsWrapper.ListToStruct(handle, null)
             new Expr(newHandle)
         else
-            // Using地道的 F# anonymous lambda and format string instead of string interpolation
             this.ToStruct((fun i -> System.String.Format("field_{0}", i)), upperBound)

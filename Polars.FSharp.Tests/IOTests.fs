@@ -297,7 +297,6 @@ Charlie,35,true"""
                 Assert.Equal(1L, df.Width)  
                 Assert.Equal("val", df.ColumnNames.[0])
                 
-                // 验证数据内容
                 Assert.Equal("A", df.String("val", 0).Value)
                 Assert.Equal("C", df.String("val", 2).Value)
 
