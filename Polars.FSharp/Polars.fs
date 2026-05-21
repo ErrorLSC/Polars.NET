@@ -324,8 +324,6 @@ module pl =
     // unique and duplicated helpers
     /// <summary> Get unique values. </summary>
     let inline unique (e: Expr) = e.Unique()
-    /// <summary> Get unique values (stable). </summary>
-    let inline uniqueStable (e: Expr) = e.UniqueStable()
     /// <summary> Check if values are unique. </summary>
     let inline isUnique (e: Expr) = e.IsUnique()
     /// <summary> Check if values are duplicated. </summary>

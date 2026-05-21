@@ -151,25 +151,12 @@ and Expr(handle: ExprHandle) =
         new Expr(PolarsWrapper.Item(this.CloneHandle(),allow))
 
     // Math
-    member this.Abs() = new Expr(PolarsWrapper.Abs (this.CloneHandle()))
-    member this.Sqrt() = new Expr(PolarsWrapper.Sqrt(this.CloneHandle()))
-    member this.Cbrt() = new Expr(PolarsWrapper.Cbrt(this.CloneHandle()))
-    member this.Exp() = new Expr(PolarsWrapper.Exp(this.CloneHandle()))
-    member this.Dot(other:Expr) = new Expr(PolarsWrapper.Dot(this.CloneHandle(),other.CloneHandle()))
     member this.Pow(exponent: Expr) = 
         new Expr(PolarsWrapper.Pow(this.CloneHandle(), exponent.CloneHandle()))
     member this.Pow(exponent: double) = 
         this.Pow(PolarsWrapper.Lit exponent |> fun h -> new Expr(h))
     member this.Pow(exponent: int) = 
         this.Pow(PolarsWrapper.Lit exponent |> fun h -> new Expr(h))
-    /// <summary> Calculate the logarithm with the given base. </summary>
-    member this.Log(baseVal: double) = 
-        new Expr(PolarsWrapper.Log(this.CloneHandle(), PolarsWrapper.Lit baseVal))
-    member this.Log(baseExpr: Expr) = 
-        this.Ln() / baseExpr.Ln()
-    /// <summary> Calculate the natural logarithm (base e). </summary>
-    member this.Ln() = 
-        this.Log Math.E
 
     /// <summary>
     /// Divide this expression by another.
@@ -192,28 +179,7 @@ and Expr(handle: ExprHandle) =
     member this.Rem(other: Expr) = 
         this.Mod other
         
-    // ==========================================
-    // Math: Trigonometry
-    // ==========================================
-    member this.Sin() = new Expr(PolarsWrapper.Sin(this.CloneHandle()))
-    member this.Cos() = new Expr(PolarsWrapper.Cos(this.CloneHandle()))
-    member this.Tan() = new Expr(PolarsWrapper.Tan(this.CloneHandle()))
-    
-    member this.ArcSin() = new Expr(PolarsWrapper.ArcSin(this.CloneHandle()))
-    member this.ArcCos() = new Expr(PolarsWrapper.ArcCos(this.CloneHandle()))
-    member this.ArcTan() = new Expr(PolarsWrapper.ArcTan(this.CloneHandle()))
 
-    // ==========================================
-    // Math: Hyperbolic
-    // ==========================================
-
-    member this.Sinh() = new Expr(PolarsWrapper.Sinh(this.CloneHandle()))
-    member this.Cosh() = new Expr(PolarsWrapper.Cosh(this.CloneHandle()))
-    member this.Tanh() = new Expr(PolarsWrapper.Tanh(this.CloneHandle()))
-    
-    member this.ArcSinh() = new Expr(PolarsWrapper.ArcSinh(this.CloneHandle()))
-    member this.ArcCosh() = new Expr(PolarsWrapper.ArcCosh(this.CloneHandle()))
-    member this.ArcTanh() = new Expr(PolarsWrapper.ArcTanh(this.CloneHandle()))
     // ==========================================
     // Indexing & Searching (Get / Gather / Arg / Index)
     // ==========================================
@@ -270,24 +236,6 @@ and Expr(handle: ExprHandle) =
         let descending = defaultArg descending false
         let nullsLast = defaultArg nullsLast false
         new Expr(PolarsWrapper.ArgSort(this.CloneHandle(), descending, nullsLast))
-
-    /// <summary>
-    /// Find the index of the first occurrence of a specific value.
-    /// </summary>
-    /// <param name="element">The element expression to search for.</param>
-    member this.IndexOf(element: Expr) =
-        new Expr(PolarsWrapper.IndexOf(this.CloneHandle(), element.CloneHandle()))
-
-    /// <summary>
-    /// Find indices where elements should be inserted to maintain order (Binary Search).
-    /// </summary>
-    /// <param name="element">The element expression to insert/search.</param>
-    /// <param name="side">The insertion side (Any, Left, Right). Default is Any.</param>
-    /// <param name="descending">Whether the target column is sorted in descending order. Default is false.</param>
-    member this.SearchSorted(element: Expr, ?side: SearchSortedSide, ?descending: bool) =
-        let side = defaultArg side SearchSortedSide.Any
-        let descending = defaultArg descending false
-        new Expr(PolarsWrapper.SearchSorted(this.CloneHandle(), element.CloneHandle(), side.ToNative(), descending))
     // ------ Stats ------
 
     /// <summary> Return the number of rows in the context. </summary>
@@ -315,151 +263,7 @@ and Expr(handle: ExprHandle) =
         let des = defaultArg descending false
         let sd = seed |> Option.toNullable
         new Expr(PolarsWrapper.Rank(this.CloneHandle(), rm.ToNative(),des,sd))
-    // ==========================================
-    // Cumulative Functions
-    // ==========================================
-    /// <summary>
-    /// Get an array with the cumulative sum computed at every element.
-    /// </summary>
-    /// <param name="reverse">Reverse the operation.</param>
-    /// <returns></returns>
-    member this.CumSum(?reverse: bool) = 
-        let r = defaultArg reverse true
-        new Expr(PolarsWrapper.CumSum(this.CloneHandle(), r))
-    /// <summary>
-    /// Get an array with the cumulative max computed at every element.
-    /// </summary>
-    /// <param name="reverse">Reverse the operation.</param>
-    /// <returns></returns>
-    member this.CumMax(?reverse: bool) = 
-        let r = defaultArg reverse true
-        new Expr(PolarsWrapper.CumMax(this.CloneHandle(), r))
-    /// <summary>   
-    /// Get an array with the cumulative min computed at every element.
-    /// </summary>
-    /// <param name="reverse">Reverse the operation.</param>
-    /// <returns></returns>
-    member this.CumMin(?reverse: bool) = 
-        let r = defaultArg reverse true
-        new Expr(PolarsWrapper.CumMin(this.CloneHandle(), r))
-    /// <summary>
-    /// Get an array with the cumulative prod computed at every element.
-    /// </summary>
-    /// <param name="reverse">Reverse the operation.</param>
-    /// <returns></returns>
-    member this.CumProd(?reverse: bool) = 
-        let r = defaultArg reverse true
-        new Expr(PolarsWrapper.CumProd(this.CloneHandle(), r))        
-    /// <summary>
-    /// Get an array with the cumulative count computed at every element.
-    /// </summary>
-    /// <param name="reverse">Reverse the operation.</param>
-    /// <returns></returns>
-    member this.CumCount(?reverse: bool) = 
-        let r = defaultArg reverse true
-        new Expr(PolarsWrapper.CumCount(this.CloneHandle(), r))
-    // ==========================================
-    // EWM Functions
-    // ==========================================
-    /// <summary>
-    /// Compute exponentially-weighted moving average.
-    /// </summary>
-    /// <param name="alpha">
-    /// Specify smoothing factor alpha directly. 
-    /// <para>Constraint: <c>0 &lt; alpha &lt;= 1</c></para>
-    /// </param>
-    /// <param name="adjust">
-    /// If <c>true</c>, divide by decaying adjustment factor in beginning periods to account for imbalance in relative weightings (viewing data as finite history). 
-    /// If <c>false</c>, assume infinite history.
-    /// </param>
-    /// <param name="bias">
-    /// If <c>true</c>, use a biased estimator (Standard deviation uses <c>N</c> in denominator). 
-    /// If <c>false</c>, use an unbiased estimator (Standard deviation uses <c>N-1</c>).
-    /// <para>Note: This is primarily relevant for Variance/StdDev. For Mean, it typically defaults to true.</para>
-    /// </param>
-    /// <param name="minPeriods">Minimum number of observations in window required to have a value (otherwise result is null).</param>
-    /// <param name="ignoreNulls">Ignore missing values when calculating weights.</param>
-    /// <returns>A new expression representing the EWM mean.</returns>
-    member this.EwmMean(alpha: float,?adjust: bool,?bias:bool,?minPeriods:int, ?ignoreNulls:bool) = 
-        let adj = defaultArg adjust true
-        let b = defaultArg bias true
-        let ig = defaultArg ignoreNulls false
-        let min = defaultArg minPeriods 1
-        new Expr(PolarsWrapper.EwmMean(this.CloneHandle(),alpha,adj,b,min,ig))
-    /// <summary>
-    /// Compute exponentially-weighted moving standard deviation.
-    /// </summary>
-    /// <param name="alpha">
-    /// Specify smoothing factor alpha directly. 
-    /// <para>Constraint: <c>0 &lt; alpha &lt;= 1</c></para>
-    /// </param>
-    /// <param name="adjust">
-    /// If <c>true</c>, divide by decaying adjustment factor in beginning periods to account for imbalance in relative weightings (viewing data as finite history). 
-    /// If <c>false</c>, assume infinite history.
-    /// </param>
-    /// <param name="bias">
-    /// If <c>true</c>, use a biased estimator (Standard deviation uses <c>N</c> in denominator). 
-    /// If <c>false</c>, use an unbiased estimator (Standard deviation uses <c>N-1</c>).
-    /// <para>Note: This is primarily relevant for Variance/StdDev. For Mean, it typically defaults to true.</para>
-    /// </param>
-    /// <param name="minPeriods">Minimum number of observations in window required to have a value (otherwise result is null).</param>
-    /// <param name="ignoreNulls">Ignore missing values when calculating weights.</param>
-    /// <returns>A new expression representing the EWM standard deviation.</returns>
-    member this.EwmStd(alpha: float,?adjust: bool,?bias:bool,?minPeriods:int, ?ignoreNulls:bool) = 
-        let adj = defaultArg adjust true
-        let b = defaultArg bias true
-        let ig = defaultArg ignoreNulls false
-        let min = defaultArg minPeriods 1
-        new Expr(PolarsWrapper.EwmStd(this.CloneHandle(),alpha,adj,b,min,ig))
-    /// <summary>
-    /// Compute exponentially-weighted moving variance.
-    /// </summary>
-    /// <param name="alpha">
-    /// Specify smoothing factor alpha directly. 
-    /// <para>Constraint: <c>0 &lt; alpha &lt;= 1</c></para>
-    /// </param>
-    /// <param name="adjust">
-    /// If <c>true</c>, divide by decaying adjustment factor in beginning periods to account for imbalance in relative weightings (viewing data as finite history). 
-    /// If <c>false</c>, assume infinite history.
-    /// </param>
-    /// <param name="bias">
-    /// If <c>true</c>, use a biased estimator (Standard deviation uses <c>N</c> in denominator). 
-    /// If <c>false</c>, use an unbiased estimator (Standard deviation uses <c>N-1</c>).
-    /// <para>Note: This is primarily relevant for Variance/StdDev. For Mean, it typically defaults to true.</para>
-    /// </param>
-    /// <param name="minPeriods">Minimum number of observations in window required to have a value (otherwise result is null).</param>
-    /// <param name="ignoreNulls">Ignore missing values when calculating weights.</param>
-    /// <returns>A new expression representing the EWM variance.</returns>
-    member this.EwmVar(alpha: float,?adjust: bool,?bias:bool,?minPeriods:int, ?ignoreNulls:bool) = 
-        let adj = defaultArg adjust true
-        let b = defaultArg bias true
-        let ig = defaultArg ignoreNulls false
-        let min = defaultArg minPeriods 1
-        new Expr(PolarsWrapper.EwmVar(this.CloneHandle(),alpha,adj,b,min,ig))
-    /// <summary>
-    /// Compute exponentially-weighted moving average based on a temporal or index column.
-    /// </summary>
-    /// <param name="by">
-    /// The column used to determine the distance between observations.
-    /// <para>Supported data types: <c>Date</c>, <c>DateTime</c>, <c>UInt64</c>, <c>UInt32</c>, <c>Int64</c>, or <c>Int32</c>.</para>
-    /// </param>
-    /// <param name="halfLife">
-    /// The unit over which an observation decays to half its value.
-    /// <para>Supported string formats:</para>
-    /// <list type="bullet">
-    ///     <item><term>Time units</term><description><c>ns</c> (nanosecond), <c>us</c> (microsecond), <c>ms</c> (millisecond), <c>s</c> (second), <c>m</c> (minute), <c>h</c> (hour), <c>d</c> (day), <c>w</c> (week).</description></item>
-    ///     <item><term>Index units</term><description><c>i</c> (index count). Example: <c>"2i"</c> means decay by half every 2 index steps.</description></item>
-    ///     <item><term>Compound</term><description>Example: <c>"3d12h4m25s"</c>.</description></item>
-    /// </list>
-    /// <para>
-    /// <b>Warning:</b> <paramref name="halfLife"/> is treated as a constant duration. 
-    /// Calendar durations such as months (<c>mo</c>) or years (<c>y</c>) are <b>NOT</b> supported because they vary in length. 
-    /// Please express such durations in hours (e.g. use <c>'730h'</c> instead of <c>'1mo'</c>).
-    /// </para>
-    /// </param>
-    /// <returns>A new expression representing the time/index-based EWM mean.</returns>
-    member this.EwmMeanBy(by:Expr,halfLife:string) =
-        new Expr(PolarsWrapper.EwmMeanBy(this.CloneHandle(),by.CloneHandle(),halfLife))
+
     // ==========================================
     // Logic / Comparison
     // ==========================================
@@ -646,15 +450,6 @@ and Expr(handle: ExprHandle) =
     // Default shift 1
     member this.Shift() = this.Shift 1L
 
-    /// <summary>
-    /// Calculate the difference with the previous value (n-th lag).
-    /// Null values are propagated.
-    /// </summary>
-    member this.Diff(n: int64, ?nullBehavior: NullBehavior) = 
-        let nb = defaultArg nullBehavior NullBehavior.Ignore
-        new Expr(PolarsWrapper.Diff(this.CloneHandle(), PolarsWrapper.Lit n,nb.ToNative()))
-    // Default diff 1
-    member this.Diff() = this.Diff 1L
     member this.FillNull(value:Expr) = new Expr(PolarsWrapper.FillNull(this.CloneHandle(),value.CloneHandle())) 
     member this.FillNull(strategy: FillNullStrategy, ?limit: int) =
         let l = defaultArg limit 0
@@ -677,18 +472,6 @@ and Expr(handle: ExprHandle) =
     // ==========================================
     // Uniqueness & Duplication
     // ==========================================
-
-    /// <summary>
-    /// Get unique values of this expression.
-    /// </summary>
-    member this.Unique() =
-        new Expr(PolarsWrapper.ExprUnique(this.CloneHandle()))
-
-    /// <summary>
-    /// Get unique values of this expression, maintaining order (Stable).
-    /// </summary>
-    member this.UniqueStable() =
-        new Expr(PolarsWrapper.ExprUniqueStable(this.CloneHandle()))
    
     /// <summary>
     /// Concat multiple string expressions into a single string expression.

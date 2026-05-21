@@ -47,7 +47,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// });
     /// 
     /// // (1*4) + (2*5) + (3*6) = 4 + 10 + 18 = 32
-    /// df.Select(Col("a").Dot(Col("b"))).Show();
+    /// df.Select(Pl.Col("a").Dot(Col("b"))).Show();
     /// </code>
     /// </example>
     public Expr Dot(Expr other) => new(PolarsWrapper.Dot(CloneHandle(), other.CloneHandle()));
@@ -61,7 +61,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <param name="baseVal">Given base, defaults to e</param>
     /// <param name="normalize">Normalize pk if it doesn’t sum to 1.</param>
-    /// <returns></returns>
     public Expr Entropy(double baseVal=Math.E, bool normalize=true) => new(PolarsWrapper.Entropy(CloneHandle(),baseVal,normalize));
     /// <summary>
     /// Hash the elements in the selection.The hash value is of type UInt64.
@@ -70,7 +69,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="seed1">Random seed parameter. Defaults to seed if not set.</param>
     /// <param name="seed2">Random seed parameter. Defaults to seed if not set.</param>
     /// <param name="seed3">Random seed parameter. Defaults to seed if not set.</param>
-    /// <returns></returns>
     public Expr Hash(ulong seed=0,ulong? seed1=null,ulong? seed2=null,ulong? seed3=null)
         => new(PolarsWrapper.ExprHash(CloneHandle(),seed,seed1,seed2,seed3));
     /// <summary>
@@ -127,12 +125,10 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <summary>
     /// Convert from degrees to radians.
     /// </summary>
-    /// <returns></returns>
     public Expr Radians() => new(PolarsWrapper.Radians(CloneHandle()));
     /// <summary>
     /// Convert from radians to degrees.
     /// </summary>
-    /// <returns></returns>
     public Expr Degrees() => new(PolarsWrapper.Degrees(CloneHandle()));
 
     // ==========================================
@@ -141,32 +137,26 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <summary>
     /// Evaluate the number of set bits.
     /// </summary>
-    /// <returns></returns>
     public Expr BitwiseCountOnes() => new(PolarsWrapper.BitwiseCountOnes(CloneHandle()));
     /// <summary>
     /// Evaluate the number of unset bits.
     /// </summary>
-    /// <returns></returns>
     public Expr BitwiseCountZeros() => new(PolarsWrapper.BitwiseCountZeros(CloneHandle()));
     /// <summary>
     /// Evaluate the number most-significant set bits before seeing an unset bit.
     /// </summary>
-    /// <returns></returns>
     public Expr BitwiseLeadingOnes() => new(PolarsWrapper.BitwiseLeadingOnes(CloneHandle()));
     /// <summary>
     /// Evaluate the number most-significant unset bits before seeing a set bit.
     /// </summary>
-    /// <returns></returns>
     public Expr BitwiseLeadingZeros() => new(PolarsWrapper.BitwiseLeadingZeros(CloneHandle()));
     /// <summary>
     /// Evaluate the number least-significant set bits before seeing an unset bit.
     /// </summary>
-    /// <returns></returns>
     public Expr BitwiseTrailingOnes() => new(PolarsWrapper.BitwiseTrailingOnes(CloneHandle()));
     /// <summary>
     /// Evaluate the number least-significant unset bits before seeing a set bit.
     /// </summary>
-    /// <returns></returns>
     public Expr BitwiseTrailingZeros() => new(PolarsWrapper.BitwiseTrailingZeros(CloneHandle()));
     // ==========================================
     // Cumulative Functions
@@ -175,31 +165,26 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Get an array with the cumulative sum computed at every element.
     /// </summary>
     /// <param name="reverse">Reverse the operation.</param>
-    /// <returns></returns>
     public Expr CumSum(bool reverse = false) => new(PolarsWrapper.CumSum(CloneHandle(), reverse));
     /// <summary>
     /// Get an array with the cumulative max computed at every element.
     /// </summary>
     /// <param name="reverse">Reverse the operation.</param>
-    /// <returns></returns>
     public Expr CumMax(bool reverse = false) => new(PolarsWrapper.CumMax(CloneHandle(), reverse));
     /// <summary>
     /// Get an array with the cumulative min computed at every element.
     /// </summary>
     /// <param name="reverse">Reverse the operation.</param>
-    /// <returns></returns>
     public Expr CumMin(bool reverse = false) => new(PolarsWrapper.CumMin(CloneHandle(), reverse));
     /// <summary>
     /// Get an array with the cumulative prod computed at every element.
     /// </summary>
     /// <param name="reverse">Reverse the operation.</param>
-    /// <returns></returns>
     public Expr CumProd(bool reverse = false) => new(PolarsWrapper.CumProd(CloneHandle(), reverse));
     /// <summary>
     /// Get an array with the cumulative count computed at every element.
     /// </summary>
     /// <param name="reverse">Reverse the operation.</param>
-    /// <returns></returns>
     public Expr CumCount(bool reverse = false) => new(PolarsWrapper.CumCount(CloneHandle(), reverse));
     /// <summary>
     /// Run an expression over a sliding window that increases 1 slot every iteration.
@@ -207,7 +192,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <param name="expr">Expression to evaluate</param>
     /// <param name="minSamples">Number of valid values there should be in the window before the expression is evaluated. valid values = length - null_count</param>
-    /// <returns></returns>
     public Expr CumulativeEval(Expr expr,int minSamples=1) => new(PolarsWrapper.CumulativeEval(CloneHandle(), expr.CloneHandle(),minSamples));
     /// <summary>
     /// Calculate the difference with the previous value (n-th lag).
@@ -282,24 +266,26 @@ public partial class Expr : IDisposable,IEquatable<Expr>
         ));
 
     /// <summary>
-    /// Get unique values.
+    /// Get unique values of this expression.
     /// </summary>
-    public Expr Unique() => new(PolarsWrapper.ExprUnique(CloneHandle()));
-    /// <summary>
-    /// Get unique values, maintaining order.
-    /// </summary>
-    public Expr UniqueStable() => new(PolarsWrapper.ExprUniqueStable(CloneHandle()));
+    /// <param name="maintainOrder">Maintain order of data. This requires more work.</param>
+    public Expr Unique(bool maintainOrder=false)
+    {
+        if (!maintainOrder)
+            return new(PolarsWrapper.ExprUnique(CloneHandle()));
+        else 
+            return new(PolarsWrapper.ExprUniqueStable(CloneHandle()));
+    }
     /// <summary>
     /// Return a count of the unique values in the order of appearance.
     /// This method differs from value_counts in that it does not return the values, only the counts and might be faster
     /// </summary>
-    /// <returns></returns>
     public Expr UniqueCounts() => new(PolarsWrapper.ExprUniqueCounts(CloneHandle()));
     /// <summary>
     /// Count the occurrence of unique values.
     /// </summary>
     /// <param name="sort">Sort the output by count, in descending order. If set to False (default), the order is non-deterministic.</param>
-    /// <param name="parallel">Execute the computation in parallel.This option should likely not be enabled in a group_by context, as the computation will already be parallelized per group.</param>
+    /// <param name="parallel">Execute the computation in parallel.This option should likely not be enabled in a group by context, as the computation will already be parallelized per group.</param>
     /// <param name="name">Give the resulting count column a specific name; if normalize is True this defaults to “proportion”, otherwise defaults to “count”.</param>
     /// <param name="normalize">If True, the count is returned as the relative frequency of unique values normalized to 1.0.</param>
     /// <returns>Expression of type Struct, mapping unique values to their count (or proportion).</returns>
@@ -309,10 +295,9 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Bin values into buckets and count their occurrences.
     /// </summary>
     /// <param name="bins">Bin edges. If None given, we determine the edges based on the data.</param>
-    /// <param name="binCount">If bins is not provided, bin_count uniform bins are created that fully encompass the data.</param>
+    /// <param name="binCount">If bins is not provided, binCount uniform bins are created that fully encompass the data.</param>
     /// <param name="includeCategory">Include a column that indicates the upper breakpoint.</param>
     /// <param name="includeBreakPoint">Include a column that shows the intervals as categories.</param>
-    /// <returns></returns>
     public Expr Hist(IntoExpr? bins=null,int? binCount=null,bool includeCategory=false,bool includeBreakPoint=false)
     {
         ExprHandle? binsHandle = bins?.Consume().Handle;
