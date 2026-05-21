@@ -55,13 +55,13 @@ public class ExprNameOpsTests
         using DataFrame df = Pl.DataFrame(s);
 
         using DataFrame upperResult = df.Select(
-            Pl.Col("mIxEd_CaSe_CoL").Name.ToUpperCase()
+            Pl.Col("mIxEd_CaSe_CoL").Name.ToUppercase()
         );
         Assert.Equal(["MIXED_CASE_COL"], upperResult.Columns);
         Assert.Equal([1, 2, 3], upperResult["MIXED_CASE_COL"].ToArray<int>());
 
         using DataFrame lowerResult = df.Select(
-            Pl.Col("mIxEd_CaSe_CoL").Name.ToLowerCase()
+            Pl.Col("mIxEd_CaSe_CoL").Name.ToLowercase()
         );
         Assert.Equal(["mixed_case_col"], lowerResult.Columns);
         Assert.Equal([1, 2, 3], lowerResult["mixed_case_col"].ToArray<int>());

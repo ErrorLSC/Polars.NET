@@ -39,11 +39,11 @@ public readonly struct NameOps
     /// <summary>
     /// Make the root column name uppercase.
     /// </summary>
-    public Expr ToUpperCase() => new(PolarsWrapper.NameToUpperCase(_expr.CloneHandle()));
+    public Expr ToUppercase() => new(PolarsWrapper.NameToUpperCase(_expr.CloneHandle()));
     /// <summary>
     /// Make the root column name lowercase.
     /// </summary>
-    public Expr ToLowerCase() => new(PolarsWrapper.NameToLowerCase(_expr.CloneHandle()));
+    public Expr ToLowercase() => new(PolarsWrapper.NameToLowerCase(_expr.CloneHandle()));
 
     /// <summary>
     /// Replace matching regex/literal substring in the name with a new value.
@@ -51,19 +51,16 @@ public readonly struct NameOps
     /// <param name="pattern">A valid regular expression pattern, compatible with the regex crate.</param>
     /// <param name="value">String that will replace the matched substring.</param>
     /// <param name="literal">Treat pattern as a literal string, not a regex.</param>
-    /// <returns></returns>
     public Expr Replace(string pattern, string value,bool literal=false) => new(PolarsWrapper.NameReplace(_expr.CloneHandle(),pattern,value,literal));
     /// <summary>
     /// Rename the output of an expression by mapping a function over the root name.
     /// </summary>
     /// <param name="function">Function that maps a root name to a new name.</param>
-    /// <returns></returns>
     public Expr Map(Func<string, string> function) => new(PolarsWrapper.MapName(_expr.Handle, function));
     /// <summary>
     /// Rename fields of a struct by mapping a function over the field name(s).
     /// </summary>
     /// <param name="function">Function that maps a field name to a new name.</param>
-    /// <returns></returns>
     public Expr MapFields(Func<string, string> function) => new(PolarsWrapper.StructMapFields(_expr.Handle, function));
     
 }
