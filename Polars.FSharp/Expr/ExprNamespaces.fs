@@ -24,3 +24,5 @@ module ExprNamespaces =
         member this.Bin = new BinaryOps(this.CloneHandle())
         /// <summary> Access categorical operations. </summary>
         member this.Cat = new CategoricalOps(this.CloneHandle())
+        /// <summary> Access extension datatype operations. </summary>
+        member this.Ext = new ExtensionOps(this.CloneHandle())

@@ -17,3 +17,5 @@ module SeriesNamespaces =
         member this.Bin = SeriesBinaryNameSpace this
         /// <summary> Access categorical operations. </summary>
         member this.Cat = SeriesCategoricalNameSpace this
+        /// <summary> Access extension datatypes operations. </summary> 
+        member this.Ext = SeriesExtOpsNameSpace this
