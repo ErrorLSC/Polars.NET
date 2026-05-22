@@ -51,14 +51,14 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// </summary>
     /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
     /// <returns></returns>
-    public LazyFrame Std(int ddof=1)
+    public LazyFrame Std(byte ddof=1)
         => Select(Pl.All().Std(ddof));
     /// <summary>
     /// Aggregate the columns in the Frame to their variance value.
     /// </summary>
     /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
     /// <returns></returns>
-    public LazyFrame Var(int ddof=1)
+    public LazyFrame Var(byte ddof=1)
         => Select(Pl.All().Var(ddof));
 
     /// <summary>
@@ -112,11 +112,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         => Lazy().NullCount().Collect();
     
     /// <inheritdoc cref="LazyFrame.Std"/>
-    public DataFrame Std(int ddof=1)
+    public DataFrame Std(byte ddof=1)
         => Lazy().Std(ddof).Collect();
 
     /// <inheritdoc cref="LazyFrame.Var"/>
-    public DataFrame Var(int ddof=1)
+    public DataFrame Var(byte ddof=1)
         => Lazy().Var(ddof).Collect();
 
     /// <inheritdoc cref="LazyFrame.Quantile"/>

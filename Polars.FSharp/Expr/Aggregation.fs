@@ -142,15 +142,15 @@ module ExprAggregation =
         /// Get the standard deviation value.
         /// </summary>
         /// <param name="ddof">Delta Degrees of Freedom. Default is 1.</param>
-        member this.Std(?ddof: int) = 
-            let d = defaultArg ddof 1 // Default sample std dev
+        member this.Std(?ddof: uint8) = 
+            let d = defaultArg ddof 1uy // Default sample std dev
             new Expr(PolarsWrapper.Std(this.CloneHandle(), d))
         /// <summary>
         /// Get the variance value.
         /// </summary>
         /// <param name="ddof">Delta Degrees of Freedom. Default is 1.</param>
-        member this.Var(?ddof: int) = 
-            let d = defaultArg ddof 1
+        member this.Var(?ddof: uint8) = 
+            let d = defaultArg ddof 1uy
             new Expr(PolarsWrapper.Var(this.CloneHandle(), d))
         /// <summary>
         /// Get the median value.

@@ -35,12 +35,7 @@ module SeriesOperationExtensions =
         /// </summary>
         member this.Explode(?emptyAsNull: bool, ?keepNulls:bool) =
             this.ApplyExpr(Expr.Col(this.Name).Explode(?emptyAsNull=emptyAsNull,?keepNulls=keepNulls))
-        /// <summary>
-        /// Aggregate values into a list.
-        /// Result is a Series with 1 row containing a List of all values.
-        /// </summary>
-        member this.Implode() =
-            this.ApplyExpr(Expr.Col(this.Name).Implode())
+
         /// <summary>
         /// Unnest a Struct column into a DataFrame.
         /// Shortcut for <see cref="SeriesStructOps.Unnest"/>.
@@ -91,18 +86,6 @@ module SeriesOperationExtensions =
         /// </summary>
         member this.ArgUnique() =
             this.ApplyExpr(Expr.Col(this.Name).ArgUnique())
-
-        /// <summary>
-        /// Get the index of the maximum value.
-        /// </summary>
-        member this.ArgMax() =
-            this.ApplyExpr(Expr.Col(this.Name).ArgMax())
-
-        /// <summary>
-        /// Get the index of the minimum value.
-        /// </summary>
-        member this.ArgMin() =
-            this.ApplyExpr(Expr.Col(this.Name).ArgMin())
 
         /// <summary>
         /// Get the index values that would sort this expression.
@@ -202,18 +185,6 @@ module SeriesOperationExtensions =
         member this.DropNans() : Series =
             let expr = Expr.Col(this.Name).DropNans()
             this.ApplyExpr expr
-        /// <summary>
-        /// Check if the value at the specified index is null.
-        /// This is faster than retrieving the value and checking for Option.None.
-        /// </summary>
-        member this.IsNullAt(index: int) : bool =
-            PolarsWrapper.SeriesIsNullAt(this.Handle, int64 index)
-        member this.IsNullAt(index: int64) : bool =
-            PolarsWrapper.SeriesIsNullAt(this.Handle, index)
-        /// <summary>
-        /// Get the number of null values in the Series.
-        /// This is an O(1) operation (metadata access).
-        /// </summary>
 
         /// <summary> Check if floating point values are NaN. </summary>
         member this.IsNan() = new Series(PolarsWrapper.SeriesIsNan this.Handle)
@@ -587,48 +558,10 @@ module SeriesOperationExtensions =
 
         member this.Duration(index: int) : TimeSpan option = 
             PolarsWrapper.SeriesGetDuration(this.Handle, int64 index) |> Option.ofNullable
-        // --- Aggregations (Returning Series of len 1) ---
-        member this.First() = this.ApplyExpr(Expr.Col(this.Name).First())
-        member this.Last() = this.ApplyExpr(Expr.Col(this.Name).Last())
-        member this.Sum() = new Series(PolarsWrapper.SeriesSum this.Handle)
-        member this.Mean() = new Series(PolarsWrapper.SeriesMean this.Handle)
-        member this.Min() = new Series(PolarsWrapper.SeriesMin this.Handle)
-        member this.Max() = new Series(PolarsWrapper.SeriesMax this.Handle)
-        member this.Product() = this.ApplyExpr(Expr.Col(this.Name).Product())
         // ==========================================
         // Statistical Ops
         // ==========================================
-        member this.Count() = this.ApplyExpr(Expr.Col(this.Name).Count())
-        /// <summary>
-        /// Get the standard deviation.
-        /// </summary>
-        /// <param name="ddof">Delta Degrees of Freedom. Default is 1.</param>
-        /// <returns>A new <see cref="Series"/> containing the Std (length 1).</returns>
-        member this.Std(?ddof: int) = 
-            let d = defaultArg ddof 1
-            this.ApplyExpr(Expr.Col(this.Name).Std d)
 
-        /// <summary>
-        /// Get the variance.
-        /// </summary>
-        /// <param name="ddof">Delta Degrees of Freedom. Default is 1.</param>
-        /// <returns>A new <see cref="Series"/> containing the Var (length 1).</returns>
-        member this.Var(?ddof: int) = 
-            let d = defaultArg ddof 1
-            this.ApplyExpr(Expr.Col(this.Name).Var d)
-
-        /// <summary>
-        /// Get the median.
-        /// </summary>
-        /// <returns>A new <see cref="Series"/> containing the Median (length 1).</returns>
-        member this.Median() = 
-            this.ApplyExpr(Expr.Col(this.Name).Median())
-        /// <summary>
-        /// Get the mode.
-        /// </summary>
-        /// <returns>A new <see cref="Series"/> containing the Mode (length 1).</returns>
-        member this.Mode() = 
-            this.ApplyExpr(Expr.Col(this.Name).Mode()) 
         /// <summary>
         /// Get the Skew.
         /// </summary>

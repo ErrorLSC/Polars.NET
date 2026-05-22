@@ -678,15 +678,15 @@ public readonly partial struct PolarsWrapper
 
     // Statistics
     public static ExprHandle Count(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_count, e);
-    public static ExprHandle Std(ExprHandle e, int ddof) 
+    public static ExprHandle Std(ExprHandle e, byte ddof) 
     {
-        var h = NativeBindings.pl_expr_std(e, (byte)ddof);
+        var h = NativeBindings.pl_expr_std(e, ddof);
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle Var(ExprHandle e, int ddof)
+    public static ExprHandle Var(ExprHandle e, byte ddof)
     {
-        var h = NativeBindings.pl_expr_var(e, (byte)ddof);
+        var h = NativeBindings.pl_expr_var(e, ddof);
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }

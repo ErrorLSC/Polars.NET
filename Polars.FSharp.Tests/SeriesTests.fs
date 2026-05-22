@@ -434,10 +434,10 @@ type ``Series Tests`` () =
         let s = Series.create("vals", [1.0; 2.0; 3.0])
 
         // Std (ddof=1): sqrt((1+0+1)/2) = 1.0
-        Assert.Equal(1.0, s.Std().GetValue<double> 0)
+        Assert.Equal(Some 1.0, s.Std())
 
         // Var (ddof=1): 1.0
-        Assert.Equal(1.0, s.Var().GetValue<double> 0)
+        Assert.Equal(Some 1.0, s.Var())
 
         // Median: 2.0
         Assert.Equal(2.0, s.Median().GetValue<double> 0)

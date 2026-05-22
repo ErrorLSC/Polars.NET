@@ -25,7 +25,10 @@ type Series(handle: SeriesHandle) =
     member _.Handle = handle
     member _.Name = PolarsWrapper.SeriesName handle
     member _.Length = PolarsWrapper.SeriesLen handle
-    member _.Len = PolarsWrapper.SeriesLen handle
+    /// <summary>
+    /// Get the number of null values in the Series.
+    /// This is an O(1) operation (metadata access).
+    /// </summary>
     member _.NullCount : int64 = PolarsWrapper.SeriesNullCount handle
     member internal this.CloneHandle() = PolarsWrapper.CloneSeries handle
     member this.Clone() = new Series(this.CloneHandle())
@@ -309,6 +312,12 @@ type Series(handle: SeriesHandle) =
     static member (.=) (lhs: Series, rhs: string) = lhs .= Series.create("lit", [rhs])
     static member (.!=) (lhs: Series, rhs: int) = lhs != Series.create("lit", [rhs])
     static member (.!=) (lhs: Series, rhs: string) = lhs != Series.create("lit", [rhs])
+    /// <summary>
+    /// Check whether indexed value is null。
+    /// </summary>
+    member this.IsNullAt(index:int64) = PolarsWrapper.SeriesIsNullAt(this.Handle,index)
+    member this.IsNullAt(index: int) =
+        this.IsNullAt(int64 index)
     // ==========================================
     // Unified Accessor (Fast Path + Universal Path)
     // ==========================================
@@ -323,7 +332,7 @@ type Series(handle: SeriesHandle) =
             raise (IndexOutOfRangeException(sprintf "Index %d is out of bounds for Series length %d." index len))
 
         // Consistent Null Check
-        if PolarsWrapper.SeriesIsNullAt(this.Handle, index) then
+        if this.IsNullAt(index) then
             Unchecked.defaultof<'T>
         else
             // 2. Getvalue

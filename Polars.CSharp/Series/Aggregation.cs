@@ -67,8 +67,6 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <summary>
     /// First series into scalar
     /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <returns></returns>
     public T? First<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).First());
     /// <summary>
     /// <inheritdoc cref="Expr.Last" path="/summary"/>
@@ -79,51 +77,42 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Last series into scalar
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    /// <returns></returns>
     public T? Last<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Last());
     /// <summary>
     /// Sum series into 1 length series(Scalar)
     /// </summary>
-    /// <returns></returns>
     public Series Sum() => new(PolarsWrapper.SeriesSum(Handle));
     /// <summary>
     /// Sum series into scalar
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    /// <returns></returns>
     public T? Sum<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Sum());
     /// <summary>
     /// Mean series into 1 length series(Scalar)
     /// </summary>
-    /// <returns></returns>
     public Series Mean() => new(PolarsWrapper.SeriesMean(Handle));
     /// <summary>
     /// Mean series into scalar
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    /// <returns></returns>
     public T? Mean<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Mean());
     /// <summary>
     /// Min series into 1 length series(Scalar)
     /// </summary>
-    /// <returns></returns>
     public Series Min() => new(PolarsWrapper.SeriesMin(Handle));
     /// <summary>
     /// Min series into scalar
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    /// <returns></returns>
     public T? Min<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Min());
     /// <summary>
     /// Max series into 1 length series(Scalar)
     /// </summary>
-    /// <returns></returns>
     public Series Max() => new(PolarsWrapper.SeriesMax(Handle));
     /// <summary>
     /// Max series into scalar
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    /// <returns></returns>
     public T? Max<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Max());
     /// <inheritdoc cref="Expr.NanMax"/>
     public T? NanMax<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).NanMax());
@@ -156,13 +145,11 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <summary>
     /// Product series into 1 length series(Scalar)
     /// </summary>
-    /// <returns></returns>
     public Series Product() => ApplyExpr(Pl.Col(Name).Product());
     /// <summary>
     /// Product series into scalar
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    /// <returns></returns>
     public T? Product<T>() where T : struct => ExtractScalar<T>(Pl.Col(Name).Product());
     /// <summary>
     /// Get the index of the maximum value.
@@ -179,7 +166,6 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Compute the most occurring value(s).Can return multiple Values.
     /// </summary>
     /// <param name="maintainOrder">Maintain order of data. This requires more work.</param>
-    /// <returns></returns>
     public Series Mode(bool maintainOrder=false) => new(PolarsWrapper.SeriesMode(Handle,maintainOrder));
     /// <summary>
     /// <inheritdoc cref="Expr.Count()" path="/summary"/>
@@ -190,12 +176,12 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Get the standard deviation of this Series.
     /// </summary>
     /// <param name="ddof">Delta Degrees of Freedom. The divisor used in calculations is N - ddof.</param>
-    public T? Std<T>(int ddof = 1) where T : struct => ExtractScalar<T>(Pl.Col(Name).Std(ddof));
+    public T? Std<T>(byte ddof = 1) where T : struct => ExtractScalar<T>(Pl.Col(Name).Std(ddof));
     /// <summary>
     /// Get the variance of this Series.
     /// </summary>
     /// <param name="ddof">Delta Degrees of Freedom. The divisor used in calculations is N - ddof.</param>
-    public T? Var<T>(int ddof = 1) where T : struct => ExtractScalar<T>(Pl.Col(Name).Var(ddof));
+    public T? Var<T>(byte ddof = 1) where T : struct => ExtractScalar<T>(Pl.Col(Name).Var(ddof));
     /// <summary>
     /// <inheritdoc cref="Expr.Median()" path="/summary"/>
     /// </summary>
