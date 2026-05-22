@@ -49,7 +49,7 @@ let ``Scenario 1: Delta Lake Base Read Write and Append`` () =
 
         let lastRowNameOpt = sortedDf.Select(pl.col "name").Row(4).[0]
         
-        Assert.Equal("Some(Eve)", lastRowNameOpt.ToString())
+        Assert.Equal("Eve", lastRowNameOpt.ToString())
 
     finally
 
@@ -154,13 +154,13 @@ let ``Scenario 3: Delta Lake Advanced MERGE Semantics`` () =
         let nameCol = finalDf.Select(pl.col "name")
 
         let bobName = nameCol.Row(1).[0].ToString()
-        Assert.Equal("Some(Bob_Updated)", bobName)
+        Assert.Equal("Bob_Updated", bobName)
 
         let charlieName = nameCol.Row(2).[0].ToString()
-        Assert.Equal("Some(Charlie)", charlieName)
+        Assert.Equal("Charlie", charlieName)
 
         let daveName = nameCol.Row(3).[0].ToString()
-        Assert.Equal("Some(Dave)", daveName)
+        Assert.Equal("Dave", daveName)
 
     finally
 

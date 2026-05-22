@@ -249,7 +249,7 @@ type ``Basic Functionality Tests`` () =
         Assert.Equal(time, sTime.GetValue<TimeOnly> 0)
         Assert.Equal(dur, sDur.GetValue<TimeSpan> 0)
         
-        Assert.Equal(Some date, unbox<DateOnly option> sDate.[0])
+        Assert.Equal(ValueSome date, sDate.TryGetValue<DateOnly> 0)
 
         let records = [
             {| Id = 1; DoB = date; WakeUp = time; Shift = dur |}
@@ -261,7 +261,7 @@ type ``Basic Functionality Tests`` () =
         
         Assert.Equal(Some date, df.Cell<DateOnly option>("DoB",0))
         Assert.Equal(Some time, df.Cell<TimeOnly option>("WakeUp",0))
-        Assert.Equal(Some dur,  unbox<TimeSpan option> df.[0, "Shift"])
+        Assert.Equal(Some dur,  df.Cell<TimeSpan option>("Shift",0))
         
         Assert.Equal(Some date, sDoB.GetValueOption<DateOnly> 0)
     [<Fact>]
@@ -669,11 +669,11 @@ type ``Basic Functionality Tests`` () =
         // Assert
         Assert.Equal(3L, df.Height)
         
-        let row0_Name = df.["Name"].[0] :?> string option
-        let row0_Score = df.["Score"].[0] :?> double option
+        let row0_Name = df.["Name"].GetValue<string> 0
+        let row0_Score = df.["Score"].GetValue<double> 0
         
-        Assert.Equal(Some "Alice", row0_Name)
-        Assert.Equal(Some 99.5, row0_Score)
+        Assert.Equal("Alice", row0_Name)
+        Assert.Equal(99.5, row0_Score)
 
     [<Fact>]
     member _. ``ScanSeq Buffered Mode - Should handle IO correctly`` () =
@@ -695,9 +695,9 @@ type ``Basic Functionality Tests`` () =
         // Assert
         Assert.Equal(1000L, df.Height)
         
-        let lastHeightcore = df.["Score"].[999] :?> double option
+        let lastHeightcore = df.["Score"].GetValue<double> 999
         
-        Assert.Equal(Some (1000.0 * 1.5), lastHeightcore)
+        Assert.Equal(1000.0 * 1.5, lastHeightcore)
 
     [<Fact>]
     member _.``ScanSeq Empty Stream - Should preserve Schema without crashing`` () =
@@ -912,6 +912,7 @@ type LitTests() =
         
         Assert.Equal(0L, dfEmpty.Height)
     [<Fact>]
+    [<Trait("DataFrame","HStack")>]
     member _.``Test HStack and VStack``() =
 
         // a: [1, 2, 3]
@@ -929,12 +930,12 @@ type LitTests() =
 
         Assert.Equal(3L, h_stacked.Height)
         Assert.Equal(2L, h_stacked.Width)
-        
+
         let cols = h_stacked.ColumnNames
         Assert.Equal("a", cols.[0])
         Assert.Equal("b", cols.[1])
 
-        Assert.Equal(Some 10,unbox h_stacked.[0,"b"]) // Row 0, Col "b"
+        Assert.Equal(10,h_stacked.Cell<int>("b",0)) // Row 0, Col "b"
 
         // DF2: [a, b]
         // a: [4, 5]
@@ -952,11 +953,11 @@ type LitTests() =
         Assert.Equal(5L, v_stacked.Height)
         Assert.Equal(2L, v_stacked.Width)
 
-        Assert.Equal(Some 1,unbox v_stacked.[0, 0])
+        Assert.Equal(1,v_stacked.Cell("a", 0))
         
-        Assert.Equal(Some 4,unbox v_stacked.[3,"a"])
+        Assert.Equal(4,v_stacked.["a"].GetValue<int> 3)
 
-        Assert.Equal(Some 50,unbox v_stacked.[4,"b"])
+        Assert.Equal(50,v_stacked.["b"].GetValue<int> 4)
     [<Fact>]
     [<Trait("DataFrame","AsTensor")>]
     member _.``DataFrame: AsTensor extracts all columns to Row-Major 2D Tensor`` () =

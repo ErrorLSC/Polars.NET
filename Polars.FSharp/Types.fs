@@ -467,50 +467,68 @@ type Series(handle: SeriesHandle) =
             []
         else 
             netList |> List.ofSeq
-                
+    /// <summary>
+    /// Gets the value at the specified index as a ValueOption ('T voption).
+    /// </summary>
+    /// <typeparam name="T">The .NET data type expected (e.g., int32, float, DateOnly).</typeparam>
+    /// <param name="index">The 64-bit row index location.</param>
+    /// <returns>ValueSome value if valid, or ValueNone if null.</returns>
+    member inline this.TryGetValue<'T>(index: int64) : 'T voption =
+        if this.IsNullAt(index) then 
+            ValueNone
+        else 
+            ValueSome (this.GetValue<'T>(index)) 
     /// <summary>
     /// [Indexer] Access value at specific index as boxed object.
     /// Syntax: series.[index]
     /// </summary>
-    member this.Item (index: int) : obj =
+    member this.Item (index: int) : obj voption =
         let idx = int64 index
         
-        match this.DataType.Kind with
-        | DataTypeKind.Boolean -> box (this.GetValue<bool option> idx) 
-        
-        | DataTypeKind.Int8 -> box (this.GetValue<int8 option> idx)
-        | DataTypeKind.Int16 -> box (this.GetValue<int16 option> idx)
-        | DataTypeKind.Int32 -> box (this.GetValue<int32 option> idx)
-        | DataTypeKind.Int64 -> box (this.GetValue<int64 option> idx)
-        | DataTypeKind.Int128 -> box (this.GetValue<Int128 option> idx)
-        
-        | DataTypeKind.UInt8 -> box (this.GetValue<uint8 option> idx)
-        | DataTypeKind.UInt16 -> box (this.GetValue<uint16 option> idx)
-        | DataTypeKind.UInt32 -> box (this.GetValue<uint32 option> idx)
-        | DataTypeKind.UInt64 -> box (this.GetValue<uint64 option> idx)
-        | DataTypeKind.UInt128 -> box (this.GetValue<UInt128 option> idx)
+        // Consistent boundary protection
+        if idx < 0L || idx >= this.Length then
+            raise (IndexOutOfRangeException(sprintf "Index %d is out of bounds for Series length %d." idx this.Length))
 
-        | DataTypeKind.Float16 -> box (this.GetValue<Half option> idx)
-        | DataTypeKind.Float32 -> box (this.GetValue<float32 option> idx)
-        | DataTypeKind.Float64 -> box (this.GetValue<double option> idx)
-        
-        | DataTypeKind.Decimal _ -> box (this.GetValue<decimal option> idx)
-        
-        | DataTypeKind.String -> box (this.GetValue<string option> idx)
-        
-        | DataTypeKind.Date -> box (this.GetValue<DateOnly option> idx)
-        | DataTypeKind.Time -> box (this.GetValue<TimeOnly option> idx)
-        | DataTypeKind.Datetime _ -> box (this.GetValue<DateTime option> idx)
-        | DataTypeKind.Duration _ -> box (this.GetValue<TimeSpan option> idx)
-        
-        | DataTypeKind.Binary -> box (this.GetValue<byte[] option> idx)
+        if this.IsNullAt(idx) then 
+            ValueNone
+        else
+            let inline wrapSome (dummy: 'T) = ValueSome (box (this.GetValue<'T>(idx)))
 
-        // Complex Type
-        | DataTypeKind.List _ -> this.GetValue<obj> idx
-        | DataTypeKind.Struct _ -> this.GetValue<obj> idx
-        | DataTypeKind.Array _ -> this.GetValue<obj> idx
-        
-        | _ -> failwithf "Indexer not fully implemented for type: %A" this.DataType
+            match this.DataType.Kind with
+            | DataTypeKind.Boolean -> wrapSome Unchecked.defaultof<bool>
+            | DataTypeKind.Int8 -> wrapSome Unchecked.defaultof<int8>
+            | DataTypeKind.Int16 -> wrapSome Unchecked.defaultof<int16>
+            | DataTypeKind.Int32 -> wrapSome Unchecked.defaultof<int>
+            | DataTypeKind.Int64 -> wrapSome Unchecked.defaultof<int64>
+            | DataTypeKind.Int128 -> wrapSome Unchecked.defaultof<Int128>
+
+            | DataTypeKind.UInt8 -> wrapSome Unchecked.defaultof<uint8>
+            | DataTypeKind.UInt16 -> wrapSome Unchecked.defaultof<uint16>
+            | DataTypeKind.UInt32 -> wrapSome Unchecked.defaultof<uint32>
+            | DataTypeKind.UInt64 -> wrapSome Unchecked.defaultof<uint64>
+            | DataTypeKind.UInt128 -> wrapSome Unchecked.defaultof<UInt128>
+
+            | DataTypeKind.Float16 -> wrapSome Unchecked.defaultof<Half>
+            | DataTypeKind.Float32 -> wrapSome Unchecked.defaultof<float32>
+            | DataTypeKind.Float64 -> wrapSome Unchecked.defaultof<double>
+
+            | DataTypeKind.Decimal _ -> wrapSome Unchecked.defaultof<decimal>
+            | DataTypeKind.String -> wrapSome Unchecked.defaultof<string>
+
+            | DataTypeKind.Date -> wrapSome Unchecked.defaultof<DateOnly>
+            | DataTypeKind.Time -> wrapSome Unchecked.defaultof<TimeOnly>
+            | DataTypeKind.Datetime _ -> wrapSome Unchecked.defaultof<DateTime>
+            | DataTypeKind.Duration _ -> wrapSome Unchecked.defaultof<TimeSpan>
+            | DataTypeKind.Binary -> wrapSome Unchecked.defaultof<byte[]>
+
+            | DataTypeKind.List _ 
+            | DataTypeKind.Struct _ 
+            | DataTypeKind.Array _ -> 
+                match this.GetValue<obj>(idx) with
+                | null -> ValueNone
+                | validComplex -> ValueSome validComplex
+
+            | _ -> failwithf "Indexer not fully implemented for type: %A" this.DataType
     /// <summary>
     /// Get an item as an F# Option.
     /// Ideal for safe handling of nulls in Polars series.
