@@ -1,12 +1,11 @@
 namespace Polars.FSharp
 
-open System
 open Polars.NET.Core
 
 [<AutoOpen>]
 module SeriesAggregateOps = 
     type Series with
-        member private this.ExtractScalar<'T>(aggregator: unit -> Series) : 'T option =
+        member internal this.ExtractScalar<'T>(aggregator: unit -> Series) : 'T option =
             if box this = null || this.IsEmpty then 
                 None
             else

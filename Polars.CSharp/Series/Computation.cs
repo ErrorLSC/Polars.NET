@@ -87,7 +87,6 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <summary>
     /// Compute the element-wise value for the cotangent.
     /// </summary>
-    /// <returns></returns>
     public Series Cot() => ApplyExpr(Pl.Col(Name).Cot());
 
     /// <summary>Compute the element-wise inverse sine.</summary>
@@ -205,14 +204,16 @@ public partial class Series : IDisposable,IPolarsSeries
     /// </summary>
     public Series Diff(long n = 1) => ApplyExpr(Pl.Col(Name).Diff(n));
     /// <summary>
-    /// Get the unique elements of this Series.
+    /// Get unique values of this series.
     /// </summary>
-    public Series Unique() => new(PolarsWrapper.SeriesUnique(Handle));
-
-    /// <summary>
-    /// Get the unique elements of this Series, maintaining the order of appearance.
-    /// </summary>
-    public Series UniqueStable() => new(PolarsWrapper.SeriesUniqueStable(Handle));
+    /// <param name="maintainOrder">Maintain order of data. This requires more work.</param>
+    public Series Unique(bool maintainOrder=false)
+    {   
+        if(!maintainOrder)
+            return new(PolarsWrapper.SeriesUnique(Handle));
+        else 
+            return new(PolarsWrapper.SeriesUniqueStable(Handle));
+    }
     /// <inheritdoc cref="Expr.Hist"/>
     public DataFrame Hist(IntoExpr? bins=null,int? binCount=null,bool includeCategory=true,bool includeBreakPoint=true)
     {

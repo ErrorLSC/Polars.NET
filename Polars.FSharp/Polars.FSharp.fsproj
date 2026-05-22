@@ -43,7 +43,9 @@
     <Compile Include="Expr/ExprNamespaces.fs" />
     <Compile Include="Types.fs" />  
     <Compile Include="UnionTypes.fs" />
+    <Compile Include="Series/Series.Operations.fs" />
     <Compile Include="Series/Series.Aggregation.fs" />
+    <Compile Include="Series/Series.Computation.fs" />
     <Compile Include="Series/Series.ExtOps.fs" />
     <Compile Include="Series/Series.CatOps.fs" />
     <Compile Include="Series/Series.StringOps.fs" />
@@ -51,7 +53,6 @@
     <Compile Include="Series/Series.ListOps.fs" />
     <Compile Include="Series/Series.ArrayOps.fs" />
     <Compile Include="Series/Series.StructOps.fs" />
-    <Compile Include="Series/Series.Operations.fs" />
     <Compile Include="Expr/RollingOps.fs" />
     <Compile Include="Series/Series.RollingOps.fs" />
     <Compile Include="Operations/ValueAccessors.fs" />

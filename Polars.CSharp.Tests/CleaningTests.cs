@@ -103,7 +103,7 @@ public class CleaningTests
         
         using var s = Series.From("nums", [1, 2, 2, 3]);
 
-        using var unique = s.UniqueStable();
+        using var unique = s.Unique(maintainOrder:true);
         Assert.Equal(3, unique.Length);
         Assert.Equal(1, unique[0]);
         Assert.Equal(2, unique[1]);

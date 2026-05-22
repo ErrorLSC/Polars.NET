@@ -415,7 +415,7 @@ public class SeriesTests
         Assert.True((bool)dupMask[2]!);  // 2
         Assert.False((bool)dupMask[3]!); // 3
 
-        using var uniq = s.UniqueStable();
+        using var uniq = s.Unique(maintainOrder:true);
         Assert.Equal(3, uniq.Length);
         Assert.Equal(1, uniq[0]);
         Assert.Equal(2, uniq[1]);
