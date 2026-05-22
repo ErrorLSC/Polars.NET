@@ -45,6 +45,7 @@
     <Compile Include="UnionTypes.fs" />
     <Compile Include="Series/Series.Operations.fs" />
     <Compile Include="Series/Series.Aggregation.fs" />
+    <Compile Include="Series/Series.Descriptive.fs" />
     <Compile Include="Series/Series.Computation.fs" />
     <Compile Include="Series/Series.ExtOps.fs" />
     <Compile Include="Series/Series.CatOps.fs" />

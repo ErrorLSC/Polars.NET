@@ -150,16 +150,6 @@ module SeriesOperationExtensions =
         member this.FillNull(expr: Expr) =
             this.ApplyExpr(Expr.Col(this.Name).FillNull expr)
         /// <summary>
-        /// Returns a boolean Series indicating which values are null.
-        /// </summary>
-        member this.IsNull() : Series = 
-            new Series(PolarsWrapper.SeriesIsNull this.Handle)
-        /// <summary>
-        /// Returns a boolean Series indicating which values are not null.
-        /// </summary>
-        member this.IsNotNull() : Series = 
-            new Series(PolarsWrapper.SeriesIsNotNull this.Handle)
-        /// <summary>
         /// Drop null values.
         /// </summary>
         member this.DropNulls() : Series =
@@ -171,57 +161,15 @@ module SeriesOperationExtensions =
             let expr = Expr.Col(this.Name).DropNans()
             this.ApplyExpr expr
 
-        /// <summary> Check if floating point values are NaN. </summary>
-        member this.IsNan() = new Series(PolarsWrapper.SeriesIsNan this.Handle)
-
-        /// <summary> Check if floating point values are not NaN. </summary>
-        member this.IsNotNan() = new Series(PolarsWrapper.SeriesIsNotNan this.Handle)
-
-        /// <summary> Check if floating point values are finite (not NaN and not Inf). </summary>
-        member this.IsFinite() = new Series(PolarsWrapper.SeriesIsFinite this.Handle)
-
-        /// <summary> Check if floating point values are infinite. </summary>
-        member this.IsInfinite() = new Series(PolarsWrapper.SeriesIsInfinite this.Handle)
         // ==========================================
         // Uniqueness & Boolean Masl
         // ==========================================
-
-        /// <summary>
-        /// Count the number of unique values.
-        /// </summary>
-        member this.NUnique() = PolarsWrapper.SeriesNUnique this.Handle
-        /// <summary>
-        /// Get an approximation of the number of unique values in this Series.
-        /// Uses HyperLogLog algorithm for fast, memory-efficient counting.
-        /// </summary>
-        /// <returns>Approximate count of unique values.</returns>
-        member this.ApproxNUnique() = PolarsWrapper.SeriesApproxNUnique this.Handle
-        /// <summary>
-        /// Get a boolean mask indicating which values are unique.
-        /// Implemented via Expression engine.
-        /// </summary>
-        member this.IsUnique() =
-            // col(Name).IsUnique()
-            let expr = Expr.Col(this.Name).IsUnique()
-            this.ApplyExpr expr
-
-        /// <summary>
-        /// Get a boolean mask indicating which values are duplicated.
-        /// Implemented via Expression engine.
-        /// </summary>
-        member this.IsDuplicated() =
-            let expr = Expr.Col(this.Name).IsDuplicated()
-            this.ApplyExpr expr
         /// <summary>
         /// Check if values are between lower and upper bounds.
         /// </summary>
         member this.IsBetween(lower:Expr, upper:Expr) = 
             this.ApplyExpr(Expr.Col(this.Name).IsBetween(lower,upper))
-        /// <summary>
-        /// Check if the value is in given collection.
-        /// </summary>
-        member this.IsIn(other:Expr, ?nullsEqual:bool) =
-            this.ApplyExpr(Expr.Col(this.Name).IsIn(other=other,?nullsEqual=nullsEqual))
+
         /// <summary>
         /// Filter a series.
         /// <br/>
@@ -452,20 +400,5 @@ module SeriesOperationExtensions =
         /// <returns></returns>
         member this.Rank(?method: RankMethod, ?descending: bool, ?seed: uint64) = 
             this.ApplyExpr(Expr.Col(this.Name).Rank(?method=method, ?descending=descending, ?seed=seed))
-        /// <summary>
-        /// Count the occurrences of unique values.
-        /// Similar to SQL `GROUP BY val COUNT(*)`.
-        /// </summary>
-        /// <param name="sort">Sort the output by count in descending order. Default is true.</param>
-        /// <param name="parallel">Execute in parallel. Default is true.</param>
-        /// <param name="name">The name of the count column. Default is "count".</param>
-        /// <param name="normalize">If true, the count column will contain probabilities instead of counts. Default is false.</param>
-        member this.ValueCounts(?sort: bool, ?paralleling: bool, ?name: string, ?normalize: bool) =
-            let sort = defaultArg sort true
-            let paralleling = defaultArg paralleling true
-            let name = defaultArg name "count"
-            let normalize = defaultArg normalize false
-            
-            let dfHandle = PolarsWrapper.SeriesValueCounts(this.Handle, sort, paralleling, name, normalize)
-            new DataFrame(dfHandle)
+
 

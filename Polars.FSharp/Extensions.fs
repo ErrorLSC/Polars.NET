@@ -175,6 +175,9 @@ module Describe =
         /// </summary>
         member this.Describe(): DataFrame =
             this.Clone().Collect().Describe()
+    type Series with
+        member this.Describe() = 
+            this.ToFrame().Describe()
 
 [<AutoOpen>]
 module InterfaceUnwrapperExtensions =

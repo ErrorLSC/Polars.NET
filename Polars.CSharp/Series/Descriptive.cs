@@ -60,12 +60,10 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <summary>
     /// Check whether this series is finite
     /// </summary>
-    /// <returns></returns>
     public Series IsFinite() => new(PolarsWrapper.SeriesIsFinite(Handle));
     /// <summary>
     /// Check whether this series is infinite
     /// </summary>
-    /// <returns></returns>
     public Series IsInfinite() => new(PolarsWrapper.SeriesIsInfinite(Handle));
     /// <summary>
     /// Return a boolean mask indicating the first occurrence of each distinct value.
@@ -110,7 +108,6 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <typeparam name="T"></typeparam>
     /// <param name="collection"></param>
     /// <param name="nullsEqual"></param>
-    /// <returns></returns>
     public Series IsIn<T>(IEnumerable<T?> collection,bool nullsEqual=false)
     {
         using var other = From("__TEMP_FOR_ISIN",collection);
@@ -127,12 +124,10 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <summary>
     /// Check whether this series is NaN
     /// </summary>
-    /// <returns></returns>
     public Series IsNan() => new(PolarsWrapper.SeriesIsNan(Handle));
     /// <summary>
     /// Check whether this series is not NaN
     /// </summary>
-    /// <returns></returns>
     public Series IsNotNan() => new(PolarsWrapper.SeriesIsNotNan(Handle));
     /// <summary>
     /// Count the number of unique values in this Series.
