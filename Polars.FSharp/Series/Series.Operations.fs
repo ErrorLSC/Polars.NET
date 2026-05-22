@@ -10,8 +10,37 @@ module SeriesOperationExtensions =
         /// <summary> Slice the Series. Returns a new Series. </summary>
         /// <param name="offset">Start index.</param>
         /// <param name="length">Length of the slice.</param>
-        member this.Slice(offset: int64, length: uint64) =
-            new Series(PolarsWrapper.SeriesSlice(this.Handle, offset, length))
+        member this.Slice(offset: int64, ?length: uint64) : Series =
+            let absoluteOffset = 
+                if offset < 0L then this.Length + offset 
+                else offset
+
+            if absoluteOffset < 0L || absoluteOffset >= this.Length then
+                new Series(PolarsWrapper.SeriesSlice(this.Handle, absoluteOffset, 0UL))
+            else
+                let realLength = defaultArg length (uint64 (this.Length - absoluteOffset))
+                new Series(PolarsWrapper.SeriesSlice(this.Handle, absoluteOffset, realLength))
+        /// <summary>
+        /// F# Slice Indexer for syntax like s[1..5] or s[..^1].
+        /// </summary>
+        /// <param name="start">The optional inclusive start index.</param>
+        /// <param name="finish">The optional inclusive end index.</param>
+        /// <returns>A new sliced Series subset.</returns>
+        member this.GetSlice(start: int64 option, finish: int64 option) : Series =
+            let offset = defaultArg start 0L
+
+            let length = 
+                match finish with
+                | None -> None
+                | Some endIdx ->
+                    // F# slices are inclusive of the upper bound (e.g. 1..5 means up to index 5)
+                    // Polars/C# slices expect total elements count (length)
+                    let resolvedEnd = if endIdx < 0L then this.Length + endIdx else endIdx
+                    let resolvedStart = if offset < 0L then this.Length + offset else offset
+                    
+                    if resolvedEnd < resolvedStart then Some 0UL
+                    else Some (uint64 (resolvedEnd - resolvedStart + 1L))
+            this.Slice(offset, ?length = length)
         /// <summary>
         /// Append a Series to this one.
         /// The resulting series will consist of multiple chunks.
@@ -28,14 +57,54 @@ module SeriesOperationExtensions =
         member this.Extend(other:Series) = 
             PolarsWrapper.SeriesExtend(this.Handle,other.Handle)
             this
-
+        member this.ExtendConstant(value,n) = this.ApplyExpr(Expr.Col(this.Name).ExtendConstant(value,n))
+        member this.Reverse() = this.ApplyExpr(Expr.Col(this.Name).Reverse())
+        member this.Clip(?lowerBound: Expr, ?upperBound: Expr) = 
+            this.ApplyExpr(Expr.Col(this.Name).Clip(?lowerBound=lowerBound,?upperBound=upperBound))
+        /// <summary>
+        /// Cast to physical representation of the logical dtype.
+        /// </summary>
+        member this.ToPhysical() = new Series(PolarsWrapper.SeriesToPhysical(this.Handle))
+        member this.SampleN(?n,?withReplacement,?shuffle,?seed) =
+            this.ApplyExpr(Expr.Col(this.Name).SampleN(?n=n,?withReplacement=withReplacement,?shuffle=shuffle,?seed=seed))
+        member this.SampleFrac(fraction:Expr,?withReplacement:bool,?shuffle:bool,?seed:uint64) =
+            this.ApplyExpr(Expr.Col(this.Name).SampleFrac(fraction,?withReplacement=withReplacement,?shuffle=shuffle,?seed=seed))
+        member this.Reinterpret(?signed) = this.ApplyExpr(Expr.Col(this.Name).Reinterpret(?signed=signed))
+        member this.RepeatBy by = this.ApplyExpr(Expr.Col(this.Name).RepeatBy by)
+        /// <summary>
+        /// Create an empty copy of the current Series, with zero to ‘n’ elements.
+        /// The copy has an identical name/dtype, but no data.
+        /// </summary>
+        /// <param name="n"></param>
+        member this.Clear(?n: uint32) : Series =
+            if this.IsEmpty then 
+                this.Clone()
+            else
+                match defaultArg n 0u with
+                | 0u -> 
+                    new Series(PolarsWrapper.SeriesClear(this.Handle))
+                | count -> 
+                    let cleared = new Series(PolarsWrapper.SeriesClear(this.Handle))
+                    cleared.ExtendConstant(Expr.LitNull(),new Expr(PolarsWrapper.Lit count))
+        /// <summary>
+        /// Reshape this Series to a flat Series or an Array Series.
+        /// </summary>
+        /// <param name="dimensions">Tuple of the dimension sizes. If a -1 is used in any of the dimensions, that dimension is inferred.</param>
+        /// <returns>Tuple of the dimension sizes. If a -1 is used in any of the dimensions, that dimension is inferred.</returns>
+        member this.Reshape(dimensions:seq<int64>) =
+            let dim = dimensions |> Seq.toArray
+            let dimSpan = ReadOnlySpan<int64> dim
+            new Series(PolarsWrapper.SeriesReshape(this.Handle,dimSpan))
+        member this.Replace(old,newExpr) =
+            this.ApplyExpr(Expr.Col(this.Name).Replace(old,newExpr))
+        member this.ReplaceStrict(old,newExpr,?defaultExpr:Expr,?returnDataType:DataTypeExpr) =
+            this.ApplyExpr(Expr.Col(this.Name).ReplaceStrict(old,newExpr,?defaultExpr=defaultExpr,?returnDataType=returnDataType))
         /// <summary>
         /// Explode a list column into multiple rows.
         /// The resulting Series will be longer than the original.
         /// </summary>
         member this.Explode(?emptyAsNull: bool, ?keepNulls:bool) =
             this.ApplyExpr(Expr.Col(this.Name).Explode(?emptyAsNull=emptyAsNull,?keepNulls=keepNulls))
-
         /// <summary>
         /// Unnest a Struct column into a DataFrame.
         /// Shortcut for <see cref="SeriesStructOps.Unnest"/>.
@@ -43,6 +112,57 @@ module SeriesOperationExtensions =
         member this.Unnest() =
             let dfHandle = PolarsWrapper.SeriesStructUnnest this.Handle
             new DataFrame(dfHandle)
+        /// <summary>
+        /// Take values from self or other based on the given mask.
+        /// Where mask evaluates true, take values from self. Where mask evaluates false, take values from other.
+        /// </summary>
+        /// <param name="mask">Boolean Series.</param>
+        /// <param name="other">Series of same type.</param>
+        /// <returns>Series</returns>
+        member this.ZipWith(mask:Series,other:Series) = 
+            new Series(PolarsWrapper.SeriesZipWith(this.Handle,mask.Handle,other.Handle))
+        /// <summary>
+        /// Get dummy/indicator variables.
+        /// </summary>
+        /// <param name="separator">Separator/delimiter used when generating column names.</param>
+        /// <param name="dropFirst">Remove the first category from the variable being encoded.</param>
+        /// <param name="dropNulls">If there are None values in the series, a null column is not generated. Null values in the input are represented by zero vectors.</param>
+        member this.ToDummies(?separator: string, ?dropFirst: bool, ?dropNulls: bool) =
+            let sep = defaultArg separator "_"
+            let drp = defaultArg dropFirst false
+            let drn = defaultArg dropNulls false
+            new DataFrame(PolarsWrapper.SeriesToDummies(this.Handle,sep,drp,drn)) 
+        /// <summary>
+        /// Create a new Series filled with values from the given index.
+        /// </summary>
+        member this.NewFromIndex(index,length) = new Series(PolarsWrapper.SeriesNewFromIndex(this.Handle,index,length))
+        member this.FromEpoch(?timeUnit: EpochTimeUnit) : Series =
+            let unit = defaultArg timeUnit EpochTimeUnit.Second
+
+            let ensureInt64 (s: Series) =
+                if s.DataType.IsInteger && s.DataType <> DataType.Int64 then
+                    s.Cast<int64>()
+                else 
+                    s
+
+            match unit with
+            | EpochTimeUnit.Day -> 
+                this.Cast DataType.Date
+
+            | EpochTimeUnit.Second -> 
+                let s64 = ensureInt64 this
+                (s64 * 1_000_000L).Cast(DataType.Datetime TimeUnit.Microseconds)
+
+            | EpochTimeUnit.Milliseconds -> 
+                let s64 = ensureInt64 this
+                (s64 * 1_000L).Cast(DataType.Datetime TimeUnit.Microseconds)
+
+            | EpochTimeUnit.Microseconds -> 
+                this.Cast(DataType.Datetime TimeUnit.Microseconds)
+
+            | EpochTimeUnit.Nanoseconds -> 
+                this.Cast(DataType.Datetime TimeUnit.Nanoseconds)
+
         // ==========================================
         // Indexing & Searching (Forwarded to Expr)
         // ==========================================
@@ -74,7 +194,22 @@ module SeriesOperationExtensions =
         /// </summary>
         member this.Take(indices: Expr) = 
             this.ApplyExpr(Expr.Col(this.Name).Take indices)
+        /// <summary>
+        /// Take elements by physical integer indices.
+        /// Note: Negative indices are not supported. All values must be >= 0.
+        /// </summary>
+        member this.Take(indices: Series) : Series =
+            if not indices.DataType.IsInteger then
+                invalidArg (nameof indices) ($"Take requires an integer Series, but got {indices.DataType.Kind}.")
 
+            try
+                new Series(PolarsWrapper.SeriesTake(this.Handle, indices.Handle))
+            with
+                | :? ArgumentOutOfRangeException -> reraise() // Pass through if Core already raised it
+                | ex when ex.Message.Contains("OutOfBounds") || ex.Message.Contains("out of bounds") ->
+                    raise (ArgumentOutOfRangeException(
+                        nameof indices, 
+                        "Index out of bounds. Please ensure no negative indices are used and all values are within the Series length."))
         /// <summary>
         /// Take every nth value starting from an offset.
         /// </summary>
@@ -94,6 +229,8 @@ module SeriesOperationExtensions =
         /// <param name="nullsLast">If true, place null values last. Default is false.</param>
         member this.ArgSort(?descending: bool, ?nullsLast: bool) =
             this.ApplyExpr(Expr.Col(this.Name).ArgSort(?descending = descending, ?nullsLast = nullsLast))
+        member this.IsClose(other:Expr,?absTol,?relTol,?nansEqual) =
+            this.ApplyExpr(Expr.Col(this.Name).IsClose(other,?absTol=absTol,?relTol=relTol,?nansEqual=nansEqual))
 
         // ==========================================
         // Missing Data Handling (FillNull & FillNan)
@@ -119,10 +256,8 @@ module SeriesOperationExtensions =
             this.ApplyExpr(Expr.Col(this.Name).Interpolate(?method=method))
         member this.InterpolateBy(by:Series) = 
             this.ApplyBinaryExpr(by, fun l r -> l.InterpolateBy r)
-        /// <summary> Fill null values with a literal boolean. </summary>
-        member this.FillNull(fillValue: bool) = 
-            this.ApplyExpr(Expr.Col(this.Name).FillNull(new Expr(PolarsWrapper.Lit fillValue)))
-
+        member this.InterpolateBy(by:Expr) = 
+            this.ApplyExpr(Expr.Col(this.Name).InterpolateBy(by))
         /// <summary> Fill floating point NaN values with a literal value. </summary>
         member this.FillNan(fillValue: double) =
             this.ApplyExpr(Expr.Col(this.Name).FillNan(new Expr(PolarsWrapper.Lit fillValue)))
@@ -179,6 +314,18 @@ module SeriesOperationExtensions =
         /// <returns>A new series with filtered values.</returns>
         member this.Filter(predicate:Expr) = 
             this.ApplyExpr(Expr.Col(this.Name).Filter predicate)
+        member this.Filter(predicate:Series) = 
+            this.Filter(new Expr(PolarsWrapper.Lit predicate.Handle))
+        member this.Rle() = this.ApplyExpr(Expr.Col(this.Name).Rle())
+        member this.RleId() = this.ApplyExpr(Expr.Col(this.Name).RleId())
+        member this.PeakMax() = this.ApplyExpr(Expr.Col(this.Name).PeakMax())
+        member this.PeakMin() = this.ApplyExpr(Expr.Col(this.Name).PeakMin())
+        member this.Cut(breaks: seq<double>, ?labels: seq<string>, ?leftClosed: bool, ?includeBreaks: bool) =
+            this.ApplyExpr(Expr.Col(this.Name).Cut(breaks,?labels=labels,?leftClosed=leftClosed,?includeBreaks=includeBreaks))
+        member this.QCut(quantiles: seq<double>, ?labels: seq<string>, ?leftClosed: bool,?allowDuplicates:bool, ?includeBreaks: bool) =
+            this.ApplyExpr(Expr.Col(this.Name).QCut(quantiles,?labels=labels,?leftClosed=leftClosed,?allowDuplicates=allowDuplicates,?includeBreaks=includeBreaks))
+        member this.QCut(quantiles: int, ?labels: seq<string>, ?leftClosed: bool, ?allowDuplicates: bool, ?includeBreaks: bool) =
+            this.ApplyExpr(Expr.Col(this.Name).QCut(quantiles,?labels=labels,?leftClosed=leftClosed,?allowDuplicates=allowDuplicates,?includeBreaks=includeBreaks))
         // ==========================================
         // UDF / Map (Apply Custom C# / F# Functions)
         // ==========================================

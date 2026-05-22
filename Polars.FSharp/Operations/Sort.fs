@@ -23,11 +23,6 @@ module SortOps =
             let multi = defaultArg multithreaded true
 
             new Series(PolarsWrapper.SeriesSort(this.Handle, desc, nLast, multi, stable))
-        /// <summary>
-        /// Sort this Series in ascending order.
-        /// </summary>
-        member this.Sort() =
-            this.Sort false
     type LazyFrame with
         member this.Sort(
             columns: seq<IColumnExpr>, 

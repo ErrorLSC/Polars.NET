@@ -123,7 +123,6 @@ public static class DataViewToArrow
             {
                 if (keyType.RawType == typeof(uint) || keyType.RawType == typeof(byte)) 
                 {
-                    // 🌟 4. 把 rowCount 传给分类转字符串抽水机
                     yield return new KeyToStringPumper(cursor, col, rowCount,batchSize);
                 }
                 else throw new NotSupportedException($"KeyDataViewType with RawType '{keyType.RawType.Name}' is not supported.");

@@ -88,8 +88,8 @@ public class DataTypeExprTests
         Assert.NotNull(series);
         Assert.Equal(1, series.Length); 
         
-        var val = series.First(); 
-        Assert.Equal(0, val[0]);
+        var val = series.First<int>(); 
+        Assert.Equal(0, val);
     }
     [Fact]
     [Trait("DataTypeExpr", "DefaultValueNumericToOne")]

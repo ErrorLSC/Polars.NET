@@ -20,7 +20,7 @@ type IColumnExpr =
 /// </code>
 /// </example>
 and Expr(handle: ExprHandle) =
-    member _.Handle = handle
+    member internal _.Handle = handle
     member internal this.CloneHandle() = PolarsWrapper.CloneExpr handle
     member this.Clone() = new Expr(this.CloneHandle())
     interface IDisposable with member _.Dispose() = handle.Dispose()
@@ -83,6 +83,7 @@ and Expr(handle: ExprHandle) =
     /// </summary>
     static member internal All() = 
         Expr.Col "*"
+    static member internal LitNull() = new Expr(PolarsWrapper.LitNull())
     member this.Exclude(names:seq<string>):Expr =
         let sel: Selector = this.ToSelector()
         let ns: Selector = sel.Exclude(names)

@@ -129,7 +129,7 @@ module Describe =
 
             use headDf = this.Head limit
 
-            use strDf = headDf.Select [| Expr.All().Cast(Dtype.PlDataType DataType.String,false) |]
+            use strDf = headDf.Select [| Expr.All().Cast<string>(false) |]
 
             let outColNames, outDtypes, outValues =
                 cols 

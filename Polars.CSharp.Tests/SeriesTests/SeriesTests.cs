@@ -803,24 +803,25 @@ public class SeriesTests
         Assert.Equal(3.5, arr[4]); 
     }
     [Fact]
+    [Trait("Series","Aggregations")]
     public void Test_Series_Direct_Aggregations()
     {
         var s = new Series("nums", [1, 2, 3]);
         var sRev = s.Reverse();
         Assert.Equal([3, 2, 1], sRev.ToArray<int>());
 
-        Assert.Equal(1, s.First()[0]);
-        Assert.Equal(3, s.Last()[0]);
+        Assert.Equal(1, s.First<int>());
+        Assert.Equal(3, s.Last<int>());
 
         var sBool = new Series("bools", [true, false, null]); 
         // Any (ignoreNulls=false): true | false | null -> true 
-        Assert.Equal(true, sBool.Any(ignoreNulls: false)[0]);
+        Assert.Equal(true, sBool.Any(ignoreNulls: false));
         
         // All (ignoreNulls=true): true & false -> false
-        Assert.Equal(false, sBool.All(ignoreNulls: true)[0]);
+        Assert.Equal(false, sBool.All(ignoreNulls: true));
         
         var sAllTrue = new Series("all_true", [true, true]);
-        Assert.Equal(true, sAllTrue.All()[0]);
+        Assert.Equal(true, sAllTrue.All());
     }
     [Fact]
     public void Test_Series_Long_Nullable_Constructor()
@@ -842,7 +843,7 @@ public class SeriesTests
         Assert.Equal(dataSmall, sSmall.ToArray<bool>());
         
         bool[] dataExact = new bool[64];
-        for(int i=0; i<64; i++) dataExact[i] = (i % 2 == 0); // T, F, T, F...
+        for(int i=0; i<64; i++) dataExact[i] = i % 2 == 0; // T, F, T, F...
         
         using var sExact = new Series("exact", dataExact);
         Assert.Equal(dataExact, sExact.ToArray<bool>());

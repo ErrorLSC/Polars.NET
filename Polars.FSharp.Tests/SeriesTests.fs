@@ -440,7 +440,7 @@ type ``Series Tests`` () =
         Assert.Equal(Some 1.0, s.Var())
 
         // Median: 2.0
-        Assert.Equal(2.0, s.Median().GetValue<double> 0)
+        Assert.Equal(Some 2.0, s.Median())
 
         // Quantile (0.5) == Median
         Assert.Equal(2.0, s.Quantile(0.5).GetValue<double> 0)

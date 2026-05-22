@@ -236,34 +236,17 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     // -------------------------------------------------------------------------
     // Boolean Aggregation
     // -------------------------------------------------------------------------
-
     /// <summary>
     /// <inheritdoc cref="Expr.Any(bool)" path="/summary"/>
     /// </summary>
     /// <inheritdoc cref="Expr.Any(bool)" path="/param"/>
-    /// <returns>A new <see cref="Series"/> (boolean, length 1).</returns>
-    public Series Any(bool ignoreNulls = false) => ApplyExpr(Pl.Col(Name).Any(ignoreNulls));
+    public bool? Any(bool ignoreNulls = false) => (bool?)ApplyExpr(Pl.Col(Name).Any(ignoreNulls))[0];
 
     /// <summary>
     /// <inheritdoc cref="Expr.All(bool)" path="/summary"/>
     /// </summary>
     /// <inheritdoc cref="Expr.All(bool)" path="/param"/>
-    /// <returns>A new <see cref="Series"/> (boolean, length 1).</returns>
-    public Series All(bool ignoreNulls = false) => ApplyExpr(Pl.Col(Name).All(ignoreNulls));
-
-    /// <summary>
-    /// <inheritdoc cref="Expr.Any(bool)" path="/summary"/>
-    /// </summary>
-    /// <inheritdoc cref="Expr.Any(bool)" path="/param"/>
-    /// <returns>A new <see cref="Series"/> (boolean, length 1).</returns>
-    public bool? AnyAsScalar(bool ignoreNulls = false) => (bool?)ApplyExpr(Pl.Col(Name).Any(ignoreNulls))[0];
-
-    /// <summary>
-    /// <inheritdoc cref="Expr.All(bool)" path="/summary"/>
-    /// </summary>
-    /// <inheritdoc cref="Expr.All(bool)" path="/param"/>
-    /// <returns>A new <see cref="Series"/> (boolean, length 1).</returns>
-    public bool? AllAsScalar(bool ignoreNulls = false) => (bool?)ApplyExpr(Pl.Col(Name).All(ignoreNulls))[0];
+    public bool? All(bool ignoreNulls = false) => (bool?)ApplyExpr(Pl.Col(Name).All(ignoreNulls))[0];
 
     // ==========================================
     // Properties
@@ -416,7 +399,6 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// </summary>
     /// <param name="value">A constant literal value or a unit expression with which to extend the expression result Series; can pass None to extend with nulls.</param>
     /// <param name="n">The number of additional values that will be added.</param>
-    /// <returns></returns>
     public Series ExtendConstant(IntoExpr value,Expr n) => ApplyExpr(Pl.Col(Name).ExtendConstant(value,n));
     /// <inheritdoc cref="Expr.Clip"/>
     public Series Clip(IntoExprColumn? lowerBound=null,IntoExprColumn? upperBound=null) => ApplyExpr(Pl.Col(Name).Clip(lowerBound,upperBound));
@@ -425,7 +407,6 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// The copy has an identical name/dtype, but no data.
     /// </summary>
     /// <param name="n"></param>
-    /// <returns></returns>
     public Series Clear(uint n = 0)
     {
         if (IsEmpty)
@@ -681,14 +662,12 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <param name="separator">Separator/delimiter used when generating column names.</param>
     /// <param name="dropFirst">Remove the first category from the variable being encoded.</param>
     /// <param name="dropNulls">If there are None values in the series, a null column is not generated. Null values in the input are represented by zero vectors.</param>
-    /// <returns></returns>
     public DataFrame ToDummies(string? separator = "_",bool dropFirst = false, bool dropNulls = false) => new(PolarsWrapper.SeriesToDummies(Handle,separator,dropFirst,dropNulls));
     /// <summary>
     /// Create a new Series filled with values from the given index.
     /// </summary>
     /// <param name="index"></param>
     /// <param name="length"></param>
-    /// <returns></returns>
     public Series NewFromIndex(long index,long length) => new(PolarsWrapper.SeriesNewFromIndex(Handle,index,length));
     /// <summary>
     /// Parses an integer Series into a Datetime or Date Series.

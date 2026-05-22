@@ -1,6 +1,7 @@
 namespace Polars.FSharp
 
 open Polars.NET.Core
+open System
 
 type TimeUnit = 
     | Nanoseconds
@@ -520,3 +521,12 @@ type SizeUnit =
     | Gigabytes
     | Terabytes
     
+/// <summary>
+/// Bitwise flags representing the sorting state of a Series or Column.
+/// </summary>
+[<Flags>]
+type SortStateFlags =
+    | NotSorted  = 0uy
+    | IsSorted   = 1uy   // 001
+    | Descending = 2uy   // 010
+    | NullsLast  = 4uy   // 100

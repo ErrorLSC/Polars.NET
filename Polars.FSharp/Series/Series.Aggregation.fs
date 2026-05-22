@@ -112,5 +112,9 @@ module SeriesAggregateOps =
             this.ApplyExpr(Expr.Col(this.Name).BitwiseXor())
         member this.BitwiseXor<'T>() : 'T option =
             this.ExtractScalar<'T>(fun () -> this.BitwiseXor())
+        member this.Any ?ignoreNulls =
+            this.ExtractScalar<bool>(fun () -> this.ApplyExpr(Expr.Col(this.Name).Any(?ignoreNulls=ignoreNulls)))
+        member this.All ?ignoreNulls =
+            this.ExtractScalar<bool>(fun () -> this.ApplyExpr(Expr.Col(this.Name).All(?ignoreNulls=ignoreNulls)))
         
         

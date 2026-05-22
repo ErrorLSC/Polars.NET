@@ -119,50 +119,50 @@ public partial class Series : IDisposable,IPolarsSeries
         {
             return DataType.Kind switch
             {
-                    // Integer
-                    DataTypeKind.Int8 => GetValue<sbyte?>(index),
-                    DataTypeKind.Int16 => GetValue<short?>(index),
-                    DataTypeKind.Int32 => GetValue<int?>(index),
-                    DataTypeKind.Int64 => GetValue<long?>(index),
-                    DataTypeKind.Int128 => GetValue<Int128?>(index),
-                    DataTypeKind.UInt8 => GetValue<byte?>(index),
-                    DataTypeKind.UInt16 => GetValue<ushort?>(index),
-                    DataTypeKind.UInt32 => GetValue<uint?>(index),
-                    DataTypeKind.UInt64 => GetValue<ulong?>(index),
-                    DataTypeKind.UInt128 => GetValue<UInt128?>(index),
-                    DataTypeKind.Decimal => GetValue<decimal?>(index),
+                // Integer
+                DataTypeKind.Int8 => GetValue<sbyte?>(index),
+                DataTypeKind.Int16 => GetValue<short?>(index),
+                DataTypeKind.Int32 => GetValue<int?>(index),
+                DataTypeKind.Int64 => GetValue<long?>(index),
+                DataTypeKind.Int128 => GetValue<Int128?>(index),
+                DataTypeKind.UInt8 => GetValue<byte?>(index),
+                DataTypeKind.UInt16 => GetValue<ushort?>(index),
+                DataTypeKind.UInt32 => GetValue<uint?>(index),
+                DataTypeKind.UInt64 => GetValue<ulong?>(index),
+                DataTypeKind.UInt128 => GetValue<UInt128?>(index),
+                DataTypeKind.Decimal => GetValue<decimal?>(index),
 
-                    // float
-                    DataTypeKind.Float16 => GetValue<Half?>(index),
-                    DataTypeKind.Float32 => GetValue<float?>(index),
-                    DataTypeKind.Float64 => GetValue<double?>(index),
+                // float
+                DataTypeKind.Float16 => GetValue<Half?>(index),
+                DataTypeKind.Float32 => GetValue<float?>(index),
+                DataTypeKind.Float64 => GetValue<double?>(index),
 
-                    // bool
-                    DataTypeKind.Boolean => GetValue<bool?>(index),
+                // bool
+                DataTypeKind.Boolean => GetValue<bool?>(index),
 
-                    // stirng
-                    DataTypeKind.String => GetValue<string>(index),
+                // stirng
+                DataTypeKind.String => GetValue<string>(index),
 
-                    // Duration
-                    DataTypeKind.Duration => GetValue<TimeSpan?>(index),
+                // Duration
+                DataTypeKind.Duration => GetValue<TimeSpan?>(index),
 
-                    //  Time -> TimeOnly 
-                    DataTypeKind.Time => GetValue<TimeOnly?>(index),
+                //  Time -> TimeOnly 
+                DataTypeKind.Time => GetValue<TimeOnly?>(index),
 
-                    // DateTime
-                    DataTypeKind.Date => GetValue<DateOnly?>(index), 
-                    DataTypeKind.Datetime => string.IsNullOrEmpty(DataType.TimeZone) 
-                        ? GetValue<DateTime?>(index)      
-                        : (object?)GetValue<DateTimeOffset?>(index),
+                // DateTime
+                DataTypeKind.Date => GetValue<DateOnly?>(index), 
+                DataTypeKind.Datetime => string.IsNullOrEmpty(DataType.TimeZone) 
+                    ? GetValue<DateTime?>(index)      
+                    : (object?)GetValue<DateTimeOffset?>(index),
 
-                    // Binary
-                    DataTypeKind.Binary => GetValue<byte[]>(index),
+                // Binary
+                DataTypeKind.Binary => GetValue<byte[]>(index),
 
-                    // Complex Types
-                    DataTypeKind.List => GetValue<object>(index), 
-                    DataTypeKind.Categorical => GetValue<object>(index), 
-                    DataTypeKind.Struct => GetValue<object>(index),
-                    DataTypeKind.Array => GetValue<object>(index),
+                // Complex Types
+                DataTypeKind.List => GetValue<object>(index), 
+                DataTypeKind.Categorical => GetValue<object>(index), 
+                DataTypeKind.Struct => GetValue<object>(index),
+                DataTypeKind.Array => GetValue<object>(index),
                 
                 _ => throw new NotSupportedException($"Indexer not supported for type {DataType.Kind}")
             };

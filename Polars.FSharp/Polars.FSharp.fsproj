@@ -42,7 +42,8 @@
     <Compile Include="Expr/DtOps.fs" />
     <Compile Include="Expr/ExprNamespaces.fs" />
     <Compile Include="Types.fs" />  
-    <Compile Include="UnionTypes.fs" />
+    <Compile Include="Lit.fs" />  
+    <Compile Include="Operations/Cast.fs" />
     <Compile Include="Series/Series.Operations.fs" />
     <Compile Include="Series/Series.Aggregation.fs" />
     <Compile Include="Series/Series.Descriptive.fs" />
@@ -72,7 +73,6 @@
     <Compile Include="IO/ADBC.fs" />
     <Compile Include="IO/Avro.fs" />
     <Compile Include="IO/Excel.fs" />
-    <Compile Include="Operations/Cast.fs" />
     <Compile Include="Operations/Manipulations.fs" />
     <Compile Include="Operations/Sort.fs" />
     <Compile Include="Operations/Join.fs" />

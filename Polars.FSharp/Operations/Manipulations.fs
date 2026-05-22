@@ -945,8 +945,6 @@ module ManipulateOps =
         /// <returns>A new DataFrame with dummy variables.</returns>
         /// <exception cref="ArgumentException">Thrown when the provided columns array is empty.</exception>
         member this.ToDummies(?columns: seq<string>, ?separator: string, ?dropFirst: bool, ?dropNulls: bool) =
-            if box this = null then raise (NullReferenceException())
-            
             let sep = defaultArg separator "_"
             let shouldDropFirst = defaultArg dropFirst false
             let shouldDropNulls = defaultArg dropNulls false

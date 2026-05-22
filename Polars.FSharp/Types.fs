@@ -25,6 +25,7 @@ type Series(handle: SeriesHandle) =
     member _.Handle = handle
     member _.Name = PolarsWrapper.SeriesName handle
     member _.Length = PolarsWrapper.SeriesLen handle
+    member this.Len() = this.Length
     /// <summary>
     /// Get the number of null values in the Series.
     /// This is an O(1) operation (metadata access).
@@ -43,11 +44,30 @@ type Series(handle: SeriesHandle) =
     /// </summary>
     member this.IsContiguous : bool = 
         this.NChunks = 1
-
+    /// <summary>
+    /// Gets the current sorting state flags of this series from the underlying native engine.
+    /// </summary>
+    member this.SortedFlags : SortStateFlags =
+        let coreFlags = PolarsWrapper.SeriesGetSortedFlags(this.Handle)
+        
+        coreFlags |> box |> unbox<SortStateFlags>
+    /// <summary>
+    /// Checks if the Series is sorted according to the given rules.
+    /// If the metadata flag matches, returns O(1). Otherwise, scans the data O(N).
+    /// </summary>
+    member this.IsSorted(?descending,?nullsLast) =
+        let des = defaultArg descending false
+        let nul = defaultArg nullsLast false
+        PolarsWrapper.SeriesIsSorted(this.Handle,des,nul)
     /// <summary>
     /// True if the Series is empty.
     /// </summary>
     member this.IsEmpty = this.Length = 0
+    /// <summary>
+    /// Shape of this Series. 
+    /// In Polars, a Series is always 1D, so this returns an array of length 1.
+    /// </summary>
+    member this.Shape = [|this.Length|]
 
     /// <remarks>
     /// Polars Operations like Appending or Filtering can create fragmented memory chunks. 
@@ -61,6 +81,18 @@ type Series(handle: SeriesHandle) =
     member this.Rename(name: string) = 
         PolarsWrapper.SeriesRename(this.Handle, name)
         this
+    /// <summary>
+    /// Shrink Series memory usage.This won't return a new Series
+    /// </summary>
+    member this.ShrinkToFitInplace() = PolarsWrapper.SeriesShrinkToFit(this.Handle)
+    /// <summary>
+    /// Shrink Series memory usage.
+    /// </summary>
+    /// <returns>A new Series</returns>
+    member this.ShrinkToFit() = 
+        let newS = this.Clone()
+        newS.ShrinkToFitInplace()
+        newS
 
     // ==========================================
     // Expression Composition (The "ApplyExpr" Pattern)
@@ -291,6 +323,7 @@ type Series(handle: SeriesHandle) =
     static member (-) (lhs: Series, rhs: double) = lhs - Series.create("lit", [rhs])
     
     static member (*) (lhs: Series, rhs: int) = lhs * Series.create("lit", [rhs])
+    static member (*) (lhs: Series, rhs: int64) = lhs * Series.create("lit", [rhs])
     static member (*) (lhs: Series, rhs: double) = lhs * Series.create("lit", [rhs])
     
     static member (/) (lhs: Series, rhs: int) = lhs / Series.create("lit", [rhs])
@@ -513,6 +546,18 @@ type Series(handle: SeriesHandle) =
     /// </summary>
     member this.Show() = 
         printfn "%O" this
+
+    interface IEquatable<Series> with
+        member this.Equals(other: Series) =
+            if obj.ReferenceEquals(this, other) then true
+            elif obj.ReferenceEquals(other, null) then false
+            else PolarsWrapper.SeriesEquals(this.Handle, other.Handle)
+    override this.Equals(obj: obj) =
+        match obj with
+        | :? Series as other -> (this :> IEquatable<Series>).Equals(other)
+        | _ -> false
+    override this.GetHashCode() =
+        int (PolarsWrapper.SeriesHash(this.Handle))
 
     interface IDisposable with 
         member this.Dispose() = this.Dispose()
@@ -872,7 +917,42 @@ and DataFrame(handle: DataFrameHandle) =
             
         backingResources.Clear()
         GC.SuppressFinalize this
+    /// <summary>
+    /// Check if this DataFrame is strictly equal to another DataFrame.
+    /// </summary>
+    /// <param name="other">The other DataFrame to compare with.</param>
+    /// <param name="nullEqual">If true, null values are considered equal to other null values. Defaults to true.</param>
+    /// <returns>True if both DataFrames are structurally equal in the native engine.</returns>
+    member this.Equals(other: DataFrame, ?nullEqual: bool) : bool =
+        if obj.ReferenceEquals(this, other) then true
+        elif obj.ReferenceEquals(other, null) then false
+        elif this.Handle.IsInvalid || other.Handle.IsInvalid then false
+        else
+            let nullsEqual = defaultArg nullEqual true
+            PolarsWrapper.DataFrameEquals(this.Handle, other.Handle, nullsEqual)
 
+    interface IEquatable<DataFrame> with
+        /// <summary>
+        /// Check if this DataFrame is strictly equal to another DataFrame (IEquatable implementation).
+        /// Missing (null) values are considered equal to other missing values by default.
+        /// </summary>
+        member this.Equals(other: DataFrame) =
+            this.Equals(other, nullEqual = true)
+
+    /// <summary>
+    /// Object.Equals override to bridge with global .NET runtime style checks.
+    /// </summary>
+    override this.Equals(obj: obj) =
+        match obj with
+        | :? DataFrame as other -> (this :> IEquatable<DataFrame>).Equals(other)
+        | _ -> false
+
+    /// <summary>
+    /// Prevent DataFrames from being hashed directly as they are massive column-oriented matrices.
+    /// </summary>
+    /// <exception cref="System.NotSupportedException">Always thrown. Do not use DataFrames as keys in collections.</exception>
+    override this.GetHashCode() = 
+        raise (NotSupportedException("DataFrames are large data structures and cannot be hashed directly. Do not use them as keys in collections."))
     interface IDisposable with
         member this.Dispose() = 
             this.Dispose()
