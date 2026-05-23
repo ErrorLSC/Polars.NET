@@ -332,8 +332,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// // Find the latest quote BEFORE or AT the trade time
     /// var asof = trades.JoinAsOf(
     ///     quotes, 
-    ///     leftOn: Col("time"), 
-    ///     rightOn: Col("time"),
+    ///     leftOn: Pl.Col("time"), 
+    ///     rightOn: Pl.Col("time"),
     ///     strategy: AsofStrategy.Backward
     /// );
     /// 

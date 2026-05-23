@@ -294,7 +294,7 @@ type ``Complex Query Tests`` () =
 
         // Horizontal: [a, b]
         let dfHorz = 
-            pl.concatLazy [lf1; lf2] Horizontal
+            pl.concatLazy [lf1; lf2] ConcatType.Horizontal
             |> pl.collect
         
         Assert.Equal(1L, dfHorz.Height)
@@ -304,7 +304,7 @@ type ``Complex Query Tests`` () =
 
         // Vertical: [a] (rows=2)        
         let dfVert = 
-            pl.concatLazy [lf1; lf3] Vertical
+            pl.concatLazy [lf1; lf3] ConcatType.Vertical
             |> pl.collect
         
         Assert.Equal(2L, dfVert.Height)
@@ -314,7 +314,7 @@ type ``Complex Query Tests`` () =
         // lf1 (a=1, b=null)
         // lf2 (a=null, b=2)
         let dfDiag =
-            pl.concatLazy [lf1; lf2] Diagonal
+            pl.concatLazy [lf1; lf2] ConcatType.Diagonal
             |> pl.collect
         
         Assert.Equal(2L, dfDiag.Height)
@@ -507,7 +507,7 @@ type ``Complex Query Tests`` () =
                 pl.col "time",
                 pl.col "time", 
                 2L,                      
-                strategy = Backward,       
+                strategy = AsofStrategy.Backward,       
                 byLeft = [pl.col "ticker"], 
                 byRight = [pl.col "ticker"]
             )

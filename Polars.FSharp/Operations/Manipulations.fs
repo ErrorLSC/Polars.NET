@@ -105,9 +105,12 @@ module ManipulateOps =
     /// Concat
     /// ========================
     type LazyFrame with
-        static member Concat  (lfs: LazyFrame list) (how: ConcatType) : LazyFrame =
-            let handles = lfs |> List.map (fun lf -> lf.CloneHandle()) |> List.toArray
-            new LazyFrame(PolarsWrapper.LazyConcat(handles, how.ToNative(), false, true))
+        static member Concat  (lfs: seq<LazyFrame>,?how: ConcatType,?rechunk,?useParallel) : LazyFrame =
+            let handles = lfs |> Seq.map (fun lf -> lf.CloneHandle()) |> Seq.toArray
+            let ho = defaultArg how ConcatType.Vertical 
+            let re = defaultArg rechunk false
+            let pa = defaultArg useParallel true
+            new LazyFrame(PolarsWrapper.LazyConcat(handles, ho.ToNative(), re, pa))
     type DataFrame with
         /// <summary>
         /// General Concat method.
@@ -227,9 +230,24 @@ module ManipulateOps =
         /// If length is omitted, it slices to the end of the LazyFrame.
         /// </summary>
         member this.Slice(offset: int64, ?length: uint32) =
-            // Use UInt32.MaxValue as a sentinel value for "to the end" in lazy execution
             let realLength = defaultArg length UInt32.MaxValue
             new LazyFrame(PolarsWrapper.LazySlice(this.CloneHandle(), offset, realLength))
+        /// <summary>
+        /// Get the first n rows.
+        /// </summary>
+        /// <param name="n">Number of rows to return.</param>
+        member this.Limit(?n) =
+            let n0 = defaultArg n 5u
+            this.Slice(0,n0)
+        member this.Tail(?n) =
+            let n0 = defaultArg n 5u
+            this.Slice(-(int64 n0),n0)
+        /// <summary>
+        /// Get the last row.
+        /// </summary>
+        member this.Last() = this.Tail(1u)
+        member this.Head(?n) = this.Limit(?n=n)
+        member this.First() = this.Head(1u)
     type DataFrame with
         /// <summary>
         /// Slice the DataFrame along the rows.
@@ -241,7 +259,6 @@ module ManipulateOps =
                 if offset < 0L then this.Height + offset
                 else offset
 
-            // Out of bounds check, safely return an empty slice
             if absoluteOffset < 0L || absoluteOffset >= this.Height then
                 new DataFrame(PolarsWrapper.Slice(this.Handle, absoluteOffset, 0UL))
             else
@@ -293,7 +310,23 @@ module ManipulateOps =
                 else
                     None
             ) 0L
-            
+    /// ========================
+    /// Fill
+    /// ========================            
+    type LazyFrame with
+        /// <summary>
+        /// Fill null values in all columns with a specified Expression.
+        /// </summary>
+        member this.FillNull(fillValue:Expr) = 
+            this.WithColumn(Expr.All().FillNull(fillValue))
+        /// <summary>
+        /// Fill NaN values in floating point columns with a specified Expression.
+        /// </summary>
+        member this.FillNan(fillValue:Expr) = 
+            this.WithColumn(Selector.Float().ToExpr().FillNan(fillValue))
+    type DataFrame with
+        member this.FillNull(fillValue) = this.Lazy().FillNull(fillValue).Collect()
+        member this.FillNan(fillValue) = this.Lazy().FillNan(fillValue).Collect()
     /// ========================
     /// Drop
     /// ========================

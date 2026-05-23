@@ -130,26 +130,22 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// Get the first n rows.
     /// </summary>
     /// <param name="n">Number of rows to return.</param>
-    /// <returns></returns>
     public LazyFrame Limit(uint n=5)
         => Slice(0,n);
     /// <summary>
     /// Get the last n rows.
     /// </summary>
     /// <param name="n">Number of rows to return.</param>
-    /// <returns></returns>
     public LazyFrame Tail(uint n=5)
         => Slice(-n,n);
     /// <summary>
     /// Get the last row.
     /// </summary>
-    /// <returns></returns>
     public LazyFrame Last()
         => Tail(1);
     /// <summary>
     /// Get the first row.
     /// </summary>
-    /// <returns></returns>
     public LazyFrame First()
         => Head(1);
     /// <inheritdoc cref="Limit"/>

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Library</OutputType>
@@ -73,7 +73,9 @@
     <Compile Include="IO/ADBC.fs" />
     <Compile Include="IO/Avro.fs" />
     <Compile Include="IO/Excel.fs" />
+    <Compile Include="Operations/Aggregations.fs" />
     <Compile Include="Operations/Manipulations.fs" />
+    <Compile Include="Operations/MatchToSchema.fs" />
     <Compile Include="Operations/Sort.fs" />
     <Compile Include="Operations/Join.fs" />
     <Compile Include="Operations/GroupBy.fs" />

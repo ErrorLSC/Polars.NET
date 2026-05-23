@@ -438,7 +438,7 @@ module pl =
         )
     /// <summary> Concatenate multiple LazyFrames. </summary>
     let concatLazy (lfs: LazyFrame list) (how: ConcatType) : LazyFrame =
-        LazyFrame.Concat lfs how
+        LazyFrame.Concat(lfs,how)
     /// <summary> Define a window over which to perform an aggregation. </summary>
     let over (partitionBy: Expr list) (e: Expr) = e.Over partitionBy
     /// <summary> Create a SQL context for executing SQL queries on LazyFrames. </summary>

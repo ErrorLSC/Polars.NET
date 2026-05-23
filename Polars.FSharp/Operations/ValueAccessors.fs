@@ -1,11 +1,9 @@
 namespace Polars.FSharp
-open Polars.NET.Core
 
 [<AutoOpen>]
 module ValueAccessorOps = 
     open Apache.Arrow
     open System
-    open Polars.NET.Core.Arrow
     type DataFrame with
         /// <summary>
         /// Gets an integer (Int64) value from the specified column and row.
@@ -20,7 +18,6 @@ module ValueAccessorOps =
         member this.Float(colName: string, rowIndex: int) : float option = 
             use series = this.Column colName
             series.GetValue<float option>(int64 rowIndex)
-
         /// <summary>
         /// Gets a string value from the specified column and row.
         /// </summary>

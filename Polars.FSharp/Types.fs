@@ -623,7 +623,17 @@ and DataFrame(handle: DataFrameHandle) =
     /// This will make sure all subsequent operations have optimal and predictable performance.
     /// </summary>
     member this.Rechunk() = new DataFrame(PolarsWrapper.DataFrameRechunk this.Handle)
-
+    /// <summary>
+    /// Offers a structured way to apply a sequence of user-defined functions (UDFs).
+    /// </summary>
+    /// <typeparam name="T">The return type of the function.</typeparam>
+    /// <param name="func">
+    /// A function that receives the current expression and returns a value of type <typeparamref name="T"/>.
+    /// Typically this function wraps several Polars API calls that operate on the given expression.
+    /// </param>
+    /// <returns>The result of applying <paramref name="func"/> to this DataFrame.</returns>
+    member this.Pipe(func: DataFrame -> 'T) : 'T = 
+        func this
     /// <summary>
     /// Get an array containing the number of chunks for all columns in this DataFrame.
     /// </summary>
@@ -1068,6 +1078,7 @@ and LazyFrame(handle: LazyFrameHandle) =
     member this.Schema =
         let h = PolarsWrapper.GetLazySchema this.Handle 
         new PolarsSchema(h)
+    member this.CollectSchema() = this.Schema
     member this.PrintSchema() =
         printfn "--- LazyFrame Schema ---"
         
@@ -1086,7 +1097,26 @@ and LazyFrame(handle: LazyFrameHandle) =
     member this.Explain(?optimized: bool) = 
         let opt = defaultArg optimized true
         PolarsWrapper.Explain(handle, opt)
-
+    /// <summary>
+    /// Offers a structured way to apply a sequence of user-defined functions (UDFs).
+    /// </summary>
+    /// <typeparam name="T">The return type of the function.</typeparam>
+    /// <param name="func">
+    /// A function that receives the current expression and returns a value of type <typeparamref name="T"/>.
+    /// Typically this function wraps several Polars API calls that operate on the given expression.
+    /// </param>
+    /// <returns>The result of applying <paramref name="function"/> to this LazyFrame.</returns>
+    member this.Pipe(func: LazyFrame -> 'T) : 'T = 
+        func this
+    /// <summary>
+    /// Allows to alter the lazy frame during the plan stage with the resolved schema.
+    /// <para>In contrast to pipe, this method does not execute function immediately but only during the plan stage.
+    ///  This allows to use the resolved schema of the input to dynamically alter the lazy frame. 
+    /// This also means that any exceptions raised by function will only be emitted during the plan stage.</para>
+    /// </summary>
+    /// <param name="func">Callable; will receive the frame as the first parameter and the resolved schema as the second parameter.</param>
+    member this.PipeWithSchema(func: LazyFrame -> PolarsSchema -> LazyFrame) : LazyFrame = 
+        func this this.Schema
     /// <summary>
     /// Stream the query result in batches.
     /// This executes the query and calls 'onBatch' for each RecordBatch produced.

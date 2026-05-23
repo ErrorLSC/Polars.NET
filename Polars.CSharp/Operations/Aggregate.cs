@@ -7,66 +7,55 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// <summary>
     /// Return the number of non-null elements for each column.
     /// </summary>
-    /// <returns></returns>
     public LazyFrame Count()
         => Select(Pl.All().Count());
     /// <summary>
     /// Aggregate the columns in the Frame to their sum value.
     /// </summary>
-    /// <returns></returns>
     public LazyFrame Sum()
         => Select(Pl.All().Sum());
     /// <summary>
     /// Aggregate the columns in the Frame to their maximum value.
     /// </summary>
-    /// <returns></returns>
     public LazyFrame Max()
         => Select(Pl.All().Max());
     /// <summary>
     /// Aggregate the columns in the Frame to their minimum value.
     /// </summary>
-    /// <returns></returns>
     public LazyFrame Min()
         => Select(Pl.All().Min());
     /// <summary>
     /// Aggregate the columns in the Frame to their mean value.
     /// </summary>
-    /// <returns></returns>
     public LazyFrame Mean()
         => Select(Pl.All().Mean());
     /// <summary>
     /// Aggregate the columns in the Frame to their median value.
     /// </summary>
-    /// <returns></returns>
     public LazyFrame Median()
         => Select(Pl.All().Median());
     /// <summary>
     /// Aggregate the columns in the Frame as the sum of their null value count.
     /// </summary>
-    /// <returns></returns>
     public LazyFrame NullCount()
         => Select(Pl.All().NullCount());
     /// <summary>
     /// Aggregate the columns in the Frame to their standard deviation value.
     /// </summary>
     /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
-    /// <returns></returns>
     public LazyFrame Std(byte ddof=1)
         => Select(Pl.All().Std(ddof));
     /// <summary>
     /// Aggregate the columns in the Frame to their variance value.
     /// </summary>
     /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
-    /// <returns></returns>
     public LazyFrame Var(byte ddof=1)
         => Select(Pl.All().Var(ddof));
-
     /// <summary>
     /// Aggregate the columns in the Frame to their quantile value.
     /// </summary>
     /// <param name="quantile">Quantile between 0.0 and 1.0.</param>
     /// <param name="method">['nearest’, ‘higher’, ‘lower’, ‘midpoint’, ‘linear’] Interpolation method.</param>
-    /// <returns></returns>
     public LazyFrame Quantile(double quantile, QuantileMethod method = QuantileMethod.Linear)
         => Select(Pl.All().Quantile(quantile,method));
 }
@@ -76,7 +65,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <inheritdoc cref="LazyFrame.Count"/>
     public DataFrame Count()
         => Lazy().Count().Collect();
-
     /// <inheritdoc cref="LazyFrame.Sum"/>
     public DataFrame Sum()
         => Lazy().Sum().Collect();

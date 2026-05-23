@@ -29,12 +29,6 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         
         return WithColumns(Cs.Float().ToExpr().FillNan(fillValue));
     }
-
-    /// <summary>
-    /// Fill NaN values in floating point columns with a specified literal value.
-    /// </summary>
-    public LazyFrame FillNan(object value)
-        => FillNan(Expr.MakeLit(value));
 }
 
 public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFrame
@@ -67,16 +61,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         ArgumentNullException.ThrowIfNull(fillValue);
         using var lf = Lazy();
         var filledLf = lf.FillNan(fillValue);
-        return filledLf.Collect();
-    }
-
-    /// <summary>
-    /// Fill NaN values in floating point columns with a specified literal value.
-    /// </summary>
-    public DataFrame FillNan(object value)
-    {
-        using var lf = Lazy();
-        var filledLf = lf.FillNan(value);
         return filledLf.Collect();
     }
 }

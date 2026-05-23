@@ -67,7 +67,6 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// Filter rows based on a boolean array.
     /// </summary>
     /// <param name="mask"></param>
-    /// <returns></returns>
     public LazyFrame Filter(IEnumerable<bool> mask)
         => Filter(Pl.Lit(mask)); 
 

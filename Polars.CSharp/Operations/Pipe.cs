@@ -21,7 +21,6 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// This also means that any exceptions raised by function will only be emitted during the plan stage.</para>
     /// </summary>
     /// <param name="function">Callable; will receive the frame as the first parameter and the resolved schema as the second parameter.</param>
-    /// <returns></returns>
     public LazyFrame PipeWithSchema(Func<LazyFrame, PolarsSchema, LazyFrame> function)
         => function(this, this.Schema);
 }
