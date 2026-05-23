@@ -13,7 +13,7 @@ module ManipulateOps =
         /// Add or replace a single column in the LazyFrame.
         /// </summary>
         /// <param name="expr">The expression defining the new column.</param>
-        member this.WithColumn (expr: Expr) : LazyFrame =
+        member this.WithColumns (expr: Expr) : LazyFrame =
             let lfClone = this.CloneHandle()
             let exprClone = expr.CloneHandle()
             let handles = [| exprClone |] 
@@ -51,9 +51,8 @@ module ManipulateOps =
                 |> Seq.toList
             
             this.WithColumns exprs
-        /// <summary> Add a single column. </summary>
-        member this.WithColumn (expr: Expr) : DataFrame =
-            this.WithColumns [|expr|]
+        member this.WithColumns (expr: Expr) : DataFrame =
+            this.WithColumns [expr]
     /// ========================
     /// Cast
     /// ========================
@@ -318,12 +317,12 @@ module ManipulateOps =
         /// Fill null values in all columns with a specified Expression.
         /// </summary>
         member this.FillNull(fillValue:Expr) = 
-            this.WithColumn(Expr.All().FillNull(fillValue))
+            this.WithColumns(Expr.All().FillNull(fillValue))
         /// <summary>
         /// Fill NaN values in floating point columns with a specified Expression.
         /// </summary>
         member this.FillNan(fillValue:Expr) = 
-            this.WithColumn(Selector.Float().ToExpr().FillNan(fillValue))
+            this.WithColumns(Selector.Float().ToExpr().FillNan(fillValue))
     type DataFrame with
         member this.FillNull(fillValue) = this.Lazy().FillNull(fillValue).Collect()
         member this.FillNan(fillValue) = this.Lazy().FillNan(fillValue).Collect()
@@ -677,6 +676,43 @@ module ManipulateOps =
         
         member this.BottomK(k: int, by: seq<#IColumnExpr>, reverse: bool) =
             this.BottomK(k, by, [| reverse |])
+    /// ========================
+    /// Reverse
+    /// ========================
+    type LazyFrame with
+        /// <summary>
+        /// Reverse the LazyFrame.
+        /// </summary>
+        member this.Reverse() = this.Select(Expr.All().Reverse())
+    type DataFrame with
+        /// <summary>
+        /// Reverse the DataFrame.
+        /// </summary>
+        member this.Reverse() = this.Select(Expr.All().Reverse())
+    /// ========================
+    /// SetSorted
+    /// ========================
+    type LazyFrame with
+        /// <summary>
+        /// Mark one or multiple columns as sorted. 
+        /// This is an optimizer hint and will not actually execute a sorting operation.
+        /// </summary>
+        /// <param name="columns">The columns to mark as sorted. Accepts strings, arrays, or Selectors (e.g. Cs.Temporal()).</param>
+        /// <param name="descending">Whether the columns are sorted in descending order.</param>
+        /// <param name="nullsLast">Whether null values appear last.</param>
+        /// <returns>A new LazyFrame with the sorted hints applied to the query plan.</returns>
+        member this.SetSorted(columns:Selector,?descending,?nullsLast) =
+            let names = this.Select(columns).Schema.Names
+            if names.Length = 0 then
+                this.Clone()
+            else 
+                let de = defaultArg descending false
+                let nul = defaultArg nullsLast false
+                let exprs = names |> List.map (fun e -> Expr.Col(e).SetSorted(de,nul))
+                this.WithColumns exprs
+    type DataFrame with
+        member this.SetSorted(columns:Selector,?descending,?nullsLast) =
+            this.Lazy().SetSorted(columns,?descending=descending,?nullsLast=nullsLast).Collect()
 
     /// ========================
     /// Clear
@@ -726,6 +762,26 @@ module ManipulateOps =
             let sh = PolarsWrapper.Lit(series.CloneHandle())
             use expr = new Expr(sh) 
             this.Filter expr
+        member this.Filter(mask:seq<bool>) = 
+            let ma = Series.create("___mask",mask)
+            this.Filter(ma)
+        /// <summary>
+        /// Remove rows that match the predicate.
+        /// This is the exact opposite of Filter. Rows where the predicate evaluates to False or Null are kept.
+        /// </summary>
+        member this.Remove(predicate:Expr) = 
+            use invertedExpr = predicate.NeqMissing(new Expr(PolarsWrapper.Lit true))
+            this.Filter(invertedExpr)
+        member this.Remove(predicate:Series) = 
+            if predicate.DataType <> DataType.Boolean then
+                invalidArg "predicate" "Masking Series DataType should be Boolean"
+            let sh = PolarsWrapper.Lit(predicate.CloneHandle())
+            use expr = new Expr(sh) 
+            this.Remove(expr)
+        member this.Remove(mask:seq<bool>) =
+            let ma = Series.create("___mask",mask)
+            this.Remove(ma)
+
     type DataFrame with
         /// <summary> Filter rows based on a boolean expression (predicate). </summary>
         member this.Filter (expr: Expr) : DataFrame = 
@@ -733,6 +789,16 @@ module ManipulateOps =
         /// <summary> Filter rows based on a boolean Series. </summary>
         member this.Filter (series: Series) : DataFrame = 
             this.Lazy().Filter(series).Collect()
+        member this.Filter(mask:seq<bool>) = 
+            let ma = Series.create("___mask",mask)
+            this.Filter(ma)
+        member this.Remove(predicate:Expr) =
+            this.Lazy().Remove(predicate)
+        member this.Remove(predicate:Series) = 
+            this.Lazy().Remove predicate
+        member this.Remove(mask:seq<bool>) = 
+            this.Lazy().Remove mask
+
     /// ========================
     /// Sample
     /// ========================
@@ -991,12 +1057,10 @@ module ManipulateOps =
                         raise (ArgumentException(msg, nameof(columns)))
                     arr
                 | None ->
-                    // Replicate C# fallback behavior: Cs.String() | Cs.ByDtype(DataType.Categorical()) | Cs.Enum()
-                    // Use Selector.ByDtype to probe the structure via deterministic memory disposal
                     use emptyDf = this.Clear()
                     
                     let stringCols = 
-                        use sel = Selector.ByDtype(DataType.String)
+                        use sel = Selector.ByDtype DataType.String
                         use res = emptyDf.Select(sel.ToExpr())
                         res.Columns
                         
@@ -1022,5 +1086,47 @@ module ManipulateOps =
 
             let newHandle = PolarsWrapper.DataFrameToDummies(this.Handle, columnsArray, sep, shouldDropFirst, shouldDropNulls)
             new DataFrame(newHandle)
-
+    /// ========================
+    /// WithRowIndex
+    /// ========================
+    type LazyFrame with
+        /// <summary>
+        /// Add a column at index 0 that counts the rows.
+        /// <para>
+        /// This can be useful to generate a unique index or to maintain order in operations 
+        /// that would otherwise discard it.
+        /// </para>
+        /// </summary>
+        /// <param name="name">The name of the new row index column. Defaults to "index".</param>
+        /// <param name="offset">The starting value of the row index. Defaults to 0.</param>
+        /// <returns>A new LazyFrame with the row index column added.</returns>
+        member this.WithRowIndex(name:string,?offset:int) =
+            let off = 
+                match offset with
+                | Some o -> 
+                    if o < 0 then
+                        raise (ArgumentException "`offset` input for `WithRowIndex` cannot be negative")
+                    else o
+                | None -> 0
+            new LazyFrame(PolarsWrapper.LazyFrameWithRowIndex(this.CloneHandle(), name,off))
+    type DataFrame with
+        /// <summary>
+        /// Add a column at index 0 that counts the rows.
+        /// <para>
+        /// This can be useful to generate a unique index or to maintain order in operations 
+        /// that would otherwise discard it.
+        /// </para>
+        /// </summary>
+        /// <param name="name">The name of the new row index column. Defaults to "index".</param>
+        /// <param name="offset">The starting value of the row index. Defaults to 0.</param>
+        /// <returns>A new DataFrame with the row index column added.</returns>
+        member this.WithRowIndex(name:string,?offset:int) =
+            let off = 
+                match offset with
+                | Some o -> 
+                    if o < 0 then
+                        raise (ArgumentException "`offset` input for `WithRowIndex` cannot be negative")
+                    else o
+                | None -> 0
+            new DataFrame(PolarsWrapper.DataFrameWithRowIndex(this.Handle, name,off))
      

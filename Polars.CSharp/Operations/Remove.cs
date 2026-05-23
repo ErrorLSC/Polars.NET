@@ -1,7 +1,5 @@
-#pragma warning disable CS1573
 using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
-using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp;
 public partial class LazyFrame : IDisposable, IPolarsLazyFrame
@@ -21,14 +19,14 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// <summary>
     /// Remove rows based on a boolean series.
     /// </summary>
-    public LazyFrame Remove(Series series)
+    public LazyFrame Remove(Series predicate)
     {
-        if (series.DataType != DataType.Boolean)
+        if (predicate.DataType != DataType.Boolean)
         {
             throw new InvalidOperationException("Can not remove by non-boolean series.");
         }
         
-        using var expr = Pl.Lit(series); 
+        using var expr = Pl.Lit(predicate); 
         return Remove(expr); 
     }
 
@@ -53,7 +51,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <summary>
     /// Remove rows based on a boolean series.
     /// </summary>
-    public DataFrame Remove(Series series) => Lazy().Remove(series).Collect();
+    public DataFrame Remove(Series predicate) => Lazy().Remove(predicate).Collect();
 
     /// <summary>
     /// Remove rows based on a boolean array.

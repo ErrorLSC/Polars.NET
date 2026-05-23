@@ -158,7 +158,7 @@ type ``UDF Tests`` () =
 
         use gradeSeries = scoreSeries.MapValueOption(calculateGrade, DataType.String)
         
-        use resultDf = df.WithColumn(pl.litSeries(gradeSeries).Alias "Grade")
+        use resultDf = df.WithColumns(pl.litSeries(gradeSeries).Alias "Grade")
         
         Assert.Equal(5L, resultDf.Height)
 

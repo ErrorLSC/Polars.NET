@@ -1118,7 +1118,7 @@ pub unsafe extern "C" fn pl_lazyframe_get_schema(lf_ptr: *mut LazyFrameContext) 
 pub unsafe extern "C" fn pl_lazyframe_with_row_index(
     lf_ptr: *mut LazyFrameContext,
     name: *const c_char,
-    offset_val: i64, 
+    offset_val: i32, 
 ) -> *mut LazyFrameContext {
     ffi_try!({
        

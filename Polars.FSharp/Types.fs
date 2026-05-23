@@ -730,13 +730,13 @@ and DataFrame(handle: DataFrameHandle) =
     member this.Select(exprs: seq<Expr>) : DataFrame =
         let lf = this.Lazy().Select exprs
         lf.Collect()
-
+    member this.Select(selector:Selector) = 
+        this.Select [selector.ToExpr()]
     /// <summary> Select columns using generic column expressions (Expr or Selectors). </summary>
     member this.Select(columns: seq<#IColumnExpr>) =
             let exprs = 
                 columns 
                 |> Seq.collect (fun x -> x.ToExprs()) 
-                |> Seq.toList
             
             this.Select exprs
     /// <summary> 
@@ -1129,7 +1129,9 @@ and LazyFrame(handle: LazyFrameHandle) =
         () 
     
     member this.Select (expr: Expr) : LazyFrame =
-        this.Select [|expr|]
+        this.Select [expr]
+    member this.Select(selector:Selector) = 
+        this.Select [selector.ToExpr()]
     member this.Select (exprs: seq<Expr>) : LazyFrame =
         let lfClone = this.CloneHandle()
         let handles = exprs |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
@@ -1140,7 +1142,6 @@ and LazyFrame(handle: LazyFrameHandle) =
             let exprs = 
                 columns 
                 |> Seq.collect (fun x -> x.ToExprs()) 
-                |> Seq.toList
             
             this.Select exprs
     /// <summary>

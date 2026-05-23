@@ -196,7 +196,7 @@ unsafe internal partial class NativeBindings
     public static partial DataFrameHandle pl_dataframe_with_row_index(
         DataFrameHandle df, 
         string name, 
-        long offset
+        int offset
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial DataFrameHandle pl_dataframe_transpose(

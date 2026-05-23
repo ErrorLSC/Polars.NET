@@ -13,7 +13,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// <param name="columns">The columns to mark as sorted. Accepts strings, arrays, or Selectors (e.g. Cs.Temporal()).</param>
     /// <param name="descending">Whether the columns are sorted in descending order.</param>
     /// <param name="nullsLast">Whether null values appear last.</param>
-    /// <returns>A new LazyFrame with the sorted hints applied to the query plan.</returns>
+    /// <returns>A new Frame with the sorted hints applied to the query plan.</returns>
     public LazyFrame SetSorted(IntoSelector columns, bool descending = false, bool nullsLast = false)
     {
         using var selector = columns.Consume();

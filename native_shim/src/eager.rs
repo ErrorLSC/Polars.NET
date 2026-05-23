@@ -942,7 +942,7 @@ pub extern "C" fn pl_dataframe_replace(
 pub unsafe extern "C" fn pl_dataframe_with_row_index(
     df_ptr: *mut DataFrameContext,
     name: *const c_char,
-    offset_val: i64, 
+    offset_val: i32, 
 ) -> *mut DataFrameContext {
     ffi_try!({
        

@@ -47,7 +47,7 @@ unsafe internal partial class NativeBindings
     public static partial LazyFrameHandle pl_lazyframe_with_row_index(
         LazyFrameHandle lf, 
         string name, 
-        long offset
+        int offset
     );
     [LibraryImport(LibName)] public static partial IntPtr pl_lazy_explain(LazyFrameHandle lf,[MarshalAs(UnmanagedType.U1)] bool optimized);
     [LibraryImport(LibName)] 

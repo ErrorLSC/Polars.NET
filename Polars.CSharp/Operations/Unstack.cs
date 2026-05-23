@@ -13,7 +13,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="how">Direction of the unstack.</param>
     /// <param name="columns">Column name(s) or selector(s) to include in the operation. If set to None (default), use all columns.</param>
     /// <param name="fillValues">Fill values that don’t fit the new size with this value.</param>
-    /// <returns></returns>
     public DataFrame Unstack(int step, IntoSelector columns, UnstackDirection how = UnstackDirection.Vertical, object?[]? fillValues = null)
     {
         using var safeSelector = columns.Consume();

@@ -337,7 +337,7 @@ public readonly partial struct PolarsWrapper
     }
     public static DataFrameHandle DataFrameWithRowIndex(DataFrameHandle df, string name, int? offset = null)
     {
-        long rustOffset = offset ?? -1L;
+        int rustOffset = offset ?? -1;
         var h = NativeBindings.pl_dataframe_with_row_index(df, name, rustOffset);
         return ErrorHelper.Check(h);
     }

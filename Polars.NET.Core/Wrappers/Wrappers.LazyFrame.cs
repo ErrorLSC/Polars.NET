@@ -572,7 +572,7 @@ public readonly partial struct PolarsWrapper
     }
     public static LazyFrameHandle LazyFrameWithRowIndex(LazyFrameHandle lf, string name, int? offset = null)
     {
-        long rustOffset = offset ?? -1L;
+        int rustOffset = offset ?? -1;
         var h = NativeBindings.pl_lazyframe_with_row_index(lf, name, rustOffset);
         lf.TransferOwnership();
         return ErrorHelper.Check(h);

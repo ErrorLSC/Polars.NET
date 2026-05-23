@@ -959,7 +959,7 @@ module QueryTests =
         // ==========================================
         use lfWithLinq = linqQuery.ToLazyFrame()
 
-        use finalLf = lfWithLinq.WithColumn(pl.col("salary").Std().Alias "salary_std")
+        use finalLf = lfWithLinq.WithColumns(pl.col("salary").Std().Alias "salary_std")
         
         // ==========================================
         // Collect

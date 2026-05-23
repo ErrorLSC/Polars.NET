@@ -187,7 +187,7 @@ module pl =
     // --- Eager Ops ---
     /// <summary> Add or replace a single column in the DataFrame. </summary>
     let withColumn (expr: Expr) (df: DataFrame) : DataFrame =
-        df.WithColumn expr
+        df.WithColumns expr
     /// <summary> Add or replace multiple columns in the DataFrame. </summary>
     let withColumns (exprs: Expr list) (df: DataFrame) : DataFrame =
         df.WithColumns exprs
@@ -386,7 +386,7 @@ module pl =
     let orderByLazy (expr: seq<Expr>) (desc: bool) (lf: LazyFrame) = sortLazy expr desc lf
     /// <summary> Add or replace columns in the LazyFrame. </summary>
     let withColumnLazy (expr: Expr) (lf: LazyFrame) : LazyFrame =
-        lf.WithColumn expr
+        lf.WithColumns expr
     /// <summary> Add or replace multiple columns in the LazyFrame. </summary>
     let withColumnsLazy (exprs: seq<Expr>) (lf: LazyFrame) : LazyFrame =
         lf.WithColumns exprs
