@@ -44,7 +44,7 @@ public readonly partial struct Polars
         return series;
     }
     /// <summary>
-    /// Create a column of date ranges.
+    /// Create a column of date ranges. DataType will be a list of dates
     /// </summary>
     /// <param name="start">Lower bound of the date range.</param>
     /// <param name="end">Upper bound of the date range.</param>

@@ -274,7 +274,7 @@ module DataFrameFactory =
                     |> dict
 
                 // ==========================================
-                // Phase 2: Buffer Loading (数据装载)
+                // Phase 2: Buffer Loading 
                 // ==========================================
                 let buffers = Dictionary<string, IColumnBuffer>()
                 for kvp in finalSchema do
@@ -304,3 +304,10 @@ module DataFrameFactory =
                     |> Seq.toArray
 
                 DataFrame.create seriesList
+    type Series with
+        /// <summary>
+        /// Create Series From single column expression.
+        /// </summary>
+        static member ofExpr(expr:Expr) =
+            let df = DataFrame.create()
+            df.Select(expr).[0]

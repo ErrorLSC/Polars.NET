@@ -57,19 +57,19 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] 
     public static partial LazyFrameHandle pl_lazyframe_sort(
         LazyFrameHandle lf,
-        IntPtr[] exprs,
-        UIntPtr exprLen,
+        nint[] exprs,
+        nuint exprLen,
         bool* descending,
-        UIntPtr descendingLen,
+        nuint descendingLen,
         bool* nullsLast,
-        UIntPtr nullsLastLen,
-        [MarshalAs(UnmanagedType.I1)] bool maintainOrder
+        nuint nullsLastLen,
+        [MarshalAs(UnmanagedType.U1)] bool maintainOrder
     );
     [LibraryImport(LibName)]
     public static partial LazyFrameHandle pl_lazyframe_top_k(
         LazyFrameHandle lf,
         uint k,
-        IntPtr[] by_ptrs,
+        nint[] by_ptrs,
         UIntPtr by_len,
         bool* reverse,
         UIntPtr reverse_len
@@ -79,7 +79,7 @@ unsafe internal partial class NativeBindings
     public static partial LazyFrameHandle pl_lazyframe_bottom_k(
         LazyFrameHandle lf,
         uint k,
-        IntPtr[] by_ptrs,
+        nint[] by_ptrs,
         UIntPtr by_len,
         bool* reverse,
         UIntPtr reverse_len

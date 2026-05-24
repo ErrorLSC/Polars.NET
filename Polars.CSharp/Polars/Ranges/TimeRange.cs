@@ -10,7 +10,6 @@ public readonly partial struct Polars
     /// <param name="end">Upper bound of the time range. If omitted, defaults to TimeOnly.MaxValue</param>
     /// <param name="interval">Interval of the range periods</param>
     /// <param name="closed">Define which sides of the range are closed.</param>
-    /// <returns></returns>
     public static Expr TimeRange(
         IntoExprColumn? start = null, 
         IntoExprColumn? end = null, 

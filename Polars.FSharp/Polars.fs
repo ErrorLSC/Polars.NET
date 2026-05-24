@@ -58,7 +58,6 @@ and FSharpChainedWhen (parent: FSharpThen, condition: Expr) =
 /// </summary>
 module pl =
 
-    // --- Factories ---
     /// <summary>   
     /// Create an expression representing a column with the given name.
     /// </summary>
@@ -73,14 +72,13 @@ module pl =
     /// </code>
     /// </example>
     let cols (names: seq<string>) =
-        let arr = Seq.toArray names
         Expr.Col names
     /// <summary>
     /// Select all columns.
     /// Equivalent to `pl.col("*")`.
     /// </summary>
     let all() = Expr.Col "*"
-
+    
     /// <summary>
     /// Create a literal expression from a value.
     /// <para>Supported types: int, float, bool, string, DateTime,decimal,list,option list,array.</para>
@@ -122,6 +120,154 @@ module pl =
         let arr = values |> Seq.toArray
         let sHandle = StructPacker.Pack("literal", arr)
         new Expr(PolarsWrapper.Lit sHandle)
+    // --- Range ---
+    /// <summary>
+    /// Generate a range of integers as an Expression.
+    /// </summary>
+    /// <param name="start">Start of the range (inclusive).</param>
+    /// <param name="end">End of the range (exclusive). If set to Null (default), the value of start is used and start is set to 0.</param>
+    /// <param name="step">Step size of the range.</param>
+    /// <returns>A Literal Expression containing the integer series.</returns>
+    let intRange<'T>(start:int64) (endRange:int64) (step:int64) =
+        let dtexpr = DataType.FromNetType<'T>().ToDataTypeExpr().handle
+        let st = (lit start).Handle
+        let ed = (lit endRange).Handle
+        (new Expr(PolarsWrapper.IntRange(st,ed,step,dtexpr))).SetSorted(step<0)
+    let intRangeAsSeries<'T>(name:string) (start:int64) (endRange:int64) (step:int64) =
+        let exp = intRange<'T> start endRange step
+        Series.ofExpr(exp).Rename(name).SetSorted(step < 0)
+    /// <summary>
+    /// Generate a range of integers for each row of the input columns.
+    /// Resulting column is of dtype List(dtype).
+    /// </summary>
+    let intRanges<'T>(start:int64)(endRange:int64)(step:int64) =
+        let dtexpr = DataType.FromNetType<'T>().ToDataTypeExpr().handle
+        let st = (lit start).Handle
+        let ed = (lit endRange).Handle
+        let stp = (lit step).Handle
+        new Expr(PolarsWrapper.IntRanges(st,ed,stp,dtexpr))
+    let intRangesAsSeries<'T>(name:string) (start:int64) (endRange:int64) (step:int64) =
+        let expr = intRanges<'T> start endRange step
+        Series.ofExpr(expr).Rename(name)
+    /// <summary>
+    /// Generate a date range.
+    /// </summary>
+    /// <param name="start">Lower bound of the date range.</param>
+    /// <param name="end">Upper bound of the date range.</param>
+    /// <param name="interval">Interval of the range periods, “1w2d” # 1 week, 2 days.Default is 1 day.</param>
+    /// <param name="closed">Define which sides of the range are closed</param>
+    /// <returns>Column of data type Date</returns>
+    let dateRange(start:DateOnly)(endRange:DateOnly)(interval:Dur)(closed:ClosedWindow) =
+        let st = (lit start).Handle
+        let ed = (lit endRange).Handle
+        let ine = Dur.consume interval
+        new Expr(PolarsWrapper.DateRange(st,ed,ine,null,closed.ToNative()))
+    let dateRangeAsSeries (name:string)(start:DateOnly)(endRange:DateOnly)(interval:Dur)(closed:ClosedWindow) =
+        let expr = dateRange start endRange interval closed
+        Series.ofExpr(expr).Rename name
+    /// <summary>
+    /// Create a column of date ranges. DataType will be a list of dates
+    /// </summary>
+    /// <param name="start">Lower bound of the date range.</param>
+    /// <param name="end">Upper bound of the date range.</param>
+    /// <param name="interval">Interval of the range periods, “1w2d” # 1 week, 2 days.Default is 1 day.</param>
+    /// <param name="closed">Define which sides of the range are closed</param>
+    /// <returns>Column of data type Date</returns>
+    let dateRanges(start:DateOnly)(endRange:DateOnly)(interval:Dur)(closed:ClosedWindow) =
+        let st = (lit start).Handle
+        let ed = (lit endRange).Handle
+        let ine = Dur.consume interval
+        new Expr(PolarsWrapper.DateRanges(st,ed,ine,null,closed.ToNative()))
+    let dateRangesAsSeries(name:string)(start:DateOnly)(endRange:DateOnly)(interval:Dur)(closed:ClosedWindow) =
+        let expr = dateRanges start endRange interval closed
+        Series.ofExpr(expr).Rename name
+    /// <summary>
+    /// Generate a datetime range.
+    /// </summary>
+    /// <param name="start">Lower bound of the datetime range.</param>
+    /// <param name="end">Upper bound of the datetime range.</param>
+    /// <param name="interval">Interval of the range periods</param>
+    /// <param name="closed">Define which sides of the range are closed</param>
+    /// <param name="unit">Time unit of the resulting Datetime data type.</param>
+    /// <param name="timeZone">Time zone of the resulting Datetime data type.</param>
+    let datetimeRange(start:DateTime)(endRange:DateTime)(interval:Dur)(closed:ClosedWindow)(unit:TimeUnit)(timeZone:string option) =
+        let st = (lit start).Handle
+        let ed = (lit endRange).Handle
+        let ine = Dur.consume interval
+        let tz =
+            match timeZone with
+            | Some tz -> tz
+            | None -> null
+        new Expr(PolarsWrapper.DatetimeRange(st,ed,ine,null,closed.ToNative(),unit.ToNative(),tz))
+    let datetimeRangeAsSeries(name:string)(start:DateTime)(endRange:DateTime)(interval:Dur)(closed:ClosedWindow)(unit:TimeUnit)(timeZone:string option) =
+        let expr = datetimeRange start endRange interval closed unit timeZone
+        Series.ofExpr(expr).Rename(name)
+    let datetimeRanges(start:DateTime)(endRange:DateTime)(interval:Dur)(closed:ClosedWindow)(unit:TimeUnit)(timeZone:string option) =
+        let st = (lit start).Handle
+        let ed = (lit endRange).Handle
+        let ine = Dur.consume interval
+        let tz =
+            match timeZone with
+            | Some tz -> tz
+            | None -> null
+        new Expr(PolarsWrapper.DatetimeRanges(st,ed,ine,null,closed.ToNative(),unit.ToNative(),tz))
+    let datetimeRangesAsSeries(name:string)(start:DateTime)(endRange:DateTime)(interval:Dur)(closed:ClosedWindow)(unit:TimeUnit)(timeZone:string option) =
+        let expr = datetimeRanges start endRange interval closed unit timeZone
+        Series.ofExpr(expr).Rename(name)
+    /// <summary>
+    /// Generate a time range.
+    /// </summary>
+    /// <param name="start">Lower bound of the time range. If omitted, defaults to TimeOnly.MinValue</param>
+    /// <param name="end">Upper bound of the time range. If omitted, defaults to TimeOnly.MaxValue</param>
+    /// <param name="interval">Interval of the range periods</param>
+    /// <param name="closed">Define which sides of the range are closed.</param>
+    let timeRange(start:TimeOnly)(endRange:TimeOnly)(interval:Dur)(closed:ClosedWindow) =
+        let st = (lit start).Handle
+        let ed = (lit endRange).Handle
+        let ine = Dur.consume interval
+        new Expr(PolarsWrapper.TimeRange(st,ed,ine,closed.ToNative()))
+    let timeRangeAsSeries(name:string)(start:TimeOnly)(endRange:TimeOnly)(interval:Dur)(closed:ClosedWindow) =
+        let expr = timeRange start endRange interval closed
+        Series.ofExpr(expr).Rename(name)
+    let timeRanges(start:TimeOnly)(endRange:TimeOnly)(interval:Dur)(closed:ClosedWindow) =
+        let st = (lit start).Handle
+        let ed = (lit endRange).Handle
+        let ine = Dur.consume interval
+        new Expr(PolarsWrapper.TimeRanges(st,ed,ine,closed.ToNative()))
+    let timeRangesAsSeries(name:string)(start:TimeOnly)(endRange:TimeOnly)(interval:Dur)(closed:ClosedWindow) =
+        let expr = timeRanges start endRange interval closed
+        Series.ofExpr(expr).Rename(name)
+    /// <summary>
+    /// Generate a series of equally-spaced points.
+    /// </summary>
+    /// <param name="start">Lower bound of the linear space.</param>
+    /// <param name="end">Upper bound of the linear space.</param>
+    /// <param name="numSamples">Number of samples to generate.</param>
+    /// <param name="closed">Whether the intervals are closed or open.</param>
+    let linearSpace(start:Expr)(endRange:Expr)(numSamples:int)(closed:ClosedWindow) =
+        let st = start.CloneHandle()
+        let en = endRange.CloneHandle()
+        let nu = (lit numSamples).Handle
+        new Expr(PolarsWrapper.LinearSpace(st,en,nu,closed.ToNative()))
+    let linearSpaceAsSeries(name:string)(start:Expr)(endRange:Expr)(numSamples:int)(closed:ClosedWindow) =
+        let expr = linearSpace start endRange numSamples closed
+        Series.ofExpr(expr).Rename(name)
+    /// <summary>
+    /// Create a column of linearly-spaced sequences for each row.
+    /// </summary>
+    /// <param name="start">Lower bound.</param>
+    /// <param name="end">Upper bound.</param>
+    /// <param name="numSamples">Number of samples.</param>
+    /// <param name="closed">Whether the intervals are closed or open.</param>
+    /// <param name="asArray">If true, returns an Array dtype instead of List. Requires numSamples to be a constant.</param>
+    let linearSpaces(start:Expr)(endRange:Expr)(numSamples:int)(closed:ClosedWindow)(asArray:bool) =
+        let st = start.CloneHandle()
+        let en = endRange.CloneHandle()
+        let nu = (lit numSamples).Handle
+        new Expr(PolarsWrapper.LinearSpaces(st,en,nu,closed.ToNative(),asArray))
+    let linearSpacesAsSeries(name:string)(start:Expr)(endRange:Expr)(numSamples:int)(closed:ClosedWindow)(asArray:bool) =
+        let expr = linearSpaces start endRange numSamples closed asArray
+        Series.ofExpr(expr).Rename(name)
     // --- Expr Helpers ---
     /// <summary> Cast an expression to a different data type. </summary>
     let cast (dtype: DataType) (e: Expr) = e.Cast dtype

@@ -59,6 +59,9 @@ type Series(handle: SeriesHandle) =
         let des = defaultArg descending false
         let nul = defaultArg nullsLast false
         PolarsWrapper.SeriesIsSorted(this.Handle,des,nul)
+    member this.SetSorted(?descending) =
+        let de = defaultArg descending false
+        new Series(PolarsWrapper.SeriesSetSortedFlag(this.Handle,de))
     /// <summary>
     /// True if the Series is empty.
     /// </summary>
@@ -278,6 +281,7 @@ type Series(handle: SeriesHandle) =
     /// </summary>
     static member ofVOptionSeq<'T>(name: string, data: seq<'T voption>) : Series =
         Series.create(name, data)
+
     // ==========================================
     // Operators (Arithmetic) 
     // ==========================================

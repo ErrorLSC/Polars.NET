@@ -127,8 +127,6 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <summary>
     /// Create Series From single column expression.
     /// </summary>
-    /// <param name="expr"></param>
-    /// <returns></returns>
     public static Series FromExpr(Expr expr)
     {
         using var df = new DataFrame().Select(expr);

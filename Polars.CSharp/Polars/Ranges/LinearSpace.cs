@@ -45,10 +45,6 @@ public readonly partial struct Polars
         
         return series;
     }
-
-    // ==========================================
-    // LinearSpaces
-    // ==========================================
     /// <summary>
     /// Create a column of linearly-spaced sequences for each row.
     /// </summary>

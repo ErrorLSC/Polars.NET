@@ -42,7 +42,7 @@ public readonly partial struct Polars
         var expr = IntRange(start,end,step,dtype);
         Series series = Series(expr);
         series.Rename(name);
-        return series;
+        return series.SetSorted(descending:step < 0);
     }
 
     /// <summary>

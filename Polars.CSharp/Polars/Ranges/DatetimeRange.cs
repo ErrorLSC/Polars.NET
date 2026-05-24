@@ -12,7 +12,6 @@ public readonly partial struct Polars
     /// <param name="closed">Define which sides of the range are closed</param>
     /// <param name="unit">Time unit of the resulting Datetime data type.</param>
     /// <param name="timeZone">Time zone of the resulting Datetime data type.</param>
-    /// <returns></returns>
     public static Expr DatetimeRange(
         IntoExprColumn? start = null, 
         IntoExprColumn? end = null, 

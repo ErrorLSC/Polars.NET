@@ -1100,7 +1100,8 @@ module ManipulateOps =
         /// <param name="name">The name of the new row index column. Defaults to "index".</param>
         /// <param name="offset">The starting value of the row index. Defaults to 0.</param>
         /// <returns>A new LazyFrame with the row index column added.</returns>
-        member this.WithRowIndex(name:string,?offset:int) =
+        member this.WithRowIndex(?name:string,?offset:int) =
+            let na = defaultArg name "index"
             let off = 
                 match offset with
                 | Some o -> 
@@ -1108,7 +1109,7 @@ module ManipulateOps =
                         raise (ArgumentException "`offset` input for `WithRowIndex` cannot be negative")
                     else o
                 | None -> 0
-            new LazyFrame(PolarsWrapper.LazyFrameWithRowIndex(this.CloneHandle(), name,off))
+            new LazyFrame(PolarsWrapper.LazyFrameWithRowIndex(this.CloneHandle(), na,off))
     type DataFrame with
         /// <summary>
         /// Add a column at index 0 that counts the rows.
@@ -1120,7 +1121,8 @@ module ManipulateOps =
         /// <param name="name">The name of the new row index column. Defaults to "index".</param>
         /// <param name="offset">The starting value of the row index. Defaults to 0.</param>
         /// <returns>A new DataFrame with the row index column added.</returns>
-        member this.WithRowIndex(name:string,?offset:int) =
+        member this.WithRowIndex(?name:string,?offset:int) =
+            let na = defaultArg name "index"
             let off = 
                 match offset with
                 | Some o -> 
@@ -1128,5 +1130,5 @@ module ManipulateOps =
                         raise (ArgumentException "`offset` input for `WithRowIndex` cannot be negative")
                     else o
                 | None -> 0
-            new DataFrame(PolarsWrapper.DataFrameWithRowIndex(this.Handle, name,off))
+            new DataFrame(PolarsWrapper.DataFrameWithRowIndex(this.Handle, na,off))
      
