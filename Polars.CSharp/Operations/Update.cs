@@ -17,8 +17,6 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// <param name="rightOn">Join column(s) of the right Frame.</param>
     /// <param name="includeNulls">Overwrite values in the left frame with null values from the right frame. If set to False (default), null values in the right frame are ignored.</param>
     /// <param name="maintainOrder">Which order of rows from the inputs to preserve. See join() for details. Unlike join this function preserves the left order by default.</param>
-    /// <returns></returns>
-    /// <exception cref="ArgumentException"></exception>
     public LazyFrame Update(
         LazyFrame other,
         IEnumerable<string>? on = null,

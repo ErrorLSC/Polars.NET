@@ -1145,7 +1145,7 @@ and LazyFrame(handle: LazyFrameHandle) =
         
         let h = PolarsWrapper.LazySelect(lfClone, handles)
         new LazyFrame(h)
-    member this.Select(columns: seq<IColumnExpr>) =
+    member this.Select(columns: seq<#IColumnExpr>) =
             let exprs = 
                 columns 
                 |> Seq.collect (fun x -> x.ToExprs()) 

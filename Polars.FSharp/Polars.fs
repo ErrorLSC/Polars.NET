@@ -1265,6 +1265,16 @@ module pl =
         if box statement = null then raise (ArgumentNullException(nameof(statement)))
         if box whenBlock = null then raise (ArgumentNullException(nameof(whenBlock)))
         FSharpThen([whenBlock.Condition], [statement])
+    /// <summary>
+    /// Terminal operator that provides the default fallback value for a when-then-otherwise chain.
+    /// </summary>
+    /// <param name="statement">The fallback expression.</param>
+    /// <param name="thenBlock">The FSharpThen block built by preceding when/then calls.</param>
+    /// <returns>The compiled ternary expression tree.</returns>
+    let otherwise (statement: Expr) (thenBlock: FSharpThen) =
+        if box statement = null then raise (ArgumentNullException(nameof(statement)))
+        if box thenBlock = null then raise (ArgumentNullException(nameof(thenBlock)))
+        thenBlock.otherwise(statement)
     // ==========================================
     // Column Selectors (pl.cs)
     // ==========================================
@@ -1477,24 +1487,15 @@ module pl =
         /// <summary>
         /// Expand a Selector against a DataFrame to get the matched column names.
         /// </summary>
-        let expandDf (selector: Selector) (target: DataFrame) : string array =
+        let expandDf (selector: IColumnExpr) (target: DataFrame) : string array =
             use emptyDf = target.Clear()
             use result = emptyDf.Select [selector]
             result.Columns |> Seq.toArray
-
-        /// <summary>
-        /// Expand an Expr against a DataFrame to get the matched column names.
-        /// </summary>
-        let expandDfExpr (expr: Expr) (target: DataFrame) : string array =
-            use emptyDf = target.Clear()
-            use result = emptyDf.Select expr
-            result.Columns |> Seq.toArray
-
         /// <summary>
         /// Expand a Selector against a LazyFrame to get the matched column names.
         /// </summary>
-        let expandLf (selector: Selector) (target: LazyFrame) : string array =
-            target.Select(selector.ToExpr()).Schema.Names |> Seq.toArray
+        let expandLf (selector: IColumnExpr) (target: LazyFrame) : string array =
+            target.Select([selector]).Schema.Names |> Seq.toArray
 
 [<AutoOpen>]
 module PolarsAutoOpen =

@@ -570,27 +570,27 @@ and Expr(handle: ExprHandle) =
     /// <param name="others">Fallback expressions, column names, or literals.</param>
     /// <returns>A new coalesced expression.</returns>
     member this.Coalesce(others: seq<Expr>) =
-            if box others = null then
+        if box others = null then
+            this
+        else
+            let othersArr = Seq.toArray others
+            if othersArr.Length = 0 then
                 this
             else
-                let othersArr = Seq.toArray others
-                if othersArr.Length = 0 then
-                    this
-                else
-                    // Allocate a single unified array for all Expression Handles
-                    // Total size is current expression (1) + fallback expressions (othersArr.Length)
-                    let totalCount = othersArr.Length + 1
-                    let handles = Array.zeroCreate totalCount
+                // Allocate a single unified array for all Expression Handles
+                // Total size is current expression (1) + fallback expressions (othersArr.Length)
+                let totalCount = othersArr.Length + 1
+                let handles = Array.zeroCreate totalCount
 
-                    // Populate the first slot with the current expression's handle
-                    handles.[0] <- this.Handle
+                // Populate the first slot with the current expression's handle
+                handles.[0] <- this.Handle
 
-                    // Extract handles from the remaining fallback expressions
-                    for i = 0 to othersArr.Length - 1 do
-                        handles.[i + 1] <- othersArr.[i].Handle
+                // Extract handles from the remaining fallback expressions
+                for i = 0 to othersArr.Length - 1 do
+                    handles.[i + 1] <- othersArr.[i].Handle
 
-                    let newHandle = PolarsWrapper.Coalesce(handles)
-                    new Expr(newHandle)
+                let newHandle = PolarsWrapper.Coalesce(handles)
+                new Expr(newHandle)
     static member internal Ternary(predicate:Expr,truthy:Expr,falsy:Expr) = 
         new Expr(PolarsWrapper.IfElse(predicate.CloneHandle(),truthy.CloneHandle(),falsy.CloneHandle()))
     /// <summary>

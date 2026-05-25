@@ -879,3 +879,131 @@ type ``Complex Query Tests`` () =
         Assert.Equal(3.0, result.Float("C_0", 0).Value)
         Assert.Equal(3L, result.Int("A_1", 0).Value)
         Assert.Equal(5.0, result.Float("C_1", 0).Value)
+    [<Fact>]
+    [<Trait("DataFrame", "Update")>]
+    member _.``DataFrame: Update basic - same schema, no missing keys`` () =
+        // 左表：初始数据
+        let leftDf =
+            [ pl.series "id" [1;2;3];
+            pl.series "value" [10;20;30] ]
+            |> pl.dataframe
+
+        // 右表：新数据，id=2 的值被更新
+        let rightDf =
+            [ pl.series "id" [2;3];
+            pl.series "value" [200;300] ]
+            |> pl.dataframe
+
+        // 更新：用 id 连接（默认 on 参数自动推断相同列名）
+        let result = leftDf.Update(other = rightDf,on=pl.col "id")
+
+        // 验证：id=1 保持原值，id=2/3 更新
+        Assert.Equal(3L, result.Height)
+        Assert.Equal(2L, result.Width)
+        Assert.Equal(Some 10L,result.Int("value",0))
+        Assert.Equal(Some 300L,result.Int("value",2))
+    [<Fact>]
+    [<Trait("DataFrame", "Update")>]
+    member _.``DataFrame: Update with explicit leftOn/rightOn`` () =
+        let leftDf =
+            [ pl.series "pk_left" [10;20;30];
+            pl.series "name" ["Alice";"Bob";"Cathy"] ]
+            |> pl.dataframe
+
+        let rightDf =
+            [ pl.series "pk_right" [20;30];
+            pl.series "name" ["Bobby";"Catherine"] ]
+            |> pl.dataframe
+
+        let result = leftDf.Update(other = rightDf, 
+                                leftOn = pl.cs.byName ["pk_left"], 
+                                rightOn = pl.cs.byName [ "pk_right"])
+        Assert.Equal(Some "Alice",result.String("name",0))
+        Assert.Equal(Some "Catherine",result.String("name",2))
+
+    [<Fact>]
+    [<Trait("DataFrame", "Update")>]
+    member _.``DataFrame: Update with includeNulls = true`` () =
+        let leftDf =
+            [ pl.series "key" [1;2;3];
+            pl.series "info" ["A";"B";"C"] ]
+            |> pl.dataframe
+
+        let rightDf =
+            [ pl.series "key" [2;3];
+            pl.series "info" [null; "C_updated"] ]  
+            |> pl.dataframe
+
+        let result = leftDf.Update(other = rightDf,on=pl.cs.numeric(),includeNulls = true)
+
+        Assert.Equal(Some "A", result.String("info",0))
+        Assert.Equal(None, result.String("info",1))
+        Assert.Equal(Some "C_updated", result.String("info",2))
+
+    [<Fact>]
+    [<Trait("DataFrame", "Update")>]
+    member _.``DataFrame: Update with includeNulls = false (coalesce)`` () =
+        let leftDf =
+            [ pl.series "key" [1;2;3];
+            pl.series "val" [10;20;30] ]
+            |> pl.dataframe
+
+        let rightDf =
+            [ pl.series "key" [2;3];
+            pl.series "val" [None; Some 300] ] 
+            |> pl.dataframe
+
+        let result = leftDf.Update(other = rightDf,on=pl.col "key", includeNulls = false)
+        
+        Assert.Equal(Some 20L, result.Int("val", 1))  
+
+    [<Fact>]
+    [<Trait("DataFrame", "Update")>]
+    member _.``DataFrame: Update with Inner join - drops non-matching rows`` () =
+        let leftDf =
+            [ pl.series "id" [1;2;3];
+            pl.series "val" [10;20;30] ]
+            |> pl.dataframe
+
+        let rightDf =
+            [ pl.series "id" [2];
+            pl.series "val" [200] ]
+            |> pl.dataframe
+
+        let result = leftDf.Update(other = rightDf,on=pl.col "id", how = JoinType.Inner)
+
+        Assert.Equal(1L, result.Height)
+        Assert.Equal(Some 2L,  result.Int("id",0))
+        Assert.Equal(Some 200L,  result.Int("val",0))
+
+    [<Fact>]
+    [<Trait("DataFrame", "Update")>]
+    member _.``DataFrame: Update with Outer join - retains all rows from both`` () =
+        let leftDf =
+            [ pl.series "key" [1;2];
+            pl.series "a" [10;20] ]
+            |> pl.dataframe
+
+        let rightDf =
+            [ pl.series "key" [2;3];
+            pl.series "a" [200;300] ]
+            |> pl.dataframe
+
+        let result = leftDf.Update(other = rightDf,on=pl.col "key" ,how = JoinType.Outer)
+        Assert.Equal(Some 10L, result.Int("a",0))
+        Assert.Equal(Some 200L, result.Int("a",1))
+        Assert.Equal(Some 300L, result.Int("a",2))
+
+    [<Fact>]
+    [<Trait("DataFrame", "Update")>]
+    member _.``DataFrame: Update with no common columns besides keys - early return`` () =
+        let leftDf =
+            [ pl.series "id" [1;2];
+            pl.series "x" [10;20] ]
+            |> pl.dataframe
+
+        let rightDf = pl.dataframe [ pl.series "id" [1;2] ]
+
+        let result = leftDf.Update(other = rightDf, on=pl.col "id" )
+
+        Assert.True(result.Equals leftDf)
