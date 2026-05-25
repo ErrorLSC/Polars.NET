@@ -5,7 +5,15 @@ open System
 open Polars.NET.Core
 open System.Threading.Tasks
 open Polars.NET.Core.Helpers
-open Polars.NET.Core.Arrow
+
+type CjkColumnOptions = {
+    Chinese       : bool
+    Japanese      : bool
+    Korean        : bool
+    IncludeDigits : bool
+    IncludeLetters: bool
+    IgnoreSpaces  : bool
+}
 
 /// <summary>
 /// Intermediate F# state holder after calling 'pl.when''.
@@ -562,6 +570,31 @@ module pl =
     /// <param name="metadata">Optional metadata string</param>
     let extensionType(name:string)(inner:DataType)(metadata:string option) =
         DataType.Extension(name,inner,?metadata=metadata)
+    /// <summary>
+    /// Register the extension type for the given extension name.
+    /// </summary>
+    /// <param name="extName">The registered name.</param>
+    /// <param name="factory">The factory function deserialize the extension type.</param>
+    let registerExtensionType(extName:string)(factory: ExtensionFactory) =
+        ExtensionRegistry.Register(extName, ExtensionRegistration.AsType factory)
+    /// <summary>
+    /// Register the extension type to be passed through purely as physical storage.
+    /// </summary>
+    /// <param name="extName">The registered name.</param>
+    let registerExtensionAsStorage (extName: string) =
+        ExtensionRegistry.Register(extName, ExtensionRegistration.AsStorage)
+    /// <summary>
+    /// Unregister the extension type for the given extension name.
+    /// </summary>
+    /// <param name="extName">The registered name.</param>
+    let unregisterExtensionType(extName:string) = 
+        ExtensionRegistry.Unregister extName
+    /// <summary>
+    /// Get the extension type registration info for the given extension name.
+    /// </summary>
+    /// <param name="extName">The registered name.</param>
+    let tryGetExtensionType (extName: string) : ExtensionRegistration option =
+        ExtensionRegistry.TryResolve extName
     let field(name:string)(dtype:DataType) = {Field.Name=name;Field.DataType=dtype}
     let categories(name:string option)(nameSpace:string option)(physical:CategoricalPhysical option) =
         new Categories(?name=name,?nameSpace=nameSpace,?physical=physical)
@@ -581,7 +614,7 @@ module pl =
     /// Represents the intrinsic data type of the current element.
     /// Equivalent to Python's polars.self_dtype()
     /// </summary>
-    let selfDataType = new DataTypeExpr(PolarsWrapper.DataTypeExprSelfDtype())
+    let selfDataType() = new DataTypeExpr(PolarsWrapper.DataTypeExprSelfDtype())
     /// <summary>
     /// (Lazy) Evaluates the arguments in order and returns the first non-null value.
     /// </summary>
@@ -898,22 +931,25 @@ module pl =
         df.WithColumns exprs
 
     /// <summary> Filter rows based on a boolean expression. </summary>
-    let filter (expr: Expr) (df: DataFrame) : DataFrame =
-        df.Filter expr
+    let filter (expr: IColumnExpr) (df: DataFrame) : DataFrame =
+        df.Filter (expr.ToExprs().[0]) 
     /// <summary> Select columns from the DataFrame. </summary>
-    let select (exprs: seq<Expr>) (df: DataFrame) : DataFrame =
+    let select (exprs: seq<#IColumnExpr>) (df: DataFrame) : DataFrame =
         df.Select exprs
     /// <summary> Sort (Order By) the DataFrame. </summary>
-    let sort (expr: Expr,desc: bool) (df: DataFrame) : DataFrame =
-        df.Sort (expr,desc)
-    let orderBy (expr: Expr) (desc: bool) (df: DataFrame) = sort(expr,desc) df
+    let sort (columns:seq<IColumnExpr>)(desc: bool)(df: DataFrame) : DataFrame =
+        df.Sort(columns,descending=desc)
+    let orderBy (columns: seq<IColumnExpr>) (desc: bool) (df: DataFrame) = sort columns desc df
     /// <summary> Group by keys and apply aggregations. </summary>
-    let groupBy (keys: Expr list) (aggs: Expr list) (df: DataFrame) : DataFrame =
-        use builder = df.GroupBy(keys)
-        builder.Agg(aggs)
+    let groupBy (keys: seq<Expr>)(df: DataFrame) : GroupBy =
+        df.GroupBy(keys)
+    let having(predicate: Expr) (builder: GroupBy) = builder.Having(predicate)
+    let agg(aggs:seq<Expr>)(builder: GroupBy) = builder.Agg(aggs)
     /// <summary> Perform a join between two DataFrames. </summary>
-    let join (other: DataFrame) (leftOn: Expr list) (rightOn: Expr list) (how: JoinType) (left: DataFrame) : DataFrame =
+    let join (other: DataFrame) (leftOn: seq<Expr>) (rightOn:seq<Expr>) (how: JoinType) (left: DataFrame) : DataFrame =
         left.Join (other, leftOn, rightOn, how)
+    let joinOn(other: DataFrame) (on:seq<Expr>) (how: JoinType) (left: DataFrame) : DataFrame =
+        left.Join(other,on,how)
     /// <summary>
     /// Vertically concat DataFrames (Standard concat).
     /// </summary>
@@ -1002,13 +1038,11 @@ module pl =
     /// <summary> Explode list-like columns into multiple rows. </summary>
     let explode (columns: seq<string>) (df: DataFrame) : DataFrame =
         df.Explode columns
-    /// <summary> Decompose a struct column into multiple columns. </summary>
-    let unnestColumn(column: string) (df:DataFrame) : DataFrame =
-        df.UnnestColumn column
     /// <summary> Decompose multiple struct columns. </summary>
-    let unnestColumns(columns: string list) (df:DataFrame) : DataFrame =
+    let unnestColumns(columns: seq<string>) (df:DataFrame) : DataFrame =
         df.UnnestColumns columns
-
+    let unnestColumnsLazy(columns: seq<string>) (lf:LazyFrame) =
+        lf.Unnest columns
     // --- Reshaping (Eager) ---
 
     /// <summary> Pivot the DataFrame from long to wide format. </summary>
@@ -1101,7 +1135,7 @@ module pl =
     let arctan2(y:Expr) (x:Expr) = new Expr(PolarsWrapper.ArcTan2(y.CloneHandle(),x.CloneHandle()))
     
     // --- Lazy API ---
-
+    let asLazy(df:DataFrame) = df.Lazy()
     /// <summary> Explain the LazyFrame execution plan. </summary>
     let explain (lf: LazyFrame) = lf.Explain true
     /// <summary> Explain the unoptimized LazyFrame execution plan. </summary>
@@ -1111,7 +1145,6 @@ module pl =
     /// <summary> Filter rows based on a boolean expression. </summary>
     let filterLazy (expr: Expr) (lf: LazyFrame) : LazyFrame =
         lf.Filter expr
-
     /// <summary> Select columns from LazyFrame. </summary>
     let selectLazy (exprs: seq<Expr>) (lf: LazyFrame) : LazyFrame =
         lf.Select exprs
@@ -1126,10 +1159,9 @@ module pl =
     /// <summary> Add or replace multiple columns in the LazyFrame. </summary>
     let withColumnsLazy (exprs: seq<Expr>) (lf: LazyFrame) : LazyFrame =
         lf.WithColumns exprs
-    /// <summary> Group by keys and apply aggregations. </summary>
-    let groupByLazy (keys: seq<Expr>) (aggs: seq<Expr>) (lf: LazyFrame) : LazyFrame =
-        use builder = lf.GroupBy(keys)
-        builder.Agg(aggs)
+    /// <summary> Group by keys. </summary>
+    let groupByLazy (keys: seq<Expr>)(lf: LazyFrame) :LazyGroupBy =
+        lf.GroupBy(keys)
     let havingLazy (predicate: Expr) (builder: LazyGroupBy) = builder.Having(predicate)
     let aggLazy (aggs: seq<Expr>) (builder: LazyGroupBy) = builder.Agg(aggs)
     /// <summary>
@@ -1147,39 +1179,17 @@ module pl =
     /// Alias for unpivotLazy
     let meltLazy = unpivotLazy
     /// <summary> Perform a join between two LazyFrames. </summary>
-    let joinLazy (other: LazyFrame) (leftOn: Expr list) (rightOn: Expr list) (how: JoinType) (lf: LazyFrame) : LazyFrame =
-        lf.Join(other,leftOn, rightOn, how)
-    /// <summary> Perform an As-Of Join (time-series join). </summary>
-    /// <summary>
-    /// Perform an As-Of Join (Lite version).
-    /// For full options (int/float tolerance, suffix, validation, etc.), use the member method: df.JoinAsOf(...)
-    /// </summary>
-    let joinAsOf (other: LazyFrame) 
-                 (leftOn: Expr) 
-                 (rightOn: Expr) 
-                 (byLeft: Expr list) 
-                 (byRight: Expr list) 
-                 (strategy: AsofStrategy option) 
-                 (tolerance: string option)     
-                 (lf: LazyFrame) : LazyFrame =
-        
-        lf.JoinAsOfInternal(
-            other, 
-            leftOn, 
-            rightOn, 
-            byLeft = byLeft,
-            byRight = byRight,
-            ?strategy = strategy,
-            ?tolerance = tolerance
-        )
+    let joinOnLazy (other: LazyFrame) (on: Expr seq) (how: JoinType) (lf: LazyFrame) : LazyFrame =
+        lf.Join(other,on,how)
+    let joinLazy(other:LazyFrame)(leftOn:Expr seq)(rightOn: Expr seq)(how: JoinType) (lf: LazyFrame) : LazyFrame =
+        lf.Join(other,leftOn,rightOn,how)
     /// <summary> Concatenate multiple LazyFrames. </summary>
     let concatLazy (lfs: LazyFrame list) (how: ConcatType) : LazyFrame =
         LazyFrame.Concat(lfs,how)
     /// <summary> Define a window over which to perform an aggregation. </summary>
-    let over (partitionBy: Expr list) (e: Expr) = e.Over partitionBy
+    let over (partitionBy: Expr seq) (e: Expr) = e.Over partitionBy
     /// <summary> Create a SQL context for executing SQL queries on LazyFrames. </summary>
     let sqlContext () = new SqlContext()
-    /// <summary> Execute a SQL query against the provided LazyFrames. </summary>
     let ifElse (predicate: Expr) (ifTrue: Expr) (ifFalse: Expr) : Expr =
         let p = predicate.CloneHandle()
         let t = ifTrue.CloneHandle()
@@ -1292,18 +1302,14 @@ module pl =
             let kind = enum<PlDataType> code
             
             new Selector(PolarsWrapper.SelectorByDtype kind)
-        /// <summary> Select columns by .NET System.Type. </summary>
-        let byNetType (t: System.Type) =
-            let arrowType = ArrowTypeResolver.GetArrowTypeFromNetType t
-            let dt = DataType.FromArrowType arrowType
-            byType dt
-
         /// <summary> 
         /// Select columns by Generic Type.
         /// Usage: pl.cs.byType<int option>() or pl.cs.byType<DateTime>()
         /// </summary>
-        let inline byGenericType<'T> () =
-            byNetType typeof<'T>
+        let inline byNetType<'T> () =
+            let dtype = DataType.FromNetType<'T>()
+            byType dtype
+
         /// <summary> Select columns starting with a pattern. </summary>
         let inline startsWith (pattern: string) = 
             new Selector(PolarsWrapper.SelectorStartsWith pattern)
@@ -1346,7 +1352,7 @@ module pl =
         let inline decimal() = new Selector(PolarsWrapper.SelectorDecimal());
         let inline enum() = new Selector(PolarsWrapper.SelectorEnum());
         let inline nested() = new Selector(PolarsWrapper.SelectorNested());
-        let inline struct_() = new Selector(PolarsWrapper.SelectorStruct());
+        let inline structType() = new Selector(PolarsWrapper.SelectorStruct());
         let inline temporal() = new Selector(PolarsWrapper.SelectorTemporal());
         /// <summary>
         /// Select list columns. Optionally filter by the inner data type.
@@ -1359,6 +1365,10 @@ module pl =
                 | None -> null
                 
             new Selector(PolarsWrapper.SelectorList innerHandle)
+        /// <summary>
+        /// Select all list columns.
+        /// </summary>
+        let listAll() = list None
         let private getNativeTimeUnit (unit: TimeUnit option) : PlTimeUnit =
             match unit with
             | Some u -> u.ToNative()
@@ -1366,7 +1376,10 @@ module pl =
 
         let private datetimeInternal (timeUnit: TimeUnit option) (tzString: string option) =
             let tu = getNativeTimeUnit timeUnit
-            let tz = Option.toObj tzString
+            let tz = 
+                match tzString with
+                | Some t -> t
+                | None -> null
             new Selector(PolarsWrapper.SelectorDatetime(tu, tz))
         /// <summary>
         /// Select array columns. Optionally filter by inner data type and fixed width.
@@ -1379,75 +1392,48 @@ module pl =
                 | None -> null
             let w = Option.toNullable width
             new Selector(PolarsWrapper.SelectorArray(innerHandle, w))
-
+        /// <summary>
+        /// Select all array columns.
+        /// </summary>
+        let arrayAll() = array None None
         /// <summary>
         /// Select all datetime columns (both with and without timezones).
         /// </summary>
-        let datetime (timeUnit: TimeUnit option) =
-            datetimeInternal timeUnit None
+        let datetime (timeUnit: TimeUnit) =
+            datetimeInternal (Some timeUnit) None
 
         /// <summary>
         /// Select ONLY timezone-naive datetime columns (no timezone set).
         /// </summary>
-        let datetimeNaive (timeUnit: TimeUnit option) =
-            datetimeInternal timeUnit (Some "")
+        let datetimeNaive (timeUnit: TimeUnit) =
+            datetimeInternal (Some timeUnit) (Some "")
 
         /// <summary>
         /// Select ONLY timezone-aware datetime columns (any timezone).
         /// </summary>
-        let datetimeAware (timeUnit: TimeUnit option) =
-            datetimeInternal timeUnit (Some "*")
+        let datetimeAware (timeUnit: TimeUnit) =
+            datetimeInternal (Some timeUnit) (Some "*")
 
         /// <summary>
         /// Select datetime columns matching a specific timezone (e.g., "UTC", "Asia/Shanghai").
         /// </summary>
-        let datetimeExact (timeZone: string) (timeUnit: TimeUnit option) =
+        let datetimeExact (timeZone: string) (timeUnit: TimeUnit) =
             if System.String.IsNullOrEmpty timeZone then
                 invalidArg "timeZone" "timeZone cannot be null or empty"
                 
-            datetimeInternal timeUnit (Some timeZone)
+            datetimeInternal (Some timeUnit) (Some timeZone)
         /// <summary>
         /// Select all duration columns. Optionally match a specific TimeUnit.
         /// </summary>
-        let duration (timeUnit: TimeUnit option) =
-            new Selector(PolarsWrapper.SelectorDuration(getNativeTimeUnit timeUnit))
+        let duration (timeUnit: TimeUnit) =
+            new Selector(PolarsWrapper.SelectorDuration(getNativeTimeUnit (Some timeUnit)))
         /// <summary>
         /// Select all columns with alphabetic names.
         /// </summary>
-        let alpha (asciiOnly: bool option) (ignoreSpaces: bool option) =
-            let isAscii = defaultArg asciiOnly false
-            let isIgnoreSpaces = defaultArg ignoreSpaces false
+        let alpha (asciiOnly: bool) (ignoreSpaces: bool ) =
+            let mutable charClass = if asciiOnly then "a-zA-Z" else @"\p{L}"
+            if ignoreSpaces then charClass <- charClass + " "
             
-            let mutable charClass = if isAscii then "a-zA-Z" else @"\p{L}"
-            if isIgnoreSpaces then charClass <- charClass + " "
-            
-            matches (sprintf "^[%s]+$" charClass)
-
-        /// <summary>
-        /// <para>[EN] Select columns whose names consist entirely of CJK scripts (Han, Hiragana, Katakana, Hangul).
-        /// The 'chinese' option enables \p{Han}, which also includes Japanese Kanji and Korean Hanja.</para>
-        /// <para>[ZH] 选择列名完全由中日韩字符（Han / 平假名 / 片假名 / 韩文）组成的列。
-        /// 注意：'chinese' 实际匹配 \p{Han}，包含日文汉字与韩文汉字。</para>
-        /// <para>[JA] 列名がCJK文字（漢字・ひらがな・カタカナ・ハングル）のみで構成される列を選択します。
-        /// ※ 'chinese' は \p{Han}（日本・韓国の漢字を含む）を有効にします。</para>
-        /// <para>[KO] 열 이름이 CJK 문자(한자, 히라가나, 가타카나, 한글)로만 구성된 열을 선택합니다.
-        /// ※ 'chinese'는 \p{Han}을 의미하며 일본/한국 한자도 포함합니다.</para>
-        /// </summary>
-        let cjk (chinese: bool option) (japanese: bool option) (korean: bool option) (ignoreSpaces: bool option) =
-            let isChinese = defaultArg chinese true
-            let isJapanese = defaultArg japanese true
-            let isKorean = defaultArg korean true
-            let isIgnoreSpaces = defaultArg ignoreSpaces false
-
-            if not isChinese && not isJapanese && not isKorean then
-                invalidArg "CJK" "At least one CJK script must be enabled."
-
-            let mutable charClass = ""
-            if isChinese then charClass <- charClass + @"\p{Han}"
-            if isJapanese then charClass <- charClass + @"\p{Hiragana}\p{Katakana}"
-            if isKorean then charClass <- charClass + @"\p{Hangul}"
-            if isIgnoreSpaces then charClass <- charClass + " "
-
             matches (sprintf "^[%s]+$" charClass)
 
         /// <summary>
@@ -1457,34 +1443,32 @@ module pl =
         /// <para>[JA] 列名がCJK文字・数字（\p{N}、全角/半角）および英字（全角/半角）で構成される列を選択します。</para>
         /// <para>[KO] 열 이름이 CJK 문자, 숫자(\p{N}, 전각/반각) 및 영문자(전각/반각)로 구성된 열을 선택합니다.</para>
         /// </summary>
-        let cjkAlphanumeric (chinese: bool option) (japanese: bool option) (korean: bool option) (includeLetters: bool option) (ignoreSpaces: bool option) =
-            let isChinese = defaultArg chinese true
-            let isJapanese = defaultArg japanese true
-            let isKorean = defaultArg korean true
-            let isIncludeLetters = defaultArg includeLetters true
-            let isIgnoreSpaces = defaultArg ignoreSpaces false
+        let cjkCols (opts: CjkColumnOptions) =
+            if not opts.Chinese && not opts.Japanese && not opts.Korean then
+                invalidArg (nameof opts) "At least one CJK script must be enabled."
 
-            if not isChinese && not isJapanese && not isKorean then
-                invalidArg "CJKAlphanumeric" "At least one CJK script must be enabled."
+            let charClass = ResizeArray<string>()
 
-            let mutable charClass = @"\p{N}"
-            if isIncludeLetters then charClass <- charClass + "a-zA-ZＡ-Ｚａ-ｚ"
-            if isChinese then charClass <- charClass + @"\p{Han}"
-            if isJapanese then charClass <- charClass + @"\p{Hiragana}\p{Katakana}"
-            if isKorean then charClass <- charClass + @"\p{Hangul}"
-            if isIgnoreSpaces then charClass <- charClass + " "
+            if opts.IncludeDigits then
+                charClass.Add @"\p{N}"
 
-            matches (sprintf "^[%s]+$" charClass)
+            if opts.IncludeLetters then
+                charClass.Add @"a-zA-ZＡ-Ｚａ-ｚ"
 
+            if opts.Chinese then charClass.Add @"\p{Han}"
+            if opts.Japanese then charClass.Add @"\p{Hiragana}\p{Katakana}"
+            if opts.Korean then charClass.Add @"\p{Hangul}"
+            if opts.IgnoreSpaces then charClass.Add " "
+
+            let pattern = sprintf "^[%s]+$" (String.concat "" charClass)
+            matches pattern 
         /// <summary>
         /// Select all columns with alphanumeric names.
         /// </summary>
-        let alphanumeric (asciiOnly: bool option) (ignoreSpaces: bool option) =
-            let isAscii = defaultArg asciiOnly false
-            let isIgnoreSpaces = defaultArg ignoreSpaces false
+        let alphanumeric (asciiOnly: bool ) (ignoreSpaces: bool) =
             
-            let mutable charClass = if isAscii then "a-zA-Z0-9" else @"\p{L}\p{N}"
-            if isIgnoreSpaces then charClass <- charClass + " "
+            let mutable charClass = if asciiOnly then "a-zA-Z0-9" else @"\p{L}\p{N}"
+            if ignoreSpaces then charClass <- charClass + " "
 
             matches (sprintf "^[%s]+$" charClass)
         /// <summary>

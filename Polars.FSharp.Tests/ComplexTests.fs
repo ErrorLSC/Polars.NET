@@ -48,24 +48,25 @@ type ``Complex Query Tests`` () =
             DateTime(2025, 10, 31)
         |]
         
-        use df = DataFrame.create([|
-            Series.create("name", names)
-            Series.create("birthdate", dates)
-        |])
-        
-        let lf = df.Lazy()
+        use df = pl.dataframe[|
+            pl.series "name" names
+            pl.series "birthdate" dates
+        |]
+
 
         let keys = [ pl.col("birthdate").Dt.Year() / pl.lit 10 * pl.lit 10 |> pl.alias "decade" ]
-        let aggs = [ pl.count().Alias "cnt" ]
-        let havingCond = pl.count() .> pl.lit 1
+        let aggs = [ pl.len |> alias "cnt" ]
+        let havingCond = pl.len .> pl.lit 1
         
         use res =
-            lf.GroupBy(keys)
+            df
+            |> pl.asLazy
+            |> pl.groupByLazy keys
             |> pl.havingLazy havingCond
             |> pl.aggLazy aggs
             |> pl.sortLazy [pl.col "decade"] false
             |> pl.collect
-
+        res |> pl.show |> ignore
         Assert.Equal(1L, res.Height) 
         
         Assert.Equal(2020L, int64 (res.Int("decade", 0).Value))
@@ -93,17 +94,15 @@ type ``Complex Query Tests`` () =
                 // Exclude (all except "ignore_me")
                 pl.cs.all().Exclude ["birthdate"] |> pl.asExpr
             ]
-            |> pl.groupByLazy 
-                // Keys
-                [ pl.col "decade" ] 
-                // Aggs
+            |> pl.groupByLazy [ pl.col "decade" ] 
+            |> pl.aggLazy
                 [
                     pl.col "name"
                     (pl.col "weight").Mean().Round(2u).Name.Prefix "avg_"
                     (pl.col "height").Mean().Round(2u).Name.Prefix "avg_"
                 ]
             |> pl.collect
-            |> pl.sort (pl.col "decade",false)
+            |> pl.sort [pl.col "decade"] false
 
         let cols = res.ColumnNames
         Assert.DoesNotContain("birthdate", cols)
@@ -216,7 +215,7 @@ type ``Complex Query Tests`` () =
                 |> pl.alias "diff_from_avg"
             )
             |> pl.collect
-            |> pl.sort(pl.col "name", false)
+            |> pl.sort [pl.col "name"] false
 
         // Alice (IT): 1000 - 1500 = -500
         Assert.Equal("Alice", res.String("name", 0).Value)
@@ -277,7 +276,8 @@ type ``Complex Query Tests`` () =
                 values = ["revenue"], 
                 aggExpr = pl.col("").Sum() * pl.lit 2, 
                 sortColumns = true
-            ).Sort(pl.col "year", false)
+            ) 
+            |> pl.sort [pl.col "year"] false
 
         Assert.Equal(200, wideDfExpr.Cell<int>(0, "Q1"))
         
@@ -437,13 +437,13 @@ type ``Complex Query Tests`` () =
     [<Fact>]
     member _.``Lazy Join (Standard Join)`` () =
 
-        let users = 
-            DataFrame.create [
-                Series.create("id", [1; 2])
-                Series.create("name", ["Alice"; "Bob"])
-                Series.create("common", ["U1"; "U2"]) 
-            ]
-        let lfUsers = users.Lazy()
+        let lfUsers = 
+            pl.dataframe [
+                pl.series "id" [1; 2]
+                pl.series "name"  ["Alice"; "Bob"]
+                pl.series "common" ["U1"; "U2"] 
+            ] 
+            |> pl.asLazy 
 
         let orders = 
             DataFrame.create [
@@ -506,7 +506,7 @@ type ``Complex Query Tests`` () =
                 lfQuotes,
                 pl.col "time",
                 pl.col "time", 
-                2L,                      
+                Tolerance.Integer 2L,                      
                 strategy = AsofStrategy.Backward,       
                 byLeft = [pl.col "ticker"], 
                 byRight = [pl.col "ticker"]
@@ -644,10 +644,10 @@ type ``Complex Query Tests`` () =
         use res = 
             lf.GroupByDynamic(
                 indexCol = "Time",
-                every = TimeSpan.FromHours 1.0,      
-                period = TimeSpan.FromHours 2.0,     
+                every = Dur.TimeSpan(TimeSpan.FromHours 1.0),      
+                period = Dur.TimeSpan(TimeSpan.FromHours 2.0),     
                 
-                by = [ !> pl.col("Category") ],
+                by = [ pl.col "Category" ],
                 
                 // [t, t + period)
                 closedWindow = ClosedWindow.Left
@@ -693,19 +693,20 @@ type ``Complex Query Tests`` () =
         ]
         
         let lf = 
-            DataFrame.ofRecords(data).Lazy()
-
-                .Select([
+            DataFrame.ofRecords(data) 
+            |> pl.asLazy
+            |> pl.selectLazy
+                [
                     pl.col "ID"
                     pl.asStruct([ pl.col "Val1"; pl.col "Val2" ]).Alias "MyStruct"
-                ])
-        
+                ]
         // Schema Check: ID, MyStruct
         
         // Unnest "MyStruct"
         let res = 
-            lf.Unnest("MyStruct")
-              .Collect()
+            lf
+            |> pl.unnestColumnsLazy ["MyStruct"]
+            |> pl.collect
        
         Assert.Equal(10, res.Cell<int>("Val1",0))
         Assert.Equal(20, res.Cell<int>("Val2",0))
@@ -742,7 +743,7 @@ type ``Complex Query Tests`` () =
         let timeSeries = Series.create("datetime", [| new DateTime(2026,5,20,10,0,0); new DateTime(2026,5,20,10,2,0) |])
         let values = Series.create("metrics", [| 42.0; 45.0 |])
         let groups = Series.create("category", [| "A"; "A" |])
-        let df = DataFrame.create([| timeSeries; values; groups |])
+        let df = DataFrame.create [ timeSeries; values; groups ]
 
         // Create selectors based on the project core implementation
         let timeSel = pl.cs.temporal()

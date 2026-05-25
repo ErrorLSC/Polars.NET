@@ -534,7 +534,7 @@ type ``Basic Functionality Tests`` () =
         // Self Join: lf.Join(lf, on="Key")
         let res = 
             lf
-            |> pl.joinLazy lf [pl.col "Key"] [pl.col "Key"] JoinType.Left
+            |> pl.joinOnLazy lf [pl.col "Key"] JoinType.Left
             |> pl.collect
 
         // 0: 4 items -> 4*4 = 16

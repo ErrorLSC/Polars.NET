@@ -12,7 +12,6 @@ public readonly partial struct Polars
     public static void RegisterExtensionType<T>(string extName, ExtensionFactory factory) where T : BaseExtension 
         => ExtensionRegistry.RegisterExtensionType<T>(extName, factory);
     
-
     /// <summary>
     /// Register the extension type to be passed through purely as physical storage.
     /// </summary>

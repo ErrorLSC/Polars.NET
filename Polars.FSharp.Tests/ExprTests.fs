@@ -357,7 +357,7 @@ type ``String Logic Tests`` () =
         let res = 
             df 
             |> pl.withColumn gradeExpr
-            |> pl.sort (pl.col "score", true) 
+            |> pl.sort [pl.col "score"] true 
 
         // Alice (95) -> A
         Assert.Equal("A", res.String("grade", 0).Value)
@@ -435,7 +435,7 @@ type ``String Logic Tests`` () =
         // Mask: Mon, Tue, Wed, Thu, Fri, Sat, Sun
         let customWeek = [| true; true; true; true; false; false; true |]
         
-        // 2023-01-05 (周四)
+        // 2023-01-05 (Thursday)
         // + 1 BD -> Fri(Skip), Sat(Skip) -> Sun (2023-01-08)
         let start = DateOnly(2023, 1, 5) 
         let df = DataFrame.ofRecords [ {| Date = start |} ]

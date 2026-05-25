@@ -1,13 +1,31 @@
 namespace Polars.FSharp
 open Polars.NET.Core
 
+[<RequireQualifiedAccess>]
+type Tolerance =
+    | String of string
+    | TimeSpan of System.TimeSpan
+    | Integer of int64
+    | Float of float
 [<AutoOpen>]
 module JoinOps = 
     open Polars.NET.Core.Helpers
     type LazyFrame with
         /// <summary>
-        /// Join with another LazyFrame.
+        /// Join with another LazyFrame using column names.
         /// </summary>
+        /// <param name="other">The right DataFrame to join with.</param>
+        /// <param name="leftOn">Column names in the left DataFrame to join on.</param>
+        /// <param name="rightOn">Column names in the right DataFrame to join on.</param>
+        /// <param name="how">Type of join (Inner, Left, Outer, Cross, etc.). Default is Inner.</param>
+        /// <param name="suffix">Suffix to append to columns with same name in right DataFrame. Default "_right".</param>
+        /// <param name="validation">Check if join keys are unique.</param>
+        /// <param name="coalesce">How to coalesce the join keys.</param>
+        /// <param name="maintainOrder">How to maintain the order of the join.</param>
+        /// <param name="joinSide">Specifies the strategy for the hash join build side.</param>
+        /// <param name="nullsEqual">Consider nulls as equal.</param>
+        /// <param name="sliceOffset">Slice the result starting at this offset.</param>
+        /// <param name="sliceLen">Length of the slice.</param>
         member this.Join(other: LazyFrame, 
                         leftOn: Expr seq, 
                         rightOn: Expr seq, 
@@ -78,8 +96,8 @@ module JoinOps =
                             leftOn: Expr, 
                             rightOn: Expr, 
                             // --- Optional Parameters ---
-                            ?byLeft: Expr list, 
-                            ?byRight: Expr list, 
+                            ?byLeft: Expr seq, 
+                            ?byRight: Expr seq, 
                             ?strategy: AsofStrategy, 
                             ?tolerance: string,      // String (e.g. "2h")
                             ?toleranceInt: int64,    // Int (e.g. timestamp)
@@ -102,9 +120,9 @@ module JoinOps =
             let rOn = rightOn.CloneHandle()
             
             // 2. Handle 'By' keys (Optional List -> Handle Array)
-            let toHandleArr (exprs: Expr list option) =
+            let toHandleArr (exprs: Expr seq option) =
                 match exprs with
-                | Some es -> es |> List.map (fun e -> e.CloneHandle()) |> List.toArray
+                | Some es -> es |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
                 | None -> [||]
 
             let lByArr = toHandleArr byLeft
@@ -135,7 +153,7 @@ module JoinOps =
             // 6. Call Wrapper
             let h = PolarsWrapper.JoinAsOf(
                 lClone, rClone, 
-                [| lOn |], [| rOn |], // Wrapper expects arrays
+                [| lOn |], [| rOn |],
                 lByArr, rByArr,
                 strat.ToNative(),     // Enum -> PlAsofStrategy
                 tolStr,
@@ -154,51 +172,91 @@ module JoinOps =
             )
             
             new LazyFrame(h)
-
         /// <summary>
-        /// Join with tolerance as string (e.g. "2h", "10s").
+        /// Perform an As-of join (also known as a time-series join).
+        /// <para>
+        /// This is similar to a left join except that we match on nearest key rather than equal keys.
+        /// The join keys must be sorted.
+        /// </para>
         /// </summary>
-        member this.JoinAsOf(other: LazyFrame, leftOn: Expr, rightOn: Expr, tolerance: string, 
-                            ?strategy: AsofStrategy, ?byLeft: Expr list, ?byRight: Expr list) =
-            this.JoinAsOfInternal(
-                other, leftOn, rightOn, 
-                tolerance = tolerance, // String
-                ?strategy = strategy, ?byLeft = byLeft, ?byRight = byRight
-            )
-
-        /// <summary>
-        /// Join with tolerance as TimeSpan.
-        /// </summary>
-        member this.JoinAsOf(other: LazyFrame, leftOn: Expr, rightOn: Expr, tolerance: System.TimeSpan, 
-                            ?strategy: AsofStrategy, ?byLeft: Expr list, ?byRight: Expr list) =
-            let tolStr = DurationFormatter.ToPolarsString tolerance
-            this.JoinAsOfInternal(
-                other, leftOn, rightOn, 
-                tolerance = tolStr, // Converted String
-                ?strategy = strategy, ?byLeft = byLeft, ?byRight = byRight
-            )
-
-        /// <summary>
-        /// Join with tolerance as integer (e.g. timestamp or simple counter).
-        /// </summary>
-        member this.JoinAsOf(other: LazyFrame, leftOn: Expr, rightOn: Expr, tolerance: int64, 
-                            ?strategy: AsofStrategy, ?byLeft: Expr list, ?byRight: Expr list) =
-            this.JoinAsOfInternal(
-                other, leftOn, rightOn, 
-                toleranceInt = tolerance, // Int64
-                ?strategy = strategy, ?byLeft = byLeft, ?byRight = byRight
-            )
-
-        /// <summary>
-        /// Join with tolerance as float.
-        /// </summary>
-        member this.JoinAsOf(other: LazyFrame, leftOn: Expr, rightOn: Expr, tolerance: float, 
-                            ?strategy: AsofStrategy, ?byLeft: Expr list, ?byRight: Expr list) =
-            this.JoinAsOfInternal(
-                other, leftOn, rightOn, 
-                toleranceFloat = tolerance, // Float
-                ?strategy = strategy, ?byLeft = byLeft, ?byRight = byRight
-            )
+        /// <param name="other">The right LazyFrame to join with.</param>
+        /// <param name="leftOn">Join key of the left LazyFrame. Must be sorted.</param>
+        /// <param name="rightOn">Join key of the right LazyFrame. Must be sorted.</param>
+        /// <param name="tolerance">
+        /// Tolerance as a time duration string (e.g., "2h", "10s", "1d"), int or double or TimeSpan. 
+        /// Matches that are further away than this duration are discarded.
+        /// </param>
+        /// <param name="strategy">
+        /// The strategy to determine which value is "nearest" (Backward, Forward, or Nearest).
+        /// Defaults to <see cref="AsofStrategy.Backward"/>.
+        /// </param>
+        /// <param name="leftBy">
+        /// Columns to match exactly (equivalence join) before performing the as-of join. 
+        /// Useful for joining separate time-series per group (e.g., by "Symbol").
+        /// </param>
+        /// <param name="rightBy">
+        /// Columns to match exactly in the right DataFrame.
+        /// </param>
+        /// <param name="allowEq">
+        /// If true, allow exact matches to be included in the result. 
+        /// If false, a match must be strictly unequal (e.g. less than for Backward strategy) to the key.
+        /// </param>
+        /// <param name="checkSorted">
+        /// Check if the join keys are sorted. 
+        /// If false, the user must ensure keys are sorted; otherwise results are undefined (but execution is faster).
+        /// </param>
+        /// <param name="suffix">Suffix to append to columns with name conflicts. Defaults to "_right".</param>
+        /// <param name="validation">Check if join keys are unique (mostly relevant for the 'by' columns).</param>
+        /// <param name="coalesce">How to coalesce the join keys.</param>
+        /// <param name="maintainOrder">How to maintain the order of the join.</param>
+        /// <param name="joinSide">pecifies the strategy for the hash join build side.</param>
+        /// <param name="nullsEqual">Consider nulls as equal.</param>
+        /// <param name="sliceOffset">Slice the result starting at this offset (optimization).</param>
+        /// <param name="sliceLen">Length of the slice to keep.</param>
+        member this.JoinAsOf(other: LazyFrame, leftOn: Expr, rightOn: Expr, tolerance: Tolerance, 
+                            ?strategy: AsofStrategy, ?byLeft: Expr seq, ?byRight: Expr seq,
+                            ?allowEq: bool,?checkSorted: bool,?suffix: string,?validation: JoinValidation,
+                            ?coalesce: JoinCoalesce,?maintainOrder: JoinMaintainOrder,
+                            ?joinSide: JoinSide,?nullsEqual: bool,
+                            ?sliceOffset: int64,?sliceLen: uint64) =
+            match tolerance with
+            | Tolerance.String s ->
+                this.JoinAsOfInternal(
+                    other, leftOn, rightOn, 
+                    tolerance = s , // String
+                    ?strategy = strategy, ?byLeft = byLeft, ?byRight = byRight,
+                    ?allowEq = allowEq , ?checkSorted = checkSorted, ?suffix=suffix,?validation=validation,
+                    ?coalesce = coalesce, ?maintainOrder=maintainOrder,?joinSide=joinSide,
+                    ?nullsEqual = nullsEqual, ?sliceOffset = sliceOffset , ?sliceLen = sliceLen 
+                )
+            | Tolerance.TimeSpan ts ->
+                let tolStr = DurationFormatter.ToPolarsString ts
+                this.JoinAsOfInternal(
+                    other, leftOn, rightOn, 
+                    tolerance = tolStr, // Converted String
+                    ?strategy = strategy, ?byLeft = byLeft, ?byRight = byRight,
+                    ?allowEq = allowEq , ?checkSorted = checkSorted, ?suffix=suffix,?validation=validation,
+                    ?coalesce = coalesce, ?maintainOrder=maintainOrder,?joinSide=joinSide,
+                    ?nullsEqual = nullsEqual, ?sliceOffset = sliceOffset , ?sliceLen = sliceLen 
+                )
+            | Tolerance.Integer it ->
+                this.JoinAsOfInternal(
+                    other, leftOn, rightOn, 
+                    toleranceInt = it, // Int64
+                    ?strategy = strategy, ?byLeft = byLeft, ?byRight = byRight,
+                    ?allowEq = allowEq , ?checkSorted = checkSorted, ?suffix=suffix,?validation=validation,
+                    ?coalesce = coalesce, ?maintainOrder=maintainOrder,?joinSide=joinSide,
+                    ?nullsEqual = nullsEqual, ?sliceOffset = sliceOffset , ?sliceLen = sliceLen 
+                ) 
+            | Tolerance.Float fl -> 
+                this.JoinAsOfInternal(
+                    other, leftOn, rightOn, 
+                    toleranceFloat = fl, // Float
+                    ?strategy = strategy, ?byLeft = byLeft, ?byRight = byRight,
+                    ?allowEq = allowEq , ?checkSorted = checkSorted, ?suffix=suffix,?validation=validation,
+                    ?coalesce = coalesce, ?maintainOrder=maintainOrder,?joinSide=joinSide,
+                    ?nullsEqual = nullsEqual, ?sliceOffset = sliceOffset , ?sliceLen = sliceLen 
+                )
     type DataFrame with
         /// <summary> Join with another DataFrame. </summary>
         member this.Join (other: DataFrame,
@@ -257,98 +315,31 @@ module JoinOps =
             this.Join(other,leftOn=on,rightOn=on,how = how,
                 ?suffix=suffix,?validation=validation,?coalesce=coalesce,?maintainOrder=maintainOrder,
                 ?joinSide=joinSide,?nullsEqual=nullsEqual,?sliceOffset=sliceOffset,?sliceLen=sliceLen)
-        member internal this.JoinAsOfInternal(other: DataFrame, 
+        member this.JoinAsOf(other: DataFrame, 
                             leftOn: Expr, 
                             rightOn: Expr, 
+                            tolerance: Tolerance,
                             // --- Optional Parameters ---
-                            ?byLeft: Expr list, 
-                            ?byRight: Expr list, 
+                            ?byLeft: Expr seq, 
+                            ?byRight: Expr seq, 
                             ?strategy: AsofStrategy, 
-                            ?tolerance: string,      // String
-                            ?toleranceInt: int64,    // Int
-                            ?toleranceFloat: float,  // Float
                             ?allowEq: bool,
                             ?checkSorted: bool,
                             ?suffix: string,
                             ?validation: JoinValidation,
                             ?coalesce: JoinCoalesce,
                             ?maintainOrder: JoinMaintainOrder,
+                            ?joinSide: JoinSide,
                             ?nullsEqual: bool,
                             ?sliceOffset: int64,
                             ?sliceLen: uint64) : DataFrame =
             
-            // 1. Convert to Lazy
             let lfSelf = this.Lazy()
             let lfOther = other.Lazy()
+            lfSelf.JoinAsOf(lfOther,leftOn,rightOn,tolerance,
+                    ?strategy = strategy, ?byLeft = byLeft, ?byRight = byRight,
+                    ?allowEq = allowEq , ?checkSorted = checkSorted, ?suffix=suffix,?validation=validation,
+                    ?coalesce = coalesce, ?maintainOrder=maintainOrder,?joinSide=joinSide,
+                    ?nullsEqual = nullsEqual, ?sliceOffset = sliceOffset , ?sliceLen = sliceLen 
+                ).Collect()
 
-            // 2. Delegate to LazyFrame.JoinAsOfInternal
-            // F# allows passing optional arguments directly via ?arg=val
-            let resLf = lfSelf.JoinAsOfInternal(
-                lfOther, leftOn, rightOn,
-                ?byLeft = byLeft, 
-                ?byRight = byRight, 
-                ?strategy = strategy, 
-                ?tolerance = tolerance, 
-                ?toleranceInt = toleranceInt, 
-                ?toleranceFloat = toleranceFloat, 
-                ?allowEq = allowEq, 
-                ?checkSorted = checkSorted, 
-                ?suffix = suffix, 
-                ?validation = validation, 
-                ?coalesce = coalesce, 
-                ?maintainOrder = maintainOrder, 
-                ?nullsEqual = nullsEqual, 
-                ?sliceOffset = sliceOffset, 
-                ?sliceLen = sliceLen
-            )
-
-            // 3. Collect back to DataFrame
-            resLf.Collect()
-        // 1. String Tolerance
-        /// <summary>
-        /// Join with tolerance as string (e.g. "2h", "10s").
-        /// </summary>
-        member this.JoinAsOf(other: DataFrame, leftOn: Expr, rightOn: Expr, tolerance: string, 
-                            ?strategy: AsofStrategy, ?byLeft: Expr list, ?byRight: Expr list) =
-            this.JoinAsOfInternal(
-                other, leftOn, rightOn, 
-                tolerance = tolerance, 
-                ?strategy = strategy, ?byLeft = byLeft, ?byRight = byRight
-            )
-
-        // 2. TimeSpan Tolerance
-        /// <summary>
-        /// Join with tolerance as TimeSpan.
-        /// </summary>
-        member this.JoinAsOf(other: DataFrame, leftOn: Expr, rightOn: Expr, tolerance: System.TimeSpan, 
-                            ?strategy: AsofStrategy, ?byLeft: Expr list, ?byRight: Expr list) =
-            let tolStr = DurationFormatter.ToPolarsString tolerance
-            this.JoinAsOfInternal(
-                other, leftOn, rightOn, 
-                tolerance = tolStr, 
-                ?strategy = strategy, ?byLeft = byLeft, ?byRight = byRight
-            )
-
-        // 3. Int64 Tolerance
-        /// <summary>
-        /// Join with tolerance as integer (e.g. timestamp or simple counter).
-        /// </summary>
-        member this.JoinAsOf(other: DataFrame, leftOn: Expr, rightOn: Expr, tolerance: int64, 
-                            ?strategy: AsofStrategy, ?byLeft: Expr list, ?byRight: Expr list) =
-            this.JoinAsOfInternal(
-                other, leftOn, rightOn, 
-                toleranceInt = tolerance, 
-                ?strategy = strategy, ?byLeft = byLeft, ?byRight = byRight
-            )
-
-        // 4. Float Tolerance
-        /// <summary>
-        /// Join with tolerance as float.
-        /// </summary>
-        member this.JoinAsOf(other: DataFrame, leftOn: Expr, rightOn: Expr, tolerance: float, 
-                            ?strategy: AsofStrategy, ?byLeft: Expr list, ?byRight: Expr list) =
-            this.JoinAsOfInternal(
-                other, leftOn, rightOn, 
-                toleranceFloat = tolerance, 
-                ?strategy = strategy, ?byLeft = byLeft, ?byRight = byRight
-            )

@@ -309,8 +309,9 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
             let storage = DataType.FromHandle(PolarsWrapper.GetInnerType handle)
             let metadata = Option.ofObj (PolarsWrapper.DataTypeGetExtensionMetadata handle)
             match ExtensionRegistry.TryResolve(name) with
-            | Some factory -> factory(storage, metadata)
-            | None -> DataType.Extension(name, storage, ?metadata=metadata)
+            | Some (ExtensionRegistration.AsType factory) -> factory(storage, metadata)
+            | Some ExtensionRegistration.AsStorage -> storage
+            | None -> DataType.Extension(name, storage, ?metadata = metadata)
 
         | _ -> DataType.SameAsInput // fallback
 
@@ -613,19 +614,23 @@ and FrozenCategories (handle: FrozenCategoriesHandle) =
                 disposed <- true
                 GC.SuppressFinalize(this)
 
-and ExtensionRegistry private () =
-    static let registry = System.Collections.Concurrent.ConcurrentDictionary<string, (DataType * string option -> DataType) option>()
+and ExtensionFactory = DataType * string option -> DataType
 
-    static member Register(extName: string, factory: (DataType * string option -> DataType) option) =
-        if not (registry.TryAdd(extName, factory)) then
+and ExtensionRegistration =
+    | AsStorage
+    | AsType of ExtensionFactory
+
+and ExtensionRegistry private () =
+    static let registry = System.Collections.Concurrent.ConcurrentDictionary<string, ExtensionRegistration>()
+
+    static member Register(extName: string, registration: ExtensionRegistration) =
+        if not (registry.TryAdd(extName, registration)) then
             invalidOp $"Extension type '{extName}' is already registered."
 
     static member Unregister(extName: string) =
         registry.TryRemove(extName) |> ignore
 
-    static member internal TryResolve(extName: string) =
+    static member TryResolve(extName: string) : ExtensionRegistration option =
         match registry.TryGetValue(extName) with
-        | true, Some factory -> Some factory
-        | true, None -> 
-            Some (fun (storage, _) -> storage)
+        | true, r -> Some r
         | false, _ -> None

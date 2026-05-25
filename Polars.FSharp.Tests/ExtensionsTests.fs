@@ -98,7 +98,7 @@ type ``Extensions Tests`` () =
         
         // DataFrame -> Seq
         let dfFlat =
-            df |>pl.unnestColumn "data"
+            df |>pl.unnestColumns ["data"]
         
         let readBack = dfFlat.ToRecords<ComplexData>() |> Seq.toList
         Assert.Equal(2, readBack.Length)

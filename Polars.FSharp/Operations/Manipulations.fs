@@ -178,8 +178,8 @@ module ManipulateOps =
         /// <summary>
         /// Helper: Unnest columns by name.
         /// </summary>
-        member this.Unnest(columns: string list,?separator: string) =
-            let columnsArray = columns|> List.toArray
+        member this.Unnest(columns: seq<string>,?separator: string) =
+            let columnsArray = columns|> Seq.toArray
             let handle = PolarsWrapper.SelectorCols columnsArray
             let sel = new Selector(handle)
             this.Unnest (sel,?separator=separator)

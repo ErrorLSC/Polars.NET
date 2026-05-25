@@ -32,13 +32,13 @@ module Describe =
                 "75%",        fun c -> Expr.Col(c).Quantile 0.75
                 "max",        fun c -> Expr.Col(c).Max().Cast<float>()
             ]
+            let metricsSeq = metrics |> List.toSeq
 
             let rowFrames = 
-                metrics 
-                |> List.map (fun (statName, op) ->
+                metricsSeq 
+                |> Seq.map (fun (statName, op) ->
                     let exprs = 
-                        [ pl.lit(statName).Alias "statistic" ] @
-                        (numericCols |> List.map (fun c -> op c))
+                        [ pl.lit(statName).Alias "statistic" ] |> Seq.append (numericCols |> Seq.map (fun c -> op c))
                     
                     this |> pl.select exprs
                 )

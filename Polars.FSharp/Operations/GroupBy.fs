@@ -6,7 +6,8 @@ open Polars.NET.Core
 /// <summary>
 /// Defines the type of GroupBy operation and stores specific parameters for each strategy.
 /// </summary>
-type internal GroupByType =
+[<RequireQualifiedAccess>]
+type GroupByType =
     | Standard of maintainOrder: bool
     | Dynamic of 
         indexColumn: string * every: string * period: string * offset: string * label: Label * includeBoundaries: bool * closedInterval: ClosedWindow * startBy: StartBy
@@ -18,7 +19,7 @@ type internal GroupByType =
 /// Holds the LazyFrame handle (ownership transferred to this builder) and grouping keys.
 /// </summary>
 [<Sealed>]
-type LazyGroupBy internal (lfHandle: LazyFrameHandle, groupByType: GroupByType, keys: Expr[]) =
+type LazyGroupBy (lfHandle: LazyFrameHandle, groupByType: GroupByType, keys: Expr[]) =
     
     let mutable disposed = false
     let mutable havingExpr: Expr option = None
@@ -75,17 +76,17 @@ type LazyGroupBy internal (lfHandle: LazyFrameHandle, groupByType: GroupByType, 
 
         let resHandle = 
             match groupByType with
-            | Standard maintainOrder ->
+            | GroupByType.Standard maintainOrder ->
                 PolarsWrapper.LazyGroupByAgg(
                     clonedLf, keysForRust, aggHandles, havingHandle, maintainOrder)
                     
-            | Dynamic (indexCol, every, period, offset, label, incBoundaries, closedInt, startBy) ->
+            | GroupByType.Dynamic (indexCol, every, period, offset, label, incBoundaries, closedInt, startBy) ->
                 PolarsWrapper.LazyGroupByDynamic(
                     clonedLf, indexCol, every, period, offset, 
                     label.ToNative(), incBoundaries, closedInt.ToNative(), startBy.ToNative(), 
                     keysForRust, aggHandles, havingHandle)
                     
-            | Rolling (indexCol, period, offset, closedInt) ->
+            | GroupByType.Rolling (indexCol, period, offset, closedInt) ->
                 PolarsWrapper.LazyGroupByRolling(
                     clonedLf, indexCol, period, offset, closedInt.ToNative(), 
                     keysForRust, aggHandles, havingHandle)
@@ -129,9 +130,9 @@ type LazyGroupBy internal (lfHandle: LazyFrameHandle, groupByType: GroupByType, 
         // If it's a Dynamic or Rolling GroupBy, we must also exclude the indexColumn
         let allKeys =
             match groupByType with
-            | Dynamic (indexCol, _, _, _, _, _, _, _) -> indexCol :: baseKeys
-            | Rolling (indexCol, _, _, _) -> indexCol :: baseKeys
-            | Standard _ -> baseKeys
+            | GroupByType.Dynamic (indexCol, _, _, _, _, _, _, _) -> indexCol :: baseKeys
+            | GroupByType.Rolling (indexCol, _, _, _) -> indexCol :: baseKeys
+            | GroupByType.Standard _ -> baseKeys
             
         allKeys |> List.toArray
 
@@ -181,7 +182,7 @@ type LazyGroupBy internal (lfHandle: LazyFrameHandle, groupByType: GroupByType, 
 /// Intermediate builder for eager GroupBy operations.
 /// Under the hood, this routes through the Lazy engine to maximize performance.
 /// </summary>
-type GroupBy internal (df: DataFrame, groupByType: GroupByType, keys: Expr[]) =
+type GroupBy (df: DataFrame, groupByType: GroupByType, keys: Expr[]) =
 
     let mutable disposed = false
     let mutable havingExpr: Expr option = None
@@ -264,9 +265,9 @@ type GroupBy internal (df: DataFrame, groupByType: GroupByType, keys: Expr[]) =
             
         let allKeys =
             match groupByType with
-            | Dynamic (indexCol, _, _, _, _, _, _, _) -> indexCol :: baseKeys
-            | Rolling (indexCol, _, _, _) -> indexCol :: baseKeys
-            | Standard _ -> baseKeys
+            | GroupByType.Dynamic (indexCol, _, _, _, _, _, _, _) -> indexCol :: baseKeys
+            | GroupByType.Rolling (indexCol, _, _, _) -> indexCol :: baseKeys
+            | GroupByType.Standard _ -> baseKeys
             
         allKeys |> List.toArray
 
@@ -288,30 +289,17 @@ module LazyGroupByExtensions =
 
     type LazyFrame with
         /// <summary> Start a GroupBy operation. </summary>
-        member this.GroupBy(keys: seq<Expr>, ?maintainOrder: bool, ?having: Expr) : LazyGroupBy =
-            let maintain = defaultArg maintainOrder false
-            let builder = new LazyGroupBy(this.CloneHandle(), GroupByType.Standard maintain, Seq.toArray keys)
-            match having with
-            | Some h -> builder.Having h 
-            | None -> builder
-
-        member this.GroupBy(keys: seq<#IColumnExpr>, ?maintainOrder: bool, ?having: Expr) : LazyGroupBy =
+        member this.GroupBy(keys: seq<#IColumnExpr>, ?maintainOrder: bool) : LazyGroupBy =
             let kExprs = keys |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toArray
             let maintain = defaultArg maintainOrder false
-            let builder = new LazyGroupBy(this.CloneHandle(), GroupByType.Standard maintain, kExprs)
-            match having with
-            | Some h -> builder.Having(h)
-            | None -> builder
-
-        member this.GroupBy([<ParamArray>] keys: Expr[]) : LazyGroupBy =
-            this.GroupBy(keys :> seq<Expr>)
+            new LazyGroupBy(this.CloneHandle(), GroupByType.Standard maintain, kExprs)
 
         /// <summary> Start a dynamic group-by (rolling window) operation. Returns a Builder. </summary>
         member this.GroupByDynamic(
             indexCol: string,
-            every: TimeSpan,
-            ?period: TimeSpan,
-            ?offset: TimeSpan,
+            every: Dur,
+            ?period: Dur,
+            ?offset: Dur,
             ?by: seq<#IColumnExpr>, 
             ?label: Label,
             ?includeBoundaries: bool,
@@ -319,49 +307,51 @@ module LazyGroupByExtensions =
             ?startBy: StartBy
         ) : LazyGroupBy =
             let periodVal = defaultArg period every
-            let offsetVal = defaultArg offset TimeSpan.Zero
             let labelVal = defaultArg label Label.Left
             let includeBoundariesVal = defaultArg includeBoundaries false
             let closedWindowVal = defaultArg closedWindow ClosedWindow.Left
             let startByVal = defaultArg startBy StartBy.WindowBound
+            let offsetVal = 
+                match offset with
+                | Some o -> Dur.consume o
+                | None -> Dur.consume (Dur.TimeSpan TimeSpan.Zero)
 
-            let everyStr = DurationFormatter.ToPolarsString every
-            let periodStr = DurationFormatter.ToPolarsString periodVal
-            let offsetStr = DurationFormatter.ToPolarsString offsetVal
+            let everyStr = Dur.consume every
+            let periodStr = Dur.consume periodVal
 
             let keyExprs = 
                 match by with
                 | Some cols -> cols |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toArray
                 | None -> [||]
 
-            let dynType = GroupByType.Dynamic(indexCol, everyStr, periodStr, offsetStr, labelVal, includeBoundariesVal, closedWindowVal, startByVal)
+            let dynType = GroupByType.Dynamic(indexCol, everyStr, periodStr, offsetVal, labelVal, includeBoundariesVal, closedWindowVal, startByVal)
             new LazyGroupBy(this.CloneHandle(), dynType, keyExprs)
         /// <summary> Start a rolling group-by operation. Returns a Builder. </summary>
         member this.GroupByRolling(
             indexCol: string,
-            period: TimeSpan,
-            ?offset: TimeSpan,
+            period: Dur,
+            ?offset: Dur,
             ?by: seq<#IColumnExpr>, 
             ?closedWindow: ClosedWindow
         ) : LazyGroupBy =
-            let offsetVal = defaultArg offset TimeSpan.Zero
+            let offsetVal = 
+                match offset with
+                | Some o -> Dur.consume o
+                | None -> Dur.consume (Dur.TimeSpan TimeSpan.Zero)
             let closedWindowVal = defaultArg closedWindow ClosedWindow.Left
 
-            let periodStr = DurationFormatter.ToPolarsString period
-            let offsetStr = DurationFormatter.ToPolarsString offsetVal
+            let periodStr = Dur.consume period
 
             let keyExprs = 
                 match by with
                 | Some cols -> cols |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toArray
                 | None -> [||]
 
-            let rollType = GroupByType.Rolling(indexCol, periodStr, offsetStr, closedWindowVal)
+            let rollType = GroupByType.Rolling(indexCol, periodStr, offsetVal, closedWindowVal)
             new LazyGroupBy(this.CloneHandle(), rollType, keyExprs)
 
 [<AutoOpen>]
 module DataFrameGroupByExtensions =
-    open Polars.NET.Core.Helpers
-
     type DataFrame with
         member this.GroupBy(keys: seq<Expr>, ?maintainOrder: bool) =
             let maintain = defaultArg maintainOrder false
@@ -372,15 +362,12 @@ module DataFrameGroupByExtensions =
             let maintain = defaultArg maintainOrder false
             new GroupBy(this, GroupByType.Standard maintain, kExprs)
 
-        member this.GroupBy([<ParamArray>] keys: Expr[]) =
-            new GroupBy(this, GroupByType.Standard false, keys)
-
         /// <summary> Start a dynamic group-by operation. Returns a Builder. </summary>
         member this.GroupByDynamic(
             indexCol: string,
-            every: TimeSpan,
-            ?period: TimeSpan,
-            ?offset: TimeSpan,
+            every: Dur,
+            ?period: Dur,
+            ?offset: Dur,
             ?by: seq<#IColumnExpr>, 
             ?label: Label,
             ?includeBoundaries: bool,
@@ -388,41 +375,45 @@ module DataFrameGroupByExtensions =
             ?startBy: StartBy
         ) : GroupBy =
             let periodVal = defaultArg period every
-            let offsetVal = defaultArg offset TimeSpan.Zero
+            let offsetVal = 
+                match offset with
+                | Some o -> Dur.consume o
+                | None -> Dur.consume (Dur.TimeSpan TimeSpan.Zero)
             let labelVal = defaultArg label Label.Left
             let includeBoundariesVal = defaultArg includeBoundaries false
             let closedWindowVal = defaultArg closedWindow ClosedWindow.Left
             let startByVal = defaultArg startBy StartBy.WindowBound
 
-            let everyStr = DurationFormatter.ToPolarsString every
-            let periodStr = DurationFormatter.ToPolarsString periodVal
-            let offsetStr = DurationFormatter.ToPolarsString offsetVal
+            let everyStr = Dur.consume every
+            let periodStr = Dur.consume periodVal
 
             let keyExprs = 
                 match by with
                 | Some cols -> cols |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toArray
                 | None -> [||]
 
-            let dynType = GroupByType.Dynamic(indexCol, everyStr, periodStr, offsetStr, labelVal, includeBoundariesVal, closedWindowVal, startByVal)
+            let dynType = GroupByType.Dynamic(indexCol, everyStr, periodStr, offsetVal, labelVal, includeBoundariesVal, closedWindowVal, startByVal)
             new GroupBy(this, dynType, keyExprs)
         /// <summary> Start a rolling group-by operation. Returns a Builder. </summary>
         member this.GroupByRolling(
             indexCol: string,
-            period: TimeSpan,
-            ?offset: TimeSpan,
+            period: Dur,
+            ?offset: Dur,
             ?by: seq<#IColumnExpr>, 
             ?closedWindow: ClosedWindow
         ) : GroupBy =
-            let offsetVal = defaultArg offset TimeSpan.Zero
+            let offsetVal = 
+                match offset with
+                | Some o -> Dur.consume o
+                | None -> Dur.consume (Dur.TimeSpan TimeSpan.Zero)
             let closedWindowVal = defaultArg closedWindow ClosedWindow.Left
 
-            let periodStr = DurationFormatter.ToPolarsString period
-            let offsetStr = DurationFormatter.ToPolarsString offsetVal
+            let periodStr = Dur.consume period
 
             let keyExprs = 
                 match by with
                 | Some cols -> cols |> Seq.collect (fun x -> x.ToExprs()) |> Seq.toArray
                 | None -> [||]
 
-            let rollType = GroupByType.Rolling(indexCol, periodStr, offsetStr, closedWindowVal)
+            let rollType = GroupByType.Rolling(indexCol, periodStr, offsetVal, closedWindowVal)
             new GroupBy(this, rollType, keyExprs)

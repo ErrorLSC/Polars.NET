@@ -663,6 +663,9 @@ and DataFrame(handle: DataFrameHandle) =
     member this.Schema =
         let h = PolarsWrapper.GetDataFrameSchema this.Handle 
         new PolarsSchema(h)
+    /// <summary>
+    /// Convert dataframe to lazyframe
+    /// </summary>
     member this.Lazy() : LazyFrame =
         let lfHandle = PolarsWrapper.DataFrameToLazy handle
         new LazyFrame(lfHandle)
