@@ -131,7 +131,7 @@ module DataFrameFactory =
 
             new DataFrame(handle)
         /// <summary> Create a DataFrame from a sequence of objects using Arrow streaming. </summary>
-        static member ofSeqStream<'T>(data: seq<'T>, ?batchSize: int) : DataFrame =
+        static member ofSeq<'T>(data: seq<'T>, ?batchSize: int) : DataFrame =
             let size = defaultArg batchSize 100_000
 
             let schema = ArrowConverter.GetSchemaFromType<'T>()
@@ -304,6 +304,7 @@ module DataFrameFactory =
                     |> Seq.toArray
 
                 DataFrame.create seriesList
+
     type Series with
         /// <summary>
         /// Create Series From single column expression.

@@ -882,22 +882,18 @@ type ``Complex Query Tests`` () =
     [<Fact>]
     [<Trait("DataFrame", "Update")>]
     member _.``DataFrame: Update basic - same schema, no missing keys`` () =
-        // 左表：初始数据
         let leftDf =
             [ pl.series "id" [1;2;3];
             pl.series "value" [10;20;30] ]
             |> pl.dataframe
 
-        // 右表：新数据，id=2 的值被更新
         let rightDf =
             [ pl.series "id" [2;3];
             pl.series "value" [200;300] ]
             |> pl.dataframe
 
-        // 更新：用 id 连接（默认 on 参数自动推断相同列名）
         let result = leftDf.Update(other = rightDf,on=pl.col "id")
 
-        // 验证：id=1 保持原值，id=2/3 更新
         Assert.Equal(3L, result.Height)
         Assert.Equal(2L, result.Width)
         Assert.Equal(Some 10L,result.Int("value",0))
@@ -1007,3 +1003,100 @@ type ``Complex Query Tests`` () =
         let result = leftDf.Update(other = rightDf, on=pl.col "id" )
 
         Assert.True(result.Equals leftDf)
+    [<Fact>]
+    [<Trait("DataFrame", "JsonNormalize")>]
+    member _.``DataFrame: JsonNormalize flat objects without schema`` () =
+        let data = [
+            Map.ofList [ "name", box "Alice"; "age", box 30 ]
+            Map.ofList [ "name", box "Bob";   "age", box 25 ]
+        ]
+        let df = DataFrame.JsonNormalize(data)
+
+        Assert.Equal(2L, df.Width)
+        Assert.Equal(2L, df.Height)
+
+        Assert.Equal(Some "Alice", df.String("name", 0))
+        Assert.Equal(Some 30L, df.Int("age", 0))
+        Assert.Equal(Some "Bob", df.String("name", 1))
+        Assert.Equal(Some 25L, df.Int("age", 1))
+
+    [<Fact>]
+    [<Trait("DataFrame", "JsonNormalize")>]
+    member _.``DataFrame: JsonNormalize nested objects with maxLevel and schema`` () =
+        let nested = Map.ofList [
+            "id", box 1
+            "info", box (Map.ofList [
+                "height", box 180.0
+                "weight", box 75.0
+            ])
+        ]
+
+        let df = DataFrame.JsonNormalize(
+                    data = [nested],
+                    maxLevel = 1,
+                    separator = "_",
+                    schema = PolarsSchema.ofList [
+                        "id", DataType.Int32
+                        "info_height", DataType.Float64
+                        "info_weight", DataType.Float64
+                    ])
+
+        Assert.Equal(3L, df.Width)
+        Assert.Equal(1L, df.Height)
+
+        Assert.Equal(Some 1L, df.Int("id", 0))
+        Assert.Equal(Some 180.0, df.Float("info_height", 0))
+        Assert.Equal(Some 75.0, df.Float("info_weight", 0))
+
+    [<Fact>]
+    [<Trait("DataFrame", "JsonNormalize")>]
+    member _.``DataFrame: JsonNormalize with missing fields and strict = false`` () =
+        let data = [
+            Map.ofList [ "a", box 1; "b", box "x" ]
+            Map.ofList [ "a", box 2; "c", box true ]   
+        ]
+
+        let df = DataFrame.JsonNormalize(data, strict = false)
+
+        Assert.Equal(3L, df.Width)
+        Assert.Equal(2L, df.Height)
+
+        Assert.Equal(Some "x", df.String("b", 0))
+        Assert.Equal(None, df.String("b", 1))   
+        Assert.Equal(Some true, df.Bool("c", 1))
+    [<Fact>]
+    [<Trait("DataFrame", "JsonNormalizeFromString")>]
+    member _.``DataFrame: JsonNormalize from JSON string (array of objects)`` () =
+        let json = """
+        [
+            {"name":"Alice","age":30,"scores":{"math":90,"eng":88}},
+            {"name":"Bob","age":25,"scores":{"math":78,"eng":82}}
+        ]
+        """
+        let df = DataFrame.JsonNormalizeFromString(json, maxLevel = 1, separator = ".")
+
+        Assert.Equal(4L, df.Width)
+        Assert.Equal(2L, df.Height)
+
+        // 检查具体值
+        Assert.Equal(Some "Alice", df.String("name", 0))
+        Assert.Equal(Some 30L, df.Int("age", 0))
+        Assert.Equal(Some 90L, df.Int("scores.math", 0))
+        Assert.Equal(Some 88L, df.Int("scores.eng", 0))
+
+        Assert.Equal(Some "Bob", df.String("name", 1))
+        Assert.Equal(Some 25L, df.Int("age", 1))
+        Assert.Equal(Some 78L, df.Int("scores.math", 1))
+        Assert.Equal(Some 82L, df.Int("scores.eng", 1))
+
+    [<Fact>]
+    [<Trait("DataFrame", "JsonNormalizeFromString")>]
+    member _.``DataFrame: JsonNormalize from JSON string (single object)`` () =
+        let json = """{"product":"Widget","price":9.99,"inStock":true}"""
+        let df = DataFrame.JsonNormalizeFromString(json)
+
+        Assert.Equal(1L, df.Height)
+        Assert.Equal(3L, df.Width)
+        Assert.Equal(Some "Widget", df.String("product", 0))
+        Assert.Equal(Some 9.99, df.Float("price", 0))
+        Assert.Equal(Some true, df.Bool("inStock", 0))

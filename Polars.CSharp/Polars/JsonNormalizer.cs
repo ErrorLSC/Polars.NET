@@ -1,3 +1,5 @@
+#pragma warning disable CS1573 
+using System.Text.Json;
 using Polars.NET.Core.Helpers;
 
 namespace Polars.CSharp;
@@ -59,5 +61,43 @@ public readonly partial struct Polars
             strict,
             inferSchemaLength
         );
+    }
+    /// <summary>
+    /// Normalize a JSON string representing a single object or an array of objects.
+    /// </summary>
+    /// <param name="json">A valid JSON string.</param>
+    /// <inheritdoc cref="JsonNormalize(object, string, int?, IntoSchema?, bool, uint?, Func{object?, string}?)"/>
+    public static DataFrame JsonNormalize(
+        string json,
+        string separator = ".",
+        int? maxLevel = null,
+        IntoSchema? schema = null,
+        bool strict = true,
+        uint? inferSchemaLength = 100,
+        Func<object?, string>? encoder = null)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        object data;
+        if (root.ValueKind == JsonValueKind.Object)
+        {
+            data = JsonNormalizeHelper.ConvertJsonElementToDict(root);
+        }
+        else if (root.ValueKind == JsonValueKind.Array)
+        {
+            var list = new List<IDictionary<string, object?>>();
+            foreach (var element in root.EnumerateArray())
+            {
+                list.Add(JsonNormalizeHelper.ConvertJsonElementToDict(element));
+            }
+            data = list;
+        }
+        else
+        {
+            throw new ArgumentException("JSON string must be an object or an array of objects.");
+        }
+
+        return JsonNormalize(data, separator, maxLevel, schema, strict, inferSchemaLength, encoder);
     }
 }

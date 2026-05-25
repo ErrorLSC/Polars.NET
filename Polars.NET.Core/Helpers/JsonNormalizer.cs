@@ -101,4 +101,65 @@ internal static class JsonNormalizeHelper
         
         return data; 
     }
+    /// <summary>
+    /// Recursively convert a <see cref="JsonElement"/> into a corresponding CLR object.
+    /// </summary>
+    /// <param name="element">The JSON element to convert.</param>
+    /// <returns>
+    /// A boxed primitive (string, long, double, bool), null, 
+    /// a <see cref="Dictionary{string, object?}"/> for JSON objects,
+    /// or an <see cref="List{object?}"/> for JSON arrays.
+    /// </returns>
+    public static object? ConvertJsonElement(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.Null => null,
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.String => element.GetString(),
+            JsonValueKind.Number => ParseJsonNumber(element),
+            JsonValueKind.Object => ConvertJsonObject(element),
+            JsonValueKind.Array => ConvertJsonArray(element),
+            _ => element.GetRawText()
+        };
+    }
+
+    private static object ParseJsonNumber(JsonElement element)
+    {
+        if (element.TryGetInt64(out long i))
+            return i;
+        if (element.TryGetDouble(out double d))
+            return d;
+        return element.GetRawText();
+    }
+
+    private static Dictionary<string, object?> ConvertJsonObject(JsonElement element)
+    {
+        var dict = new Dictionary<string, object?>();
+        foreach (var property in element.EnumerateObject())
+        {
+            dict[property.Name] = ConvertJsonElement(property.Value);
+        }
+        return dict;
+    }
+
+    private static List<object?> ConvertJsonArray(JsonElement element)
+    {
+        var list = new List<object?>();
+        foreach (var item in element.EnumerateArray())
+        {
+            list.Add(ConvertJsonElement(item));
+        }
+        return list;
+    }
+    /// <summary>
+    /// Converts a JSON object element into an <see cref="IDictionary{string, object?}"/>.
+    /// </summary>
+    public static IDictionary<string, object?> ConvertJsonElementToDict(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+            throw new ArgumentException("Element must be a JSON object.", nameof(element));
+        return (IDictionary<string, object?>)ConvertJsonElement(element)!;
+    }
 }

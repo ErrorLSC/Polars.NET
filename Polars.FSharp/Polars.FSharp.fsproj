@@ -90,6 +90,7 @@
     <Compile Include="Polars.fs" />
     <Compile Include="Extensions.fs" />
     <Compile Include="DataFrame/DataFrame.Unstack.fs" />
+    <Compile Include="DataFrame/DataFrame.JsonNormalize.fs" />
     <Compile Include="Operations/Update.fs" />
     <Compile Include="IO/Delta/Delta.fs" />
     <Compile Include="IO/Delta/Read.fs" />

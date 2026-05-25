@@ -2740,20 +2740,40 @@ public class DataFrameTests
         string payloadValue = df["payload"].GetValue<string>(0); 
         Assert.StartsWith("<CustomEncoded>", payloadValue);
     }
-    // [Fact]
-    // [Trait("DataFrame", "Repr")]
-    // public void Test_DataFrame_Repr()
-    // {
-    //     using DataFrame df = [
-    //         Pl.Series("nihao",[1,2,3]),
-    //         Pl.Series("buhao",[new DateTime(2026,5,1,10,0,0),new DateTime(2026,5,2,12,0,0),new DateTime(2026,5,3,14,0,0)])
-    //     ];
+    [Fact]
+    [Trait("DataFrame", "JsonNormalizeFromString")]
+    public void Test_JsonNormalize_FromString_MaxLevelCutoff()
+    {
+        // JSON string with nested structure similar to the dictionary-based test
+        var json = @"
+        {
+            ""L1"": {
+                ""L2"": {
+                    ""L3"": ""deep_value""
+                }
+            }
+        }";
 
-    //     // using var df1 = df.WithColumns(Pl.Col("buhao").Dt.ReplaceTimeZone("Asia/Shanghai").Alias("genghao"));
+        // 1. MaxLevel = 0: no flattening, nested object serialized as string
+        using var df0 = Pl.JsonNormalize(json, maxLevel: 0);
+        Assert.Single(df0.Columns);
+        Assert.Equal("L1", df0.Columns[0]);
+        Assert.Equal(DataType.String, df0.Schema["L1"]); // object is encoded as string by DefaultEncoder
 
-    //     var df2 = DataFrame.FromRepr(df.ToString());
-    //     df2.Show();
-    // }
+        // 2. MaxLevel = 1: flattens one level, L1.L2 becomes a column (L2 is still an object, so serialized)
+        using var df1 = Pl.JsonNormalize(json, maxLevel: 1);
+        Assert.Single(df1.Columns);
+        Assert.Equal("L1.L2", df1.Columns[0]);
+        Assert.Equal(DataType.String, df1.Schema["L1.L2"]); // L2 contains an object, so encoded as string
+
+        // 3. MaxLevel = 2: flattens two levels, L1.L2.L3 becomes a column with the actual value
+        using var df2 = Pl.JsonNormalize(json, maxLevel: 2);
+        Assert.Single(df2.Columns);
+        Assert.Equal("L1.L2.L3", df2.Columns[0]);
+        Assert.Equal(DataType.String, df2.Schema["L1.L2.L3"]);
+        var val = df2["L1.L2.L3"][0];
+        Assert.Equal("deep_value", val);
+    }
     [Fact]
     [Trait("DataFrame", "ToDict")]
     public void Test_ToDict()

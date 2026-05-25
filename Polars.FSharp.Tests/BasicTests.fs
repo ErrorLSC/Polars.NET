@@ -498,7 +498,7 @@ type ``Basic Functionality Tests`` () =
             { Id = i; Value = $"Val_{i}"; Timestamp = DateTime(2023, 1, 1).AddSeconds(float i) }
         )
 
-        use df = DataFrame.ofSeqStream(data, batchSize = 10_000)
+        use df = DataFrame.ofSeq(data, batchSize = 10_000)
 
         Assert.Equal(int64 count, df.Height)
         Assert.Equal("Val_99999", df.Column("Value").AsSeq<string>() |> Seq.last |> Option.get)
