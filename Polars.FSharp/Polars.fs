@@ -97,7 +97,6 @@ module pl =
     
     /// <summary>
     /// Create a literal expression from a value.
-    /// <para>Supported types: int, float, bool, string, DateTime,decimal,list,option list,array.</para>
     /// </summary>
     /// <example>
     /// <code>
@@ -106,6 +105,10 @@ module pl =
     /// </example>
     let inline lit (value: ^T) : Expr = 
         ((^T or LitMechanism) : (static member ($) : LitMechanism * ^T -> Expr) (LitMechanism, value))
+    /// <summary>
+    /// Create a literal expression for null value.
+    /// </summary>
+    let litNull() = Expr.LitNull()
     /// <summary>
     /// Create a literal expression from a Series.
     /// </summary>
@@ -1270,8 +1273,8 @@ module pl =
         /// <summary>
         /// Select a single column by name.
         /// </summary>
-        let inline byName (name: string) =
-            new Selector(PolarsWrapper.SelectorCols [| name |])
+        let inline byName (names: string seq) =
+            new Selector(PolarsWrapper.SelectorCols (names |> Seq.toArray))
 
         /// <summary>
         /// Select columns by their index with strictness control.

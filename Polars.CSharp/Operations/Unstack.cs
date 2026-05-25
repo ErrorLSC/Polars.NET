@@ -13,7 +13,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="how">Direction of the unstack.</param>
     /// <param name="columns">Column name(s) or selector(s) to include in the operation. If set to None (default), use all columns.</param>
     /// <param name="fillValues">Fill values that don’t fit the new size with this value.</param>
-    public DataFrame Unstack(int step, IntoSelector columns, UnstackDirection how = UnstackDirection.Vertical, object?[]? fillValues = null)
+    public DataFrame Unstack(long step, IntoSelector columns, UnstackDirection how = UnstackDirection.Vertical, object?[]? fillValues = null)
     {
         using var safeSelector = columns.Consume();
         string[] resolvedColumns = Cs.ExpandSelector(this, safeSelector);
@@ -24,7 +24,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <summary>
     /// Unstack specific columns by names.
     /// </summary>
-    public DataFrame Unstack(int step, IEnumerable<string> columns, UnstackDirection how = UnstackDirection.Vertical, object?[]? fillValues = null)
+    public DataFrame Unstack(long step, IEnumerable<string> columns, UnstackDirection how = UnstackDirection.Vertical, object?[]? fillValues = null)
     {
         var colsArray = columns as string[] ?? [.. columns];
         return UnstackInternal(step, how, colsArray, fillValues);
@@ -34,11 +34,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Unstack all columns
     /// </summary>
     public DataFrame Unstack(
-        int step, 
+        long step, 
         UnstackDirection how = UnstackDirection.Vertical, 
         object?[]? fillValues = null)
         => UnstackInternal(step, how, [], fillValues);
-    private DataFrame UnstackInternal(int step, UnstackDirection how, string[] resolvedColumns, object?[]? fillValues)
+    private DataFrame UnstackInternal(long step, UnstackDirection how, string[] resolvedColumns, object?[]? fillValues)
     {
         // Column Selection
         DataFrame df;

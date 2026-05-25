@@ -166,6 +166,7 @@ type ``Complex Query Tests`` () =
         Assert.Equal("gaming", exploded.String("my_tag_list", 2).Value)
 
     [<Fact>]
+    [<Trait("Expr","StructOps")>]
     member _.``Struct and Advanced List Ops`` () =
 
         use csv = new TempCsv "name,score1,score2\nAlice,80,90\nBob,60,70"
@@ -769,3 +770,112 @@ type ``Complex Query Tests`` () =
         let invalidTimeSel = pl.cs.all() // Matches all columns, which is invalid for time index
         let action = fun () -> df.Upsample(invalidTimeSel, durationStr) |> ignore
         Assert.Throws<ArgumentException>(action) |> ignore
+    [<Fact>]
+    [<Trait("DataFrame", "Unstack")>]
+    member _.``DataFrame: Unstack vertical, no fill, all columns`` () =
+        let data = [
+            {| Name = "Alice"; Score = 80 |}
+            {| Name = "Bob";   Score = 90 |}
+            {| Name = "Cathy"; Score = 70 |}
+            {| Name = "Dan";   Score = 60 |}
+        ]
+        let df = DataFrame.ofRecords data
+
+        let result = df.Unstack(step = 2L)
+
+        Assert.Equal(2L, result.Height)
+        Assert.Equal(4L, result.Width)
+        Assert.Equal<string[]>([| "Name_0"; "Name_1"; "Score_0"; "Score_1" |], result.Columns)
+
+        Assert.Equal("Alice", result.String("Name_0", 0).Value)
+        Assert.Equal(80L, result.Int("Score_0", 0).Value)
+        Assert.Equal("Cathy", result.String("Name_1", 0).Value)
+        Assert.Equal(70L, result.Int("Score_1", 0).Value)
+
+        // Name_0=Bob, Score_0=90, Name_1=Dan, Score_1=60
+        Assert.Equal("Bob", result.String("Name_0", 1).Value)
+        Assert.Equal(90L, result.Int("Score_0", 1).Value)
+        Assert.Equal("Dan", result.String("Name_1", 1).Value)
+        Assert.Equal(60L, result.Int("Score_1", 1).Value)
+    [<Fact>]
+    [<Trait("DataFrame", "Unstack")>]
+    member _.``DataFrame: Unstack vertical with mixed fill expressions`` () =
+        let data = [
+            {| Name = "Alice"; Score = 80 |}
+            {| Name = "Bob";   Score = 90 |}
+            {| Name = "Cathy"; Score = 70 |}
+        ]
+        let df = DataFrame.ofRecords data
+
+        let fills = [pl.lit "你好"; pl.lit -1]
+
+        let result = df.Unstack(step = 2L, fillValues = fills)
+
+        // 3 rows -> step=2 → nRows=2, nCols=2
+        Assert.Equal(2L, result.Height)
+        Assert.Equal(4L, result.Width)
+
+        // Name_0=Alice, Score_0=80, Name_1=Cathy, Score_1=70
+        Assert.Equal("Alice", result.String("Name_0", 0).Value)
+        Assert.Equal(80L, result.Int("Score_0", 0).Value)
+        Assert.Equal("Cathy", result.String("Name_1", 0).Value)
+        Assert.Equal(70L, result.Int("Score_1", 0).Value)
+
+        //Name_0=Bob, Score_0=90, Name_1="你好", Score_1=-1
+        Assert.Equal("Bob", result.String("Name_0", 1).Value)
+        Assert.Equal(90L, result.Int("Score_0", 1).Value)
+        Assert.Equal("你好", result.String("Name_1", 1).Value)
+        Assert.Equal(-1L, result.Int("Score_1", 1).Value)
+    [<Fact>]
+    [<Trait("DataFrame", "Unstack")>]
+    member _.``DataFrame: Unstack horizontal, no fill, all columns`` () =
+        let data = [
+            {| A = 1; B = 2; C = 3 |}
+            {| A = 4; B = 5; C = 6 |}
+            {| A = 7; B = 8; C = 9 |}
+        ]
+        let df = DataFrame.ofRecords data
+
+        let result = df.Unstack(step = 2L, how = UnstackDirection.Horizontal)
+        Assert.Equal(2L, result.Height)   
+        Assert.Equal(6L, result.Width)    
+
+        let expectedCols = [| "A_0"; "A_1"; "B_0"; "B_1"; "C_0"; "C_1" |]
+        Assert.Equal<string[]>(expectedCols, result.Columns)
+
+        Assert.Equal(1L, result.Int("A_0", 0).Value)
+        Assert.Equal(4L, result.Int("A_1", 0).Value)
+        Assert.Equal(2L, result.Int("B_0", 0).Value)
+        Assert.Equal(5L, result.Int("B_1", 0).Value)
+        Assert.Equal(3L, result.Int("C_0", 0).Value)
+        Assert.Equal(6L, result.Int("C_1", 0).Value)
+
+        Assert.Equal(7L, result.Int("A_0", 1).Value)
+        Assert.Equal(8L, result.Int("B_0", 1).Value)
+        Assert.Equal(9L, result.Int("C_0", 1).Value)
+        Assert.Null(result.Int("C_1", 1))
+        Assert.Null(result.Int("B_1", 1))
+        Assert.Null(result.Int("A_1", 1))
+    [<Fact>]
+    [<Trait("DataFrame", "Unstack")>]
+    member _.``DataFrame: Unstack with column selector`` () =
+        let data = [
+            {| A = 1; B = "x"; C = 3.0 |}
+            {| A = 2; B = "y"; C = 4.0 |}
+            {| A = 3; B = "z"; C = 5.0 |}
+            {| A = 4; B = "w"; C = 6.0 |}
+        ]
+        let df = DataFrame.ofRecords data
+
+        let result = df.Unstack(step = 2L, columns = pl.cs.numeric())
+
+        Assert.Equal(4L, result.Width)
+        Assert.Equal<string[]>([| "A_0"; "A_1"; "C_0"; "C_1" |], result.Columns)
+
+        Assert.DoesNotContain("B_0", result.Columns)
+        Assert.DoesNotContain("B_1", result.Columns)
+
+        Assert.Equal(1L, result.Int("A_0", 0).Value)
+        Assert.Equal(3.0, result.Float("C_0", 0).Value)
+        Assert.Equal(3L, result.Int("A_1", 0).Value)
+        Assert.Equal(5.0, result.Float("C_1", 0).Value)

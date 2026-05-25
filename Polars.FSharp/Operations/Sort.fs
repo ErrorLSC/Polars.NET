@@ -127,9 +127,5 @@ module SortOps =
             this.Sort([expr :> IColumnExpr], ?descending=descending, ?nullsLast=nullsLast)
 
         /// <summary> Sort by a single column name. </summary>
-        member this.Sort(colName: string, ?descending: bool, ?nullsLast: bool) : DataFrame =
-            this.Sort([Expr.Col colName :> IColumnExpr], ?descending=descending, ?nullsLast=nullsLast)
-
-        /// <summary> Alias for Sort. </summary>
-        member this.Orderby (expr: Expr, desc: bool) : DataFrame =
-            this.Sort(expr, descending = desc)
+        member this.Sort(colName: string, ?descending: bool, ?nullsLast: bool,?maintainOrder) : DataFrame =
+            this.Sort([Expr.Col colName :> IColumnExpr], ?descending=descending, ?nullsLast=nullsLast,?maintainOrder = maintainOrder)

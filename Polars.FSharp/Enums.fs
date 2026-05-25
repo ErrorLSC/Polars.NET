@@ -569,3 +569,8 @@ type ExtraColumnsPolicy =
         match this with
         | Raise -> PlExtraColumnsPolicy.Raise
         | Ignore -> PlExtraColumnsPolicy.Ignore
+[<RequireQualifiedAccess>]
+type UnstackDirection =
+    | Vertical
+    | Horizontal
+
