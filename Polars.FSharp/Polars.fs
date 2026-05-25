@@ -287,6 +287,84 @@ module pl =
     /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
     let var(column:string)(ddof:byte) =
         col(column).Var(ddof)
+    /// <summary>
+    /// Compute the covariance between two columns/ expressions.
+    /// </summary>
+    /// <param name="a">Column name or Expression.</param>
+    /// <param name="b">Column name or Expression.</param>
+    /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
+    let cov(a:Expr)(b:Expr)(ddof:byte) =
+        new Expr(PolarsWrapper.Cov(a.CloneHandle(),b.CloneHandle(),ddof))
+    let covAsSeries(a:Expr)(b:Expr)(ddof:byte) =
+        Series.ofExpr(cov a b ddof)
+    /// <summary>
+    /// Compute the Pearson’s correlation between two columns.
+    /// </summary>
+    let corrPearson(a:Expr)(b:Expr) =
+        let ae = a.CloneHandle()
+        let be = b.CloneHandle()
+        new Expr(PolarsWrapper.PearsonCorr(ae,be))
+    let corrPearsonAsSeries(a:Expr)(b:Expr) =
+        Series.ofExpr(corrPearson a b)
+    /// <summary>
+    /// Compute the Spearman rank correlation between two columns.
+    /// </summary>
+    let corrSpearman (a:Expr)(b:Expr)(propagateNans:bool) =
+        let ae = a.CloneHandle()
+        let be = b.CloneHandle()
+        new Expr(PolarsWrapper.SpearmanRankCorr(ae,be,propagateNans))
+    let corrSpearmanAsSeries(a:Expr)(b:Expr)(propagateNans:bool)  =
+        Series.ofExpr(corrSpearman a b propagateNans)
+    /// <summary>
+    /// Compute the rolling correlation between two columns/ expressions.
+    /// The window at a given row includes the row itself and the window_size - 1 elements before it.
+    /// </summary>
+    /// <param name="a">Column name or Expression.</param>
+    /// <param name="b">Column name or Expression.</param>
+    /// <param name="windowSize">The length of the window.</param>
+    /// <param name="minSamples">The number of values in the window that should be non-null before computing a result. If None, it will be set equal to window size.</param>
+    let rollingCorr(a:Expr)(b:Expr)(windowSize:uint)(minSamples:uint option) =
+        let min = 
+            match minSamples with
+            | Some m -> m
+            | None -> windowSize
+        new Expr(PolarsWrapper.RollingCorr(a.CloneHandle(),b.CloneHandle(),windowSize,min))
+    /// <summary>
+    /// Compute the rolling covariance between two columns/ expressions.
+    /// The window at a given row includes the row itself and the window_size - 1 elements before it.
+    /// </summary>
+    /// <param name="a">Column name or Expression.</param>
+    /// <param name="b">Column name or Expression.</param>
+    /// <param name="windowSize">The length of the window.</param>
+    /// <param name="minSamples">The number of values in the window that should be non-null before computing a result. If None, it will be set equal to window size.</param>
+    /// <param name="ddof">Delta degrees of freedom. The divisor used in calculations is N - ddof, where N represents the number of elements.</param>
+    let rollingCov(a:Expr)(b:Expr)(windowSize:uint)(minSamples:uint option)(ddof:byte) =
+        let min = 
+            match minSamples with
+            | Some m -> m
+            | None -> windowSize
+        new Expr(PolarsWrapper.RollingCov(a.CloneHandle(),b.CloneHandle(),windowSize,min,ddof))
+    /// <summary>
+    /// Return the row indices that would sort the column(s).
+    /// </summary>
+    /// <param name="expr">Column(s) to arg sort by. Accepts expression input. Strings are parsed as column names.</param>
+    /// <param name="descending">Sort in descending order. When sorting by multiple columns, can be specified per column by passing a sequence of booleans.</param>
+    /// <param name="nullsLast">Place null values last.</param>
+    /// <param name="multithreaded">Sort using multiple threads.</param>
+    /// <param name="maintainOrder">Whether the order should be maintained if elements are equal.</param>
+    let argSortBy(exprs:seq<Expr>) (descending:seq<bool>) (nullsLast:seq<bool>) (multithreaded:bool) (maintainOrder:bool) =
+        let handles = exprs |> Seq.map (fun e-> e.CloneHandle()) |> Seq.toArray
+        let nul = nullsLast |> Seq.toArray
+        let des = descending |> Seq.toArray
+        new Expr(PolarsWrapper.ArgSortBy(handles,des,nul,multithreaded,maintainOrder))
+    /// <summary>
+    /// Return indices where condition evaluates True.
+    /// </summary>
+    /// <param name="condition">Boolean expression/Series to evaluate</param>
+    let argWhere(condition:Expr) =
+        new Expr(PolarsWrapper.ArgWhere(condition.CloneHandle()))
+    let argWhereAsSeries(condition:Expr) = 
+        Series.ofExpr(argWhere condition)
     // --- Range ---
     /// <summary>
     /// Generate a range of integers as an Expression.
@@ -494,6 +572,35 @@ module pl =
     let sameAsInputType = unknownType
     let schema(fields:seq<Field>) = new PolarsSchema(fields)
     let emptySchema = new PolarsSchema()
+    /// <summary>
+    /// Gets the DataType of an expression.
+    /// Equivalent to Python's polars.dtype_of()
+    /// </summary>
+    let dataTypeOf(expr:Expr) = new DataTypeExpr(PolarsWrapper.DataTypeExprDtypeOf(expr.CloneHandle()))
+    /// <summary>
+    /// Represents the intrinsic data type of the current element.
+    /// Equivalent to Python's polars.self_dtype()
+    /// </summary>
+    let selfDataType = new DataTypeExpr(PolarsWrapper.DataTypeExprSelfDtype())
+    /// <summary>
+    /// (Lazy) Evaluates the arguments in order and returns the first non-null value.
+    /// </summary>
+    /// <param name="exprs">Expressions to evaluate. Strings, Literals, Series are automatically converted.</param>
+    /// <returns>A new expression.</returns>
+    let coalesce(exprs:seq<#IColumnExpr>) =
+        let exprHandles = 
+            exprs
+            |> Seq.collect (fun x -> x.ToExprs()) 
+            |> Seq.map (fun e -> e.CloneHandle())
+            |> Seq.toArray
+
+        new Expr(PolarsWrapper.Coalesce exprHandles)
+    /// <summary>
+    /// (Eager) Evaluates the arguments eagerly and returns the first non-null value as a Series.
+    /// </summary>
+    /// <param name="exprs">Expressions or Series to evaluate.</param>
+    let coalesceAsSeries(exprs:seq<#IColumnExpr>) =
+        Series.ofExpr(coalesce exprs)
     // [Temporal]
     /// <summary>
     /// Combine a Date expression and a Time expression into a Datetime expression.
@@ -536,10 +643,243 @@ module pl =
     /// <summary> Collect LazyFrame into DataFrame (Eager execution). </summary>
     let collect (lf: LazyFrame) : DataFrame = 
         lf.Collect()
+    /// <summary>
+    /// Collect multiple LazyFrames concurrently.
+    /// </summary>
+    let collectAll(engine:Engine) (frames:seq<LazyFrame>) : DataFrame[] =
+        let lfs = frames |> Seq.toArray
+        if lfs.Length = 0 then
+            [||]
+        else 
+            let handles = frames |> Seq.map (fun l -> l.Handle) |> Seq.toArray
+            let dfhandles = PolarsWrapper.LazyCollectAll(handles,engine.ToNative())
+            dfhandles |> Array.map (fun e-> new DataFrame(e)) 
+    /// <summary>
+    /// Collect multiple LazyFrames concurrently and asynchronously.
+    /// </summary>
+    let collectAllAsync (engine: Engine) (frames: seq<LazyFrame>) : Async<DataFrame[]> =
+        async {
+            let lfs = Seq.toArray frames
+            if lfs.Length = 0 then return [||]
+            else
+                let handles = lfs |> Array.map (fun lf -> lf.Handle)
+                let! dfHandles = 
+                    PolarsWrapper.LazyCollectAllAsync(handles, engine.ToNative())
+                    |> Async.AwaitTask
+                return dfHandles |> Array.map (fun h -> new DataFrame(h))
+        }
+    /// <summary>
+    /// Align a sequence of frames using common values from one or more columns as a key.
+    /// </summary>
+    /// <param name="frames">Sequence of DataFrames or LazyFrames.</param>
+    /// <param name="on">One or more columns whose unique values will be used to align the frames.</param>
+    /// <param name="how">Join strategy; defaults to outer join.</param>
+    /// <param name="select">Optional post-alignment column select.</param>
+    /// <param name="descending">Sort the alignment column values in descending order.</param>
+    let alignLazyFrames
+        (on: seq<Expr>)
+        (how: JoinType)
+        (select: seq<Expr> option)
+        (descending: bool)
+        (frames: seq<LazyFrame>)
+        : LazyFrame[] =
+        let lfs = Seq.toArray frames
+
+        if lfs.Length = 0 then [||]
+        elif lfs.Length = 1 then lfs
+        else
+            // Expressions used for alignment (cloned for repeated use)
+            let baseAlignExprs = on |> Seq.map (fun e -> e.Clone()) |> Seq.toArray
+
+            // Build a single joined frame incorporating all input frames with index suffix
+            let seed = lfs.[0]
+            let onCol = baseAlignExprs |> Array.map (fun e -> e.Clone())
+            let joinedFrame =
+                (seed, lfs |> Array.skip 1 |> Array.mapi (fun i lf -> (i + 1, lf)))
+                ||> Array.fold (fun acc (idx, lf) ->
+                    acc.Join(
+                        lf,
+                        onCol,
+                        how = how,
+                        suffix = $":{idx}",
+                        nullsEqual = true,
+                        coalesce = JoinCoalesce.CoalesceColumns
+                    ))
+
+            // Sort the joined frame by the key columns
+            let joinedFrame =
+                joinedFrame.Sort(
+                    columns = (baseAlignExprs |> Array.map (fun e -> e.Clone())),
+                    descending = descending,
+                    nullsLast = false,
+                    maintainOrder = true
+                )
+
+            // Schema of the joined frame to determine which columns are suffixed
+            let masterSchemaCols = joinedFrame.CollectSchema().Names |> Set.ofSeq
+
+            // For each original frame, extract the relevant columns (renaming suffixed back)
+            let selectExprs =
+                match select with
+                | Some cols -> cols |> Seq.map (fun e -> e.Clone()) |> Seq.toArray
+                | None -> Array.empty
+
+            let alignedFrames =
+                lfs
+                |> Array.mapi (fun i lf ->
+                    let sfx = $":{i}"
+                    let currentNames = lf.CollectSchema().Names
+
+                    let componentCols =
+                        currentNames
+                        |> Seq.map (fun colName ->
+                            let suffixedCol = $"{colName}{sfx}"
+                            if masterSchemaCols.Contains suffixedCol then
+                                col suffixedCol |> alias(colName)
+                            else
+                                col colName)
+                        |> Seq.toArray
+
+                    let mutable aligned = joinedFrame.Select componentCols
+                    if selectExprs.Length > 0 then
+                        aligned <- aligned.Select(selectExprs)
+                    aligned)
+
+            alignedFrames
+    let alignDataFrames
+        (on: seq<Expr>)
+        (how: JoinType)
+        (select: seq<Expr> option)
+        (descending: bool) 
+        (frames: seq<DataFrame>) =
+        frames 
+        |> Seq.map (fun df -> df.Lazy()) 
+        |> alignLazyFrames on how select descending 
+        |> collectAll Engine.Auto
+    let alignDataFramesAsync
+        (on: seq<Expr>)
+        (how: JoinType)
+        (select: seq<Expr> option)
+        (descending: bool) 
+        (frames: seq<DataFrame>) =
+        frames
+        |> Seq.map (fun df -> df.Lazy())
+        |> alignLazyFrames on how select descending
+        |> collectAllAsync Engine.Auto
+    /// <summary>
+    /// Explain multiple LazyFrames as if passed to collect_all.
+    /// Common Subplan Elimination is applied on the combined plan, meaning that diverging queries will run only once.
+    /// </summary>
+    /// <param name="lazyFrames">A list of LazyFrames to collect.</param>
+    /// <returns>Explained plan.</returns>
+    let explainAll(lazyFrames:seq<LazyFrame>) =
+        PolarsWrapper.LazyExplainAll(
+            lazyFrames 
+            |> Seq.map (fun e->e.CloneHandle()) 
+            |> Seq.toArray
+        )
+    /// <summary>
+    /// Run polars expressions without a context.
+    /// This is syntactic sugar for running lf.select on an empty LazyFrame.
+    /// </summary>
+    let selectExprsLazy (exprs: seq<Expr>) : LazyFrame =
+        (DataFrame.create()).Lazy().Select exprs
+    /// <summary>
+    /// Run polars expressions without a context.
+    /// This is syntactic sugar for running df.select on an empty DataFrame.
+    /// </summary>
+    let selectExprsEager (exprs: seq<Expr>) : DataFrame =
+        (DataFrame.create()).Select exprs
     /// <summary> Convert Selector to Expr. </summary>
     let asExpr (s: Selector) = s.ToExpr()
+    /// <summary>
+    /// Represent all columns except for the given columns.
+    /// Syntactic sugar for pl.all().Exclude(columns).
+    /// </summary>
+    let excludeCols (columns:seq<string>) =
+        all().Exclude(columns)
+    /// <summary>
+    /// Represent all columns except for the given datatypes.
+    /// Syntactic sugar for pl.all().Exclude(dtypes).
+    /// </summary>
+    let excludeDataTypes(dtypes:seq<DataType>) =
+        all().Exclude(dtypes)
     /// <summary> Exclude columns from Selector. </summary>
-    let exclude (names: string list) (s: Selector) = s.Exclude names
+    let exclude (names: seq<string>) (s: Selector) = s.Exclude names
+    /// <summary>
+    /// Aggregate all column values into a list.
+    /// This function is syntactic sugar for pl.col(name).Implode().
+    /// </summary>
+    /// <param name="column">Column name</param>
+    /// <param name="maintainOrder">Whether to preserve the order of elements in the list. Setting this to False can improve performance, especially within GroupBy.</param>
+    let implode (column:string) (maintainOrder:bool) = col(column).Implode()
+    /// <summary>
+    /// Get the nth column(s) of the context.
+    /// </summary>
+    /// <param name="indices">One or more indices representing the columns to retrieve.</param>
+    /// <param name="strict">By default, all specified indices must be valid; if any index is out of bounds, an error is raised. If set to False, out-of-bounds indices are ignored.</param>
+    let nth (indices:seq<int64>) (strict:bool) = 
+        let indSpan = ReadOnlySpan<int64> (indices |> Seq.toArray)
+        Selector.ByIndex(indSpan,strict)
+    /// <summary>
+    /// Escapes string regex meta characters.
+    /// </summary>
+    /// <param name="s">The string to escape.</param>
+    /// <returns>A string with regex meta characters escaped.</returns>
+    let escapeRegex(s:string) =
+        if String.IsNullOrEmpty s then
+            s
+        else System.Text.RegularExpressions.Regex.Escape(s)
+    /// <summary>
+    /// Construct a column of length n filled with the given value.
+    /// </summary>
+    /// <param name="value">Value to repeat.</param>
+    /// <param name="n">Length of the resulting column.</param>
+    /// <param name="dtype">Data type of the resulting column. If set to None (default), data type is inferred from the given value. 
+    /// Defaults to Int32 for integer values, unless Int64 is required to fit the given value. Defaults to Float64 for float values.</param>
+    let repeat(value:Expr)(n:int)(dtype:DataType option) =
+        let va = value.CloneHandle()
+        let nh = (lit n).Handle
+        let expr = new Expr(PolarsWrapper.ExprRepeat(va,nh))
+        match dtype with
+        | Some d -> expr.Cast d
+        | None -> expr
+    let repeatAsSeries(value:Expr)(n:int)(dtype:DataType option) =
+        Series.ofExpr(repeat value n dtype)
+    /// <summary>
+    /// Construct a column of length n filled with zeros.
+    /// This is syntactic sugar for the repeat function.
+    /// </summary>
+    /// <param name="n">Length of the resulting column.</param>
+    /// <param name="dtype">Data type of the resulting column. Defaults to Float64.</param>
+    let zeros(n:int) (dtype:DataType option) =
+        match dtype with
+        | Some d -> repeat (lit 0) n (Some d)
+        | None -> repeat (lit 0) n (Some DataType.Float64)
+    let zerosAsSeries (n:int) (dtype:DataType option) =
+        Series.ofExpr(zeros n dtype)
+    /// <summary>
+    /// Construct a column of length n filled with ones.
+    /// This is syntactic sugar for the repeat function.
+    /// </summary>
+    /// <param name="n">Length of the resulting column.</param>
+    /// <param name="dtype">Data type of the resulting column. Defaults to Float64.</param>
+    let ones(n:int) (dtype:DataType option) =
+        match dtype with
+        | Some d -> repeat (lit 1) n (Some d)
+        | None -> repeat (lit 1) n (Some DataType.Float64)
+    let onesAsSeries (n:int) (dtype:DataType option) =
+        Series.ofExpr(ones n dtype)
+    /// <summary>
+    /// Parses an integer column (seconds, milliseconds, etc.) into a Datetime or Date expression.
+    /// </summary>
+    let fromEpoch(column:Expr) (timeUnit:EpochTimeUnit) =
+        match timeUnit with
+        | EpochTimeUnit.Day -> column |> castWithNetType<DateOnly>
+        | EpochTimeUnit.Second -> column * lit 1_000_000L |> cast(datetime TimeUnit.Microseconds None)
+        | EpochTimeUnit.Milliseconds -> column * lit 1_000L |> cast(datetime TimeUnit.Microseconds None)
+        | EpochTimeUnit.Microseconds -> column |> cast(datetime TimeUnit.Microseconds None)
+        | EpochTimeUnit.Nanoseconds -> column |> cast(datetime TimeUnit.Nanoseconds None)
     /// <summary> Create a Struct expression from a list of expressions. </summary>
     let asStruct (exprs: seq<Expr>) =
         let handles = exprs |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
@@ -549,20 +889,19 @@ module pl =
     /// </summary>
     let structSeries(exprs: seq<Expr>) =
         Series.ofExpr(asStruct exprs)
-    let struct_ = asStruct
     // --- Eager Ops ---
     /// <summary> Add or replace a single column in the DataFrame. </summary>
     let withColumn (expr: Expr) (df: DataFrame) : DataFrame =
         df.WithColumns expr
     /// <summary> Add or replace multiple columns in the DataFrame. </summary>
-    let withColumns (exprs: Expr list) (df: DataFrame) : DataFrame =
+    let withColumns (exprs: seq<Expr>) (df: DataFrame) : DataFrame =
         df.WithColumns exprs
 
     /// <summary> Filter rows based on a boolean expression. </summary>
     let filter (expr: Expr) (df: DataFrame) : DataFrame =
         df.Filter expr
     /// <summary> Select columns from the DataFrame. </summary>
-    let select (exprs: Expr list) (df: DataFrame) : DataFrame =
+    let select (exprs: seq<Expr>) (df: DataFrame) : DataFrame =
         df.Select exprs
     /// <summary> Sort (Order By) the DataFrame. </summary>
     let sort (expr: Expr,desc: bool) (df: DataFrame) : DataFrame =
@@ -940,12 +1279,12 @@ module pl =
         /// <summary>
         /// Select all columns EXCEPT the specified Selectors.
         /// </summary>
-        let exclude([<ParamArray>] selectors:ReadOnlySpan<Selector>) = all().Exclude selectors
+        let exclude(selectors:seq<Selector>) = all().Exclude selectors
 
         /// <summary>
         /// Select all columns EXCEPT the specified Data Types.
         /// </summary>
-        let excludeDtype([<ParamArray>] dtypes:ReadOnlySpan<DataType>) = all().Exclude dtypes
+        let excludeDataType(dtypes:seq<DataType>) = all().Exclude dtypes
         
         /// <summary> Select columns by DataType. </summary>
         let inline byType (dt: DataType) = 

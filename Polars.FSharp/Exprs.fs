@@ -88,7 +88,7 @@ and Expr(handle: ExprHandle) =
         let sel: Selector = this.ToSelector()
         let ns: Selector = sel.Exclude(names)
         ns.ToExpr()
-    member this.Exclude([<ParamArray>] dtypes: ReadOnlySpan<DataType>):Expr = 
+    member this.Exclude(dtypes: seq<DataType>):Expr = 
         let sel: Selector = this.ToSelector()
         let ns: Selector = sel.Exclude(dtypes)
         ns.ToExpr()
@@ -918,31 +918,20 @@ and Selector(handle: SelectorHandle) =
     /// <summary>
     /// Exclude columns matching any of the specified Selectors.
     /// </summary>
-    member this.Exclude([<ParamArray>] selectors: ReadOnlySpan<Selector>) =
-        if selectors.Length = 0 then 
-            this
-        else
-            let mutable toExclude = selectors.[0]
-            for i = 1 to selectors.Length - 1 do
-                toExclude <- toExclude ||| selectors.[i]
-                
-            this - toExclude
+    member this.Exclude(selectors: seq<Selector>) =
+        match selectors with
+        | s when Seq.isEmpty s -> this
+        | s -> this - (s |> Seq.reduce (fun a b -> a ||| b))
 
     /// <summary>
     /// Exclude columns matching any of the specified Data Types.
     /// </summary>
-    member this.Exclude([<ParamArray>] dtypes: ReadOnlySpan<DataType>) =
-        if dtypes.Length = 0 then 
-            this
-        else
-            let createSelector (dt: DataType) =
-                new Selector(PolarsWrapper.SelectorByDtype(enum<PlDataType> dt.Code))
-            
-            let mutable toExclude = createSelector dtypes.[0]
-            for i = 1 to dtypes.Length - 1 do
-                toExclude <- toExclude ||| createSelector dtypes.[i]
-                
-            this - toExclude
+    member this.Exclude(dtypes: seq<DataType>) =
+        let toSelector (dt: DataType) =
+            new Selector(PolarsWrapper.SelectorByDtype(enum<PlDataType> dt.Code))
+        match dtypes with
+        | d when Seq.isEmpty d -> this
+        | d -> this - (d |> Seq.map toSelector |> Seq.reduce (fun a b -> a ||| b))
     /// <summary>
     /// Convert the Selector to an Expression.
     /// Selectors are essentially dynamic Expressions that expand to column names.

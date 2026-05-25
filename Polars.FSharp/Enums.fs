@@ -13,7 +13,10 @@ type TimeUnit =
         | Nanoseconds -> PlTimeUnit.Nanoseconds
         | Microseconds -> PlTimeUnit.Microseconds
         | Milliseconds -> PlTimeUnit.Milliseconds
-
+// [<RequireQualifiedAccess>]
+// type CorrelationMethod =
+//     | Pearson
+//     | Spearman
 [<RequireQualifiedAccess>]
 type EpochTimeUnit = 
     | Nanoseconds

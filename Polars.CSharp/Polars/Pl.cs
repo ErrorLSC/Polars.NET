@@ -342,10 +342,6 @@ public readonly partial struct Polars
         }
         return current;
     }
-
-    public static Expr Arange(IntoExprColumn start, IntoExprColumn? end = null, long step = 1, IntoDataTypeExpr? datatype = null)
-        => IntRange(start,end,step,datatype);
-
     /// <summary>
     /// Gets the DataType of an expression.
     /// Equivalent to Python's polars.dtype_of()
@@ -482,7 +478,6 @@ public readonly partial struct Polars
     /// <param name="a">Column name or Expression.</param>
     /// <param name="b">Column name or Expression.</param>
     /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
-    /// <returns></returns>
     public static Expr Cov(IntoExprColumn a,IntoExprColumn b, byte ddof =1)
         => new(PolarsWrapper.Cov(a.Consume().Handle,b.Consume().Handle,ddof));
     /// <inheritdoc cref="Cov"/>
@@ -495,7 +490,6 @@ public readonly partial struct Polars
     /// <param name="b">Column name or Expression.</param>
     /// <param name="method">Correlation method.</param>
     /// <param name="propagateNans">If True any NaN encountered will lead to NaN in the output. Defaults to False where NaN are regarded as larger than any finite number and thus lead to the highest rank.</param>
-    /// <returns></returns>
     public static Expr Corr(IntoExprColumn a,IntoExprColumn b,CorrelationMethod method=CorrelationMethod.Pearson,bool propagateNans=false)
     {
         ExprHandle aE = a.Consume().Handle;
@@ -808,7 +802,7 @@ public readonly partial struct Polars
     }
     /// <summary>
     /// Run polars expressions without a context.
-    /// This is syntactic sugar for running df.select on an empty DataFrame (or LazyFrame if eager=False).
+    /// This is syntactic sugar for running df.select on an empty DataFrame.
     /// </summary>
     /// <param name="exprs">Column(s) to select, specified as positional arguments. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
     public static LazyFrame Select(params IntoExprColumn[] exprs)

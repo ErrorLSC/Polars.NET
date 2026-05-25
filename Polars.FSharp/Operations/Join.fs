@@ -56,7 +56,22 @@ module JoinOps =
             )
             
             new LazyFrame(newHandle)
-       /// <summary>
+        member this.Join(other, 
+                        on: Expr seq, 
+                        how: JoinType,
+                        // --- New Optional Parameters ---
+                        ?suffix: string,
+                        ?validation: JoinValidation,
+                        ?coalesce: JoinCoalesce,
+                        ?maintainOrder: JoinMaintainOrder,
+                        ?joinSide: JoinSide,
+                        ?nullsEqual: bool,
+                        ?sliceOffset: int64,
+                        ?sliceLen: uint64) =
+            this.Join(other,leftOn=on,rightOn=on,how = how,
+                ?suffix=suffix,?validation=validation,?coalesce=coalesce,?maintainOrder=maintainOrder,
+                ?joinSide=joinSide,?nullsEqual=nullsEqual,?sliceOffset=sliceOffset,?sliceLen=sliceLen)
+        /// <summary>
         /// JoinAsOf with string tolerance (e.g., "2d", "1h").
         /// </summary>
         member internal this.JoinAsOfInternal(other: LazyFrame, 
@@ -227,6 +242,21 @@ module JoinOps =
                 ?sliceLen=sliceLen
             )
             lf.Collect()
+        member this.Join(other, 
+                        on: Expr seq, 
+                        how: JoinType,
+                        // --- New Optional Parameters ---
+                        ?suffix: string,
+                        ?validation: JoinValidation,
+                        ?coalesce: JoinCoalesce,
+                        ?maintainOrder: JoinMaintainOrder,
+                        ?joinSide: JoinSide,
+                        ?nullsEqual: bool,
+                        ?sliceOffset: int64,
+                        ?sliceLen: uint64) =
+            this.Join(other,leftOn=on,rightOn=on,how = how,
+                ?suffix=suffix,?validation=validation,?coalesce=coalesce,?maintainOrder=maintainOrder,
+                ?joinSide=joinSide,?nullsEqual=nullsEqual,?sliceOffset=sliceOffset,?sliceLen=sliceLen)
         member internal this.JoinAsOfInternal(other: DataFrame, 
                             leftOn: Expr, 
                             rightOn: Expr, 
