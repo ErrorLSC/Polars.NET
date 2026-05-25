@@ -1,4 +1,3 @@
-#pragma warning disable 1591
 using Polars.NET.Core;
 using Cs = Polars.CSharp.Polars.Selectors;
 namespace Polars.CSharp;
@@ -44,8 +43,6 @@ public readonly partial struct Polars
     /// <para>Kleene logic is used to deal with nulls: if the column contains any null values and no True values, the output is null.</para>
     /// </summary>
     /// <param name="exprs">Column(s) to use in the aggregation. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
-    /// <returns></returns>
-    /// <exception cref="ArgumentException"></exception>
     public static Expr AllHorizontal(params IntoExprColumn[] exprs) 
     {
         if (exprs is null || exprs.Length == 0)
@@ -61,7 +58,6 @@ public readonly partial struct Polars
     /// <param name="names">Name(s) of the columns to use in the aggregation.</param>
     /// <param name="ignoreNulls">If set to True (default), null values are ignored. If there are no non-null values, the output is False.
     /// If set to False, Kleene logic is used to deal with nulls: if the column contains any null values and no True values, the output is null.</param>
-    /// <returns></returns>
     public static Expr Any(bool ignoreNulls, params string[] names) => Col(names).Any(ignoreNulls);
     /// <inheritdoc cref="Any(bool,string[])"/>
     public static Expr Any(params string[] names) => Col(names).Any(true);
@@ -70,8 +66,6 @@ public readonly partial struct Polars
     /// <para>Kleene logic is used to deal with nulls: if the column contains any null values and no True values, the output is null.</para>
     /// </summary>
     /// <param name="exprs">Column(s) to use in the aggregation. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
-    /// <returns></returns>
-    /// <exception cref="ArgumentException"></exception>
     public static Expr AnyHorizontal(params IntoExprColumn[] exprs) 
     {
         if (exprs is null || exprs.Length == 0)
@@ -96,14 +90,11 @@ public readonly partial struct Polars
     /// Syntactic sugar for Col(names).Max().
     /// </summary>
     /// <param name="names">Name(s) of the columns to use in the aggregation.</param>
-    /// <returns></returns>
     public static Expr Max(params string[] names) => Col(names).Max();
     /// <summary>
     /// Get the maximum value horizontally across columns.
     /// </summary>
     /// <param name="exprs">Column(s) to use in the aggregation. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
-    /// <returns></returns>
-    /// <exception cref="ArgumentException"></exception>
     public static Expr MaxHorizontal(params IntoExprColumn[] exprs) 
     {
         if (exprs is null || exprs.Length == 0)
@@ -118,14 +109,11 @@ public readonly partial struct Polars
     /// Syntactic sugar for Col(names).Min().
     /// </summary>
     /// <param name="names">Name(s) of the columns to use in the aggregation.</param>
-    /// <returns></returns>
     public static Expr Min(params string[] names) => Col(names).Min();
     /// <summary>
     /// Get the Minimum value horizontally across columns.
     /// </summary>
     /// <param name="exprs">Column(s) to use in the aggregation. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
-    /// <returns></returns>
-    /// <exception cref="ArgumentException"></exception>
     public static Expr MinHorizontal(params IntoExprColumn[] exprs) 
     {
         if (exprs is null || exprs.Length == 0)
@@ -140,7 +128,6 @@ public readonly partial struct Polars
     /// Syntactic sugar for Col(names).Sum().
     /// </summary>
     /// <param name="names">Name(s) of the columns to use in the aggregation.</param>
-    /// <returns></returns>
     public static Expr Sum(params string[] names) => Col(names).Sum();
     /// <summary>
     /// Sum all values horizontally across columns.
@@ -204,7 +191,6 @@ public readonly partial struct Polars
     /// Syntactic sugar for Col(names).Mean().
     /// </summary>
     /// <param name="names">Name(s) of the columns to use in the aggregation.</param>
-    /// <returns></returns>
     public static Expr Mean(params string[] names) => Col(names).Mean();
     /// <inheritdoc cref="MeanHorizontal(bool,IntoExprColumn[])"/>
     public static Expr MeanHorizontal(IEnumerable<Expr> exprs, bool ignoreNulls = true)
@@ -242,8 +228,6 @@ public readonly partial struct Polars
     /// </summary>
     /// <param name="exprs">Column(s) to use in the aggregation. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
     /// <param name="ignoreNulls">Ignore null values (default). If set to False, any null value in the input will lead to a null output.</param>
-    /// <returns></returns>
-    /// <exception cref="ArgumentException"></exception>
     public static Expr MeanHorizontal(bool ignoreNulls, params IntoExprColumn[] exprs)
     {
         if (exprs is null || exprs.Length == 0)
@@ -256,8 +240,6 @@ public readonly partial struct Polars
     /// Get the median value.This function is syntactic sugar for Pl.Col(columns).Median().
     /// </summary>
     /// <param name="names">One or more column names.</param>
-    /// <returns></returns>
-    /// <exception cref="ArgumentException"></exception>
     public static Expr Median(params string[] names)
     {
         if (names is null || names.Length == 0)
@@ -267,8 +249,6 @@ public readonly partial struct Polars
     /// <summary>
     /// Return the number of non-null values in the column.
     /// </summary>
-    /// <param name="names"></param>
-    /// <returns></returns>
     public static Expr Count(params string[] names)
     {
         if (names is null || names.Length == 0)
@@ -287,7 +267,6 @@ public readonly partial struct Polars
     /// </summary>
     /// <param name="column">Name of the columns to use.</param>
     /// <param name="reverse">reverse the operation</param>
-    /// <returns></returns>
     public static Expr CumCount(string column,bool reverse=false)
         => Col(column).CumCount(reverse);
     /// <summary>
@@ -302,14 +281,12 @@ public readonly partial struct Polars
     /// <param name="column">Column name.</param>
     /// <param name="quantile">Quantile between 0.0 and 1.0.</param>
     /// <param name="interpolation">Interpolation method.</param>
-    /// <returns></returns>
     public static Expr Quantile(string column,double quantile,QuantileMethod interpolation=QuantileMethod.Nearest)
         => Col(column).Quantile(quantile,interpolation);
     /// <summary>
     /// Get the first column or value.
     /// </summary>
     /// <param name="columns">One or more column names.</param>
-    /// <returns></returns>
     public static Expr First(params string[] columns)
     {   
         if (columns is null || columns.Length == 0) 
@@ -320,7 +297,6 @@ public readonly partial struct Polars
     /// Get the last column or value.
     /// </summary>
     /// <param name="columns">One or more column names.</param>
-    /// <returns></returns>
     public static Expr Last(params string[] columns)
     {   
         if (columns is null || columns.Length == 0) 

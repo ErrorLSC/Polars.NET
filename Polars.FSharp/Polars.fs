@@ -120,6 +120,160 @@ module pl =
         let arr = values |> Seq.toArray
         let sHandle = StructPacker.Pack("literal", arr)
         new Expr(PolarsWrapper.Lit sHandle)
+    // --- Aggregation ---
+    /// <summary>
+    /// Evaluate a bitwise AND operation on the specified columns.
+    /// This function is syntactic sugar for col(names).all().
+    /// </summary>
+    /// <param name="names">The names of the columns to aggregate.</param>
+    /// <returns>A boolean aggregation expression.</returns>
+    let allOf(names:seq<string>)(ignoreNulls:bool)=
+        cols(names).All(ignoreNulls)
+    /// <summary>
+    /// Compute the logical AND horizontally across columns.
+    /// <para>Kleene logic is used to deal with nulls: if the column contains any null values and no True values, the output is null.</para>
+    /// </summary>
+    /// <param name="exprs">Column(s) to use in the aggregation.</param>
+    let allHorizontal(exprs:seq<Expr>) =
+        let handles = exprs |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
+        new Expr(PolarsWrapper.ExprAllHorizontal(handles))
+    /// <summary>
+    /// Evaluate a bitwise OR operation.
+    /// </summary>
+    /// <param name="names">Name(s) of the columns to use in the aggregation.</param>
+    /// <param name="ignoreNulls">If set to True (default), null values are ignored. If there are no non-null values, the output is False.
+    /// If set to False, Kleene logic is used to deal with nulls: if the column contains any null values and no True values, the output is null.</param>
+    let any(exprs:seq<string>)(ignoreNulls:bool) =
+        cols(exprs).Any(ignoreNulls)
+    /// <summary>
+    /// Compute the logical OR horizontally across columns.
+    /// <para>Kleene logic is used to deal with nulls: if the column contains any null values and no True values, the output is null.</para>
+    /// </summary>
+    /// <param name="exprs">Column(s) to use in the aggregation. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
+    let anyHorizontal(exprs:seq<Expr>)=
+        let handles = exprs |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
+        new Expr(PolarsWrapper.ExprAnyHorizontal(handles))
+    /// <summary>
+    /// Get the maximum value.
+    /// Syntactic sugar for Col(names).Max().
+    /// </summary>
+    /// <param name="names">Name(s) of the columns to use in the aggregation.</param>
+    let max(names:seq<string>) =
+        cols(names).Max()
+    /// <summary>
+    /// Get the maximum value horizontally across columns.
+    /// </summary>
+    /// <param name="exprs">Column(s) to use in the aggregation.</param>
+    let maxHorizontal(exprs:seq<Expr>) =
+        let handles = exprs |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
+        new Expr(PolarsWrapper.ExprMaxHorizontal(handles))
+    /// <summary>
+    /// Get the Sum value.
+    /// Syntactic sugar for Col(names).Sum().
+    /// </summary>
+    /// <param name="names">Name(s) of the columns to use in the aggregation.</param>
+    let sum(names:seq<string>) =
+        cols(names).Sum()
+    /// <summary>
+    /// Sum all values horizontally across columns.
+    /// </summary>
+    /// <param name="exprs">An iterable of expressions</param>
+    /// <param name="ignoreNulls">Whether to ignore null values</param>
+    let sumHorizontal(exprs:seq<Expr>)(ignoreNulls:bool)=
+        let handles = exprs |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
+        new Expr(PolarsWrapper.ExprSumHorizontal(handles,ignoreNulls))
+    /// <summary>
+    /// Get the Mean value.
+    /// Syntactic sugar for Col(names).Mean().
+    /// </summary>
+    /// <param name="names">Name(s) of the columns to use in the aggregation.</param>
+    let mean(names:seq<string>) =
+        cols(names).Mean()
+    /// <summary>
+    /// Compute the mean of all values horizontally across columns.
+    /// </summary>
+    /// <param name="exprs">Column(s) to use in the aggregation. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
+    /// <param name="ignoreNulls">Ignore null values (default). If set to False, any null value in the input will lead to a null output.</param>
+    let meanHorizontal(exprs:seq<Expr>)(ignoreNulls:bool)=
+        let handles = exprs |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
+        new Expr(PolarsWrapper.ExprMeanHorizontal(handles,ignoreNulls))
+    /// <summary>
+    /// Get the median value.This function is syntactic sugar for Pl.Col(columns).Median().
+    /// </summary>
+    /// <param name="names">One or more column names.</param>
+    let median(names:seq<string>) =
+        cols(names).Median()
+    /// <summary>
+    /// Return the number of non-null values in the column.
+    /// </summary>
+    let count(names:seq<string>) =
+        cols(names).Count()
+   /// <summary>
+    /// Cumulatively sum all values.
+    /// Syntactic sugar for Col(names).CumSum().
+    /// </summary>
+    /// <param name="columns">Name(s) of the columns to use in the aggregation.</param>
+    let cumSum(names:seq<string>) =
+        cols(names).CumSum()
+    /// <summary>
+    /// Return the cumulative count of the non-null values in the column.This function is syntactic sugar for Col(column).CumCount().
+    /// </summary>
+    /// <param name="column">Name of the columns to use.</param>
+    /// <param name="reverse">reverse the operation</param>
+    let cumCount(column:string)(reverse:bool) =
+        col(column).CumCount(reverse)
+    /// <summary>
+    /// Count unique values.This function is syntactic sugar for pl.col(columns).NUnique().
+    /// </summary>
+    /// <param name="columns">One or more column names.</param>
+    let nUnique(names:seq<string>)=
+        cols(names).NUnique()
+    /// <summary>
+    /// Syntactic sugar for pl.Col("foo").Quantile(..).
+    /// </summary>
+    /// <param name="column">Column name.</param>
+    /// <param name="quantile">Quantile between 0.0 and 1.0.</param>
+    /// <param name="interpolation">Interpolation method.</param>
+    let quantile(column:string)(quantile:float)(interpolation:QuantileMethod) =
+        col(column).Quantile(quantile,interpolation)
+    /// <summary>
+    /// Get the first column.
+    /// </summary>
+    let firstCol() =
+        Selector.ByIndex(ReadOnlySpan<int64> [|0L|],true)
+    /// <summary>
+    /// Get the first value of the group/series.
+    /// </summary>
+    /// <returns>A new expression representing the first value.</returns>
+    let firstValue(columns:seq<string>,ignoreNulls:bool) =
+        cols(columns).First ignoreNulls
+    /// <summary>
+    /// Get the last column.
+    /// </summary>
+    let lastCol() =
+        Selector.ByIndex(ReadOnlySpan<int64> [|-1L|],true)
+    /// <summary>
+    /// Get the last value of the group/series.
+    /// </summary>
+    /// <returns>A new expression representing the first value.</returns>
+    let lastValue(columns:seq<string>,ignoreNulls:bool) =
+        cols(columns).Last ignoreNulls
+    /// <summary>
+    /// Get the standard deviation.
+    /// This function is syntactic sugar for pl.col(column).Std(ddof).
+    /// </summary>
+    /// <param name="column">Column name.</param>
+    /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
+    let std(column:string)(ddof:byte) =
+        col(column).Std(ddof)
+    /// <summary>
+    /// Get the variance.
+    /// This function is syntactic sugar for Pl.Col(column).Var(ddof).
+    /// </summary>
+    /// <param name="column">Column name.</param>
+    /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
+    let var(column:string)(ddof:byte) =
+        col(column).Var(ddof)
     // --- Range ---
     /// <summary>
     /// Generate a range of integers as an Expression.
@@ -304,9 +458,7 @@ module pl =
     /// </summary>
     let combineDateAndTimeUnit (time: Expr) (tu: TimeUnit) (date: Expr) = date.Dt.Combine(time, tu)
     /// <summary> Count the number of elements in an expression. </summary>
-    let count() = new Expr(PolarsWrapper.Len())
-    /// Alias for count
-    let len = count
+    let len = new Expr(PolarsWrapper.Len())
     /// <summary> Create a Polars Expr from a SQL string. </summary>
     /// <param name="sql">The SQL expression string.</param>
     /// <returns>A Polars Expr representing the SQL logic.</returns>
@@ -447,15 +599,6 @@ module pl =
     /// </summary>
     let vstack (other: DataFrame) (df: DataFrame) : DataFrame =
         df.VStack other
-    /// Aggregation Helpers
-    // <summary> Sum aggregation. </summary>
-    let sum (e: Expr) = e.Sum()
-    // <summary> Mean aggregation. </summary>
-    let mean (e: Expr) = e.Mean()
-    // <summary> Max aggregation. </summary>
-    let max (e: Expr) = e.Max()
-    // <summary> Min aggregation. </summary>
-    let min (e: Expr) = e.Min()
     // Fill Helpers
     /// <summary> Fill null values with a specific value. </summary>
     let fillNull (fillValue: Expr) (e: Expr) = e.FillNull fillValue

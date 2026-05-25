@@ -909,7 +909,8 @@ and Selector(handle: SelectorHandle) =
         new Selector(PolarsWrapper.SelectorCols columns)
     static member internal ByDtype(dtype:DataType) = 
         new Selector(PolarsWrapper.SelectorByDtype(dtype.ToPlDataType()))
-       
+    static member internal ByIndex(indices:ReadOnlySpan<int64>,strict:bool)=
+        new Selector(PolarsWrapper.SelectorByIndex(indices, strict))   
     /// <summary> Exclude columns from a wildcard selection (col("*")). </summary>
     member this.Exclude(names: seq<string>) =
         let arr = Seq.toArray names
