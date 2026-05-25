@@ -46,7 +46,7 @@ public readonly partial struct Polars
         string name="datetime")
     {
         var expr = DatetimeRange(start,end,interval,closed,unit,timeZone);
-        Series series = Series(expr);
+        Series series = CreateSeries(expr);
         series.Rename(name);
         return series;
     }
@@ -88,7 +88,7 @@ public readonly partial struct Polars
         string name="datetime")
     {
         var expr = DatetimeRanges(start,end,interval,closed,unit,timeZone);
-        Series series = Series(expr);
+        Series series = CreateSeries(expr);
         series.Rename(name);
         return series;
     }

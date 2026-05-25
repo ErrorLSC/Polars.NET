@@ -16,7 +16,7 @@ public class SeriesDtOpsTests
             null
         ];
 
-        using Series s = Pl.Series("dates", data);
+        using Series s = Pl.CreateSeries("dates", data);
 
         using Series millennium = s.Dt.Millennium();
         Assert.Equal([2, 3, 3, 2, null], millennium.ToArray<int?>());
@@ -50,7 +50,7 @@ public class SeriesDtOpsTests
             null
         ];
 
-        using Series s = Pl.Series("datetimes", data);
+        using Series s = Pl.CreateSeries("datetimes", data);
 
         using Series daysInMonth = s.Dt.DaysInMonth();
         Assert.Equal([29, 28, 31, null], daysInMonth.ToArray<int?>());
@@ -81,7 +81,7 @@ public class SeriesDtOpsTests
         var dt3 = new DateTime(2024, 1, 1, 12, 30, 59).AddTicks(9990000); 
 
         DateTime?[] data = [dt1, dt2, dt3, null];
-        using Series s = Pl.Series("sub_seconds", data);
+        using Series s = Pl.CreateSeries("sub_seconds", data);
 
         using Series second = s.Dt.Second();
         Assert.Equal([45, 0, 59, null], second.ToArray<int?>());
@@ -119,7 +119,7 @@ public class SeriesDtOpsTests
             null
         ];
 
-        using Series s = Pl.Series("dates", data);
+        using Series s = Pl.CreateSeries("dates", data);
 
         using Series isLeapYear = s.Dt.IsLeapYear();
         Assert.Equal(DataType.Boolean, isLeapYear.DataType);
@@ -153,7 +153,7 @@ public class SeriesDtOpsTests
             null
         ];
 
-        using Series naiveSeries = Pl.Series("naive_dates", data);
+        using Series naiveSeries = Pl.CreateSeries("naive_dates", data);
         
         using Series tzSeries = naiveSeries.Dt.ReplaceTimeZone("America/New_York");
 
@@ -186,7 +186,7 @@ public class SeriesDtOpsTests
             null
         ];
 
-        using Series s = Pl.Series("datetime_col", data);
+        using Series s = Pl.CreateSeries("datetime_col", data);
 
         using Series dateSeries = s.Dt.Date();
         Assert.Equal(DataType.Date, dateSeries.DataType);
@@ -237,7 +237,7 @@ public class SeriesDtOpsTests
         TimeSpan ts3 = TimeSpan.FromTicks(11234560); 
 
         TimeSpan?[] data = [ts1, ts2, ts3, null];
-        using Series s = Pl.Series("durations", data);
+        using Series s = Pl.CreateSeries("durations", data);
 
         // TotalDays
         using Series daysInt = s.Dt.TotalDays();
@@ -287,7 +287,7 @@ public class SeriesDtOpsTests
             null
         ];
 
-        using Series s = Pl.Series("datetimes", data);
+        using Series s = Pl.CreateSeries("datetimes", data);
 
         string customFormat = "%Y-%m-%d %H:%M:%S";
         
@@ -332,7 +332,7 @@ public class SeriesDtOpsTests
             null
         ];
 
-        using Series s = Pl.Series("datetimes", data);
+        using Series s = Pl.CreateSeries("datetimes", data);
 
         using Series truncString = s.Dt.Truncate("1h");
         
@@ -377,7 +377,7 @@ public class SeriesDtOpsTests
             null
         ];
 
-        using Series s = Pl.Series("datetimes", data);
+        using Series s = Pl.CreateSeries("datetimes", data);
 
         // ==========================================
         using Series offsetString = s.Dt.OffsetBy("1mo");
@@ -424,7 +424,7 @@ public class SeriesDtOpsTests
             null
         ];
 
-        using Series s = Pl.Series("dates", dates);
+        using Series s = Pl.CreateSeries("dates", dates);
 
         TimeOnly fixedTime = new(14, 30, 45);
         
@@ -443,7 +443,7 @@ public class SeriesDtOpsTests
             new TimeOnly(20, 45, 30), 
             null
         ];
-        using Series timeSeries = Pl.Series("times", times);
+        using Series timeSeries = Pl.CreateSeries("times", times);
 
         using Series combinedWithSeries = s.Dt.Combine(timeSeries, TimeUnit.Microseconds);
 
@@ -465,7 +465,7 @@ public class SeriesDtOpsTests
             null
         ];
 
-        using Series s = Pl.Series("naive_dates", data);
+        using Series s = Pl.CreateSeries("naive_dates", data);
 
         using Series tzUtc = s.Dt.ReplaceTimeZone("UTC");
         
@@ -501,7 +501,7 @@ public class SeriesDtOpsTests
             null
         ];
 
-        using Series s = Pl.Series("dates", dates);
+        using Series s = Pl.CreateSeries("dates", dates);
         
         DateOnly[] holidaysArray = [new DateOnly(2024, 5, 2)];
         
@@ -521,7 +521,7 @@ public class SeriesDtOpsTests
             new DateTime(2024, 5, 3), 
             null
         ];
-        using Series sValid = Pl.Series("valid_dates", validStartDates);
+        using Series sValid = Pl.CreateSeries("valid_dates", validStartDates);
         
         using Expr nExpr = Pl.Lit(1); 
         
@@ -542,11 +542,11 @@ public class SeriesDtOpsTests
             new DateTime(2023, 1, 1, 8, 0, 0),     
             null                                   
         ];
-        using Series s = Pl.Series("datetimes", data);
+        using Series s = Pl.CreateSeries("datetimes", data);
 
         // ==========================================
         int?[] newYears = [2030, 2040, null];
-        using Series yearSeries = Pl.Series("new_years", newYears);
+        using Series yearSeries = Pl.CreateSeries("new_years", newYears);
 
         using Series replacedYears = s.Dt.Replace(year: yearSeries);
         
@@ -558,8 +558,8 @@ public class SeriesDtOpsTests
 
         int?[] newHours = [10, 20, null];
         int?[] newMinutes = [15, 45, null];
-        using Series hourSeries = Pl.Series("new_hours", newHours);
-        using Series minuteSeries = Pl.Series("new_minutes", newMinutes);
+        using Series hourSeries = Pl.CreateSeries("new_hours", newHours);
+        using Series minuteSeries = Pl.CreateSeries("new_minutes", newMinutes);
 
         using Series replacedTime = s.Dt.Replace(
             hour: hourSeries, 
@@ -573,7 +573,7 @@ public class SeriesDtOpsTests
         ], replacedTime.ToArray<DateTime?>());
 
         int?[] dynamicMonths = [11, 12, null];
-        using Series monthSeries = Pl.Series("dynamic_months", dynamicMonths);
+        using Series monthSeries = Pl.CreateSeries("dynamic_months", dynamicMonths);
 
         using Series replacedMixed = s.Dt.Replace(
             year: 2099,          
@@ -597,7 +597,7 @@ public class SeriesDtOpsTests
             null
         ];
 
-        using Series s = Pl.Series("datetimes", data);
+        using Series s = Pl.CreateSeries("datetimes", data);
 
         long epochSec1 = 0;
         long epochSec2 = 86400; 

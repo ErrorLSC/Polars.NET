@@ -78,6 +78,14 @@ module pl =
     /// Equivalent to `pl.col("*")`.
     /// </summary>
     let all() = Expr.Col "*"
+    /// <summary>
+    /// Return the lines count of current context.
+    /// </summary>
+    let len = new Expr(PolarsWrapper.Len())
+    /// <summary>
+    /// Alias for an element being evaluated in an eval or filter expression.
+    /// </summary>
+    let element = col ""
     
     /// <summary>
     /// Create a literal expression from a value.
@@ -120,6 +128,11 @@ module pl =
         let arr = values |> Seq.toArray
         let sHandle = StructPacker.Pack("literal", arr)
         new Expr(PolarsWrapper.Lit sHandle)
+    /// <summary>
+    /// Creates a scalar Binary Literal Expression from a byte array.
+    /// </summary>
+    let litBinary(value:byte[]) =
+        lit(value).Implode().Cast(DataType.Binary)
     // --- Aggregation ---
     /// <summary>
     /// Evaluate a bitwise AND operation on the specified columns.
@@ -426,39 +439,89 @@ module pl =
     /// <summary> Cast an expression to a different data type. </summary>
     let cast (dtype: DataType) (e: Expr) = e.Cast dtype
     let castWithNetType<'T> (e: Expr) = e.Cast<'T>()
+    let series<'T>(name:string)(data:seq<'T>) =
+        Series.create(name,data)
+    let dataframe(series:seq<Series>) = DataFrame.create(series)
     /// <summary> Boolean data type. </summary>
     let boolean = DataType.Boolean
+    let int8 = DataType.Int8
+    let uint8 = DataType.UInt8
+    let int16 = DataType.Int16
+    let uint16 = DataType.UInt16
     /// <summary> 32-bit Integer data type. </summary>
     let int32 = DataType.Int32
+    let uint32 = DataType.UInt32
+    let uint64 = DataType.UInt64
     /// <summary> 64-bit Integer data type. </summary>
     let int64 = DataType.Int64
+    let int128 = DataType.Int128
+    let decimal precision scale = DataType.Decimal(precision,scale)
+    let float16 = DataType.Float16
+    let float32 = DataType.Float32
     /// <summary> 64-bit Floating point data type. </summary>
     let float64 = DataType.Float64
     /// <summary> String data type (UTF-8). </summary>
     let string = DataType.String
+    /// <summary> alias of String</summary>
+    let utf8 = string
     /// <summary> Date data type (no time). </summary>
     let date = DataType.Date
     /// <summary> Datetime data type. </summary>
-    let datetime = DataType.Datetime
+    let datetime(unit:TimeUnit)(timeZone:string option) = 
+        DataType.Datetime(unit,?tz=timeZone) 
     /// <summary> Duration (TimeSpan) data type. </summary>
-    let timeSpan = DataType.Duration
+    let duration(unit:TimeUnit) = DataType.Duration unit
     /// <summary> Time data type (no date). </summary>
     let time = DataType.Time
+    let list(inner:DataType) = DataType.List inner
+    let array(inner:DataType)(shape:uint[]) = DataType.Array(inner,shape)
+    let structType(fields:seq<Field>) = DataType.Struct(fields)
+    /// <summary>
+    /// Create an Extension data type
+    /// </summary>
+    /// <param name="name">The registered name of the extension type (e.g. "geoarrow.wkb")</param>
+    /// <param name="inner">The physical storage data type</param>
+    /// <param name="metadata">Optional metadata string</param>
+    let extensionType(name:string)(inner:DataType)(metadata:string option) =
+        DataType.Extension(name,inner,?metadata=metadata)
+    let field(name:string)(dtype:DataType) = {Field.Name=name;Field.DataType=dtype}
+    let categories(name:string option)(nameSpace:string option)(physical:CategoricalPhysical option) =
+        new Categories(?name=name,?nameSpace=nameSpace,?physical=physical)
+    let categorical(categories:Categories option) = DataType.Categorical(?categories=categories)
+    let enumType(categories:Categories) = DataType.Enum(categories.Freeze())
+    let nullType = DataType.Null
+    let unknownType = DataType.Unknown
+    let sameAsInputType = unknownType
+    let schema(fields:seq<Field>) = new PolarsSchema(fields)
+    let emptySchema = new PolarsSchema()
     // [Temporal]
-    
     /// <summary>
     /// Combine a Date expression and a Time expression into a Datetime expression.
     /// Usage: pl.col("date") |> pl.combineDateAndTime (pl.col("time"))
     /// </summary>
     let combineDateAndTime (time: Expr) (date: Expr) = date.Dt.Combine time
-
     /// <summary>
     /// Combine a Date expression and a Time expression with a specific TimeUnit.
     /// Usage: pl.col("date") |> pl.combineDateAndTimeUnit (pl.col("time")) TimeUnit.Milliseconds
     /// </summary>
     let combineDateAndTimeUnit (time: Expr) (tu: TimeUnit) (date: Expr) = date.Dt.Combine(time, tu)
-    /// <summary> Count the number of elements in an expression. </summary>
-    let len = new Expr(PolarsWrapper.Len())
+    /// <summary>
+    /// Count the number of business days between start and end (not including end).
+    /// </summary>
+    /// <param name="start">Start dates.</param>
+    /// <param name="end">End dates.</param>
+    /// <param name="weekMask">Which days of the week to count. The default is Monday to Friday. If you wanted to count only Monday to Thursday, you would pass (True, True, True, True, False, False, False).</param>
+    /// <param name="holidays">Holidays to exclude from the count.</param>
+    let businessDayCount(start:Expr) (endDay:Expr) (weekMask:seq<bool>) (holidays:Series option) =
+        let st = start.CloneHandle()
+        let ed = endDay.CloneHandle()
+        let wm = weekMask |> Seq.toArray
+        let ho = 
+            match holidays with
+            | Some s -> s.DropNulls().ToPhysical().ToArray<int>()
+            | None -> System.Array.Empty<int>()
+        new Expr(PolarsWrapper.DtBusinessDayCount(st,ed,wm,ho))
+        
     /// <summary> Create a Polars Expr from a SQL string. </summary>
     /// <param name="sql">The SQL expression string.</param>
     /// <returns>A Polars Expr representing the SQL logic.</returns>
@@ -481,6 +544,11 @@ module pl =
     let asStruct (exprs: seq<Expr>) =
         let handles = exprs |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
         new Expr(PolarsWrapper.AsStruct handles)
+    /// <summary>
+    /// Collect several expressions and combine them into a single Struct Series
+    /// </summary>
+    let structSeries(exprs: seq<Expr>) =
+        Series.ofExpr(asStruct exprs)
     let struct_ = asStruct
     // --- Eager Ops ---
     /// <summary> Add or replace a single column in the DataFrame. </summary>
@@ -552,6 +620,40 @@ module pl =
             |> Seq.toArray
 
         new Expr(PolarsWrapper.ConcatArray exprHandles)
+    /// <summary>
+    /// Horizontally concatenate columns into a single string column.
+    /// </summary>
+    /// <param name="separator">String that will be used to separate the values of each column.</param>
+    /// <param name="ignoreNulls">Ignore null values.
+    /// If set to False, null values will be propagated. if the row contains any null values, the output is null.</param>
+    /// <param name="exprs">Columns to concatenate into a single string column.</param>
+    let concatString (exprs: seq<#IColumnExpr>)(separator:string)(ignoreNulls:bool) =
+        let handles =
+            exprs
+            |> Seq.collect (fun x -> x.ToExprs()) 
+            |> Seq.map (fun e -> e.CloneHandle())
+            |> Seq.toArray
+        new Expr(PolarsWrapper.ConcatString(handles,separator,ignoreNulls))
+    /// <summary>
+    /// Concat multiple expressions into a single expression.
+    /// </summary>
+    let concatExpr(exprs:seq<#IColumnExpr>)(rechunk:bool) =
+        let handles =
+            exprs
+            |> Seq.collect (fun x -> x.ToExprs()) 
+            |> Seq.map (fun e -> e.CloneHandle())
+            |> Seq.toArray
+        new Expr(PolarsWrapper.ConcatExprs(handles,rechunk))
+    /// <summary>
+    /// Format expressions as a string.
+    /// </summary>
+    let format (format:string)(exprs:seq<#IColumnExpr>) =
+        let handles =
+            exprs
+            |> Seq.collect (fun x -> x.ToExprs()) 
+            |> Seq.map (fun e -> e.CloneHandle())
+            |> Seq.toArray
+        new Expr(PolarsWrapper.FormatString(format,handles))
     /// <summary> Get the first n rows of the DataFrame. </summary>
     let head (n: int) (df: DataFrame) : DataFrame =
         df.Head n
@@ -641,6 +743,7 @@ module pl =
     let inline sin (e: Expr) = e.Sin()
     let inline cos (e: Expr) = e.Cos()
     let inline tan (e: Expr) = e.Tan()
+    let inline cot (e:Expr) = e.Cot()
     let inline arcsin (e: Expr) = e.ArcSin()
     let inline arccos (e: Expr) = e.ArcCos()
     let inline arctan (e: Expr) = e.ArcTan()
@@ -652,6 +755,11 @@ module pl =
     let inline arcsinh (e: Expr) = e.ArcSinh()
     let inline arccosh (e: Expr) = e.ArcCosh()
     let inline arctanh (e: Expr) = e.ArcTanh()
+    /// <summary>
+    /// Compute two argument arctan in radians.
+    /// Returns the angle (in radians) in the plane between the positive x-axis and the ray from the origin to (x,y).
+    /// </summary>
+    let arctan2(y:Expr) (x:Expr) = new Expr(PolarsWrapper.ArcTan2(y.CloneHandle(),x.CloneHandle()))
     
     // --- Lazy API ---
 
@@ -660,7 +768,7 @@ module pl =
     /// <summary> Explain the unoptimized LazyFrame execution plan. </summary>
     let explainUnoptimized (lf: LazyFrame) = lf.Explain false
     /// <summary> Get the schema of the LazyFrame. </summary>
-    let schema (lf: LazyFrame) = lf.Schema
+    let collectSchema (lf: LazyFrame) = lf.Schema
     /// <summary> Filter rows based on a boolean expression. </summary>
     let filterLazy (expr: Expr) (lf: LazyFrame) : LazyFrame =
         lf.Filter expr

@@ -23,7 +23,7 @@ type DataTypeKind =
     | Categorical of Categories option
     | Decimal of int option * int option
     | List of DataType
-    | Struct of Field list
+    | Struct of seq<Field>
     | Array of DataType * uint[]
     | Enum of FrozenCategories
     | Extension of {| Name: string; Storage: DataType; Metadata: string option |}
@@ -44,7 +44,7 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         | TimeUnit.Milliseconds -> 2uy
     member internal this.Handle = handle
     member this.Kind = kind
-
+    static member Unknown     = new DataType(PolarsWrapper.NewPrimitiveType(0), DataTypeKind.Unknown)
     static member SameAsInput = new DataType(PolarsWrapper.NewPrimitiveType(0), DataTypeKind.SameAsInput)
     static member Null        = new DataType(PolarsWrapper.NewPrimitiveType(18), DataTypeKind.Null)
     static member Boolean     = new DataType(PolarsWrapper.NewPrimitiveType(1), DataTypeKind.Boolean)
@@ -150,8 +150,8 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
             PolarsWrapper.NewListType(innerHandle)
 
         | DataTypeKind.Struct fields ->
-            let names = fields |> List.map (fun f -> f.Name) |> List.toArray
-            let typeHandles = fields |> List.map (fun f -> f.DataType.CreateHandle()) |> List.toArray
+            let names = fields |> Seq.map (fun f -> f.Name) |> Seq.toArray
+            let typeHandles = fields |> Seq.map (fun f -> f.DataType.CreateHandle()) |> Seq.toArray
             try
                 PolarsWrapper.NewStructType(names, typeHandles)
             finally
@@ -197,9 +197,9 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         let handle = PolarsWrapper.NewListType(innerHandle)
         new DataType(handle, DataTypeKind.List inner)
 
-    static member Struct(fields: Field list) =
-        let names = fields |> List.map (fun f -> f.Name) |> List.toArray
-        let typeHandles = fields |> List.map (fun f -> f.DataType.CreateHandle()) |> List.toArray
+    static member Struct(fields: seq<Field> ) =
+        let names = fields |> Seq.map (fun f -> f.Name) |> Seq.toArray
+        let typeHandles = fields |> Seq.map (fun f -> f.DataType.CreateHandle()) |> Seq.toArray
         try
             let handle = PolarsWrapper.NewStructType(names, typeHandles)
             new DataType(handle, DataTypeKind.Struct fields)

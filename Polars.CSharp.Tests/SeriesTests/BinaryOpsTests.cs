@@ -16,7 +16,7 @@ public class SeriesBinaryOpsTests
             null
         ];
 
-        using Series s = Pl.Series("bin_data", data);
+        using Series s = Pl.CreateSeries("bin_data", data);
         using Series sizeBytes = s.Cast(DataType.Binary).Bin.Size();
         Assert.Equal([3u, 0u, 1024u, 2048u, null], sizeBytes.ToArray<uint?>());
 
@@ -38,7 +38,7 @@ public class SeriesBinaryOpsTests
             [0x01, 0x02]             
         ];
 
-        using Series sList = Pl.Series("bin_data", data);
+        using Series sList = Pl.CreateSeries("bin_data", data);
         using Series s = sList.Cast(DataType.Binary);
 
         using Series contains = s.Bin.Contains(new byte[] { 0x01, 0x02 });
@@ -71,7 +71,7 @@ public class SeriesBinaryOpsTests
             null                                  
         ];
 
-        using Series sList = Pl.Series("bin_data", data);
+        using Series sList = Pl.CreateSeries("bin_data", data);
         using Series s = sList.Cast(DataType.Binary);
 
         using Series head3 = s.Bin.Head(3);
@@ -82,7 +82,7 @@ public class SeriesBinaryOpsTests
             null                
         ];
         
-        using Series expectedHeadSeries = Pl.Series("expected_head", expectedHead).Cast(DataType.Binary);
+        using Series expectedHeadSeries = Pl.CreateSeries("expected_head", expectedHead).Cast(DataType.Binary);
 
         using Series headMask = head3.Eq(expectedHeadSeries);
         
@@ -95,7 +95,7 @@ public class SeriesBinaryOpsTests
             [],                 
             null                
         ];
-        using Series expectedTailSeries = Pl.Series("expected_tail", expectedTail).Cast(DataType.Binary);
+        using Series expectedTailSeries = Pl.CreateSeries("expected_tail", expectedTail).Cast(DataType.Binary);
         using Series tailMask = tail3.Eq(expectedTailSeries);
         
         Assert.Equal([true, true, true, null], tailMask.ToArray<bool?>());
@@ -111,7 +111,7 @@ public class SeriesBinaryOpsTests
             null                      
         ];
 
-        using Series sList = Pl.Series("bin_data", data);
+        using Series sList = Pl.CreateSeries("bin_data", data);
         using Series s = sList.Cast(DataType.Binary);
 
         using Series littleInt32 = s.Bin.Reinterpret(typeof(int));

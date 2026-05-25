@@ -173,19 +173,26 @@ public readonly partial struct Polars
     // String Operations
     // ==========================================
     /// <summary>
-    /// Concat multiple string expressions into a single string expression.
+    /// Horizontally concatenate columns into a single string column.
     /// </summary>
-    public static Expr ConcatString(string separator=",",bool ignoreNulls=false,params Expr[] exprs)
+    /// <param name="separator">String that will be used to separate the values of each column.</param>
+    /// <param name="ignoreNulls">Ignore null values (default is False).
+    /// If set to False, null values will be propagated. if the row contains any null values, the output is null.</param>
+    /// <param name="exprs">Columns to concatenate into a single string column. Accepts expression input. Strings are parsed as column names, 
+    /// other non-expression inputs are parsed as literals. Non-String columns are cast to String.</param>
+    public static Expr ConcatString(string separator=",",bool ignoreNulls=false,params IntoExprColumn[] exprs)
     {
-        var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
+        var exprArray = exprs.Select(e => e.Consume()).ToArray();
+        var handles = System.Array.ConvertAll(exprArray, e => e.Handle);
         return new Expr(PolarsWrapper.ConcatString(handles,separator,ignoreNulls));
     }
     /// <summary>
-    /// Format multiple string expressions into a single formated string expression.
+    /// Format expressions as a string.
     /// </summary>
-    public static Expr FormatString(string format,params Expr[] exprs)
+    public static Expr Format(string format,params IntoExprColumn[] exprs)
     {
-        var handles = exprs.Select(e => PolarsWrapper.CloneExpr(e.Handle)).ToArray();
+        var exprArray = exprs.Select(e => e.Consume()).ToArray();
+        var handles = System.Array.ConvertAll(exprArray, e => e.Handle);
         return new Expr(PolarsWrapper.FormatString(format,handles));
     }
     // ==========================================
@@ -390,7 +397,7 @@ public readonly partial struct Polars
 
         using var expr = Coalesce(exprs);
         
-        return Series(expr);
+        return CreateSeries(expr);
     }
     /// <summary>
     /// Return the row indices that would sort the column(s).
@@ -533,7 +540,6 @@ public readonly partial struct Polars
     /// Syntactic sugar for Pl.All().Exclude(columns).
     /// </summary>
     /// <param name="columns">The name or datatype of the column(s) to exclude. Accepts regular expression input. Regular expressions should start with ^ and end with $.</param>
-    /// <returns></returns>
     public static Expr Exclude(params string[] columns)
         => All().Exclude(columns);
     /// <inheritdoc cref="Exclude(string[])"/>

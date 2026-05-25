@@ -11,9 +11,9 @@ public class ExprNameOpsTests
         int[] data1 = [1, 2, 3];
         int[] data2 = [4, 5, 6];
         
-        using Series s1 = Pl.Series("Old_Col_A", data1);
-        using Series s2 = Pl.Series("Old_Col_B", data2);
-        using DataFrame df = Pl.DataFrame(s1, s2);
+        using Series s1 = Pl.CreateSeries("Old_Col_A", data1);
+        using Series s2 = Pl.CreateSeries("Old_Col_B", data2);
+        using DataFrame df = Pl.CreateDataFrame(s1, s2);
 
         using DataFrame result = df.Select(
             Pl.All().Name.Map(name => name.ToLower().Replace("old_", "new_"))
@@ -31,9 +31,9 @@ public class ExprNameOpsTests
         int[] dataA = [10, 20];
         int[] dataB = [30, 40];
 
-        using Series sA = Pl.Series("field_a", dataA);
-        using Series sB = Pl.Series("field_b", dataB);
-        using DataFrame df = Pl.DataFrame(sA, sB);
+        using Series sA = Pl.CreateSeries("field_a", dataA);
+        using Series sB = Pl.CreateSeries("field_b", dataB);
+        using DataFrame df = Pl.CreateDataFrame(sA, sB);
 
         using DataFrame result = df.Select(
             Pl.Struct(Pl.Col("field_a"), Pl.Col("field_b"))
@@ -51,8 +51,8 @@ public class ExprNameOpsTests
     public void Test_Expr_Name_Casing_And_Keep()
     {
         int[] data = [1, 2, 3];
-        using Series s = Pl.Series("mIxEd_CaSe_CoL", data);
-        using DataFrame df = Pl.DataFrame(s);
+        using Series s = Pl.CreateSeries("mIxEd_CaSe_CoL", data);
+        using DataFrame df = Pl.CreateDataFrame(s);
 
         using DataFrame upperResult = df.Select(
             Pl.Col("mIxEd_CaSe_CoL").Name.ToUppercase()
@@ -80,9 +80,9 @@ public class ExprNameOpsTests
         int[] data1 = [10, 20];
         int[] data2 = [30, 40];
 
-        using Series sA = Pl.Series("val_x", data1);
-        using Series sB = Pl.Series("val_y", data2);
-        using DataFrame df = Pl.DataFrame(sA, sB);
+        using Series sA = Pl.CreateSeries("val_x", data1);
+        using Series sB = Pl.CreateSeries("val_y", data2);
+        using DataFrame df = Pl.CreateDataFrame(sA, sB);
 
         using DataFrame prefixResult = df.Select(
             Pl.Struct(Pl.Col("val_x"), Pl.Col("val_y"))
@@ -111,9 +111,9 @@ public class ExprNameOpsTests
     public void Test_Expr_Name_Replace()
     {
         int[] data = [1, 2, 3];
-        using Series s1 = Pl.Series("user_name_123", data);
-        using Series s2 = Pl.Series("user_age_45", data);
-        using DataFrame df = Pl.DataFrame(s1, s2);
+        using Series s1 = Pl.CreateSeries("user_name_123", data);
+        using Series s2 = Pl.CreateSeries("user_age_45", data);
+        using DataFrame df = Pl.CreateDataFrame(s1, s2);
 
         using DataFrame literalResult = df.Select(
             Pl.All().Name.Replace("user", "client", literal: true)

@@ -12,7 +12,7 @@ public readonly partial struct Polars
     /// Example: Pl.DataFrame(Pl.Series("a", new[] {1, 2}), Pl.Series("b", new[] {3, 4}))
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static DataFrame DataFrame(params Series[] series)
+    public static DataFrame CreateDataFrame(params Series[] series)
         => [.. series];
 
     /// <summary>
@@ -20,7 +20,7 @@ public readonly partial struct Polars
     /// Example: Pl.DataFrame(studentList)
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static DataFrame DataFrame<T>(IEnumerable<T> data)
+    public static DataFrame CreateDataFrame<T>(IEnumerable<T> data)
         => CSharp.DataFrame.FromRows(data);
 
     /// <summary>
@@ -28,7 +28,7 @@ public readonly partial struct Polars
     /// Example: Pl.DataFrame(new { A = new[] { 1, 2 }, B = new[] { "x", "y" } })
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static DataFrame DataFrame(object columns)
+    public static DataFrame CreateDataFrame(object columns)
         => CSharp.DataFrame.FromColumns(columns);
 
     /// <summary>
@@ -36,7 +36,7 @@ public readonly partial struct Polars
     /// Example: Pl.DataFrame(("A", new[] { 1, 2 }), ("B", new[] { "x", "y" }))
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static DataFrame DataFrame(params (string Name, object Data)[] columns)
+    public static DataFrame CreateDataFrame(params (string Name, object Data)[] columns)
         => CSharp.DataFrame.FromColumns(columns);
 
     /// <summary>
@@ -44,7 +44,7 @@ public readonly partial struct Polars
     /// Example: Pl.Series("Name", list)
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static Series Series<T>(string name, IEnumerable<T> data)
+    public static Series CreateSeries<T>(string name, IEnumerable<T> data)
         => CSharp.Series.From(name, data);
 
     /// <summary>
@@ -52,20 +52,20 @@ public readonly partial struct Polars
     /// Example: Pl.Series("Age", new int[] { 25, 30 })
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static Series Series<T>(string name, T[] data)
+    public static Series CreateSeries<T>(string name, T[] data)
         => CSharp.Series.From(name, data);
 
     /// <summary>
     /// Create a Series from a 2D matrix.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static Series Series<T>(string name, T[,] data)
+    public static Series CreateSeries<T>(string name, T[,] data)
         => CSharp.Series.From(name, data);
 
     /// <summary>
     /// Create a Series from a ReadOnlySpan (Zero allocation path).
     /// </summary>
-    public static Series Series<T>(string name, ReadOnlySpan<T> data)
+    public static Series CreateSeries<T>(string name, ReadOnlySpan<T> data)
         => CSharp.Series.FromSpan(name, data);
 
     /// <summary>
@@ -73,7 +73,7 @@ public readonly partial struct Polars
     /// Example: Pl.Series(Pl.Lit(42).RepeatBy(5))
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static Series Series(Expr expr)
+    public static Series CreateSeries(Expr expr)
         => CSharp.Series.FromExpr(expr);
     /// <summary>
     /// UTF-8 encoded string type.
@@ -136,7 +136,6 @@ public readonly partial struct Polars
     /// </summary>
     /// <param name="unit">Unit of time. Defaults to microseconds.</param>
     /// <param name="timeZone">Time zone string. When used to match dtypes, can set this to “*” to check for Datetime columns that have any (non-null) timezone.</param>
-    /// <returns></returns>
     public static DataType Datetime(TimeUnit unit=TimeUnit.Microseconds,string? timeZone=null) => DataType.Datetime(unit,timeZone);
     /// <summary>
     /// Data type representing the time of day.
@@ -149,14 +148,12 @@ public readonly partial struct Polars
     /// The integer indicates an amount of time units and can be negative to indicate negative time offsets.</para>
     /// </summary>
     /// <param name="unit">Unit of time. Defaults to microseconds.</param>
-    /// <returns></returns>
     public static DataType Duration(TimeUnit unit=TimeUnit.Microseconds) => DataType.Duration(unit);
     /// <summary>
     /// Decimal 128-bit type with an optional precision and non-negative scale.
     /// </summary>
     /// <param name="precision">Maximum number of digits in each number.Max is 38.</param>
     /// <param name="scale">Number of digits to the right of the decimal point in each number.</param>
-    /// <returns></returns>
     public static DataType Decimal(int precision=38,int scale =9) => DataType.Decimal(precision,scale);
     /// <summary>
     /// 16-bit floating point type.
@@ -174,20 +171,17 @@ public readonly partial struct Polars
     /// Variable length list type.
     /// </summary>
     /// <param name="inner">The DataType of the values within each list.</param>
-    /// <returns></returns>
     public static DataType List(DataType inner) => DataType.List(inner);
     /// <summary>
     /// Fixed length list type.
     /// </summary>
     /// <param name="inner">The DataType of the values within each array.</param>
     /// <param name="shape">The shape of the arrays.</param>
-    /// <returns></returns>
     public static DataType Array(DataType inner,params uint[] shape) => DataType.Array(inner,shape);
     /// <summary>
     /// Struct composite type.
     /// </summary>
     /// <param name="fields">The fields that make up the struct. Can be either a sequence of Field objects or a mapping of column names to data types.</param>
-    /// <returns></returns>
     public static DataType Struct(params Field[] fields) => DataType.Struct(fields);
     /// <inheritdoc cref="Polars.Struct(CSharp.Field[])"/> 
     public static DataType Struct(IReadOnlyDictionary<string, DataType> fields) => DataType.Struct(fields);
@@ -239,24 +233,16 @@ public readonly partial struct Polars
     /// </summary>
     public static DataType Unknown => DataType.Unknown;
     public static DataType SameAsInput => Unknown;
-    /// <summary>
-    /// Generic extension data type.
-    /// </summary>
-    /// <param name="name"></param>
-    /// <param name="inner"></param>
-    /// <param name="metadata"></param>
-    /// <returns></returns>
+    /// <inheritdoc cref="DataType.Extension(string, DataType, string?)"/>
     public static DataType Extension(string name, DataType inner, string? metadata = null) => DataType.Extension(name,inner,metadata);
     /// <summary>
     /// Ordered mapping of column names to their data type.
     /// </summary>
     /// <param name="schema">The schema definition given by column names and their associated Polars data type. 
     /// Accepts a mapping, or an iterable of tuples, Arrow Schemas,Frames.</param>
-    /// <returns></returns>
-    public static PolarsSchema Schema(IntoSchema schema) => schema.Consume();
+    public static PolarsSchema CreateSchema(IntoSchema schema) => schema.Consume();
     /// <summary>
     /// Create an empty Polars Schema.
     /// </summary>
-    /// <returns></returns>
-    public static PolarsSchema Schema() => [];
+    public static PolarsSchema CreateSchema() => [];
 }

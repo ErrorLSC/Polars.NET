@@ -487,8 +487,8 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     public Expr Replace<TOld, TNew>(IEnumerable<TOld> oldValues, IEnumerable<TNew> newValues)
     {
-        using Series oldSeries = Pl.Series("old", oldValues);
-        using Series newSeries = Pl.Series("new", newValues);
+        using Series oldSeries = Pl.CreateSeries("old", oldValues);
+        using Series newSeries = Pl.CreateSeries("new", newValues);
 
         return Replace(oldSeries, newSeries);
     }
@@ -501,8 +501,8 @@ public partial class Expr : IDisposable,IEquatable<Expr>
         IntoExpr? defaultExpr = null, 
         IntoDataTypeExpr? returnDataType = null)
     {
-        using Series oldSeries = Pl.Series("old", oldValues);
-        using Series newSeries = Pl.Series("new", newValues);
+        using Series oldSeries = Pl.CreateSeries("old", oldValues);
+        using Series newSeries = Pl.CreateSeries("new", newValues);
 
         return ReplaceStrict(oldSeries, newSeries, defaultExpr, returnDataType);
     }

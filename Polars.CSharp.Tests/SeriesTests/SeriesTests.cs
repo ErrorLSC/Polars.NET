@@ -1519,7 +1519,7 @@ public class SeriesTests
     {
         int[] data = [10, 20, 30, 40, 50];
         
-        var series = Pl.Series("test_chunk_lengths", data);
+        var series = Pl.CreateSeries("test_chunk_lengths", data);
 
         long[] chunkLengths = series.ChunkLengths();
 
@@ -1540,7 +1540,7 @@ public class SeriesTests
     {
         int[] data = [114514,1919,810,114514];
         
-        var series = Pl.Series("Yajyusenpai", data);
+        var series = Pl.CreateSeries("Yajyusenpai", data);
         var firstDistinct = series.IsFirstDistinct();
         var lastDistinct = series.IsLastDistinct();
         Assert.True((bool)firstDistinct.Eq(~lastDistinct)[0]!);
@@ -1552,8 +1552,8 @@ public class SeriesTests
     public void Test_IsIn_With_Another_Series()
     {
         // Arrange
-        var s1 = Pl.Series("s1", [1, 2, 3, 4, 5]);
-        var s2 = Pl.Series("s2", [2, 4, 6]);
+        var s1 = Pl.CreateSeries("s1", [1, 2, 3, 4, 5]);
+        var s2 = Pl.CreateSeries("s2", [2, 4, 6]);
         // Act
         using var result = s2.IsIn(s1);
 
@@ -1570,7 +1570,7 @@ public class SeriesTests
     public void Test_IsIn_With_IEnumerable()
     {
         // Arrange
-        var s1 = Pl.Series("fruits", ["apple", "banana", "cherry"]);
+        var s1 = Pl.CreateSeries("fruits", ["apple", "banana", "cherry"]);
         var collection = new List<string> { "banana", "date", "apple" };
 
         // Act
@@ -1586,8 +1586,8 @@ public class SeriesTests
     public void Test_IsIn_With_NullsEqual()
     {
         // Arrange
-        var s1 = Pl.Series("with_nulls", new int?[] { 1, null, 3 });
-        var s2 = Pl.Series("lookup", new int?[] { null, 2 });
+        var s1 = Pl.CreateSeries("with_nulls", new int?[] { 1, null, 3 });
+        var s2 = Pl.CreateSeries("lookup", new int?[] { null, 2 });
 
         // Act
         // nullsEqual = false (null != null)
@@ -1605,7 +1605,7 @@ public class SeriesTests
     public void Test_Series_LowerBound_And_UpperBound_Int32()
     {
         // Arrange
-        var series = Pl.Series("test_int32", [1, 50, 100]);
+        var series = Pl.CreateSeries("test_int32", [1, 50, 100]);
 
         // Act
         using var lowerBoundSeries = series.LowerBound();
@@ -1627,7 +1627,7 @@ public class SeriesTests
     public void Test_Series_LowerBound_And_UpperBound_UInt8()
     {
         // Arrange
-        var series = Pl.Series("test_uint8", new byte[] { 10, 20 });
+        var series = Pl.CreateSeries("test_uint8", new byte[] { 10, 20 });
 
         // Act
         using var lowerBoundSeries = series.LowerBound();
@@ -1645,7 +1645,7 @@ public class SeriesTests
     [Trait("Series","UniqueCounts")]
     public void Test_Series_UniqueCounts()
     {
-        var series = Pl.Series("id", ["a", "b", "b", "c", "c", "c"]);
+        var series = Pl.CreateSeries("id", ["a", "b", "b", "c", "c", "c"]);
 
         var uc = series.UniqueCounts();
 
@@ -1655,9 +1655,9 @@ public class SeriesTests
     [Trait("Series","MaxBy")]
     public void Test_Series_MaxBy_And_MinBy_With_Series()
     {
-        var target = Pl.Series("values", [10, 20, 30, 40]);
+        var target = Pl.CreateSeries("values", [10, 20, 30, 40]);
         
-        var bySeries = Pl.Series("weights", [2.5, 9.9, 3.2, 0.5]);
+        var bySeries = Pl.CreateSeries("weights", [2.5, 9.9, 3.2, 0.5]);
 
         int? maxByResult = target.MaxBy<int>(bySeries);
 
@@ -1672,8 +1672,8 @@ public class SeriesTests
     public void Test_Series_MaxBy_Empty_Returns_Null()
     {
         // Arrange
-        var target = Pl.Series("empty_vals", System.Array.Empty<int>());
-        var bySeries = Pl.Series("empty_weights", System.Array.Empty<int>());
+        var target = Pl.CreateSeries("empty_vals", System.Array.Empty<int>());
+        var bySeries = Pl.CreateSeries("empty_weights", System.Array.Empty<int>());
         // // Act
         int? maxByResult = target.MaxBy<int>(bySeries);
         int? minByResult = target.MinBy<int>(bySeries);
@@ -1687,7 +1687,7 @@ public class SeriesTests
     public void Test_Series_MaxBy_With_Expression()
     {
         // Arrange
-        var target = Pl.Series("values", [-5, 2, -10, 8]);
+        var target = Pl.CreateSeries("values", [-5, 2, -10, 8]);
 
         // Act
         int? maxByAbsResult = target.MaxBy<int>(Pl.Col("values").Abs());
@@ -1700,7 +1700,7 @@ public class SeriesTests
     public void Test_Series_Mode_Returns_Multiple_Values()
     {
         // Arrange
-        var series = Pl.Series("multi_mode", [10, 20, 10, 20, 30]);
+        var series = Pl.CreateSeries("multi_mode", [10, 20, 10, 20, 30]);
 
         // Act
         using var modeSeries = series.Mode();
@@ -1719,7 +1719,7 @@ public class SeriesTests
     public void Test_Series_TimeSpan_Statistics()
     {
         // Arrange
-        var latencies = Pl.Series("latency",
+        var latencies = Pl.CreateSeries("latency",
         [
             TimeSpan.FromMilliseconds(100), 
             TimeSpan.FromMilliseconds(120), 
@@ -1745,7 +1745,7 @@ public class SeriesTests
     public void Test_Series_DateTime_Statistics()
     {
         // Arrange
-        var dtSeries = Pl.Series("datetimes",
+        var dtSeries = Pl.CreateSeries("datetimes",
         [
             new DateTime(2024, 1, 1, 10, 0, 0),
             new DateTime(2024, 1, 1, 12, 0, 0),
@@ -1763,7 +1763,7 @@ public class SeriesTests
     public void Test_Series_DateOnly_Statistics()
     {
         // Arrange
-        var dateSeries = Pl.Series("dates",
+        var dateSeries = Pl.CreateSeries("dates",
         [
             new DateOnly(2024, 1, 1),
             new DateOnly(2024, 1, 3),
@@ -1781,7 +1781,7 @@ public class SeriesTests
     public void Test_Series_TimeOnly_Statistics()
     {
         // Arrange
-        var timeSeries = Pl.Series("times",
+        var timeSeries = Pl.CreateSeries("times",
         [
             new TimeOnly(9, 0),
             new TimeOnly(9, 30),
@@ -1799,7 +1799,7 @@ public class SeriesTests
     public void Test_Series_NanMax_String_Lexicographical()
     {
         // Arrange
-        var strSeries = Pl.Series("words", ["apple", "zebra", null, "banana"]);
+        var strSeries = Pl.CreateSeries("words", ["apple", "zebra", null, "banana"]);
 
         // Act
         var maxStr = strSeries.NanMaxString();
@@ -1814,7 +1814,7 @@ public class SeriesTests
     public void Test_Series_NanMax_Float_Ignores_NaN()
     {
         // Arrange
-        var floatSeries = Pl.Series("floats", new double?[] { 10.5, double.NaN, null, 42.0, 3.14 });
+        var floatSeries = Pl.CreateSeries("floats", new double?[] { 10.5, double.NaN, null, 42.0, 3.14 });
 
         var normalMax = floatSeries.Max<double>();
 
@@ -1834,7 +1834,7 @@ public class SeriesTests
         // 15 = 1111
         // 11 = 1011
         // 13 = 1101
-        var series = Pl.Series("flags", [15, 11, 13]);
+        var series = Pl.CreateSeries("flags", [15, 11, 13]);
         
         // Act
         var andAgg = series.BitwiseAnd<int>();
@@ -1859,7 +1859,7 @@ public class SeriesTests
         // 0: 00000000 
         // 5: 00000101 
         // 7: 00000111 
-        var series = Pl.Series("nums", [0, 5, 7]);
+        var series = Pl.CreateSeries("nums", [0, 5, 7]);
 
         // Act
         using var countOnes = series.BitwiseCountOnes();
@@ -1875,7 +1875,7 @@ public class SeriesTests
     [Trait("Series", "ReshapeExplicit")]
     public void Test_Series_Reshape_Explicit_Dimensions()
     {
-        using Series s = Pl.Series("a", [1, 2, 3, 4, 5, 6]);
+        using Series s = Pl.CreateSeries("a", [1, 2, 3, 4, 5, 6]);
 
         using Series reshaped = s.Reshape([2, 3]);
         
@@ -1899,7 +1899,7 @@ public class SeriesTests
     [Trait("Series", "ReshapeExplicit")]
     public void Test_Series_Reshape_Explicit_Dimensions_3D()
     {
-        using Series s = Pl.Series("a", [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        using Series s = Pl.CreateSeries("a", [1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
         using Series mat = s.Reshape([3, 3]);
         Assert.Equal(3, mat.Len());
@@ -1920,7 +1920,7 @@ public class SeriesTests
     [Trait("Series", "ReshapeInferred")]
     public void Test_Series_Reshape_Inferred_Dimensions()
     {
-        using Series s = Pl.Series("a", [1, 2, 3, 4, 5, 6]);
+        using Series s = Pl.CreateSeries("a", [1, 2, 3, 4, 5, 6]);
 
         using Series reshaped = s.Reshape([-1, 2]);
         
@@ -1939,7 +1939,7 @@ public class SeriesTests
     [Trait("Series", "ReshapeError")]
     public void Test_Series_Reshape_Mismatch_Throws()
     {
-        using Series s = Pl.Series("a", [1, 2, 3, 4, 5, 6]);
+        using Series s = Pl.CreateSeries("a", [1, 2, 3, 4, 5, 6]);
 
         
         var ex = Assert.Throws<PolarsException>(() => 
@@ -1954,13 +1954,13 @@ public class SeriesTests
     public void Test_Series_ZipWith()
     {
         int[] data1 = [1, 2, 3, 4, 5];
-        using Series s1 = Pl.Series("s1", data1);
+        using Series s1 = Pl.CreateSeries("s1", data1);
 
         int[] data2 = [10, 20, 30, 40, 50];
-        using Series s2 = Pl.Series("s2", data2);
+        using Series s2 = Pl.CreateSeries("s2", data2);
 
         bool[] maskData = [true, false, true, false, true];
-        using Series mask = Pl.Series("mask", maskData);
+        using Series mask = Pl.CreateSeries("mask", maskData);
 
         using Series result = s1.ZipWith(mask, s2);
 
@@ -1977,7 +1977,7 @@ public class SeriesTests
     public void Test_Series_ToDummies()
     {
         int[] data1 = [1, 2, 3, 4, 5];
-        using Series s1 = Pl.Series("s1", data1);
+        using Series s1 = Pl.CreateSeries("s1", data1);
 
         using DataFrame d1 = s1.ToDummies("nihao");
         Assert.Contains("s1nihao1",d1.Columns);
@@ -1987,7 +1987,7 @@ public class SeriesTests
         Assert.Equal(4,d2.Width);
 
         int?[] data2 = [1,2,null,4,5];
-        using Series s2 = Pl.Series("s2",data2);
+        using Series s2 = Pl.CreateSeries("s2",data2);
         using DataFrame d3 = s2.ToDummies(dropNulls:true);
         Assert.DoesNotContain("s2_3",d3.ColumnNames);
     }
@@ -1996,7 +1996,7 @@ public class SeriesTests
     public void Test_Series_FromIndex()
     {
         string?[] genshin = ["114514","卧槽，原！",null];
-        using Series s1 = Pl.Series("bilibili",genshin);
+        using Series s1 = Pl.CreateSeries("bilibili",genshin);
 
         using Series s1n = s1.NewFromIndex(1,5);
         Assert.Equal(5,s1n.Length);
@@ -2010,7 +2010,7 @@ public class SeriesTests
     public void Test_Series_Rle()
     {
         int?[] genshin = [1, 1, 2, 1, null, 1, 3, 3];
-        using Series s1 = Pl.Series("bilibili",genshin);
+        using Series s1 = Pl.CreateSeries("bilibili",genshin);
 
         using DataFrame d1 = s1.Rle().Unnest();
         Assert.Equal(2u,d1["len"][0]);
@@ -2026,7 +2026,7 @@ public class SeriesTests
     public void Test_Series_Replace()
     {
         int[] data = [1, 2, 3, 2, 1];
-        using Series s = Pl.Series("test_replace", data);
+        using Series s = Pl.CreateSeries("test_replace", data);
 
         using Series s1 = s.Replace(2, 20);
         Assert.Equal([1, 20, 3, 20, 1], s1.ToArray<int>());
@@ -2054,7 +2054,7 @@ public class SeriesTests
     public void Test_Series_Peaks()
     {
         int[] data1 = [1, 2, 114514, -2200, 59796016];
-        using Series s1 = Pl.Series("s1", data1);
+        using Series s1 = Pl.CreateSeries("s1", data1);
 
         using Series sp1 = s1.PeakMax();
         using Series sp2 = s1.PeakMin();
@@ -2067,7 +2067,7 @@ public class SeriesTests
     public void Test_Series_Cut_And_QCut()
     {
         double[] data = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
-        using Series s = Pl.Series("values", data);
+        using Series s = Pl.CreateSeries("values", data);
 
         // Breaks: 3.0, 7.0 -> (-inf, 3.0], (3.0, 7.0], (7.0, inf]
         ReadOnlySpan<double> breaks = [3.0, 7.0];
@@ -2100,7 +2100,7 @@ public class SeriesTests
     [Trait("Series", "IsClose")]
     public void Test_Series_IsClose()
     {
-        using Series s = Pl.Series("nihao",[114514,1919,810,725000]);
+        using Series s = Pl.CreateSeries("nihao",[114514,1919,810,725000]);
         using Series sC = s.IsClose(114515,absTol: 2.0);
         Assert.True((bool)sC[0]!);
         Assert.False((bool)sC[3]!);
@@ -2109,7 +2109,7 @@ public class SeriesTests
     [Trait("Series", "CumulativeEval")]
     public void Test_Series_CumEval()
     {
-        using Series s = Pl.Series("nihao",[1,2,3,4,5]);
+        using Series s = Pl.CreateSeries("nihao",[1,2,3,4,5]);
         using Series sE = s.CumulativeEval(Pl.Element().First() - Pl.Element().Last().Pow(2));
         Assert.Equal(-24.0,sE[4]);
     }
@@ -2117,7 +2117,7 @@ public class SeriesTests
     [Trait("Series", "Log")]
     public void Test_Series_Log()
     {
-        using Series s = Pl.Series("nihao",[100.0,Math.E,8]);
+        using Series s = Pl.CreateSeries("nihao",[100.0,Math.E,8]);
         using Series sL = s.Log();
         using Series s10 = s.Log10();
         using Series s2 = s.Log(2);
@@ -2131,7 +2131,7 @@ public class SeriesTests
     [Trait("Series", "Entropy")]
     public void Test_Series_Entropy()
     {
-        using Series s = Pl.Series("nihao",[100.0,Math.E,8]);
+        using Series s = Pl.CreateSeries("nihao",[100.0,Math.E,8]);
         double? entropy = s.Entropy();
         Assert.Equal(0.372828,(double)entropy!,1e-5);
     }
@@ -2140,7 +2140,7 @@ public class SeriesTests
     public void Test_Series_Hist()
     {
         int[] numbers = [1, 3, 8, 8, 2, 1, 3];
-        using Series s = Pl.Series("nihao",numbers);
+        using Series s = Pl.CreateSeries("nihao",numbers);
         using var sHist = s.Hist(binCount:2);
         Assert.Equal(2u,sHist["count"][1]);
         Assert.Equal(DataType.Categorical(),sHist.Schema["category"]);
@@ -2249,15 +2249,15 @@ public class SeriesTests
     [Trait("Series", "ArgTrue")]
     public void Test_Series_ArgTrue()
     {
-        using Series s = Pl.Series("test",[1,2,3]);
+        using Series s = Pl.CreateSeries("test",[1,2,3]);
         Assert.Equal(1u,(2 == s).ArgTrue()[0]);
     }
     [Fact]
     [Trait("Series", "IEquatable")]
     public void Test_Series_IEquatable()
     {
-        using Series s1 = Pl.Series("test1",[1,2,3]);
-        using Series s2 = Pl.Series("test2",[1,2,3]);
+        using Series s1 = Pl.CreateSeries("test1",[1,2,3]);
+        using Series s2 = Pl.CreateSeries("test2",[1,2,3]);
         Assert.True(s1.Equals(s2));
         Assert.Equal(s1.GetHashCode(),s2.GetHashCode());
         using var nihao = s1 == s2;
@@ -2268,7 +2268,7 @@ public class SeriesTests
     public void Test_Series_FillNaN()
     {
         double?[] double1 = [5.5,6.6,7.7,double.NaN,null];
-        using Series s1 = Pl.Series("double1",double1);
+        using Series s1 = Pl.CreateSeries("double1",double1);
 
         using var s2 = s1.FillNan(9.9);
         Assert.Equal(9.9,s2[3]);
@@ -2279,7 +2279,7 @@ public class SeriesTests
     public void Test_Series_FillNull()
     {
         double?[] double1 = [5.5,6.6,7.7,double.NaN,null];
-        using Series s1 = Pl.Series("double1",double1);
+        using Series s1 = Pl.CreateSeries("double1",double1);
 
         using var s2 = s1.FillNull(9.9);
         Assert.Equal(9.9,s2[4]);
@@ -2295,7 +2295,7 @@ public class SeriesTests
     public void Test_Clip_Numeric_Bounds()
     {
         // 准备数据: [1, 2, 3, 4, 5]
-        using var s = Pl.Series("values", [1, 2, 3, 4, 5]);
+        using var s = Pl.CreateSeries("values", [1, 2, 3, 4, 5]);
 
         using var sBoth = s.Clip(lowerBound: 2, upperBound: 4);
         Assert.Equal([2, 2, 3, 4, 4], sBoth.ToArray<int>());
@@ -2311,7 +2311,7 @@ public class SeriesTests
     [Trait("Series", "Clip")]
     public void Test_Clip_With_Nulls()
     {
-        using var s = Pl.Series("with_nulls", new int?[] { 1, null, 10 });
+        using var s = Pl.CreateSeries("with_nulls", new int?[] { 1, null, 10 });
         
         using var res = s.Clip(2, 5);
         var arr = res.ToArray<int?>();
@@ -2342,7 +2342,7 @@ public class SeriesTests
     [Trait("Series", "Clip")]
     public void Test_Clip_Exception_No_Bounds()
     {
-        using var s = Pl.Series("values", [1, 2, 3]);
+        using var s = Pl.CreateSeries("values", [1, 2, 3]);
 
         var ex = Assert.Throws<ArgumentException>(() => s.Clip(null, null));
         Assert.Contains("must be provided", ex.Message);
@@ -2397,7 +2397,7 @@ public class SeriesTests
         // 2.5 -> 2.0
         // 3.5 -> 4.0
         // 4.5 -> 4.0
-        using var s = Pl.Series("values", new double?[] { 1.5, 2.5, 3.5, 4.5, null });
+        using var s = Pl.CreateSeries("values", new double?[] { 1.5, 2.5, 3.5, 4.5, null });
 
         // decimals = 0, mode = RoundMode.HalfToEven
         using var res = s.Round(); 
@@ -2414,7 +2414,7 @@ public class SeriesTests
     [Trait("Series", "Round")]
     public void Test_Round_With_Decimals()
     {
-        using var s = Pl.Series("values", [1.12345, 2.6789, 3.14159]);
+        using var s = Pl.CreateSeries("values", [1.12345, 2.6789, 3.14159]);
 
         using var res = s.Round(decimals: 3);
         var arr = res.ToArray<double>();
@@ -2428,7 +2428,7 @@ public class SeriesTests
     [Trait("Series", "RoundSigFigs")]
     public void Test_RoundSigFigs()
     {
-        using var s = Pl.Series("values", new double?[] { 12345.0, 0.0012345, 1.2345, null });
+        using var s = Pl.CreateSeries("values", new double?[] { 12345.0, 0.0012345, 1.2345, null });
 
         using var res = s.RoundSigFigs(digits: 3);
         var arr = res.ToArray<double?>();
@@ -2442,7 +2442,7 @@ public class SeriesTests
     [Trait("Series", "Sample")]
     public void Test_SeriesSample()
     {
-        using var s = Pl.Series("values", new double?[] { 12345.0, 0.0012345, 1.2345, null });
+        using var s = Pl.CreateSeries("values", new double?[] { 12345.0, 0.0012345, 1.2345, null });
         using var s1 = s.Sample(10,withReplacement:true);
         Assert.Equal(10L,s1.Length);
         using var s2 = s.Sample(0.5,shuffle:true,seed:42);
@@ -2456,7 +2456,7 @@ public class SeriesTests
         using var sDatePhy = sDate.ToPhysical();
         Assert.Equal(8006,sDatePhy[0]);
         Assert.Equal(DataType.Int32,sDatePhy.DataType);
-        using var sDec = Pl.Series("dec",[10.000m,12312.123m,114.514000m]);
+        using var sDec = Pl.CreateSeries("dec",[10.000m,12312.123m,114.514000m]);
         using var s128 = sDec.ToPhysical();
         Assert.Equal((Int128)114514000,(Int128)s128[2]!);
         Assert.Equal(DataType.Int128,s128.DataType);

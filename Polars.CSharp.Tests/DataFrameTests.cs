@@ -527,7 +527,7 @@ public class DataFrameTests
     public void Test_List_Aggregations_And_Name()
     {
         using DataFrame df = [
-            Pl.Series("group",["A","A","B","B","B"]),
+            Pl.CreateSeries("group",["A","A","B","B","B"]),
             Pl.IntRangeAsSeries(1,6,1,name:"val")
         ];
         using var res = df
@@ -835,9 +835,9 @@ public class DataFrameTests
     [Trait("DataFrame", "Cast")]
     public void Test_Cast_With_Explicit_Schema()
     {
-        using var df = Pl.DataFrame(
-            Pl.Series("Id", ["1", "2", "3"]), 
-            Pl.Series("IsActive", [1, 0, 1])  
+        using var df = Pl.CreateDataFrame(
+            Pl.CreateSeries("Id", ["1", "2", "3"]), 
+            Pl.CreateSeries("IsActive", [1, 0, 1])  
         );
 
         using var targetSchema = new PolarsSchema()
@@ -857,15 +857,15 @@ public class DataFrameTests
     [Trait("DataFrame", "Cast")]
     public void Test_Cast_With_Another_DataFrame_Implicitly()
     {
-        using var masterDf = Pl.DataFrame(
-            Pl.Series("UserId", [101, 102]),          // Int32
-            Pl.Series("Score", [99.5, 88.0]),      // Float64
-            Pl.Series("Tag", ["A", "B"])           // String
+        using var masterDf = Pl.CreateDataFrame(
+            Pl.CreateSeries("UserId", [101, 102]),          // Int32
+            Pl.CreateSeries("Score", [99.5, 88.0]),      // Float64
+            Pl.CreateSeries("Tag", ["A", "B"])           // String
         );
-        using var targetDf = Pl.DataFrame(
-            Pl.Series("UserId", ["103", "104"]),   
-            Pl.Series("Score", [70, 60]),           
-            Pl.Series("Tag", ["C", "D"])         
+        using var targetDf = Pl.CreateDataFrame(
+            Pl.CreateSeries("UserId", ["103", "104"]),   
+            Pl.CreateSeries("Score", [70, 60]),           
+            Pl.CreateSeries("Tag", ["C", "D"])         
         );
 
         using var resultDf = targetDf.Cast(masterDf);
@@ -881,7 +881,7 @@ public class DataFrameTests
     [Trait("DataFrame", "Cast")]
     public void Test_Cast_With_Empty_Schema_Returns_Self()
     {
-        using var df = Pl.DataFrame(Pl.Series("A", [1, 2, 3]));
+        using var df = Pl.CreateDataFrame(Pl.CreateSeries("A", [1, 2, 3]));
         using var emptySchema = new PolarsSchema();
 
         using var resultDf = df.Cast(emptySchema);
@@ -1483,11 +1483,11 @@ public class DataFrameTests
     [Trait("DataFrame", "Remove")]
     public void Test_Remove_By_Boolean_Series()
     {
-        using var df = Pl.DataFrame(
-            Pl.Series("Id", [1, 2, 3, 4])
+        using var df = Pl.CreateDataFrame(
+            Pl.CreateSeries("Id", [1, 2, 3, 4])
         );
 
-        using var mask = Pl.Series("mask", [true, false, true, false]);
+        using var mask = Pl.CreateSeries("mask", [true, false, true, false]);
 
         using var resultDf = df.Remove(mask);
 
@@ -1500,8 +1500,8 @@ public class DataFrameTests
     [Trait("DataFrame", "Remove")]
     public void Test_Remove_By_Boolean_Array()
     {
-        using var df = Pl.DataFrame(
-            Pl.Series("Name", ["Alice", "Bob", "Charlie"])
+        using var df = Pl.CreateDataFrame(
+            Pl.CreateSeries("Name", ["Alice", "Bob", "Charlie"])
         );
 
         bool[] mask = [false, false, true];
@@ -1517,11 +1517,11 @@ public class DataFrameTests
     [Trait("DataFrame", "Remove")]
     public void Test_Remove_Throws_On_NonBoolean_Series()
     {
-        using var df = Pl.DataFrame(
-            Pl.Series("Id", [1, 2, 3])
+        using var df = Pl.CreateDataFrame(
+            Pl.CreateSeries("Id", [1, 2, 3])
         );
 
-        using var invalidMask = Pl.Series("mask", [1, 0, 1]);
+        using var invalidMask = Pl.CreateSeries("mask", [1, 0, 1]);
 
         var ex = Assert.Throws<InvalidOperationException>(() => df.Remove(invalidMask));
         Assert.Contains("non-boolean", ex.Message);
@@ -2758,7 +2758,7 @@ public class DataFrameTests
     [Trait("DataFrame", "ToDict")]
     public void Test_ToDict()
     {
-        using var df = Pl.DataFrame(
+        using var df = Pl.CreateDataFrame(
             ("a", new int[] { 1, 2, 3 }),
             ("b", new string[] { "x", "y", "z" })
         );
@@ -2778,7 +2778,7 @@ public class DataFrameTests
     [Trait("DataFrame", "ToDicts")]
     public void Test_ToDicts()
     {
-        using var df = Pl.DataFrame(
+        using var df = Pl.CreateDataFrame(
             ("foo", new int[] { 1, 2, 3 }),
             ("bar", new double[] { 4.0, 5.0, 6.0 })
         );
@@ -2797,7 +2797,7 @@ public class DataFrameTests
     [Trait("DataFrame", "Pipe")]
     public void Test_DataFrame_Pipe()
     {
-        using var df = Pl.DataFrame(
+        using var df = Pl.CreateDataFrame(
             ("name", new[] { "Alice", "Bob", "Charlie", "Diana" }),
             ("score", new[] { 85, 92, 78, 88 })
         );

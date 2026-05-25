@@ -38,14 +38,24 @@ type LitMechanism = LitMechanism with
     static member ($) (LitMechanism, v: DateOnly list) = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
 
     // --- Array (High Performance) ---
+    static member ($) (LitMechanism, v: sbyte[])      = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
+    static member ($) (LitMechanism, v: byte[])      = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
+    static member ($) (LitMechanism, v: int16[])      = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
+    static member ($) (LitMechanism, v: uint16[])      = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
     static member ($) (LitMechanism, v: int[])      = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
+    static member ($) (LitMechanism, v: uint[])      = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
+    static member ($) (LitMechanism, v: uint64[])      = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
     static member ($) (LitMechanism, v: Half[])    = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
     static member ($) (LitMechanism, v: int64[])    = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
+    static member ($) (LitMechanism, v: decimal[])    = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
     static member ($) (LitMechanism, v: float[])    = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
-    static member ($) (LitMechanism, v: float32[])  = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
+    static member ($) (LitMechanism, v: single[])  = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
     static member ($) (LitMechanism, v: string[])   = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
     static member ($) (LitMechanism, v: bool[])     = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
     static member ($) (LitMechanism, v: DateTime[]) = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
+    static member ($) (LitMechanism, v: DateTimeOffset[]) = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
+    static member ($) (LitMechanism, v: DateOnly[]) = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
+    static member ($) (LitMechanism, v: TimeOnly[]) = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
 
     // --- Nullable List (Option) ---
     static member ($) (LitMechanism, v: int option list)    = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))

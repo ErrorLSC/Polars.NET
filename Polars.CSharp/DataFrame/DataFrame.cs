@@ -351,7 +351,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     /// <returns></returns>
     public DataFrame Sample(double fraction,bool withReplacement = false, bool shuffle = false, ulong? seed = null)
     {
-        using Series frac = Pl.Series("",[fraction]);
+        using Series frac = Pl.CreateSeries("",[fraction]);
         return new(PolarsWrapper.SampleFrac(Handle,frac.Handle , withReplacement, shuffle, seed));
     }
     /// <summary>

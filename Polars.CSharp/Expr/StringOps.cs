@@ -141,8 +141,8 @@ public readonly struct StringOps
         string[] keys = [.. mapping.Keys];
         string[] values = [.. mapping.Values];
 
-        using var patSeries = Pl.Series("patterns", keys).Implode();
-        using var valSeries = Pl.Series("replacements", values).Implode();
+        using var patSeries = Pl.CreateSeries("patterns", keys).Implode();
+        using var valSeries = Pl.CreateSeries("replacements", values).Implode();
 
         return ReplaceMany(patSeries, valSeries, asciiCaseInsensitive, leftmost);
     }

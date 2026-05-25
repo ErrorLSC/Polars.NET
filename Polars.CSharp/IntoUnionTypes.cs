@@ -190,7 +190,7 @@ public readonly struct IntoDateSeries
 {
     public readonly Series DateSeries;
 
-    public static implicit operator IntoDateSeries(ReadOnlySpan<DateOnly> datelist) => new(Pl.Series("__Date__",datelist));
+    public static implicit operator IntoDateSeries(ReadOnlySpan<DateOnly> datelist) => new(Pl.CreateSeries("__Date__",datelist));
     public static implicit operator IntoDateSeries(Series series) => new(series);
     public static implicit operator IntoDateSeries(Expr dateExpr) => new(Series.FromExpr(dateExpr));
 

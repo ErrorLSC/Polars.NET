@@ -412,6 +412,10 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
         var handle = PolarsWrapper.NewArrayType(inner.Handle, shape.AsSpan());
         return new DataType(handle, DataTypeKind.Array);
     }
+    /// <summary>
+    /// Create Struct composite type.
+    /// </summary>
+    /// <param name="fields">Definition of a single field within a Struct DataType.</param>
     public static DataType Struct(IEnumerable<Field> fields)
     {
         var names = new List<string>();
@@ -424,10 +428,13 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
         var h = PolarsWrapper.NewStructType([.. names], [.. handles]);
         return new DataType(h, DataTypeKind.Struct);
     }
+    /// <inheritdoc cref="Struct(IEnumerable{Field})"/>
     public static DataType Struct(params Field[] fields)
         => Struct((IEnumerable<Field>)fields);
+    /// <inheritdoc cref="Struct(IEnumerable{Field})"/>
     public static DataType Struct(IReadOnlyDictionary<string, DataType> fields)
         => Struct([.. fields.Select(kvp => (Field)kvp)]);
+    /// <inheritdoc cref="Struct(IEnumerable{Field})"/>    
     public static DataType Struct(string[] names, DataType[] types)
     {
         var handles = System.Array.ConvertAll(types, t => t.Handle);

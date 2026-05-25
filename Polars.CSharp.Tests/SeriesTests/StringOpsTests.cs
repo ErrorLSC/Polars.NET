@@ -11,7 +11,7 @@ public class SeriesStringOpsTests
     public void Test_Series_String_Basic_Ops()
     {
         string[] data = ["hello", "WORLD", "a.b*c?d", "title case", "波拉熊🐻"];
-        using Series s = Pl.Series("str_col", data);
+        using Series s = Pl.CreateSeries("str_col", data);
 
         using Series upper = s.Str.ToUppercase();
         Assert.Equal("str_col", upper.Name);
@@ -41,7 +41,7 @@ public class SeriesStringOpsTests
     public void Test_Series_String_Slice()
     {
         string[] data = ["apple", "banana", "cherry", "波拉熊"];
-        using Series s = Pl.Series("str_col", data);
+        using Series s = Pl.CreateSeries("str_col", data);
 
         using Series slice1 = s.Str.Slice(1);
         Assert.Equal(["pple", "anana", "herry", "拉熊"], slice1.ToArray<string>());
@@ -57,7 +57,7 @@ public class SeriesStringOpsTests
     public void Test_Series_String_Join()
     {
         string[] data = ["a", "b", null, "c"];
-        using Series s = Pl.Series("str_col", data);
+        using Series s = Pl.CreateSeries("str_col", data);
 
         using Series join1 = s.Str.Join("-", ignoreNulls: true);
         
@@ -79,7 +79,7 @@ public class SeriesStringOpsTests
             "123 abc 123", 
             "波拉熊 波拉熊"
         ];
-        using Series s = Pl.Series("str_col", data);
+        using Series s = Pl.CreateSeries("str_col", data);
 
         using Series replaceLiteral = s.Str.Replace("foo", "baz", literal: true, n: 1);
         Assert.Equal([
@@ -123,7 +123,7 @@ public class SeriesStringOpsTests
             "apple and banana", 
             "波拉熊 love polars"
         ];
-        using Series s = Pl.Series("str_col", data);
+        using Series s = Pl.CreateSeries("str_col", data);
 
         string[] expected = [
             "hi earth", 
@@ -149,8 +149,8 @@ public class SeriesStringOpsTests
         using Series resEnum = s.Str.ReplaceMany(patterns, replaceWith);
         Assert.Equal(expected, resEnum.ToArray<string>());
 
-        using Series patSeries = Pl.Series("pat", patterns).Implode();
-        using Series valSeries = Pl.Series("val", replaceWith).Implode();
+        using Series patSeries = Pl.CreateSeries("pat", patterns).Implode();
+        using Series valSeries = Pl.CreateSeries("val", replaceWith).Implode();
         
         using Series resSeries = s.Str.ReplaceMany(patSeries, valSeries);
         Assert.Equal(expected, resSeries.ToArray<string>());
@@ -160,7 +160,7 @@ public class SeriesStringOpsTests
     public void Test_Series_String_Extract()
     {
         string[] data = ["user@gmail.com", "admin@yahoo.com", "invalid-email", "波拉熊@polars.rs"];
-        using Series s = Pl.Series("emails", data);
+        using Series s = Pl.CreateSeries("emails", data);
 
         using Series ext1 = s.Str.Extract(@"([^@]+)@([^@]+)");
         Assert.Equal(["user", "admin", null, "波拉熊"], ext1.ToArray<string>());
@@ -174,14 +174,14 @@ public class SeriesStringOpsTests
     public void Test_Series_String_ExtractMany()
     {
         string[] data = ["I like apple and banana", "I love cherry", "Nothing here", "波拉熊 likes bamboo"];
-        using Series s = Pl.Series("text", data);
+        using Series s = Pl.CreateSeries("text", data);
 
         string[] patterns = ["apple", "banana", "cherry", "bamboo"];
 
         using Series resEnum = s.Str.ExtractMany(patterns);
         Assert.Equal(["apple","banana", "cherry", null, "bamboo"], resEnum.Explode().ToArray<string>());
 
-        using Series patSeries = Pl.Series("patterns", patterns);
+        using Series patSeries = Pl.CreateSeries("patterns", patterns);
         using Series resSeries = s.Str.ExtractMany(patSeries.Implode());
         Assert.Equal(["apple","banana", "cherry", null, "bamboo"], resSeries.Explode().ToArray<string>());
     }
@@ -191,7 +191,7 @@ public class SeriesStringOpsTests
     public void Test_Series_String_ExtractAll()
     {
         string[] data = ["apple 123", "banana 456 789", "no numbers", "波拉熊 111"];
-        using Series s = Pl.Series("text", data);
+        using Series s = Pl.CreateSeries("text", data);
 
         string[] patterns = [@"\d+"];
 
@@ -199,7 +199,7 @@ public class SeriesStringOpsTests
         Assert.Equal(4, resEnum.Length);
         Assert.Equal(DataType.List(DataType.String), resEnum.DataType);
 
-        using Series patSeries = Pl.Series("pat", patterns);
+        using Series patSeries = Pl.CreateSeries("pat", patterns);
         using Series resSeries = s.Str.ExtractAll(patSeries);
         Assert.Equal(4, resSeries.Length);
     }
@@ -214,7 +214,7 @@ public class SeriesStringOpsTests
             "invalid_text", 
             "url: http://波拉熊.com"
         ];
-        using Series s = Pl.Series("text", data);
+        using Series s = Pl.CreateSeries("text", data);
 
         string pattern = @"url: (?<protocol>\w+)://(?<domain>.+)";
         using Series groups = s.Str.ExtractGroups(pattern);
@@ -234,7 +234,7 @@ public class SeriesStringOpsTests
             "你好 波拉熊",
             null
         ];
-        using Series s = Pl.Series("text", data);
+        using Series s = Pl.CreateSeries("text", data);
 
         using Series containsLiteral = s.Str.Contains("world", literal: true);
         Assert.Equal([true, false, false, false, null], containsLiteral.ToArray<bool?>());
@@ -260,7 +260,7 @@ public class SeriesStringOpsTests
             "波拉熊 eats bamboo",
             null
         ];
-        using Series s = Pl.Series("text", data);
+        using Series s = Pl.CreateSeries("text", data);
 
         string[] patterns = ["apple", "polars", "波拉熊"];
 
@@ -270,7 +270,7 @@ public class SeriesStringOpsTests
         using Series anyCaseInsensitive = s.Str.ContainsAny(patterns, asciiCaseInsensitive: true);
         Assert.Equal([true, false, true, true, null], anyCaseInsensitive.ToArray<bool?>());
 
-        using Series patSeries = Pl.Series("patterns", patterns);
+        using Series patSeries = Pl.CreateSeries("patterns", patterns);
         using Series anyWithSeries = s.Str.ContainsAny(patSeries, asciiCaseInsensitive: true);
         Assert.Equal([true, false, true, true, null], anyWithSeries.ToArray<bool?>());
     }
@@ -284,7 +284,7 @@ public class SeriesStringOpsTests
             "波拉熊", 
             null
         ];
-        using Series s = Pl.Series("text", data);
+        using Series s = Pl.CreateSeries("text", data);
 
         using Series split1 = s.Str.Split(",");
         Assert.Equal(4, split1.Length);
@@ -305,7 +305,7 @@ public class SeriesStringOpsTests
             "e,f", 
             "g"
         ];
-        using Series s = Pl.Series("text", data);
+        using Series s = Pl.CreateSeries("text", data);
 
         using Series splitN = s.Str.SplitN(",", n: 3);
 
@@ -322,7 +322,7 @@ public class SeriesStringOpsTests
             "5|6|7", 
             "8|9"
         ];
-        using Series s = Pl.Series("text", data);
+        using Series s = Pl.CreateSeries("text", data);
 
         using Series splitExact1 = s.Str.SplitExact("|", n: 3, inclusive: false);
         
@@ -344,7 +344,7 @@ public class SeriesStringOpsTests
             "波拉熊", 
             null
         ];
-        using Series s = Pl.Series("text", data);
+        using Series s = Pl.CreateSeries("text", data);
 
         using Series findLiteral = s.Str.Find("o", literal: true);
         
@@ -367,7 +367,7 @@ public class SeriesStringOpsTests
             "波拉熊 eats bamboo",
             null
         ];
-        using Series s = Pl.Series("text", data);
+        using Series s = Pl.CreateSeries("text", data);
 
         string[] patternsArray = ["apple", "polars", "波拉熊", "bamboo"];
         var patterns = Pl.Lit(patternsArray).Implode();
@@ -381,7 +381,7 @@ public class SeriesStringOpsTests
         Assert.Equal([7,null,0,0,15,null], findManyInsensitive.Explode().ToArray<uint?>());
         
         string[] overlapData = ["ababc"];
-        using Series sOverlap = Pl.Series("overlap", overlapData);
+        using Series sOverlap = Pl.CreateSeries("overlap", overlapData);
         var overlapPat = Pl.Lit(["abab", "babc"]).Implode();
 
         using Series findOverlap = sOverlap.Str.FindMany(overlapPat, leftmost: true);
@@ -398,7 +398,7 @@ public class SeriesStringOpsTests
             "波拉熊 波拉熊",
             null
         ];
-        using Series s = Pl.Series("text", data);
+        using Series s = Pl.CreateSeries("text", data);
 
         string[] literalPatterns = [
             "apple",  
@@ -421,7 +421,7 @@ public class SeriesStringOpsTests
             @".*"         
         ];
         
-        using Series patSeries = Pl.Series("patterns", regexPatterns);
+        using Series patSeries = Pl.CreateSeries("patterns", regexPatterns);
         using Series countRegex = s.Str.CountMatches(patSeries, literal: false);
 
         Assert.Equal([2u, 5u, 3u, 2u, null], countRegex.ToArray<uint?>());
@@ -437,7 +437,7 @@ public class SeriesStringOpsTests
             " no space ", 
             null
         ];
-        using Series s = Pl.Series("text", data);
+        using Series s = Pl.CreateSeries("text", data);
 
 
         using Series stripAll = s.Str.StripChars();
@@ -461,7 +461,7 @@ public class SeriesStringOpsTests
             "波拉熊波", 
             null
         ];
-        using Series s = Pl.Series("text", data);
+        using Series s = Pl.CreateSeries("text", data);
 
         using Series stripChars = s.Str.StripChars("xy");
         Assert.Equal(["hello", "abab-test-baba", "波拉熊波", null], stripChars.ToArray<string>());
@@ -485,7 +485,7 @@ public class SeriesStringOpsTests
             "波拉熊_info.txt", 
             null
         ];
-        using Series s = Pl.Series("text", data);
+        using Series s = Pl.CreateSeries("text", data);
 
         using Series stripPrefix = s.Str.StripPrefix("admin_");
         
@@ -510,7 +510,7 @@ public class SeriesStringOpsTests
             "polar bear", 
             "arctic polar"
         ];
-        using Series s = Pl.Series("text", data);
+        using Series s = Pl.CreateSeries("text", data);
 
         using Series starts = s.Str.StartsWith("pol");
         
@@ -538,7 +538,7 @@ public class SeriesStringOpsTests
             "cherry", 
             "波拉熊"
         ];
-        using Series s = Pl.Series("text", data);
+        using Series s = Pl.CreateSeries("text", data);
 
         using Series head2 = s.Str.Head(2);
  
@@ -565,7 +565,7 @@ public class SeriesStringOpsTests
             """{"user": "charlie"}""", 
             null
         ];
-        using Series s = Pl.Series("json_col", data);
+        using Series s = Pl.CreateSeries("json_col", data);
 
         using Series matchUser = s.Str.JsonPathMatch("$.user");
         
@@ -602,7 +602,7 @@ public class SeriesStringOpsTests
             "12345", 
             "波拉熊"
         ];
-        using Series s = Pl.Series("text", data);
+        using Series s = Pl.CreateSeries("text", data);
 
         using Series zfill = s.Str.Zfill(5);
 
@@ -635,7 +635,7 @@ public class SeriesStringOpsTests
             "波拉熊", 
             null
         ];
-        using Series s = Pl.Series("text", data);
+        using Series s = Pl.CreateSeries("text", data);
 
         // ==========================================
         // String -> Hex -> Binary -> String
@@ -679,7 +679,7 @@ public class SeriesStringOpsTests
             "68656c6c6f", 
             null
         ];
-        using Series invalidSeries = Pl.Series("invalid_data", invalidData);
+        using Series invalidSeries = Pl.CreateSeries("invalid_data", invalidData);
 
         using Series nonStrictDecoded = invalidSeries.Str.Decode(TransferEncoding.Hex, strict: false);
 
@@ -701,7 +701,7 @@ public class SeriesStringOpsTests
             "not_a_date", 
             null
         ];
-        using Series s = Pl.Series("date_str", data);
+        using Series s = Pl.CreateSeries("date_str", data);
 
         using Series parsedDate = s.Str.ToDate(strict: false);
         
@@ -711,7 +711,7 @@ public class SeriesStringOpsTests
         Assert.Equal(["2024-01-01", "2024-12-31", null, null], dateAsStr.ToArray<string>());
 
         string[] customData = ["31/12/2024", "01/01/2024"];
-        using Series sCustom = Pl.Series("custom_date", customData);
+        using Series sCustom = Pl.CreateSeries("custom_date", customData);
 
         using Series parsedCustom = sCustom.Str.ToDate(format: "%d/%m/%Y");
         using Series customAsStr = parsedCustom.Cast(DataType.String);
@@ -734,7 +734,7 @@ public class SeriesStringOpsTests
             "invalid_time", 
             null
         ];
-        using Series s = Pl.Series("time_str", data);
+        using Series s = Pl.CreateSeries("time_str", data);
 
         using Series parsedTime = s.Str.ToTime(strict: false);
         
@@ -743,7 +743,7 @@ public class SeriesStringOpsTests
         Assert.Equal([new TimeOnly(12,30,45),new TimeOnly(8,15,0,123), null, null], parsedTime.ToArray<TimeOnly?>());
 
         string[] customData = ["14-30-00", "09-00-00"];
-        using Series sCustom = Pl.Series("custom_time", customData);
+        using Series sCustom = Pl.CreateSeries("custom_time", customData);
 
         using Series parsedCustom = sCustom.Str.ToTime(format: "%H-%M-%S");
         
@@ -764,7 +764,7 @@ public class SeriesStringOpsTests
             "invalid_datetime", 
             null
         ];
-        using Series s = Pl.Series("datetime_str", data);
+        using Series s = Pl.CreateSeries("datetime_str", data);
 
         using Series parsedDt = s.Str.ToDatetime(strict: false);
         
@@ -777,7 +777,7 @@ public class SeriesStringOpsTests
         ], parsedDt.ToArray<DateTime?>());
 
         string[] customData = ["2024/05/20 14-30-00", "2023/11/11 11-11-11"];
-        using Series sCustom = Pl.Series("custom_dt", customData);
+        using Series sCustom = Pl.CreateSeries("custom_dt", customData);
 
         using Series parsedCustom = sCustom.Str.ToDatetime(format: "%Y/%m/%d %H-%M-%S");
         
@@ -797,7 +797,7 @@ public class SeriesStringOpsTests
     public void Test_Series_String_Strptime()
     {
         string[] dateData = ["2024-01-01", "2024-12-31", null];
-        using Series sDate = Pl.Series("date_str", dateData);
+        using Series sDate = Pl.CreateSeries("date_str", dateData);
 
         using Series parsedDate = sDate.Str.Strptime(DataType.Date, strict: false);
         
@@ -809,7 +809,7 @@ public class SeriesStringOpsTests
         ], parsedDate.ToArray<DateOnly?>());
 
         string[] dtData = ["01-01-2024 12:00", "15-08-2025 08:30"];
-        using Series sDt = Pl.Series("dt_str", dtData);
+        using Series sDt = Pl.CreateSeries("dt_str", dtData);
 
         using Series parsedDt = sDt.Str.Strptime(DataType.Datetime(TimeUnit.Microseconds), format: "%d-%m-%Y %H:%M");
         
@@ -829,7 +829,7 @@ public class SeriesStringOpsTests
             "0.00", 
             null
         ];
-        using Series s = Pl.Series("decimal_str", data);
+        using Series s = Pl.CreateSeries("decimal_str", data);
 
         using Series parsedDec = s.Str.ToDecimal(scale: 2);
 
@@ -848,7 +848,7 @@ public class SeriesStringOpsTests
             "0", 
             null
         ];
-        using Series s = Pl.Series("int_str", data);
+        using Series s = Pl.CreateSeries("int_str", data);
 
         using Series parsedDefault = s.Str.ToInteger();
 
@@ -856,13 +856,13 @@ public class SeriesStringOpsTests
         Assert.Equal([42L, -100L, 0L, null], parsedDefault.ToArray<long?>());
 
         string[] hexData = ["1A", "FF", "-10"];
-        using Series sHex = Pl.Series("hex_str", hexData);
+        using Series sHex = Pl.CreateSeries("hex_str", hexData);
 
         using Series parsedHex = sHex.Str.ToInteger(radix: 16);
         Assert.Equal([26L, 255L, -16L], parsedHex.ToArray<long>()); 
 
         string[] binData = ["1010", "1111"];
-        using Series sBin = Pl.Series("bin_str", binData);
+        using Series sBin = Pl.CreateSeries("bin_str", binData);
 
         using Expr radixExpr = Pl.Lit(2);
         using Series parsedBin = sBin.Str.ToInteger(radix: radixExpr, dtype: DataType.Int32);
@@ -873,7 +873,7 @@ public class SeriesStringOpsTests
 
 
         string[] invalidData = ["123", "not_a_number", null];
-        using Series sInv = Pl.Series("inv_str", invalidData);
+        using Series sInv = Pl.CreateSeries("inv_str", invalidData);
 
         using Series parsedInv = sInv.Str.ToInteger(strict: false);
 
@@ -898,7 +898,7 @@ public class SeriesStringOpsTests
             "\uFB01", 
             null
         ];
-        using Series s = Pl.Series("unicode_str", data);
+        using Series s = Pl.CreateSeries("unicode_str", data);
 
         using Series nfd = s.Str.Normalize(NormalizationForm.FormD);
         

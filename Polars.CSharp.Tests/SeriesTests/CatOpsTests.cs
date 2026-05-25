@@ -16,7 +16,7 @@ public class SeriesCategoricalOpsTests
             null
         ];
 
-        using Series sStr = Pl.Series("cat_data", data);
+        using Series sStr = Pl.CreateSeries("cat_data", data);
         using Series s = sStr.Cast(DataType.Categorical("name"));
 
         using Series categories = s.Cat.GetCategories();

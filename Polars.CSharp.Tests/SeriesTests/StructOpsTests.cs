@@ -11,7 +11,7 @@ public class SeriesStructOpsTests
         // Row 0: [1, 2] -> { "a": 1, "b": 2 }
         // Row 1: [3, 4] -> { "a": 3, "b": 4 }
         int[,] data = { { 1, 2 }, { 3, 4 } };
-        using Series arrSeries = Pl.Series("array", data);
+        using Series arrSeries = Pl.CreateSeries("array", data);
         using Series structSeries = arrSeries.Array.ToStruct(["a", "b"]);
 
         using Series newStructSeries = structSeries.Struct.WithFields(
@@ -39,7 +39,7 @@ public class SeriesStructOpsTests
         // Row 0: { "a": 10, "b": 20, "c": 30 }
         // Row 1: { "a": 40, "b": 50, "c": 60 }
         int[,] data = { { 10, 20, 30 }, { 40, 50, 60 } };
-        using Series arrSeries = Pl.Series("array", data);
+        using Series arrSeries = Pl.CreateSeries("array", data);
         using Series structSeries = arrSeries.Array.ToStruct(["a", "b", "c"]);
 
         string[] fields = structSeries.Struct.Fields;

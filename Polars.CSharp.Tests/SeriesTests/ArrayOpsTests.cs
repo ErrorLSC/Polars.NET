@@ -11,7 +11,7 @@ public class SeriesArrayOpsTests
         // Row 0: [1, 2]
         // Row 1: [3, 4]
         int[,] data = { {1, 2}, {3, 4} };
-        Series arrSeries = Pl.Series("array",data);
+        Series arrSeries = Pl.CreateSeries("array",data);
         Series lenSeries = arrSeries.Array.Len();
 
         Assert.Equal([2u,2u],lenSeries.ToArray<uint>());
@@ -33,7 +33,7 @@ public class SeriesArrayOpsTests
         // Row 0: [10, 20, 30]
         // Row 1: [40, 50, 60]
         int[,] data = { { 10, 20, 30 }, { 40, 50, 60 } };
-        Series arrSeries = Pl.Series("array", data);
+        Series arrSeries = Pl.CreateSeries("array", data);
 
         // "field_index_0", "field_index_1", "field_index_2"
         using Series structSeries = arrSeries.Array.ToStruct(i => $"field_index_{i}", 3);
@@ -55,7 +55,7 @@ public class SeriesArrayOpsTests
         // Row 0: [1, 1, 2]
         // Row 1: [3, 4, 4]
         int[,] data = { { 1, 1, 2 }, { 3, 4, 4 } };
-        using Series arrSeries = Pl.Series("array", data);
+        using Series arrSeries = Pl.CreateSeries("array", data);
 
         using Series nUnique = arrSeries.Array.NUnique();
 

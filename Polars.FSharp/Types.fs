@@ -1205,7 +1205,9 @@ and PolarsSchema (handle: SchemaHandle) =
                 for th in typeHandles do th.Dispose()
     /// <summary> Create an empty schema </summary>
     new () = new PolarsSchema(PolarsWrapper.SchemaCreate())
-
+    new (fields: seq<Field>) =
+        let tuples = fields |> Seq.map (fun f -> f.Name, f.DataType)
+        new PolarsSchema(tuples)
     /// <summary> Create schema from field definitions </summary>
     new (fields: seq<string * DataType>) =
         new PolarsSchema(PolarsSchema.CreateHandleFromFields fields)

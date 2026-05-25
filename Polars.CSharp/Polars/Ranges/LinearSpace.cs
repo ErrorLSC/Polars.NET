@@ -40,7 +40,7 @@ public readonly partial struct Polars
     {
         var expr = LinearSpace(start, end, numSamples, closed);
         
-        Series series = Series(expr);
+        Series series = CreateSeries(expr);
         series.Rename(name);
         
         return series;
@@ -85,7 +85,7 @@ public readonly partial struct Polars
         string name = "linear_spaces")
     {
         var expr = LinearSpaces(start, end, numSamples, closed, asArray);
-        Series series = Series(expr);
+        Series series = CreateSeries(expr);
         series.Rename(name);
         
         return series;

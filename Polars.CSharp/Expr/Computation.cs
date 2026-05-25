@@ -319,7 +319,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <inheritdoc cref="Expr.SearchSorted(IntoExpr, SearchSortedSide, bool)"/>
     public Expr SearchSorted<T>(IEnumerable<T> element, SearchSortedSide side = SearchSortedSide.Any, bool descending = false)
     {
-        Series temp = Pl.Series("temp",element);
+        Series temp = Pl.CreateSeries("temp",element);
         return SearchSorted(temp,side,descending);
     }
 }

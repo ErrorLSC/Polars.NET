@@ -1772,7 +1772,7 @@ TooShort,1990-05-20,1.60";
         int[] validIds = [1, 3, 5];       
         string[] validNames = ["Bob", "Eve"]; 
 
-        Series vNS = Pl.Series("vns",validNames).Implode();
+        Series vNS = Pl.CreateSeries("vns",validNames).Implode();
 
         var res = df.Select(
             Pl.Col("id").IsIn(validIds).Alias("id_in_whitelist"),
@@ -2428,7 +2428,7 @@ TooShort,1990-05-20,1.60";
             Pl.ConcatString("-", true, Pl.Col("WordA"), Pl.Col("WordB")).Alias("concat_ignore"),
             
             // --- FormatString (Template formatting) ---
-            Pl.FormatString("[{}] + [{}] = ❤️", Pl.Col("WordA"), Pl.Col("WordB")).Alias("format_str")
+            Pl.Format("[{}] + [{}] = ❤️", Pl.Col("WordA"), Pl.Col("WordB")).Alias("format_str")
         );
 
         // shape: (4, 3)
@@ -3350,7 +3350,7 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(114514.0,dfAppend[0][4]);
         Assert.Equal(725000.0,dfAppend[1][4]);
     }
-    private static DataFrame CreateTestDataFrame() => Pl.DataFrame(
+    private static DataFrame CreateTestDataFrame() => Pl.CreateDataFrame(
         ("A", new[] { 1, 1, 2, 2 }),
         ("B", new[] { 5, 3, 4, 6 }),
         ("C", new int?[] { null, 10, 20, null })
@@ -3431,7 +3431,7 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Inspect")]
     public void Test_ExprInspect()
     {
-            using DataFrame df = Pl.DataFrame(Series.From("nihao", [1, 1, 2]));
+            using DataFrame df = Pl.CreateDataFrame(Series.From("nihao", [1, 1, 2]));
             
             using DataFrame res = df.Select(
                 Pl.Col("nihao")
@@ -3451,7 +3451,7 @@ TooShort,1990-05-20,1.60";
     public void Test_ExprToPhysical()
     {
         using var sDate = Pl.DateRangeAsSeries(new DateOnly(1991,12,3),new DateOnly(1991,12,5));
-        using var sDec = Pl.Series("dec",[10.000m,12312.123m,114.514000m]);
+        using var sDec = Pl.CreateSeries("dec",[10.000m,12312.123m,114.514000m]);
         using DataFrame df = [sDate,sDec];
         using var df1 = df.WithColumns(Pl.All().ToPhysical());
         using var schema = PolarsSchema.From([("date",DataType.Int32),("dec",DataType.Int128)]);
@@ -3462,7 +3462,7 @@ TooShort,1990-05-20,1.60";
     public void Test_ExprSlice()
     {
         using var sDate = Pl.DateRangeAsSeries(new DateOnly(1991,12,3),new DateOnly(1991,12,5));
-        using var sDec = Pl.Series("dec",[10.000m,12312.123m,114.514000m]);
+        using var sDec = Pl.CreateSeries("dec",[10.000m,12312.123m,114.514000m]);
         using DataFrame df = [sDate,sDec];
         using var df1 = df.Select(Pl.All().Slice(2));
         Assert.Equal(1L,df1.Height);
@@ -3491,7 +3491,7 @@ TooShort,1990-05-20,1.60";
         // a: [1, 2, 3, 4, 5] -> mean = 3
         // b: [2, 4, 6, 8, 10] -> mean = 6
         // Sum of squared differences = (-2*-4) + (-1*-2) + 0 + (1*2) + (2*4) = 8 + 2 + 0 + 2 + 8 = 20
-        using var df = Pl.DataFrame(
+        using var df = Pl.CreateDataFrame(
             ("a", new double[] { 1, 2, 3, 4, 5 }),
             ("b", new double[] { 2, 4, 6, 8, 10 })
         );
@@ -3507,7 +3507,7 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Correlation")]
     public void Test_Corr_Expr()
     {
-        using var df = Pl.DataFrame(
+        using var df = Pl.CreateDataFrame(
             ("a", new double[] { 1, 2, 3, 4, 5 }),
             ("b", new double[] { 2, 4, 6, 8, 10 }), 
             ("c", new double[] { 1, 10, 100, 1000, 10000 }) 
@@ -3530,7 +3530,7 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Correlation_NaNs")]
     public void Test_Corr_Spearman_PropagateNans()
     {
-        using var df = Pl.DataFrame(
+        using var df = Pl.CreateDataFrame(
             ("a", new double[] { 1, 2, double.NaN, 4, 5 }),
             ("b", new double[] { 1, 2, 3, 4, 5 })
         );
@@ -3548,8 +3548,8 @@ TooShort,1990-05-20,1.60";
     [Trait("Series", "Cov_And_Corr")]
     public void Test_AsSeries_Direct_Evaluation()
     {
-        using var s1 = Pl.Series("s1", new double[] { 1, 2, 3, 4, 5 });
-        using var s2 = Pl.Series("s2", new double[] { 2, 4, 6, 8, 10 });
+        using var s1 = Pl.CreateSeries("s1", new double[] { 1, 2, 3, 4, 5 });
+        using var s2 = Pl.CreateSeries("s2", new double[] { 2, 4, 6, 8, 10 });
 
         // CovAsSeries
         using var covSeries = Pl.CovAsSeries(s1, s2);
@@ -3563,7 +3563,7 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Rolling")]
     public void Test_RollingCov()
     {
-        using var df = Pl.DataFrame(
+        using var df = Pl.CreateDataFrame(
             ("a", new double[] { 1, 2, 3, 4, 5 }),
             ("b", new double[] { 2, 4, 6, 8, 10 })
         );
@@ -3583,7 +3583,7 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Rolling")]
     public void Test_RollingCorr_With_MinSamples()
     {
-        using var df = Pl.DataFrame(
+        using var df = Pl.CreateDataFrame(
             ("a", new double[] { 1, 2, 3, 4, 5 }),
             ("b", new double[] { 1, 2, 3, 2, 1 })
         );
@@ -3605,7 +3605,7 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Repeat")]
     public void Test_Repeat_Expr_Basic_And_Null()
     {
-        var df = new DataFrame(Pl.Series("dummy", [1]));
+        var df = new DataFrame(Pl.CreateSeries("dummy", [1]));
 
         var result = df.Select(
             Pl.Repeat("Polars", 3).Alias("StrCol"),
@@ -3625,7 +3625,7 @@ TooShort,1990-05-20,1.60";
     [Trait("Expr", "Pipe")]
     public void Test_Expr_Pipe()
     {
-        using var df = Pl.DataFrame(
+        using var df = Pl.CreateDataFrame(
             ("raw", new[] { -3.7, 2.9, -1.2, 5.5 })
         );
 

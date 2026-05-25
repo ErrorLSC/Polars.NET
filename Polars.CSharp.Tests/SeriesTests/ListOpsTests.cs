@@ -17,7 +17,7 @@ public class SeriesListOpsTests
             [4, 5],
             [6, 7, 8, 9]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         using Series get1 = listSeries.List.Get(1);
         Assert.Equal("list_col", get1.Name);
@@ -43,7 +43,7 @@ public class SeriesListOpsTests
             [40, 50, 60],
             [70, 80, 90]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // [[10, 30], [40, 60], [70, 90]]
         using Series gathered = listSeries.List.Gather(Pl.Lit([0, 2]));
@@ -67,7 +67,7 @@ public class SeriesListOpsTests
             [1, 2, 3, 4],
             [5, 6, 7, 8]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // [[4, 2], [8, 6]]
         using Series gathered = listSeries.List.Gather([3, 1]); 
@@ -88,7 +88,7 @@ public class SeriesListOpsTests
             [1, 2, 3, 4, 5],
             [10, 20, 30, 40, 50]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // GatherEvery(n = 2) -> offset 为 0
         // [[1, 3, 5], [10, 30, 50]]
@@ -123,7 +123,7 @@ public class SeriesListOpsTests
             [1, 2, 3, 4],
             [5, 6, 7, 8]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // Slice(offset = 1, length = 2)
         // -> [[2, 3], [6, 7]]
@@ -154,7 +154,7 @@ public class SeriesListOpsTests
             [1, 2, 3, 4, 5, 6],
             [10, 20]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // Head(n = 2)
         // -> [[1, 2], [10, 20]]
@@ -183,7 +183,7 @@ public class SeriesListOpsTests
             [1, 2, 3, 4],
             [10, 20, 30]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // Tail(n = 2)
         // -> [[3, 4], [20, 30]]
@@ -211,7 +211,7 @@ public class SeriesListOpsTests
             [1, 2, 3, 4],
             [10, 20]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // Shift() -> Shift(1) -> 
         // [[null, 1, 2, 3], [null, 10]]
@@ -246,7 +246,7 @@ public class SeriesListOpsTests
             [1, 3, 6, 10],
             [5, 10, 20, 40]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // Diff() -> n = 1 -> 
         // [[null, 2, 3, 4], [null, 5, 10, 20]]
@@ -283,7 +283,7 @@ public class SeriesListOpsTests
             [1, 2, 3, 4, 5],
             [10, 20, 30]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // SampleN(2) ->
         using Series sampled2 = listSeries.List.SampleN(2, seed: 42ul);
@@ -322,7 +322,7 @@ public class SeriesListOpsTests
             [1, 2, 3, 4],
             [10, 20, 30, 40]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // SampleFrac(0.5) -> 4 * 0.5 = 2 elements
         using Series sampledHalf = listSeries.List.SampleFrac(0.5, seed: 42ul);
@@ -348,7 +348,7 @@ public class SeriesListOpsTests
             [1, 2, 3],
             [4, 5]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // [1, 2, 3] U [2, 3, 4] => [1, 2, 3, 4]
         // [4, 5] U [2, 3, 4] => [4, 5, 2, 3] 
@@ -369,7 +369,7 @@ public class SeriesListOpsTests
             [1, 2, 3],
             [4, 5]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // [1, 2, 3] - [2, 3, 4] => [1]
         // [4, 5] - [2, 3, 4] => [5]
@@ -387,7 +387,7 @@ public class SeriesListOpsTests
             [1, 2, 3],
             [4, 5]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // [1, 2, 3] & [2, 3, 4] => [2, 3]
         // [4, 5] & [2, 3, 4] => [4]
@@ -408,7 +408,7 @@ public class SeriesListOpsTests
             [1, 2, 3],
             [4, 5]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // [1, 2, 3] ^ [2, 3, 4] => [1, 4]
         // [4, 5] ^ [2, 3, 4] => [5, 2, 3]
@@ -435,8 +435,8 @@ public class SeriesListOpsTests
             [4, 5]
         ];
 
-        using Series seriesA = Pl.Series("list_A", dataA);
-        using Series seriesB = Pl.Series("list_B", dataB);
+        using Series seriesA = Pl.CreateSeries("list_A", dataA);
+        using Series seriesB = Pl.CreateSeries("list_B", dataB);
 
         using Series symDiff = seriesA.List.SetSymmetricDifference(seriesB);
 
@@ -458,7 +458,7 @@ public class SeriesListOpsTests
             ["a", "b", "c"],
             ["x", null, "y"]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // 1. Len() -> 获取每个子列表的长度
         // Polars 中长度相关的返回类型通常是 uint32
@@ -482,7 +482,7 @@ public class SeriesListOpsTests
             [1, 2, 3],
             [10] 
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // 1. First()
         using Series firsts = listSeries.List.First();
@@ -501,7 +501,7 @@ public class SeriesListOpsTests
             [1, 2, 3],
             [4, 6]    
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // Sum() 
         using Series sum = listSeries.List.Sum();
@@ -528,7 +528,7 @@ public class SeriesListOpsTests
             [1, 2, 3],
             [4, 5, 6]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         using Series aggFirst = listSeries.List.Agg(Pl.Element().First());
 
@@ -543,7 +543,7 @@ public class SeriesListOpsTests
             [true, false, true],
             [false, false]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         using Series allSeries = listSeries.List.All();
         Assert.Equal([true, false, false], allSeries.ToArray<bool>());
@@ -560,7 +560,7 @@ public class SeriesListOpsTests
             [1, null, 1, 2, null],
             [3, 3, 3]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // DropNulls()
         using Series dropNulls = listSeries.List.DropNulls();
@@ -588,7 +588,7 @@ public class SeriesListOpsTests
             [10, 50, 30, 90], 
             [99, 1, 5, 2]    
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // ArgMax()
         using Series argMax = listSeries.List.ArgMax();
@@ -607,7 +607,7 @@ public class SeriesListOpsTests
             [1, 2, 3, 4, 5],
             [10, 10, 10, 10]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         // 1. Median() -> [3.0, 10.0]
         using Series median = listSeries.List.Median();
@@ -629,16 +629,16 @@ public class SeriesListOpsTests
     public void Test_Series_List_Concat_All_Signatures()
     {
         int[][] data1 = [ [1, 2], [3, 4] ];
-        using Series s1 = Pl.Series("s1", data1);
+        using Series s1 = Pl.CreateSeries("s1", data1);
 
         int[][] data2 = [ [5], [6] ];
-        using Series s2 = Pl.Series("s2", data2);
+        using Series s2 = Pl.CreateSeries("s2", data2);
         using Series concatSingle = s1.List.Concat(s2);
 
         Assert.Equal([1, 3], concatSingle.List.Get(0).ToArray<int>());
 
         int[][] data3 = [ [7, 8], [9, 10] ];
-        using Series s3 = Pl.Series("s3", data3);
+        using Series s3 = Pl.CreateSeries("s3", data3);
         using Series concatMultiple = s1.List.Concat(s2, s3); 
 
         Assert.Equal([8, 10], concatMultiple.List.Get(-1).ToArray<int>());
@@ -658,7 +658,7 @@ public class SeriesListOpsTests
             [1, 2, 3],
             [10, 20]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         using Series reversed = listSeries.List.Reverse();
 
@@ -680,7 +680,7 @@ public class SeriesListOpsTests
             [],
             [3, 4, 5]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         using Series exploded = listSeries.List.Explode();
         using Series explodedEmptyDrop = listSeries.List.Explode(emptyAsNull:false);
@@ -698,7 +698,7 @@ public class SeriesListOpsTests
             [1, 2, 3],
             [4, 5, 6]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
         using Series arraySeries = listSeries.List.ToArray(3);
 
         Assert.Equal(arraySeries.DataType, DataType.Array(typeof(int),3));
@@ -716,7 +716,7 @@ public class SeriesListOpsTests
             [10, 20],
             [30, 40]
         ];
-        using Series listSeries = Pl.Series("list_col", data);
+        using Series listSeries = Pl.CreateSeries("list_col", data);
 
         using Series s1 = listSeries.List.ToStruct("A", "B");
         

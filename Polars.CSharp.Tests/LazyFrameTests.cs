@@ -606,7 +606,7 @@ David,40,80000";
     [Trait("LazyFrame","Slice")]
     public void Test_LazyFrame_Slice()
     {
-        using var s = Pl.Series("nihao",[1,2,3,4,5]);
+        using var s = Pl.CreateSeries("nihao",[1,2,3,4,5]);
 
         var slicedLf = s.ToFrame().Lazy().Slice(-3);
 
@@ -1256,7 +1256,7 @@ David,40,80000";
     [Trait("LazyFrame", "Pipe")]
     public void Test_LazyFrame_Pipe()
     {
-        using var df = Pl.DataFrame(
+        using var df = Pl.CreateDataFrame(
             ("name", new[] { "Alice", "Bob", "Charlie", "Diana" }),
             ("score", new[] { 85, 92, 78, 88 })
         );
@@ -1277,7 +1277,7 @@ David,40,80000";
     [Trait("LazyFrame", "PipeWithSchema")]
     public void Test_LazyFrame_PipeWithSchema()
     {
-        using var df = Pl.DataFrame(
+        using var df = Pl.CreateDataFrame(
             ("a", new[] { 1, 2, 3 }),
             ("b", new[] { 10.0, 20.0, 30.0 })
         );

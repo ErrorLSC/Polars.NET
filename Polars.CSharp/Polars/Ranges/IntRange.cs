@@ -40,7 +40,7 @@ public readonly partial struct Polars
     public static Series IntRangeAsSeries(IntoExprColumn start, IntoExprColumn? end=null, long step = 1, string name = "int", IntoDataTypeExpr? dtype = null)
     {
         var expr = IntRange(start,end,step,dtype);
-        Series series = Series(expr);
+        Series series = CreateSeries(expr);
         series.Rename(name);
         return series.SetSorted(descending:step < 0);
     }
@@ -71,7 +71,7 @@ public readonly partial struct Polars
     public static Series IntRangesAsSeries(IntoExprColumn start, IntoExprColumn? end=null, IntoExprColumn? step = null, string name = "int", IntoDataTypeExpr? datatype = null)
     {
         var expr = IntRanges(start,end,step,datatype);
-        Series series = Series(expr);
+        Series series = CreateSeries(expr);
         series.Rename(name);
         return series;
     }

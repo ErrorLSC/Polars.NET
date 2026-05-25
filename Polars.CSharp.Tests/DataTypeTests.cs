@@ -1121,13 +1121,13 @@ public class DataTypeTests
         Assert.Equal(DataTypeKind.Extension, extGeoType.Kind);
 
         int[] data = [1, 2, 3, 4, 5];
-        using Series s = Pl.Series("values", data);
+        using Series s = Pl.CreateSeries("values", data);
 
         using Series sExt = s.Ext.To(extIntType);
 
         Assert.Equal(extIntType, sExt.DataType);
 
-        using DataFrame df = Pl.DataFrame(sExt);
+        using DataFrame df = Pl.CreateDataFrame(sExt);
         Assert.Equal(1, df.Width);
         Assert.Equal(DataTypeKind.Extension, df.Schema["values"].Kind);
 
@@ -1153,10 +1153,10 @@ public class DataTypeTests
         try
         {
             byte[][] uuidData = [[1, 2, 3], [4, 5, 6]]; 
-            using Series sUuid = Pl.Series("uuids", uuidData)
+            using Series sUuid = Pl.CreateSeries("uuids", uuidData)
                         .Cast(DataType.Binary) 
                         .Ext.To(new UuidExtension());
-            using DataFrame df1 = Pl.DataFrame(sUuid);
+            using DataFrame df1 = Pl.CreateDataFrame(sUuid);
 
             DataType readType = df1.Schema["uuids"];
             Assert.IsType<UuidExtension>(readType); 
@@ -1166,16 +1166,16 @@ public class DataTypeTests
             Assert.Equal(DataTypeKind.Binary, uuidType.Storage.Kind);
 
             using DataType transparentExt = DataType.Extension("myapp.transparent", DataType.Int64);
-            using Series sTrans = Pl.Series("trans", [100L, 200L]).Ext.To(transparentExt);
-            using DataFrame df2 = Pl.DataFrame(sTrans);
+            using Series sTrans = Pl.CreateSeries("trans", [100L, 200L]).Ext.To(transparentExt);
+            using DataFrame df2 = Pl.CreateDataFrame(sTrans);
 
             DataType readTransType = df2.Schema["trans"];
             Assert.IsNotType<BaseExtension>(readTransType, exactMatch: false); 
             Assert.Equal(DataType.Int64, readTransType);
 
             using DataType alienExt = DataType.Extension("alien.type", DataType.Float32, "{\"v\": 1}");
-            using Series sAlien = Pl.Series("alien", [3.14f]).Ext.To(alienExt);
-            using DataFrame df3 = Pl.DataFrame(sAlien);
+            using Series sAlien = Pl.CreateSeries("alien", [3.14f]).Ext.To(alienExt);
+            using DataFrame df3 = Pl.CreateDataFrame(sAlien);
 
             DataType readAlienType = df3.Schema["alien"];
             Assert.IsType<UnknownExtension>(readAlienType);

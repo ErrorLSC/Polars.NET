@@ -293,7 +293,7 @@ public class UdfTests
     public void Test_ExprMap_MultiColumn_Add_ArrowRaw()
     {
         // Arrange
-        using var df = Pl.DataFrame(
+        using var df = Pl.CreateDataFrame(
             ("a", new int[] { 1, 2, 3, 4, 5 }),
             ("b", new int[] { 10, 20, 30, 40, 50 })
         );
