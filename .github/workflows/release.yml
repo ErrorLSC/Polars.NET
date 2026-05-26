@@ -72,11 +72,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Add Swap Space to prevent OOM
+      - name: Setup Swap Space (Linux)
         if: runner.os == 'Linux'
-        uses: actionhippie/swap-space@v1
-        with:
-          size: 10G
+        run: |
+          sudo fallocate -l 10G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          sudo sysctl vm.swappiness=10
+          free -h
 
       - name: Remove Local Config (Linux)
         if: runner.os == 'Linux'
