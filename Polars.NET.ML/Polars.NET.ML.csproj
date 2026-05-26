@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
+    <IsPackable>true</IsPackable>
 
     <GenerateDocumentationFile>true</GenerateDocumentationFile> 
 
@@ -24,6 +25,10 @@
     <ProjectReference Include="..\Polars.NET.Core\Polars.NET.Core.csproj" />
     <ProjectReference Include="..\Polars.CSharp\Polars.CSharp.csproj" />
     <ProjectReference Include="..\Polars.FSharp\Polars.FSharp.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
   <ItemGroup>

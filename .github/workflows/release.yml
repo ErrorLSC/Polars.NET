@@ -72,25 +72,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Swap Space (Linux)
+      - name: Add Swap Space to prevent OOM
         if: runner.os == 'Linux'
-        run: |
-          sudo fallocate -l 10G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          sudo sysctl vm.swappiness=10
-          free -h
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 10
 
       - name: Remove Local Config (Linux)
         if: runner.os == 'Linux'
         run: rm -rf native_shim/.cargo
 
-      # Install Rust Toolchain 
+      # Install Rust
       - name: Install Rust Toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2026-01-09
+          toolchain: nightly-2026-01-09 
           targets: ${{ matrix.target }}
 
       # Install Cross
