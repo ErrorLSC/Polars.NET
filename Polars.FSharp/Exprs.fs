@@ -8,6 +8,7 @@ open Apache.Arrow
 /// </summary>
 type IColumnExpr =
     abstract member ToExprs : unit -> Expr list
+    abstract member ToSelector : unit -> Selector
 
 /// <summary>
 /// Represents a Polars Expression (lazy evaluation).
@@ -27,6 +28,7 @@ and Expr(handle: ExprHandle) =
 
     interface IColumnExpr with
         member this.ToExprs() = [this]
+        member this.ToSelector (): Selector = this.ToSelector()
     interface IEquatable<Expr> with
         member this.Equals(other: Expr) =
             if box other = null then 
@@ -951,6 +953,7 @@ and Selector(handle: SelectorHandle) =
     static member Float() = new Selector(PolarsWrapper.SelectorFloat());
     interface IColumnExpr with
         member this.ToExprs() = [this.ToExpr()]
+        member this.ToSelector() = this
 
     interface IDisposable with member _.Dispose() = handle.Dispose()
 
@@ -1140,29 +1143,3 @@ module DataTypeExtension =
         member this.ToDataTypeExpr() =
             let handle = PolarsWrapper.DataTypeExprFromDataType(this.Handle)
             new DataTypeExpr(handle)
-
-/// <summary>
-/// Let Expr & Selector in same line possible
-/// </summary>
-type ColumnExpr =
-    /// <summary> Expr </summary>
-    | Plain of Expr
-    
-    /// <summary> Selector </summary>
-    | Select of Selector
-    
-    /// <summary> Selector with Map </summary>
-    /// <example> Map(pl.cs.numeric(), fun e -> e * pl.lit(2)) </example>
-    | MapCols of Selector * (Expr -> Expr)
-
-    interface IColumnExpr with
-        member this.ToExprs() =
-            match this with
-            | Plain e -> [ e ]
-            
-            | Select s -> [ s.ToExpr() ]
-            
-            | MapCols (s, mapper) -> 
-                let wildcard = s.ToExpr()
-                let mappedExpr = mapper wildcard
-                [ mappedExpr ]

@@ -778,11 +778,11 @@ and DataFrame(handle: DataFrameHandle) =
     /// Horizontally stack columns to the DataFrame.
     /// Returns a new DataFrame with the new columns appended.
     /// </summary>
-    member this.HStack(columns: Series list) : DataFrame =
+    member this.HStack(columns: seq<Series> ) : DataFrame =
         let handles = 
             columns 
-            |> List.map (fun s -> s.Handle) 
-            |> List.toArray
+            |> Seq.map (fun s -> s.Handle) 
+            |> Seq.toArray
         
         new DataFrame(PolarsWrapper.HStack(this.Handle, handles))
 

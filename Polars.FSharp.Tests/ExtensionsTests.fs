@@ -94,11 +94,7 @@ type ``Extensions Tests`` () =
         
 
         df.PrintSchema() 
-        df.GlimpseFrame() |> pl.show |> ignore
-        
-        // DataFrame -> Seq
-        let dfFlat =
-            df |>pl.unnestColumns ["data"]
+        let dfFlat = df.GlimpseFrame() |> pl.show |> pl.unnestColumns ["data"]
         
         let readBack = dfFlat.ToRecords<ComplexData>() |> Seq.toList
         Assert.Equal(2, readBack.Length)

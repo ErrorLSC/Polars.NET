@@ -148,7 +148,7 @@ type SelectorTests() =
             df
             |> pl.groupBy [pl.col "Region"] 
             |> pl.agg [pl.cs.numeric().ToExpr().Sum()]
-            |> pl.sort [pl.col "Region"] false
+            |> pl.sortAscending [pl.col "Region"] 
 
         Assert.Equal(2L, dfAgg.Height)
         // US Sum: 100 + 150 = 250

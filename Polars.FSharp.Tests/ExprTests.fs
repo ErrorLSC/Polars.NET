@@ -334,7 +334,7 @@ type ``String Logic Tests`` () =
         Assert.Equal(1000.0, v2)
     [<Fact>]
     member _.``Control Flow: IfElse (When/Then/Otherwise)`` () =
-        // 构造成绩数据
+
         use csv = new TempCsv "student,score\nAlice,95\nBob,70\nCharlie,50"
         let df = DataFrame.ReadCsv csv.Path
 
@@ -357,7 +357,7 @@ type ``String Logic Tests`` () =
         let res = 
             df 
             |> pl.withColumn gradeExpr
-            |> pl.sort [pl.col "score"] true 
+            |> pl.sortDescending [pl.col "score"] 
 
         // Alice (95) -> A
         Assert.Equal("A", res.String("grade", 0).Value)

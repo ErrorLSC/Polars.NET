@@ -65,7 +65,7 @@ type ``Complex Query Tests`` () =
             |> pl.groupByLazy keys
             |> pl.havingLazy havingCond
             |> pl.aggLazy aggs
-            |> pl.sortLazy [pl.col "decade"] false
+            |> pl.sortAscendingLazy [pl.col "decade"] 
             |> pl.collect
         res |> pl.show |> ignore
         Assert.Equal(1L, res.Height) 
@@ -103,7 +103,7 @@ type ``Complex Query Tests`` () =
                     (pl.col "height").Mean().Round(2u).Name.Prefix "avg_"
                 ]
             |> pl.collect
-            |> pl.sort [pl.col "decade"] false
+            |> pl.sortAscending [pl.col "decade"] 
 
         let cols = res.ColumnNames
         Assert.DoesNotContain("birthdate", cols)
@@ -217,7 +217,7 @@ type ``Complex Query Tests`` () =
                 |> pl.alias "diff_from_avg"
             )
             |> pl.collect
-            |> pl.sort [pl.col "name"] false
+            |> pl.sortAscending [pl.col "name"] 
 
         // Alice (IT): 1000 - 1500 = -500
         Assert.Equal("Alice", res.String("name", 0).Value)
@@ -279,7 +279,7 @@ type ``Complex Query Tests`` () =
                 aggExpr = pl.col("").Sum() * pl.lit 2, 
                 sortColumns = true
             ) 
-            |> pl.sort [pl.col "year"] false
+            |> pl.sortAscending [pl.col "year"] 
 
         Assert.Equal(200, wideDfExpr.Cell<int>(0, "Q1"))
         
@@ -399,7 +399,7 @@ type ``Complex Query Tests`` () =
 
         let res = 
             lf
-            |> pl.sortLazy [pl.col "date"] false 
+            |> pl.sortAscendingLazy [pl.col "date"] 
             |> pl.withColumnLazy (
                 // 1.1: 10
                 // 1.2: (10+20)/2 = 15
@@ -422,7 +422,7 @@ type ``Complex Query Tests`` () =
         let res = 
             lf
 
-            |> pl.sortLazy [pl.col "time"] false
+            |> pl.sortAscendingLazy [pl.col "time"]
             |> pl.withColumnLazy (
                 // 10:00: [09:00, 10:00) -> 10
                 // 10:30: [09:30, 10:30) -> 10 + 20 = 30
@@ -484,28 +484,24 @@ type ``Complex Query Tests`` () =
         let amountNull = resSorted.Column("amount").IsNullAt 2
         Assert.True(amountNull, "Bob should have null amount")
     [<Fact>]
+    [<Trait("DataFrame","JoinAsOf")>]
     member _.``Join AsOf: Trades matching Quotes (with GroupBy and Tolerance)`` () =
 
-        let tradesContent = 
-            "time,ticker,volume\n" +
-            "1000,AAPL,10\n" +
-            "1000,MSFT,20\n" +
-            "1005,AAPL,10"
-        use tradesCsv = new TempCsv(tradesContent)
-        
-        let quotesContent = 
-            "time,ticker,bid\n" +
-            "998,MSFT,50.0\n" +
-            "999,AAPL,99.0\n" +
-            "1001,AAPL,101.0"
-        use quotesCsv = new TempCsv(quotesContent)
+        let dfTrades = pl.dataframe [
+            pl.series "time" [1000;1000;1005]
+            pl.series "ticker" ["AAPL";"MSFT";"AAPL"]
+            pl.series "volume" [10;20;10]
+        ] 
 
-        let lfTrades = LazyFrame.ScanCsv tradesCsv.Path |> pl.sortLazy [pl.col "time"] false
-        let lfQuotes = LazyFrame.ScanCsv quotesCsv.Path |> pl.sortLazy [pl.col "time"] false
+        let dfQuotes = pl.dataframe [
+            pl.series "time" [998;999;1001]
+            pl.series "ticker" ["MSFT";"AAPL";"AAPL"]
+            pl.series "bid" [50.0;99.0;101.0]
+        ] 
 
         let res = 
-            lfTrades.JoinAsOf(
-                lfQuotes,
+            dfTrades.JoinAsOf(
+                dfQuotes,
                 pl.col "time",
                 pl.col "time", 
                 Tolerance.Integer 2L,                      
@@ -513,10 +509,8 @@ type ``Complex Query Tests`` () =
                 byLeft = [pl.col "ticker"], 
                 byRight = [pl.col "ticker"]
             )
-            |> pl.sortLazy [pl.col "ticker"] false
-            |> pl.sortLazy [pl.col "time"] false
-            |> pl.collect
-
+            |> pl.sortAscending [pl.col "ticker"] 
+            |> pl.sortAscending [pl.col "time"] 
 
         // Row 0: time=1000, ticker=AAPL. 999 (diff=1 <= 2). Bid=99.0
         // Row 1: time=1000, ticker=MSFT. 998 (diff=2 <= 2). Bid=50.0
@@ -659,7 +653,7 @@ type ``Complex Query Tests`` () =
                 pl.col("Value").Mean().Alias("Mean")
                 pl.cs.numeric().ToExpr().Sum().Name.Suffix("_Sum") 
             ]
-            |> pl.sortLazy [ pl.col "Category"; pl.col "Time" ] false
+            |> pl.sortAscendingLazy [ pl.col "Category"; pl.col "Time" ] 
             |> pl.collect
 
         // Window 1 (10:00): [10:00, 12:00) -> 10:00, 10:30, 11:00, 11:30
@@ -1279,7 +1273,7 @@ type ``Complex Query Tests`` () =
                 Set.col "Stock" (fun ctx -> ctx.SourceCol "RestockQty")
             ])
             |> Merge.executeEager Engine.Auto
-            |> pl.sort [pl.col "Id"] false
+            |> pl.sortAscending [pl.col "Id"] 
 
         // Id=1: Apple, 1.0, 100
         Assert.Equal(Some 1L,   result.Int("Id", 0))
@@ -1343,7 +1337,7 @@ type ``Complex Query Tests`` () =
             |> Merge.execute
             |> pl.collect
 
-        let sorted = result |> pl.sort [pl.col "Id"] false
+        let sorted = result |> pl.sortAscending [pl.col "Id"] 
 
         // Id=1: Hero, HP=120, MP=60, Score=1200, Tag=Updated
         Assert.Equal(Some 1L,       sorted.Int("Id", 0))
@@ -1401,7 +1395,7 @@ type ``Complex Query Tests`` () =
             ])
             |> Merge.executeEager Engine.Auto
 
-        let sorted = result |> pl.sort [pl.col "TenantId"; pl.col "UserId"] false
+        let sorted = result |> pl.sortAscending [pl.cs.endsWith "Id"] 
 
         Assert.Equal(3L, sorted.Height)
 
@@ -1514,3 +1508,37 @@ type ``Complex Query Tests`` () =
 
         Assert.Equal(None, resultWithNull.String("val", 0))          // null
         Assert.Equal(Some "new_B", resultWithNull.String("val", 1))
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``Merge via module functions: initiate, setter update, insert all`` () =
+        let result =
+            [
+                pl.series "Id"    [1; 2; 3]
+                pl.series "Value" ["A"; "B"; "C"]
+            ] 
+            |> pl.dataframe |> pl.asLazy
+            |> Merge.initiate 
+                ([
+                    pl.series "Id"    [2; 3; 4]
+                    pl.series "Value" ["B_new"; "C_new"; "D"]
+                ]
+                |> pl.dataframe |> pl.asLazy) 
+
+                ["Id"]
+            |> Merge.whenMatchedUpdateSet (Set.build [
+                Set.col "Value" (fun ctx -> ctx.SourceCol "Value")
+            ])
+            |> Merge.whenNotMatchedInsertAll
+            |> Merge.execute
+            |> pl.sortAscendingLazy [pl.col "Id"]
+            |> pl.collect
+
+        Assert.Equal(4L, result.Height)
+        Assert.Equal(Some 1L, result.Int("Id", 0))
+        Assert.Equal(Some "A", result.String("Value", 0))
+        Assert.Equal(Some 2L, result.Int("Id", 1))
+        Assert.Equal(Some "B_new", result.String("Value", 1))
+        Assert.Equal(Some 3L, result.Int("Id", 2))
+        Assert.Equal(Some "C_new", result.String("Value", 2))
+        Assert.Equal(Some 4L, result.Int("Id", 3))
+        Assert.Equal(Some "D", result.String("Value", 3))

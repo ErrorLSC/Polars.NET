@@ -383,7 +383,7 @@ module ManipulateOps =
         /// <summary>
         /// Drop rows containing one or more NaN values.
         /// </summary>
-        member this.DropNan(?subset: Selector) =
+        member this.DropNans(?subset: Selector) =
             let subsetHandle = subset |> Option.map (fun s -> s.CloneHandle()) |> Option.toObj
                 
             let h = PolarsWrapper.LazyFrameDropNans(this.CloneHandle(), subsetHandle)
@@ -392,18 +392,18 @@ module ManipulateOps =
         /// <summary>
         /// Drop rows with NaN in specific columns.
         /// </summary>
-        member this.DropNan([<ParamArray>] subset: string array) =
+        member this.DropNans([<ParamArray>] subset: string array) =
             if isNull subset || subset.Length = 0 then 
-                this.DropNan()
+                this.DropNans()
             else 
-                this.DropNan(Expr.Col subset)
+                this.DropNans(Expr.Col subset)
 
         /// <summary>
         /// Drop rows with NaN by specific Expressions.
         /// </summary>
-        member this.DropNan([<ParamArray>] exprs: Expr array) =
+        member this.DropNans([<ParamArray>] exprs: Expr array) =
             if isNull exprs then nullArg (nameof exprs)
-            exprs |> Seq.fold (fun (lf: LazyFrame) expr -> lf.DropNan(expr.ToSelector())) this
+            exprs |> Seq.fold (fun (lf: LazyFrame) expr -> lf.DropNans(expr.ToSelector())) this
 
     type DataFrame with
         /// <summary>
@@ -465,25 +465,25 @@ module ManipulateOps =
         /// <summary>
         /// Drop rows containing one or more NaN values.
         /// </summary>
-        member this.DropNan(?subset: Selector) =
+        member this.DropNans(?subset: Selector) =
             use lf = this.Lazy()
-            let droppedLf: LazyFrame= lf.DropNan(?subset = subset)
+            let droppedLf: LazyFrame= lf.DropNans(?subset = subset)
             droppedLf.Collect()
 
         /// <summary>
         /// Drop rows with NaN in specific columns.
         /// </summary>
-        member this.DropNan([<ParamArray>]subset: string array) =
+        member this.DropNans([<ParamArray>]subset: string array) =
             use lf = this.Lazy()
-            let droppedLf: LazyFrame = lf.DropNan subset
+            let droppedLf: LazyFrame = lf.DropNans subset
             droppedLf.Collect()
 
         /// <summary>
         /// Drop rows with NaN by specific Expressions.
         /// </summary>
-        member this.DropNan([<ParamArray>]exprs: Expr array) =
+        member this.DropNans([<ParamArray>]exprs: Expr array) =
             use lf = this.Lazy()
-            let droppedLf: LazyFrame = lf.DropNan exprs
+            let droppedLf: LazyFrame = lf.DropNans exprs
             droppedLf.Collect()
     /// ========================
     /// Unique

@@ -243,9 +243,8 @@ module pl =
     /// Return the cumulative count of the non-null values in the column.This function is syntactic sugar for Col(column).CumCount().
     /// </summary>
     /// <param name="column">Name of the columns to use.</param>
-    /// <param name="reverse">reverse the operation</param>
-    let cumCount(column:string)(reverse:bool) =
-        col(column).CumCount(reverse)
+    let cumCount(column:string) =
+        col(column).CumCount(false)
     /// <summary>
     /// Count unique values.This function is syntactic sugar for pl.col(columns).NUnique().
     /// </summary>
@@ -269,8 +268,8 @@ module pl =
     /// Get the first value of the group/series.
     /// </summary>
     /// <returns>A new expression representing the first value.</returns>
-    let firstValue(columns:seq<string>,ignoreNulls:bool) =
-        cols(columns).First ignoreNulls
+    let firstValue(columns:seq<string>) =
+        cols(columns).First 
     /// <summary>
     /// Get the last column.
     /// </summary>
@@ -280,8 +279,8 @@ module pl =
     /// Get the last value of the group/series.
     /// </summary>
     /// <returns>A new expression representing the first value.</returns>
-    let lastValue(columns:seq<string>,ignoreNulls:bool) =
-        cols(columns).Last ignoreNulls
+    let lastValue(columns:seq<string>) =
+        cols(columns).Last 
     /// <summary>
     /// Get the standard deviation.
     /// This function is syntactic sugar for pl.col(column).Std(ddof).
@@ -848,16 +847,14 @@ module pl =
     /// This function is syntactic sugar for pl.col(name).Implode().
     /// </summary>
     /// <param name="column">Column name</param>
-    /// <param name="maintainOrder">Whether to preserve the order of elements in the list. Setting this to False can improve performance, especially within GroupBy.</param>
-    let implode (column:string) (maintainOrder:bool) = col(column).Implode()
+    let implode (column:string) = col(column).Implode()
     /// <summary>
     /// Get the nth column(s) of the context.
     /// </summary>
     /// <param name="indices">One or more indices representing the columns to retrieve.</param>
-    /// <param name="strict">By default, all specified indices must be valid; if any index is out of bounds, an error is raised. If set to False, out-of-bounds indices are ignored.</param>
-    let nth (indices:seq<int64>) (strict:bool) = 
+    let nth (indices:seq<int64>)= 
         let indSpan = ReadOnlySpan<int64> (indices |> Seq.toArray)
-        Selector.ByIndex(indSpan,strict)
+        Selector.ByIndex(indSpan,false)
     /// <summary>
     /// Escapes string regex meta characters.
     /// </summary>
@@ -941,9 +938,12 @@ module pl =
     let select (exprs: seq<#IColumnExpr>) (df: DataFrame) : DataFrame =
         df.Select exprs
     /// <summary> Sort (Order By) the DataFrame. </summary>
-    let sort (columns:seq<IColumnExpr>)(desc: bool)(df: DataFrame) : DataFrame =
-        df.Sort(columns,descending=desc)
-    let orderBy (columns: seq<IColumnExpr>) (desc: bool) (df: DataFrame) = sort columns desc df
+    let sortAscending (columns:seq<IColumnExpr>)(df: DataFrame) : DataFrame =
+        df.Sort(columns,descending=false)
+    let sortDescending (columns:seq<IColumnExpr>)(df: DataFrame) : DataFrame =
+        df.Sort(columns,descending=true)
+    let orderByAscending (columns: seq<IColumnExpr>) (df: DataFrame) = sortAscending columns df
+    let orderByDescending (columns: seq<IColumnExpr>) (df: DataFrame) = sortAscending columns df
     /// <summary> Group by keys and apply aggregations. </summary>
     let groupBy (keys: seq<Expr>)(df: DataFrame) : GroupBy =
         df.GroupBy(keys)
@@ -1051,32 +1051,12 @@ module pl =
         df.UnnestColumns columns
     let unnestColumnsLazy(columns: seq<string>) (lf:LazyFrame) =
         lf.Unnest columns
-    // --- Reshaping (Eager) ---
 
-    /// <summary> Pivot the DataFrame from long to wide format. </summary>
-    let pivot (index: string list) (columns: string list) (values: string list) (aggFn: PivotAgg) (df: DataFrame) : DataFrame =
-        df.Pivot(index,columns,values,aggFn)
-
-    /// <summary>
-    /// Unpivot (Melt) the DataFrame.
-    /// Supports pipelining: df |> Frame.unpivot ...
-    /// </summary>
-    let unpivot (index: seq<string>) (on: seq<string>) (variableName: string option) (valueName: string option) (df: DataFrame) =
-        df.Unpivot(index, on, variableName, valueName)
-    /// <summary>
-    /// Unpivot (Melt) the DataFrame by selector.
-    /// Supports pipelining: df |> Frame.unpivot ...
-    /// </summary>
-    let unpivotSel (index: Selector) (on: Selector) (variableName: string option) (valueName: string option) (df: DataFrame) =
-        df.Unpivot(index, on, variableName, valueName)
-    /// Alias for unpivot
-    let melt = unpivot    
     /// <summary>
     /// Horizontally stack columns to the DataFrame.
     /// </summary>
-    let hstack (columns: Series list) (df: DataFrame) : DataFrame =
+    let hstack (columns: seq<Series> ) (df: DataFrame) : DataFrame =
         df.HStack columns
-
     /// <summary>
     /// Vertically stack another DataFrame to this one.
     /// </summary>
@@ -1089,6 +1069,8 @@ module pl =
     let isNull (e: Expr) = e.IsNull()
     /// <summary> Check for non-null values. </summary>
     let isNotNull (e: Expr) = e.IsNotNull()
+    /// <summary> Reverse the expr. </summary>
+    let reverse (e:Expr) = e.Reverse()
     // unique and duplicated helpers
     /// <summary> Get unique values. </summary>
     let inline unique (e: Expr) = e.Unique()
@@ -1157,10 +1139,13 @@ module pl =
     let selectLazy (exprs: seq<Expr>) (lf: LazyFrame) : LazyFrame =
         lf.Select exprs
     /// <summary> Sort (Order By) the LazyFrame. </summary>
-    let sortLazy (exprs: seq<Expr>) (desc: bool) (lf: LazyFrame) : LazyFrame =
-        lf.Sort (exprs,desc)
+    let sortAscendingLazy (exprs: seq<Expr>)(lf: LazyFrame) : LazyFrame =
+        lf.Sort (exprs,false)
+    let sortDescendingLazy (exprs: seq<Expr>)(lf: LazyFrame) : LazyFrame =
+        lf.Sort(exprs,true)
     /// <summary> Alias for sortLazy </summary>
-    let orderByLazy (expr: seq<Expr>) (desc: bool) (lf: LazyFrame) = sortLazy expr desc lf
+    let orderByAscendingLazy (expr: seq<Expr>) (lf: LazyFrame) = sortAscendingLazy expr lf
+    let orderByDescendingLazy (expr: seq<Expr>) (lf: LazyFrame) = sortDescendingLazy expr lf
     /// <summary> Add or replace columns in the LazyFrame. </summary>
     let withColumnLazy (expr: Expr) (lf: LazyFrame) : LazyFrame =
         lf.WithColumns expr
@@ -1172,27 +1157,13 @@ module pl =
         lf.GroupBy(keys)
     let havingLazy (predicate: Expr) (builder: LazyGroupBy) = builder.Having(predicate)
     let aggLazy (aggs: seq<Expr>) (builder: LazyGroupBy) = builder.Agg(aggs)
-    /// <summary>
-    /// Unpivot (Melt) the LazyFrame.
-    /// Usage: lf |> LazyFrame.unpivot ["ID"] ["Val"] None None
-    /// </summary>
-    let unpivotLazy (index: seq<string>) (on: seq<string>) (variableName: string option) (valueName: string option) (lf: LazyFrame) : LazyFrame =
-        lf.Unpivot(index, on, variableName, valueName)
-    /// <summary>
-    /// Unpivot (Melt) the LazyFrame by selector.
-    /// Usage: lf |> LazyFrame.unpivot ["ID"] ["Val"] None None
-    /// </summary>
-    let unpivotLazySel (index: Selector) (on: Selector) (variableName: string option) (valueName: string option) (lf: LazyFrame) : LazyFrame =
-        lf.Unpivot(index, on, variableName, valueName)
-    /// Alias for unpivotLazy
-    let meltLazy = unpivotLazy
     /// <summary> Perform a join between two LazyFrames. </summary>
     let joinOnLazy (other: LazyFrame) (on: Expr seq) (how: JoinType) (lf: LazyFrame) : LazyFrame =
         lf.Join(other,on,how)
     let joinLazy(other:LazyFrame)(leftOn:Expr seq)(rightOn: Expr seq)(how: JoinType) (lf: LazyFrame) : LazyFrame =
         lf.Join(other,leftOn,rightOn,how)
     /// <summary> Concatenate multiple LazyFrames. </summary>
-    let concatLazy (lfs: LazyFrame list) (how: ConcatType) : LazyFrame =
+    let concatLazy (lfs: seq<LazyFrame> ) (how: ConcatType) : LazyFrame =
         LazyFrame.Concat(lfs,how)
     /// <summary> Define a window over which to perform an aggregation. </summary>
     let over (partitionBy: Expr seq) (e: Expr) = e.Over partitionBy
@@ -1292,14 +1263,14 @@ module pl =
             new Selector(PolarsWrapper.SelectorCols (names |> Seq.toArray))
 
         /// <summary>
-        /// Select columns by their index with strictness control.
+        /// Select columns by their index with.
         /// </summary>
-        let inline byIndex(indices:ReadOnlySpan<int64>) (strict:bool) = new Selector(PolarsWrapper.SelectorByIndex(indices, strict))
+        let inline byIndex(indices:ReadOnlySpan<int64>) = new Selector(PolarsWrapper.SelectorByIndex(indices, false))
         /// <summary>
         /// Select columns by their index. 
         /// Usage: cs.byIndex(0L, 2L, 4L)
         /// </summary>
-        let inline byIndexStrict(indices:ReadOnlySpan<int64>) = byIndex indices true
+        let inline byIndexStrict(indices:ReadOnlySpan<int64>) = new Selector(PolarsWrapper.SelectorByIndex(indices, true))
         
         /// <summary> Select all columns. </summary>
         let inline all () = 
