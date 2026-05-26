@@ -11,8 +11,8 @@ use crate::delta::utils::RawCloudArgs;
 pub(crate) async fn read_change_data_stream(
     table: &DeltaTable,
     table_url: &url::Url,
-    start_version: i64,
-    end_version: i64,
+    start_version: u64,
+    end_version: u64,
     scan_args: ScanArgsParquet,
 ) -> PolarsResult<LazyFrame> {
     
@@ -110,8 +110,8 @@ pub(crate) async fn read_change_data_stream(
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_io_delta_read_cdc(
     table_path_ptr: *const c_char,
-    start_version: i64,
-    end_version: i64,
+    start_version: u64,
+    end_version: u64,
     // --- Cloud Args ---
     cloud_provider: u8, 
     cloud_retries: usize, 

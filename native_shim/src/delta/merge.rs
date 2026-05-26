@@ -11,6 +11,7 @@ use deltalake::{DeltaTable, Path, table::state::DeltaTableState};
 use deltalake::kernel::{Action, Add, Remove, scalars::ScalarExt};
 use deltalake::parquet::arrow::async_reader::{AsyncFileReader, ParquetObjectReader};
 use deltalake::protocol::{DeltaOperation};
+use deltalake::logstore::object_store::ObjectStoreExt;
 use uuid::Uuid;
 
 use crate::{delta::{delete::{create_dv_descriptor, write_dv_file}, deletion_vector::{read_deletion_vector}, utils::*}, pl_io::parquet::parquet_utils::build_parquet_write_options, types::{ExprContext, LazyFrameContext}};
@@ -203,7 +204,7 @@ pub(crate) async fn phase_1_load_table(
 
     let polars_schema = get_polars_schema_from_delta(&table)?;
     let snapshot = table.snapshot().map_err(|e| PolarsError::ComputeError(format!("Snapshot: {}", e).into()))?;
-    let part_cols = snapshot.metadata().partition_columns().clone();
+    let part_cols = snapshot.metadata().partition_columns().to_vec();
 
     Ok((table, part_cols, polars_schema.into()))
 }

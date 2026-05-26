@@ -4,7 +4,7 @@ using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Native;
 namespace Polars.NET.Core;
 
-public static partial class PolarsWrapper
+public readonly partial struct PolarsWrapper
 {
     public static LazyFrameHandle ScanCsv(
         string path,
@@ -526,7 +526,7 @@ public static partial class PolarsWrapper
             cloudValues,
             cloudLen
         );
-
+        partitionBy.TransferOwnership();
         lf.TransferOwnership();
         ErrorHelper.CheckVoid();
     }
@@ -754,6 +754,7 @@ public static partial class PolarsWrapper
         );
 
         lf.TransferOwnership();
+        partitionBy.TransferOwnership();
         
         ErrorHelper.CheckVoid();
     }
@@ -810,34 +811,31 @@ public static partial class PolarsWrapper
         bool ignoreErrors,
         PlJsonFormat jsonFormat)
     {
-        return UseUtf8StringArray(columns ?? [], colPtrs =>
+        unsafe
         {
-            unsafe
-            {
-                ulong inferVal = inferSchemaLen.GetValueOrDefault();
-                IntPtr inferPtr = inferSchemaLen.HasValue ? (IntPtr)(&inferVal) : IntPtr.Zero;
+            ulong inferVal = inferSchemaLen.GetValueOrDefault();
+            IntPtr inferPtr = inferSchemaLen.HasValue ? (IntPtr)(&inferVal) : IntPtr.Zero;
 
-                ulong batchVal = batchSize.GetValueOrDefault();
-                IntPtr batchPtr = batchSize.HasValue ? (IntPtr)(&batchVal) : IntPtr.Zero;
+            ulong batchVal = batchSize.GetValueOrDefault();
+            IntPtr batchPtr = batchSize.HasValue ? (IntPtr)(&batchVal) : IntPtr.Zero;
 
-                using var schemaLock = new SafeHandleLock<SchemaHandle>(
-                    schema != null ? new[] { schema } : null
-                );
-                IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
+            using var schemaLock = new SafeHandleLock<SchemaHandle>(
+                schema != null ? [schema] : null
+            );
+            IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
 
-                var h = NativeBindings.pl_read_json(
-                    path,
-                    colPtrs, (UIntPtr)(columns?.Length ?? 0),
-                    schemaPtr,
-                    inferPtr,
-                    batchPtr,
-                    ignoreErrors,
-                    jsonFormat // Enum 转 byte
-                );
+            var h = NativeBindings.pl_read_json(
+                path,
+                columns, (UIntPtr)(columns?.Length ?? 0),
+                schemaPtr,
+                inferPtr,
+                batchPtr,
+                ignoreErrors,
+                jsonFormat 
+            );
 
-                return ErrorHelper.Check(h);
-            }
-        });
+            return ErrorHelper.Check(h);
+        };
     }
 
     // ---------------------------------------------------------
@@ -852,37 +850,34 @@ public static partial class PolarsWrapper
         bool ignoreErrors,
         PlJsonFormat jsonFormat)
     {
-        return UseUtf8StringArray(columns ?? [], colPtrs =>
+        unsafe
         {
-            unsafe
+            fixed (byte* pBuf = buffer)
             {
-                fixed (byte* pBuf = buffer)
-                {
-                    ulong inferVal = inferSchemaLen.GetValueOrDefault();
-                    IntPtr inferPtr = inferSchemaLen.HasValue ? (IntPtr)(&inferVal) : IntPtr.Zero;
+                ulong inferVal = inferSchemaLen.GetValueOrDefault();
+                IntPtr inferPtr = inferSchemaLen.HasValue ? (IntPtr)(&inferVal) : IntPtr.Zero;
 
-                    ulong batchVal = batchSize.GetValueOrDefault();
-                    IntPtr batchPtr = batchSize.HasValue ? (IntPtr)(&batchVal) : IntPtr.Zero;
+                ulong batchVal = batchSize.GetValueOrDefault();
+                IntPtr batchPtr = batchSize.HasValue ? (IntPtr)(&batchVal) : IntPtr.Zero;
 
-                    using var schemaLock = new SafeHandleLock<SchemaHandle>(
-                        schema != null ? new[] { schema } : null
-                    );
-                    IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
+                using var schemaLock = new SafeHandleLock<SchemaHandle>(
+                    schema != null ? [schema] : null
+                );
+                IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
 
-                    var h = NativeBindings.pl_read_json_memory(
-                        (IntPtr)pBuf, (UIntPtr)buffer.Length,
-                        colPtrs, (UIntPtr)(columns?.Length ?? 0),
-                        schemaPtr,
-                        inferPtr,
-                        batchPtr,
-                        ignoreErrors,
-                        jsonFormat
-                    );
+                var h = NativeBindings.pl_read_json_memory(
+                    (IntPtr)pBuf, (UIntPtr)buffer.Length,
+                    columns, (UIntPtr)(columns?.Length ?? 0),
+                    schemaPtr,
+                    inferPtr,
+                    batchPtr,
+                    ignoreErrors,
+                    jsonFormat
+                );
 
-                    return ErrorHelper.Check(h);
-                }
+                return ErrorHelper.Check(h);
             }
-        });
+        };
     }
 
     // ---------------------------------------------------------
@@ -923,7 +918,7 @@ public static partial class PolarsWrapper
             IntPtr nRowsPtr = nRows.HasValue ? (IntPtr)(&nRowsVal) : IntPtr.Zero;
 
             using var schemaLock = new SafeHandleLock<SchemaHandle>(
-                schema != null ? new[] { schema } : null
+                schema != null ? [schema] : null
             );
             IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
 
@@ -1107,7 +1102,7 @@ public static partial class PolarsWrapper
             cloudValues,
             cloudLen
         );
-
+        partitionBy.TransferOwnership();
         lf.TransferOwnership();
         ErrorHelper.CheckVoid();
     }
@@ -1176,12 +1171,12 @@ public static partial class PolarsWrapper
             IntPtr rowsPtr = nRows.HasValue ? (IntPtr)(&rowsVal) : IntPtr.Zero;
 
             using var schemaLock = new SafeHandleLock<SchemaHandle>(
-                schema != null ? new[] { schema } : null
+                schema != null ? [schema] : null
             );
             IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
 
             using var hiveLock = new SafeHandleLock<SchemaHandle>(
-                hivePartitionSchema != null ? new[] { hivePartitionSchema } : null
+                hivePartitionSchema != null ? [hivePartitionSchema] : null
             );
             IntPtr hiveSchemaPtr = hivePartitionSchema != null ? hiveLock.Pointers[0] : IntPtr.Zero;
 
@@ -1387,7 +1382,7 @@ public static partial class PolarsWrapper
             cloudValues,
             cloudLen
         );
-
+        partitionBy.TransferOwnership();
         lf.TransferOwnership();
         ErrorHelper.CheckVoid();
     }

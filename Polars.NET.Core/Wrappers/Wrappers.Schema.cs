@@ -6,15 +6,13 @@ using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
 
-public static partial class PolarsWrapper
+public readonly partial struct PolarsWrapper
 {
     /// <summary>
     /// Create Blank Schema
     /// </summary>
     public static SchemaHandle SchemaCreate()
-    {
-        return NewSchema([], []);
-    }
+        => NewSchema([], []);
 
     /// <summary>
     /// Build Schema from name and dtype
@@ -26,29 +24,34 @@ public static partial class PolarsWrapper
 
         var typePtrs = HandlesToPtrs(types);
 
-        return UseUtf8StringArray(names, (namePtrs) => 
-        {
-            return ErrorHelper.Check(
-                NativeBindings.pl_schema_new(namePtrs, typePtrs, (UIntPtr)names.Length)
-            );
-        });
+        return ErrorHelper.Check(
+            NativeBindings.pl_schema_new(names, typePtrs, (UIntPtr)names.Length)
+        );
     }
     /// <summary>
     /// Get the length of Schema
     /// </summary>
     public static ulong GetSchemaLen(SchemaHandle schema)
-        => NativeBindings.pl_schema_len(schema);
+    {
+        bool success = NativeBindings.pl_schema_len(schema,out uint len);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return len;
+    }
     /// <summary>
     /// Get Schema Field by Index
     /// </summary>
     public static void GetSchemaFieldAt(SchemaHandle schema, ulong index, out string name, out DataTypeHandle typeHandle)
     {
-        NativeBindings.pl_schema_get_at_index(
-            schema, 
-            (UIntPtr)index, 
-            out IntPtr namePtr, 
-            out var outTypeHandle
-        );
+        bool success = NativeBindings.pl_schema_get_at_index(
+                schema, 
+                (UIntPtr)index, 
+                out IntPtr namePtr, 
+                out var outTypeHandle
+            );
+
+        ErrorHelper.CheckBool(success); 
 
         typeHandle = ErrorHelper.Check(outTypeHandle);
 
@@ -126,22 +129,22 @@ public static partial class PolarsWrapper
             Time32Type or Time64Type => NewPrimitiveType((int)PlDataType.Time),
             
             TimestampType ts => NewDateTimeType(
-                (byte)(ts.Unit switch
+                ts.Unit switch
                 {
                     TimeUnit.Nanosecond => 0,   // ns
                     TimeUnit.Microsecond => 1,  // us
                     TimeUnit.Millisecond => 2,  // ms
                     _ => 1
-                }), ts.Timezone),
+                }, ts.Timezone),
                 
             DurationType dur => NewDurationType(
-                (byte)(dur.Unit switch
+                dur.Unit switch
                 {
                     TimeUnit.Nanosecond => 0,
                     TimeUnit.Microsecond => 1,
                     TimeUnit.Millisecond => 2,
                     _ => 1
-                })),
+                }),
                 
             ListType list => NewListType(MapArrowToDataTypeHandle(list.ValueDataType)),
             LargeListType lList => NewListType(MapArrowToDataTypeHandle(lList.ValueDataType)),

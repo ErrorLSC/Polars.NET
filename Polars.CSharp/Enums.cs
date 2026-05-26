@@ -24,13 +24,40 @@ public enum TimeUnit
     Nanoseconds = 0,
     Microseconds = 1,
     Milliseconds = 2,
-    Second = 3,
-    Minute = 4,
-    Hour = 5,
-    Day = 6,
-    Month = 7,
-    Year = 8
 }
+
+public enum EpochTimeUnit
+{
+    Nanoseconds = 0,
+    Microseconds = 1,
+    Milliseconds = 2,
+    Second = 3,
+    Day = 6
+
+}
+
+public enum RoundMode
+{
+    /// <summary>
+    /// Round to the nearest value; break ties by rounding away from zero. For example, 0.5 rounds to 1, -0.5 rounds to -1, 2.5 rounds to 3. Also known as “commercial rounding”.
+    /// </summary>
+    HalfAwayFromZero = 0,
+    /// <summary>
+    /// Round to the nearest value; break ties by choosing the nearest even value. For example, 0.5 rounds to 0, 1.5 rounds to 2, 2.5 rounds to 2. Also known as “banker’s rounding”; this is the default because it tends to minimise cumulative rounding bias.
+    /// </summary>
+    HalfToEven = 1,
+    /// <summary>
+    /// Always round (truncate) towards zero, discarding the fractional part beyond decimals. For example, 0.9 rounds to 0, -0.9 rounds to 0, 1.29 rounds to 1.2 (with decimals=1). Equivalent to the truncate() method.
+    /// </summary>
+    ToZero =2
+}
+
+public enum CorrelationMethod
+{
+    Pearson,Spearman
+}
+
+
 /// <summary>
 /// Concat Type Enum
 /// </summary>
@@ -62,8 +89,31 @@ public enum DataTypeKind
     Int128 = 24,
     UInt128=25,
     Float16=26,
+    Enum=27,
+    Extension=28,
     Unknown = 0,
     SameAsInput=0
+}
+
+/// <summary>
+/// Execution engine for LazyFrame.Collect()
+/// </summary>
+public enum Engine : byte
+{
+    Auto = 0,
+    InMemory = 1,
+    Streaming = 2,
+    Gpu = 3
+}
+public enum FillNullStrategy: byte
+{
+    Forward = 0,
+    Backward = 1,
+    Max = 2,
+    Min = 3,
+    Mean = 4,
+    Zero = 5,
+    One = 6
 }
 
 /// <summary>
@@ -92,16 +142,12 @@ public enum StartBy
     Sunday
 }
 
-/// <summary>
-/// Defines which window boundaries are closed (inclusive).
-/// </summary>
-public enum ClosedWindow
+public enum NullBehavior: byte
 {
-    Left,
-    Right,
-    Both,
-    None
+    Ignore = 0,
+    Drop = 1,
 }
+
 
 /// <summary>
 /// Strategy to handle dates that land on non-business days (weekends or holidays).
@@ -130,7 +176,8 @@ public enum QuantileMethod : byte
     Higher = 1,
     Lower = 2,
     Midpoint = 3,
-    Linear = 4 // Default
+    Linear = 4,
+    Equiprobable =5
 }
 
 public enum RankMethod : byte
@@ -375,9 +422,8 @@ public enum CloudProvider : byte
 
     /// <summary>
     /// Google Cloud Storage.
-    /// </summary>
+    /// </summary>Min = 3,
     Gcp = 3,
-
     /// <summary>
     /// Generic HTTP/HTTPS.
     /// </summary>
@@ -430,7 +476,7 @@ public enum AvroCompression: byte
 }
 
 /// <summary>
-/// Defines the type of action to perform during a Delta Merge operation.
+/// Defines the type of action to perform during a Merge operation.
 /// </summary>
 public enum MergeActionType : byte
 {
@@ -472,9 +518,99 @@ public enum CatalogTableType : byte
 
 public enum SearchSortedSide : byte { Any = 0, Left = 1, Right = 2 }
 
+public enum SizeUnit
+{
+    Bytes,
+    Kilobytes,
+    Megabytes,
+    Gigabytes,
+    Terabytes
+}
+
+public enum Endianness
+{
+    Little,
+    Big
+}
+
+public enum UnstackDirection
+{
+    Vertical,
+    Horizontal
+}
+
+public enum ClosedInterval
+{
+    Left,Right,Both,None
+}
+
+public enum AmbiguousStrategy
+{
+    Raise,
+    Earliest,
+    Latest,
+    Null
+}
+
+public enum WindowMappingStrategy: byte
+{
+    /// <summary>
+    /// If the aggregation results in multiple values per group, 
+    /// map them back to their row position in the DataFrame. 
+    /// This can only be done if each group yields the same elements before aggregation as after. 
+    /// If the aggregation results in one scalar value per group, this value will be mapped to every row.
+    /// </summary>
+    GroupsToRows = 0,
+    /// <summary>
+    /// If the aggregation may result in multiple values per group, map each value to a new row, similar to the results of group_by + agg + explode. 
+    /// If the aggregation always results in one scalar value per group, map this value to one row position. 
+    /// Sorting of the given groups is required if the groups are not part of the window operation for the operation, otherwise the result would not make sense. 
+    /// This operation changes the number of rows.
+    /// </summary>
+    Explode = 1,
+    /// <summary>
+    /// If the aggregation may result in multiple values per group, join the values as List{group_dtype} to each row position. 
+    /// Warning: this can be memory intensive. 
+    /// If the aggregation always results in one scalar value per group, join this value as group_dtype to each row position.
+    /// </summary>
+    Join = 2
+}
+
+public enum TransferEncoding
+{
+    Hex,
+    Base64
+}
+
+public enum NonExistent : byte
+{
+    Raise = 0,
+    Null = 1
+}
+
+public enum CategoricalPhysical : byte
+{
+    U32 = 0,
+    U16 = 1,
+    U8 = 2 
+}
+
+public enum MissingColumnsPolicy : byte { Raise = 0, Insert = 1 }
+public enum UpcastOrForbid : byte { Forbid = 0, Upcast = 1 }
+public enum ExtraColumnsPolicy : byte { Raise = 0, Ignore = 1 }
+
+[Flags]
+public enum SortStateFlags : byte
+{
+    NotSorted  = 0,
+    IsSorted   = 1 << 0, // 001 (1)
+    Descending = 1 << 1, // 010 (2)
+    NullsLast  = 1 << 2  // 100 (4)
+}
+
 internal static class EnumExtensions
 {
-    public static CoreEnums.PlDataType ToNative(this DataTypeKind kind) => kind switch
+    internal static CoreEnums.PlDataType ToNative(this DataTypeKind kind) => kind switch
     {
         DataTypeKind.SameAsInput => CoreEnums.PlDataType.SameAsInput,
         DataTypeKind.Int8 => CoreEnums.PlDataType.Int8,
@@ -503,20 +639,20 @@ internal static class EnumExtensions
         DataTypeKind.String => CoreEnums.PlDataType.String, 
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
     };
-    public static CoreEnums.PlTimeUnit ToNative(this TimeUnit unit) => unit switch
+    internal static CoreEnums.PlTimeUnit ToNative(this TimeUnit unit) => unit switch
     {
         TimeUnit.Nanoseconds => CoreEnums.PlTimeUnit.Nanoseconds,
         TimeUnit.Microseconds => CoreEnums.PlTimeUnit.Microseconds,
         TimeUnit.Milliseconds => CoreEnums.PlTimeUnit.Milliseconds,
-        TimeUnit.Second => CoreEnums.PlTimeUnit.Second,
-        TimeUnit.Minute => CoreEnums.PlTimeUnit.Minute,
-        TimeUnit.Hour => CoreEnums.PlTimeUnit.Hour,
-        TimeUnit.Day => CoreEnums.PlTimeUnit.Day,
-        TimeUnit.Month => CoreEnums.PlTimeUnit.Month,
-        TimeUnit.Year => CoreEnums.PlTimeUnit.Year,
-        _ => CoreEnums.PlTimeUnit.Nanoseconds
+        // TimeUnit.Second => CoreEnums.PlTimeUnit.Second,
+        // TimeUnit.Minute => CoreEnums.PlTimeUnit.Minute,
+        // TimeUnit.Hour => CoreEnums.PlTimeUnit.Hour,
+        // TimeUnit.Day => CoreEnums.PlTimeUnit.Day,
+        // TimeUnit.Month => CoreEnums.PlTimeUnit.Month,
+        // TimeUnit.Year => CoreEnums.PlTimeUnit.Year,
+        _ => CoreEnums.PlTimeUnit.Microseconds
     };
-    public static CoreEnums.PlJoinType ToNative(this JoinType type) => type switch
+    internal static CoreEnums.PlJoinType ToNative(this JoinType type) => type switch
     {
         JoinType.Inner => CoreEnums.PlJoinType.Inner,
         JoinType.Left => CoreEnums.PlJoinType.Left,
@@ -528,7 +664,7 @@ internal static class EnumExtensions
         _ => CoreEnums.PlJoinType.Inner
     };
 
-    public static CoreEnums.PlPivotAgg ToNative(this PivotAgg agg) => agg switch
+    internal static CoreEnums.PlPivotAgg ToNative(this PivotAgg agg) => agg switch
     {
         PivotAgg.First => CoreEnums.PlPivotAgg.First,
         PivotAgg.Sum => CoreEnums.PlPivotAgg.Sum,
@@ -542,7 +678,7 @@ internal static class EnumExtensions
         _ => CoreEnums.PlPivotAgg.First
     };
     
-    public static CoreEnums.PlConcatType ToNative(this ConcatType type) => type switch
+    internal static CoreEnums.PlConcatType ToNative(this ConcatType type) => type switch
     {
         ConcatType.Vertical => CoreEnums.PlConcatType.Vertical,
         ConcatType.Horizontal => CoreEnums.PlConcatType.Horizontal,
@@ -570,16 +706,6 @@ internal static class EnumExtensions
         StartBy.Sunday => CoreEnums.PlStartBy.Sunday,
         _ => throw new ArgumentOutOfRangeException(nameof(startBy), startBy, null)
     };
-
-    internal static CoreEnums.PlClosedWindow ToNative(this ClosedWindow closed) => closed switch
-    {
-        ClosedWindow.Left => CoreEnums.PlClosedWindow.Left,
-        ClosedWindow.Right => CoreEnums.PlClosedWindow.Right,
-        ClosedWindow.Both => CoreEnums.PlClosedWindow.Both,
-        ClosedWindow.None => CoreEnums.PlClosedWindow.None,
-        _ => throw new ArgumentOutOfRangeException(nameof(closed), closed, null)
-    };
-
     internal static CoreEnums.PlRoll ToNative(this Roll roll) => roll switch
     {
         Roll.Backward => CoreEnums.PlRoll.Backward,
@@ -594,6 +720,7 @@ internal static class EnumExtensions
         QuantileMethod.Lower => CoreEnums.PlQuantileMethod.Lower,
         QuantileMethod.Midpoint => CoreEnums.PlQuantileMethod.Midpoint,
         QuantileMethod.Linear => CoreEnums.PlQuantileMethod.Linear,  
+        QuantileMethod.Equiprobable => CoreEnums.PlQuantileMethod.Equiprobable,  
         _ => throw new ArgumentOutOfRangeException(nameof(interpol), interpol, null)
     };
     internal static CoreEnums.PlRankMethod ToNative(this RankMethod method) => method switch
@@ -728,6 +855,13 @@ internal static class EnumExtensions
         InterpolationMethod.Linear => CoreEnums.PlInterpolationMethod.Linear,
         _ => throw new ArgumentOutOfRangeException(nameof(method), method, null)
     };
+    internal static CoreEnums.PlRoundMode ToNative(this RoundMode mode) => mode switch
+    {
+        RoundMode.HalfToEven => CoreEnums.PlRoundMode.HalfToEven,
+        RoundMode.HalfAwayFromZero => CoreEnums.PlRoundMode.HalfAwayFromZero,
+        RoundMode.ToZero => CoreEnums.PlRoundMode.ToZero,
+        _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
+    };
     internal static CoreEnums.PlCloudProvider ToNative(this CloudProvider cloud) => cloud switch
     {
         CloudProvider.None => CoreEnums.PlCloudProvider.None,
@@ -773,6 +907,59 @@ internal static class EnumExtensions
         SearchSortedSide.Left => CoreEnums.PlSearchSortedSide.Left,
         SearchSortedSide.Right => CoreEnums.PlSearchSortedSide.Right,
         _ => throw new ArgumentOutOfRangeException(nameof(side), side, null)
+    };
+    internal static CoreEnums.PlClosedInterval ToNative(this ClosedInterval closed) => closed switch
+    {
+        ClosedInterval.Both => CoreEnums.PlClosedInterval.Both,
+        ClosedInterval.Left => CoreEnums.PlClosedInterval.Left,
+        ClosedInterval.Right => CoreEnums.PlClosedInterval.Right,
+        ClosedInterval.None => CoreEnums.PlClosedInterval.None,
+        _ => throw new ArgumentOutOfRangeException(nameof(closed), closed, null)
+    };
+    internal static CoreEnums.PlEngine ToNative(this Engine engine) => engine switch
+    {
+        Engine.Auto => CoreEnums.PlEngine.Auto,
+        Engine.Streaming => CoreEnums.PlEngine.Streaming,
+        Engine.Gpu => CoreEnums.PlEngine.Gpu,
+        Engine.InMemory => CoreEnums.PlEngine.InMemory,
+        _ => throw new ArgumentOutOfRangeException(nameof(engine), engine, null)
+    };
+    internal static CoreEnums.PlNullBehavior ToNative(this NullBehavior nullBehavior) => nullBehavior switch
+    {
+        NullBehavior.Ignore => CoreEnums.PlNullBehavior.Ignore,
+        NullBehavior.Drop => CoreEnums.PlNullBehavior.Drop,
+        _ => throw new ArgumentOutOfRangeException(nameof(nullBehavior), nullBehavior, null)
+    };
+    internal static CoreEnums.PlNonExistent ToNative(this NonExistent policy) => policy switch
+    {
+        NonExistent.Null => CoreEnums.PlNonExistent.Null,
+        NonExistent.Raise => CoreEnums.PlNonExistent.Raise,
+        _ => throw new ArgumentOutOfRangeException(nameof(policy), policy, null)
+    };
+    internal static CoreEnums.PlCategoricalPhysical ToNative(this CategoricalPhysical type) => type switch
+    {
+        CategoricalPhysical.U32 => CoreEnums.PlCategoricalPhysical.U32,
+        CategoricalPhysical.U16 => CoreEnums.PlCategoricalPhysical.U16,
+        CategoricalPhysical.U8 => CoreEnums.PlCategoricalPhysical.U8,
+        _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
+    };
+    internal static CoreEnums.PlFillNullStrategy ToNative(this FillNullStrategy strategy) => strategy switch
+    {
+        FillNullStrategy.Forward => CoreEnums.PlFillNullStrategy.Forward,
+        FillNullStrategy.Backward => CoreEnums.PlFillNullStrategy.Backward,
+        FillNullStrategy.Max => CoreEnums.PlFillNullStrategy.Max,
+        FillNullStrategy.Min => CoreEnums.PlFillNullStrategy.Min,
+        FillNullStrategy.Mean => CoreEnums.PlFillNullStrategy.Mean,
+        FillNullStrategy.Zero => CoreEnums.PlFillNullStrategy.Zero,
+        FillNullStrategy.One => CoreEnums.PlFillNullStrategy.One,
+        _ => throw new ArgumentOutOfRangeException(nameof(strategy), strategy, null)
+    };
+    internal static CoreEnums.PlWindowMapping ToNative(this WindowMappingStrategy mapping) => mapping switch
+    {
+        WindowMappingStrategy.GroupsToRows => CoreEnums.PlWindowMapping.GroupsToRows,
+        WindowMappingStrategy.Explode => CoreEnums.PlWindowMapping.Explode,
+        WindowMappingStrategy.Join => CoreEnums.PlWindowMapping.Join,
+        _ => throw new ArgumentOutOfRangeException(nameof(mapping), mapping, null)
     };
 }
 

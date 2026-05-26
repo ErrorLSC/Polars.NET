@@ -1,8 +1,7 @@
-using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Text.Unicode; 
+using System.Text.Unicode;
 
 namespace Polars.NET.Core.Helpers;
 

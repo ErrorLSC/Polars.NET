@@ -52,39 +52,85 @@ pub extern "C" fn pl_catalog_delta_vacuum(
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_catalog_delta_restore(
     ctx_ptr: *mut CatalogContext,
-    catalog_name_ptr: *const c_char, schema_name_ptr: *const c_char, table_name_ptr: *const c_char,
-    target_version: i64, target_timestamp_ms: i64, 
-    ignore_missing_files: bool, protocol_downgrade_allowed: bool, 
-    cloud_keys: *const *const c_char, cloud_values: *const *const c_char, cloud_len: usize,
-    out_new_version: *mut i64,
+    catalog_name_ptr: *const c_char, 
+    schema_name_ptr: *const c_char, 
+    table_name_ptr: *const c_char,
+
+    // --- Restore Target  ---
+    target_version: u64, 
+    target_timestamp_ms: i64, 
+
+    // --- Options ---
+    ignore_missing_files: bool, 
+    protocol_downgrade_allowed: bool, 
+
+    // --- Cloud Auth ---
+    cloud_keys: *const *const c_char, 
+    cloud_values: *const *const c_char, 
+    cloud_len: usize,
+
+    // --- Output ---
+    out_new_version: *mut u64,
 ) {
     ffi_try_void!({
-        let ctx = unsafe { &*ctx_ptr };
-        let catalog_name = ptr_to_str(catalog_name_ptr).unwrap().to_string();
-        let schema_name = ptr_to_str(schema_name_ptr).unwrap().to_string();
-        let table_name = ptr_to_str(table_name_ptr).unwrap().to_string();
+        // Safely dereference context
+        let ctx = unsafe { 
+            if ctx_ptr.is_null() {
+                return Err(PolarsError::ComputeError("Catalog context pointer is null".into()));
+            }
+            &*ctx_ptr 
+        };
+
+        // Parse strings safely instead of unwrap()
+        let catalog_name = ptr_to_str(catalog_name_ptr)
+            .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
+        let schema_name = ptr_to_str(schema_name_ptr)
+            .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
+        let table_name = ptr_to_str(table_name_ptr)
+            .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?.to_string();
         
         let base_options = build_delta_storage_options_map(cloud_keys, cloud_values, cloud_len);
         let rt = get_runtime();
 
         let new_version = rt.block_on(async {
-            let (table, _,_) = load_catalog_table(ctx, &catalog_name, &schema_name, &table_name, true, base_options).await?;
+            // Load table through catalog
+            let (table, _, _) = load_catalog_table(
+                ctx, 
+                &catalog_name, 
+                &schema_name, 
+                &table_name, 
+                true, // Check schema mismatch? (Assuming true based on original code)
+                base_options
+            ).await?;
 
             let mut cmd = table.restore();
-            if target_version >= 0 {
-                cmd = cmd.with_version_to_restore(target_version);
-            } else if target_timestamp_ms >= 0 {
+
+            // Handle Target: Sentinel approach (-1ms means use version)
+            if target_timestamp_ms >= 0 {
                 use chrono::{TimeZone, Utc};
-                cmd = cmd.with_datetime_to_restore(Utc.timestamp_millis_opt(target_timestamp_ms).single().unwrap());
+                let dt = Utc.timestamp_millis_opt(target_timestamp_ms)
+                    .single()
+                    .ok_or_else(|| PolarsError::ComputeError("Invalid timestamp for restore".into()))?;
+                cmd = cmd.with_datetime_to_restore(dt);
+            } else {
+                cmd = cmd.with_version_to_restore(target_version);
             }
 
-            cmd = cmd.with_ignore_missing_files(ignore_missing_files).with_protocol_downgrade_allowed(protocol_downgrade_allowed);
+            cmd = cmd.with_ignore_missing_files(ignore_missing_files)
+                     .with_protocol_downgrade_allowed(protocol_downgrade_allowed);
 
-            let (new_table, _) = cmd.await.map_err(|e| PolarsError::ComputeError(format!("Restore failed: {}", e).into()))?;
-            Ok::<i64, PolarsError>(new_table.version().unwrap_or(0))
+            // Execute restore
+            let (new_table, _) = cmd.await
+                .map_err(|e| PolarsError::ComputeError(format!("Catalog table restore failed: {}", e).into()))?;
+                
+            Ok::<u64, PolarsError>(new_table.version().unwrap_or(0))
         })?;
 
-        if !out_new_version.is_null() { unsafe { *out_new_version = new_version }; }
+        // Write output
+        if !out_new_version.is_null() { 
+            unsafe { *out_new_version = new_version }; 
+        }
+        
         Ok(())
     })
 }

@@ -9,46 +9,93 @@ unsafe internal partial class NativeBindings
     // --- Series Lifecycle ---
     [LibraryImport(LibName)]
     public static partial void pl_series_free(IntPtr ptr);
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_rechunk(SeriesHandle handle);
+    [LibraryImport(LibName)]
+    public static partial void pl_series_shrink_to_fit(SeriesHandle df);
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_series_chunk_lengths(SeriesHandle handle, ref nuint lengthArrayStart);
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_series_chunk_count(SeriesHandle handle, out uint count);
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_series_estimated_size(SeriesHandle handle, out nuint size); 
+    [LibraryImport(LibName)]
+    public static partial int pl_series_has_nulls(SeriesHandle handle,[MarshalAs(UnmanagedType.U1)] out bool result);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_first_distinct(SeriesHandle handle);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_last_distinct(SeriesHandle handle);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_unique(SeriesHandle handle);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_duplicated(SeriesHandle handle);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_in(SeriesHandle handle, SeriesHandle other,[MarshalAs(UnmanagedType.U1)] bool nullsEqual);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_implode(SeriesHandle handle);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_unique_counts(SeriesHandle handle);
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_series_approx_n_unique(
+        SeriesHandle series, 
+        out uint count
+    );
     // --- Series Getters ---
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)]
-    public static partial bool pl_series_get_i64(SeriesHandle s, UIntPtr idx, out long val);
+    public static partial bool pl_series_get_i64(SeriesHandle s, UIntPtr idx, out long val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)]
-    public static partial bool pl_series_get_i128(SeriesHandle s, UIntPtr idx, out Int128 val);
+    public static partial bool pl_series_get_i128(SeriesHandle s, UIntPtr idx, out Int128 val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)]
-    public static partial bool pl_series_get_u128(SeriesHandle series, UIntPtr idx, out UInt128 val);
+    public static partial bool pl_series_get_u128(SeriesHandle series, UIntPtr idx, out UInt128 val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)]
-    public static partial bool pl_series_get_f64(SeriesHandle s, UIntPtr idx, out double val);
+    public static partial bool pl_series_get_f64(SeriesHandle s, UIntPtr idx, out double val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
 
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.I1)]
-    public static partial bool pl_series_get_bool(SeriesHandle s, UIntPtr idx, [MarshalAs(UnmanagedType.I1)] out bool val);
+    [return: MarshalAs(UnmanagedType.U1)] 
+    public static partial bool pl_series_get_bool(
+        SeriesHandle series, 
+        nuint idx, 
+        [MarshalAs(UnmanagedType.U1)] out bool val,    
+        [MarshalAs(UnmanagedType.U1)] out bool isNull  
+    );
 
     [LibraryImport(LibName)]
     public static partial IntPtr pl_series_get_str(SeriesHandle s, UIntPtr idx);
 
     // Decimal: out Int128, out UIntPtr (scale)
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.I1)]
-    public static partial bool pl_series_get_decimal(SeriesHandle s, UIntPtr idx, out Int128 val, out UIntPtr scale);
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_series_get_decimal(
+        SeriesHandle series, 
+        nuint idx, 
+        out Int128 val,         
+        out nuint precision, 
+        out nuint scale, 
+        [MarshalAs(UnmanagedType.U1)] out bool isNull
+    );
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)]
-    public static partial bool pl_series_get_date(SeriesHandle s, UIntPtr idx, out int val);
+    public static partial bool pl_series_get_date(SeriesHandle s, nuint idx, out int val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
 
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)]
-    public static partial bool pl_series_get_time(SeriesHandle s, UIntPtr idx, out long val);
+    public static partial bool pl_series_get_time(SeriesHandle s, UIntPtr idx, out long val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
+
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_series_get_datetime(
+        SeriesHandle series, 
+        nuint idx, 
+        out long val, 
+        out PlTimeUnit timeUnit, 
+        out IntPtr timezone, 
+        [MarshalAs(UnmanagedType.U1)] out bool isNull
+    );
 
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)]
-    public static partial bool pl_series_get_datetime(SeriesHandle s, UIntPtr idx, out long val);
-
-    [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.I1)]
-    public static partial bool pl_series_get_duration(SeriesHandle s, UIntPtr idx, out long val);
+    public static partial bool pl_series_get_duration(SeriesHandle s, UIntPtr idx, out long val, out PlTimeUnit timeUnit, [MarshalAs(UnmanagedType.U1)] out bool isNull);
     // --- Series Constructors ---
     // DataFrame -> Series (ByName)
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
@@ -313,13 +360,18 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial DataTypeHandle pl_series_get_dtype(SeriesHandle handle);
     [LibraryImport(LibName)]
-    public static partial UIntPtr pl_series_len(SeriesHandle h);
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_series_len(SeriesHandle h, out uint len);
 
     [LibraryImport(LibName)]
     public static partial IntPtr pl_series_name(SeriesHandle h);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    public static partial void pl_series_rename(SeriesHandle h, string name);
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_series_rename(
+        SeriesHandle series, 
+        string name
+    );
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_is_null(SeriesHandle s);
 
@@ -327,11 +379,12 @@ unsafe internal partial class NativeBindings
     public static partial SeriesHandle pl_series_is_not_null(SeriesHandle s);
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.I1)]
-    public static partial bool pl_series_is_null_at(SeriesHandle s, UIntPtr idx);
+    public static partial bool pl_series_is_null_at(SeriesHandle s,nuint idx,[MarshalAs(UnmanagedType.I1)] out bool IsNull);
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_drop_nulls(SeriesHandle s);
     [LibraryImport(LibName)]
-    public static partial UIntPtr pl_series_null_count(SeriesHandle s);
+    [return: MarshalAs(UnmanagedType.I1)]
+    public static partial bool pl_series_null_count(SeriesHandle s, out uint count);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_nan(SeriesHandle s);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_not_nan(SeriesHandle s);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_finite(SeriesHandle s);
@@ -339,7 +392,10 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_unique(SeriesHandle series);
 
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_unique_stable(SeriesHandle series);
-    [LibraryImport(LibName)] public static partial UIntPtr pl_series_n_unique(SeriesHandle series);
+    
+    [LibraryImport(LibName)] 
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_series_n_unique(SeriesHandle series, out uint count);
     // --- Series Ops ---
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_slice(
@@ -347,18 +403,43 @@ unsafe internal partial class NativeBindings
         long offset, 
         UIntPtr length
     );
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_take(
+        SeriesHandle series, 
+        SeriesHandle indices
+    ); 
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.I1)] 
+    public static partial bool pl_series_append(SeriesHandle s_ptr, SeriesHandle other_ptr);
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.I1)] 
+    public static partial bool pl_series_extend(SeriesHandle s_ptr, SeriesHandle other_ptr);
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_reshape(
+        SeriesHandle series,         
+        ReadOnlySpan<long> dims_ptr,
+        nuint dims_len
+    );
     // --- Series Cast ---
     [LibraryImport(LibName)]
-    public static partial SeriesHandle pl_series_cast(SeriesHandle s, DataTypeHandle dtype);
+    public static partial SeriesHandle pl_series_cast(
+        SeriesHandle ptr, 
+        DataTypeHandle dtype_ptr, 
+        [MarshalAs(UnmanagedType.U1)] bool strict, 
+        [MarshalAs(UnmanagedType.U1)] bool wrap_numerical
+    );
     // Arithmetic
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_add(SeriesHandle s1, SeriesHandle s2);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_sub(SeriesHandle s1, SeriesHandle s2);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_mul(SeriesHandle s1, SeriesHandle s2);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_div(SeriesHandle s1, SeriesHandle s2);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_rem(SeriesHandle s1, SeriesHandle s2);
 
     // Comparison
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_eq(SeriesHandle s1, SeriesHandle s2);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_eq_missing(SeriesHandle s1, SeriesHandle s2);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_neq(SeriesHandle s1, SeriesHandle s2);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_neq_missing(SeriesHandle s1, SeriesHandle s2);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_gt(SeriesHandle s1, SeriesHandle s2);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_lt(SeriesHandle s1, SeriesHandle s2);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_gt_eq(SeriesHandle s1, SeriesHandle s2);
@@ -367,8 +448,10 @@ unsafe internal partial class NativeBindings
     // Aggregation
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_sum(SeriesHandle s);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_mean(SeriesHandle s);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_mode(SeriesHandle s,[MarshalAs(UnmanagedType.U1)]bool maintainOrder);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_min(SeriesHandle s);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_max(SeriesHandle s);
+    [LibraryImport(LibName)] public static partial SeriesHandle pl_series_not(SeriesHandle s);
     // --- Arrow Export ---
     [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
     public static partial SeriesHandle pl_arrow_to_series(
@@ -389,7 +472,72 @@ unsafe internal partial class NativeBindings
     [MarshalAs(UnmanagedType.U1)] bool parallel,
     string name,
     [MarshalAs(UnmanagedType.U1)] bool normalize);
+    [LibraryImport(LibName)]
+    public static partial int pl_series_is_sorted(
+        SeriesHandle h,
+        [MarshalAs(UnmanagedType.U1)] bool descending,
+        [MarshalAs(UnmanagedType.U1)] bool nullsLast,
+        [MarshalAs(UnmanagedType.U1)] out bool flag);
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_set_sorted_flag(
+        SeriesHandle h,
+        [MarshalAs(UnmanagedType.U1)] bool descending);
+        // [MarshalAs(UnmanagedType.U1)] bool nullsLast);
+    [LibraryImport(LibName)]
+    public static partial int pl_series_get_sorted_flags(
+        SeriesHandle h,
+        out PlSortStateFlags flags);
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_set_with_mask(
+        SeriesHandle series,
+        SeriesHandle mask,
+        SeriesHandle value
+    );
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_scatter_indices(
+        SeriesHandle series,
+        SeriesHandle index,
+        SeriesHandle value
+    );
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_zip_with(
+        SeriesHandle series,
+        SeriesHandle mask,
+        SeriesHandle other
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial DataFrameHandle pl_series_to_dummies(
+        SeriesHandle series, 
+        string? separator,
+        [MarshalAs(UnmanagedType.U1)]bool dropFirst,
+        [MarshalAs(UnmanagedType.U1)]bool dropNulls
+    );     
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_new_from_index(SeriesHandle h, nuint index,nuint length);
+    [LibraryImport(LibName)]
+    public static partial int pl_series_equals(
+        SeriesHandle ptr1, 
+        SeriesHandle ptr2, 
+        [MarshalAs(UnmanagedType.I1)] out bool result
+    );
+
+    [LibraryImport(LibName)]
+    public static partial int pl_series_hash(
+        SeriesHandle ptr, 
+        out ulong hash
+    );
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_to_physical(SeriesHandle h);
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial SeriesHandle pl_series_new_empty(string name,DataTypeHandle dtype);
+    [LibraryImport(LibName)]
+    public static partial SeriesHandle pl_series_clear(SeriesHandle h);
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial SeriesHandle pl_series_new_null(string name,nuint len);
     // --- Arrow Export ---
     [LibraryImport(LibName)]
     public static partial ArrowArrayContextHandle pl_series_to_arrow(SeriesHandle h);
+    [LibraryImport(LibName)] public static partial IntPtr pl_series_to_string(SeriesHandle series);
+
+
 }

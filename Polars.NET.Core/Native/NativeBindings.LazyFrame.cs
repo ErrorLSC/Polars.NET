@@ -23,14 +23,32 @@ unsafe internal partial class NativeBindings
         string every,
         string period,
         string offset,
-        int label,
+        PlLabel label,
         [MarshalAs(UnmanagedType.I1)] bool includeBoundaries,
-        int closedWindow,
-        int startBy,
-        IntPtr[] keys, UIntPtr keysLen,
-        IntPtr[] aggs, UIntPtr aggsLen
+        PlClosedInterval closedWindow,
+        PlStartBy startBy,
+        nint[] keys, nuint keysLen,
+        nint[] aggs, nuint aggsLen,
+        nint havingExpr
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LazyFrameHandle pl_lazy_group_by_rolling(
+        LazyFrameHandle lf,
+        string indexCol,
+        string period,
+        string offset,
+        PlClosedInterval closedWindow,
+        nint[] keys, nuint keysLen,
+        nint[] aggs, nuint aggsLen,
+        nint havingExpr
     );
     [LibraryImport(LibName)] public static partial SchemaHandle pl_lazyframe_get_schema(LazyFrameHandle lf);
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LazyFrameHandle pl_lazyframe_with_row_index(
+        LazyFrameHandle lf, 
+        string name, 
+        int offset
+    );
     [LibraryImport(LibName)] public static partial IntPtr pl_lazy_explain(LazyFrameHandle lf,[MarshalAs(UnmanagedType.U1)] bool optimized);
     [LibraryImport(LibName)] 
     public static partial LazyFrameHandle pl_lazy_filter(LazyFrameHandle lf, ExprHandle expr);
@@ -39,19 +57,19 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] 
     public static partial LazyFrameHandle pl_lazyframe_sort(
         LazyFrameHandle lf,
-        IntPtr[] exprs,
-        UIntPtr exprLen,
+        nint[] exprs,
+        nuint exprLen,
         bool* descending,
-        UIntPtr descendingLen,
+        nuint descendingLen,
         bool* nullsLast,
-        UIntPtr nullsLastLen,
-        [MarshalAs(UnmanagedType.I1)] bool maintainOrder
+        nuint nullsLastLen,
+        [MarshalAs(UnmanagedType.U1)] bool maintainOrder
     );
     [LibraryImport(LibName)]
     public static partial LazyFrameHandle pl_lazyframe_top_k(
         LazyFrameHandle lf,
         uint k,
-        IntPtr[] by_ptrs,
+        nint[] by_ptrs,
         UIntPtr by_len,
         bool* reverse,
         UIntPtr reverse_len
@@ -61,7 +79,7 @@ unsafe internal partial class NativeBindings
     public static partial LazyFrameHandle pl_lazyframe_bottom_k(
         LazyFrameHandle lf,
         uint k,
-        IntPtr[] by_ptrs,
+        nint[] by_ptrs,
         UIntPtr by_len,
         bool* reverse,
         UIntPtr reverse_len
@@ -70,7 +88,9 @@ unsafe internal partial class NativeBindings
     public static partial LazyFrameHandle pl_lazy_groupby_agg(
         LazyFrameHandle lf, 
         IntPtr[] keys, UIntPtr keysLen, 
-        IntPtr[] aggs, UIntPtr aggsLen
+        IntPtr[] aggs, UIntPtr aggsLen,
+        IntPtr havingExpr,
+        [MarshalAs(UnmanagedType.U1)]bool maintainOrder
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_lazyframe_join(
@@ -115,12 +135,40 @@ unsafe internal partial class NativeBindings
         IntPtr sliceOffset, // *const i64
         UIntPtr sliceLen
     );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LazyFrameHandle pl_lazyframe_join_where(
+        LazyFrameHandle left,
+        LazyFrameHandle right,
+        nint[] predicates,
+        nuint predicatesLen,
+        PlJoinType how,
+        string? suffix,
+        PlJoinValidation validation,
+        PlJoinCoalesce coalesce,
+        PlJoinMaintainOrder maintainOrder,
+        [MarshalAs(UnmanagedType.U1)] bool nullsEqual);
     [LibraryImport(LibName)]
-    public static partial DataFrameHandle pl_lazy_collect(LazyFrameHandle lf,[MarshalAs(UnmanagedType.U1)] bool useStreaming);
+    public static partial DataFrameHandle pl_lazy_collect(
+        LazyFrameHandle lf, 
+        PlEngine engine, 
+        [MarshalAs(UnmanagedType.U1)] bool useStreaming
+    );
+    [LibraryImport(LibName)]
+    public static partial int pl_lazy_collect_all(
+        nint[] lfsPtr,
+        nuint lfsLen,
+        nint[] outDfsPtr, 
+        PlEngine engine
+    );
+    [LibraryImport(LibName)]
+    public static partial int pl_lazy_explain_all(
+        nint[] lfsPtr,
+        nuint lfsLen,
+        out nint plan 
+    );
     [LibraryImport(LibName)]
     public static partial LazyFrameHandle pl_lazy_clone(LazyFrameHandle lf);
 
-    [LibraryImport(LibName)] public static partial LazyFrameHandle pl_lazy_limit(LazyFrameHandle lf, uint n);
     [LibraryImport(LibName)] public static partial LazyFrameHandle pl_lazy_with_columns(LazyFrameHandle lf, IntPtr[] exprs, UIntPtr len);
     [LibraryImport(LibName)] 
     public static partial LazyFrameHandle pl_lazyframe_explode(
@@ -154,7 +202,7 @@ unsafe internal partial class NativeBindings
     public static partial LazyFrameHandle pl_lazyframe_unpivot(
         LazyFrameHandle lf,
         SelectorHandle index,
-        SelectorHandle? on, // Nullable
+        IntPtr on, // Nullable
         string? varName,
         string? valName
     );
@@ -178,12 +226,47 @@ unsafe internal partial class NativeBindings
         SelectorHandle selector
     );
     [LibraryImport(LibName)]
-    public static partial LazyFrameHandle pl_lazyframe_unique_stable(
+    public static partial LazyFrameHandle pl_lazyframe_drop_nulls(
+        LazyFrameHandle lf, 
+        IntPtr selector
+    );
+    [LibraryImport(LibName)]
+    public static partial LazyFrameHandle pl_lazyframe_drop_nans(
+        LazyFrameHandle lf, 
+        IntPtr selector
+    );
+    [LibraryImport(LibName)]
+    public static partial LazyFrameHandle pl_lazyframe_unique(
         LazyFrameHandle lf, 
         IntPtr selector,
-        PlUniqueKeepStrategy keep
+        PlUniqueKeepStrategy keep,
+        [MarshalAs(UnmanagedType.I1)] bool maintainOrder
     );
-    // --- Streaming & Sink ---
-    [LibraryImport(LibName)] 
-    public static partial DataFrameHandle pl_lazy_collect_streaming(LazyFrameHandle lf);
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LazyFrameHandle pl_lazyframe_match_to_schema(
+        LazyFrameHandle lf,
+        SchemaHandle schema,
+        byte extraColumnsCode,
+        
+        byte defMissingType,
+        IntPtr defMissingExpr,
+        byte defMissingStruct,
+        byte defExtraStruct,
+        byte defIntCast,
+        byte defFloatCast,
+        
+        string[]? ovNames,
+        byte[]? ovMissingType,
+        IntPtr[]? ovMissingExpr,
+        byte[]? ovMissingStruct,
+        byte[]? ovExtraStruct,
+        byte[]? ovIntCast,
+        byte[]? ovFloatCast,
+        nuint ovLen
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial LazyFrameHandle pl_lazyframe_merge_sorted(
+        LazyFrameHandle lf,
+        LazyFrameHandle other,
+        string key);
 }

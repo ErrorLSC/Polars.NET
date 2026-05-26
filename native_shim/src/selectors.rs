@@ -1,5 +1,5 @@
 use polars::prelude::*;
-use std::os::raw::c_char;
+use std::{ffi::{CStr, CString}, os::raw::c_char};
 use crate::{types::{ExprContext, SelectorContext}, utils::ptr_to_str};
 
 #[unsafe(no_mangle)]
@@ -75,12 +75,46 @@ pub extern "C" fn pl_selector_cols(
         Ok(Box::into_raw(Box::new(SelectorContext { inner: s })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_selector_by_index(
+    indices_ptr: *const i64,
+    indices_len: usize,
+    strict: bool,
+) -> *mut SelectorContext {
+    ffi_try!({
+        if indices_ptr.is_null() && indices_len > 0 {
+            polars_bail!(ComputeError: "Indices pointer is null");
+        }
+        
+        let slice = if indices_len == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(indices_ptr, indices_len) }
+        };
+        
+        let s = Selector::ByIndex {
+            indices: slice.into(),
+            strict,
+        };
+        Ok(Box::into_raw(Box::new(SelectorContext { inner: s })))
+    })
+}
 // =================================================================
 // String Matchers (StartsWith, EndsWith, Contains, Regex)
 // =================================================================
 
 fn to_small_str(ptr: *const c_char) -> PolarsResult<PlSmallStr> {
-    let s = ptr_to_str(ptr).unwrap();
+    if ptr.is_null() {
+        polars_bail!(ComputeError: "String pointer is null");
+    }
+
+    let c_str = unsafe { CStr::from_ptr(ptr) };
+    
+    let s = c_str.to_str().map_err(|e| {
+        polars_err!(ComputeError: "Invalid UTF-8 string: {}", e)
+    })?;
+
     Ok(PlSmallStr::from_str(s))
 }
 
@@ -89,7 +123,7 @@ pub extern "C" fn pl_selector_starts_with(
     pattern: *const c_char
 ) -> *mut SelectorContext {
     ffi_try!({
-        let p = ptr_to_str(pattern).unwrap();
+        let p = ptr_to_str(pattern).map_err(|e| PolarsError::ComputeError(format!("Invalid UTF-8 string {}", e).into()))?;
         let regex = format!("^{}", p);
         let s = Selector::Matches(PlSmallStr::from_str(&regex));
         Ok(Box::into_raw(Box::new(SelectorContext { inner: s })))
@@ -101,7 +135,7 @@ pub extern "C" fn pl_selector_ends_with(
     pattern: *const c_char
 ) -> *mut SelectorContext {
     ffi_try!({
-        let p = ptr_to_str(pattern).unwrap();
+        let p = ptr_to_str(pattern).map_err(|e| PolarsError::ComputeError(format!("Invalid UTF-8 string {}", e).into()))?;
         let regex = format!("{}$", p);
         let s = Selector::Matches(PlSmallStr::from_str(&regex));
         Ok(Box::into_raw(Box::new(SelectorContext { inner: s })))
@@ -113,8 +147,8 @@ pub extern "C" fn pl_selector_contains(
     pattern: *const c_char
 ) -> *mut SelectorContext {
     ffi_try!({
-        let p = ptr_to_str(pattern).unwrap();
-        let s = Selector::Matches(PlSmallStr::from_str(p));
+        let p = to_small_str(pattern)?;
+        let s = Selector::Matches(p);
         Ok(Box::into_raw(Box::new(SelectorContext { inner: s })))
     })
 }
@@ -124,7 +158,7 @@ pub extern "C" fn pl_selector_match(
     pattern: *const c_char
 ) -> *mut SelectorContext {
     ffi_try!({
-        let p = to_small_str(pattern).unwrap();
+        let p = to_small_str(pattern)?;
         let s = Selector::Matches(p);
         Ok(Box::into_raw(Box::new(SelectorContext { inner: s })))
     })
@@ -212,15 +246,138 @@ pub extern "C" fn pl_selector_by_dtype(kind: i32) -> *mut SelectorContext {
     })
 }
 
+macro_rules! impl_simple_dtype_selector {
+    ($($fn_name:ident => $variant:ident),+ $(,)?) => {
+        $(
+            #[unsafe(no_mangle)]
+            pub extern "C" fn $fn_name() -> *mut SelectorContext {
+                ffi_try!({
+                    let s = Selector::ByDType(DataTypeSelector::$variant);
+                    Ok(Box::into_raw(Box::new(SelectorContext { inner: s })))
+                })
+            }
+        )+
+    };
+}
+
+impl_simple_dtype_selector! {
+    // pl_selector_wildcard => Wildcard,
+    pl_selector_empty => Empty,
+    
+    pl_selector_integer => Integer,
+    pl_selector_unsigned_integer => UnsignedInteger,
+    pl_selector_signed_integer => SignedInteger,
+    pl_selector_float => Float,
+    pl_selector_numeric => Numeric,
+    pl_selector_decimal => Decimal,
+    
+    pl_selector_enum_type => Enum,
+    pl_selector_categorical => Categorical,
+    
+    pl_selector_nested => Nested,
+    pl_selector_struct => Struct,
+    
+    pl_selector_temporal => Temporal,
+    // pl_selector_object => Object,
+}
+
+// ==========================================
+// List Selector
+// ==========================================
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_selector_numeric() -> *mut SelectorContext {
+pub extern "C" fn pl_selector_list(inner_ptr: *mut SelectorContext) -> *mut SelectorContext {
     ffi_try!({
-        // DataTypeSelector::Numeric
-        let s = Selector::ByDType(DataTypeSelector::Numeric);
+        let inner_dt = if inner_ptr.is_null() {
+            None
+        } else {
+            let ctx = unsafe { Box::from_raw(inner_ptr) };
+            match &ctx.inner {
+                Selector::ByDType(dt) => Some(Arc::new(dt.clone())),
+                _ => polars_bail!(ComputeError: "Inner selector for List must be a DataType selector (e.g. Cs.Numeric())"),
+            }
+        };
+
+        let s = Selector::ByDType(DataTypeSelector::List(inner_dt));
         Ok(Box::into_raw(Box::new(SelectorContext { inner: s })))
     })
 }
 
+// ==========================================
+// Array Selector
+// ==========================================
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_selector_array(
+    inner_ptr: *mut SelectorContext,
+    width: usize,
+) -> *mut SelectorContext {
+    ffi_try!({
+        let inner_dt = if inner_ptr.is_null() {
+            None
+        } else {
+            let ctx = unsafe { Box::from_raw(inner_ptr) };
+            match &ctx.inner {
+                Selector::ByDType(dt) => Some(Arc::new(dt.clone())),
+                _ => polars_bail!(ComputeError: "Inner selector for Array must be a DataType selector"),
+            }
+        };
+
+        let opt_width = if width == 0 { None } else { Some(width) };
+        
+        let s = Selector::ByDType(DataTypeSelector::Array(inner_dt, opt_width));
+        Ok(Box::into_raw(Box::new(SelectorContext { inner: s })))
+    })
+}
+
+// ==========================================
+// Datetime & Duration Selector
+// ==========================================
+fn map_time_unit(tu: u8) -> TimeUnitSet {
+    match tu {
+        0 => TimeUnitSet::NANO_SECONDS,
+        1 => TimeUnitSet::MICRO_SECONDS,
+        2 => TimeUnitSet::MILLI_SECONDS,
+        _ => TimeUnitSet::all(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_selector_datetime(
+    time_unit: u8, 
+    time_zone: *const c_char,
+) -> *mut SelectorContext {
+    ffi_try!({
+        let tu_set = map_time_unit(time_unit);
+
+        let tz_set = if time_zone.is_null() {
+            TimeZoneSet::Any
+        } else {
+            let tz_str = unsafe { CStr::from_ptr(time_zone).to_string_lossy() };
+            
+            match tz_str.as_ref() {
+                "" => TimeZoneSet::Unset,  
+                "*" => TimeZoneSet::AnySet, 
+                _ => {
+                    let tz = TimeZone::opt_try_new(Some(tz_str.as_ref()))?
+                        .expect("opt_try_new should return Some when valid");
+                        
+                    TimeZoneSet::AnyOf(Arc::new([tz]))
+                }
+            }
+        };
+
+        let s = Selector::ByDType(DataTypeSelector::Datetime(tu_set, tz_set));
+        Ok(Box::into_raw(Box::new(SelectorContext { inner: s })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_selector_duration(time_unit: u8) -> *mut SelectorContext {
+    ffi_try!({
+        let tu_set = map_time_unit(time_unit);
+        let s = Selector::ByDType(DataTypeSelector::Duration(tu_set));
+        Ok(Box::into_raw(Box::new(SelectorContext { inner: s })))
+    })
+}
 // =================================================================
 // Set Operations
 // =================================================================
@@ -273,6 +430,38 @@ pub extern "C" fn pl_selector_not(
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_selector_sub(
+    left: *mut SelectorContext,
+    right: *mut SelectorContext
+) -> *mut SelectorContext {
+    ffi_try!({
+        let l = unsafe { Box::from_raw(left) };
+        let r = unsafe { Box::from_raw(right) };
+        
+        // A - B
+        let res = Selector::Difference(Arc::new(l.inner), Arc::new(r.inner));
+        
+        Ok(Box::into_raw(Box::new(SelectorContext { inner: res })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_selector_xor(
+    left: *mut SelectorContext,
+    right: *mut SelectorContext
+) -> *mut SelectorContext {
+    ffi_try!({
+        let l = unsafe { Box::from_raw(left) };
+        let r = unsafe { Box::from_raw(right) };
+        
+        // A ^ B
+        let res = Selector::ExclusiveOr(Arc::new(l.inner), Arc::new(r.inner));
+        
+        Ok(Box::into_raw(Box::new(SelectorContext { inner: res })))
+    })
+}
+
 // =================================================================
 // Bridges
 // =================================================================
@@ -295,5 +484,25 @@ pub extern "C" fn pl_selector_clone(
         let ctx = unsafe { &*sel_ptr };
         let new_sel = ctx.inner.clone();
         Ok(Box::into_raw(Box::new(SelectorContext { inner: new_sel })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_selector_to_string(ptr: *mut SelectorContext) -> *mut c_char {
+    ffi_try!({
+        if ptr.is_null() {
+            polars_bail!(ComputeError: "Selector pointer is null");
+        }
+        
+        let ctx = unsafe { &*ptr };
+        
+        let mut s = ctx.inner.to_string();
+        
+        if s.contains('\0') {
+            s = s.replace('\0', "␀"); 
+        }
+        
+        let c_str = CString::new(s).expect("String sanitization failed");
+        Ok(c_str.into_raw())
     })
 }

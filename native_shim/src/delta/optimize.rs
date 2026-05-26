@@ -4,7 +4,7 @@ use polars::prelude::*;
 use polars_buffer::Buffer;
 use rand::RngExt;
 use url::Url;
-use deltalake::{DeltaTable, PartitionFilter, PartitionValue, Path, kernel::scalars::ScalarExt};
+use deltalake::{DeltaTable, PartitionFilter, PartitionValue, Path, kernel::scalars::ScalarExt, logstore::object_store::ObjectStoreExt};
 use deltalake::kernel::{Action, Add, Remove, transaction::CommitBuilder};
 use deltalake::protocol::DeltaOperation;
 use uuid::Uuid;

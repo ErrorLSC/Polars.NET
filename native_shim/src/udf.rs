@@ -1,7 +1,7 @@
 use polars::prelude::*;
 use polars_arrow::ffi;
-use crate::types::{ExprContext,DataTypeContext};
-use std::sync::Arc;
+use crate::{types::{ DataTypeContext, ExprContext}, utils::consume_exprs_array};
+use std::{sync::Arc};
 use polars_arrow::datatypes::Field as ArrowField;
 use std::ffi::{CStr,c_void};
 
@@ -88,7 +88,6 @@ pub extern "C" fn pl_expr_map(
 
         let new_expr = ctx.inner.map(
             move |c| {
-                // [Logic from previous step]
                 // Column -> Series
                 let s = c.as_materialized_series().clone();
                 
@@ -107,3 +106,148 @@ pub extern "C" fn pl_expr_map(
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
+
+// ==========================================
+// Expr Map Many (Multiple Inputs -> Single Output)
+// ==========================================
+
+//Define C# Callback for multi-column mapping
+type MultiUdfCallback = extern "C" fn(
+    num_args: usize,
+    in_arrays: *const *const ffi::ArrowArray,
+    in_schemas: *const *const ffi::ArrowSchema,
+    out_array: *mut ffi::ArrowArray,
+    out_schema: *mut ffi::ArrowSchema,
+    user_data: *mut c_void,
+    error_buf: *mut std::os::raw::c_char,   
+    error_buf_len: usize,
+) -> i32;
+
+#[derive(Clone)]
+struct CSharpMultiUdf {
+    callback: MultiUdfCallback,
+    cleanup: CleanupCallback,
+    user_data: *mut c_void,
+}
+
+unsafe impl Send for CSharpMultiUdf {}
+unsafe impl Sync for CSharpMultiUdf {}
+
+impl Drop for CSharpMultiUdf {
+    fn drop(&mut self) {
+        if !self.user_data.is_null() {
+            (self.cleanup)(self.user_data);
+        }
+    }
+}
+
+impl CSharpMultiUdf {
+    fn call(&self, cols: &mut [Column]) -> PolarsResult<Column> {
+        let num_args = cols.len();
+        
+        let mut array_ptrs = Vec::with_capacity(num_args);
+        let mut schema_ptrs = Vec::with_capacity(num_args);
+
+        // Convert all input Columns to Arrow C Data Pointers
+        for col in cols.iter() {
+            let s = col.as_materialized_series().rechunk();
+            let array = s.to_arrow(0, CompatLevel::newest());
+            let field = ArrowField::new("".into(), array.dtype().clone(), true);
+            
+            // Allocate C structs on the heap to get stable pointers
+            let c_array = Box::into_raw(Box::new(ffi::export_array_to_c(array)));
+            let c_schema = Box::into_raw(Box::new(ffi::export_field_to_c(&field)));
+            
+            array_ptrs.push(c_array as *const ffi::ArrowArray);
+            schema_ptrs.push(c_schema as *const ffi::ArrowSchema);
+        }
+
+        // Prepare output structures
+        let mut out_array = ffi::ArrowArray::empty();
+        let mut out_schema = ffi::ArrowSchema::empty();
+
+        // Call C#
+        let mut error_buf: [std::os::raw::c_char; 1024] = [0; 1024];
+
+        let res_code = (self.callback)(
+            num_args,
+            array_ptrs.as_ptr(),
+            schema_ptrs.as_ptr(),
+            &mut out_array,
+            &mut out_schema,
+            self.user_data,
+            error_buf.as_mut_ptr(),
+            1024,
+        );
+
+        // Free the allocated pointers for inputs
+        for (arr_ptr, schema_ptr) in array_ptrs.into_iter().zip(schema_ptrs.into_iter()) {
+            unsafe {
+                let _ = Box::from_raw(arr_ptr as *mut ffi::ArrowArray);
+                let _ = Box::from_raw(schema_ptr as *mut ffi::ArrowSchema);
+            }
+        }
+
+        // Handle Error
+        if res_code != 0 {
+            let error_msg = unsafe {
+                std::ffi::CStr::from_ptr(error_buf.as_ptr())
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            return Err(PolarsError::ComputeError(
+                format!("C# Multi-Column UDF failed: {}", error_msg).into(),
+            ));
+        }
+
+        // Convert Output Arrow C Data back to Polars Column
+        unsafe {
+            let out_field = ffi::import_field_from_c(&out_schema)?;
+            let out_arr = ffi::import_array_from_c(out_array, out_field.dtype.clone())?;
+            
+            let out_series = Series::try_from((&out_field, out_arr))?; 
+            
+            Ok(out_series.into_column())
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_map_many(
+    base_expr_ptr: *mut ExprContext,
+    args_ptr: *const *mut ExprContext,
+    args_len: usize,
+    callback: MultiUdfCallback,
+    output_type_ptr: *mut DataTypeContext,
+    cleanup: CleanupCallback,
+    user_data: *mut c_void,
+) -> *mut ExprContext {
+    ffi_try!({
+        // Consume base Expr
+        let base_ctx = unsafe { Box::from_raw(base_expr_ptr) };
+        // Consume additional arguments
+        let args = unsafe { consume_exprs_array(args_ptr, args_len) };
+        
+        let udf = Arc::new(CSharpMultiUdf { callback, cleanup, user_data });
+        
+        // Clone output dtype for the schema closure
+        let target_dtype_owned = unsafe { (*output_type_ptr).dtype.clone() };
+
+        let new_expr = base_ctx.inner.map_many(
+            move |cols: &mut [Column]| -> PolarsResult<Column> {
+                udf.call(cols)
+            },
+            &args,
+            move |_schema: &Schema, _fields: &[Field]| -> PolarsResult<Field> {
+                // Return schema definition for optimizer
+                match &target_dtype_owned {
+                    DataType::Unknown(_) => Ok(Field::new("output".into(), DataType::Unknown(Default::default()))),
+                    known => Ok(Field::new("output".into(), known.clone()))
+                }
+            }
+        );
+
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+

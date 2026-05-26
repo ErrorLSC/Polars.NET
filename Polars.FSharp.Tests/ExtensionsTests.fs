@@ -66,6 +66,7 @@ type ``Extensions Tests`` () =
 
 
     [<Fact>]
+    [<Trait("Extension","ComplexType")>]
     member _.``Interop: Full Complex Type Roundtrip`` () =
         let data = [
             { 
@@ -93,10 +94,7 @@ type ``Extensions Tests`` () =
         
 
         df.PrintSchema() 
-        
-        // DataFrame -> Seq
-        let dfFlat =
-            df |>pl.unnestColumn "data"
+        let dfFlat = df.GlimpseFrame() |> pl.show |> pl.unnestColumns ["data"]
         
         let readBack = dfFlat.ToRecords<ComplexData>() |> Seq.toList
         Assert.Equal(2, readBack.Length)

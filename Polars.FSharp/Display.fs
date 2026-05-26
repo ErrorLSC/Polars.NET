@@ -20,7 +20,6 @@ module Display =
         let totalRows = df.Height
         let n = Math.Min(int64 rowsToShow, totalRows)
         
-
         use pSchema = df.Schema
         let colNames = pSchema.Names 
         let colCount = colNames.Length
@@ -31,16 +30,16 @@ module Display =
 
         let sb = StringBuilder()
         
-        // CSS Style 
+        // CSS Style: 
         sb.Append("""<style>
-            .pl-frame { font-family: "Consolas", "Monaco", monospace; font-size: 13px; border-collapse: collapse; border: 1px solid #e0e0e0; }
-            .pl-frame th { background-color: #f0f0f0; font-weight: bold; text-align: left; padding: 6px 12px; border-bottom: 2px solid #ccc; }
-            .pl-frame td { padding: 6px 12px; border-bottom: 1px solid #f0f0f0; white-space: pre; }
-            .pl-frame tr:nth-child(even) { background-color: #f9f9f9; }
-            .pl-frame tr:hover { background-color: #f1f1f1; }
-            .pl-dim { font-family: sans-serif; font-size: 12px; color: #666; margin-bottom: 8px; }
-            .pl-type { font-size: 10px; color: #999; display: block; margin-top: 2px; font-weight: normal; }
-            .pl-null { color: #d0d0d0; font-style: italic; }
+            .pl-frame { font-family: "Consolas", "Monaco", monospace; font-size: 13px; border-collapse: collapse; border: 1px solid rgba(128, 128, 128, 0.2); }
+            .pl-frame th { font-weight: bold; text-align: left; padding: 6px 12px; border-bottom: 2px solid rgba(128, 128, 128, 0.3); }
+            .pl-frame td { padding: 6px 12px; border-bottom: 1px solid rgba(128, 128, 128, 0.2); white-space: pre; }
+            .pl-frame tr:nth-child(even) { background-color: rgba(128, 128, 128, 0.05); }
+            .pl-frame tr:hover { background-color: rgba(128, 128, 128, 0.1); }
+            .pl-dim { font-family: sans-serif; font-size: 12px; opacity: 0.8; margin-bottom: 8px; }
+            .pl-type { font-size: 10px; color: rgba(128, 128, 128, 0.8); display: block; margin-top: 2px; font-weight: normal; }
+            .pl-null { color: rgba(128, 128, 128, 0.5); font-style: italic; }
         </style>""") |> ignore
 
         // 4. Dimension Info
@@ -98,7 +97,7 @@ module Display =
         // Footer
         if totalRows > int64 rowsToShow then
              let remaining = totalRows - int64 rowsToShow
-             sb.AppendFormat("<tr><td colspan='{0}' style='text-align:center; font-style:italic; color:#999; padding: 10px'>... {1} more rows ...</td></tr>", colCount, remaining) |> ignore
+             sb.AppendFormat("<tr><td colspan='{0}' style='text-align:center; font-style:italic; opacity: 0.6; padding: 10px'>... {1} more rows ...</td></tr>", colCount, remaining) |> ignore
 
         sb.Append "</tbody></table></div>" |> ignore
         sb.ToString()
@@ -115,26 +114,25 @@ module Display =
         )
         
         Formatter.Register<LazyFrame>(
-                    Action<LazyFrame, TextWriter>(fun lf writer -> 
-                        let plan = lf.Explain true 
-                        
-                        use schema = lf.Schema
-                        let schemaStr = schema.ToString()
-                        // --------------
-                        
-                        let html = $"""
-                        <div style="font-family: monospace;">
-                            <div style="background:#f4f4f4; padding:5px; border-bottom:1px solid #ddd; font-weight:bold">Polars LazyFrame</div>
-                            <div style="padding:10px">
-                                <div><strong>Schema:</strong> {System.Net.WebUtility.HtmlEncode schemaStr}</div>
-                                <br/>
-                                <strong>Optimized Plan:</strong>
-                                <pre style="background:#f9f9f9; padding:10px; border:1px solid #eee;">{System.Net.WebUtility.HtmlEncode plan}</pre>
-                            </div>
-                        </div>
-                        """
-                        writer.Write html
-                    ),
-                    "text/html"
-                )
-    
+            Action<LazyFrame, TextWriter>(fun lf writer -> 
+                let plan = lf.Explain true 
+                
+                use schema = lf.Schema
+                let schemaStr = schema.ToString()
+                // --------------
+                
+                let html = $"""
+                <div style="font-family: monospace;">
+                    <div style="background: rgba(128, 128, 128, 0.1); padding:5px; border-bottom:1px solid rgba(128, 128, 128, 0.2); font-weight:bold">Polars LazyFrame</div>
+                    <div style="padding:10px">
+                        <div><strong>Schema:</strong> {System.Net.WebUtility.HtmlEncode schemaStr}</div>
+                        <br/>
+                        <strong>Optimized Plan:</strong>
+                        <pre style="background: rgba(128, 128, 128, 0.05); padding:10px; border:1px solid rgba(128, 128, 128, 0.2);">{System.Net.WebUtility.HtmlEncode plan}</pre>
+                    </div>
+                </div>
+                """
+                writer.Write html
+            ),
+            "text/html"
+        )

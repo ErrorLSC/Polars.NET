@@ -1,70 +1,25 @@
-use std::ffi::{CStr, c_char};
+use std::ffi::{CStr, c_char, c_void};
 use polars::frame::UniqueKeepStrategy;
-use polars_arrow::ffi::ArrowArray;
-use polars_arrow::ffi::{export_array_to_c,export_field_to_c};
-use polars::prelude::{ArrowSchema, AsofStrategy,  Expr, JoinBuildSide, JoinCoalesce, JoinType, JoinValidation, MaintainOrderJoin, ParallelStrategy, PlSmallStr,  SchemaRef};
-use polars_arrow::datatypes::Field;
+use polars::prelude::{AsofStrategy, ClosedInterval, Expr, JoinBuildSide, JoinCoalesce, JoinType, JoinValidation, MaintainOrderJoin, ParallelStrategy, PlSmallStr, SchemaRef, TimeUnit};
+use polars::time::ClosedWindow;
 use polars_io::ExternalCompression;
 use polars_io::prelude::JsonFormat;
 use polars_io::utils::sync_on_close::SyncOnCloseType;
 
 use crate::types::{ExprContext,SchemaContext};
 
-pub struct ArrowArrayContext {
-    pub array: Box<dyn polars_arrow::array::Array>, 
-}
-
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_arrow_array_free(ptr: *mut ArrowArrayContext) {
+pub extern "C" fn pl_free_string(ptr: *mut std::os::raw::c_char) {
     if !ptr.is_null() {
-        unsafe { let _ = Box::from_raw(ptr); }
+        unsafe { let _ = std::ffi::CString::from_raw(ptr); }
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_arrow_array_export(
-    ptr: *mut ArrowArrayContext,
-    out_c_array: *mut ArrowArray 
-) {
-    assert!(!ptr.is_null());
-    assert!(!out_c_array.is_null());
-
-    let ctx = unsafe { &*ptr };
-    
-    let array = ctx.array.clone(); 
-
-    let rust_arrow_array = export_array_to_c(array);
-
-    unsafe {
-        std::ptr::write(out_c_array, rust_arrow_array);
-    }
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_arrow_schema_export(
-    ptr: *mut ArrowArrayContext,
-    out_c_schema: *mut ArrowSchema
-) {
-    assert!(!ptr.is_null());
-    assert!(!out_c_schema.is_null());
-
-    let ctx = unsafe { &*ptr };
-    
-    let dtype = ctx.array.dtype().clone();
-
-    let field = Field::new("".into(), dtype, true);
-
-    let rust_arrow_schema = export_field_to_c(&field);
-
-    unsafe {
-        std::ptr::write(out_c_schema as *mut _, rust_arrow_schema);
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_free_c_string(c_str: *mut std::os::raw::c_char) {
-    if !c_str.is_null() {
+pub extern "C" fn pl_free_ptr_array(ptr: *mut *mut c_void, len: usize) {
+    if !ptr.is_null() {
         unsafe {
-            let _ = std::ffi::CString::from_raw(c_str);
+            let _ = Vec::from_raw_parts(ptr, len, len);
         }
     }
 }
@@ -83,6 +38,24 @@ pub unsafe fn ptr_to_vec_string(ptr: *const *const c_char, len: usize) -> Vec<St
         }
     }
     res
+}
+
+#[inline]
+pub unsafe fn ptr_to_opt_pl_str_vec(ptr: *const *const c_char, len: usize) -> Option<Vec<PlSmallStr>> {
+    if ptr.is_null() || len == 0 {
+        None
+    } else {
+        let slice = unsafe {std::slice::from_raw_parts(ptr, len)};
+        let vec: Vec<PlSmallStr> = slice.iter().map(|&p| {
+            if p.is_null() {
+                PlSmallStr::from_str("")
+            } else {
+                let s = unsafe { CStr::from_ptr(p).to_string_lossy() };
+                PlSmallStr::from_str(&s)
+            }
+        }).collect();
+        Some(vec)
+    }
 }
 
 pub fn ptr_to_str<'a>(ptr: *const c_char) -> Result<&'a str, std::str::Utf8Error> {
@@ -125,6 +98,23 @@ pub(crate) unsafe fn ptr_to_pl_str(ptr: *const c_char, default: &str) -> PlSmall
     } else {
         ptr_to_str(ptr).ok().map(PlSmallStr::from_str).unwrap_or_else(|| PlSmallStr::from_str(default))
     }
+}
+
+pub unsafe fn ptr_to_vec_pl_string_with_default(
+    ptr: *const *const c_char, 
+    len: usize, 
+    default: &str
+) -> Vec<PlSmallStr> {
+    if ptr.is_null() || len == 0 {
+        return Vec::new();
+    }
+    
+    let mut res = Vec::with_capacity(len);
+    for i in 0..len {
+        let c_str =unsafe{ *ptr.add(i)};
+        res.push(unsafe{ptr_to_pl_str(c_str, default)});
+    }
+    res
 }
 
 pub(crate) fn map_jointype(code: u8) -> JoinType {
@@ -221,11 +211,43 @@ pub(crate) fn map_json_format(code: u8) -> JsonFormat {
 }
 
 #[inline]
-pub fn map_sync_on_close(val: u8) -> SyncOnCloseType {
+pub(crate) fn map_sync_on_close(val: u8) -> SyncOnCloseType {
     match val {
         1 => SyncOnCloseType::Data,
         2 => SyncOnCloseType::All,
         _ => SyncOnCloseType::None,
+    }
+}
+
+#[inline]
+pub(crate) fn parse_closed_window(val: u8) -> ClosedWindow {
+    match val {
+        0 => ClosedWindow::Left,
+        1 => ClosedWindow::Right,
+        2 => ClosedWindow::Both,
+        3 => ClosedWindow::None,
+        _ => ClosedWindow::Left,
+    }
+}
+
+#[inline]
+pub(crate) fn parse_time_unit(val: u8) -> Option<TimeUnit> {
+    match val {
+        0 => Some(TimeUnit::Nanoseconds),
+        1 => Some(TimeUnit::Microseconds),
+        2 => Some(TimeUnit::Milliseconds),
+        _ => None,
+    }
+}
+
+#[inline]
+pub(crate) fn parse_closed_interval(val: u8) -> ClosedInterval {
+    match val {
+        0 => ClosedInterval::Left,
+        1 => ClosedInterval::Right,
+        2 => ClosedInterval::Both,
+        3 => ClosedInterval::None,
+        _ => ClosedInterval::Both, 
     }
 }
 

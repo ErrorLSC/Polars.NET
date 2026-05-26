@@ -135,3 +135,72 @@ macro_rules! ffi_try_c_int {
         }
     }};
 }
+
+#[macro_export]
+macro_rules! ffi_bool_try {
+    ($body:expr) => {{
+        use std::panic::{catch_unwind, AssertUnwindSafe};
+        use crate::error::set_error;
+        
+        let closure = || -> PolarsResult<_> { $body };
+        let result = catch_unwind(AssertUnwindSafe(closure));
+
+        match result {
+            Ok(inner_result) => match inner_result {
+                Ok(_) => true, 
+                Err(e) => {
+                    set_error(e.to_string());
+                    false 
+                }
+            },
+            Err(e) => {
+                let msg = if let Some(s) = e.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = e.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "Unknown Rust Panic".to_string()
+                };
+                set_error(msg);
+                false 
+            }
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! ffi_eval_out_try {
+    ($out_ptr:expr, $body:expr) => {{
+        use std::panic::{catch_unwind, AssertUnwindSafe};
+        use crate::error::set_error;
+        
+        let closure = || -> PolarsResult<_> { $body };
+        let result = catch_unwind(AssertUnwindSafe(closure));
+
+        match result {
+            Ok(inner_result) => match inner_result {
+                Ok(val) => {
+                    if !$out_ptr.is_null() {
+                        unsafe { *$out_ptr = val; }
+                    }
+                    0 
+                },
+                Err(e) => {
+                    set_error(e.to_string());
+                    1 
+                }
+            },
+            Err(e) => {
+                let msg = if let Some(s) = e.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = e.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "Unknown Rust Panic".to_string()
+                };
+                set_error(msg);
+                1
+            }
+        }
+    }};
+}

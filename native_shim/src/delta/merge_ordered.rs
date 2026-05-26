@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::ffi::c_char;
 use std::time::{SystemTime, UNIX_EPOCH};
+use deltalake::logstore::object_store::ObjectStoreExt;
 use crate::delta::merge::{MergeStrategy, phase_execution, phase_execution_dv, phase_process_staging, phase_validation};
 use crate::types::{ExprContext, LazyFrameContext};
 use crate::utils::{ptr_to_str, ptr_to_vec_string};

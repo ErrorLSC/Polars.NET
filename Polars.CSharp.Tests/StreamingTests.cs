@@ -261,9 +261,9 @@ public class StreamingTests(ITestOutputHelper output)
         var today = DateOnly.FromDateTime(DateTime.Now); 
 
         var schema = new Schema.Builder()
-            .Field(new Field("Id", Int32Type.Default, true))
-            .Field(new Field("Name", StringViewType.Default, true))
-            .Field(new Field("Date", Date32Type.Default, true)) 
+            .Field(new Apache.Arrow.Field("Id", Int32Type.Default, true))
+            .Field(new Apache.Arrow.Field("Name", StringViewType.Default, true))
+            .Field(new Apache.Arrow.Field("Date", Date32Type.Default, true)) 
             .Build();
 
         IEnumerable<RecordBatch> MockArrowStream()
@@ -414,7 +414,6 @@ public class StreamingTests(ITestOutputHelper output)
         double actualAmount = (double)targetTable.Rows[^1]["TaxedAmount"];
         Assert.Equal(expectedAmount, actualAmount, 0.001); 
 
-        // 验证列名 (确保 Select 生效)
         Assert.True(targetTable.Columns.Contains("TaxedAmount"));
         Assert.False(targetTable.Columns.Contains("Amount"));
         Assert.False(targetTable.Columns.Contains("Region"));

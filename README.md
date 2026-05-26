@@ -15,6 +15,12 @@ Supported Platforms: Windows (x64), Linux (x64/ARM64, glibc/musl), macOS (ARM64)
 Cloud: AWS, Azure and GCP
 Data Lake: Delta Lake
 
+<p style="font-size:1.3em; font-weight:bold; background-color:#ffff99;">
+<strong>ALMOST</strong> All API in python Polars now is available in both Polars.NET and Polars.FSharp.<br/>
+The only module left is <strong>config module</strong> which is still under refactoring in rust core.<br/>
+<strong>Config module will be introduced in next major release.</strong>
+</p>
+
 ## Why Polars.NET exists
 
 This is the game I'd like to play: binding the lightning-fast Polars engine to the .NET ecosystem.
@@ -68,6 +74,65 @@ dotnet add package Polars.NET.Linq
 ## Built Specially for .NET
 
 Bringing .NET to Polars is not enough, it is the time to bring Polars to .NET.
+
+- ML.NET & Tensor InterOp
+
+Prepare data with polars, then train it with ML.NET & ONNX, finally analyze results back with polars.
+
+```CSharp
+// ==========================================
+// Data Loading
+// ==========================================
+var hfUrl = "https://huggingface.co/datasets/scikit-learn/iris/resolve/refs%2Fconvert%2Fparquet/default/train/0000.parquet";
+var options = CloudOptions.Http(new Dictionary<string, string>
+{
+    { "User-Agent", "Polars.NET-Test" }
+});
+using var lf = LazyFrame.ScanParquet(hfUrl, cloudOptions: options);
+
+// sepal length (cm), sepal width (cm), petal length (cm), petal width (cm)     
+using var cleanlf = lf.Cast((typeof(double),typeof(float)));
+using var cleanDf = cleanlf.WithColumns(Pl.ConcatArray(Cs.Float().ToExpr().Alias("Features"))).Collect();
+// ==========================================
+// Polars -> ML.NET
+// ==========================================
+var dataView = cleanDf.AsDataView();
+
+var mlContext = new MLContext(seed: 42);
+
+// ==========================================
+// ML.NET Pipeline
+// ==========================================
+// Form VBuffer<float> tensor
+var pipeline = mlContext.Clustering.Trainers.KMeans("Features", numberOfClusters: 3);
+var model = pipeline.Fit(dataView);
+// ==========================================
+// ML.NET Transform and Read Back
+// ==========================================
+var predictions = model.Transform(dataView);
+
+// ML.NET -> Polars
+using var resultDf = predictions.ToDataFrame();
+
+// ==========================================
+// TensorInterop
+// ==========================================
+float[,] matrix = new float[,]
+{
+    { 1.1f, 1.2f, 1.3f },
+    { 2.1f, 2.2f, 2.3f }
+};
+
+using var series = Series.From("ffi_matrix", matrix);
+
+var (ptr, shape) = series.AsDangerousUnmanagedTensor<float>();
+
+int totalElements = (int)(shape[0] * shape[1]); 
+
+float* rawFloatPtr = (float*)ptr.ToPointer();
+
+var nativeSpan = new ReadOnlySpan<float>(rawFloatPtr, totalElements);
+```
 
 - ADO.NET
 
@@ -133,186 +198,13 @@ let queryResult =
     |> Seq.toList 
 ```
 
-- ADBC
-
-Passing data between query engines and data sources like ping-pong ball as your wish.
-
-```CSharp
-var options = new DataOptions().UseConnectionString(ProviderName.PostgreSQL15, "Server=Dummy;");
-
-var records = new[]
-{
-    new { id = 101, name = "Data", language = "C" },
-    new { id = 102, name = "Frame", language = "C++" },
-    new { id = 103, name = "Engine", language = "Rust" }
-};
-using var df = DataFrame.FromEnumerable(records);
-df.WriteToAdbc(_connection, "stage1_table");
-
-using var duckDbTranslator = new DataConnection(options); 
-
-using var pushdownDf = duckDbTranslator.GetTable<AdbcE2ERecord>()
-    .TableName("stage1_table")
-    .Where(x => x.Id > 101) 
-    .Select(x => new 
-    {
-        x.Id,
-        x.Name,
-        UpperLang = Sql.Upper(x.Language)
-    })
-    .ToDataFrameAdbc(_connection);
-    
-// shape: (2, 3)
-// ┌─────┬────────┬───────────┐
-// │ Id  ┆ Name   ┆ UpperLang │
-// │ --- ┆ ---    ┆ ---       │
-// │ i32 ┆ str    ┆ str       │
-// ╞═════╪════════╪═══════════╡
-// │ 102 ┆ Frame  ┆ C++       │
-// │ 103 ┆ Engine ┆ RUST      │
-// └─────┴────────┴───────────┘
-
-using var finalPolarsDf = pushdownDf.AsQueryable<PushdownRecord>()
-    .Select(x => new 
-    {
-        FinalId = x.Id + 1000,                            
-        SuperName = x.Name + " Pro Max",                  
-        LangStatus = x.UpperLang == "RUST" ? "Genshin" : "Impact" 
-    })
-    .ToDataFrame(); 
-
-// shape: (2, 3)
-// ┌─────────┬────────────────┬────────────┐
-// │ FinalId ┆ SuperName      ┆ LangStatus │
-// │ ---     ┆ ---            ┆ ---        │
-// │ i32     ┆ str            ┆ str        │
-// ╞═════════╪════════════════╪════════════╡
-// │ 1102    ┆ Frame Pro Max  ┆ Impact     │
-// │ 1103    ┆ Engine Pro Max ┆ Genshin    │
-// └─────────┴────────────────┴────────────┘
-
-finalPolarsDf.WriteToAdbc(_connection, "final_destination_table");
-
-using var verifyFinalDf = DataFrame.ReadAdbc(_connection, "SELECT * FROM final_destination_table ORDER BY FinalId");
-
-// Same as before
-```
-
-- Query Sandwich
-
-LINQ query and Polars lazy-execuation plan is compatible with each other.
-
-```CSharp
-// Start with Polars lazy scan
-using var rawLf = LazyFrame.ScanCsv(path,schema:schema);
-
-// Query with LINQ
-var query = rawLf.AsQueryable<StaffRecord>()
-                .Where(e => e.salary > 5000)
-                .Select(e => new { e.name, e.salary });
-
-using LazyFrame lfWithLinq = query.ToLazyFrame();
-
-// Then query with Polars again
-using var finalLf = lfWithLinq.WithColumns(Col("salary").Std().Alias("salary_std"));
-
-using var df = finalLf.Collect();
-
-// shape: (4, 3)
-// ┌─────────┬────────┬──────────────┐
-// │ name    ┆ salary ┆ salary_std   │
-// │ ---     ┆ ---    ┆ ---          │
-// │ str     ┆ i32    ┆ f64          │
-// ╞═════════╪════════╪══════════════╡
-// │ Alice   ┆ 50000  ┆ 12909.944487 │
-// │ Bob     ┆ 60000  ┆ 12909.944487 │
-// │ Charlie ┆ 70000  ┆ 12909.944487 │
-// │ David   ┆ 80000  ┆ 12909.944487 │
-// └─────────┴────────┴──────────────┘
-```
-
-- Delta Lake (With Unity Catalog)
-
-Python and JVM are not needed here. Stay comfortable with our dear CLR. Deletion Vector is also available.
-
-```CSharp
-// Create UnityCatalog instance
-using var uc = new UnityCatalog(_catalogMockServer.Urls[0], expectedToken);
-
-// Set merge expresions
-var updateCond = Delta.Source("Stock") > Delta.Target("Stock");
-var matchDeleteCond = Delta.Source("Status") == "DeleteMe";
-var insertCond = Delta.Source("Stock") > 0;
-var srcDeleteCond = Delta.Target("Status") == "Obsolete";
-
-// Merge
-sourceDf.MergeCatalogRecords(uc,catalog, schema, table,
-    mergeKeys: ["Id"],
-    cloudOptions: options
-)
-    .WhenMatchedUpdate(updateCond)
-    .WhenMatchedDelete(matchDeleteCond)
-    .WhenNotMatchedInsert(insertCond)
-    .WhenNotMatchedBySourceDelete(srcDeleteCond)
-    .Execute();
-
-// Read Back
-using var resultDf = uc.ReadCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
-```
-
-- UDF(User Defined Function)
-
-If LINQ or Polars Expression is not fit for your special need, feel free to write UDF.
-
-```FSharp
-let data = [
-    {| Code = ValueSome "EMP-1024" |}  
-    {| Code = ValueSome "EMP-0042" |}  
-    {| Code = ValueSome "ADMIN-1" |}   
-    {| Code = ValueSome "EMP-ERR" |}   
-    {| Code = ValueNone |}        
-]
-
-let lf = DataFrame.ofRecords(data).Lazy()
-
-//  string voption -> int voption
-let parseEmpId (opt: string voption) =
-    match opt with
-    | ValueSome s when s.StartsWith "EMP-" ->
-        match Int32.TryParse(s.Substring 4) with
-        | true, num -> ValueSome num
-        | _ -> ValueNone
-    | _ -> ValueNone
-
-let df = 
-    lf 
-    |> pl.withColumnLazy (
-        pl.col "Code"
-        |> fun e -> e.Map(Udf.mapValueOption parseEmpId, DataType.Int32)
-        |> pl.alias "EmpId"
-    )
-    |> pl.collect
-// shape: (5, 2)
-// ┌──────────┬───────┐
-// │ Code     ┆ EmpId │
-// │ ---      ┆ ---   │
-// │ str      ┆ i32   │
-// ╞══════════╪═══════╡
-// │ EMP-1024 ┆ 1024  │
-// │ EMP-0042 ┆ 42    │
-// │ ADMIN-1  ┆ null  │
-// │ EMP-ERR  ┆ null  │
-// │ null     ┆ null  │
-// └──────────┴───────┘
-```
-
 ## Quick Start
 
 ### C# Example
 
 ```csharp
 using Polars.CSharp;
-using static Polars.CSharp.Polars; // For Col(), Lit() helpers
+using Pl = Polars.CSharp.Polars;
 
 // 1. Create a DataFrame
 var data = new[] {
@@ -324,11 +216,11 @@ var df = DataFrame.From(data);
 
 // 2. Filter & Aggregate
 var res = df
-    .Filter(Col("Age") > 28)
+    .Filter(Pl.Col("Age") > 28)
     .GroupBy("Dept")
     .Agg(
-        Col("Age").Mean().Alias("AvgAge"),
-        Col("Name").Count().Alias("Count")
+        Pl.Col("Age").Mean().Alias("AvgAge"),
+        Pl.Col("Name").Count().Alias("Count")
     )
     .Sort("AvgAge", descending: true);
 
@@ -364,12 +256,9 @@ let res =
             pl.col("age").Mean().Alias "AvgAge" 
             pl.col("name").Count().Alias "Count"
         ]
+    |> pl.sortAscendingLazy [pl.col "AvgAge"]
     |> pl.collect
-    |> pl.sort ("AvgAge", false)
-
-// 3. Output
-res.Show()
-
+    |> pl.show
 ```
 
 ## Benchmark
@@ -386,7 +275,9 @@ res.Show()
 
 ## Roadmap
 
-- Strong Typed Series<T\> with Source Generator.
+- Config module
+
+- More code examples, user cases
 
 - Documentation: [**Docs Here**](https://errorlsc.github.io/Polars.NET/index.html)
 

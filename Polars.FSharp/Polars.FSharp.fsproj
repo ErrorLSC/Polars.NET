@@ -1,11 +1,11 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <Nullable>disable</Nullable>
-    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <DisableImplicitFSharpCoreReference>false</DisableImplicitFSharpCoreReference>
 
     <PackageId>Polars.FSharp</PackageId>
     <Authors>ErrorLSC</Authors>
@@ -23,15 +23,80 @@
 
   <ItemGroup>
     <Compile Include="Enums.fs" />
+    <Compile Include="DataType.fs" />
     <Compile Include="CloudOptions.fs" />
     <Compile Include="UdfUtils.fs" />
     <Compile Include="Exprs.fs" />
-    <Compile Include="Types.fs" />
-    <Compile Include="Polars.fs" />
+    <Compile Include="Expr/Aggregation.fs" />
+    <Compile Include="Expr/Boolean.fs" />
+    <Compile Include="Expr/Computation.fs" />
+    <Compile Include="Expr/ExtOps.fs" />
+    <Compile Include="Expr/BinaryOps.fs" />
+    <Compile Include="Expr/CatOps.fs" />
+    <Compile Include="Expr/StringOps.fs" />
+    <Compile Include="Expr/ListOps.fs" />
+    <Compile Include="Expr/ArrayOps.fs" />
+    <Compile Include="Expr/NameOps.fs" />
+    <Compile Include="Expr/StructOps.fs" />
+    <Compile Include="Expr/MetaOps.fs" />
+    <Compile Include="Expr/DtOps.fs" />
+    <Compile Include="Expr/ExprNamespaces.fs" />
+    <Compile Include="Types.fs" />  
+    <Compile Include="Lit.fs" />  
+    <Compile Include="Operations/Cast.fs" />
+    <Compile Include="Series/Series.Operations.fs" />
+    <Compile Include="Series/Series.Aggregation.fs" />
+    <Compile Include="Series/Series.Descriptive.fs" />
+    <Compile Include="Series/Series.Computation.fs" />
+    <Compile Include="Series/Series.ExtOps.fs" />
+    <Compile Include="Series/Series.CatOps.fs" />
+    <Compile Include="Series/Series.StringOps.fs" />
+    <Compile Include="Series/Series.BinaryOps.fs" />
+    <Compile Include="Series/Series.ListOps.fs" />
+    <Compile Include="Series/Series.ArrayOps.fs" />
+    <Compile Include="Series/Series.StructOps.fs" />
+    <Compile Include="Expr/RollingOps.fs" />
+    <Compile Include="Series/Series.RollingOps.fs" />
+    <Compile Include="Operations/ValueAccessors.fs" />
+    <Compile Include="Series/Series.DtOps.fs" />
+    <Compile Include="Series/Series.Namespaces.fs" />
+    <Compile Include="IO/CSV/Read.fs" />
+    <Compile Include="IO/CSV/Write.fs" />
+    <Compile Include="IO/JSON/Read.fs" />
+    <Compile Include="IO/JSON/Write.fs" />
+    <Compile Include="IO/Parquet/Read.fs" />
+    <Compile Include="IO/Parquet/Write.fs" />
+    <Compile Include="IO/IPC/Read.fs" />
+    <Compile Include="IO/IPC/Write.fs" />
+    <Compile Include="IO/ADO.NET/Read.fs" />
+    <Compile Include="IO/ADO.NET/Write.fs" />
+    <Compile Include="IO/ADBC.fs" />
+    <Compile Include="IO/Avro.fs" />
+    <Compile Include="IO/Excel.fs" />
+    <Compile Include="Operations/Aggregations.fs" />
+    <Compile Include="Operations/Manipulations.fs" />
+    <Compile Include="Operations/MatchToSchema.fs" />
+    <Compile Include="Operations/Sort.fs" />
+    <Compile Include="Operations/Join.fs" />
+    <Compile Include="Operations/GroupBy.fs" />
+    <Compile Include="Operations/Pivot.fs" />
+    <Compile Include="Operations/TensorInterops.fs" />
+    <Compile Include="DataFrame/DataFrame.Factory.fs" />
+    <Compile Include="DataFrame/DataFrame.Conversions.fs" />
+    <Compile Include="DataFrame/DataFrame.Descriptive.fs" />
+    <Compile Include="DataFrame/DataFrame.Transpose.fs" />
     <Compile Include="Ops.fs" />
     <Compile Include="Display.fs" />
-    <Compile Include="Delta.fs" />
+    <Compile Include="Polars.fs" />
     <Compile Include="Extensions.fs" />
+    <Compile Include="DataFrame/DataFrame.Unstack.fs" />
+    <Compile Include="DataFrame/DataFrame.JsonNormalize.fs" />
+    <Compile Include="Operations/Update.fs" />
+    <Compile Include="Operations/Merge.fs" />
+    <Compile Include="IO/Delta/Delta.fs" />
+    <Compile Include="IO/Delta/Read.fs" />
+    <Compile Include="IO/Delta/Write.fs" />
+    <Compile Include="IO/Catalog.fs" />
     <Compile Include="Config.fs" />
   </ItemGroup>
 
@@ -44,10 +109,15 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Apache.Arrow" Version="22.1.0" />
-    <PackageReference Include="Apache.Arrow.Adbc" Version="0.22.0" />
+    <InternalsVisibleTo Include="Polars.NET.ML" />
+    <InternalsVisibleTo Include="Polars.NET.Linq" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Apache.Arrow" Version="23.0.0" />
+    <PackageReference Include="Apache.Arrow.Adbc" Version="0.23.0" />
     <PackageReference Include="Microsoft.DotNet.Interactive.Formatting" Version="1.0.0-beta.*" />
-    <PackageReference Include="FSharp.Core" Version="10.0.104" />
+    <PackageReference Include="System.Numerics.Tensors" Version="10.0.5" />
   </ItemGroup>
 
 </Project>

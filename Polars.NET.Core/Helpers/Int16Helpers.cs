@@ -7,7 +7,7 @@ namespace Polars.NET.Core.Helpers;
 public static partial class ArrayHelper
 {
     // =================================================================================
-    //  Int16/Short Shuffle Mask (32 Bytes -> 4 items)
+    //  Int16/Short/Float16 Shuffle Mask (32 Bytes -> 4 items)
     //  Layout: [Bool(1), Pad(1), Val(2)] -> Total 4
     // =================================================================================
     private static readonly Vector256<byte> Int16ShuffleMask = Vector256.Create(
@@ -19,7 +19,7 @@ public static partial class ArrayHelper
         // Padding
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF 
     );
-       [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static unsafe (short[] values, byte[]? validity) UnzipInt16SIMD(ReadOnlySpan<short?> data, short defaultValue)
     {
         int len = data.Length;

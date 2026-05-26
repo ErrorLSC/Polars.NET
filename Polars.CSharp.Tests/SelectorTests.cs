@@ -1,4 +1,5 @@
-using static Polars.CSharp.Polars;
+using Pl = Polars.CSharp.Polars;
+using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp.Tests;
 
@@ -20,7 +21,7 @@ public class SelectorTests
         // Scene：Keep data but exclude ID and Secret
         // Here implictly: Selector -> Expr
         var result = df.Select(
-            Selectors.All().Exclude("Id", "Secret")
+            Cs.All().Exclude("Id", "Secret")
         );
 
         // Assert Results
@@ -48,7 +49,7 @@ public class SelectorTests
 
         // select (All - "Id") * 2
         var result = df.Select(
-            (Selectors.All().Exclude("Id") * 2).Name.Suffix("_Scaled") 
+            (Cs.All().Exclude("Id") * 2).Name.Suffix("_Scaled") 
         );
 
         Assert.Equal(20, result[0, "Val1_Scaled"]); // 10 * 2
@@ -79,13 +80,13 @@ public class SelectorTests
         
         var result = df.Select(
             // A. StartsWith + Math
-            (Selectors.StartsWith("Price") * 100).Name.Suffix("_Cents"),
+            (Cs.StartsWith("Price") * 100).Name.Suffix("_Cents"),
 
             // B. EndsWith
-            Selectors.EndsWith("2024"),
+            Cs.EndsWith("2024"),
 
             // C. Type Selector (Datetime)
-            Selectors.Datetime()
+            Cs.Datetime()
         );
 
         Assert.Equal(4, result.Width); 
@@ -98,23 +99,313 @@ public class SelectorTests
 
         Assert.Equal(1050.0, result[0, "Price_US_Cents"]); // 10.5 * 100
     }
+    [Fact]
+    [Trait("Selector", "SetOperationsProMax")]
+    public void Test_Selector_Set_Operations_Pro_Max()
+    {
+        using var df = DataFrame.FromSeries(
+            Series.From("A", [1, 2, 3]),           // Int
+            Series.From("B", [1.1, 2.2, 3.3]),     // Float
+            Series.From("C", ["x", "y", "z"]),     // String
+            Series.From("D", [true, false, true])  // Boolean
+        );
+
+        // INTERSECTION: Numeric & Float -> B
+        using var resAnd = df.Select(Cs.Numeric() & Cs.Float());
+        Assert.Equal(["B"], resAnd.Columns);
+
+        // UNION: Float | String -> B and C
+        using var resOr = df.Select(Cs.Float() | Cs.String());
+        Assert.Equal(["B", "C"], resOr.Columns);
+
+        // DIFFERENCE: Numeric - Float -> A
+        using var resSub = df.Select(Cs.Numeric() - Cs.Float());
+        Assert.Equal(["A"], resSub.Columns);
+
+        // NOT: ~Numeric ->  C(String) and D(Boolean)
+        using var resNot = df.Select(~Cs.Numeric());
+        Assert.Equal(["C", "D"], resNot.Columns);
+
+        // SYMMETRIC DIFFERENCE (XOR): 
+        // Numeric | String -> A, B, C
+        // Float | Boolean -> B, D
+        // XOR : A, C, D
+        using var complexSelector = (Cs.Numeric() | Cs.String()) ^ (Cs.Float() | Cs.Boolean());
+        using var resXor = df.Select(complexSelector);
+        Console.WriteLine(complexSelector);
+        Assert.Equal(["A", "C", "D"], [.. resXor.Columns.OrderBy(c => c)]);
+        
+        using var resBang = df.Select(!Cs.Numeric());
+        Assert.Equal(["C", "D"], resBang.Columns);
+    }
 
     [Fact]
-    public void Test_Selector_Set_Operations()
+    [Trait("Selector", "Datetime")]
+    public void Test_Datetime_Selectors()
     {
-        var df = DataFrame.FromColumns(new 
-        {
-            Num1 = new[] { 1 },
-            Num2 = new[] { 2 },
-            Str1 = new[] { "a" },
-            Str2 = new[] { "b" }
-        });
+        using var baseDf = DataFrame.FromSeries(
+            Series.From("ts_str", ["2024-01-01T00:00:00", "2024-01-02T00:00:00"])
+        );
 
-        var sel = Selectors.Numeric() - Selectors.Matches("^Num1$");
+        using var df = baseDf.Lazy()
+            .Select(
+                Pl.Col("ts_str").Str.ToDatetime().Alias("dt_naive"), // Unset
+                Pl.Col("ts_str").Str.ToDatetime().Dt.ReplaceTimeZone("UTC").Alias("dt_utc"), // UTC
+                Pl.Col("ts_str").Str.ToDatetime().Dt.ReplaceTimeZone("Asia/Shanghai").Alias("dt_shanghai"), // Asia/Shanghai
+                (Pl.Col("ts_str").Str.ToDatetime() - Pl.Col("ts_str").Str.ToDatetime()).Alias("duration_col") // Duration
+            ).Collect();
+
+        // Datetime()
+        using var resAll = df.Select(Cs.Datetime());
+        Assert.Equal(["dt_naive", "dt_shanghai","dt_utc"], [.. resAll.Columns.OrderBy(c => c)]);
+
+        // DatetimeNaive()
+        using var resNaive = df.Select(Cs.DatetimeNaive());
+        Assert.Equal(["dt_naive"], resNaive.Columns);
+
+        // DatetimeAware() 
+        using var resAware = df.Select(Cs.DatetimeAware());
+        Assert.Equal(["dt_shanghai", "dt_utc"], [.. resAware.Columns.OrderBy(c => c)]);
+
+        // DatetimeExact()
+        using var resExact = df.Select(Cs.DatetimeExact("Asia/Shanghai"));
+        Assert.Equal(["dt_shanghai"], resExact.Columns);
+
+        // Duration() 
+        using var resDuration = df.Select(Cs.Duration());
+        Assert.Equal(["duration_col"], resDuration.Columns);
+    }
+    [Fact]
+    [Trait("Selector", "NestedTypes")]
+    public void Test_List_And_Array_Selectors_FixedType()
+    {
+        using var df = DataFrame.FromSeries(
+            Series.From("normal_int", [1, 2]),
+            
+            Series.From("list_int", new int[][] { [1, 2], [3] }),
+            Series.From("list_str", new string[][] { ["a", "b"], ["c"] }),
+            
+            Series.From("array_float_w2", new float[,] { { 1.1f, 2.2f }, { 3.3f, 4.4f } }),
+            Series.From("array_int_w3", new int[,] { { 1, 2, 3 }, { 4, 5, 6 } })
+        );
+
+
+        using var resStrList = df.Select(Cs.List(Cs.ByDtype<string>()));
+        Assert.Single(resStrList.Columns);
+        Assert.Equal("list_str", resStrList.Columns[0]);
+
+        using var resFloatArray = df.Select(Cs.Array(Cs.Float()));
+        Assert.Equal(["array_float_w2"], resFloatArray.Columns);
+
+        using var resW3Array = df.Select(Cs.Array(width: 3));
+        Assert.Equal(["array_int_w3"], resW3Array.Columns);
+
+        using var resCombined = df.Select(Cs.Array(Cs.Float(), width: 2));
+        Assert.Equal(["array_float_w2"], resCombined.Columns);
+    }
+    [Fact]
+    [Trait("Selector", "Index")]
+    public void Test_Index_Selectors_And_Expand()
+    {
+        using var df = DataFrame.FromSeries(
+            Series.From("col_0_int", [1, 2]),          // Index: 0
+            Series.From("col_1_float", [1.1, 2.2]),    // Index: 1
+            Series.From("col_2_str", ["A", "B"]),      // Index: 2
+            Series.From("col_3_bool", [true, false])   // Index: 3 (-1)
+        );
+
+        using var resIndex = df.Select(Cs.ByIndex(0, 2));
+        Assert.Equal(["col_0_int", "col_2_str"], resIndex.Columns);
+
+        using var resFirst = df.Select(Cs.First());
+        Assert.Equal(["col_0_int"], resFirst.Columns);
+
+        using var resLast = df.Select(Cs.Last());
+        Assert.Equal(["col_3_bool"], resLast.Columns);
+    }
+
+    [Fact]
+    [Trait("Selector", "Exclude")]
+    public void Test_Exclude_With_DataTypes_And_Selectors()
+    {
+        using var df = DataFrame.FromSeries(
+            Series.From("id", [1, 2, 3]),                    // Int
+            Series.From("score", [99.5, 85.0, 77.5]),        // Float (DataType.Float64)
+            Series.From("name", ["Alice", "Bob", "Charlie"]),// String (DataType.String)
+            Series.From("tag", ["A", "B", "C"]),             // String (DataType.String)
+            Series.From("is_active", [true, false, true])    // Boolean (DataType.Boolean)
+        );
+
+        // ==========================================
+        // Exclude String and Boolean Columns
+        // ==========================================
+        using var resExcludeTypes = df.Select(Cs.Exclude(DataType.String, DataType.Boolean));
+        Assert.Equal(["id", "score"], [.. resExcludeTypes.Columns.OrderBy(c => c)]);
+
+        // ==========================================
+        // Exclude Numeric Columns and last column
+        // ==========================================
+        using var resExcludeSelectors = df.Select(Cs.Exclude(Cs.Numeric(), Cs.Last()));
+        Assert.Equal(["name", "tag"], [.. resExcludeSelectors.Columns.OrderBy(c => c)]);
+
+        // ==========================================
+        // Cs.String().Exclude(Cs.First()) 
+        // ==========================================
+        using var resChain = df.Select(Cs.String().Exclude(Cs.First()));
+        Assert.Equal(["name", "tag"], [.. resChain.Columns.OrderBy(c => c)]);
         
-        var result = df.Select(sel);
+        // Select all columns excluding tag
+        using var resExcludeByName = df.Select(Cs.All().Exclude(Cs.ByName("tag")));
+        Assert.Equal(["id", "score", "name", "is_active"], resExcludeByName.Columns);
+    }
 
-        Assert.Equal(1, result.Width);
-        Assert.Equal("Num2", result.Column(0).Name);
+    [Fact]
+    [Trait("Selector", "ToString")]
+    public void Test_Exclude_AST_ToString()
+    {
+        
+        var excludeDtypes = Cs.Exclude(DataType.String, DataType.Boolean);
+        var strDtypes = excludeDtypes.ToString();
+        Console.WriteLine(excludeDtypes);
+        Assert.Contains("cs.all()", strDtypes);
+        Assert.Contains("-", strDtypes);
+        Assert.Contains("cs.string()", strDtypes);
+        Assert.Contains("cs.boolean()", strDtypes);
+
+        var excludeSelectors = Cs.Exclude(Cs.Numeric(), Cs.Float());
+        var strSelectors = excludeSelectors.ToString();
+        Console.WriteLine(excludeSelectors);
+        Assert.Contains("cs.all()", strSelectors);
+        Assert.Contains("cs.numeric()", strSelectors);
+        Assert.Contains("cs.float()", strSelectors);
+    }
+    [Fact]
+    [Trait("Selector", "Expand")]
+    public void Test_ExpandSelector_Across_DataFrames_And_LazyFrames()
+    {
+        using var df = DataFrame.FromSeries(
+            Series.From("num_int", [1, 2, 3]),
+            Series.From("num_float", [1.1, 2.2, 3.3]),
+            Series.From("text_name", ["Alice", "Bob", "Charlie"]),
+            Series.From("flag_active", [true, false, true])
+        );
+
+        string[] dfSelectorResult = Cs.ExpandSelector(df, Cs.Numeric());
+        
+        // Should catch 'num_int' and 'num_float'
+        Assert.Equal(["num_float","num_int" ], [.. dfSelectorResult.OrderBy(x => x)]);
+
+        // We'll use a regex expression to select columns starting with "text_" or "flag_"
+        string[] dfSelectorResult2 = Cs.ExpandSelector(
+            df, 
+            Cs.StartsWith("text_") | Cs.StartsWith("flag_")
+        );
+        
+        Assert.Equal(["flag_active","text_name" ], [.. dfSelectorResult2.OrderBy(x => x)]);
+
+        // ==========================================
+        // LazyFrame + Selector
+        // ==========================================
+        using var lf = df.Lazy();
+        
+        // Exclude numeric columns, which should leave strings and booleans.
+        string[] lfSelectorResult = Cs.ExpandSelector(lf, Cs.Exclude(Cs.Numeric()));
+        
+        Assert.Equal(["text_name", "flag_active"], [.. lfSelectorResult.OrderByDescending(x => x)]);
+    }
+
+    [Fact]
+    [Trait("Selector", "ExpandEdgeCases")]
+    public void Test_ExpandSelector_Empty_Or_Miss()
+    {
+        using var df = DataFrame.FromSeries(
+            Series.From("A", [1, 2]),
+            Series.From("B", [3, 4])
+        );
+
+        // Try to expand a selector that matches nothing in this dataframe (e.g., String)
+        string[] emptyResult = Cs.ExpandSelector(df, Cs.String());
+        
+        // Should safely return an empty array without throwing
+        Assert.Empty(emptyResult);
+    }
+    [Fact]
+    [Trait("Selector", "AlphaAlphanumeric")]
+    public void Test_Alpha_And_Alphanumeric_Selectors()
+    {
+        using var df = DataFrame.FromSeries(
+            Series.From("abc", [1]),           //  ASCII 
+            Series.From("a b c", [1]),         // ASCII  + space
+            Series.From("abc123", [1]),        // ASCII + number
+            Series.From("a 1 b 2", [1]),       // ASCII + number + space
+            Series.From("测试", [1]),           //  Unicode 
+            Series.From("测试123", [1]),        // Unicode + number
+            Series.From("123", [1]),           // number
+            Series.From("hello_world", [1])    // include _
+        );
+
+        // ==========================================
+        // Alpha
+        // ==========================================
+        
+        var alphaRes = Cs.ExpandSelector(df, Cs.Alpha());
+        Assert.Equal(["abc", "测试"], [.. alphaRes.OrderBy(x => x)]);
+
+        var alphaAsciiRes = Cs.ExpandSelector(df, Cs.Alpha(asciiOnly: true));
+        Assert.Equal(["abc"], [.. alphaAsciiRes.OrderBy(x => x)]);
+
+        var alphaSpacesRes = Cs.ExpandSelector(df, Cs.Alpha(ignoreSpaces: true));
+        Assert.Equal(["a b c", "abc", "测试"], [.. alphaSpacesRes.OrderBy(x => x)]);
+
+        var alphaAsciiSpacesRes = Cs.ExpandSelector(df, Cs.Alpha(asciiOnly: true, ignoreSpaces: true));
+        Assert.Equal(["a b c", "abc"], [.. alphaAsciiSpacesRes.OrderBy(x => x)]);
+
+        // ==========================================
+        //  Alphanumeric
+        // ==========================================
+
+        var alnumRes = Cs.ExpandSelector(df, Cs.Alphanumeric());
+        Assert.Equal(["123", "abc", "abc123", "测试", "测试123"], [.. alnumRes.OrderBy(x => x)]);
+
+        // asciiOnly：
+        var alnumAsciiRes = Cs.ExpandSelector(df, Cs.Alphanumeric(asciiOnly: true));
+        Assert.Equal(["123", "abc", "abc123"], [.. alnumAsciiRes.OrderBy(x => x)]);
+
+        // ignoreSpaces
+        var alnumSpacesRes = Cs.ExpandSelector(df, Cs.Alphanumeric(ignoreSpaces: true));
+        Assert.Equal(["123", "a 1 b 2", "a b c", "abc", "abc123", "测试", "测试123"], [.. alnumSpacesRes.OrderBy(x => x)]);
+
+        // Mixed
+        var alnumAsciiSpacesRes = Cs.ExpandSelector(df, Cs.Alphanumeric(asciiOnly: true, ignoreSpaces: true));
+        Assert.Equal(["123", "a 1 b 2", "a b c", "abc", "abc123"], [.. alnumAsciiSpacesRes.OrderBy(x => x)]);
+        
+        Assert.DoesNotContain("hello_world", alnumSpacesRes);
+    }
+    [Fact]
+    [Trait("Selector", "CJK")]
+    public void Test_CJK_Selector()
+    {
+        using var df = DataFrame.FromSeries(
+            Series.From("abc", [1]),                 // ASCII 
+            Series.From("测试", [1]),                 // 纯汉字 (Han)
+            Series.From("テスト", [1]),               // Katakana
+            Series.From("ひらがな", [1]),             // Hiragana
+            Series.From("테스트", [1]),               // Hangul
+            Series.From("测试 テスト", [1]),          // CJK + space
+            Series.From("测试１２３", [1])               // CJK + number
+        );
+
+        var cjkRes = Cs.ExpandSelector(df, Cs.CJK());
+        
+        Assert.Equal(["테스트","テスト", "ひらがな","测试"], [.. cjkRes.OrderBy(x => x)]);
+
+        var cjkSpaceRes = Cs.ExpandSelector(df, Cs.CJK(ignoreSpaces: true));
+        
+        Assert.Equal(["테스트", "テスト","ひらがな",  "测试", "测试 テスト"], [.. cjkSpaceRes.OrderBy(x => x)]);
+        
+        var cjkNumeric = Cs.ExpandSelector(df,Cs.CJKAlphanumeric(japanese:false,korean:false,includeLetters:false));
+
+        Assert.Equal([ "测试", "测试１２３",], [.. cjkNumeric.OrderBy(x => x)]);
     }
 }
+

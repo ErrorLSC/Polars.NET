@@ -186,6 +186,7 @@ jobs:
           dotnet pack Polars.CSharp/Polars.CSharp.csproj -c Release -p:BuildRustNative=false -o nupkgs
           dotnet pack Polars.FSharp/Polars.FSharp.fsproj -c Release -p:BuildRustNative=false -o nupkgs
           dotnet pack Polars.NET.Linq/Polars.NET.Linq.csproj -c Release -p:BuildRustNative=false -o nupkgs
+          dotnet pack Polars.NET.ML/Polars.NET.ML.csproj -c Release -p:BuildRustNative=false -o nupkgs
 
       - name: Upload NuGet Packages
         uses: actions/upload-artifact@v4

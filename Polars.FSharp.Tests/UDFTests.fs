@@ -61,7 +61,7 @@ type ``UDF Tests`` () =
 
     [<Fact>]
     member _.``Map UDF error is propagated to F#`` () =
-        use csv = new TempCsv("num\n1")
+        use csv = new TempCsv "num\n1"
         let lf = LazyFrame.ScanCsv csv.Path
         
         let udf = Func<IArrowArray, IArrowArray> UdfLogic.alwaysFail
@@ -158,9 +158,9 @@ type ``UDF Tests`` () =
 
         use gradeSeries = scoreSeries.MapValueOption(calculateGrade, DataType.String)
         
-        use resultDf = df.WithColumn(pl.litSeries(gradeSeries).Alias "Grade")
+        use resultDf = df.WithColumns(pl.litSeries(gradeSeries).Alias "Grade")
         
-        Assert.Equal(5L, resultDf.Rows)
+        Assert.Equal(5L, resultDf.Height)
 
         Assert.Equal("S", resultDf.Cell<string>("Grade", 0))
         Assert.Equal("A", resultDf.Cell<string>("Grade", 1))
@@ -176,12 +176,12 @@ type ``UDF Tests`` () =
         let s = Series.create("str_vals", data)
 
         // Cast to Decimal(10, 2)
-        let sDec = s.Cast(DataType.Decimal(Some 10, Some 2))
+        let sDec = s.Cast(DataType.Decimal(10, 2))
 
         let logic (opt: decimal option) =
             opt |> Option.map (fun d -> d * 2m)
 
-        let res = sDec.MapOption(logic, DataType.Decimal(Some 10, Some 2))
+        let res = sDec.MapOption(logic, DataType.Decimal(10, 2))
 
         // 10.50 * 2 = 21.00
         Assert.Equal(21.00m, res.GetValue<decimal> 0)
@@ -277,7 +277,7 @@ type ``UDF Tests`` () =
         // │ EMP-ERR  ┆ null  │
         // │ null     ┆ null  │
         // └──────────┴───────┘
-        Assert.Equal(5L, df.Rows)
+        Assert.Equal(5L, df.Height)
 
         // Row 0: "EMP-1024" -> 1024
         Assert.Equal(1024, df.Cell<int>("EmpId", 0))

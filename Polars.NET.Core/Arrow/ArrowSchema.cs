@@ -85,7 +85,20 @@ public static class ArrowTypeResolver
         if (coreType == typeof(DateTimeOffset)) return new TimestampType(TimeUnit.Microsecond, "UTC");
 
         // 4. Complex Types (Recursive)
-        
+        // Map / Dictionary
+        Type? dictInterface = (coreType.IsGenericType && coreType.GetGenericTypeDefinition() == typeof(IDictionary<,>)
+            ? coreType
+            : coreType.GetInterfaces().FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IDictionary<,>))) ?? (coreType.IsGenericType && coreType.GetGenericTypeDefinition() == typeof(IReadOnlyDictionary<,>)
+                ? coreType
+                : coreType.GetInterfaces().FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IReadOnlyDictionary<,>)));
+        if (dictInterface != null)
+        {
+            var args = dictInterface.GetGenericArguments();
+            var keyArrowType = GetArrowTypeFromNetType(args[0]);
+            var valueArrowType = GetArrowTypeFromNetType(args[1]);
+            
+            return new MapType(keyArrowType, valueArrowType, nullable: true, keySorted: false);
+        }
         // List / Array
         if (typeof(System.Collections.IEnumerable).IsAssignableFrom(coreType) && coreType != typeof(string))
         {
@@ -180,6 +193,23 @@ public static class ArrowTypeResolver
         {
             ListType list => GetNetTypeFromArrowType(list.ValueDataType).MakeArrayType(),
             LargeListType largeList => GetNetTypeFromArrowType(largeList.ValueDataType).MakeArrayType(),
+            FixedSizeListType fixedSizeList => GetNetTypeFromArrowType(fixedSizeList.ValueDataType).MakeArrayType(),
+            DictionaryType dict => GetNetTypeFromArrowType(dict.ValueType),
+            
+            // Map types are logical lists of struct entries (key-value pairs).
+            MapType map => typeof(KeyValuePair<,>)
+                            .MakeGenericType(
+                                GetNetTypeFromArrowType(map.KeyField.DataType), 
+                                GetNetTypeFromArrowType(map.ValueField.DataType))
+                            .MakeArrayType(),
+
+            // Structs have heterogeneous fields. Without runtime code generation, 
+            // mapping to an array of objects or a dynamic expando is the safest fallback.
+            StructType => typeof(object[]),
+
+            // Union types can be any of the defined variants, so we fallback to object.
+            // (In F# API layer, this could be mapped to a true Discriminated Union later)
+            UnionType => typeof(object),
             Int8Type => typeof(sbyte),
             Int16Type => typeof(short),
             Int32Type => typeof(int),

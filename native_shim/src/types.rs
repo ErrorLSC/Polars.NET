@@ -25,3 +25,15 @@ pub struct DataTypeContext {
 pub struct SchemaContext {
     pub schema: SchemaRef, 
 }
+
+pub struct DataTypeExprContext {
+    pub inner: DataTypeExpr, 
+}
+
+pub struct CategoriesContext {
+    pub inner: Arc<Categories>,
+}
+
+pub struct FrozenCategoriesContext {
+    pub inner: Arc<FrozenCategories>,
+}

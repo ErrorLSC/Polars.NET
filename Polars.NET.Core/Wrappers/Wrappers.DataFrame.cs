@@ -2,13 +2,35 @@ using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
 
-public static partial class PolarsWrapper
+public readonly partial struct PolarsWrapper
 {
     // ==========================================
     // Metadata
     // ==========================================
-    public static long DataFrameHeight(DataFrameHandle df) => (long)NativeBindings.pl_dataframe_height(df);
-    public static long DataFrameWidth(DataFrameHandle df) => (long)NativeBindings.pl_dataframe_width(df);
+    public static long DataFrameHeight(DataFrameHandle df)
+    {
+        bool success = NativeBindings.pl_dataframe_height(df,out uint height);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return height;
+    }
+    public static long DataFrameWidth(DataFrameHandle df)
+    {
+        bool success = NativeBindings.pl_dataframe_width(df,out uint width);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return width;
+    }
+    public static long DataFrameEstimatedSize(DataFrameHandle df)
+    {
+        bool success = NativeBindings.pl_dataframe_estimated_size(df,out nuint size);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return (long)size;
+    }
     public static string[] GetColumnNames(DataFrameHandle df)
     {
         long width = DataFrameWidth(df);
@@ -24,37 +46,12 @@ public static partial class PolarsWrapper
     }
     public static SchemaHandle GetDataFrameSchema(DataFrameHandle handle)
         =>ErrorHelper.Check(NativeBindings.pl_dataframe_get_schema(handle));
+    public static SeriesHandle DataFrameIsDuplicated(DataFrameHandle handle)
+        =>ErrorHelper.Check(NativeBindings.pl_dataframe_is_duplicated(handle));
+    public static SeriesHandle DataFrameIsUnique(DataFrameHandle handle)
+        =>ErrorHelper.Check(NativeBindings.pl_dataframe_is_unique(handle));
     public static DataFrameHandle CloneDataFrame(DataFrameHandle df)
-    {
-        return ErrorHelper.Check(NativeBindings.pl_dataframe_clone(df));
-    }
-    // ==========================================
-    // Scalar Access
-    // ==========================================
-
-    public static long? GetInt(DataFrameHandle df, string colName, long row)
-    {
-        if (NativeBindings.pl_dataframe_get_i64(df, colName, (UIntPtr)row, out long val))
-        {
-            return val;
-        }
-        return null;
-    }
-
-    public static double? GetDouble(DataFrameHandle df, string colName, long row)
-    {
-        if (NativeBindings.pl_dataframe_get_f64(df, colName, (UIntPtr)row, out double val))
-        {
-            return val;
-        }
-        return null;
-    }
-
-    public static string? GetString(DataFrameHandle df, string colName, long row)
-    {
-        IntPtr ptr = NativeBindings.pl_dataframe_get_string(df, colName, (UIntPtr)row);
-        return ErrorHelper.CheckString(ptr);
-    }
+        => ErrorHelper.Check(NativeBindings.pl_dataframe_clone(df));
     // ==========================================
     // Eager Ops
     // ==========================================
@@ -66,12 +63,15 @@ public static partial class PolarsWrapper
         => ErrorHelper.Check(NativeBindings.pl_tail(df, n));
     public static DataFrameHandle Slice(DataFrameHandle df, long offset,ulong length)
         => ErrorHelper.Check(NativeBindings.pl_dataframe_slice(df,offset,(UIntPtr)length));
-    public static DataFrameHandle Drop(DataFrameHandle df, string name)
-        => ErrorHelper.Check(NativeBindings.pl_dataframe_drop(df, name));
-    public static DataFrameHandle DataFrameUniqueStable(
+    public static DataFrameHandle Drop(DataFrameHandle df, string[] columns)
+        => ErrorHelper.Check(NativeBindings.pl_dataframe_drop_many(df, columns,(nuint)columns.Length));
+    public static SeriesHandle DropInPlace(DataFrameHandle df, string name)
+        => ErrorHelper.Check(NativeBindings.pl_dataframe_drop_in_place(df, name));
+    public static DataFrameHandle DataFrameUnique(
         DataFrameHandle dfHandle, 
         string[]? subset, 
         PlUniqueKeepStrategy keep,
+        bool maintainOrder,
         (long offset, ulong len)? slice)
     {
         // Slice handling
@@ -88,11 +88,12 @@ public static partial class PolarsWrapper
 
         UIntPtr subLen = subset == null ? UIntPtr.Zero : (UIntPtr)subset.Length;
 
-        return NativeBindings.pl_df_unique_stable(
+        return NativeBindings.pl_df_unique(
             dfHandle,
             subset,
             subLen,
             keep, 
+            maintainOrder,
             offset,
             (UIntPtr)len,
             sliceValid
@@ -103,143 +104,38 @@ public static partial class PolarsWrapper
         => ErrorHelper.Check(NativeBindings.pl_dataframe_rename(df, oldName, newName));
     public static DataFrameHandle Rename(DataFrameHandle df, string[] oldNames, string[] newNames)
     {
-    if (oldNames.Length != newNames.Length)
-    {
-        throw new ArgumentException("The lengths of oldNames and newNames must be identical.");
-    }
-
-    return ErrorHelper.Check(NativeBindings.pl_dataframe_rename_many(df, oldNames, newNames, (nuint)oldNames.Length));
-    }
-    public static DataFrameHandle DropNulls(DataFrameHandle df, string[]? subset)
-    {
-        return UseUtf8StringArray(subset ?? [], ptrs => 
+        if (oldNames.Length != newNames.Length)
         {
-            return ErrorHelper.Check(NativeBindings.pl_dataframe_drop_nulls(df, ptrs, (UIntPtr)ptrs.Length));
-        });
+            throw new ArgumentException("The lengths of oldNames and newNames must be identical.");
+        }
+
+        return ErrorHelper.Check(NativeBindings.pl_dataframe_rename_many(df, oldNames, newNames, (nuint)oldNames.Length));
     }
 
-    public static unsafe DataFrameHandle SampleN(DataFrameHandle df, ulong n, bool replacement, bool shuffle, ulong? seed)
+    public static unsafe DataFrameHandle SampleN(DataFrameHandle df, SeriesHandle n, bool replacement, bool shuffle, ulong? seed)
     {
         ulong sVal = seed ?? 0;
         ulong* sPtr = seed.HasValue ? &sVal : null;
-        return ErrorHelper.Check(NativeBindings.pl_dataframe_sample_n(df, (UIntPtr)n, replacement, shuffle, sPtr));
+        return ErrorHelper.Check(NativeBindings.pl_dataframe_sample_n(df, n, replacement, shuffle, sPtr));
+    }
+    public static unsafe DataFrameHandle SampleNLiteral(DataFrameHandle df, ulong n, bool replacement, bool shuffle, ulong? seed)
+    {
+        ulong sVal = seed ?? 0;
+        ulong* sPtr = seed.HasValue ? &sVal : null;
+        return ErrorHelper.Check(NativeBindings.pl_dataframe_sample_n_literal(df, (nuint)n, replacement, shuffle, sPtr));
     }
 
-    public static unsafe DataFrameHandle SampleFrac(DataFrameHandle df, double frac, bool replacement, bool shuffle, ulong? seed)
+    public static unsafe DataFrameHandle SampleFrac(DataFrameHandle df, SeriesHandle frac, bool replacement, bool shuffle, ulong? seed)
     {
         ulong sVal = seed ?? 0;
         ulong* sPtr = seed.HasValue ? &sVal : null;
         return ErrorHelper.Check(NativeBindings.pl_dataframe_sample_frac(df, frac, replacement, shuffle, sPtr));
     }
-    public static DataFrameHandle Filter(DataFrameHandle df, ExprHandle expr)
-    {
-        var h = NativeBindings.pl_filter(df, expr);
-        expr.TransferOwnership(); 
-        return ErrorHelper.Check(h);
-    }
-    public static DataFrameHandle WithColumns(DataFrameHandle df, ExprHandle[] exprs)
-    {
-        var raw = HandlesToPtrs(exprs);
-        return ErrorHelper.Check(NativeBindings.pl_with_columns(df, raw, (UIntPtr)raw.Length));
-    }
-    public static DataFrameHandle Select(DataFrameHandle df, ExprHandle[] exprs)
-    {
-        var rawExprs = HandlesToPtrs(exprs);
-        return ErrorHelper.Check(NativeBindings.pl_select(df, rawExprs, (UIntPtr)rawExprs.Length));
-    }
-
-    public static DataFrameHandle Join(
-        DataFrameHandle left, 
-        DataFrameHandle right, 
-        ExprHandle[] leftOn, 
-        ExprHandle[] rightOn, 
-        PlJoinType how,
-        string? suffix,
-        PlJoinValidation validation,
-        PlJoinCoalesce coalesce,
-        PlJoinMaintainOrder maintainOrder,
-        PlJoinSide joinSide,
-        bool nullsEqual,
-        long? sliceOffset,
-        ulong sliceLen)
-    {
-        var lPtrs = HandlesToPtrs(leftOn);
-        var rPtrs = HandlesToPtrs(rightOn);
-
-        unsafe 
-        {
-            long offsetVal = sliceOffset.GetValueOrDefault();
-            IntPtr offsetPtr = sliceOffset.HasValue ? (IntPtr)(&offsetVal) : IntPtr.Zero;
-
-            return ErrorHelper.Check(NativeBindings.pl_join(
-                left, 
-                right, 
-                lPtrs, (UIntPtr)lPtrs.Length, 
-                rPtrs, (UIntPtr)rPtrs.Length, 
-                how,
-                suffix,         
-                validation,
-                coalesce,
-                maintainOrder,
-                joinSide,
-                nullsEqual,
-                offsetPtr,      
-                (UIntPtr)sliceLen
-            ));
-        }
-    }
-    public static DataFrameHandle DataFrameSort(
-        DataFrameHandle df, 
-        ExprHandle[] exprs, 
-        bool[] descending,
-        bool[] nullsLast,
-        bool maintainOrder)
-    {
-        if ((descending.Length != 1 && descending.Length != exprs.Length) ||
-            (nullsLast.Length != 1 && nullsLast.Length != exprs.Length))
-        {
-                throw new ArgumentException("Sort options length mismatch.");
-        }
-
-        var exprPtrs = HandlesToPtrs(exprs);
-
-        unsafe
-        {
-            fixed (bool* descPtr = descending)
-            fixed (bool* nullsPtr = nullsLast)
-            {
-                return ErrorHelper.Check(NativeBindings.pl_dataframe_sort(
-                    df,
-                    exprPtrs,
-                    (UIntPtr)exprs.Length,
-                    descPtr,
-                    (UIntPtr)descending.Length,
-                    nullsPtr,
-                    (UIntPtr)nullsLast.Length,
-                    maintainOrder
-                ));
-            }
-        }
-    }
-    public static DataFrameHandle Explode(DataFrameHandle df, SelectorHandle selector, bool emptyAsNull,bool keepNulls)
-    {
-       var h = NativeBindings.pl_dataframe_explode(df,selector, emptyAsNull,keepNulls);
-       selector.TransferOwnership();
-       return ErrorHelper.Check(h);
-    } 
     public static DataFrameHandle Unnest(DataFrameHandle df, string[] columns,string? separator)
         => ErrorHelper.Check(NativeBindings.pl_dataframe_unnest(df, columns, (UIntPtr)columns.Length,separator));
-    // GroupBy
-    public static DataFrameHandle GroupByAgg(DataFrameHandle df, ExprHandle[] by, ExprHandle[] agg)
-    {
-        var rawBy = HandlesToPtrs(by);
-        var rawAgg = HandlesToPtrs(agg);
-        return ErrorHelper.Check(NativeBindings.pl_groupby_agg(
-            df, 
-            rawBy, (UIntPtr)rawBy.Length,
-            rawAgg, (UIntPtr)rawAgg.Length
-        ));
-    }
+    public static DataFrameHandle Explode(DataFrameHandle df, string[] columns,bool emptyAsNull,bool keepNulls)
+        => ErrorHelper.Check(NativeBindings.pl_dataframe_explode(df, columns, (UIntPtr)columns.Length,emptyAsNull,keepNulls));
+    
     // Pivot (Eager)
     public static DataFrameHandle Pivot(
         DataFrameHandle df, 
@@ -272,15 +168,6 @@ public static partial class PolarsWrapper
 
         return ErrorHelper.Check(handle);
     }
-
-    // Unpivot (Eager)
-    public static DataFrameHandle Unpivot(DataFrameHandle df, SelectorHandle index, SelectorHandle? on, string? variableName, string? valueName)
-    {
-        var h = NativeBindings.pl_unpivot(df,index,on,variableName,valueName);
-        index.TransferOwnership();
-        on?.TransferOwnership();
-        return ErrorHelper.Check(h);
-    }
     public static DataFrameHandle Concat(
         DataFrameHandle[] handles, 
         PlConcatType how, 
@@ -299,6 +186,8 @@ public static partial class PolarsWrapper
 
         return ErrorHelper.Check(h);
     }
+    public static SeriesHandle DataFrameHashRows(DataFrameHandle df, ulong? seed)
+        => NativeBindings.pl_dataframe_hash_rows(df, seed ?? 0, seed.HasValue);
     // ==========================================
     // Stack Ops
     // ==========================================
@@ -322,8 +211,12 @@ public static partial class PolarsWrapper
 
     public static DataFrameHandle VStack(DataFrameHandle df, DataFrameHandle other)
         => ErrorHelper.Check(NativeBindings.pl_vstack(df, other));
+    public static void DataFrameExtend(DataFrameHandle df, DataFrameHandle other)
+    {
+        bool success = NativeBindings.pl_dataframe_extend(df, other);
 
-
+        ErrorHelper.CheckBool(success);
+    }
     public static SeriesHandle DataFrameGetColumn(DataFrameHandle h, string name)
     {
         var sh = NativeBindings.pl_dataframe_get_column(h, name);
@@ -344,30 +237,35 @@ public static partial class PolarsWrapper
         }
         return sh;
     }
-    public static DataFrameHandle DataFrameNew(SeriesHandle[] series)
+    public static DataFrameHandle DataFrameNew(ReadOnlySpan<SeriesHandle> series)
     {
-        if (series == null || series.Length == 0)
-            {
-                return ErrorHelper.Check(NativeBindings.pl_dataframe_new(Array.Empty<IntPtr>(), UIntPtr.Zero));
-            }
+        if (series.Length == 0)
+        {
+            return ErrorHelper.Check(NativeBindings.pl_dataframe_new([], nuint.Zero));
+        }
 
-        using var locker = new SafeHandleLock<SeriesHandle>(series);
+        Span<nint> pointers = series.Length <= 512 
+            ? stackalloc nint[series.Length] 
+            : new nint[series.Length];
 
-        return ErrorHelper.Check(NativeBindings.pl_dataframe_new(locker.Pointers, (UIntPtr)series.Length));
+        Span<bool> locks = series.Length <= 512 
+            ? stackalloc bool[series.Length] 
+            : new bool[series.Length];
+
+        using var locker = new SafeHandleSpanLock<SeriesHandle>(series, pointers, locks);
+
+        return ErrorHelper.Check(NativeBindings.pl_dataframe_new(pointers, (nuint)series.Length));
     }
-    /// <summary>
-    /// Create a DataFrame from an Arrow C Stream.
-    /// </summary>
     public static unsafe DataFrameHandle DataFrameNewFromStream(Arrow.CArrowArrayStream* stream)
     {
         var handle = NativeBindings.pl_dataframe_new_from_stream(stream);
         return ErrorHelper.Check(handle);
     }
-    /// <summary>
-    /// Convert DataFrame to LazyFrame
-    /// </summary>
-    /// <param name="df"></param>
-    /// <returns></returns>
+    public static DataFrameHandle DataFrameFromSchema(SchemaHandle schema,uint length)
+    {
+        var handle = NativeBindings.pl_dataframe_from_schema(schema,length);
+        return ErrorHelper.Check(handle);
+    }
     public static LazyFrameHandle DataFrameToLazy(DataFrameHandle df) 
         => ErrorHelper.Check(NativeBindings.pl_dataframe_lazy(df));
     public static string DataFrameToString(DataFrameHandle handle)
@@ -375,4 +273,119 @@ public static partial class PolarsWrapper
         var ptr = NativeBindings.pl_dataframe_to_string(handle);
         return ErrorHelper.CheckString(ptr);
     }
+    public static DataFrameHandle DataFrameRechunk(DataFrameHandle df) 
+        => ErrorHelper.Check(NativeBindings.pl_dataframe_rechunk(df));
+    public static void DataFrameShrinkToFit(DataFrameHandle df) 
+    {
+        NativeBindings.pl_dataframe_shrink_to_fit(df);
+        ErrorHelper.CheckVoid();
+    }
+    public static DataFrameHandle DataFrameAlignChunks(DataFrameHandle df) 
+        => ErrorHelper.Check(NativeBindings.pl_dataframe_align_chunks(df));
+    public static DataFrameHandle[] PartitionBy(
+        DataFrameHandle df, 
+        string[] byCols, 
+        bool maintainOrder, 
+        bool includeKey)
+    {
+        unsafe
+        {
+            IntPtr arrayPtr = NativeBindings.pl_dataframe_partition_by(
+                df, 
+                byCols, 
+                (nuint)byCols.Length, 
+                maintainOrder, 
+                includeKey, 
+                out nuint outLen
+            );
+
+            ErrorHelper.Check(arrayPtr); 
+
+            int len = (int)outLen;
+            var handles = new DataFrameHandle[len];
+
+            IntPtr* rawPointers = (IntPtr*)arrayPtr;
+            for (int i = 0; i < len; i++)
+            {
+                handles[i] = new DataFrameHandle(rawPointers[i]);
+            }
+
+            NativeBindings.pl_free_ptr_array(arrayPtr, outLen);
+
+            return handles;
+        }
+        ;
+    }
+    public static bool DataFrameEquals(DataFrameHandle df, DataFrameHandle other, bool nullEqual)
+    {
+        int status = NativeBindings.pl_dataframe_equals(df, other, nullEqual, out bool result);
+        
+        ErrorHelper.CheckStatus(status);
+        
+        return result;
+    }
+    public static void ReplaceColumnAt(DataFrameHandle df, int index, SeriesHandle series)
+    {
+        bool success = NativeBindings.pl_dataframe_replace_column_at(df, (UIntPtr)index, series);
+        ErrorHelper.CheckBool(success);
+    }
+
+    public static void Replace(DataFrameHandle df, string name, SeriesHandle series)
+    {
+        bool success = NativeBindings.pl_dataframe_replace(df, name, series);
+        ErrorHelper.CheckBool(success);
+    }
+    public static DataFrameHandle DataFrameWithRowIndex(DataFrameHandle df, string name, int? offset = null)
+    {
+        int rustOffset = offset ?? -1;
+        var h = NativeBindings.pl_dataframe_with_row_index(df, name, rustOffset);
+        return ErrorHelper.Check(h);
+    }
+    public static DataFrameHandle DataFrameTranspose(DataFrameHandle df, string? keepNamesAs, string? columnName,string[]? customNames)
+    {
+        nuint customNamesLen = (nuint)(customNames?.Length ?? 0);
+
+        var h = NativeBindings.pl_dataframe_transpose(
+            df, 
+            keepNamesAs, 
+            columnName, 
+            customNames, 
+            customNamesLen
+        );
+        
+        return ErrorHelper.Check(h);
+    }
+    public static DataFrameHandle DataFrameUpsample(DataFrameHandle df, string timeColumn, string? every,string[]? groupBy, bool maintainOrder)
+    {
+        nuint groupByLen = (nuint)(groupBy?.Length ?? 0);
+
+        var h = NativeBindings.pl_dataframe_upsample(
+            df, 
+            timeColumn, 
+            every, 
+            groupBy, 
+            groupByLen,
+            maintainOrder
+        );
+        
+        return ErrorHelper.Check(h);
+    }
+    public static DataFrameHandle DataFrameToDummies(DataFrameHandle df, string[]? columns, string? separator, bool dropFirst,bool dropNulls)
+    {
+        nuint columnsLen = (nuint)(columns?.Length ?? 0);
+
+        var h = NativeBindings.pl_dataframe_to_dummies(
+            df, 
+            columns, 
+            columnsLen, 
+            separator, 
+            dropFirst,
+            dropNulls
+        );
+        
+        return ErrorHelper.Check(h);
+    }
+    public static DataFrameHandle DataFrameTake(DataFrameHandle df, SeriesHandle indices)
+        => ErrorHelper.Check(NativeBindings.pl_dataframe_take(df,indices)); 
+
 }

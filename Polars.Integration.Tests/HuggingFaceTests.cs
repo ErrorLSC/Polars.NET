@@ -19,6 +19,7 @@ public class HuggingFaceTests
         using var df = lf.Collect(useStreaming:true);
 
         Assert.True(df.Height > 0);
+        df.GlimpseFrame().Show();
         // shape: (150, 6)
         // ┌─────┬───────────────┬──────────────┬───────────────┬──────────────┬────────────────┐
         // │ Id  ┆ SepalLengthCm ┆ SepalWidthCm ┆ PetalLengthCm ┆ PetalWidthCm ┆ Species        │

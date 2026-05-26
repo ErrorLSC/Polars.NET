@@ -1,6 +1,6 @@
 using Apache.Arrow;
 using Polars.NET.Core;
-using static Polars.CSharp.Polars; 
+using Pl = Polars.CSharp.Polars; 
 
 namespace Polars.CSharp.Tests;
 
@@ -106,7 +106,7 @@ public class UdfTests
         Func<IArrowArray, IArrowArray> udf = UdfLogic.IntToDouble;
 
         using var res = df.Select(
-            Col("num").Map(udf, DataType.Float64).Alias("res")
+            Pl.Col("num").Map(udf, Pl.Float64).Alias("res")
         );
 
         Assert.Equal(5, res.Height);
@@ -125,10 +125,10 @@ public class UdfTests
         Assert.Equal(5, df.Height); 
 
         // UDF (Int64 -> Int64)
-        var udf = Col("num").Map<long, long>(x => x * 2, DataType.Int64).Alias("res");
+        var udf = Pl.Col("num").Map<long, long>(x => x * 2, typeof(long)).Alias("res");
 
         using var res = df.Select(
-            Col("num"),
+            Pl.Col("num"),
             udf
         );
         Assert.Equal(5, res.Height); 
@@ -146,7 +146,7 @@ public class UdfTests
         Func<IArrowArray, IArrowArray> udf = UdfLogic.IntToString;
 
         using var df = lf.Select(
-            Col("num")
+            Pl.Col("num")
             .Map(udf, DataType.String) 
             .Alias("desc")
         ).Collect();
@@ -168,7 +168,7 @@ public class UdfTests
         var ex = Assert.Throws<PolarsException>(() => 
         {
             lf.Select(
-                Col("num").Map(udf, DataType.SameAsInput)
+                Pl.Col("num").Map(udf, Pl.SameAsInput)
             ).Collect();
         });
 
@@ -180,11 +180,11 @@ public class UdfTests
         using var csv = new DisposableFile("num\n10\n20\n30\n",".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
-        var doubleExpr = Col("num")
-            .Map<long, long>(x => x * 2, DataType.Int64)
+        var doubleExpr = Pl.Col("num")
+            .Map<long, long>(x => x * 2, Pl.Int64)
             .Alias("doubled");
 
-        using var res = df.Select(Col("num"), doubleExpr);
+        using var res = df.Select(Pl.Col("num"), doubleExpr);
         
         Assert.Equal(20, res.Column("doubled").GetValue<long>(0)); // 10 * 2
         Assert.Equal(60, res.Column("doubled").GetValue<long>(2)); // 30 * 2
@@ -197,11 +197,11 @@ public class UdfTests
         using var df = DataFrame.ReadCsv(csv.Path);
 
         // UDF: "Hello, {name}!"
-        var greetExpr = Col("name")
-            .Map<string, string>(name => $"Hello, {name}!", DataType.String)
+        var greetExpr = Pl.Col("name")
+            .Map<string, string>(name => $"Hello, {name}!", typeof(string))
             .Alias("greeting");
 
-        using var res = df.Select(Col("name"), greetExpr);
+        using var res = df.Select(Pl.Col("name"), greetExpr);
         
         Assert.Equal("Hello, Alice!", res.Column("greeting").GetValue<string>(0));
         Assert.Equal("Hello, Bob!", res.Column("greeting").GetValue<string>(1));
@@ -215,11 +215,11 @@ public class UdfTests
         using var csv = new DisposableFile("id\n1001\n1002\n",".csv");
         using var df = DataFrame.ReadCsv(csv.Path);
 
-        var formatExpr = Col("id")
-            .Map<long, string>(id => $"Order-{id}", DataType.String)
+        var formatExpr = Pl.Col("id")
+            .Map<long, string>(id => $"Order-{id}", typeof(string))
             .Alias("order_id");
 
-        using var res = df.Select(Col("id"), formatExpr);
+        using var res = df.Select(Pl.Col("id"), formatExpr);
         
         Assert.Equal("Order-1001", res.Column("order_id").GetValue<string>(0));
         Assert.Equal("Order-1002", res.Column("order_id").GetValue<string>(1));
@@ -231,11 +231,11 @@ public class UdfTests
         using var df = DataFrame.ReadCsv(csv.Path);
 
         // 0 -> null (C# null)
-        var cleanExpr = Col("num")
-            .Map<long, long?>(x => x == 0 ? null : x, DataType.Int64)
+        var cleanExpr = Pl.Col("num")
+            .Map<long, long?>(x => x == 0 ? null : x, Pl.Int64)
             .Alias("cleaned");
 
-        using var res = df.Select(Col("num"), cleanExpr);
+        using var res = df.Select(Pl.Col("num"), cleanExpr);
         
         Assert.Equal(10, res.Column("cleaned").GetValue<long>(0));
         Assert.Null(res.Column("cleaned").GetValue<long?>(1)); // 0 -> Null
@@ -249,11 +249,11 @@ public class UdfTests
 
         // int? -> string
         // null -> "FoundNull" or "Value:{x}"
-        var checkNullExpr = Col("num")
-            .Map<long?, string>(x => x.HasValue ? $"Value:{x}" : "FoundNull", DataType.String)
+        var checkNullExpr = Pl.Col("num")
+            .Map<long?, string>(x => x.HasValue ? $"Value:{x}" : "FoundNull", Pl.Utf8)
             .Alias("status");
 
-        using var res = df.Select(Col("num"), checkNullExpr);
+        using var res = df.Select(Pl.Col("num"), checkNullExpr);
         
         Assert.Equal("Value:10", res.Column("status").GetValue<string>(0));
         Assert.Equal("FoundNull", res.Column("status").GetValue<string>(1)); 
@@ -275,9 +275,9 @@ public class UdfTests
         // GroupBy Agg
         var res = df.GroupBy("key")
                     .Agg(
-                        Col("val")
+                        Pl.Col("val")
                         .Implode() 
-                        .Map((Func<long[], long>)myGroupLogic, DataType.Int64) 
+                        .Map((Func<long[], long>)myGroupLogic, typeof(long)) 
                         .Alias("custom_agg")
                     )
                     .Sort("key");
@@ -287,5 +287,42 @@ public class UdfTests
         
         // B: [3, 4] -> Max 4 -> +10 = 14
         Assert.Equal(14, res["custom_agg"].GetValue<long>(1));
+    }
+    [Fact]
+    [Trait("UDF", "MapMany")]
+    public void Test_ExprMap_MultiColumn_Add_ArrowRaw()
+    {
+        // Arrange
+        using var df = Pl.CreateDataFrame(
+            ("a", new int[] { 1, 2, 3, 4, 5 }),
+            ("b", new int[] { 10, 20, 30, 40, 50 })
+        );
+
+        // Act
+        using var result = df.Select(
+            Pl.Col("a").Map(
+                function: arrays => {
+                    // arrays[0] = col a, arrays[1] = col b
+                    var a = (Int32Array)arrays[0];
+                    var b = (Int32Array)arrays[1];
+                    var builder = new Int32Array.Builder();
+                    for (int i = 0; i < a.Length; i++)
+                    {
+                        if (a.IsNull(i) || b.IsNull(i))
+                            builder.AppendNull();
+                        else
+                            builder.Append(a.GetValue(i)!.Value + b.GetValue(i)!.Value);
+                    }
+                    return builder.Build();
+                },
+                outputType: DataType.Int32,
+                additionalExprs: Pl.Col("b")
+            )
+        );
+
+        // Assert
+        var summed = result[0].ToArray<int>();
+        var expected = new int[] { 11, 22, 33, 44, 55 };
+        Assert.Equal(expected, summed);
     }
 }

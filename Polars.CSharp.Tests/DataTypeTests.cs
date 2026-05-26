@@ -1,6 +1,6 @@
 using System.Diagnostics;
-using System.Runtime;
-using static Polars.CSharp.Polars;
+using Polars.NET.Core;
+using Pl = Polars.CSharp.Polars;
 namespace Polars.CSharp.Tests;
 
 public class DataTypeTests
@@ -75,7 +75,6 @@ public class DataTypeTests
         // To (Polars -> C#)
         var result = df.Rows<LogEntry>().ToList();
 
-        // 验证
         var row1 = result[0];
         Assert.Equal(1, row1.Id);
         Assert.Equal(now, row1.Timestamp);
@@ -150,6 +149,7 @@ public class DataTypeTests
     }
 
     [Fact]
+    [Trait("DataType","Categorical")]
     public void Test_DataFrame_ModernTypes_And_Categorical()
     {
         var data = new List<ModernTypesPoco>
@@ -169,9 +169,9 @@ public class DataTypeTests
         using var s = Series.From("modern", data);
         using var df = DataFrame.FromSeries(s).Unnest("modern");
 
-        using var dfCat = df.WithColumns(Col("Cat").Cast(DataType.Categorical));
+        using var dfCat = df.WithColumns(Pl.Col("Cat").Cast(DataType.Categorical("time")));
 
-        Assert.Equal(DataTypeKind.Categorical, dfCat.Schema["Cat"].Kind);
+        Assert.Equal(DataType.Categorical("time"), dfCat.Schema["Cat"]);
         Assert.Equal(DataTypeKind.Date, dfCat.Schema["Date"].Kind);
         Assert.Equal(DataTypeKind.Time, dfCat.Schema["Time"].Kind);
 
@@ -411,6 +411,7 @@ public class DataTypeTests
         Assert.Equal(2, list0[1]);
     }
     [Fact]
+    [Trait("DataType","TimeZone")]
     public void Test_TimeZone_Operations_EndToEnd()
     {
         // 2023-01-01 10:00:00
@@ -424,7 +425,7 @@ public class DataTypeTests
         // --- ReplaceTimeZone (Naive -> Asia/Shanghai) ---
         
         using var df1 = df.Select(
-            Col("ts")
+            Pl.Col("ts")
                 .Dt
                 .ReplaceTimeZone("Asia/Shanghai")
                 .Alias("ts_shanghai")
@@ -445,7 +446,7 @@ public class DataTypeTests
         // --- ConvertTimeZone (Asia/Shanghai -> UTC) ---
 
         using var df2 = df1.Select(
-            Col("ts_shanghai")
+            Pl.Col("ts_shanghai")
             .Dt
             .ConvertTimeZone("UTC")
             .Alias("ts_utc")
@@ -461,7 +462,7 @@ public class DataTypeTests
         // --- Naive -> UTC -> Shanghai ---
         
         using var df3 = df.Select(
-            Col("ts").Dt
+            Pl.Col("ts").Dt
             .ReplaceTimeZone("UTC").Dt         
             .ConvertTimeZone("Asia/Shanghai") 
             .Alias("ts_converted")
@@ -473,7 +474,7 @@ public class DataTypeTests
         var valConverted = df3["ts_converted"][0];
 
         using var dfCheck = df3.Select(
-            Col("ts_converted").Dt.Hour().Alias("h")
+            Pl.Col("ts_converted").Dt.Hour().Alias("h")
         );
 
         var hour = dfCheck["h"][0];
@@ -482,7 +483,7 @@ public class DataTypeTests
         // --- Remove TimeZone (Aware -> Naive) ---
         
         using var df4 = df3.Select(
-            Col("ts_converted").Dt
+            Pl.Col("ts_converted").Dt
             .ReplaceTimeZone(null) 
             .Alias("ts_naive")
         );
@@ -502,7 +503,7 @@ public class DataTypeTests
         
         Assert.Equal(3UL, dtype.ArrayWidth);
         
-        Assert.Equal(DataTypeKind.Int32, dtype.InnerType.Kind);
+        Assert.Equal(DataType.Int32, dtype.InnerType);
     }
     [Fact]
     public void Test_Float_Double_Half_Resolution()
@@ -616,7 +617,7 @@ public class DataTypeTests
         // Index 100 Null
         Assert.Null(s.GetValue<Half?>(100));
 
-        double sum = s.Cast(DataType.Float64).Sum<double>(); 
+        double? sum = s.Cast<double>().Sum<double>(); 
         
         Assert.Equal(49_500_000.0, sum);
     }
@@ -1021,7 +1022,7 @@ public class DataTypeTests
         
         using var series = Series.From(name, data);
 
-        Assert.Equal(DataType.Array(DataType.Decimal(38,5),3),series.DataType); 
+        Assert.Equal(DataType.Array(Pl.Decimal(38,5),3),series.DataType); 
         
         decimal[][] rows = series.ToArray<decimal[]>();
 
@@ -1055,5 +1056,254 @@ public class DataTypeTests
         };
 
         Assert.Throws<OverflowException>(() => Series.From("huge_decimal", data));
+    }
+    [Fact]
+    [Trait("DataType","Struct")]
+    public void Test_LitStruct_Creation_And_Metadata_Extraction()
+    {
+        var inputObj = new 
+        { 
+            Id = 42, 
+            Name = "Polars.NET", 
+            Score = 99.5,
+            IsActive = true 
+        };
+
+        using var df = new DataFrame()
+            .Select(Pl.LitStruct(inputObj).Alias("my_struct"));
+
+        var structType = df.Schema["my_struct"];
+        var expectedType = Pl.Struct(
+            Pl.Field("Id", Pl.Int32),
+            Pl.Field("Name", Pl.String),
+            Pl.Field("Score", Pl.Float64),
+            Pl.Field("IsActive", Pl.Boolean)
+        );
+
+        Assert.Equal(expectedType, structType);
+        Assert.Equal(4, structType.StructFields.Count);
+
+        Assert.Equal("Id", structType.StructFields[0].Name);
+        Assert.Equal(DataType.Int32, structType.StructFields[0].DataType);
+
+        Assert.Equal("Name", structType.StructFields[1].Name);
+        Assert.Equal(DataType.String, structType.StructFields[1].DataType);
+
+        Assert.Equal("Score", structType.StructFields[2].Name);
+        Assert.Equal(DataType.Float64, structType.StructFields[2].DataType);
+
+        Assert.Equal("IsActive", structType.StructFields[3].Name);
+        Assert.Equal(DataType.Boolean, structType.StructFields[3].DataType);
+
+        using var unnestedDf = df.Unnest("my_struct");
+
+        Assert.Equal(42, unnestedDf.GetValue<int>(0, "Id"));
+        Assert.Equal("Polars.NET", unnestedDf.GetValue<string>(0, "Name"));
+        Assert.Equal(99.5, unnestedDf.GetValue<double>(0, "Score"));
+        Assert.True(unnestedDf.GetValue<bool>(0, "IsActive"));
+    }
+    [Fact]
+    [Trait("DataType","128bytes")]
+    public void Test_Int128_UInt128()
+    {
+        Expr exprI128 = Pl.Lit(Int128.MinValue).Alias("i128");
+        var seriesI128 = Series.FromExpr(exprI128);
+        Assert.Equal(Int128.MinValue,seriesI128[0]);
+    }
+    [Fact]
+    [Trait("DataType", "Extension")]
+    public void Test_DataType_Extension()
+    {
+        using DataType extIntType = DataType.Extension("my_ext.int", DataType.Int32);
+        Assert.Equal(DataTypeKind.Extension, extIntType.Kind); 
+
+        using DataType extGeoType = DataType.Extension("geoarrow.wkb", DataType.Binary, "{\"crs\":\"EPSG:4326\"}");
+        Assert.Equal(DataTypeKind.Extension, extGeoType.Kind);
+
+        int[] data = [1, 2, 3, 4, 5];
+        using Series s = Pl.CreateSeries("values", data);
+
+        using Series sExt = s.Ext.To(extIntType);
+
+        Assert.Equal(extIntType, sExt.DataType);
+
+        using DataFrame df = Pl.CreateDataFrame(sExt);
+        Assert.Equal(1, df.Width);
+        Assert.Equal(DataTypeKind.Extension, df.Schema["values"].Kind);
+
+        Series sStorage = sExt.Ext.Storage();
+        Assert.Equal(typeof(int),sStorage.DataType);
+    }
+    public sealed class UuidExtension : BaseExtension
+    {
+        public UuidExtension() : base("myapp.uuid", DataType.Binary) { }
+    }
+
+    [Fact]
+    [Trait("DataType", "ExtensionRegistry")]
+    public void Test_DataType_OOP_Registry_Interception()
+    {
+        Pl.RegisterExtensionType<UuidExtension>(
+            "myapp.uuid", 
+            (storage, metadata) => new UuidExtension()
+        );
+
+        Pl.RegisterExtensionType("myapp.transparent",asStorage:true);
+
+        try
+        {
+            byte[][] uuidData = [[1, 2, 3], [4, 5, 6]]; 
+            using Series sUuid = Pl.CreateSeries("uuids", uuidData)
+                        .Cast(DataType.Binary) 
+                        .Ext.To(new UuidExtension());
+            using DataFrame df1 = Pl.CreateDataFrame(sUuid);
+
+            DataType readType = df1.Schema["uuids"];
+            Assert.IsType<UuidExtension>(readType); 
+            
+            var uuidType = (UuidExtension)readType;
+            Assert.Equal("myapp.uuid", uuidType.ExtensionName);
+            Assert.Equal(DataTypeKind.Binary, uuidType.Storage.Kind);
+
+            using DataType transparentExt = DataType.Extension("myapp.transparent", DataType.Int64);
+            using Series sTrans = Pl.CreateSeries("trans", [100L, 200L]).Ext.To(transparentExt);
+            using DataFrame df2 = Pl.CreateDataFrame(sTrans);
+
+            DataType readTransType = df2.Schema["trans"];
+            Assert.IsNotType<BaseExtension>(readTransType, exactMatch: false); 
+            Assert.Equal(DataType.Int64, readTransType);
+
+            using DataType alienExt = DataType.Extension("alien.type", DataType.Float32, "{\"v\": 1}");
+            using Series sAlien = Pl.CreateSeries("alien", [3.14f]).Ext.To(alienExt);
+            using DataFrame df3 = Pl.CreateDataFrame(sAlien);
+
+            DataType readAlienType = df3.Schema["alien"];
+            Assert.IsType<UnknownExtension>(readAlienType);
+            
+            var alien = (UnknownExtension)readAlienType;
+            Assert.Equal("alien.type", alien.ExtensionName);
+            Assert.Equal("{\"v\": 1}", alien.Metadata);
+            Assert.Equal(DataTypeKind.Float32, alien.Storage.Kind);
+        }
+        finally
+        {
+            Pl.UnregisterExtensionType("myapp.uuid");
+            Pl.UnregisterExtensionType("myapp.transparent");
+        }
+    }
+    [Fact]
+    [Trait("API", "ExtensionRegistry")]
+    public void Test_Pl_GetExtensionType_Returns_Correct_Info()
+    {
+        string classExtName = "test.dummy_class";
+        string storageExtName = "test.dummy_storage";
+        string missingExtName = "test.missing";
+
+        ExtensionInfo missingInfo = Pl.GetExtensionType(missingExtName);
+        Assert.IsType<ExtensionInfo.NotFound>(missingInfo);
+
+        try
+        {
+            Pl.RegisterExtensionType<UuidExtension>(
+                classExtName, 
+                (storage, metadata) => new UuidExtension() 
+            );
+
+            ExtensionInfo classInfo = Pl.GetExtensionType(classExtName);
+            
+            var asClass = Assert.IsType<ExtensionInfo.AsClass>(classInfo);
+            Assert.NotNull(asClass.Factory); 
+
+            Pl.RegisterExtensionType(storageExtName, asStorage: true);
+            
+            ExtensionInfo storageInfo = Pl.GetExtensionType(storageExtName);
+            Assert.IsType<ExtensionInfo.AsStorage>(storageInfo);
+        }
+        finally
+        {
+            Pl.UnregisterExtensionType(classExtName);
+            Pl.UnregisterExtensionType(storageExtName);
+
+            ExtensionInfo unregisteredClassInfo = Pl.GetExtensionType(classExtName);
+            ExtensionInfo unregisteredStorageInfo = Pl.GetExtensionType(storageExtName);
+
+            Assert.IsType<ExtensionInfo.NotFound>(unregisteredClassInfo);
+            Assert.IsType<ExtensionInfo.NotFound>(unregisteredStorageInfo);
+        }
+    }
+    public enum ProcessStatus
+    {
+        Pending,
+        Running,
+        Completed,
+        Failed
+    }
+
+    public class EnumTestPoco
+    {
+        public string Status { get; set; } 
+        public int TaskId { get; set; }
+    }
+    [Fact]
+    [Trait("DataType", "Enum")]
+    public void Test_DataFrame_CSharpEnum_To_PolarsEnum()
+    {
+        var data = new List<EnumTestPoco>
+        {
+            new() { TaskId = 101, Status = "Pending" },
+            new() { TaskId = 102, Status = "Running" },
+            new() { TaskId = 103, Status = "Completed" }
+        };
+
+        using var s = Series.From("tasks", data);
+        using var df = DataFrame.FromSeries(s).Unnest("tasks");
+
+        using var enumType = DataType.Enum<ProcessStatus>();
+        using var dfEnum = df.Cast("Status",enumType);
+
+        Assert.Equal(enumType, dfEnum.Schema["Status"]);
+        Assert.Equal(DataType.Int32, dfEnum.Schema["TaskId"]);
+        
+        var castedEnumType = dfEnum.Schema["Status"];
+        string[] expectedCategories = ["Pending", "Running", "Completed", "Failed"];
+        Assert.Equal(expectedCategories, castedEnumType.EnumCategories.GetCategories());
+
+        var rows = dfEnum.Rows<EnumTestPoco>().ToList();
+
+        Assert.Equal(3, rows.Count);
+        
+        Assert.Equal(101, rows[0].TaskId);
+        Assert.Equal("Pending", rows[0].Status);
+
+        Assert.Equal(102, rows[1].TaskId);
+        Assert.Equal("Running", rows[1].Status);
+
+        Assert.Equal(103, rows[2].TaskId);
+        Assert.Equal("Completed", rows[2].Status);
+    }
+    [Fact]
+    [Trait("DataType", "MultidimensionalArray")]
+    public void Test_Multidimensional_Array_Shape()
+    {
+        // 1D array
+        var arr1d = DataType.Array(Pl.Int64, 5);
+        Assert.Equal(new uint[] { 5 }, arr1d.ArrayShape);
+
+        // 2D array
+        var arr2d = DataType.Array(Pl.Int64, 2, 3);
+        Assert.Equal(new uint[] { 2, 3 }, arr2d.ArrayShape);
+
+        // 3D array
+        var arr3d = DataType.Array(Pl.Float32, 4, 5, 6);
+        Assert.Equal(new uint[] { 4, 5, 6 }, arr3d.ArrayShape);
+
+        // Nested array built manually (Array inside Array)
+        var nestedInner = DataType.Array(Pl.Utf8, 2);
+        var nestedOuter = DataType.Array(nestedInner, 3);
+        Assert.Equal(new uint[] { 3, 2 }, nestedOuter.ArrayShape);
+
+        // Non-array type returns empty
+        var plain = Pl.Utf8;
+        Assert.Empty(plain.ArrayShape);
     }
 }

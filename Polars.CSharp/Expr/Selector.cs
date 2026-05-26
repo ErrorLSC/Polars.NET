@@ -1,0 +1,234 @@
+using Polars.NET.Core;
+using Cs = Polars.CSharp.Polars.Selectors;
+#pragma warning disable CS1591 
+namespace Polars.CSharp;
+
+/// <summary>
+/// Represents a column selector strategy (e.g., All, Exclude).
+/// convertable to Expr.
+/// </summary>
+public class Selector : IDisposable
+{
+    /// <summary>
+    /// The safety handle of Selector
+    /// </summary>
+    public SelectorHandle Handle { get; private set; }
+
+    internal Selector(SelectorHandle handle)
+    {
+        Handle = handle;
+    }
+
+    internal SelectorHandle CloneHandle() => PolarsWrapper.CloneSelector(Handle);
+    
+    public Selector Clone() => new(CloneHandle());
+
+    // --- Int ---
+    public static Expr operator *(Selector s, int other) => s.ToExpr() * other;
+    public static Expr operator +(Selector s, int other) => s.ToExpr() + other;
+    public static Expr operator -(Selector s, int other) => s.ToExpr() - other;
+    public static Expr operator /(Selector s, int other) => s.ToExpr() / other;
+    public static Expr operator %(Selector s, int other) => s.ToExpr() % other;
+    public static Expr operator >(Selector s, int other) => s.ToExpr() > other;
+    public static Expr operator <(Selector s, int other) => s.ToExpr() < other;
+    public static Expr operator >=(Selector s, int other) => s.ToExpr() >= other;
+    public static Expr operator <=(Selector s, int other) => s.ToExpr() <= other;
+    public static Expr operator ==(Selector s, int other) => s.ToExpr() == other;
+    public static Expr operator !=(Selector s, int other) => s.ToExpr() != other;
+    public static Expr operator ^(Selector s, int v) => s.ToExpr() ^ v;
+    // --- Long ---
+    public static Expr operator *(Selector s, long other) => s.ToExpr() * other;
+    public static Expr operator +(Selector s, long other) => s.ToExpr() + other;
+    public static Expr operator -(Selector s, long other) => s.ToExpr() - other;
+    public static Expr operator /(Selector s, long other) => s.ToExpr() / other;
+    public static Expr operator %(Selector s, long other) => s.ToExpr() % other;
+    public static Expr operator >(Selector s, long other) => s.ToExpr() > other;
+    public static Expr operator <(Selector s, long other) => s.ToExpr() < other;
+    public static Expr operator >=(Selector s, long other) => s.ToExpr() >= other;
+    public static Expr operator <=(Selector s, long other) => s.ToExpr() <= other;
+    public static Expr operator ==(Selector s, long other) => s.ToExpr() == other;
+    public static Expr operator !=(Selector s, long other) => s.ToExpr() != other;
+    public static Expr operator ^(Selector s, long v) => s.ToExpr() ^ v;
+    // --- Double ---
+    public static Expr operator *(Selector s, double other) => s.ToExpr() * other;
+    public static Expr operator +(Selector s, double other) => s.ToExpr() + other;
+    public static Expr operator -(Selector s, double other) => s.ToExpr() - other;
+    public static Expr operator /(Selector s, double other) => s.ToExpr() / other;
+    public static Expr operator %(Selector s, double other) => s.ToExpr() % other;
+    public static Expr operator >(Selector s, double other) => s.ToExpr() > other;
+    public static Expr operator <(Selector s, double other) => s.ToExpr() < other;
+    public static Expr operator >=(Selector s, double other) => s.ToExpr() >= other;
+    public static Expr operator <=(Selector s, double other) => s.ToExpr() <= other;
+    public static Expr operator ==(Selector s, double other) => s.ToExpr() == other;
+    public static Expr operator !=(Selector s, double other) => s.ToExpr() != other;
+    // --- Float ---
+    public static Expr operator *(Selector s, float other) => s.ToExpr() * other;
+    public static Expr operator +(Selector s, float other) => s.ToExpr() + other;
+    public static Expr operator -(Selector s, float other) => s.ToExpr() - other;
+    public static Expr operator /(Selector s, float other) => s.ToExpr() / other;
+    public static Expr operator %(Selector s, float other) => s.ToExpr() % other;
+    public static Expr operator >(Selector s, float other) => s.ToExpr() > other;
+    public static Expr operator <(Selector s, float other) => s.ToExpr() < other;
+    public static Expr operator >=(Selector s, float other) => s.ToExpr() >= other;
+    public static Expr operator <=(Selector s, float other) => s.ToExpr() <= other;
+    public static Expr operator ==(Selector s, float other) => s.ToExpr() == other;
+    public static Expr operator !=(Selector s, float other) => s.ToExpr() != other;
+
+    // --- String ---
+    public static Expr operator +(Selector s, string v) => s.ToExpr() + v;
+    public static Expr operator ==(Selector s, string v) => s.ToExpr() == v;
+    public static Expr operator !=(Selector s, string v) => s.ToExpr() != v;
+
+    //Boolean
+    public static Expr operator &(Selector s, bool v) => s.ToExpr() & v;
+    public static Expr operator |(Selector s, bool v) => s.ToExpr() | v;
+    public static Expr operator ^(Selector s, bool v) => s.ToExpr() ^ v;
+
+    // Reverse Ops (int,double,float string * Selector)
+    public static Expr operator *(int other, Selector s) => Polars.Lit(other) * s.ToExpr();
+    public static Expr operator +(int other, Selector s) => Polars.Lit(other) + s.ToExpr();
+    public static Expr operator -(int other, Selector s) => Polars.Lit(other) - s.ToExpr();
+    public static Expr operator /(int other, Selector s) => Polars.Lit(other) / s.ToExpr();
+    public static Expr operator %(int other, Selector s) => Polars.Lit(other) * s.ToExpr();
+    public static Expr operator >(int other, Selector s) => Polars.Lit(other) > s.ToExpr();
+    public static Expr operator <(int other, Selector s) => Polars.Lit(other) < s.ToExpr();
+    public static Expr operator >=(int other, Selector s) => Polars.Lit(other) >= s.ToExpr();
+    public static Expr operator <=(int other, Selector s) => Polars.Lit(other) <= s.ToExpr();
+    public static Expr operator ==(int other, Selector s) => Polars.Lit(other) == s.ToExpr();
+    public static Expr operator !=(int other, Selector s) => Polars.Lit(other) != s.ToExpr();
+    public static Expr operator ^(int v, Selector s) => v ^ s.ToExpr();
+
+    public static Expr operator *(long other, Selector s) => Polars.Lit(other) * s.ToExpr();
+    public static Expr operator +(long other, Selector s) => Polars.Lit(other) + s.ToExpr();
+    public static Expr operator -(long other, Selector s) => Polars.Lit(other) - s.ToExpr();
+    public static Expr operator /(long other, Selector s) => Polars.Lit(other) / s.ToExpr();
+    public static Expr operator %(long other, Selector s) => Polars.Lit(other) * s.ToExpr();
+    public static Expr operator >(long other, Selector s) => Polars.Lit(other) > s.ToExpr();
+    public static Expr operator <(long other, Selector s) => Polars.Lit(other) < s.ToExpr();
+    public static Expr operator >=(long other, Selector s) => Polars.Lit(other) >= s.ToExpr();
+    public static Expr operator <=(long other, Selector s) => Polars.Lit(other) <= s.ToExpr();
+    public static Expr operator ==(long other, Selector s) => Polars.Lit(other) == s.ToExpr();
+    public static Expr operator !=(long other, Selector s) => Polars.Lit(other) != s.ToExpr();
+    public static Expr operator ^(long v, Selector s) => v ^ s.ToExpr();
+
+    public static Expr operator *(double other, Selector s) => Polars.Lit(other) * s.ToExpr();
+    public static Expr operator +(double other, Selector s) => Polars.Lit(other) + s.ToExpr();
+    public static Expr operator -(double other, Selector s) => Polars.Lit(other) - s.ToExpr();
+    public static Expr operator /(double other, Selector s) => Polars.Lit(other) / s.ToExpr();
+    public static Expr operator %(double other, Selector s) => Polars.Lit(other) * s.ToExpr();
+    public static Expr operator >(double other, Selector s) => Polars.Lit(other) > s.ToExpr();
+    public static Expr operator <(double other, Selector s) => Polars.Lit(other) < s.ToExpr();
+    public static Expr operator >=(double other, Selector s) => Polars.Lit(other) >= s.ToExpr();
+    public static Expr operator <=(double other, Selector s) => Polars.Lit(other) <= s.ToExpr();
+    public static Expr operator ==(double other, Selector s) => Polars.Lit(other) == s.ToExpr();
+    public static Expr operator !=(double other, Selector s) => Polars.Lit(other) != s.ToExpr();
+
+    public static Expr operator *(float other, Selector s) => Polars.Lit(other) * s.ToExpr();
+    public static Expr operator +(float other, Selector s) => Polars.Lit(other) + s.ToExpr();
+    public static Expr operator -(float other, Selector s) => Polars.Lit(other) - s.ToExpr();
+    public static Expr operator /(float other, Selector s) => Polars.Lit(other) / s.ToExpr();
+    public static Expr operator %(float other, Selector s) => Polars.Lit(other) * s.ToExpr();
+    public static Expr operator >(float other, Selector s) => Polars.Lit(other) > s.ToExpr();
+    public static Expr operator <(float other, Selector s) => Polars.Lit(other) < s.ToExpr();
+    public static Expr operator >=(float other, Selector s) => Polars.Lit(other) >= s.ToExpr();
+    public static Expr operator <=(float other, Selector s) => Polars.Lit(other) <= s.ToExpr();
+    public static Expr operator ==(float other, Selector s) => Polars.Lit(other) == s.ToExpr();
+    public static Expr operator !=(float other, Selector s) => Polars.Lit(other) != s.ToExpr();
+
+    public static Expr operator +(string other, Selector s) => Polars.Lit(other) + s.ToExpr();
+    public static Expr operator ==(string other, Selector s) => Polars.Lit(other) == s.ToExpr();
+    public static Expr operator !=(string other, Selector s) => Polars.Lit(other) != s.ToExpr();
+
+    public static Expr operator &(bool v, Selector s) => v & s.ToExpr();
+    public static Expr operator |(bool v, Selector s) => v | s.ToExpr();
+    public static Expr operator ^(bool v, Selector s) => v ^ s.ToExpr();
+
+    /// <summary>
+    /// Exclude columns by name.
+    /// </summary>
+    public Selector Exclude(params string[] names)
+    {
+        var newHandle = PolarsWrapper.SelectorExclude(Handle, names);
+        return new Selector(newHandle);
+    }
+    /// <summary>
+    /// Exclude columns matching any of the specified Selectors.
+    /// Usage: cs.Numeric().Exclude(cs.First(), cs.Last())
+    /// </summary>
+    public Selector Exclude(params ReadOnlySpan<Selector> selectors)
+    {
+        if (selectors.Length == 0) return this;
+
+        Selector toExclude = selectors[0];
+        for (int i = 1; i < selectors.Length; i++)
+        {
+            toExclude |= selectors[i]; 
+        }
+
+        return this - toExclude; 
+    }
+
+    /// <summary>
+    /// Exclude columns matching any of the specified Data Types.
+    /// Usage: cs.All().Exclude(PlDataType.String, PlDataType.Boolean)
+    /// </summary>
+    public Selector Exclude(params ReadOnlySpan<DataType> dtypes)
+    {
+        if (dtypes.Length == 0) return this;
+
+        Selector toExclude = Cs.ByDtype(dtypes[0]);
+        for (int i = 1; i < dtypes.Length; i++)
+        {
+            toExclude |= Cs.ByDtype(dtypes[i]);
+        }
+
+        return this - toExclude;
+    }
+    /// <summary>
+    /// Convert the selector to an Expression.
+    /// This allows using selectors inside Select(), WithColumns(), etc.
+    /// </summary>
+    public Expr ToExpr()
+        => new(PolarsWrapper.SelectorToExpr(CloneHandle()));
+    
+    // --- Set Operations ( &, |, !, - ) ---
+
+    // INTERSECTION (A & B)
+    public static Selector operator &(Selector left, Selector right)
+        => new(PolarsWrapper.SelectorAnd(left.CloneHandle(), right.CloneHandle()));
+    // UNION (A | B)
+    public static Selector operator |(Selector left, Selector right)
+        => new(PolarsWrapper.SelectorOr(left.CloneHandle(), right.CloneHandle()));
+    // COMPLEMENT (~A)
+    public static Selector operator ~(Selector s)
+        => new(PolarsWrapper.SelectorNot(s.CloneHandle()));
+    public static Selector operator !(Selector s)
+        => new(PolarsWrapper.SelectorNot(s.CloneHandle()));
+    // SYMMETRIC DIFFERENCE (A ^ B)
+    public static Selector operator ^(Selector left, Selector right)
+        => new(PolarsWrapper.SelectorXor(left.CloneHandle(), right.CloneHandle()));
+    // DIFFERENCE (A - B)
+    public static Selector operator -(Selector left, Selector right)
+        => new(PolarsWrapper.SelectorSub(left.CloneHandle(), right.CloneHandle()));
+    
+    /// <summary>
+    /// Implicitly convert Selector to Expr.
+    /// This is the magic that allows df.Select(Polars.All())
+    /// </summary>
+    public static implicit operator Expr(Selector selector) => selector.ToExpr();
+    public override bool Equals(object? obj) => base.Equals(obj);
+    public override string ToString()
+    {
+        if (Handle.IsInvalid) return "Selector (Disposed)";
+        return PolarsWrapper.SelectorToString(Handle);
+    }
+    public override int GetHashCode() => base.GetHashCode();
+    /// <summary>
+    /// Dispose unused Selector Handle
+    /// </summary>
+    public void Dispose()
+    {
+        Handle?.Dispose();
+        GC.SuppressFinalize(this); 
+    }
+}

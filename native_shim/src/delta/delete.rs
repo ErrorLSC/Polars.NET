@@ -6,6 +6,7 @@ use deltalake::kernel::{Action, Add, Remove};
 use deltalake::kernel::transaction::CommitBuilder;
 use deltalake::parquet::arrow::async_reader::{AsyncFileReader, ParquetObjectReader};
 use deltalake::protocol::DeltaOperation;
+use deltalake::logstore::object_store::ObjectStoreExt;
 use futures::StreamExt;
 use polars::{error::{PolarsError, PolarsResult}, frame::DataFrame, prelude::{DataType, LazyFrame, PlRefPath, ScanArgsParquet}, series::Series};
 use polars::prelude::*;
@@ -774,7 +775,8 @@ pub(crate) fn delete_delta_internal(
             
             let schema = get_polars_schema_from_delta(&t)?;
             let snapshot = t.snapshot().map_err(|e| PolarsError::ComputeError(format!("Snapshot error: {}", e).into()))?;
-            let part_cols = snapshot.metadata().partition_columns().clone();
+            
+            let part_cols = snapshot.metadata().partition_columns().to_vec();
 
             let binding = t.clone();
             let mut stream = binding.get_active_add_actions_by_partitions(&[]);
@@ -783,6 +785,7 @@ pub(crate) fn delete_delta_internal(
                 let view = item.map_err(|e| PolarsError::ComputeError(format!("Stream error: {}", e).into()))?;
                 all_files.push(view_to_add_action(&view));
             }
+            
             Ok::<_, PolarsError>((t, schema, part_cols, all_files))
         })?;
 
@@ -792,7 +795,7 @@ pub(crate) fn delete_delta_internal(
         let snapshot = t.snapshot().map_err(|e| PolarsError::ComputeError(format!("{}", e).into()))?;
         let strategy = DeleteStrategy::determine(snapshot, false);
         let ctx = DeleteContext::new(
-            &t, predicate_expr.clone(), schema.clone(), part_cols.clone(), strategy, cloud_args.clone()
+            &t, predicate_expr.clone(), schema.clone(), part_cols, strategy, cloud_args.clone()
         );
 
         let mut actions_to_commit = Vec::new();

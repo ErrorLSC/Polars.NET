@@ -93,7 +93,7 @@ pub extern "C" fn pl_io_delta_restore(
     table_path_ptr: *const c_char,
 
     // --- Restore Target  ---
-    target_version: i64,     
+    target_version: u64,     
     target_timestamp_ms: i64, 
 
     // --- Options ---
@@ -106,7 +106,7 @@ pub extern "C" fn pl_io_delta_restore(
     cloud_len: usize,
 
     // --- Output ---
-    out_new_version: *mut i64,
+    out_new_version: *mut u64,
 ) {
     ffi_try_void!({
         let path_str = ptr_to_str(table_path_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
@@ -125,16 +125,15 @@ pub extern "C" fn pl_io_delta_restore(
             let mut cmd = table.restore();
 
             // 3. Set Target (Version vs Timestamp)
-            if target_version >= 0 {
-                cmd = cmd.with_version_to_restore(target_version);
-            } else if target_timestamp_ms >= 0 {
-                // Convert ms to DateTime<Utc>
+            if target_timestamp_ms >= 0 {
+                // If timestamp is provided (>=0), use it
                 let dt = Utc.timestamp_millis_opt(target_timestamp_ms)
                     .single()
                     .ok_or_else(|| PolarsError::ComputeError("Invalid timestamp".into()))?;
                 cmd = cmd.with_datetime_to_restore(dt);
             } else {
-                return Err(PolarsError::ComputeError("Must provide either target_version or target_timestamp".into()));
+                // If timestamp is < 0 (e.g., -1), fallback to using version
+                cmd = cmd.with_version_to_restore(target_version);
             }
 
             // 4. Set Options
@@ -145,7 +144,7 @@ pub extern "C" fn pl_io_delta_restore(
             let (new_table, _metrics) = cmd.await
                 .map_err(|e| PolarsError::ComputeError(format!("Restore failed: {}", e).into()))?;
 
-            Ok::<i64, PolarsError>(new_table.version().unwrap())
+            Ok::<u64, PolarsError>(new_table.version().unwrap())
         })?;
 
         if !out_new_version.is_null() {
@@ -155,7 +154,6 @@ pub extern "C" fn pl_io_delta_restore(
         Ok(())
     })
 }
-
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_io_delta_history(
     table_path_ptr: *const c_char,

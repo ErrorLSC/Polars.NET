@@ -11,10 +11,12 @@ unsafe internal partial class NativeBindings
     public static partial void pl_arrow_array_free(IntPtr ptr);
 
     [LibraryImport(LibName)]
-    public static partial void pl_arrow_array_export(ArrowArrayContextHandle ptr, void* out_c_array);
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_arrow_array_export(ArrowArrayContextHandle ptr, out CArrowArray cArray);
 
     [LibraryImport(LibName)]
-    public static partial void pl_arrow_schema_export(ArrowArrayContextHandle ptr, void* out_c_schema);
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_arrow_schema_export(ArrowArrayContextHandle ptr, out CArrowSchema cSchema);
 
     [LibraryImport(LibName)]
     public static partial DataFrameHandle pl_dataframe_new_from_stream(
@@ -42,7 +44,10 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial int pl_dataframe_export_to_stream(
         DataFrameHandle df_ptr, 
-        Apache.Arrow.C.CArrowArrayStream* out_stream
+        Apache.Arrow.C.CArrowArrayStream* out_stream,
+        ReadOnlySpan<int> colIndices, 
+        nuint numCols,     
+        ulong* shuffleSeed  
     );
     [LibraryImport(LibName)]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]

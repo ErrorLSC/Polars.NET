@@ -206,7 +206,7 @@ internal partial class NativeBindings
         string catalogName,
         string schemaName,
         string tableName,
-        long targetVersion,
+        ulong targetVersion,
         long targetTimestampMs,
         [MarshalAs(UnmanagedType.U1)] bool ignoreMissingFiles,
         [MarshalAs(UnmanagedType.U1)] bool protocolDowngradeAllowed,
@@ -217,7 +217,7 @@ internal partial class NativeBindings
         nuint len,
         
         // Output
-        out long newVersion
+        out ulong newVersion
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_catalog_delta_history(

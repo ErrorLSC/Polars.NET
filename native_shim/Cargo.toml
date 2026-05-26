@@ -1,26 +1,31 @@
 [package]
 name = "native_shim"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 
 [dependencies]
 polars = { version = "0.53.0", features = ["lazy", "csv","parquet","strings","regex","cloud","dot_product","dot_diagram","mode","interpolate","interpolate_by",
-"timezones","semi_anti_join","cross_join","iejoin","is_between","is_in","is_unique","log","random","array_arithmetic","list_arithmetic",
-"abs","round_series","dtype-full","array_any_all","array_to_struct","pivot","sql","diff","rolling_window","rolling_window_by","avro",
-"json","ipc","asof_join","diagonal_concat","top_k","rank","moment","pct_change","ewma","ewma_by","product","new_streaming","dataframe_arithmetic",
-"aws","azure","gcp","http","dynamic_group_by","business","search_sorted","bitwise","index_of","simd"] }
+"timezones","semi_anti_join","cross_join","iejoin","is_between","is_in","is_unique","log","random","array_arithmetic","list_arithmetic","reinterpret",
+"abs","round_series","dtype-full","array_any_all","array_to_struct","pivot","sql","diff","rolling_window","rolling_window_by","avro","repeat_by",
+"json","ipc","asof_join","diagonal_concat","top_k","rank","moment","pct_change","ewma","ewma_by","product","new_streaming","arg_where",
+"aws","azure","gcp","http","dynamic_group_by","business","search_sorted","bitwise","index_of","simd","row_hash","approx_unique","merge_sorted","partition_by",
+"to_dummies","is_first_distinct","is_last_distinct","unique_counts","propagate_nans","array_count","list_count","list_drop_nulls","list_sample","list_any_all",
+"list_gather","list_to_struct","list_sets","find_many","concat_str","extract_groups","string_pad","string_encoding", "string_normalize","string_reverse",
+"string_to_integer","extract_jsonpath","month_start","month_end","zip_with","rle","replace","cutqcut","peaks","dtype-extension","is_close","hist"] }
 polars-core = { version = "0.53.0" }
 polars-arrow = { version = "0.53.0" }
 polars-io = { version = "0.53.0",features =["file_cache","catalog"] }
 polars-utils = { version = "0.53.0" }
 polars-buffer = {version="0.53.0"}
+polars-plan = {version="0.53.0"}
+polars-ops = {version="0.53.0"}
 flate2 = { version = "1.1.8", features = ["rust_backend"] }
 serde_json = "*"
-calamine = { version = "0.34", features = ["dates","chrono"] }
+calamine = { version = "0.35", features = ["dates","chrono"] }
 chrono = "0.4.41"
-rust_xlsxwriter = { version = "0.94", features = ["chrono"] }
+rust_xlsxwriter = { version = "0.95", features = ["chrono"] }
 mimalloc = { version = "*", default-features = false }
-deltalake = { version = "0.31.1", default-features = false, features = ["s3", "azure", "gcs", "rustls"] }
+deltalake = { version = "0.32.1", default-features = false, features = ["s3", "azure", "gcs", "rustls"] }
 tokio = { version = "1.49.0"}
 url = "2.5.8"
 uuid = {version="1.20.0", features=["v4"]}

@@ -27,11 +27,38 @@ public class ExprHandle : PolarsHandle
         NativeBindings.pl_expr_free(handle);
         return true;
     }
+    internal ExprHandle(IntPtr ptr) => SetHandle(ptr);
+
+    public ExprHandle() 
+    { 
+    }
+    
+}
+
+public class DataTypeExprHandle : PolarsHandle
+{
+    protected override bool ReleaseHandle()
+    {
+        NativeBindings.pl_datatype_expr_free(handle);
+        return true;
+    }
+    internal DataTypeExprHandle(IntPtr ptr) => SetHandle(ptr);
+
+    public DataTypeExprHandle() 
+    { 
+    }
+    
 }
 
 // 3. DataFrame Handle
 public class DataFrameHandle : PolarsHandle
 {
+    internal DataFrameHandle(IntPtr ptr) => SetHandle(ptr);
+
+    public DataFrameHandle() 
+    { 
+    }
+    
     protected override bool ReleaseHandle()
     {
         NativeBindings.pl_dataframe_free(handle);
@@ -130,6 +157,30 @@ public class CatalogHandle : PolarsHandle
         if (!IsInvalid)
         {
             NativeBindings.pl_catalog_unity_free(handle);
+        }
+        return true;
+    }
+}
+
+public class CategoriesHandle : PolarsHandle
+{
+    protected override bool ReleaseHandle()
+    {
+        if (!IsInvalid)
+        {
+            NativeBindings.pl_categories_free(handle);
+        }
+        return true;
+    }
+}
+
+public class FrozenCategoriesHandle : PolarsHandle
+{
+    protected override bool ReleaseHandle()
+    {
+        if (!IsInvalid)
+        {
+            NativeBindings.pl_frozencategories_free(handle);
         }
         return true;
     }

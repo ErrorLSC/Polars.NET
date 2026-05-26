@@ -123,7 +123,7 @@ internal partial class PolarsDbCommand(IPolarsSqlContext sqlContext) : DbCommand
     private IEnumerable<RecordBatch> ExecuteAndYieldBatches()
     {
         using var lazyFrame = _sqlContext.Execute(CommandText);
-        using var df = lazyFrame.Collect(false);
+        using var df = lazyFrame.Collect(useStreaming:false);
         using var batch = df.ToArrow();
         yield return batch;
     }

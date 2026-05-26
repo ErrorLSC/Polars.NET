@@ -2,7 +2,8 @@ using WireMock.Server;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using Polars.CSharp;
-using static Polars.CSharp.Polars;
+using Pl = Polars.CSharp.Polars;
+using Cs = Polars.CSharp.Polars.Selectors;
 using Polars.Integration.Tests.Fixtures;
 using Polars.NET.Core; 
 
@@ -257,7 +258,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             df1.WriteCatalogTable(
                 uc, catalog, schema, table, 
                 mode: DeltaSaveMode.Overwrite, 
-                partitionBy: Selector.Col("Region"), 
+                partitionBy: Cs.ByName("Region"), 
                 cloudOptions: cloudOptions
             );
         }
@@ -390,7 +391,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         Assert.Equal(expectedHeight, resultDf.Height);
         for (int i = 1; i <= concurrency; i++)
         {
-            var workerRowCount = resultDf.Filter(Col("WorkerId") == i).Height;
+            var workerRowCount = resultDf.Filter(Pl.Col("WorkerId") == i).Height;
             Assert.Equal(rowsPerWorker, workerRowCount);
         }
 
@@ -505,7 +506,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         {
             df.WriteCatalogTable(
                 uc, catalog, schema, table, 
-                partitionBy: Selector.Col("Year"), 
+                partitionBy: Cs.ByName("Year"), 
                 mode: DeltaSaveMode.Overwrite, 
                 cloudOptions: cloudOptions
             );
@@ -516,7 +517,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         
         // Predicate: (Year == '2024') & (Id == 4)
-        var predicateRewrite = (Col("Year") == Lit("2024")) & (Col("Id") == 4);
+        var predicateRewrite = (Pl.Col("Year") == Pl.Lit("2024")) & (Pl.Col("Id") == 4);
 
         uc.DeleteCatalogRecords(catalog, schema, table, predicateRewrite, cloudOptions: cloudOptions);
 
@@ -526,7 +527,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         Assert.Contains(3, dfV2["Id"].ToArray<int>());
         Assert.Contains(5, dfV2["Id"].ToArray<int>());
         
-        var predicateDrop = Col("Year") == Lit("2023");
+        var predicateDrop = Pl.Col("Year") == Pl.Lit("2023");
         
         uc.DeleteCatalogRecords(catalog, schema, table, predicateDrop, cloudOptions: cloudOptions);
 
@@ -536,7 +537,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         Assert.DoesNotContain(2, dfV3["Id"].ToArray<int>());
         Assert.Equal("2024", dfV3["Year"].ToArray<string>()[0]);
         
-        var predicateNoOp = Col("Id") == 999;
+        var predicateNoOp = Pl.Col("Id") == 999;
         uc.DeleteCatalogRecords(catalog, schema, table, predicateNoOp, cloudOptions: cloudOptions);
 
         using var dfV4 = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions).Collect();
@@ -596,7 +597,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             {
                 try 
                 {
-                    var predicate = Col("Id") == targetId;
+                    var predicate = Pl.Col("Id") == targetId;
                     uc.DeleteCatalogRecords(catalog, schema, table, predicate, cloudOptions: cloudOptions);
                     
                     Interlocked.Increment(ref successCount);
@@ -695,7 +696,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
                 var minId = (workerId * 10) + 1;
                 var maxId = minId + 9;
                 
-                var predicate = (Col("Id") >= minId) & (Col("Id") <= maxId);
+                var predicate = (Pl.Col("Id") >= minId) & (Pl.Col("Id") <= maxId);
                 uc.DeleteCatalogRecords(catalog, schema, table, predicate, cloudOptions: cloudOptions);
                 Console.WriteLine($"[Team Ice] Deleter {workerId} deleted IDs {minId} to {maxId}.");
             }));
@@ -839,7 +840,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             {
                 var minId = (workerId * 10) + 1;
                 var maxId = minId + 9;
-                var predicate = (Col("Id") >= minId) & (Col("Id") <= maxId);
+                var predicate = (Pl.Col("Id") >= minId) & (Pl.Col("Id") <= maxId);
                 uc.DeleteCatalogRecords(catalog, schema, table, predicate, cloudOptions: cloudOptions);
                 Console.WriteLine($"[Team Ice] Deleter {workerId} deleted IDs {minId} to {maxId} (using DV!).");
             })));
@@ -900,7 +901,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         Assert.Contains(201, remainingIds);
         Assert.Contains(250, remainingIds);
 
-        long newVersion = uc.DeltaRestore(
+        ulong newVersion = uc.DeltaRestore(
             catalog, schema, table, 
             version: 1, 
             cloudOptions: cloudOptions
@@ -1002,7 +1003,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             cloudOptions: cloudOptions
         );
 
-        var deletePredicate = Col("Id") <= 10;
+        var deletePredicate = Pl.Col("Id") <= 10;
         
         uc.DeleteCatalogRecords(catalog, schema, table, deletePredicate, cloudOptions: cloudOptions);
 
@@ -1077,11 +1078,11 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         Assert.Equal(7, resultDf.Height);
 
-        var row1 = resultDf.Filter(Col("Id") == 1);
+        var row1 = resultDf.Filter(Pl.Col("Id") == 1);
         Assert.Equal("A_Upd", row1["Team"].ToArray<string>()[0]);
         Assert.Equal(99.0, row1["Value"].ToArray<double>()[0]);
 
-        var row4 = resultDf.Filter(Col("Id") == 4);
+        var row4 = resultDf.Filter(Pl.Col("Id") == 4);
         Assert.Equal("B", row4["Team"].ToArray<string>()[0]);
 
     }
@@ -1272,7 +1273,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
             {
                 var minId = (workerId * 10) + 1;
                 var maxId = minId + 9;
-                var predicate = (Col("Id") >= minId) & (Col("Id") <= maxId);
+                var predicate = (Pl.Col("Id") >= minId) & (Pl.Col("Id") <= maxId);
                 uc.DeleteCatalogRecords(catalog, schema, table, predicate, cloudOptions: cloudOptions);
             })));
         }
@@ -1343,7 +1344,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         Assert.DoesNotContain(1, remainingIds);
         Assert.DoesNotContain(30, remainingIds);
 
-        var row31 = resultDf.Filter(Col("Id") == 31);
+        var row31 = resultDf.Filter(Pl.Col("Id") == 31);
         Assert.Equal(31, row31["Id"].ToArray<int>()[0]);
         Assert.Equal(99.9, row31["Value"].ToArray<double>()[0]);
 
@@ -1417,13 +1418,13 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         
         Assert.True(historyDf.Height >= 2);
 
-        long newVersion = uc.DeltaRestore(
+        ulong newVersion = uc.DeltaRestore(
             catalog, schema, table, 
             version: 1, 
             cloudOptions: cloudOptions
         );
 
-        Assert.Equal(3, newVersion);
+        Assert.Equal(3UL, newVersion);
 
         using var restoredLf = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions);
         using var restoredDf = restoredLf.Collect().Sort("Id");

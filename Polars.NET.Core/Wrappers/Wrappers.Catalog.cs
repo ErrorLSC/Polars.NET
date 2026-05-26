@@ -4,7 +4,7 @@ using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
 
-public static partial class PolarsWrapper
+public readonly partial struct PolarsWrapper
 {
     public static CatalogHandle InitUnityCatalog(string workspaceUrl, string bearerToken)
         => ErrorHelper.Check(NativeBindings.pl_catalog_unity_new(workspaceUrl, bearerToken));
@@ -14,7 +14,7 @@ public static partial class PolarsWrapper
         string catalogName,
         string schemaName,
         string tableName,
-        long? version,
+        ulong? version,
         string? datetime,
         ulong? nRows,
         PlParallelStrategy parallel,
@@ -40,7 +40,7 @@ public static partial class PolarsWrapper
         string[]? cloudKeys,
         string[]? cloudValues)
     {
-        long versionVal = version.GetValueOrDefault();
+        ulong versionVal = version.GetValueOrDefault();
         IntPtr versionPtr = version.HasValue ? (IntPtr)(&versionVal) : IntPtr.Zero;
 
         ulong nRowsVal = nRows.GetValueOrDefault();
@@ -418,12 +418,12 @@ public static partial class PolarsWrapper
         ErrorHelper.CheckVoid();
         return (long)filesDeleted;
     }
-    public static long CatalogRestore(
+    public static ulong CatalogRestore(
         CatalogHandle handle,
         string catalogName,
         string schemaName,
         string tableName,
-        long targetVersion,
+        ulong targetVersion,
         long targetTimestamp,
         bool ignoreMissingFiles,
         bool protocolDowngradeAllowed,

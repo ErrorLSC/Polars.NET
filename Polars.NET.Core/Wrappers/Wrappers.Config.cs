@@ -5,7 +5,7 @@ namespace Polars.NET.Core;
 /// <summary>
 /// Config for Polars.NET
 /// </summary>
-public static partial class PolarsWrapper
+public readonly partial struct PolarsWrapper
 {
     /// <summary>
     /// Background Async Prefetch batch size 

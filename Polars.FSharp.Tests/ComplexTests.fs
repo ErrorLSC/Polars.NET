@@ -5,6 +5,8 @@ open Polars.FSharp
 open System
 open System.Data
 open System.Diagnostics
+open Polars.NET.Core
+open System.IO
 
 type ``Complex Query Tests`` () =
     
@@ -21,7 +23,7 @@ type ``Complex Query Tests`` () =
             |> pl.join sDf [pl.col "id"] [pl.col "uid"] JoinType.Left
         
         // Left join: id 1 (2 rows), id 2 (1 row null match) -> Total 3
-        Assert.Equal(3L, res.Rows)
+        Assert.Equal(3L, res.Height)
 
     [<Fact>]
     member _.``Lazy API Chain (Filter -> Collect)`` () =
@@ -31,31 +33,40 @@ type ``Complex Query Tests`` () =
         let df = 
             lf
             |> pl.filterLazy (pl.col "a" .> pl.lit 1)
-            |> pl.limit 1u
-            |> pl.collectStreaming
+            |> pl.collect
+            |> pl.head 1
 
-        Assert.Equal(1L, df.Rows)
+        Assert.Equal(1L, df.Height)
 
     [<Fact>]
-    member _.``GroupBy Queries`` () =
-        use csv = new TempCsv "name,birthdate,weight,height\nBen Brown,1985-02-15,72.5,1.77\nQinglei,2025-11-25,70.0,1.80\nZhang,2025-10-31,55,1.75"
-        let lf = LazyFrame.ScanCsv(csv.Path,tryParseDates=true)
+    [<Trait("DataFrame","GroupBy")>]
+    member _.``GroupBy Queries With Having`` () =
+        let names = [| "Ben"; "Alice"; "Qinglei"; "Zhang" |]
+        let dates = [| 
+            DateTime(1985, 2, 15)  // 1980s (1)
+            DateTime(1992, 8, 20)  // 1990s (1)
+            DateTime(2025, 11, 25) // 2020s (2)
+            DateTime(2025, 10, 31)
+        |]
+        
+        use df = pl.dataframe[|
+            pl.series "name" names
+            pl.series "birthdate" dates
+        |]
+        
+        use res =
+            df
+            |> pl.groupBy 
+                [ pl.col("birthdate").Dt.Year() / pl.lit 10 * pl.lit 10 
+                |> pl.alias "decade" ]
+            |> pl.having (pl.len() .> pl.lit 1)
+            |> pl.agg [ pl.len() |> pl.alias "cnt" ]
+            |> pl.sortAscending [pl.col "decade"] 
 
-        let res = 
-            lf 
-            |> pl.groupByLazy
-                [(pl.col "birthdate").Dt.Year() / pl.lit 10 * pl.lit 10 |> pl.alias "decade" ]
-                [ pl.count().Alias "cnt"] 
-            |> pl.sortLazy (pl.col "decade") false
-            |> pl.collect
-
-        // Row 0: 1980 -> 2
-        Assert.Equal(1980L, res.Int("decade", 0).Value)
-        Assert.Equal(1L, int64 (res.Int("cnt", 0).Value)) 
-
-        // Row 1: 1990 -> 1
-        Assert.Equal(2020L, res.Int("decade", 1).Value)
-        Assert.Equal(2L, int64 (res.Int("cnt", 1).Value))
+        Assert.Equal(1L, res.Height) 
+        
+        Assert.Equal(2020L, int64 (res.Int("decade", 0).Value))
+        Assert.Equal(2L, int64 (res.Int("cnt", 0).Value))
 
     [<Fact>]
     member _.``Complex Transformation (Selector Exclude)`` () =
@@ -77,19 +88,17 @@ type ``Complex Query Tests`` () =
             ])
             |> pl.selectLazy [
                 // Exclude (all except "ignore_me")
-                pl.all() |> pl.exclude ["birthdate"] |> pl.asExpr
+                pl.cs.all().Exclude ["birthdate"] |> pl.asExpr
             ]
-            |> pl.groupByLazy 
-                // Keys
-                [ pl.col "decade" ] 
-                // Aggs
+            |> pl.groupByLazy [ pl.col "decade" ] 
+            |> pl.aggLazy
                 [
                     pl.col "name"
-                    (pl.col "weight").Mean().Round(2).Name.Prefix "avg_"
-                    (pl.col "height").Mean().Round(2).Name.Prefix "avg_"
+                    (pl.col "weight").Mean().Round(2u).Name.Prefix "avg_"
+                    (pl.col "height").Mean().Round(2u).Name.Prefix "avg_"
                 ]
             |> pl.collect
-            |> pl.sort ((pl.col "decade"),false)
+            |> pl.sortAscending [pl.col "decade"] 
 
         let cols = res.ColumnNames
         Assert.DoesNotContain("birthdate", cols)
@@ -120,7 +129,6 @@ type ``Complex Query Tests`` () =
         let res = 
             lf
             |> pl.withColumnLazy (
-                // Split 变成 List
                 (pl.col "tags").Str.Split(" ").Alias "tag_list"
             )
             |> pl.withColumnLazy (
@@ -148,12 +156,13 @@ type ``Complex Query Tests`` () =
             |> pl.select [ pl.col "my_name"; pl.col "my_tag_list" ]
             |> pl.explode ["my_tag_list"]  
         
-        Assert.Equal(3L, exploded.Rows)
+        Assert.Equal(3L, exploded.Height)
         Assert.Equal("coding", exploded.String("my_tag_list", 0).Value)
         Assert.Equal("reading", exploded.String("my_tag_list", 1).Value)
         Assert.Equal("gaming", exploded.String("my_tag_list", 2).Value)
 
     [<Fact>]
+    [<Trait("Expr","StructOps")>]
     member _.``Struct and Advanced List Ops`` () =
 
         use csv = new TempCsv "name,score1,score2\nAlice,80,90\nBob,60,70"
@@ -203,7 +212,7 @@ type ``Complex Query Tests`` () =
                 |> pl.alias "diff_from_avg"
             )
             |> pl.collect
-            |> pl.sort(pl.col "name", false)
+            |> pl.sortAscending [pl.col "name"] 
 
         // Alice (IT): 1000 - 1500 = -500
         Assert.Equal("Alice", res.String("name", 0).Value)
@@ -264,7 +273,8 @@ type ``Complex Query Tests`` () =
                 values = ["revenue"], 
                 aggExpr = pl.col("").Sum() * pl.lit 2, 
                 sortColumns = true
-            ).Sort(pl.col "year", false)
+            ) 
+            |> pl.sortAscending [pl.col "year"] 
 
         Assert.Equal(200, wideDfExpr.Cell<int>(0, "Q1"))
         
@@ -281,30 +291,30 @@ type ``Complex Query Tests`` () =
 
         // Horizontal: [a, b]
         let dfHorz = 
-            pl.concatLazy [lf1; lf2] Horizontal
+            pl.concatLazy [lf1; lf2] ConcatType.Horizontal
             |> pl.collect
         
-        Assert.Equal(1L, dfHorz.Rows)
+        Assert.Equal(1L, dfHorz.Height)
         Assert.Equal(2L, dfHorz.Width)
         Assert.Equal(1L, dfHorz.Int("a", 0).Value)
         Assert.Equal(2L, dfHorz.Int("b", 0).Value)
 
         // Vertical: [a] (rows=2)        
         let dfVert = 
-            pl.concatLazy [lf1; lf3] Vertical
+            pl.concatLazy [lf1; lf3] ConcatType.Vertical
             |> pl.collect
         
-        Assert.Equal(2L, dfVert.Rows)
+        Assert.Equal(2L, dfVert.Height)
         Assert.Equal(1L, dfVert.Width)
 
         // Diagonal: [a, b] (rows=2)
         // lf1 (a=1, b=null)
         // lf2 (a=null, b=2)
         let dfDiag =
-            pl.concatLazy [lf1; lf2] Diagonal
+            pl.concatLazy [lf1; lf2] ConcatType.Diagonal
             |> pl.collect
         
-        Assert.Equal(2L, dfDiag.Rows)
+        Assert.Equal(2L, dfDiag.Height)
         Assert.Equal(2L, dfDiag.Width)
 
     [<Fact>]
@@ -320,10 +330,10 @@ type ``Complex Query Tests`` () =
         // Concat
         let bigDf = pl.concat [df1; df2]
 
-        Assert.Equal(2L, bigDf.Rows)
+        Assert.Equal(2L, bigDf.Height)
 
-        Assert.Equal(1L, df1.Rows)
-        Assert.Equal(1L, df2.Rows)
+        Assert.Equal(1L, df1.Height)
+        Assert.Equal(1L, df2.Height)
         Assert.Equal(1L, df1.Int("val", 0).Value)
     [<Fact>]
     member _.``SQL Context: Register and Execute`` () =
@@ -337,7 +347,7 @@ type ``Complex Query Tests`` () =
         let resLf = ctx.Execute "SELECT name, age * 2 AS age_double FROM people WHERE age > 25"
         let res = resLf |> pl.collect
 
-        Assert.Equal(1L, res.Rows)
+        Assert.Equal(1L, res.Height)
         Assert.Equal("Bob", res.String("name", 0).Value)
         Assert.Equal(60L, res.Int("age_double", 0).Value)
     [<Fact>]
@@ -384,12 +394,12 @@ type ``Complex Query Tests`` () =
 
         let res = 
             lf
-            |> pl.sortLazy (pl.col "date") false // Rolling 必须先排序
+            |> pl.sortAscendingLazy [pl.col "date"] 
             |> pl.withColumnLazy (
                 // 1.1: 10
                 // 1.2: (10+20)/2 = 15
                 // 1.3: (20+30)/2 = 25
-                (pl.col "price").RollingMean("2i").Alias "ma_2"
+                (pl.col "price").RollingMean(Dur.String "2i").Alias "ma_2"
             )
             |> pl.collect
 
@@ -407,13 +417,13 @@ type ``Complex Query Tests`` () =
         let res = 
             lf
 
-            |> pl.sortLazy (pl.col "time") false
+            |> pl.sortAscendingLazy [pl.col "time"]
             |> pl.withColumnLazy (
                 // 10:00: [09:00, 10:00) -> 10
                 // 10:30: [09:30, 10:30) -> 10 + 20 = 30
                 // 12:00: [11:00, 12:00) -> 30
                 (pl.col "val")
-                    .RollingSumBy("1h", pl.col "time", closed= ClosedWindow.Right) // closed="left" means [ )
+                    .RollingSumBy(Dur.String "1h", pl.col "time", closed= ClosedWindow.Right) // closed="left" means [ )
                     .Alias "sum_1h"
             )
             |> pl.collect
@@ -424,13 +434,13 @@ type ``Complex Query Tests`` () =
     [<Fact>]
     member _.``Lazy Join (Standard Join)`` () =
 
-        let users = 
-            DataFrame.create [
-                Series.create("id", [1; 2])
-                Series.create("name", ["Alice"; "Bob"])
-                Series.create("common", ["U1"; "U2"]) 
-            ]
-        let lfUsers = users.Lazy()
+        let lfUsers = 
+            pl.dataframe [
+                pl.series "id" [1; 2]
+                pl.series "name"  ["Alice"; "Bob"]
+                pl.series "common" ["U1"; "U2"] 
+            ] 
+            |> pl.asLazy 
 
         let orders = 
             DataFrame.create [
@@ -469,39 +479,33 @@ type ``Complex Query Tests`` () =
         let amountNull = resSorted.Column("amount").IsNullAt 2
         Assert.True(amountNull, "Bob should have null amount")
     [<Fact>]
+    [<Trait("DataFrame","JoinAsOf")>]
     member _.``Join AsOf: Trades matching Quotes (with GroupBy and Tolerance)`` () =
 
-        let tradesContent = 
-            "time,ticker,volume\n" +
-            "1000,AAPL,10\n" +
-            "1000,MSFT,20\n" +
-            "1005,AAPL,10"
-        use tradesCsv = new TempCsv(tradesContent)
-        
-        let quotesContent = 
-            "time,ticker,bid\n" +
-            "998,MSFT,50.0\n" +
-            "999,AAPL,99.0\n" +
-            "1001,AAPL,101.0"
-        use quotesCsv = new TempCsv(quotesContent)
+        let dfTrades = pl.dataframe [
+            pl.series "time" [1000;1000;1005]
+            pl.series "ticker" ["AAPL";"MSFT";"AAPL"]
+            pl.series "volume" [10;20;10]
+        ] 
 
-        let lfTrades = LazyFrame.ScanCsv tradesCsv.Path |> pl.sortLazy (pl.col "time") false
-        let lfQuotes = LazyFrame.ScanCsv quotesCsv.Path |> pl.sortLazy (pl.col "time") false
+        let dfQuotes = pl.dataframe [
+            pl.series "time" [998;999;1001]
+            pl.series "ticker" ["MSFT";"AAPL";"AAPL"]
+            pl.series "bid" [50.0;99.0;101.0]
+        ] 
 
         let res = 
-            lfTrades.JoinAsOf(
-                lfQuotes,
+            dfTrades.JoinAsOf(
+                dfQuotes,
                 pl.col "time",
                 pl.col "time", 
-                2L,                      
-                strategy = Backward,       
+                Tolerance.Integer 2L,                      
+                strategy = AsofStrategy.Backward,       
                 byLeft = [pl.col "ticker"], 
                 byRight = [pl.col "ticker"]
             )
-            |> pl.sortLazy (pl.col "ticker") false
-            |> pl.sortLazy (pl.col "time") false
-            |> pl.collect
-
+            |> pl.sortAscending [pl.col "ticker"] 
+            |> pl.sortAscending [pl.col "time"] 
 
         // Row 0: time=1000, ticker=AAPL. 999 (diff=1 <= 2). Bid=99.0
         // Row 1: time=1000, ticker=MSFT. 998 (diff=2 <= 2). Bid=50.0
@@ -525,7 +529,7 @@ type ``Complex Query Tests`` () =
         let totalRows = 100_000
         
         // ---------------------------------------------------------
-        // Extract]
+        // Extract
         // ---------------------------------------------------------
         let sourceTable = new DataTable()
         sourceTable.Columns.Add("OrderId", typeof<int>) |> ignore
@@ -563,7 +567,7 @@ type ``Complex Query Tests`` () =
         // Load
         // ---------------------------------------------------------
         
-        let targetTable = new DataTable() // 模拟目标表
+        let targetTable = new DataTable() 
 
         let schemaContract = dict [
             "OrderDate", typeof<DateTime>
@@ -586,7 +590,7 @@ type ``Complex Query Tests`` () =
         )
 
         sw.Stop()
-        printfn "[ETL] Completed in %.3fs. Rows written: %d" sw.Elapsed.TotalSeconds targetTable.Rows.Count
+        printfn "[ETL] Completed in %.3fs. Height written: %d" sw.Elapsed.TotalSeconds targetTable.Rows.Count
 
 
         Assert.Equal(totalRows / 2, targetTable.Rows.Count)
@@ -628,29 +632,29 @@ type ``Complex Query Tests`` () =
         let df = DataFrame.ofRecords data
         let lf = df.Lazy()
 
-        let res = 
+        use res = 
             lf.GroupByDynamic(
                 indexCol = "Time",
-                every = TimeSpan.FromHours 1.0,      
-                period = TimeSpan.FromHours 2.0,     
+                every = Dur.TimeSpan(TimeSpan.FromHours 1.0),      
+                period = Dur.TimeSpan(TimeSpan.FromHours 2.0),     
                 
-                by = [ !> pl.col("Category") ],
+                by = [ pl.col "Category" ],
                 
                 // [t, t + period)
-                closedWindow = ClosedWindow.Left,
+                closedWindow = ClosedWindow.Left
+            )
+            |> pl.aggLazy [
+                pl.col("Value").Count().Alias("Count")
+                pl.col("Value").Mean().Alias("Mean")
+                pl.cs.numeric().ToExpr().Sum().Name.Suffix("_Sum") 
+            ]
+            |> pl.sortAscendingLazy [ pl.col "Category"; pl.col "Time" ] 
+            |> pl.collect
 
-                aggs = [
-                    !> pl.col("Value").Count().Alias("Count")
-                    !> pl.col("Value").Mean().Alias("Mean")
-
-                    !> pl.cs.numeric().ToExpr().Sum().Name.Suffix("_Sum") 
-                ]
-            ).Collect().Sort([pl.col "Category"; pl.col "Time"], false) 
-
-        // Window 1 (10:00): [10:00, 12:00) -> 包含 10:00, 10:30, 11:00, 11:30
-        // Window 2 (11:00): [11:00, 13:00) -> 包含 11:00, 11:30
+        // Window 1 (10:00): [10:00, 12:00) -> 10:00, 10:30, 11:00, 11:30
+        // Window 2 (11:00): [11:00, 13:00) -> 11:00, 11:30
         
-        Assert.Equal(3L, res.Rows) 
+        Assert.Equal(3L, res.Height) 
 
         // --- Row 0: Category A, Time 10:00 ---
         Assert.Equal("A", res.Cell<string>( "Category",0))
@@ -680,19 +684,20 @@ type ``Complex Query Tests`` () =
         ]
         
         let lf = 
-            DataFrame.ofRecords(data).Lazy()
-
-                .Select([
+            DataFrame.ofRecords(data) 
+            |> pl.asLazy
+            |> pl.selectLazy
+                [
                     pl.col "ID"
                     pl.asStruct([ pl.col "Val1"; pl.col "Val2" ]).Alias "MyStruct"
-                ])
-        
+                ]
         // Schema Check: ID, MyStruct
         
         // Unnest "MyStruct"
         let res = 
-            lf.Unnest("MyStruct")
-              .Collect()
+            lf
+            |> pl.unnestColumnsLazy ["MyStruct"]
+            |> pl.collect
        
         Assert.Equal(10, res.Cell<int>("Val1",0))
         Assert.Equal(20, res.Cell<int>("Val2",0))
@@ -710,7 +715,7 @@ type ``Complex Query Tests`` () =
             lf.TopK(2, [pl.col "V"],reverse=false) 
             |>  pl.collect
         
-        Assert.Equal(2L, top2.Rows)
+        Assert.Equal(2L, top2.Height)
         Assert.Equal(5, top2.Cell<int>("V",0))
         Assert.Equal(4, top2.Cell<int>("V",1))
 
@@ -721,3 +726,813 @@ type ``Complex Query Tests`` () =
         
         Assert.Equal(1, bot2.Cell<int>("V",0))
         Assert.Equal(2, bot2.Cell<int>("V",1))
+    [<Fact>]
+    [<Trait("DataFrame", "Upsample")>]
+    member _.``Upsample with Duration and Selector resolves columns and handles missing intervals correctly`` () =
+        // Arrange: Setup a simple time-series dataframe
+        // Assume columns are populated with appropriate time indices and values
+        let timeSeries = Series.create("datetime", [| new DateTime(2026,5,20,10,0,0); new DateTime(2026,5,20,10,2,0) |])
+        let values = Series.create("metrics", [| 42.0; 45.0 |])
+        let groups = Series.create("category", [| "A"; "A" |])
+        let df = DataFrame.create [ timeSeries; values; groups ]
+
+        // Create selectors based on the project core implementation
+        let timeSel = pl.cs.temporal()
+        let groupSel = pl.cs.string()
+
+        // Act 1: Upsample using Duration.String
+        let durationStr = Dur.String "1m" // Upsample to 1 minute intervals
+        let result1 = df.Upsample(timeSel, durationStr, groupBy = groupSel)
+
+        // Assert 1: The gap at 10:01:00 should be upsampled and filled with nulls
+        // Initial rows were 2, upsampling 10:00 to 10:02 at 1m interval should create 3 rows total
+        Assert.Equal(3L, result1.Height)
+        Assert.Equal(3, int result1.Width)
+
+        // Act 2: Upsample using Dur.TimeSpan
+        let durationTs = Dur.TimeSpan(TimeSpan.FromMinutes(1.0))
+        let result2 = df.Upsample(timeSel, durationTs, maintainOrder = true)
+
+        // Assert 2
+        Assert.Equal(3L, result2.Height)
+
+        // Act 3: Test exception when timeColumn selector matches multiple columns
+        let invalidTimeSel = pl.cs.all() // Matches all columns, which is invalid for time index
+        let action = fun () -> df.Upsample(invalidTimeSel, durationStr) |> ignore
+        Assert.Throws<ArgumentException>(action) |> ignore
+    [<Fact>]
+    [<Trait("DataFrame", "Unstack")>]
+    member _.``DataFrame: Unstack vertical, no fill, all columns`` () =
+        let data = [
+            {| Name = "Alice"; Score = 80 |}
+            {| Name = "Bob";   Score = 90 |}
+            {| Name = "Cathy"; Score = 70 |}
+            {| Name = "Dan";   Score = 60 |}
+        ]
+        let df = DataFrame.ofRecords data
+
+        let result = df.Unstack(step = 2L)
+
+        Assert.Equal(2L, result.Height)
+        Assert.Equal(4L, result.Width)
+        Assert.Equal<string[]>([| "Name_0"; "Name_1"; "Score_0"; "Score_1" |], result.Columns)
+
+        Assert.Equal("Alice", result.String("Name_0", 0).Value)
+        Assert.Equal(80L, result.Int("Score_0", 0).Value)
+        Assert.Equal("Cathy", result.String("Name_1", 0).Value)
+        Assert.Equal(70L, result.Int("Score_1", 0).Value)
+
+        // Name_0=Bob, Score_0=90, Name_1=Dan, Score_1=60
+        Assert.Equal("Bob", result.String("Name_0", 1).Value)
+        Assert.Equal(90L, result.Int("Score_0", 1).Value)
+        Assert.Equal("Dan", result.String("Name_1", 1).Value)
+        Assert.Equal(60L, result.Int("Score_1", 1).Value)
+    [<Fact>]
+    [<Trait("DataFrame", "Unstack")>]
+    member _.``DataFrame: Unstack vertical with mixed fill expressions`` () =
+        let data = [
+            {| Name = "Alice"; Score = 80 |}
+            {| Name = "Bob";   Score = 90 |}
+            {| Name = "Cathy"; Score = 70 |}
+        ]
+        let df = DataFrame.ofRecords data
+
+        let fills = [pl.lit "你好"; pl.lit -1]
+
+        let result = df.Unstack(step = 2L, fillValues = fills)
+
+        // 3 rows -> step=2 → nRows=2, nCols=2
+        Assert.Equal(2L, result.Height)
+        Assert.Equal(4L, result.Width)
+
+        // Name_0=Alice, Score_0=80, Name_1=Cathy, Score_1=70
+        Assert.Equal("Alice", result.String("Name_0", 0).Value)
+        Assert.Equal(80L, result.Int("Score_0", 0).Value)
+        Assert.Equal("Cathy", result.String("Name_1", 0).Value)
+        Assert.Equal(70L, result.Int("Score_1", 0).Value)
+
+        //Name_0=Bob, Score_0=90, Name_1="你好", Score_1=-1
+        Assert.Equal("Bob", result.String("Name_0", 1).Value)
+        Assert.Equal(90L, result.Int("Score_0", 1).Value)
+        Assert.Equal("你好", result.String("Name_1", 1).Value)
+        Assert.Equal(-1L, result.Int("Score_1", 1).Value)
+    [<Fact>]
+    [<Trait("DataFrame", "Unstack")>]
+    member _.``DataFrame: Unstack horizontal, no fill, all columns`` () =
+        let data = [
+            {| A = 1; B = 2; C = 3 |}
+            {| A = 4; B = 5; C = 6 |}
+            {| A = 7; B = 8; C = 9 |}
+        ]
+        let df = DataFrame.ofRecords data
+
+        let result = df.Unstack(step = 2L, how = UnstackDirection.Horizontal)
+        Assert.Equal(2L, result.Height)   
+        Assert.Equal(6L, result.Width)    
+
+        let expectedCols = [| "A_0"; "A_1"; "B_0"; "B_1"; "C_0"; "C_1" |]
+        Assert.Equal<string[]>(expectedCols, result.Columns)
+
+        Assert.Equal(1L, result.Int("A_0", 0).Value)
+        Assert.Equal(4L, result.Int("A_1", 0).Value)
+        Assert.Equal(2L, result.Int("B_0", 0).Value)
+        Assert.Equal(5L, result.Int("B_1", 0).Value)
+        Assert.Equal(3L, result.Int("C_0", 0).Value)
+        Assert.Equal(6L, result.Int("C_1", 0).Value)
+
+        Assert.Equal(7L, result.Int("A_0", 1).Value)
+        Assert.Equal(8L, result.Int("B_0", 1).Value)
+        Assert.Equal(9L, result.Int("C_0", 1).Value)
+        Assert.Null(result.Int("C_1", 1))
+        Assert.Null(result.Int("B_1", 1))
+        Assert.Null(result.Int("A_1", 1))
+    [<Fact>]
+    [<Trait("DataFrame", "Unstack")>]
+    member _.``DataFrame: Unstack with column selector`` () =
+        let data = [
+            {| A = 1; B = "x"; C = 3.0 |}
+            {| A = 2; B = "y"; C = 4.0 |}
+            {| A = 3; B = "z"; C = 5.0 |}
+            {| A = 4; B = "w"; C = 6.0 |}
+        ]
+        let df = DataFrame.ofRecords data
+
+        let result = df.Unstack(step = 2L, columns = pl.cs.numeric())
+
+        Assert.Equal(4L, result.Width)
+        Assert.Equal<string[]>([| "A_0"; "A_1"; "C_0"; "C_1" |], result.Columns)
+
+        Assert.DoesNotContain("B_0", result.Columns)
+        Assert.DoesNotContain("B_1", result.Columns)
+
+        Assert.Equal(1L, result.Int("A_0", 0).Value)
+        Assert.Equal(3.0, result.Float("C_0", 0).Value)
+        Assert.Equal(3L, result.Int("A_1", 0).Value)
+        Assert.Equal(5.0, result.Float("C_1", 0).Value)
+    [<Fact>]
+    [<Trait("DataFrame", "Update")>]
+    member _.``DataFrame: Update basic - same schema, no missing keys`` () =
+        let leftDf =
+            [ pl.series "id" [1;2;3];
+            pl.series "value" [10;20;30] ]
+            |> pl.dataframe
+
+        let rightDf =
+            [ pl.series "id" [2;3];
+            pl.series "value" [200;300] ]
+            |> pl.dataframe
+
+        let result = leftDf.Update(other = rightDf,on=pl.col "id")
+
+        Assert.Equal(3L, result.Height)
+        Assert.Equal(2L, result.Width)
+        Assert.Equal(Some 10L,result.Int("value",0))
+        Assert.Equal(Some 300L,result.Int("value",2))
+    [<Fact>]
+    [<Trait("DataFrame", "Update")>]
+    member _.``DataFrame: Update with explicit leftOn/rightOn`` () =
+        let leftDf =
+            [ pl.series "pk_left" [10;20;30];
+            pl.series "name" ["Alice";"Bob";"Cathy"] ]
+            |> pl.dataframe
+
+        let rightDf =
+            [ pl.series "pk_right" [20;30];
+            pl.series "name" ["Bobby";"Catherine"] ]
+            |> pl.dataframe
+
+        let result = leftDf.Update(other = rightDf, 
+                                leftOn = pl.cs.byName ["pk_left"], 
+                                rightOn = pl.cs.byName [ "pk_right"])
+        Assert.Equal(Some "Alice",result.String("name",0))
+        Assert.Equal(Some "Catherine",result.String("name",2))
+
+    [<Fact>]
+    [<Trait("DataFrame", "Update")>]
+    member _.``DataFrame: Update with includeNulls = true`` () =
+        let leftDf =
+            [ pl.series "key" [1;2;3];
+            pl.series "info" ["A";"B";"C"] ]
+            |> pl.dataframe
+
+        let rightDf =
+            [ pl.series "key" [2;3];
+            pl.series "info" [null; "C_updated"] ]  
+            |> pl.dataframe
+
+        let result = leftDf.Update(other = rightDf,on=pl.cs.numeric(),includeNulls = true)
+
+        Assert.Equal(Some "A", result.String("info",0))
+        Assert.Equal(None, result.String("info",1))
+        Assert.Equal(Some "C_updated", result.String("info",2))
+
+    [<Fact>]
+    [<Trait("DataFrame", "Update")>]
+    member _.``DataFrame: Update with includeNulls = false (coalesce)`` () =
+        let leftDf =
+            [ pl.series "key" [1;2;3];
+            pl.series "val" [10;20;30] ]
+            |> pl.dataframe
+
+        let rightDf =
+            [ pl.series "key" [2;3];
+            pl.series "val" [None; Some 300] ] 
+            |> pl.dataframe
+
+        let result = leftDf.Update(other = rightDf,on=pl.col "key", includeNulls = false)
+        
+        Assert.Equal(Some 20L, result.Int("val", 1))  
+
+    [<Fact>]
+    [<Trait("DataFrame", "Update")>]
+    member _.``DataFrame: Update with Inner join - drops non-matching rows`` () =
+        let leftDf =
+            [ pl.series "id" [1;2;3];
+            pl.series "val" [10;20;30] ]
+            |> pl.dataframe
+
+        let rightDf =
+            [ pl.series "id" [2];
+            pl.series "val" [200] ]
+            |> pl.dataframe
+
+        let result = leftDf.Update(other = rightDf,on=pl.col "id", how = JoinType.Inner)
+
+        Assert.Equal(1L, result.Height)
+        Assert.Equal(Some 2L,  result.Int("id",0))
+        Assert.Equal(Some 200L,  result.Int("val",0))
+
+    [<Fact>]
+    [<Trait("DataFrame", "Update")>]
+    member _.``DataFrame: Update with Outer join - retains all rows from both`` () =
+        let leftDf =
+            [ pl.series "key" [1;2];
+            pl.series "a" [10;20] ]
+            |> pl.dataframe
+
+        let rightDf =
+            [ pl.series "key" [2;3];
+            pl.series "a" [200;300] ]
+            |> pl.dataframe
+
+        let result = leftDf.Update(other = rightDf,on=pl.col "key" ,how = JoinType.Outer)
+        Assert.Equal(Some 10L, result.Int("a",0))
+        Assert.Equal(Some 200L, result.Int("a",1))
+        Assert.Equal(Some 300L, result.Int("a",2))
+
+    [<Fact>]
+    [<Trait("DataFrame", "Update")>]
+    member _.``DataFrame: Update with no common columns besides keys - early return`` () =
+        let leftDf =
+            [ pl.series "id" [1;2];
+            pl.series "x" [10;20] ]
+            |> pl.dataframe
+
+        let rightDf = pl.dataframe [ pl.series "id" [1;2] ]
+
+        let result = leftDf.Update(other = rightDf, on=pl.col "id" )
+
+        Assert.True(result.Equals leftDf)
+    [<Fact>]
+    [<Trait("DataFrame", "JsonNormalize")>]
+    member _.``DataFrame: JsonNormalize flat objects without schema`` () =
+        let data = [
+            Map.ofList [ "name", box "Alice"; "age", box 30 ]
+            Map.ofList [ "name", box "Bob";   "age", box 25 ]
+        ]
+        let df = DataFrame.JsonNormalize(data)
+
+        Assert.Equal(2L, df.Width)
+        Assert.Equal(2L, df.Height)
+
+        Assert.Equal(Some "Alice", df.String("name", 0))
+        Assert.Equal(Some 30L, df.Int("age", 0))
+        Assert.Equal(Some "Bob", df.String("name", 1))
+        Assert.Equal(Some 25L, df.Int("age", 1))
+
+    [<Fact>]
+    [<Trait("DataFrame", "JsonNormalize")>]
+    member _.``DataFrame: JsonNormalize nested objects with maxLevel and schema`` () =
+        let nested = Map.ofList [
+            "id", box 1
+            "info", box (Map.ofList [
+                "height", box 180.0
+                "weight", box 75.0
+            ])
+        ]
+
+        let df = DataFrame.JsonNormalize(
+                    data = [nested],
+                    maxLevel = 1,
+                    separator = "_",
+                    schema = PolarsSchema.ofList [
+                        "id", DataType.Int32
+                        "info_height", DataType.Float64
+                        "info_weight", DataType.Float64
+                    ])
+
+        Assert.Equal(3L, df.Width)
+        Assert.Equal(1L, df.Height)
+
+        Assert.Equal(Some 1L, df.Int("id", 0))
+        Assert.Equal(Some 180.0, df.Float("info_height", 0))
+        Assert.Equal(Some 75.0, df.Float("info_weight", 0))
+
+    [<Fact>]
+    [<Trait("DataFrame", "JsonNormalize")>]
+    member _.``DataFrame: JsonNormalize with missing fields and strict = false`` () =
+        let data = [
+            Map.ofList [ "a", box 1; "b", box "x" ]
+            Map.ofList [ "a", box 2; "c", box true ]   
+        ]
+
+        let df = DataFrame.JsonNormalize(data, strict = false)
+
+        Assert.Equal(3L, df.Width)
+        Assert.Equal(2L, df.Height)
+
+        Assert.Equal(Some "x", df.String("b", 0))
+        Assert.Equal(None, df.String("b", 1))   
+        Assert.Equal(Some true, df.Bool("c", 1))
+    [<Fact>]
+    [<Trait("DataFrame", "JsonNormalizeFromString")>]
+    member _.``DataFrame: JsonNormalize from JSON string (array of objects)`` () =
+        let json = """
+        [
+            {"name":"Alice","age":30,"scores":{"math":90,"eng":88}},
+            {"name":"Bob","age":25,"scores":{"math":78,"eng":82}}
+        ]
+        """
+        let df = DataFrame.JsonNormalizeFromString(json, maxLevel = 1, separator = ".")
+
+        Assert.Equal(4L, df.Width)
+        Assert.Equal(2L, df.Height)
+
+        Assert.Equal(Some "Alice", df.String("name", 0))
+        Assert.Equal(Some 30L, df.Int("age", 0))
+        Assert.Equal(Some 90L, df.Int("scores.math", 0))
+        Assert.Equal(Some 88L, df.Int("scores.eng", 0))
+
+        Assert.Equal(Some "Bob", df.String("name", 1))
+        Assert.Equal(Some 25L, df.Int("age", 1))
+        Assert.Equal(Some 78L, df.Int("scores.math", 1))
+        Assert.Equal(Some 82L, df.Int("scores.eng", 1))
+
+    [<Fact>]
+    [<Trait("DataFrame", "JsonNormalizeFromString")>]
+    member _.``DataFrame: JsonNormalize from JSON string (single object)`` () =
+        let json = """{"product":"Widget","price":9.99,"inStock":true}"""
+        let df = DataFrame.JsonNormalizeFromString(json)
+
+        Assert.Equal(1L, df.Height)
+        Assert.Equal(3L, df.Width)
+        Assert.Equal(Some "Widget", df.String("product", 0))
+        Assert.Equal(Some 9.99, df.Float("price", 0))
+        Assert.Equal(Some true, df.Bool("inStock", 0))
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``DataFrame: Merge basic update (no insert)`` () =
+
+        let target = pl.dataframe [
+            pl.series "id" [1;2;3]
+            pl.series "val" [10;20;30]
+        ]
+
+        let source = pl.dataframe [
+            pl.series "id" [2;4]
+            pl.series "val" [200;400]
+        ]
+
+        let result = 
+            target.Merge(source, pl.col "id")
+            |> Merge.whenMatchedUpdateAll
+            |> Merge.executeEager Engine.Auto
+
+        Assert.Equal(3L, result.Height)
+        Assert.Equal(Some 1L, result.Int("id", 0))
+        Assert.Equal(Some 2L, result.Int("id", 1))
+        Assert.Equal(Some 3L, result.Int("id", 2))
+        Assert.Equal(Some 10L, result.Int("val", 0))
+        Assert.Equal(Some 200L, result.Int("val", 1))
+        Assert.Equal(Some 30L, result.Int("val", 2))
+
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``DataFrame: Merge insert and delete`` () =
+        let target = pl.dataframe [
+            pl.series "key" [1;2;3]
+            pl.series "value" ["A";"B";"C"]
+        ]
+        let source = pl.dataframe [
+            pl.series "key" [2;4]
+            pl.series "value" ["B_new";"D"]
+        ]
+
+        let result = 
+            target.Merge(source, pl.col "key")
+            |> Merge.whenMatchedDelete (Some (fun ctx -> ctx.SourceCol "value" .== pl.lit "B_new"))
+            |> Merge.whenMatchedUpdateAll
+            |> Merge.whenNotMatchedInsertAll
+            |> Merge.executeEager Engine.Auto
+
+        Assert.Equal(3L, result.Height)
+
+        Assert.Equal(Some 1L, result.Int("key", 0))
+        Assert.Equal(Some "A", result.String("value", 0))
+        Assert.Equal(Some 3L, result.Int("key", 1))
+        Assert.Equal(Some "C", result.String("value", 1))
+        Assert.Equal(Some 4L, result.Int("key", 2))
+        Assert.Equal(Some "D", result.String("value", 2))
+
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``DataFrame: Merge includeNulls = true`` () =
+        let target = pl.dataframe [
+            pl.series "id" [1;2;3];
+            pl.series "score" [100;200;300]
+        ]
+        let source = pl.dataframe [
+            pl.series "id" [2;3];
+            pl.series "score" [None; Some 999]  
+        ]
+
+        let result = 
+            target.Merge(source, pl.col "id")
+            |> Merge.whenMatchedUpdateAll
+            |> Merge.includeNulls true
+            |> Merge.executeEager Engine.Auto
+
+        Assert.Equal(3L, result.Height)
+        Assert.Equal(Some 100L, result.Int("score", 0))
+        Assert.Equal(None, result.Int("score", 1))          // null
+        Assert.Equal(Some 999L, result.Int("score", 2))
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``DataFrame: Merge full pipeline with all actions and parameters`` () =
+        let target = pl.dataframe [
+            pl.series "key"     [1; 2; 3; 5]
+            pl.series "name"    ["Alice"; "Bob"; "Cathy"; "Eve"]
+            pl.series "score"   [80; 90; 85; 55]
+        ]
+        let source = pl.dataframe [
+            pl.series "key"     [1; 2; 4; 6]
+            pl.series "name"    [null; "Bobby"; "Diana"; "Frank"]
+            pl.series "score"   [85; 95; 75; 65]
+        ]
+
+        let result =
+            target.Merge(source, pl.col "key")
+            |> Merge.whenMatchedDelete (Some (fun ctx -> (ctx.SourceCol "name").Str.StartsWith "B"))
+            |> Merge.whenMatchedUpdateSet (Set.build [
+                Set.col "score" (fun ctx -> ctx.SourceCol "score" * pl.lit 2)
+            ])
+            |> Merge.whenNotMatchedInsertAll
+            |> Merge.whenNotMatchedBySourceDelete
+                (Some (fun ctx -> ctx.TargetCol "score" .< pl.lit 80))
+            |> Merge.maintainOrder JoinMaintainOrder.Left
+            |> Merge.executeEager Engine.Auto
+
+        Assert.Equal(4L, result.Height)
+        
+        Assert.Equal(Some 1L,      result.Int("key", 0))
+        Assert.Equal(Some "Alice",         result.String("name", 0))      // null
+        Assert.Equal(Some 170L,    result.Int("score", 0))
+
+        Assert.Equal(Some 3L,      result.Int("key", 1))
+        Assert.Equal(Some "Cathy", result.String("name", 1))
+        Assert.Equal(Some 85L,     result.Int("score", 1))
+
+        Assert.Equal(Some 4L,      result.Int("key", 2))
+        Assert.Equal(Some "Diana", result.String("name", 2))
+        Assert.Equal(Some 75L,     result.Int("score", 2))
+
+        Assert.Equal(Some 6L,      result.Int("key", 3))
+        Assert.Equal(Some "Frank", result.String("name", 3))
+        Assert.Equal(Some 65L,     result.Int("score", 3))
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``DataFrame: Merge respects first-match-wins (Delete before Update)`` () =
+        let target = pl.dataframe [
+            pl.series "Id"    [1; 2; 3]
+            pl.series "Score" [10; 20; 30]
+        ]
+
+        let source = pl.dataframe [
+            pl.series "Id"    [2; 3; 4]
+            pl.series "Score" [99; 15; 100]
+        ]
+        
+        let result =
+            target.Merge(source, pl.col "Id")
+            |> Merge.whenMatchedDelete (Some (fun ctx -> ctx.SourceCol "Score" .> pl.lit 90))
+            |> Merge.whenMatchedUpdate (Some (fun ctx -> ctx.SourceCol "Score" .> pl.lit 10)) None
+            |> Merge.whenNotMatchedInsertAll
+            |> Merge.maintainOrder JoinMaintainOrder.Left
+            |> Merge.executeEager Engine.Auto
+
+        Assert.Equal(3L, result.Height)
+        Assert.Equal(Some 1L,   result.Int("Id", 0))
+        Assert.Equal(Some 10L,  result.Int("Score", 0))
+        Assert.Equal(Some 3L,   result.Int("Id", 1))
+        Assert.Equal(Some 15L,  result.Int("Score", 1)) 
+        Assert.Equal(Some 4L,   result.Int("Id", 2))
+        Assert.Equal(Some 100L, result.Int("Score", 2))
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``DataFrame: Merge partial update with setters`` () =
+        let target = pl.dataframe [
+            pl.series "Id" [1;2;3]
+            pl.series "Name" ["Apple";"Banana";"Orange"]
+            pl.series "Price" [1.0;2.0;3.0]
+            pl.series "Stock" [100;150;200]
+        ]
+        let source = pl.dataframe [
+            pl.series "Id" [2;3;4]
+            pl.series "Name" ["Banana_Ignored";"Orange_Ignored";"Grape"]
+            pl.series "Price" [2.5;2.5;4.0]
+            pl.series "RestockQty" [50;0;200]
+        ]
+
+        let result =
+            target.Merge(source, pl.col "Id")
+            |> Merge.whenMatchedUpdate
+                (Some (fun ctx -> ctx.SourceCol "Price" .> ctx.TargetCol "Price"))
+                (Some (Set.build [
+                    Set.col "Price" (fun ctx -> ctx.SourceCol "Price")
+                    Set.col "Stock" (fun ctx -> ctx.TargetCol "Stock" + ctx.SourceCol "RestockQty")
+                ]))
+            |> Merge.whenNotMatchedInsertSet (Set.build [
+                Set.col "Id"    (fun ctx -> ctx.SourceCol "Id")
+                Set.col "Name"  (fun ctx -> ctx.SourceCol "Name")
+                Set.col "Price" (fun ctx -> ctx.SourceCol "Price")
+                Set.col "Stock" (fun ctx -> ctx.SourceCol "RestockQty")
+            ])
+            |> Merge.executeEager Engine.Auto
+            |> pl.sortAscending [pl.col "Id"] 
+
+        // Id=1: Apple, 1.0, 100
+        Assert.Equal(Some 1L,   result.Int("Id", 0))
+        Assert.Equal(Some "Apple", result.String("Name", 0))
+        Assert.Equal(Some 1.0,  result.Float("Price", 0))
+        Assert.Equal(Some 100L, result.Int("Stock", 0))
+
+        // Id=2: Banana, 2.5, 200 (Stock=150+50)
+        Assert.Equal(Some 2L,   result.Int("Id", 1))
+        Assert.Equal(Some "Banana", result.String("Name", 1))
+        Assert.Equal(Some 2.5,  result.Float("Price", 1))
+        Assert.Equal(Some 200L, result.Int("Stock", 1))
+
+        // Id=3: Orange, 3.0, 200 (condition missed)
+        Assert.Equal(Some 3L,   result.Int("Id", 2))
+        Assert.Equal(Some "Orange", result.String("Name", 2))
+        Assert.Equal(Some 3.0,  result.Float("Price", 2))
+        Assert.Equal(Some 200L, result.Int("Stock", 2))
+
+        // Id=4: Grape, 4.0, 200
+        Assert.Equal(Some 4L,   result.Int("Id", 3))
+        Assert.Equal(Some "Grape", result.String("Name", 3))
+        Assert.Equal(Some 4.0,  result.Float("Price", 3))
+        Assert.Equal(Some 200L, result.Int("Stock", 3))
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``DataFrame: Merge with selector-based batch setters`` () =
+        let target = pl.dataframe [
+            pl.series "Id"       [1; 2; 3]
+            pl.series "Name"     ["Hero"; "Villain"; "NPC"]
+            pl.series "Stat_HP"  [100; 100; 10]
+            pl.series "Stat_MP"  [50; 50; 0]
+            pl.series "Score"    [1000; 500; 0]
+            pl.series "Tag"      ["Old"; "Old"; "Old"]
+        ]
+        let source = pl.dataframe [
+            pl.series "Id"         [1; 2; 4]
+            pl.series "Name"       ["Hero_Ignored"; "Villain"; "Newbie"]
+            pl.series "Stat_HP"    [120; 0; 80]
+            pl.series "Stat_MP"    [60; 0; 40]
+            pl.series "ScoreDelta" [200; 0; 50]
+            pl.series "IsBanned"   [false; true; false]
+        ]
+
+        let result =
+            target.Merge(source, pl.col "Id")
+            |> Merge.whenMatchedDelete (Some (fun ctx -> ctx.SourceCol "IsBanned"))
+            |> Merge.whenMatchedUpdateSet (Set.build [
+                Set.selector (pl.cs.startsWith "Stat_") (fun colName ctx -> ctx.SourceCol colName)
+                Set.col "Score" (fun ctx -> ctx.TargetCol "Score" + ctx.SourceCol "ScoreDelta")
+                Set.col "Tag"   (fun _ -> pl.lit "Updated")
+            ])
+            |> Merge.whenNotMatchedInsertSet (Set.build [
+                Set.col "Id"    (fun ctx -> ctx.SourceCol "Id")
+                Set.col "Name"  (fun ctx -> ctx.SourceCol "Name")
+                Set.selector (pl.cs.startsWith "Stat_") (fun colName ctx -> ctx.SourceCol colName)
+                Set.col "Score" (fun ctx -> ctx.SourceCol "ScoreDelta")
+                Set.col "Tag"   (fun _ -> pl.lit "New")
+            ])
+            |> Merge.printPlan
+            |> Merge.execute
+            |> pl.sortAscendingLazy [pl.col "Id"] 
+            |> pl.collect
+
+        // Id=1: Hero, HP=120, MP=60, Score=1200, Tag=Updated
+        Assert.Equal(Some 1L,       result.Int("Id", 0))
+        Assert.Equal(Some "Hero",   result.String("Name", 0))
+        Assert.Equal(Some 120L,     result.Int("Stat_HP", 0))
+        Assert.Equal(Some 60L,      result.Int("Stat_MP", 0))
+        Assert.Equal(Some 1200L,    result.Int("Score", 0))
+        Assert.Equal(Some "Updated",result.String("Tag", 0))
+
+        // Id=3: NPC (untouched)
+        Assert.Equal(Some 3L,       result.Int("Id", 1))
+        Assert.Equal(Some "NPC",    result.String("Name", 1))
+        Assert.Equal(Some 10L,      result.Int("Stat_HP", 1))
+        Assert.Equal(Some 0L,       result.Int("Stat_MP", 1))
+        Assert.Equal(Some 0L,       result.Int("Score", 1))
+        Assert.Equal(Some "Old",    result.String("Tag", 1))
+
+        // Id=4: Newbie, HP=80, MP=40, Score=50, Tag=New
+        Assert.Equal(Some 4L,       result.Int("Id", 2))
+        Assert.Equal(Some "Newbie", result.String("Name", 2))
+        Assert.Equal(Some 80L,      result.Int("Stat_HP", 2))
+        Assert.Equal(Some 40L,      result.Int("Stat_MP", 2))
+        Assert.Equal(Some 50L,      result.Int("Score", 2))
+        Assert.Equal(Some "New",    result.String("Tag", 2))
+
+        Assert.Equal(3L, result.Height)
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``Merge composite keys with EndsWith selector`` () =
+        let target = pl.dataframe [
+            pl.series "TenantId" ["T1";"T1";"T2";"T2"]
+            pl.series "UserId"   [101;102;101;999]
+            pl.series "Role"     ["Admin";"User";"User";"Guest"]
+            pl.series "IsActive" [true;true;true;false]
+        ]
+        let source = pl.dataframe [
+            pl.series "TenantId" ["T1";"T2";"T2"]
+            pl.series "UserId"   [102;101;888]
+            pl.series "Role"     ["Editor";"Admin";"User"]
+            pl.series "IsActive" [true;true;true]
+        ]
+
+        let result =
+            target.Merge(source, pl.cs.endsWith "Id")
+            |> Merge.whenMatchedUpdateSet (Set.build [
+                Set.col "Role"     (fun ctx -> ctx.SourceCol "Role")
+                Set.col "IsActive" (fun _   -> pl.lit true)
+            ])
+            |> Merge.whenNotMatchedBySourceDelete None   
+            |> Merge.whenNotMatchedInsertSet (Set.build [
+                Set.col "TenantId" (fun ctx -> ctx.SourceCol "TenantId")
+                Set.col "UserId"   (fun ctx -> ctx.SourceCol "UserId")
+                Set.col "Role"     (fun ctx -> ctx.SourceCol "Role")
+                Set.col "IsActive" (fun _   -> pl.lit true)
+            ])
+            |> Merge.executeEager Engine.Auto
+            |> pl.sortAscending [pl.cs.endsWith "Id"] 
+
+        Assert.Equal(3L, result.Height)
+
+        // T1, 102: Editor, Active=true
+        Assert.Equal(Some "T1", result.String("TenantId", 0))
+        Assert.Equal(Some 102L, result.Int("UserId", 0))
+        Assert.Equal(Some "Editor", result.String("Role", 0))
+        Assert.Equal(Some true, result.Bool("IsActive", 0))
+
+        // T2, 101: Admin, Active=true
+        Assert.Equal(Some "T2", result.String("TenantId", 1))
+        Assert.Equal(Some 101L, result.Int("UserId", 1))
+        Assert.Equal(Some "Admin", result.String("Role", 1))
+        Assert.Equal(Some true, result.Bool("IsActive", 1))
+
+        // T2, 888: User, Active=true (insert)
+        Assert.Equal(Some "T2", result.String("TenantId", 2))
+        Assert.Equal(Some 888L, result.Int("UserId", 2))
+        Assert.Equal(Some "User", result.String("Role", 2))
+        Assert.Equal(Some true, result.Bool("IsActive", 2))
+
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``Merge validation: type mismatch on key`` () =
+        let target = pl.dataframe [
+            pl.series "Id" [1;2;3]
+            pl.series "Value" [10;20;30]
+        ]
+        let source = pl.dataframe [
+            pl.series "Id" ["1";"2"]   
+            pl.series "Value" [100;200]
+        ]
+
+        let ex = Assert.Throws<ArgumentException>(fun () ->
+            target.Merge(source, pl.col "Id")
+            |> Merge.executeEager Engine.Auto
+            |> ignore
+        )
+        Assert.Contains("Key type mismatch for 'Id'", ex.Message)
+        Assert.Contains("source: str", ex.Message)
+        Assert.Contains("target: i32", ex.Message)
+
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``Merge validation: null merge key`` () =
+        let target = pl.dataframe [
+            pl.series "Id" [1;2;3]
+            pl.series "Value" ["A";"B";"C"]
+        ]
+        let source = pl.dataframe [
+            pl.series "Id" [Nullable(1); Nullable<int>(); Nullable(3)]   // 中间为 null
+            pl.series "Value" ["A1";"B1";"C1"]
+        ]
+
+        let ex = Assert.Throws<InvalidDataException>(fun () ->
+            target.Merge(source, pl.col "Id")
+            |> Merge.whenMatchedUpdateAll
+            |> Merge.executeEager Engine.Auto
+            |> ignore
+        )
+        Assert.Contains("Null values found in merge keys: Id", ex.Message)
+
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``Merge validation: duplicate source keys`` () =
+        let target = pl.dataframe [
+            pl.series "TenantId" ["T1";"T2"]
+            pl.series "UserId" [101;102]
+            pl.series "Score" [10;20]
+        ]
+        let source = pl.dataframe [
+            pl.series "TenantId" ["T1";"T1";"T2"]
+            pl.series "UserId"   [101;101;102]
+            pl.series "Score"    [100;999;200]
+        ]
+
+        let ex = Assert.Throws<InvalidDataException>(fun () ->
+            target.Merge(source, pl.cs.endsWith "Id")   
+            |> Merge.whenMatchedUpdateAll
+            |> Merge.executeEager Engine.Auto
+            |> ignore
+        )
+        Assert.Contains("Duplicate keys found in source for", ex.Message)
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``Merge: includeNulls controls null overwrite in default update (no setters)`` () =
+        let target = pl.dataframe [
+            pl.series "key" [1;2]
+            pl.series "val" ["A";"B"]
+        ]
+        let source = pl.dataframe [
+            pl.series "key" [1;2]
+            pl.series "val" [null; "new_B"]
+        ]
+
+        let resultNoNull =
+            target.Merge(source, pl.col "key")
+            |> Merge.whenMatchedUpdateAll
+            |> Merge.includeNulls false
+            |> Merge.executeEager Engine.Auto
+
+        Assert.Equal(Some "A", resultNoNull.String("val", 0))
+        Assert.Equal(Some "new_B", resultNoNull.String("val", 1))
+
+        let resultWithNull =
+            target.Merge(source, pl.col "key")
+            |> Merge.whenMatchedUpdateAll
+            |> Merge.includeNulls true
+            |> Merge.executeEager Engine.Auto
+
+        Assert.Equal(None, resultWithNull.String("val", 0))          // null
+        Assert.Equal(Some "new_B", resultWithNull.String("val", 1))
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``Merge via module functions: initiate, setter update, insert all`` () =
+        let result =
+            [
+                pl.series "Id"    [1; 2; 3]
+                pl.series "Value" ["A"; "B"; "C"]
+            ] 
+            |> pl.dataframe |> pl.asLazy
+            |> Merge.initiate 
+                (
+                    [
+                        pl.series "Id"    [2; 3; 4]
+                        pl.series "Value" ["B_new"; "C_new"; "D"]
+                    ]
+                    |> pl.dataframe |> pl.asLazy
+                ) 
+                ["Id"]
+            |> Merge.whenMatchedUpdateSet (Set.build [
+                Set.col "Value" (fun ctx -> ctx.SourceCol "Value")
+            ])
+            |> Merge.whenNotMatchedInsertAll
+            |> Merge.execute
+            |> pl.sortAscendingLazy [pl.col "Id"]
+            |> pl.collect
+
+        Assert.Equal(4L, result.Height)
+        Assert.Equal(Some 1L, result.Int("Id", 0))
+        Assert.Equal(Some "A", result.String("Value", 0))
+        Assert.Equal(Some 2L, result.Int("Id", 1))
+        Assert.Equal(Some "B_new", result.String("Value", 1))
+        Assert.Equal(Some 3L, result.Int("Id", 2))
+        Assert.Equal(Some "C_new", result.String("Value", 2))
+        Assert.Equal(Some 4L, result.Int("Id", 3))
+        Assert.Equal(Some "D", result.String("Value", 3))

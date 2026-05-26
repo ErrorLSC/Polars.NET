@@ -1,5 +1,8 @@
 #pragma warning disable CS1591
+using System.Collections;
+using System.Collections.Frozen;
 using System.Text;
+using Apache.Arrow.Types;
 using Polars.NET.Core;
 
 namespace Polars.CSharp;
@@ -7,10 +10,32 @@ namespace Polars.CSharp;
 /// <summary>
 /// Represents a Polars Schema (Name -> DataType mapping).
 /// </summary>
-public class PolarsSchema : IDisposable,IPolarsSchema
+public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,IReadOnlyDictionary<string, DataType>, IEnumerable<Field>
 {
     internal SchemaHandle Handle { get; private set; }
     private bool _disposed;
+    private IReadOnlyList<Field>? _fields;
+
+    private IReadOnlyList<Field> GetFields()
+    {
+        if (_fields != null) return _fields;
+
+        if (Handle.IsInvalid)
+        {
+            _fields = [];
+            return _fields;
+        }
+
+        ulong len = PolarsWrapper.GetSchemaLen(Handle);
+        var fields = new Field[len];
+        for (ulong i = 0; i < len; i++)
+        {
+            PolarsWrapper.GetSchemaFieldAt(Handle, i, out string name, out DataTypeHandle dtHandle);
+            fields[i] = new Field(name, DataType.CreateFromHandle(dtHandle));
+        }
+        _fields = fields;
+        return _fields;
+    }
 
     /// <summary>
     /// Internal constructor: Wrap an existing handle (e.g. from Rust return).
@@ -31,7 +56,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema
     /// <summary>
     /// Create a Schema from a Dictionary.
     /// </summary>
-    public static PolarsSchema From(Dictionary<string, DataType> fields)
+    public static PolarsSchema From(IReadOnlyDictionary<string, DataType> fields)
     {
         var schema = new PolarsSchema();
         foreach (var kvp in fields)
@@ -42,14 +67,33 @@ public class PolarsSchema : IDisposable,IPolarsSchema
     }
 
     /// <summary>
-    /// Create a Schema directly from a .NET type (e.g., a record or class).
+    /// Create a schema from a collection of named fields.
     /// </summary>
-    /// <typeparam name="T">The record or class type.</typeparam>
-    /// <returns>A PolarsSchema mapped from the type's properties.</returns>
-    public static PolarsSchema From<T>()
+    public static PolarsSchema From(IEnumerable<(string Name, DataType Type)> fields)
     {
-        SchemaHandle handle = PolarsWrapper.NewSchemaFromType(typeof(T));
+        var schema = new PolarsSchema();
+        if (fields != null)
+        {
+            foreach (var field in fields)
+            {
+                schema.Add(field.Name, field.Type);
+            }
+        }
+        return schema;
+    }
 
+    /// <summary>
+    /// Create a Schema directly from a .NET type.
+    /// </summary>
+    public static PolarsSchema From<T>() => From(typeof(T));
+
+    /// <summary>
+    /// Create a Schema directly from a System.Type.
+    /// </summary>
+    public static PolarsSchema From(Type type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        SchemaHandle handle = PolarsWrapper.NewSchemaFromType(type);
         return new PolarsSchema(handle);
     }
 
@@ -60,77 +104,121 @@ public class PolarsSchema : IDisposable,IPolarsSchema
     /// <param name="dtype">Column data type.</param>
     /// <returns>The schema instance (Fluent API).</returns>
     public PolarsSchema Add(string name, DataType dtype)
-    {
-        ArgumentNullException.ThrowIfNull(dtype);
-        
+    {   
         PolarsWrapper.SchemaAddField(Handle, name, dtype.Handle);
+        _fields = null; 
         return this;
     }
 
-    /// <summary>
-    /// Convert the native Schema back to a Dictionary for inspection.
-    /// </summary>
-    public Dictionary<string, DataType> ToDictionary()
+    // =========================
+    // IReadOnlyDictionary<string, DataType>
+    // =========================
+    public IEnumerable<string> Keys => GetFields().Select(f => f.Name);
+    public IEnumerable<DataType> Values => GetFields().Select(f => f.DataType);
+    public int Count => (int)PolarsWrapper.GetSchemaLen(Handle);
+
+    public bool ContainsKey(string key) => GetFields().Any(f => f.Name == key);
+
+    public bool TryGetValue(string key, out DataType value)
     {
-        if (Handle.IsInvalid) return [];
-
-        ulong len = PolarsWrapper.GetSchemaLen(Handle);
-        var result = new Dictionary<string, DataType>((int)len);
-
-        for (ulong i = 0; i < len; i++)
+        var field = GetFields().FirstOrDefault(f => f.Name == key);
+        if (field.Name != null)
         {
-            PolarsWrapper.GetSchemaFieldAt(Handle, i, out string name, out DataTypeHandle dtHandle);
-            result[name] = new DataType(dtHandle);
+            value = field.DataType;
+            return true;
         }
-
-        return result;
+        value = default!;
+        return false;
     }
-
-    Dictionary<string, IPolarsDataType> IPolarsSchema.ToDictionary()
-    {
-        return this.ToDictionary()
-                    .ToDictionary(kvp => kvp.Key, kvp => (IPolarsDataType)kvp.Value);
-    }
+    /// <summary>
+    /// Converts the Schema to a FrozenDictionary.
+    /// Slower creation time, but blazing fast read performance. Ideal for caching.
+    /// </summary>
+    public FrozenDictionary<string, DataType> ToFrozenDictionary()
+        => GetFields().ToFrozenDictionary(f => f.Name, f => f.DataType);
+    /// <summary>
+    /// Returns the schema as an ordered list of fields.
+    /// </summary>
+    public IReadOnlyList<(string Name, DataType Type)> ToList()
+        => [.. GetFields().Select(f => (f.Name, f.DataType))];
 
     public DataType this[string name]
     {
         get
         {
-            ulong len = PolarsWrapper.GetSchemaLen(Handle);
-            for (ulong i = 0; i < len; i++)
-            {
-                PolarsWrapper.GetSchemaFieldAt(Handle, i, out string fName, out DataTypeHandle dtHandle);
-                if (fName == name)
-                {
-                    return new DataType(dtHandle);
-                }
-            }
+            if (TryGetValue(name, out var value))
+                return value;
             throw new KeyNotFoundException($"Column '{name}' not found in Schema.");
         }
     }
-        
-    // ==========================================
-    // ColumnNames / Length 
-    // ==========================================
-    public int Length => (int)PolarsWrapper.GetSchemaLen(Handle);
 
-    public List<string> ColumnNames
+    IEnumerator<KeyValuePair<string, DataType>> IEnumerable<KeyValuePair<string, DataType>>.GetEnumerator()
     {
-        get
-        {
-            ulong len = PolarsWrapper.GetSchemaLen(Handle);
-            var list = new List<string>((int)len);
-            for (ulong i = 0; i < len; i++)
-            {
-                PolarsWrapper.GetSchemaFieldAt(Handle, i, out string name, out _);
-                list.Add(name);
-            }
-            return list;
-        }
+        foreach (var f in GetFields())
+            yield return new KeyValuePair<string, DataType>(f.Name, f.DataType);
     }
 
-    IPolarsDataType IPolarsSchema.this[string name] 
-        => this[name];
+    // =========================
+    // IEnumerable<Field>
+    // =========================
+    public IEnumerator<Field> GetEnumerator() => GetFields().GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+      
+    // ==========================================
+    // ColumnNames / Length / dtype
+    // ==========================================
+    public int Len() => Count;
+    public IReadOnlyList<string> ColumnNames => [.. Keys];
+
+    public IReadOnlyList<string> Names => ColumnNames;
+    /// <summary>
+    /// Gets the list of data types for the columns in the schema.
+    /// </summary>
+    public IReadOnlyList<DataType> DataTypes => [.. Values];
+
+    IPolarsDataType IReadOnlyDictionary<string, IPolarsDataType>.this[string key]
+    {
+        get => this[key]; 
+    }
+    IEnumerable<IPolarsDataType> IReadOnlyDictionary<string, IPolarsDataType>.Values
+        => Values.Select(dt => (IPolarsDataType)dt);
+    bool IReadOnlyDictionary<string, IPolarsDataType>.TryGetValue(string key, out IPolarsDataType value)
+    {
+        bool found = TryGetValue(key, out DataType dt);
+        value = found ? dt : default!;
+        return found;
+    }
+
+    bool IReadOnlyDictionary<string, IPolarsDataType>.ContainsKey(string key)
+        => ContainsKey(key);
+
+    int IReadOnlyCollection<KeyValuePair<string, IPolarsDataType>>.Count => Count;
+
+    IEnumerator<KeyValuePair<string, IPolarsDataType>> IEnumerable<KeyValuePair<string, IPolarsDataType>>.GetEnumerator()
+    {
+        foreach (var field in GetFields())
+            yield return new KeyValuePair<string, IPolarsDataType>(field.Name, field.DataType);
+    }
+    
+    /// <summary>
+    /// Create an empty (n=0) or n-row null-filled (n>0) copy of the DataFrame.
+    /// Returns a n-row null-filled DataFrame with an identical schema. n can be greater than the current number of rows in the DataFrame.
+    /// </summary>
+    /// <returns>An empty DataFrame with columns and types matching the schema.</returns>
+    public DataFrame ToDataFrame(long length=0)
+        => new(PolarsWrapper.DataFrameFromSchema(Handle, (uint)length));
+    /// <summary>
+    /// Create an empty copy of the current LazyFrame, with zero to ‘n’ rows.
+    /// Returns a copy with an identical schema but no data.
+    /// </summary>
+    /// <returns>An empty DataFrame with columns and types matching the schema.</returns>
+    public LazyFrame ToLazyFrame(long length=0)
+    {
+        using var df = new DataFrame(PolarsWrapper.DataFrameFromSchema(Handle, (uint)length));
+        return df.Lazy();
+    }
+
     // ==========================================
     // ToString
     // ==========================================
@@ -146,7 +234,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema
         {
             PolarsWrapper.GetSchemaFieldAt(Handle, i, out string name, out DataTypeHandle dtHandle);
 
-            using var dt = new DataType(dtHandle); 
+            using var dt = DataType.CreateFromHandle(dtHandle); 
             sb.Append($"{name}: {dt.Kind}");
 
             if (i < len - 1) sb.Append(", ");
@@ -154,6 +242,118 @@ public class PolarsSchema : IDisposable,IPolarsSchema
         
         sb.Append('}');
         return sb.ToString();
+    }
+    /// <summary>
+    /// Convert a Polars Schema to an Apache.Arrow.Schema.
+    /// </summary>
+    public Apache.Arrow.Schema ToArrowSchema()
+    {
+        var builder = new Apache.Arrow.Schema.Builder();
+
+        foreach (var (columnName, polarsType) in this)
+        {
+            IArrowType arrowType = polarsType.GetArrowType();
+            
+            Dictionary<string, string>? metadata = null;
+
+            if (polarsType is BaseExtension ext)
+            {
+                metadata = new Dictionary<string, string>
+                {
+                    { "ARROW:extension:name", ext.ExtensionName }
+                };
+
+                if (ext.Metadata != null)
+                {
+                    metadata["ARROW:extension:metadata"] = ext.Metadata;
+                }
+            }
+
+            var field = new Apache.Arrow.Field(columnName, arrowType, nullable: true, metadata);
+            
+            builder.Field(field);
+        }
+
+        return builder.Build();
+    }
+    /// <summary>
+    /// Creates a Polars Schema from an Apache.Arrow.Schema.
+    /// </summary>
+    public static PolarsSchema FromArrowSchema(Apache.Arrow.Schema arrowSchema)
+    {
+        var polarsSchema = new PolarsSchema();
+
+        foreach (var field in arrowSchema.FieldsList)
+        {
+            DataType polarsType;
+
+            if (field.Metadata != null && field.Metadata.TryGetValue("ARROW:extension:name", out var extName))
+            {
+                field.Metadata.TryGetValue("ARROW:extension:metadata", out var extMetadata);
+                
+                var storageType = DataType.FromArrowType(field.DataType);
+
+                if (ExtensionRegistry.TryGetResolution(extName, out var factory, out var asStorage))
+                {
+                    if (asStorage)
+                    {
+                        polarsType = storageType;
+                    }
+                    else
+                    {
+                        polarsType = factory!(storageType, extMetadata);
+                    }
+                }
+                else
+                {
+                    polarsType = new UnknownExtension(extName, storageType, extMetadata);
+                }
+            }
+            else
+            {
+                polarsType = DataType.FromArrowType(field.DataType);
+            }
+
+            polarsSchema.Add(field.Name, polarsType); 
+        }
+
+        return polarsSchema;
+    }
+
+    // ==========================================
+    // Equality Members
+    // ==========================================
+    
+    public override bool Equals(object? obj)
+        => Equals(obj as PolarsSchema);
+
+    public bool Equals(PolarsSchema? other)
+    {
+        if (ReferenceEquals(this, other)) return true;
+        if (other is null || Count != other.Count) return false;
+        return GetFields().SequenceEqual(other.GetFields());
+    }
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        foreach (var f in GetFields())
+        {
+            hash.Add(f.Name);
+            hash.Add(f.DataType);
+        }
+        return hash.ToHashCode();
+    }
+
+    public static bool operator ==(PolarsSchema? left, PolarsSchema? right)
+    {
+        if (left is null) return right is null;
+        return left.Equals(right);
+    }
+
+    public static bool operator !=(PolarsSchema? left, PolarsSchema? right)
+    {
+        return !(left == right);
     }
     public void Dispose()
     {

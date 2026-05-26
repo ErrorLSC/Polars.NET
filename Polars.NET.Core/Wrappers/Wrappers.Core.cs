@@ -2,14 +2,14 @@ using System.Runtime.InteropServices;
 
 namespace Polars.NET.Core;
 
-public static partial class PolarsWrapper
+public readonly partial struct PolarsWrapper
 {
     // Helper : Transform Handles,used in move ptr to Rust
-    internal static IntPtr[] HandlesToPtrs(PolarsHandle[] handles)
+    internal static nint[] HandlesToPtrs(PolarsHandle[] handles)
     {
-        if (handles == null || handles.Length == 0) return Array.Empty<IntPtr>();
+        if (handles == null || handles.Length == 0) return [];
         
-        var ptrs = new IntPtr[handles.Length];
+        var ptrs = new nint[handles.Length];
         for (int i = 0; i < handles.Length; i++)
         {
             // 1. Get original pointer for Rust
@@ -17,37 +17,6 @@ public static partial class PolarsWrapper
             ptrs[i] = handles[i].TransferOwnership();
         }
         return ptrs;
-    }
-
-    private static R UseUtf8StringArray<R>(string[]? strings, Func<IntPtr[], R> action)
-    {
-        if (strings == null || strings.Length == 0)
-        {
-            return action(Array.Empty<IntPtr>());
-        }
-
-        var ptrs = new IntPtr[strings.Length];
-        try
-        {
-            // Alloc memory
-            for (int i = 0; i < strings.Length; i++)
-            {
-                ptrs[i] = Marshal.StringToCoTaskMemUTF8(strings[i]);
-            }
-
-            return action(ptrs);
-        }
-        finally
-        {
-            // free memory
-            for (int i = 0; i < ptrs.Length; i++)
-            {
-                if (ptrs[i] != IntPtr.Zero)
-                {
-                    Marshal.FreeCoTaskMem(ptrs[i]);
-                }
-            }
-        }
     }
     /// <summary>
     /// Lock a set of SafeHandles and get its raw pointer.

@@ -1,4 +1,5 @@
-using static Polars.CSharp.Polars;
+using Pl = Polars.CSharp.Polars;
+using Cs = Polars.CSharp.Polars.Selectors;
 
 namespace Polars.CSharp.Tests;
 
@@ -23,8 +24,8 @@ David,40,80000";
         Assert.Contains("name", df.Columns);
 
         using var filtered = lf_copyed
-            .Filter(Col("age") > 30)
-            .Select(Col("name"), Col("salary"));
+            .Filter(Pl.Col("age") > 30)
+            .Select(Pl.Col("name"), Pl.Col("salary"));
         using var resultDf = filtered.Collect();
 
         Assert.Equal(2, resultDf.Height);
@@ -56,7 +57,7 @@ David,40,80000";
         Assert.Equal(1, df.Column("id").GetValue<long>(0));
         Assert.Equal("Alice", df.Column("name").GetValue<string>(0));
         
-        using var df1_again = lf1.Select(Col("id") * Lit(10)).Collect();
+        using var df1_again = lf1.Select(Pl.Col("id") * 10).Collect();
         Assert.Equal(2, df1_again.Height);
         
         Assert.Equal(10, df1_again.Column("id").GetValue<long>(0));
@@ -96,6 +97,7 @@ David,40,80000";
         Assert.Equal(300, df.GetValue<int?>(1, "C"));
     }
     [Fact]
+    [Trait("LazyFrame","Join")]
     public void Test_LazyFrame_Join_MultiColumn_WithParams()
     {
 
@@ -119,8 +121,7 @@ David,40,80000";
 
         using var joinedLf = scoresLf.Join(
             classLf,
-            leftOn: [Col("student"), Col("year")],
-            rightOn: [Col("student"), Col("year")],
+            on: ["student", "year"],
             how: JoinType.Inner,
             
             suffix: "_lazy_conflict",           
@@ -144,36 +145,118 @@ David,40,80000";
         Assert.Equal("L1", sorted.GetValue<string>(0, "note"));
         Assert.Equal("R1", sorted.GetValue<string>(0, "note_lazy_conflict"));
 
-        using var bobCheck = joinedDf.Filter(Col("student") == Lit("Bob"));
+        using var bobCheck = joinedDf.Filter(Pl.Col("student") == Pl.Lit("Bob"));
         Assert.Equal(0, bobCheck.Height);
     }
     [Fact]
-    public void Test_LazyFrame_GroupBy_Agg()
+    [Trait("LazyFrame","GroupBy")]
+    public void Test_LazyFrame_GroupBy_Having_Agg()
     {
-        var csvContent = @"dept,salary
-IT,100
-IT,200
-HR,150
-HR,50";
-        using var scoresCsv = new DisposableFile(csvContent,".csv");
+        string[] depts = ["IT", "IT", "HR", "HR", "Sales", "Sales"];
+        long[] salaries = [100, 200, 150, 50, 20, 30]; 
 
+        using var df = DataFrame.FromColumns(
+            Series.From("dept", depts),
+            Series.From("salary", salaries)
+        );
 
-        using var lf = LazyFrame.ScanCsv(scoresCsv.Path);
-
-        // GroupBy dept, Agg Sum(salary)
-        using var groupedlf = lf
+        using var groupedlf = df.Lazy()
             .GroupBy("dept")
-            .Agg(Col("salary").Sum().Alias("total_salary"))
+            .Having(Pl.Col("salary").Sum() > 100) 
+            .Agg(Pl.Col("salary").Sum().Alias("total_salary"))
             .Sort("total_salary", descending: true); 
-        var grouped = groupedlf.Collect();
+            
+        using var grouped = groupedlf.Collect();
         
         Assert.Equal(2, grouped.Height);
-    
+
         Assert.Equal("IT", grouped.Column("dept").GetValue<string>(0));
-        Assert.Equal(300, grouped.Column("total_salary").GetValue<long>(0));
+        Assert.Equal(300L, grouped.Column("total_salary").GetValue<long>(0));
         
         Assert.Equal("HR", grouped.Column("dept").GetValue<string>(1));
-        Assert.Equal(200, grouped.Column("total_salary").GetValue<long>(1));
+        Assert.Equal(200L, grouped.Column("total_salary").GetValue<long>(1));
+    }
+    [Fact]
+    [Trait("LazyFrame", "GroupBySugar1")]
+    public void Test_LazyFrame_GroupBy_Len()
+    {
+        string[] depts = ["IT", "IT", "HR", "HR", "HR", "Sales"];
+
+        using var df = DataFrame.FromColumns(
+            Series.From("dept", depts)
+        );
+
+        using var defaultLenLf = df.Lazy()
+            .GroupBy("dept")
+            .Len()
+            .Sort("len", descending: true);
+            
+        using var defaultLenDf = defaultLenLf.Collect();
+        
+        Assert.Equal(3, defaultLenDf.Height);
+        
+        Assert.Equal("HR", defaultLenDf.Column("dept").GetValue<string>(0));
+        Assert.Equal(3u, defaultLenDf.Column("len").GetValue<uint>(0));
+        
+        Assert.Equal("IT", defaultLenDf.Column("dept").GetValue<string>(1));
+        Assert.Equal(2u, defaultLenDf.Column("len").GetValue<uint>(1));
+
+        using var customLenLf = df.Lazy()
+            .GroupBy("dept")
+            .Len("employee_count")
+            .Sort("employee_count", descending: true);
+            
+        using var customLenDf = customLenLf.Collect();
+        
+        Assert.Equal(3, customLenDf.Height);
+        Assert.Equal(3u, customLenDf.Column("employee_count").GetValue<uint>(0)); 
+    }
+
+    [Fact]
+    [Trait("LazyFrame", "GroupBySugar2")]
+    public void Test_LazyFrame_GroupBy_Sugar_Aggregations()
+    {
+        string[] depts = ["IT", "IT", "HR", "HR", "Sales"];
+        long[] salaries = [100, 200, 150, 50, 30]; 
+
+        using var df = DataFrame.FromColumns(
+            Series.From("dept", depts),
+            Series.From("salary", salaries)
+        );
+
+        using var sumLf = df.Lazy()
+            .GroupBy("dept")
+            .Sum()
+            .Sort("dept"); 
+            
+        using var sumDf = sumLf.Collect();
+        
+        Assert.Equal(3, sumDf.Height);
+        Assert.Equal("HR", sumDf.Column("dept").GetValue<string>(0));
+        Assert.Equal(200L, sumDf.Column("salary").GetValue<long>(0));
+        Assert.Equal("IT", sumDf.Column("dept").GetValue<string>(1));
+        Assert.Equal(300L, sumDf.Column("salary").GetValue<long>(1));
+
+        using var maxLf = df.Lazy()
+            .GroupBy("dept")
+            .Max()
+            .Sort("dept");
+            
+        using var maxDf = maxLf.Collect();
+        
+        Assert.Equal(3, maxDf.Height);
+        Assert.Equal(150L, maxDf.Column("salary").GetValue<long>(0)); 
+        Assert.Equal(200L, maxDf.Column("salary").GetValue<long>(1)); 
+
+        using var headLf = df.Lazy()
+            .GroupBy("dept")
+            .Head(1) 
+            .Sort("dept");
+            
+        using var headDf = headLf.Collect();
+
+        Assert.Equal(3, headDf.Height);
+        Assert.Contains("salary", headDf.ColumnNames); 
     }
     [Fact]
     public void Test_Lazy_Unpivot_With_Explain()
@@ -211,6 +294,7 @@ HR,50";
         Assert.True(price0 == 10 || price0 == 20);
     }
     [Fact]
+    [Trait("LazyFrame","JoinAsOf")]
     public void Test_Lazy_JoinAsOf_With_TimeSpan_Tolerance()
     {
         
@@ -231,18 +315,13 @@ HR,50";
 
         var joinedLf = lfTrades.JoinAsOf(
             lfQuotes,
-            leftOn: Col("time"),
-            rightOn: Col("time"),
-            
+            on: "time",
+            by: ["sym"],
             tolerance: TimeSpan.FromMinutes(2), 
-            
-            strategy: AsofStrategy.Backward,
-            
-            leftBy: [Col("sym")],
-            rightBy: [Col("sym")]
+            strategy: AsofStrategy.Backward 
         );
 
-        using var df = joinedLf.Collect();
+        using var df = joinedLf.Collect(engine:Engine.Gpu);
         
         Assert.Equal(3, df.Height);
 
@@ -254,6 +333,44 @@ HR,50";
 
         // Row 2: Trade 10:05 -> Quote 10:01 (Diff: 4m > 2m) -> No Match
         Assert.Null(df.Column("bid").GetValue<long?>(2));
+    }
+    [Fact]
+    [Trait("LazyFrame", "JoinWhere")]
+    public void Test_LazyFrame_JoinWhere_Multiple_Conditions()
+    {
+        using var dfLeft = DataFrame.FromColumns(new
+        {
+            id = new[] { 1, 2, 3, 4 },
+            score = new[] { 50, 80, 95, 40 }
+        });
+
+        using var dfRight = DataFrame.FromColumns(new
+        {
+            ref_id = new[] { 1, 2, 3, 4 },
+            pass_mark = new[] { 60, 60, 90, 50 }
+        });
+
+        using var res = dfLeft.Lazy().JoinWhere(
+            other: dfRight.Lazy(),
+            predicates: [
+                Pl.Col("id") == Pl.Col("ref_id"),       
+                Pl.Col("score") >= Pl.Col("pass_mark")  
+            ],
+            how: JoinType.Inner
+        ).Collect();
+        
+        // id=1 (50 >= 60) -> Discard
+        // id=2 (80 >= 60) -> Keep
+        // id=3 (95 >= 90) -> Keep
+        // id=4 (40 >= 50) -> Discard
+        
+        Assert.Equal(2, res.Height); 
+        Assert.True(res.Columns.Contains("id"));
+        Assert.True(res.Columns.Contains("ref_id"));
+        
+        var idSeries = res["id"];
+        Assert.Equal(2, (int)idSeries[0]);
+        Assert.Equal(3, (int)idSeries[1]);
     }
     [Fact]
     public void Test_Lazy_GroupBy_Ownership()
@@ -268,13 +385,13 @@ HR,50";
         using var lf = df.Lazy();
 
 
-        using var agg1 = lf.GroupBy(Col("Dept"))
-                           .Agg(Col("Val").Sum().Alias("SumVal"))
+        using var agg1 = lf.GroupBy("Dept")
+                           .Agg(Pl.Col("Val").Sum().Alias("SumVal"))
                            .Collect();
         
         Assert.Equal(2, agg1.Height); // A, B
 
-        using var res2 = lf.Select(Col("Dept")).Collect();
+        using var res2 = lf.Select("Dept").Collect();
         Assert.Equal(3, res2.Height);
     }
     [Fact]
@@ -285,10 +402,10 @@ HR,50";
         
         using var lf = df.Lazy();
 
-        using var selector = Selector.Cols("expanded");
+        using var selector = Cs.ByName("expanded");
 
         using var res = lf
-            .Select(Col("chars").Str.Split(",").Alias("expanded"))
+            .Select(Pl.Col("chars").Str.Split(",").Alias("expanded"))
             .Explode(selector)
             .Collect();
 
@@ -313,7 +430,7 @@ HR,50";
         Console.WriteLine("--- 1. Initial Schema ---");
         using var schema1 = lf.Schema; 
 
-        Assert.Equal(3, schema1.Length);
+        Assert.Equal(3, schema1.Count);
         
         Assert.Equal(DataTypeKind.Int32, schema1["a"].Kind);
         Assert.Equal(DataTypeKind.Float64, schema1["b"].Kind);
@@ -324,8 +441,8 @@ HR,50";
         Console.WriteLine("\n--- 2. Modified Schema (Type Inference) ---");
         
         using var lf2 = lf.Select(
-            Col("a").Cast(DataType.Float64).Alias("a_cast"),
-            Col("c").Implode().Alias("c_list") 
+            Pl.Col("a").Cast(DataType.Float64).Alias("a_cast"),
+            Pl.Col("c").Implode().Alias("c_list") 
         );
 
         using var schema2 = lf2.Schema;
@@ -379,14 +496,14 @@ HR,50";
         var data = new[] 
         { 
             new[] { 1, 2 }, 
-            new[] { 10, 20 },
-            new[] { 100, 200 }
+            [10, 20],
+            [100, 200]
         };
 
         var df = DataFrame.FromColumns(new { raw = data });
         
         return df.Select(
-            Col("raw")
+            Pl.Col("raw")
                 .Cast(DataType.Array(DataType.Int32, 2))
                 .Array.ToStruct()
                 .Alias("my_struct")
@@ -394,6 +511,7 @@ HR,50";
     }
 
     [Fact]
+    [Trait("LazyFrame","Unnest")]
     public void Test_LazyFrame_Unnest_With_Strings()
     {
         
@@ -401,7 +519,7 @@ HR,50";
 
         // Action
         using var res = df.Lazy()
-            .Unnest("my_struct")
+            .Unnest(Cs.Nested())
             .Collect();
 
         // Assert
@@ -416,28 +534,12 @@ HR,50";
     }
 
     [Fact]
-    public void Test_LazyFrame_Unnest_With_Selector()
-    {
-        using var df = CreateStructDataFrame();
-
-        using var selector = Selector.Cols("my_struct");
-
-        using var res = df.Lazy()
-            .Unnest(selector)
-            .Collect();
-
-        // Assert
-        Assert.Equal(3, res.Height); 
-        Assert.Equal(100, (int)res["field_0"][2]);
-        Assert.Equal(200, (int)res["field_1"][2]);
-    }
-
-    [Fact]
+    [Trait("LazyFrame","UnnestReuseSelector")]
     public void Test_LazyFrame_Unnest_Reuse_Selector()
     {
         
         using var df = CreateStructDataFrame();
-        using var selector = Selector.Cols("my_struct");
+        using var selector = Cs.ByName("my_struct");
 
         using var lf1 = df.Lazy().Unnest(selector); 
         using var res1 = lf1.Collect();
@@ -449,6 +551,7 @@ HR,50";
     }
     
     [Fact]
+    [Trait("LazyFrame","UnnestMultipleCols")]
     public void Test_LazyFrame_Unnest_Multiple_Cols()
     {
         var data1 = new[] { new[] { 1, 2 } };
@@ -456,18 +559,17 @@ HR,50";
         
         using var df = DataFrame.FromColumns(new { raw1 = data1, raw2 = data2 })
             .Select(
-                Col("raw1").Cast(DataType.Array(DataType.Int32, 2)).Array.ToStruct().Alias("s1"),
+                Pl.Col("raw1").Cast(DataType.Array(typeof(int), 2)).Array.ToStruct().Alias("s1"),
                 
                 // s2 : field_0 -> other_0, field_1 -> other_1
-                Col("raw2").Cast(DataType.Array(DataType.Int32, 2)).Array.ToStruct()
+                Pl.Col("raw2").Cast(DataType.Array(typeof(int), 2)).Array.ToStruct()
                     .Struct.RenameFields("other_0", "other_1") 
                     .Alias("s2")
             );
 
         using var res = df.Lazy()
-            .Unnest("s1", "s2") 
+            .Unnest(["s1", "s2"],separator:null) 
             .Collect();
-
         // s1 : field_0, field_1
         // s2 : other_0, other_1
         Assert.True(res.Columns.Contains("field_0"));
@@ -501,19 +603,19 @@ HR,50";
         Assert.Contains(5, bottomVals);
     }
     [Fact]
+    [Trait("LazyFrame","Slice")]
     public void Test_LazyFrame_Slice()
     {
-        using var csv = new DisposableFile("val\n0\n1\n2\n3\n4", ".csv");
-        using var lf = LazyFrame.ScanCsv(csv.Path);
+        using var s = Pl.CreateSeries("nihao",[1,2,3,4,5]);
 
-        var slicedLf = lf.Slice(-3, 2);
+        var slicedLf = s.ToFrame().Lazy().Slice(-3);
 
         using var df = slicedLf.Collect();
 
-        Assert.Equal(2, df.Height);
+        Assert.Equal(3, df.Height);
         
-        Assert.Equal(2, df["val"].GetValue<int>(0));
-        Assert.Equal(3, df["val"].GetValue<int>(1));
+        Assert.Equal(3, df["nihao"][0]);
+        Assert.Equal(4, df["nihao"][1]);
     }
     [Fact]
     public void Test_Drop_ByColumnNames()
@@ -537,25 +639,43 @@ HR,50";
     }
 
     [Fact]
-    public void Test_Drop_BySelector()
+    [Trait("LazyFrame","DropNulls")]
+    public void Test_DropNulls()
     {
-        var df = DataFrame.From(
+        var df = DataFrame.FromRows(
         [
-            new { A = 1, B = 2.2, C = "hello" },
-            new { A = 3, B = 4.4, C = "world" }
+            new { A = 1, B = 2.2, C = null as string },
+            new { A = 2, B = double.NaN, C = "world" }
         ]);
 
         var lf = df.Lazy();
-        var res = lf.Drop(Selector.Cols("B"))
+        var res = lf.DropNulls()
                     .Collect();
 
-        Assert.Equal(2, res.Width);
-        Assert.Equal("A", res.ColumnNames[0]);
-        Assert.Equal("C", res.ColumnNames[1]);
+        Assert.Equal(3, res.Width);
+        Assert.Equal(1, res.Len);
         
-        Assert.Throws<ArgumentException>(() => res["B"]);
     }
     [Fact]
+    [Trait("LazyFrame","DropNaNs")]
+    public void Test_DropNaN()
+    {
+        var df = DataFrame.FromRows(
+        [
+            new { A = 1, B = 2.2, C = null as string },
+            new { A = 2, B = double.NaN, C = "world" }
+        ]);
+
+        var lf = df.Lazy();
+        var res = lf.DropNans()
+                    .Collect();
+
+        Assert.Equal(3, res.Width);
+        Assert.Equal(1, res.Len);
+        
+    }
+    [Fact]
+    [Trait("LazyFrame","Unique")]
     public void Test_Lazy_Unique()
     {
         var df = DataFrame.From(
@@ -571,13 +691,13 @@ HR,50";
         var lf = df.Lazy();
         
         // Case A: Subset on "A", Keep First
-        var res1 = lf.Unique(Selector.Cols("A"), UniqueKeepStrategy.First)
+        var res1 = lf.Unique(Cs.ByIndex(0), UniqueKeepStrategy.First)
                      .Collect();
         
         Assert.Equal(2, res1.Height); 
         
         // Case B: Subset on All (null selector), Keep None (Drop all duplicates)
-        var res2 = lf.Unique(subset: null, keep: UniqueKeepStrategy.None)
+        var res2 = lf.Unique(keep: UniqueKeepStrategy.None,maintainOrder:true)
                      .Collect();
                      
         Assert.Equal(2, res2.Height);
@@ -586,7 +706,7 @@ HR,50";
         Assert.Equal(3, (int)res2["B"][1]);
         
         // Case C: String overload
-        var res3 = lf.Unique("A", "B").Collect();
+        var res3 = lf.Unique(["A", "B"]).Collect();
         Assert.Equal(3, res3.Height); // (1,1), (1,2), (2,3) are kept. The last (1,1) dropped.
     }
     [Fact]
@@ -600,14 +720,13 @@ HR,50";
             });
         var lf = df.Lazy();
 
-        var expectedColumnsDf = new Series("product", ["Banana", "Apple"]).ToFrame(); 
+        var expectedColumns = new Series("product", ["Banana", "Apple"]); 
 
-        // 3. 执行 Lazy Pivot
         var pivotedLf = lf.Pivot(
-            index: ["date"],          
-            columns:["product"],     
-            values: ["sales"],       
-            onColumns: expectedColumnsDf,
+            index: "date",          
+            on:"product",     
+            values: "sales",       
+            onColumns: expectedColumns,
             aggregateFunction: PivotAgg.Sum, 
             maintainOrder: true         
         );
@@ -637,5 +756,551 @@ HR,50";
         Assert.Equal(100, result["Apple"][0]);  // 01-01 Apple
         Assert.Equal(300, result["Banana"][1]); // 01-02 Banana
         Assert.Equal(150, result["Apple"][1]);  // 01-02 Apple
+    }
+    [Fact]
+    [Trait("LazyFrame","Aggregation1")]
+    public void Test_Lazy_Aggregation1()
+    {
+        var lf = DataFrame.FromSeries(
+            Series.From("col1",[1,0,114514]),
+            Series.From("col2",[5.5,4.4,double.NaN]),
+            Series.From("col3",new long?[] {null,985L,211L}),
+            Series.From("col4", ["",null,"nihao"])
+        ).Lazy();
+
+        var lf2 = lf.Clone();
+
+        var result = lf.Count().Collect();
+        Assert.Equal(3u,result["col1"][0]);
+        Assert.Equal(3u,result["col2"][0]);
+        Assert.Equal(2u,result["col3"][0]);
+        Assert.Equal(2u,result["col4"][0]);
+
+        var resultSum = lf2.Drop("col4").Sum().Collect();
+        Assert.Equal(114515,resultSum["col1"][0]);
+        Assert.Equal(double.NaN,resultSum["col2"][0]);
+        Assert.Equal(1196L,resultSum[2][0]);
+    }
+    [Fact]
+    [Trait("LazyFrame","Aggregation2")]
+    public void Test_Lazy_Aggregation2()
+    {
+        var lf = DataFrame.FromSeries(
+            Series.From("col1",[1,0,114514]),
+            Series.From("col2",[5.5,double.MaxValue,double.NaN]),
+            Series.From("col3",new long?[] {null,985L,211L})
+        ).Lazy();
+
+        var lf2 = lf.Clone();
+
+        var result = lf.Max().Collect();
+
+        Assert.Equal(114514,result["col1"][0]);
+        Assert.Equal(double.MaxValue,result["col2"][0]);
+        Assert.Equal(985L,result["col3"][0]);
+
+        var resultSum = lf2.Min().Collect();
+        Assert.Equal(0,resultSum["col1"][0]);
+        Assert.Equal(5.5,resultSum["col2"][0]);
+        Assert.Equal(211L,resultSum[2][0]);
+    }
+    [Fact]
+    [Trait("LazyFrame","Aggregation3")]
+    public void Test_Lazy_Aggregation3()
+    {
+        var lf = DataFrame.FromSeries(
+            Series.From("col1",[1,0,114514]),
+            Series.From("col2",[5.5,double.MaxValue,double.NaN]),
+            Series.From("col3",new long?[] {null,985L,211L})
+        ).Lazy();
+
+        var lf2 = lf.Clone();
+
+        var result = lf.Mean().Collect();
+
+        Assert.Equal(38171.67,(double)result["col1"][0],2);
+        Assert.Equal(double.NaN,result["col2"][0]);
+        Assert.Equal(598.0,(double)result["col3"][0],3);
+
+        var resultMedian = lf2.Median().Collect();
+        Assert.Equal(1.0,(double)resultMedian["col1"][0],1);
+        // Assert.Equal(,resultMedian["col2"][0]); 1.7977e308
+        Assert.Equal(598.0,(double)resultMedian[2][0],1);
+    }
+    [Fact]
+    [Trait("LazyFrame","Aggregation4")]
+    public void Test_Lazy_Aggregation4()
+    {
+        var lf = DataFrame.FromSeries(
+            Series.From("col1",[1,0,114514]),
+            Series.From("col2",[5.5,double.MaxValue,double.NaN]),
+            Series.From("col3",new long?[] {null,985L,211L})
+        ).Lazy();
+
+        var lf2 = lf.Clone();
+
+        var result = lf.Std().Collect();
+
+        Assert.Equal(66114.400053,(double)result["col1"][0],3);
+        Assert.Equal(double.NaN,result["col2"][0]);
+        Assert.Equal(547.300649,(double)result["col3"][0],3);
+
+        var resultVar = lf2.Var().Collect();
+        // Assert.Equal(1.0,(double)resultMedian["col1"][0],1);
+        Assert.Equal(double.NaN,resultVar["col2"][0]);
+        Assert.Equal(299538.0,(double)resultVar[2][0],1);
+    }
+    [Fact]
+    [Trait("LazyFrame","NullCount")]
+    public void Test_Lazy_NullCount()
+    {
+        var lf = DataFrame.FromSeries(
+            Series.From("col1",[1,0,114514]),
+            Series.From("col2",[5.5,4.4,double.NaN]),
+            Series.From("col3",new long?[] {null,985L,211L}),
+            Series.From("col4", ["",null,"nihao"])
+        ).Lazy();
+
+
+        var result = lf.NullCount().Collect();
+        Assert.Equal(0u,result["col1"][0]);
+        Assert.Equal(0u,result["col2"][0]);
+        Assert.Equal(1u,result["col3"][0]);
+        Assert.Equal(1u,result["col4"][0]);
+    }
+    [Fact]
+    [Trait("LazyFrame","Quantile")]
+    public void Test_Lazy_Quantile()
+    {
+        var lf = DataFrame.FromSeries(
+            Series.From("col1",[1,0,114514,6546213]),
+            Series.From("col2",[5.5,4.4,double.NaN,double.MinValue]),
+            Series.From("col3",new long?[] {null,985L,211L,1919810L})
+        ).Lazy();
+
+        var result = lf.Quantile(0.4,method:QuantileMethod.Linear).Collect();
+
+        Assert.Equal(22903.6,(double)result["col1"][0],1);
+        Assert.Equal(4.62,(double)result["col2"][0],2);
+        Assert.Equal(830.2,(double)result["col3"][0],2);
+    }
+    [Fact]
+    [Trait("LazyFrame","FilterByArray")]
+    public void Test_Lazy_Filter()
+    {
+        var lf = DataFrame.FromSeries(
+            Series.From("col1",[1,0,114514,6546213]),
+            Series.From("col2",[5.5,4.4,double.NaN,double.MinValue]),
+            Series.From("col3",new long?[] {null,985L,211L,1919810L})
+        ).Lazy();
+
+        var result = lf.Filter([false,false,true,true]).Collect();
+        Assert.Equal(2L,result.Height);
+        Assert.Equal(114514,result[0][0]);
+    }
+    [Fact]
+    [Trait("LazyFrame","FilterBySeries")]
+    public void Test_Lazy_Filter_Series()
+    {
+        var lf = DataFrame.FromSeries(
+            Series.From("col1",[1,0,114514,6546213]),
+            Series.From("col2",[5.5,4.4,double.NaN,double.MinValue]),
+            Series.From("col3",new long?[] {null,985L,211L,1919810L})
+        ).Lazy();
+
+        Series mask = Series.From("mask",new bool?[] {true,null,null,null});
+        var result = lf.Filter(mask).Collect();
+        Assert.Equal(1L,result.Height);
+        Assert.Equal(1,result[0][0]);
+    }
+    [Fact]
+    [Trait("LazyFrame", "MatchToSchema")]
+    public void Test_LazyFrame_MatchToSchema_ComplexAlignment()
+    {
+        // a: Int32
+        // b: Float64
+        // extra: String 
+        using var df = DataFrame.FromColumns(new
+        {
+            a = new[] { 1, 2, 3 },
+            b = new[] { 1.1, 2.2, 3.3 },
+            extra = new[] { "x", "y", "z" }
+        });
+        using var lf = df.Lazy();
+
+        // Target Schema
+        // a: Int64 (Upcast)
+        // b: Float64 (Keep)
+        // c: Float64 (Insert New)
+        var schemaDict = new Dictionary<string, DataType>
+        {
+            { "a", DataType.Int64 }, 
+            { "b", DataType.Float64},
+            { "c", DataType.Float64 }
+        };
+        using var targetSchema = PolarsSchema.From(schemaDict);
+
+        using var alignedLf = lf.MatchToSchema(
+            targetSchema,
+            extraColumns: ExtraColumnsPolicy.Ignore, 
+            defaultConfig: new MatchSchemaConfig
+            {
+                IntegerCast = UpcastOrForbid.Upcast 
+            },
+            columnOverrides: new Dictionary<string, MatchSchemaConfig>
+            {
+                ["c"] = new MatchSchemaConfig
+                {
+                    MissingColumns = MissingColumnAction.InsertWith(99.9) 
+                }
+            }
+        );
+
+        using var resDf = alignedLf.Collect();
+
+        Assert.Equal(3, resDf.Width);
+        Assert.Equal(3, resDf.Height);
+
+        var cols = resDf.Columns;
+        Assert.Contains("a", cols);
+        Assert.Contains("b", cols);
+        Assert.Contains("c", cols);
+        Assert.DoesNotContain("extra", cols);
+
+        Assert.Equal(DataType.Int64, resDf["a"].DataType);
+        
+        var cValues = resDf["c"];
+        Assert.Equal(DataType.Float64, cValues.DataType);
+        Assert.Equal(99.9, cValues[0]);
+        Assert.Equal(99.9, cValues[1]);
+        Assert.Equal(99.9, cValues[2]);
+    }
+    [Fact]
+    [Trait("LazyFrame", "MergeSorted")]
+    public void Test_LazyFrame_MergeSorted_ShouldMaintainOrder()
+    {
+        // Sorted by ID
+        // id: [1, 3, 5], value: ["A", "C", "E"]
+        using var dfLeft = DataFrame.FromColumns(new
+        {
+            id = new[] { 1, 3, 5 },
+            value = new[] { "A", "C", "E" }
+        });
+        using var lfLeft = dfLeft.Lazy();
+
+        // id: [2, 4, 6], value: ["B", "D", "F"]
+        using var dfRight = DataFrame.FromColumns(new
+        {
+            id = new[] { 2, 4, 6 },
+            value = new[] { "B", "D", "F" }
+        });
+        using var lfRight = dfRight.Lazy();
+
+        using var mergedLf = lfLeft.MergeSorted(lfRight, "id");
+        
+        using var resDf = mergedLf.Collect();
+
+        Assert.Equal(6, resDf.Height);
+        Assert.Equal(2, resDf.Width);
+
+        var idSeries = resDf["id"];
+        Assert.Equal(1, idSeries[0]);
+        Assert.Equal(2, idSeries[1]);
+        Assert.Equal(3, idSeries[2]);
+        Assert.Equal(4, idSeries[3]);
+        Assert.Equal(5, idSeries[4]);
+        Assert.Equal(6, idSeries[5]);
+
+        var valSeries = resDf["value"];
+        Assert.Equal("A", valSeries[0]);
+        Assert.Equal("B", valSeries[1]);
+        Assert.Equal("C", valSeries[2]);
+        Assert.Equal("D", valSeries[3]);
+        Assert.Equal("E", valSeries[4]);
+        Assert.Equal("F", valSeries[5]);
+    }
+    [Fact]
+    [Trait("LazyFrame", "WithRowIndex")]
+    public void WithRowIndex_DefaultParameters_ShouldGenerateCorrectIndex()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            Value = new[] { "A", "B", "C" }
+        });
+
+        // Act
+        var result = df.Lazy().WithRowIndex().Collect();
+
+        // Assert
+        Assert.Equal(2, result.Width);
+        Assert.Equal("index", result.Columns[0]); 
+        Assert.Equal("Value", result.Columns[1]);
+
+        var indexArray = result["index"].ToArray<uint>();
+        Assert.Equal(new uint[] { 0, 1, 2 }, indexArray);
+    }
+
+    [Fact]
+    [Trait("LazyFrame", "WithRowIndex")]
+    public void WithRowIndex_CustomParameters_ShouldGenerateCorrectIndex()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            Value = new[] { "X", "Y", "Z", "W" }
+        });
+
+        // Act
+        // name="row_id", offset=10
+        var result = df.Lazy().WithRowIndex("row_id",10).Collect();
+
+        // Assert
+        Assert.Equal("row_id", result.Columns[0]);
+
+        var indexArray = result["row_id"].ToArray<uint>();
+        Assert.Equal(new uint[] { 10, 11, 12, 13 }, indexArray);
+    }
+
+    [Fact]
+    [Trait("LazyFrame", "WithRowIndex")]
+    public void WithRowIndex_NegativeOffset_ShouldThrowArgumentOutOfRangeException()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            Value = new[] { "A", "B" }
+        });
+
+        // Act & Assert
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+        {
+            df.Lazy().WithRowIndex("id", -5);
+        });
+
+        Assert.Contains("cannot be negative", exception.Message);
+        Assert.Contains("-5", exception.Message);
+    }
+    private static DataFrame GetLeftData()
+    {
+        return DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
+            ValueA = new int?[] { 10, 20, 30 },
+            ValueB = new string[] { "x", "y", "z" }
+        });
+    }
+
+    private static DataFrame GetRightData()
+    {
+        return DataFrame.FromColumns(new
+        {
+            Id = new[] { 2, 3, 4 },
+            ValueA = new int?[] { 200, null, 400 }, 
+            ValueB = new string[] { "yy", "zz", "ww" }
+        });
+    }
+
+    [Fact]
+    [Trait("LazyFrame", "Update")]
+    public void Update_DefaultBehavior_ShouldCoalesceNulls()
+    {
+        // Arrange
+        var left = GetLeftData().Lazy();
+        var right = GetRightData().Lazy();
+
+        // Act
+        // Left Join, includeNulls = false
+        var result = left.Update(right, on: ["Id"]).Collect();
+
+        // Assert
+        var idArray = result["Id"].ToArray<int>();
+        var valAArray = result["ValueA"].ToArray<int?>();
+        var valBArray = result["ValueB"].ToArray<string>();
+
+        // Id: [1, 2, 3] (Left Join)
+        Assert.Equal([1, 2, 3], idArray);
+        
+        // ValueA: 
+        // Id 1: 10 
+        // Id 2: 200 
+        // Id 3: 30
+        Assert.Equal([10, 200, 30], valAArray);
+        
+        // ValueB:
+        Assert.Equal(new string[] { "x", "yy", "zz" }, valBArray);
+    }
+
+    [Fact]
+    [Trait("LazyFrame", "Update")]
+    public void Update_IncludeNullsTrue_ShouldOverwriteWithNulls()
+    {
+        // Arrange
+        var left = GetLeftData().Lazy();
+        var right = GetRightData().Lazy();
+
+        // Act
+        // Left Join, includeNulls = true
+        var result = left.Update(right, on: ["Id"], includeNulls: true).Collect();
+
+        var valAArray = result["ValueA"].ToArray<int?>();
+
+        // ValueA: 
+        // Id 1: 10
+        // Id 2: 200 
+        // Id 3: null 
+        Assert.Equal([10, 200, null], valAArray);
+    }
+
+    [Fact]
+    [Trait("LazyFrame", "Update")]
+    public void Update_NoKeysProvided_ShouldUpdateByRowIndex()
+    {
+        // Arrange
+        var left = DataFrame.FromColumns(new { Val = new[] { 1, 2, 3 } }).Lazy();
+        var right = DataFrame.FromColumns(new { Val = new[] { 99, 88 } }).Lazy();
+
+        // Act
+        var result = left.Update(right).Collect();
+
+        // Assert
+        var valArray = result["Val"].ToArray<int>();
+
+        Assert.Equal([99, 88, 3], valArray);
+        Assert.DoesNotContain("__POLARS_ROW_INDEX", result.Columns);
+    }
+    [Fact]
+    [Trait("LazyFrame","SetSorted")]
+    public void Test_SetSorted_OptimizerHint()
+    {
+        var df = DataFrame.FromColumns(new 
+        { 
+            date = new[] { new DateTime(2024, 1, 1), new DateTime(2024, 1, 2) },
+            val = new[] { 10, 20 }
+        });
+
+        var lf = df.Lazy();
+
+        var optimizedLf = lf.SetSorted(Cs.Temporal(), descending: true, nullsLast: true);
+
+        string logicalPlan = optimizedLf.Explain(optimized:true);
+
+        Assert.Contains("set_sorted()", logicalPlan);
+        
+
+        using var resultDf = optimizedLf.Collect();
+        Assert.Equal(2, resultDf.Height);
+    }
+    [Fact]
+    [Trait("LazyFrame", "CollectAll")]
+    public void Test_LazyFrame_CollectAll_Synchronous()
+    {
+        // 1. 构造基础数据
+        var df1 = DataFrame.FromColumns(new { A = (int[])[1, 2, 3, 4, 5] });
+        var df2 = DataFrame.FromColumns(new { B = (string[])["x", "y", "z"] });
+        var df3 = DataFrame.FromColumns(new { C = (double[])[1.1, 2.2, 3.3] });
+
+        var lf1 = df1.Lazy()
+            .Filter(Pl.Col("A") >= 3)
+            .Select(Pl.Col("A") * Pl.Lit(10));
+            
+        var lf2 = df2.Lazy()
+            .Filter(Pl.Col("B") == Pl.Lit("y"));
+            
+        var lf3 = df3.Lazy()
+            .Select(Pl.Col("C").Sum().Alias("Sum_C"));
+        Console.WriteLine(Pl.ExplainAll([lf1,lf2,lf3]));
+        DataFrame[] results = Pl.CollectAll([lf1, lf2, lf3]);
+
+        Assert.Equal(3, results.Length);
+
+        Assert.Equal(3u, results[0].Height);
+        Assert.Equal(30, results[0][0, "A"]); 
+        Assert.Equal(50, results[0][2, "A"]);
+
+        Assert.Equal(1u, results[1].Height);
+        Assert.Equal("y", (string)results[1][0, "B"]);
+
+        Assert.Equal(1u, results[2].Height);
+        Assert.Equal(6.6, (double)results[2][0, "Sum_C"], precision: 5);
+    }
+
+    [Fact]
+    [Trait("LazyFrame", "CollectAllAsync")]
+    public async Task Test_LazyFrame_CollectAll_Asynchronous()
+    {
+        var df1 = DataFrame.FromColumns(new { Group = (string[])["A", "A", "B"], Val = (int[])[10, 20, 30] });
+        var df2 = DataFrame.FromColumns(new { Id = (int[])[1, 2], Score = (int[])[100, 200] });
+
+        var lf1 = df1.Lazy()
+            .GroupBy("Group")
+            .Agg(Pl.Col("Val").Sum().Alias("TotalVal"))
+            .Sort("Group");
+
+        var lf2 = df2.Lazy()
+            .Select(Pl.Col("Score").Max().Alias("MaxScore"));
+
+        DataFrame[] results = await Pl.CollectAllAsync([lf1, lf2]);
+
+        Assert.Equal(2, results.Length);
+
+        Assert.Equal(2u, results[0].Height);
+        Assert.Equal("A", (string)results[0][0, "Group"]);
+        Assert.Equal(30, results[0][0, "TotalVal"]); 
+        Assert.Equal(30, results[0][1, "TotalVal"]); 
+
+        Assert.Equal(1u, results[1].Height);
+        Assert.Equal(200, results[1][0, "MaxScore"]);
+    }
+    [Fact]
+    [Trait("LazyFrame", "Pipe")]
+    public void Test_LazyFrame_Pipe()
+    {
+        using var df = Pl.CreateDataFrame(
+            ("name", new[] { "Alice", "Bob", "Charlie", "Diana" }),
+            ("score", new[] { 85, 92, 78, 88 })
+        );
+
+        static DataFrame topStudents(LazyFrame lf) =>
+            lf.Filter(Pl.Col("score") > 80)
+            .Select(Pl.Col("name"))
+            .Sort("name")
+            .Collect();
+
+        var result = df.Lazy().Pipe(topStudents);
+
+        Assert.Equal(3, result.Height);
+        var names = result[0].ToArray<string>();
+        Assert.Equal(new[] { "Alice", "Bob", "Diana" }, names);
+    }
+    [Fact]
+    [Trait("LazyFrame", "PipeWithSchema")]
+    public void Test_LazyFrame_PipeWithSchema()
+    {
+        using var df = Pl.CreateDataFrame(
+            ("a", new[] { 1, 2, 3 }),
+            ("b", new[] { 10.0, 20.0, 30.0 })
+        );
+
+        static LazyFrame doubleNumericColumns(LazyFrame lf, PolarsSchema schema)
+        {
+            var exprs = new List<Expr>();
+            foreach (var col in schema.ColumnNames)
+            {
+                var dtype = schema[col];
+                if (dtype.IsNumeric)
+                    exprs.Add((Pl.Col(col) * 2).Alias(col));
+                else
+                    exprs.Add(Pl.Col(col));
+            }
+            return lf.WithColumns(exprs);
+        }
+
+        using var result = df.Lazy()
+            .PipeWithSchema(doubleNumericColumns)
+            .Collect();
+
+        Assert.Equal([2, 4, 6], result["a"].ToArray<int?>());
+        Assert.Equal([20.0, 40.0, 60.0], result["b"].ToArray<double?>());
     }
 }

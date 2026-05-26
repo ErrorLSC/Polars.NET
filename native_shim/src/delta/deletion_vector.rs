@@ -2,6 +2,7 @@ use polars::prelude::*;
 use std::sync::Arc;
 use deltalake::kernel::{DeletionVectorDescriptor, StorageType};
 use deltalake::{ObjectStore, Path};
+use deltalake::logstore::object_store::ObjectStoreExt;
 use polars::error::{PolarsError, PolarsResult};
 use roaring::RoaringBitmap;
 use uuid::Uuid;
@@ -66,7 +67,7 @@ pub async fn read_deletion_vector(
             let file_name = format!("deletion_vector_{}.bin", uuid);
             
             // Format full path: table_root + file_name
-            let file_path = table_root.child(file_name);
+            let file_path = table_root.clone().join(file_name);
 
             // Calc read range
             let offset = descriptor.offset.unwrap_or(0) as u64;

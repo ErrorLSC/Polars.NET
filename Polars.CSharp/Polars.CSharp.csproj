@@ -5,12 +5,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile> 
+    <LangVersion>latest</LangVersion>
 
     <PackageId>Polars.NET</PackageId> 
+    <Title>Polars.NET - Blazing Fast DataFrames</Title>
     <Authors>ErrorLSC</Authors>
-    <Description>Idiomatic C# API Frontend for Polars DataFrame library.</Description>
-    <PackageTags>polars;dataframe;data-analysis;csharp</PackageTags>
+    <Description>A blazing fast DataFrame library for .NET, powered by the Rust Polars engine and Apache Arrow. Features multi-threaded query execution, lazy evaluation, and data extraction into modern .NET Tensors (ReadOnlyTensorSpan) for hardware-accelerated SIMD math and AI inference.</Description>
+    <PackageTags>polars;dataframe;data-analysis;apache-arrow;tensor;simd;zero-copy;rust;performance</PackageTags>
     <RepositoryUrl>https://github.com/ErrorLSC/Polars.NET</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/ErrorLSC/Polars.NET</PackageProjectUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
@@ -24,8 +27,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Apache.Arrow" Version="22.1.0" />
-    <PackageReference Include="Apache.Arrow.Adbc" Version="0.22.0" />
+    <InternalsVisibleTo Include="Polars.NET.ML" />
+    <InternalsVisibleTo Include="Polars.NET.Linq" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Apache.Arrow" Version="23.0.0" />
+    <PackageReference Include="Apache.Arrow.Adbc" Version="0.23.0" />
+    <PackageReference Include="System.Numerics.Tensors" Version="10.0.5" />
   </ItemGroup>
 
 </Project>

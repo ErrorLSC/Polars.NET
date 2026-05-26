@@ -29,7 +29,9 @@ public enum PlDataType : int
     Array = 23,
     Int128= 24,
     UInt128 =25,
-    Float16=26
+    Float16=26,
+    Enum = 27,
+    Extension=28
 }
 
 public enum PlJoinType : byte
@@ -56,21 +58,16 @@ public enum PlPivotAgg: byte
     Last = 8
 }
 
-public enum PlTimeUnit
+public enum PlTimeUnit: byte
 {
     Nanoseconds = 0,
     Microseconds = 1,
     Milliseconds = 2,
     Second = 3,
-    Minute = 4,
-    Hour = 5,
     Day = 6,
-    Month =7,
-    Year =8
+    All = 100
 }
-/// <summary>
-/// Concat Type Enum
-/// </summary>
+
 public enum PlConcatType : byte
 {
     Vertical = 0,
@@ -78,14 +75,40 @@ public enum PlConcatType : byte
     Diagonal = 2
 }
 
-public enum PlLabel
+public enum PlRoundMode : byte
+{
+    HalfAwayFromZero = 0,
+    HalfToEven = 1,
+    ToZero = 2
+}
+
+public enum PlFillNullStrategy: byte
+{
+    Forward = 0,
+    Backward = 1,
+    Max = 2,
+    Min = 3,
+    Mean = 4,
+    Zero = 5,
+    One = 6
+}
+
+public enum PlLabel: byte
 {
     Left = 0,
     Right = 1,
     DataPoint = 2
 }
 
-public enum PlStartBy
+public enum PlEngine : byte
+{
+    Auto = 0,
+    InMemory = 1,
+    Streaming = 2,
+    Gpu = 3
+}
+
+public enum PlStartBy : byte
 {
     WindowBound = 0,
     DataPoint = 1,
@@ -97,19 +120,24 @@ public enum PlStartBy
     Saturday = 7,
     Sunday = 8
 }
-
-public enum PlClosedWindow
+public enum PlNullBehavior: byte
 {
-    Left = 0,
-    Right = 1,
-    Both = 2,
-    None = 3
+    Ignore = 0,
+    Drop = 1,
+}
+
+public enum PlSetOperation: byte
+{
+    Union = 0,
+    Difference = 1,
+    Intersection =2,
+    SymmetricDifference=3
 }
 
 /// <summary>
 /// Strategy to handle dates that land on non-business days (weekends or holidays).
 /// </summary>
-public enum PlRoll
+public enum PlRoll :byte
 {
     /// <summary>
     /// Raise an error if the result is not a business day.
@@ -125,6 +153,13 @@ public enum PlRoll
     /// Roll backward to the previous business day.
     /// </summary>
     Backward = 2
+}
+
+public enum PlWindowMapping: byte
+{
+    GroupsToRows = 0,
+    Explode = 1,
+    Join = 2
 }
 
 public enum PlRankMethod: byte
@@ -150,7 +185,8 @@ public enum PlQuantileMethod : byte
     Higher = 1,
     Lower = 2,
     Midpoint = 3,
-    Linear = 4 // Default
+    Linear = 4,
+    Equiprobable =5
 }
 
 public enum PlUniqueKeepStrategy : byte
@@ -279,7 +315,7 @@ public enum PlQuoteStyle : byte
     Never = 3
 }
 
-public enum PlInterpolationMethod
+public enum PlInterpolationMethod: byte
 {
     Linear = 0,
     Nearest = 1
@@ -335,3 +371,37 @@ public enum PlCatalogTableType : byte
 }
 
 public enum PlSearchSortedSide : byte { Any = 0, Left = 1, Right = 2 }
+
+public enum PlClosedInterval: byte
+{
+    Left = 0,
+    Right = 1,
+    Both =2,
+    None =3
+}
+public enum PlMissingColumnsPolicyType : byte { Insert = 0, Raise = 1, InsertWith = 2 }
+public enum PlMissingColumnsPolicy : byte { Raise = 0, Insert = 1 }
+public enum PlUpcastOrForbid : byte { Forbid = 0, Upcast = 1 }
+public enum PlExtraColumnsPolicy : byte { Raise = 0, Ignore = 1 }
+
+[Flags]
+public enum PlSortStateFlags : byte
+{
+    NotSorted  = 0,
+    IsSorted   = 1 << 0, // 001 (1)
+    Descending = 1 << 1, // 010 (2)
+    NullsLast  = 1 << 2  // 100 (4)
+}
+
+public enum PlNonExistent : byte
+{
+    Raise = 0,
+    Null = 1
+}
+
+public enum PlCategoricalPhysical: byte
+{
+    U32 = 0,
+    U16 = 1,
+    U8 = 2 
+}

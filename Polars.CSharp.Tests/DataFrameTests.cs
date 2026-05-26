@@ -1,12 +1,17 @@
-﻿using System.Linq.Expressions;
+﻿#pragma warning disable CS8632
+using System.Numerics.Tensors;
 using Apache.Arrow;
 using Apache.Arrow.Memory;
-using static Polars.CSharp.Polars;
+using Pl = Polars.CSharp.Polars;
+using Cs = Polars.CSharp.Polars.Selectors;
+using Polars.NET.Core;
+using System.Text.Json;
 namespace Polars.CSharp.Tests;
 
 public class DataFrameTests
 {
     [Fact]
+    [Trait("DataFrame","Arrow")]
     public void Test_FromArrow_RoundTrip()
     {
         var builder = new RecordBatch.Builder(new NativeMemoryAllocator())
@@ -21,8 +26,8 @@ public class DataFrameTests
         Assert.Equal(2, df.Width);
 
         using var resultDf = df.Select(
-            Col("id"), 
-            (Col("value") * 2.0).Alias("value_doubled")
+            "id", 
+            (Pl.Col("value") * 2.0).Alias("value_doubled")
         );
 
         using var resultBatch = resultDf.ToArrow();
@@ -35,40 +40,129 @@ public class DataFrameTests
     }
     
     [Fact]
+    [Trait("DataFrame","GroupBy")]
     public void Test_GroupBy_Agg()
     {
-        var csvContent = @"dept,salary
-IT,100
-IT,200
-HR,150
-HR,50";
-        var fileName = "groupby_test.csv";
-        File.WriteAllText(fileName, csvContent);
+        string[] depts = ["IT", "IT", "HR", "HR", "Sales", "Sales"];
+        long[] salaries = [100, 200, 150, 50, 20, 30]; 
 
-        try
-        {
-            using var df = DataFrame.ReadCsv(fileName);
+        using var df = DataFrame.FromColumns(
+            Series.From("dept", depts),
+            Series.From("salary", salaries)
+        );
 
-            // GroupBy dept, Agg Sum(salary)
-            using var grouped = df
-                .GroupBy("dept")
-                .Agg(Col("salary").Sum().Alias("total_salary"))
-                .Sort("total_salary", descending: true); 
+        using var grouped = df
+            .GroupBy("dept")
+            .Having(Pl.Col("salary").Sum() > 100) 
+            .Agg(Pl.Col("salary").Sum().Alias("total_salary"))
+            .Sort("total_salary", descending: true); 
 
-            Assert.Equal(2, grouped.Height);
-            
-            Assert.Equal("IT", grouped.GetValue<string>(0, "dept"));
-            Assert.Equal(300, grouped.GetValue<long>(0, "total_salary"));
-            
-            Assert.Equal("HR", grouped.GetValue<string>(1, "dept"));
-            Assert.Equal(200, grouped.GetValue<long>(1, "total_salary"));
-        }
-        finally
-        {
-            if (File.Exists(fileName)) File.Delete(fileName);
-        }
+        Assert.Equal(2, grouped.Height);
+
+        Assert.Equal("IT", grouped.Column("dept").GetValue<string>(0));
+        Assert.Equal(300L, grouped.Column("total_salary").GetValue<long>(0));
+        
+        Assert.Equal("HR", grouped.Column("dept").GetValue<string>(1));
+        Assert.Equal(200L, grouped.Column("total_salary").GetValue<long>(1));
     }
     [Fact]
+    [Trait("DataFrame", "GroupBy")]
+    public void Test_GroupBy_Standard_Head_And_Tail()
+    {
+        var df = DataFrame.FromColumns(new
+        {
+            Group = new[] { "A", "A", "A", "B", "B" },
+            Val = new[] { 1, 2, 3, 4, 5 }
+        });
+
+        var headRes = df.GroupBy("Group").Head(2);
+        
+        Assert.Equal(4, headRes.Height);
+        Assert.Equal(1, headRes.GetValue<int>(0, "Val"));
+        Assert.Equal(2, headRes.GetValue<int>(1, "Val"));
+        Assert.Equal(4, headRes.GetValue<int>(2, "Val"));
+        Assert.Equal(5, headRes.GetValue<int>(3, "Val"));
+
+        var tailRes = df.GroupBy("Group").Tail(1);
+        
+        Assert.Equal(2, tailRes.Height);
+        Assert.Equal(3, tailRes.GetValue<int>(0, "Val"));
+        Assert.Equal(5, tailRes.GetValue<int>(1, "Val"));
+    }
+    [Fact]
+    [Trait("DataFrame", "GroupBySugar1")]
+    public void Test_DataFrame_GroupBy_Len()
+    {
+        string[] depts = ["IT", "IT", "HR", "HR", "HR", "Sales"];
+
+        using var df = DataFrame.FromColumns(
+            Series.From("dept", depts)
+        );
+
+        using var defaultLenDf = df
+            .GroupBy("dept")
+            .Len()
+            .Sort("len", descending: true);
+            
+        Assert.Equal(3, defaultLenDf.Height);
+        
+        Assert.Equal("HR", defaultLenDf.Column("dept").GetValue<string>(0));
+        Assert.Equal(3u, defaultLenDf.Column("len").GetValue<uint>(0));
+        
+        Assert.Equal("IT", defaultLenDf.Column("dept").GetValue<string>(1));
+        Assert.Equal(2u, defaultLenDf.Column("len").GetValue<uint>(1));
+
+        using var customLenDf = df
+            .GroupBy("dept")
+            .Len("employee_count")
+            .Sort("employee_count", descending: true);
+            
+        Assert.Equal(3, customLenDf.Height);
+        Assert.Equal(3u, customLenDf.Column("employee_count").GetValue<uint>(0)); 
+    }
+
+    [Fact]
+    [Trait("DataFrame", "GroupBySugar2")]
+    public void Test_DataFrame_GroupBy_Sugar_Aggregations()
+    {
+        string[] depts = ["IT", "IT", "HR", "HR", "Sales"];
+        long[] salaries = [100, 200, 150, 50, 30]; 
+
+        using var df = DataFrame.FromColumns(
+            Series.From("dept", depts),
+            Series.From("salary", salaries)
+        );
+
+        using var sumDf = df
+            .GroupBy(Cs.String(),maintainOrder:false)
+            .Sum()
+            .Sort(Cs.String()); 
+            
+        Assert.Equal(3, sumDf.Height);
+        Assert.Equal("HR", sumDf.Column("dept").GetValue<string>(0));
+        Assert.Equal(200L, sumDf.Column("salary").GetValue<long>(0));
+        Assert.Equal("IT", sumDf.Column("dept").GetValue<string>(1));
+        Assert.Equal(300L, sumDf.Column("salary").GetValue<long>(1));
+
+        using var maxDf = df
+            .GroupBy("dept")
+            .Max()
+            .Sort("dept");
+            
+        Assert.Equal(3, maxDf.Height);
+        Assert.Equal(150L, maxDf.Column("salary").GetValue<long>(0)); 
+        Assert.Equal(200L, maxDf.Column("salary").GetValue<long>(1)); 
+
+        using var headDf = df
+            .GroupBy("dept")
+            .Head(1) 
+            .Sort("dept");
+            
+        Assert.Equal(3, headDf.Height);
+        Assert.Contains("salary", headDf.ColumnNames); 
+    }
+    [Fact]
+    [Trait("DataFrame", "GroupByAdvanced")]
     public void Test_GroupBy_Advanced_Aggregations()
     {
         string[] groups = ["A", "A", "B", "C", "C"];
@@ -78,19 +172,17 @@ HR,50";
         using var df = DataFrame.FromColumns(new { groups, bools, values });
 
         using var result = df
-            .GroupBy("groups")
+            .GroupBy(Cs.String())
             .Agg(
-                Col("bools").Any().Alias("is_any_true"),   
-                Col("bools").All().Alias("is_all_true"),   
+                Cs.Boolean().ToExpr().Any().Alias("is_any_true"),   
+                Cs.Boolean().ToExpr().All().Alias("is_all_true"),                  
+            
+                Cs.Integer().ToExpr().First().Alias("v_first"),
+                Cs.Integer().ToExpr().Last().Alias("v_last"),    
                 
-                
-                Col("values").First().Alias("v_first"),
-                Col("values").Last().Alias("v_last"),
-                
-                
-                Col("values").Reverse().First().Alias("v_rev_first") 
+                Cs.Integer().ToExpr().Reverse().First().Alias("v_rev_first") 
             )
-            .Sort("groups");
+            .Sort(Cs.ByIndex(0));
 
         Assert.Equal(3, result.Height); 
 
@@ -116,6 +208,7 @@ HR,50";
     }
 
     [Fact]
+    [Trait("DataFrame", "GroupByItem")]
     public void Test_GroupBy_Item_Safe()
     {
         string[] groups = ["X", "Y"];
@@ -125,7 +218,7 @@ HR,50";
 
         using var res = df.GroupBy("groups")
             .Agg(
-                Col("codes").Item().Alias("code_item")
+                Pl.Col("codes").Item().Alias("code_item")
             )
             .Sort("groups");
 
@@ -135,6 +228,7 @@ HR,50";
     }
 
     [Fact]
+    [Trait("DataFrame", "Reverse")]
     public void Test_Expr_Reverse_Standalone()
     {
         // [1, 2, 3] -> [3, 2, 1]
@@ -144,7 +238,7 @@ HR,50";
         );
 
         using var res = df.Select(
-            Col("nums").Reverse().Alias("nums_rev")
+            Pl.Col("nums").Reverse().Alias("nums_rev")
         );
 
         var revArr = res["nums_rev"].ToArray<int>();
@@ -158,6 +252,7 @@ HR,50";
     // Join Tests
     // ==========================================
     [Fact]
+    [Trait("DataFrame","Join")]
     public void Test_DataFrame_Join_MultiColumn_WithParams()
     {
         using var scoresDf = DataFrame.FromColumns(new 
@@ -182,8 +277,7 @@ HR,50";
         // (Bob, 2024) -> discard
         using var joinedDf = scoresDf.Join(
             classDf,
-            leftOn: ["student", "year"],
-            rightOn: ["student", "year"],
+            on: ["student", "year"],
             how: JoinType.Inner,
             
             suffix: "_conflict_test",          
@@ -216,6 +310,7 @@ HR,50";
     // Concat Tests (Vertical, Horizontal, Diagonal)
     // ==========================================
     [Fact]
+    [Trait("DataFrame", "Concat")]
     public void Test_Concat_All_Types()
     {
         // --- Vertical ---
@@ -286,6 +381,7 @@ HR,50";
     // Reshaping Tests (Pivot & Unpivot)
     // ==========================================
     [Fact]
+    [Trait("DataFrame","Pivot")]
     public void Test_Pivot_Unpivot_With_CustomExpr()
     {
         using var df = DataFrame.FromColumns(new
@@ -297,35 +393,33 @@ HR,50";
 
         // --- Step 1: Standard Pivot ---
         using var pivoted = df.Pivot(
-            index: ["date"],
-            columns: ["city"],
-            values: ["temp"],
+            index: "date",
+            on: "city",
+            values: "temp",
             aggregateFunction: PivotAgg.First,
-            sortColumns: true 
+            maintainOrder:true
         );
-
         Assert.Equal(2, pivoted.Height);
         Assert.Equal(3, pivoted.Width); // date, LA, NY (Sorted)
 
         var cols = pivoted.ColumnNames;
-        Assert.Equal("LA", cols[1]);
-        Assert.Equal("NY", cols[2]);
+        Assert.Contains("LA", cols);
+        Assert.Contains("NY", cols);
 
         Assert.Equal(20.0, pivoted.GetValue<double>(0, "LA")); 
-        Assert.Equal(5.0, pivoted.GetValue<double>(0, "NY"));  
+        Assert.Equal(5.0, pivoted.GetValue<double>(0, "NY")); 
 
         // --- Step 2: Custom Expr Pivot ---
         
-        using var dfWithF = df.WithColumns((Col("temp") * 1.8 + 32).Alias("temp_f"));
+        using var dfWithF = df.WithColumns((Pl.Col("temp") * 1.8 + 32).Alias("temp_f"));
         
         using var pivotedFahrenheit = dfWithF.Pivot(
             index: ["date"],
-            columns: ["city"],
+            on: ["city"],
             values: ["temp_f"],
-            aggregateExpr: Col("").First(), 
-            sortColumns: true
+            aggregateExpr: Pl.Col("").First(),
+            maintainOrder:true
         );
-
         // NY: 5 * 1.8 + 32 = 41
         // LA: 20 * 1.8 + 32 = 68
         Assert.Equal(68.0, pivotedFahrenheit.GetValue<double>(0, "LA"));
@@ -349,6 +443,7 @@ HR,50";
     // Display Tests (Head & Show)
     // ==========================================
     [Fact]
+    [Trait("DataFrame", "Head")]
     public void Test_Head_And_Show()
     {
         // 0..14
@@ -381,22 +476,19 @@ HR,50";
         tailDf.Show();
     }
     [Fact]
+    [Trait("DataFrame", "Describe")]
     public void Test_Describe_Logic()
     {
-        var content = "val\n1\n2\n3\n4\n5\n"; 
-        using var csv = new DisposableFile(content,".csv");
-        using var df = DataFrame.ReadCsv(csv.Path);
+        using DataFrame df = [new Series("val",[1,2,3,4,5])];
 
         using var summary = df.Describe();
         
-        summary.Show(); 
-
         Assert.Equal(9, summary.Height);
         
-        using var meanRow = summary.Filter(Col("statistic") == Lit("mean"));
+        using var meanRow = summary.Filter(Pl.Col("statistic") == Pl.Lit("mean"));
         Assert.Equal(3.0, meanRow.GetValue<double>(0, "val"));
         
-        using var minRow = summary.Filter(Col("statistic") == Lit("min"));
+        using var minRow = summary.Filter(Pl.Col("statistic") == Pl.Lit("min"));
         Assert.Equal(1.0, minRow.GetValue<double>(0, "val"));
     }
     // ==========================================
@@ -404,28 +496,24 @@ HR,50";
     // ==========================================
 
     [Fact]
+    [Trait("DataFrame", "Rolling")]
     public void Test_Rolling_Functions()
     {
-        var content = @"date,val
-2024-01-01,10
-2024-01-02,20
-2024-01-03,30
-2024-01-04,40
-2024-01-05,50";
-        using var csv = new DisposableFile(content,".csv");
-        using var df = DataFrame.ReadCsv(csv.Path, tryParseDates: true);
-
+        using DataFrame df = [
+            Pl.DateRangeAsSeries(new DateOnly(2024,1,1),new DateOnly(2024,1,5),name:"date"),
+            Pl.IntRangeAsSeries(10,60,10,name:"val")
+        ];
         // Rolling Mean
         // 10
         // 10,20 -> 15
         // 10,20,30 -> 20
-        var rollExpr = Col("val")
-            .RollingMeanBy(windowSize: new TimeSpan(3,0,0,0), by: Col("date"), closed: ClosedWindow.Left)
+        var rollExpr = Pl.Col("val")
+            .RollingMeanBy(windowSize: new TimeSpan(3,0,0,0), by: Pl.Col("date"), closed: ClosedInterval.Left)
             .Alias("roll_mean");
 
         using var res = df.Select(
-            Col("date"),
-            Col("val"),
+            "date",
+            "val",
             rollExpr
         );
 
@@ -435,27 +523,23 @@ HR,50";
     }
 
     [Fact]
+    [Trait("DataFrame", "ListAggregations")]
     public void Test_List_Aggregations_And_Name()
     {
-        var content = @"group,val
-A,1
-A,2
-B,3
-B,4
-B,5";
-        using var csv = new DisposableFile(content,".csv");
-        using var df = DataFrame.ReadCsv(csv.Path);
-
+        using DataFrame df = [
+            Pl.CreateSeries("group",["A","A","B","B","B"]),
+            Pl.IntRangeAsSeries(1,6,1,name:"val")
+        ];
         using var res = df
-            .GroupBy(Col("group"))
+            .GroupBy(Pl.Col("group"))
             .Agg(
-                Col("val").Alias("val_list") 
+                Pl.Col("val").Alias("val_list") 
             )
             .Select(
-                Col("group"),
-                Col("val_list").List.Sum().Name.Suffix("_sum"),
-                Col("val_list").List.Max().Name.Suffix("_max"),
-                Col("val_list").List.Contains(3).Alias("has_3")
+                Pl.Col("group"),
+                Pl.Col("val_list").List.Sum().Name.Suffix("_sum"),
+                Pl.Col("val_list").List.Max().Name.Suffix("_max"),
+                Pl.Col("val_list").List.Contains(3).Alias("has_3")
             )
             .Sort("group");
         // A (1,2) -> Sum=3, Max=2, Has3=false
@@ -541,12 +625,11 @@ B,5";
         // │ 3    ┆ ["3"]     │
         // └──────┴───────────┘
         using var dfWithList = df.Select(
-            Col("nums"),
-            Col("nums").Str.Split(",").Alias("list_vals")
+            Pl.Col("nums"),
+            Pl.Col("nums").Str.Split(",").Alias("list_vals")
         );
-        using var dtype = DataType.List(DataType.String);
         // Explode for all Int32 list 
-        using var exploded = dfWithList.Explode(Selectors.DType(dtype));
+        using var exploded = dfWithList.Explode(Cs.List(Cs.String()));
 
         Assert.Equal(3, exploded.Height);
 
@@ -555,8 +638,168 @@ B,5";
         Assert.Equal("3", exploded.GetValue<string>("list_vals",2));
 
         Assert.Equal("1,2", exploded.GetValue<string>(0, "nums"));
-        Assert.Equal("1,2", exploded["nums",1]);
+        Assert.Equal("1,2", exploded[1,"nums"]);
         Assert.Equal("3",   exploded[2,0]);
+    }
+    [Fact]
+    [Trait("DataFrame","SliceIndexer")]
+    public void Test_DataFrame_Slice_With_Range_Indexer()
+    {
+        // Arrange
+        using var s1 = Series.From("A", [10, 20, 30, 40, 50]);
+        using var s2 = Series.From("B", ["a", "b", "c", "d", "e"]);
+        using var df = new DataFrame(s1, s2);
+
+        using var slice1 = df[1..4];
+        Assert.Equal(3, slice1.Height);
+        Assert.Equal([20, 30, 40], slice1["A"].ToArray<int>());
+
+        using var slice2 = df[..^2];
+        Assert.Equal(3, slice2.Height);
+        Assert.Equal(["a", "b", "c"], slice2["B"].ToArray<string>());
+
+        using var slice3 = df[1..3, ["B"]];
+        Assert.Equal(2, slice3.Height);
+        Assert.Equal(1, slice3.Width);
+        Assert.Equal(["b", "c"], slice3["B"].ToArray<string>());
+    }
+    [Fact]
+    [Trait("DataFrame","SliceIndexer")]
+    public void Test_DataFrame_Slice_With_IntoSelector_KillerMove()
+    {
+        // Arrange
+        using var s1 = Series.From("Id", [1, 2, 3, 4, 5]);
+        using var s2 = Series.From("Score", [99.5, 88.0, 76.5, 100.0, 59.9]);
+        using var s3 = Series.From("Name", ["Alice", "Bob", "Charlie", "David", "Eve"]);
+        using var s4 = Series.From("IsActive", [true, false, true, true, false]);
+        using var df = new DataFrame(s1, s2, s3, s4);
+
+        using var sliceByType = df[1..4, typeof(double)];
+        Assert.Equal(["Score"], sliceByType.Columns);
+        Assert.Equal(3, sliceByType.Height);
+        Assert.Equal([88.0, 76.5, 100.0], sliceByType["Score"].ToArray<double>());
+
+        using Series sliceByString = df[..2, "Name"];
+        Assert.Equal("Name", sliceByString.Name);
+        Assert.Equal(2, sliceByString.Length);
+
+        using var sliceByExpr = df[..^1, Pl.Col("Id")];
+        Assert.Equal(["Id"], sliceByExpr.Columns);
+        Assert.Equal(4, sliceByExpr.Height);
+
+        using var sliceBySelector = df[2..4, Cs.Numeric()];
+        Assert.Equal(["Id", "Score"], sliceBySelector.Columns); 
+        Assert.Equal(2, sliceBySelector.Height);
+    }
+    [Fact]
+    [Trait("DataFrame","SelectorIndexer")]
+    public void Test_DataFrame_ColumnIndexer_With_IntoSelector_Sugar()
+    {
+        // Arrange
+        using var s1 = Series.From("Id", [1, 2, 3]);
+        using var s2 = Series.From("Score", [99.5, 88.0, 76.5]);
+        using var s3 = Series.From("Name", ["Alice", "Bob", "Charlie"]);
+        using var df = new DataFrame(s1, s2, s3);
+
+        using var nameSeries = df["Name"];
+        Assert.IsType<Series>(nameSeries);
+        Assert.Equal("Name", nameSeries.Name);
+
+        using DataFrame multiColDf = df[["Id", "Score"]];
+        Assert.IsType<DataFrame>(multiColDf);
+        Assert.Equal(2, multiColDf.Width);
+
+        using var dfByType = df[typeof(double)];
+        Assert.IsType<DataFrame>(dfByType);
+        Assert.Equal(["Score"], dfByType.Columns);
+
+        using var dfByExpr = df[Pl.Col("Id")];
+        Assert.IsType<DataFrame>(dfByExpr);
+        Assert.Equal(["Id"], dfByExpr.Columns);
+
+        using var dfBySelector = df[Cs.Numeric()];
+        Assert.IsType<DataFrame>(dfBySelector);
+        Assert.Equal(["Id", "Score"], dfBySelector.Columns);
+    }
+    [Fact]
+    [Trait("DataFrame","SelectorIndexer")]
+    public void Test_DataFrame_SingleRow_MultiColumn_Indexer()
+    {
+        // Arrange
+        using var s1 = Series.From("Id", [1, 2, 3, 4]);
+        using var s2 = Series.From("Score", [99.5, 88.0, 76.5, 100.0]);
+        using var s3 = Series.From("Name", ["Alice", "Bob", "Charlie", "David"]);
+        using var df = new DataFrame(s1, s2, s3);
+
+        using var row1 = df[1, ["Id", "Name"]];
+        Assert.IsType<DataFrame>(row1);
+        Assert.Equal(1, row1.Height);
+        Assert.Equal(["Id", "Name"], row1.Columns);
+        Assert.Equal(2, row1[0, "Id"]);        
+        Assert.Equal("Bob", row1[0, "Name"]);
+
+        using var lastRow = df[^1, typeof(double)];
+        Assert.IsType<DataFrame>(lastRow);
+        Assert.Equal(1, lastRow.Height);
+        Assert.Equal(["Score"], lastRow.Columns);
+        Assert.Equal(100.0, lastRow[0, "Score"]); 
+    }
+    [Fact]
+    [Trait("DataFrame","SelectorIndexer")]
+    public void Test_DataFrame_Selector_Setter()
+    {
+        // Arrange
+        using var df = new DataFrame(
+            Series.From("Id", ["A", "B"]),     // String
+            Series.From("Val1", [1.0, 2.0]),   // Double
+            Series.From("Val2", [10.0, 20.0])  // Double
+        );
+        
+        df[Cs.Numeric()] *= 2;
+
+        // Assert
+        Assert.Equal(3, df.Width);
+        Assert.Equal(["Id", "Val1", "Val2"], df.Columns);
+        Assert.Equal([2.0, 4.0], df["Val1"].ToArray<double>());
+        Assert.Equal([20.0, 40.0], df["Val2"].ToArray<double>());
+        Assert.Equal(["A", "B"], df["Id"].ToArray<string>()); 
+    }
+    [Fact]
+    [Trait("DataFrame","SelectorIndexer")]
+    public void Test_DataFrame_Indexer_RowMask_And_ColumnSelector_HappyPath()
+    {
+        using var df = new DataFrame(
+            Series.From("Name", ["Alice", "Bob", "Charlie", "David"]),
+            Series.From("Age", [15, 22, 25, 17]),                        
+            Series.From("Score", [88.5, 92.0, 85.5, 70.0])               
+        );
+
+        using var resultDf = df[~(df["Age"] < 18), Cs.Numeric()];
+
+        Assert.Equal(2, resultDf.Height);
+        Assert.Equal(2, resultDf.Width);
+
+        Assert.Equal(["Age", "Score"], resultDf.Columns);
+
+        Assert.Equal([22, 25], resultDf["Age"].ToArray<int>());
+        Assert.Equal([92.0, 85.5], resultDf["Score"].ToArray<double>());
+    }
+
+    [Fact]
+    [Trait("DataFrame","SelectorIndexer")]
+    public void Test_DataFrame_Indexer_RowMask_And_Selector_EmptyMatch()
+    {
+        using var df = new DataFrame(
+            Series.From("Name", ["Alice", "Bob"]),
+            Series.From("City", ["New York", "London"])
+        ); 
+
+        using var mask = Series.From("mask", [true, true]); 
+
+        using var resultDf = df[mask, Cs.Numeric()];
+
+        Assert.NotNull(resultDf);
+        Assert.True(resultDf.IsVoid);
     }
     [Fact]
     public void Test_Column_ByIndex_And_Iteration()
@@ -589,6 +832,63 @@ B,5";
         Assert.Equal(3, count);
     }
     [Fact]
+    [Trait("DataFrame", "Cast")]
+    public void Test_Cast_With_Explicit_Schema()
+    {
+        using var df = Pl.CreateDataFrame(
+            Pl.CreateSeries("Id", ["1", "2", "3"]), 
+            Pl.CreateSeries("IsActive", [1, 0, 1])  
+        );
+
+        using var targetSchema = new PolarsSchema()
+            .Add("Id", typeof(sbyte))       
+            .Add("IsActive", typeof(bool)); 
+
+        using var resultDf = df.Cast(targetSchema);
+
+        Assert.Equal(DataType.Int8, resultDf.Schema["Id"]);
+        Assert.Equal(DataType.Boolean, resultDf.Schema["IsActive"]);
+        Assert.Equal((sbyte)1, resultDf[0][0]);
+
+        Assert.True((bool)resultDf[1][0]);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "Cast")]
+    public void Test_Cast_With_Another_DataFrame_Implicitly()
+    {
+        using var masterDf = Pl.CreateDataFrame(
+            Pl.CreateSeries("UserId", [101, 102]),          // Int32
+            Pl.CreateSeries("Score", [99.5, 88.0]),      // Float64
+            Pl.CreateSeries("Tag", ["A", "B"])           // String
+        );
+        using var targetDf = Pl.CreateDataFrame(
+            Pl.CreateSeries("UserId", ["103", "104"]),   
+            Pl.CreateSeries("Score", [70, 60]),           
+            Pl.CreateSeries("Tag", ["C", "D"])         
+        );
+
+        using var resultDf = targetDf.Cast(masterDf);
+
+        Assert.Equal(DataType.Int32, resultDf.Schema["UserId"]);
+        Assert.Equal(DataType.Float64, resultDf.Schema["Score"]);
+        Assert.Equal(DataType.String, resultDf.Schema["Tag"]);
+
+        Assert.Equal(70.0, resultDf["Score"][0]); 
+    }
+
+    [Fact]
+    [Trait("DataFrame", "Cast")]
+    public void Test_Cast_With_Empty_Schema_Returns_Self()
+    {
+        using var df = Pl.CreateDataFrame(Pl.CreateSeries("A", [1, 2, 3]));
+        using var emptySchema = new PolarsSchema();
+
+        using var resultDf = df.Cast(emptySchema);
+
+        Assert.Equal(DataType.Int32, resultDf.Schema["A"]);
+    }
+    [Fact]
     public void Test_DataFrame_Sort_Advanced()
     {
         // A: [1, 1, 2, 2]
@@ -608,7 +908,7 @@ B,5";
         // row 2: A=2, B=null
 
         using var sorted = df.Sort(
-            ["A", "B"],
+            [Pl.Col("A"), Pl.Col("B")],
             descending: [false, true], // A asc, B desc
             nullsLast: [false, true]   // A normal, B nulls last
         );
@@ -632,32 +932,7 @@ B,5";
         Assert.Contains(50, arr);
     }
     [Fact]
-    public void Test_DataFrame_GroupByDynamic()
-    {
-        var dates = new[]
-        {
-            new DateTime(2023, 1, 1, 10, 0, 0),
-            new DateTime(2023, 1, 1, 10, 10, 0),
-            new DateTime(2023, 1, 1, 10, 20, 0),
-            new DateTime(2023, 1, 1, 11, 0, 0)
-        };
-        var values = new[] { 1, 2, 3, 4 };
-
-        using var df = DataFrame.FromColumns(new { ts = dates, val = values });
-
-        using var res = df.GroupByDynamic("ts", TimeSpan.FromHours(1))
-            .Agg(Col("val").Sum());
-
-        // 10:00:00 -> [1, 2, 3] -> Sum = 6
-        // 11:00:00 -> [4]       -> Sum = 4
-        
-        Assert.Equal(2, res.Height);
-        
-        var sums = res["val"].ToArray<int>();
-        Assert.Contains(6, sums);
-        Assert.Contains(4, sums);
-    }
-    [Fact]
+    [Trait("DataFrame","JoinAsOf")]
     public void Test_DataFrame_JoinAsOf_Eager()
     {
         // Left: [10:00, 10:02], val_l = [1, 2]
@@ -681,19 +956,19 @@ B,5";
         // JoinAsOf (Backward strategy)
         using var res = dfLeft.JoinAsOf(
             dfRight,
-            leftOn: Col("ts"),
-            rightOn: Col("ts"),
+            on: "ts",
             tolerance: null,
             strategy: AsofStrategy.Backward
         );
 
         Assert.Equal(2, res.Height);
         
-        var rVals = res["val_r"].ToArray<int>();
+        var rVals = res["val_r"];
         Assert.Equal(20, rVals[0]); // 10:00 matched 10:00
         Assert.Equal(30, rVals[1]); // 10:02 matched 10:01 (closest previous)
     }
     [Fact]
+    [Trait("DataFrame","Slice")]
     public void Test_DataFrame_Slice()
     {
         var df = DataFrame.FromSeries(
@@ -706,7 +981,7 @@ B,5";
         // 2: Grape, White  <-- Start
         // 3: Fig,   White
         // 4: Fig,   Red    <-- End (Length 3)
-        using var sl = df.Slice(2, 3);
+        using var sl = df.Slice(2);
 
         Assert.Equal(3, sl.Height);
         Assert.Equal(2, sl.Width);
@@ -720,7 +995,53 @@ B,5";
         Assert.Equal("Fig", slOverflow["Fruit"].GetValue<string>(0));
     }
     [Fact]
-    public void Test_Unique_Stable()
+    [Trait("DataFrame", "InsertColumn")]
+    public void Test_DataFrame_InsertColumn_SyntaxSugar()
+    {
+        // Setup initial DataFrame: 
+        // a = [1, 2, 3]
+        // b = [4, 5, 6]
+        using var df = DataFrame.FromColumns(new 
+        { 
+            a = new[] { 1, 2, 3 }, 
+            b = new[] { 4, 5, 6 } 
+        });
+
+        Assert.Equal(2, df.Width);
+        Assert.Equal("a", df.Columns[0]);
+        Assert.Equal("b", df.Columns[1]);
+
+        // Insert at index 1 -> [a, a_times_10, b]
+        using var df1 = df.InsertColumn(1, (Pl.Col("a") * 10).Alias("a_times_10"));
+        
+        Assert.Equal(3, df1.Width);
+        Assert.Equal("a_times_10", df1.Columns[1]);
+        Assert.Equal(20, df1["a_times_10"][1]); 
+
+        // int -> IntoExpr -> pl.lit
+        // Insert at index 0 -> [literal, a, a_times_10, b]
+        using var df2 = df1.InsertColumn(0, 99); 
+        
+        Assert.Equal(4, df2.Width);
+        Assert.Equal("literal", df2.Columns[0]); 
+        Assert.Equal(99, df2["literal"][0]);
+        Assert.Equal(99, df2["literal"][2]); 
+
+        // Width is 4. Index -1 -> width + (-1) = 3 -> [literal, a, a_times_10, new_series, b]
+        using var s = Series.From("new_series", [7, 8, 9]);
+        using var df3 = df2.InsertColumn(-1, s);
+        
+        Assert.Equal(5, df3.Width);
+        Assert.Equal("new_series", df3.Columns[3]);
+        Assert.Equal("b", df3.Columns[4]);
+        Assert.Equal(8, df3["new_series"][1]);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => df3.InsertColumn(10, 100));
+        Assert.Throws<ArgumentOutOfRangeException>(() => df3.InsertColumn(-10, 100));
+    }
+    [Fact]
+    [Trait("DataFrame","Unique")]
+    public void Test_Unique()
     {
         var df = DataFrame.From(
         [
@@ -731,7 +1052,7 @@ B,5";
         ]);
 
         // 1. Default (All cols, Keep First)
-        var res1 = df.Unique();
+        var res1 = df.Unique(maintainOrder:true);
         Assert.Equal(3, res1.Height);
         Assert.Equal(1, res1["A"][0]); // Order preserved
         Assert.Equal(2, res1["A"][1]);
@@ -744,19 +1065,27 @@ B,5";
             new { A = 1, B = "y" } // Duplicate on A
         ]);
         
-        var res2 = df2.Unique(["A"], UniqueKeepStrategy.Last);
+        var res2 = df2.Unique("A", UniqueKeepStrategy.Last);
         Assert.Equal(1, res2.Height);
         Assert.Equal("y", res2["B"][0]); // Should keep the last one ("y")
 
         // 3. Keep None (Remove all duplicates)
-        var res3 = df.Unique(null, UniqueKeepStrategy.None);
+        var res3 = df.Unique(keep:UniqueKeepStrategy.None);
         Assert.Equal(2, res3.Height); // A=2 and A=3 are unique. A=1 appears twice so both removed.
+
+        // Unique by selector
+        var res4 = df2.Unique(Cs.Numeric());
+        Assert.Equal(1, res4.Height);
+
     }
     [Fact]
+    [Trait("DataFrame","VStack")]
     public void Test_HStack_VStack()
     {
         // --- Test HStack ---
-        using var df1 = DataFrame.FromColumns(new { a = new[] { 1, 2, 3 } });
+        using var df1 = DataFrame.FromColumns(
+            Series.From("a",[1,2,3])
+        );
         
         // New Column:[b]
         using var sNew = new Series("b", [10, 20, 30]);
@@ -783,7 +1112,11 @@ B,5";
 
         Assert.Equal(5, vStacked.Height);
         Assert.Equal(2, vStacked.Width);
-        
+        Assert.Equal(2L,vStacked.NChunks());
+
+        var rechunked = vStacked.Rechunk();
+
+        Assert.Equal(1L,rechunked.NChunks());
         
         // Row 0 (from df1)
         Assert.Equal(1, vStacked["a"][0]);
@@ -792,5 +1125,1789 @@ B,5";
         // Row 3 (from df2, index 0)
         Assert.Equal(4, vStacked["a"][3]);
         Assert.Equal(40, vStacked["b"][3]);
+    }
+    [Fact]
+    [Trait("DataFrame","Extend")]
+    public void Test_Extend()
+    {
+        using var df1 = DataFrame.FromColumns(
+            Series.From("a",[1,2,3]),
+            Series.From("b",[10,20,30])
+        );
+        // DF2: [a, b]
+        using var df2 = DataFrame.FromColumns(new 
+        { 
+            a = new[] { 4, 5 }, 
+            b = new[] { 40, 50 } 
+        });
+
+        using var extended = df1.Extend(df2);
+
+        Assert.Equal(5, extended.Height);
+        Assert.Equal(2, extended.Width);
+        Assert.Equal(1L,extended.NChunks());
+        
+        // Row 0 (from df1)
+        Assert.Equal(1, extended["a"][0]);
+        Assert.Equal(10, extended["b"][0]);
+        
+        // Row 3 (from df2, index 0)
+        Assert.Equal(4, extended["a"][3]);
+        Assert.Equal(40, extended["b"][3]);
+    }
+    [Fact]
+    [Trait("DataFrame", "AsTensor")]
+    public void AsTensor_AllColumnsMatch_ReturnsRowMajor2DTensor()
+    {
+        // Arrange
+        var s1 = Series.From("feature1", [1.1f, 2.1f, 3.1f]);
+        var s2 = Series.From("feature2", [1.2f, 2.2f, 3.2f]);
+        using var df = new DataFrame(s1, s2);
+
+        // Act
+        Tensor<float> tensor = df.AsTensor<float>();
+
+        // Assert
+        Assert.Equal(2, tensor.Rank);
+        Assert.Equal(3, tensor.Lengths[0]); // Rows
+        Assert.Equal(2, tensor.Lengths[1]); // Columns
+
+        // Row 0
+        Assert.Equal(1.1f, tensor[0, 0]);
+        Assert.Equal(1.2f, tensor[0, 1]);
+        
+        // Row 1
+        Assert.Equal(2.1f, tensor[1, 0]);
+        Assert.Equal(2.2f, tensor[1, 1]);
+        
+        // Row 2
+        Assert.Equal(3.1f, tensor[2, 0]);
+        Assert.Equal(3.2f, tensor[2, 1]);
+
+        float[] expectedFlat = [1.1f, 1.2f, 2.1f, 2.2f, 3.1f, 3.2f];
+        Assert.True(tensor.SequenceEqual(expectedFlat));
+    }
+
+    [Fact]
+    [Trait("DataFrame", "AsTensorSelected")]
+    public void AsTensor_SelectedColumns_Returns2DTensor()
+    {
+        // Arrange
+        var s1 = Series.From("id", [1, 2]); 
+        var s2 = Series.From("feature1", [0.1f, 0.2f]);
+        var s3 = Series.From("feature2", [0.9f, 0.8f]);
+        using var df = new DataFrame(s1, s2, s3);
+
+        // Act
+        Tensor<float> tensor = df.AsTensor<float>("feature1", "feature2");
+
+        // Assert
+        Assert.Equal(2, tensor.Rank);
+        Assert.Equal(2, tensor.Lengths[0]); // 2 Rows
+        Assert.Equal(2, tensor.Lengths[1]); // 2 Columns
+
+        // Row 0
+        Assert.Equal(0.1f, tensor[0, 0]); // feature1
+        Assert.Equal(0.9f, tensor[0, 1]); // feature2
+        
+        // Row 1
+        Assert.Equal(0.2f, tensor[1, 0]); // feature1
+        Assert.Equal(0.8f, tensor[1, 1]); // feature2
+    }
+
+    [Fact]
+    [Trait("DataFrame", "AsTensorException")]
+    public void AsTensor_TypeMismatch_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        var s1 = Series.From("age", [25, 30]); // Int32
+        var s2 = Series.From("salary", [5000.5f, 6000.5f]); // Single
+        using var df = new DataFrame(s1, s2);
+
+        var exception = Assert.ThrowsAny<Exception>(() => 
+        {
+            df.AsTensor<float>();
+        });
+
+        Assert.NotNull(exception);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "AsTensorEmpty")]
+    public void AsTensor_EmptyDataFrame_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        using var emptyDf = new DataFrame(); 
+        
+        // Act & Assert
+        var exception = Assert.Throws<InvalidOperationException>(() => 
+        {
+            emptyDf.AsTensor<float>();
+        });
+        
+        Assert.Contains("Cannot create a Tensor from an empty DataFrame", exception.Message);
+    }
+    [Fact]
+    [Trait("DataFrame","HashRows")]
+    public void Test_DataFrame_HashRows()
+    {
+        using var scoresDf = DataFrame.FromColumns(new 
+        {
+            student = new[] { "Alice", "Alice", "Bob" },
+            year    = new[] { 2023,    2024,    2023 },
+            score   = new[] { 85,      90,      70 },
+            note    = new[] { "Score1", "Score2", "Score3" } 
+        });
+
+        var hashNull = scoresDf.HashRows(seed:null);
+        var hash42 = scoresDf.HashRows(seed:42);
+        
+        Assert.False(hashNull.IsEmpty);
+        Assert.False(hash42.IsEmpty);
+    }
+    [Fact]
+    [Trait("DataFrame","ToStruct")]
+    public void Test_DataFrame_To_Struct()
+    {
+        using var df = DataFrame.FromColumns(new 
+        {
+            Name = new[] { "A", "B" }, 
+            Age = new[] { 10, 20 },    
+            Score = new[] { 99, 88 }   
+        });
+        var structSeries = df.ToStruct(name:"struct");
+
+        Assert.Equal("struct",structSeries.Name);
+        Assert.Equal(Pl.Struct([("Name",Pl.String),("Age",Pl.Int32),("Score",Pl.Int32)]),structSeries.DataType);
+        var dfBack = structSeries.Unnest();
+        Assert.Equal((2L,3L),dfBack.Shape);
+    }
+    [Fact]
+    [Trait("DataFrame","NUnique")]
+    public void Test_DataFrame_NUnique()
+    {
+        using var df = DataFrame.FromColumns(new 
+        {
+            Name = new[] { "A", "B","A" }, 
+            Age = new[] { 10, 20,10 },    
+            Score = new[] { 99, 88,99 }   
+        });
+        long unique = df.NUnique(Cs.String());
+        Assert.Equal(2L,unique);
+    }
+    [Fact]
+    [Trait("DataFrame","Clear")]
+    public void Test_DataFrame_Clear()
+    {
+        using var df = DataFrame.FromColumns(new 
+        {
+            Name = new[] { "A", "B","A" }, 
+            Age = new[] { 10, 20,10 },    
+            Score = new[] { 99, 88,99 }   
+        });
+        var clearDf = df.Clear();
+        Assert.Equal(clearDf.Schema,df.Schema);
+        Assert.True(clearDf.IsEmpty);
+
+        var clearDf1 = df.Clear(1);
+        Assert.Equal(1L,clearDf1.Height);
+        Assert.Null(clearDf1[0][0]);
+    }
+    [Fact]
+    [Trait("DataFrame","Drop")]
+    public void Test_Drop()
+    {
+        var df = DataFrame.From(
+        [
+            new { A = 1, B = 2.2, C = "hello" },
+            new { A = 3, B = 4.4, C = "world" }
+        ]);
+
+        var res = df.Drop(Cs.String());
+        Assert.Equal(2, res.Width);
+
+        var res2 = df.Drop("A","B");
+        Assert.Equal(1,res2.Width);
+        
+        Assert.Throws<ArgumentException>(() => res["C"]);
+    }
+    [Fact]
+    [Trait("DataFrame","DropInPlace")]
+    public void Test_DropInPlace()
+    {
+        using DataFrame df = DataFrame.FromRows(
+        [
+            new { A = 1, B = 2.2, C = "hello" },
+            new { A = 3, B = 4.4, C = "world" }
+        ]);
+
+        using Series res = df.DropInPlace("A");
+        Assert.Equal(2, res.Length);
+        Assert.Equal(1,res[0]);
+        Assert.Equal(2,df.Width);
+
+    }
+    [Fact]
+    [Trait("DataFrame","UnstackVertical")]
+    public void Unstack_Vertical_WithDefaultNullFill_ShouldWork()
+    {
+        // shape: (5, 2)
+        var df = DataFrame.FromColumns(new
+        {
+            foo = new[] { 1, 2, 3, 4, 5 },
+            bar = new[] { "a", "b", "c", "d", "e" }
+        });
+
+        using var unstacked = df.Unstack(step: 2, how: UnstackDirection.Vertical);
+
+        // Assert
+        Assert.Equal(2, unstacked.Height);
+        Assert.Equal(6, unstacked.Width);
+
+        var cols = unstacked.Columns;
+        Assert.Contains("foo_0", cols);
+        Assert.Contains("foo_1", cols);
+        Assert.Contains("foo_2", cols);
+        Assert.Contains("bar_2", cols);
+
+        var foo0 = unstacked["foo_0"].ToArray<int?>();
+        Assert.Equal(1, foo0[0]);
+        Assert.Equal(2, foo0[1]);
+
+        var foo2 = unstacked["foo_2"].ToArray<int?>();
+        Assert.Equal(5, foo2[0]);
+        Assert.Null(foo2[1]);
+
+        var bar2 = unstacked["bar_2"].ToArray<string>();
+        Assert.Equal("e", bar2[0]);
+        Assert.Null(bar2[1]);
+    }
+
+    [Fact]
+    [Trait("DataFrame","UnstackHorizontal")]
+    public void Unstack_Horizontal_ShouldSortCorrectly()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            val = new[] { 10, 20, 30, 40, 50 }
+        });
+
+        using var unstacked = df.Unstack(step: 3, how: UnstackDirection.Horizontal);
+
+        // _0: 10, 40
+        // _1: 20, 50
+        // _2: 30, null
+        Assert.Equal(2, unstacked.Height);
+        Assert.Equal(3, unstacked.Width);
+
+        var val0 = unstacked["val_0"].ToArray<int?>();
+        Assert.Equal(10, val0[0]);
+        Assert.Equal(40, val0[1]);
+
+        var val1 = unstacked["val_1"].ToArray<int?>();
+        Assert.Equal(20, val1[0]);
+        Assert.Equal(50, val1[1]);
+
+        var val2 = unstacked["val_2"].ToArray<int?>();
+        Assert.Equal(30, val2[0]);
+        Assert.Null(val2[1]);
+    }
+
+    [Fact]
+    [Trait("DataFrame","UnstackVerticalBroadcast")]
+    public void Unstack_Vertical_WithCustomFillValues_ShouldBroadcastAndFill()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            id = new[] { 1, 2, 3 },
+            name = new[] { "Alice", "Bob", "Charlie" }
+        });
+
+
+        object?[] fills = [-1, "Unknown"];
+        using var unstacked = df.Unstack(step: 2, how: UnstackDirection.Vertical, fillValues: fills);
+
+        // Assert
+        Assert.Equal(2, unstacked.Height);
+
+        var id1 = unstacked["id_1"].ToArray<int?>();
+        Assert.Equal(3, id1[0]);
+        Assert.Equal(-1, id1[1]);
+
+        var name1 = unstacked["name_1"].ToArray<string>();
+        Assert.Equal("Charlie", name1[0]);
+        Assert.Equal("Unknown", name1[1]);
+    }
+
+    [Fact]
+    [Trait("DataFrame","UnstackSelected")]
+    public void Unstack_WithSpecificColumns_ShouldOnlyUnstackSelected()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            A = new[] { 1, 2, 3 },
+            B = new[] { 4, 5, 6 },
+            C = new[] { 7, 8, 9 }
+        });
+
+        using var unstacked = df.Unstack(step: 2, columns: ["A", "C"]);
+
+        // Assert
+        Assert.Equal(4, unstacked.Width); // A_0, A_1, C_0, C_1
+        Assert.Contains("A_0", unstacked.Columns);
+        Assert.Contains("C_0", unstacked.Columns);
+        Assert.DoesNotContain("B_0", unstacked.Columns);
+    }
+    [Fact]
+    [Trait("DataFrame", "Remove")]
+    public void Test_Remove_By_Expr_Keeps_Null_Conditions()
+    {
+        // Id:  [1, 2, 3, 4, 5]
+        // Val: [10, 20, null, 40, 50]
+        using var df = DataFrame.FromColumns(new 
+        {
+            Id = new[] { 1, 2, 3, 4, 5 },
+            Val = new int?[] { 10, 20, null, 40, 50 }
+        });
+
+        using var resultDf = df.Remove((Pl.Col("Val") > 25) | (Pl.Col("Id")<3));
+        Assert.Equal(1, resultDf.Height);
+        Assert.Equal(3, resultDf["Id"][0]);
+        Assert.Null(resultDf["Val"][0]); 
+    }
+
+    [Fact]
+    [Trait("DataFrame", "Remove")]
+    public void Test_Remove_By_Boolean_Series()
+    {
+        using var df = Pl.CreateDataFrame(
+            Pl.CreateSeries("Id", [1, 2, 3, 4])
+        );
+
+        using var mask = Pl.CreateSeries("mask", [true, false, true, false]);
+
+        using var resultDf = df.Remove(mask);
+
+        Assert.Equal(2, resultDf.Height);
+        Assert.Equal(2, resultDf["Id"][0]);
+        Assert.Equal(4, resultDf["Id"][1]);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "Remove")]
+    public void Test_Remove_By_Boolean_Array()
+    {
+        using var df = Pl.CreateDataFrame(
+            Pl.CreateSeries("Name", ["Alice", "Bob", "Charlie"])
+        );
+
+        bool[] mask = [false, false, true];
+
+        using var resultDf = df.Remove(mask);
+
+        Assert.Equal(2, resultDf.Height);
+        Assert.Equal("Alice", resultDf["Name"][0]);
+        Assert.Equal("Bob", resultDf["Name"][1]);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "Remove")]
+    public void Test_Remove_Throws_On_NonBoolean_Series()
+    {
+        using var df = Pl.CreateDataFrame(
+            Pl.CreateSeries("Id", [1, 2, 3])
+        );
+
+        using var invalidMask = Pl.CreateSeries("mask", [1, 0, 1]);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => df.Remove(invalidMask));
+        Assert.Contains("non-boolean", ex.Message);
+    }
+    [Fact]
+    [Trait("DataFrame","IterSlices")]
+    public void IterSlices_ShouldYieldCorrectSlices()
+    {
+        var df = DataFrame.FromColumns(new
+        {
+            Id = Enumerable.Range(1, 25).ToArray(),
+            Name = Enumerable.Range(1, 25).Select(i => $"User_{i}").ToArray()
+        });
+
+        var slices = df.IterSlices(nRows: 10).ToList();
+
+        // Assert
+        Assert.Equal(3, slices.Count); 
+
+        Assert.Equal(10, slices[0].Height);
+        Assert.Equal(10, slices[1].Height);
+        Assert.Equal(5, slices[2].Height); 
+
+        var lastSliceIdSeries = slices[2]["Id"];
+        Assert.Equal(21, (int)lastSliceIdSeries[0]!); 
+        Assert.Equal(25, (int)lastSliceIdSeries[4]!); 
+    }
+
+    [Fact]
+    [Trait("DataFrame","IterSlices")]
+    public void IterSlices_WithInvalidNRows_ShouldThrowException()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new { Id = new[] { 1, 2, 3 } });
+
+        // Act & Assert
+        var ex1 = Assert.Throws<ArgumentOutOfRangeException>(() => df.IterSlices(0).ToList());
+        Assert.Contains("greater than zero", ex1.Message);
+
+        var ex2 = Assert.Throws<ArgumentOutOfRangeException>(() => df.IterSlices(-5).ToList());
+        Assert.Contains("greater than zero", ex2.Message);
+    }
+    [Fact]
+    [Trait("DataFrame","Equal")]
+    public void Equals_StrictAndMissing_ShouldWorkCorrectly()
+    {
+        // Arrange
+        var df1 = DataFrame.FromColumns(new 
+        { 
+            A = new int?[] { 1, null, 3 }, 
+            B = new[] { "x", "y", "z" } 
+        });
+        
+        var df2 = DataFrame.FromColumns(new 
+        { 
+            A = new int?[] { 1, null, 3 }, 
+            B = new[] { "x", "y", "z" } 
+        });
+        
+        var df3 = DataFrame.FromColumns(new 
+        { 
+            A = new int?[] { 1, 2, 3 }, // 不同的数据
+            B = new[] { "x", "y", "z" } 
+        });
+
+        // Act & Assert
+
+        Assert.True(df1.Equals(df2));
+        Assert.True(df1 == df2); 
+        Assert.False(df1 != df2);
+
+        Assert.False(df1.Equals(df3));
+        Assert.False(df1 == df3);
+        Assert.True(df1 != df3);
+
+        Assert.False(df1.Equals(df2, nullEqual: false));
+    }
+
+    [Fact]
+    [Trait("DataFrame","Equal")]
+    public void GetHashCode_ShouldThrowNotSupportedException()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new { Id = new[] { 1, 2, 3 } });
+
+        // Act & Assert
+        var ex = Assert.Throws<NotSupportedException>(() => df.GetHashCode());
+        Assert.Contains("cannot be hashed directly", ex.Message);
+        
+        var dict = new Dictionary<DataFrame, int>();
+        Assert.Throws<NotSupportedException>(() => dict.Add(df, 1));
+    }
+    [Fact]
+    [Trait("DataFrame","PartitionBy")]
+    public void PartitionBy_ShouldReturnCorrectArraySlices()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            Group = new[] { "A", "A", "B", "B", "C" },
+            Value = new[] { 1, 2, 3, 4, 5 }
+        });
+
+        // Act
+        var partitions = df.PartitionBy(Cs.String());
+
+        // Assert
+        Assert.Equal(3, partitions.Length);
+
+        Assert.Equal(2, partitions[0].Height);
+        Assert.Equal("A", (string)partitions[0]["Group"][0]!);
+
+        Assert.Equal(2, partitions[1].Height);
+        Assert.Equal("B", (string)partitions[1]["Group"][0]!);
+
+        Assert.Equal(1, partitions[2].Height);
+        Assert.Equal("C", (string)partitions[2]["Group"][0]!);
+    }
+
+    [Fact]
+    [Trait("DataFrame","PartitionBy")]
+    public void PartitionByAsDict_ShouldWorkCorrectlyWithArrayKeys()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            Region = new[] { "US", "US", "CN" },
+            Year   = new[] { 2023, 2023, 2024 },
+            Sales  = new[] { 100,  200,  300 }
+        });
+
+        // Act: Partition
+        var dict = df.PartitionByAsDict(["Region", "Year"],maintainOrder: true, includeKey: true);
+
+        // Assert
+        Assert.Equal(2, dict.Count);
+
+        var keyUS = new object?[] { "US", 2023 };
+        var keyCN = new object?[] { "CN", 2024 };
+
+        Assert.True(dict.ContainsKey(keyUS));
+        Assert.True(dict.ContainsKey(keyCN));
+
+        Assert.Equal(2, dict[keyUS].Height); 
+        Assert.Equal(1, dict[keyCN].Height); 
+    }
+
+    [Fact]
+    [Trait("DataFrame","PartitionBy")]
+    public void PartitionByAsDict_InvalidCombination_ShouldThrow()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new { A = new[] { 1, 2, 1 } });
+
+        // Act & Assert
+        var ex = Assert.Throws<ArgumentException>(() => 
+            df.PartitionByAsDict(["A"],maintainOrder: false, includeKey: false));
+            
+        Assert.Contains("Group keys cannot be matched to partitions", ex.Message);
+    }
+    [Fact]
+    [Trait("DataFrame","ReplaceColumn")]
+    public void Replace_ByIndex_ShouldModifyInPlaceAndSupportChaining()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            Col1 = new[] { 1, 2, 3 },
+            Col2 = new[] { 4, 5, 6 },
+            Col3 = new[] { 7, 8, 9 }
+        });
+
+        var newSeries2 = Series.From("New_Col2", [40, 50, 60]);
+        var newSeries3 = Series.From("New_Col3", [70, 80, 90]);
+
+        df.ReplaceColumn(1, newSeries2)
+          .ReplaceColumn(-1, newSeries3);
+        // Assert
+        Assert.Equal(3, df.Width);
+        
+        Assert.Equal(40, df[1][0]!);
+        Assert.Equal(90, df[2][2]!);
+
+        Assert.Equal("New_Col2", df.Columns[1]);
+        Assert.Equal("New_Col3", df.Columns[2]);
+    }
+
+    [Fact]
+    [Trait("DataFrame","ReplaceColumn")]
+    public void Replace_ByName_ShouldModifyInPlace()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            A = new[] { 1, 2, 3 },
+            B = new[] { 4, 5, 6 }
+        });
+
+        var newColA = Series.From("A_Modified", [10, 20, 30]);
+
+        // Act
+        df.ReplaceColumn("A", newColA,keepName:false);
+        // Assert
+        Assert.Equal(10, (int)df["A_Modified"][0]!); 
+        Assert.DoesNotContain("A", df.Columns);
+    }
+
+    [Fact]
+    [Trait("DataFrame","ReplaceColumn")]
+    public void Replace_WithShapeMismatch_ShouldThrowPolarsException()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new { A = new[] { 1, 2, 3 } });
+        var badSeries = Series.From("A", [1, 2]); 
+
+        // Act & Assert
+        var ex = Assert.Throws<PolarsException>(() => df.ReplaceColumn("A", badSeries));
+        Assert.Contains("lengths don't match", ex.Message);
+    }
+
+    [Fact]
+    [Trait("DataFrame","ReplaceColumn")]
+    public void Replace_WithInvalidIndex_ShouldThrowArgumentOutOfRangeException()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new { A = new[] { 1, 2, 3 } });
+        var s = Series.From("A", [10, 20, 30]);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => df.ReplaceColumn(5, s));
+        Assert.Throws<ArgumentOutOfRangeException>(() => df.ReplaceColumn(-5, s)); 
+    }
+    [Fact]
+    [Trait("DataFrame", "WithRowIndex")]
+    public void WithRowIndex_DefaultParameters_ShouldGenerateCorrectIndex()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            Value = new[] { "A", "B", "C" }
+        });
+
+        // Act
+        var result = df.WithRowIndex();
+
+        // Assert
+        Assert.Equal(2, result.Width);
+        Assert.Equal("index", result.Columns[0]); 
+        Assert.Equal("Value", result.Columns[1]);
+
+        var indexArray = result["index"].ToArray<uint>();
+        Assert.Equal(new uint[] { 0, 1, 2 }, indexArray);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "WithRowIndex")]
+    public void WithRowIndex_CustomParameters_ShouldGenerateCorrectIndex()
+    {
+        // Arrange
+        var df = DataFrame.FromColumns(new
+        {
+            Value = new[] { "X", "Y", "Z", "W" }
+        });
+
+        // Act
+        // name="row_id", offset=10
+        var result = df.WithRowIndex("row_id",10);
+
+        // Assert
+        Assert.Equal("row_id", result.Columns[0]);
+
+        var indexArray = result["row_id"].ToArray<uint>();
+        Assert.Equal(new uint[] { 10, 11, 12, 13 }, indexArray);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "Update")]
+    public void Update_HowOuter_ShouldAddNewRows()
+    {
+        // Arrange
+        var left = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
+            ValueA = new int?[] { 10, 20, 30 },
+            ValueB = new string[] { "x", "y", "z" }
+        });
+    
+        var right =DataFrame.FromColumns(new
+        {
+            Id = new[] { 2, 3, 4 },
+            ValueA = new int?[] { 200, null, 400 }, 
+            ValueB = new string[] { "yy", "zz", "ww" }
+        });
+    
+        // Act
+        var result = left.Update(
+            right, 
+            on: ["Id"], 
+            how: JoinType.Outer,
+            maintainOrder: JoinMaintainOrder.Left
+        );
+
+        // Assert
+        var idArray = result["Id"].ToArray<int>();
+        var valAArray = result["ValueA"].ToArray<int?>();
+
+        Assert.Equal([1, 2, 3, 4], idArray);
+
+        // Id 1: 10
+        // Id 2: 200 (updated)
+        // Id 3: 30  (keep)
+        // Id 4: 400 (added)
+        Assert.Equal([10, 200, 30, 400], valAArray);
+    }
+    [Fact]
+    [Trait("DataFrame", "Merge")]
+    public void MergeBuilder_WithSelector_ShouldResolveColumnsDynamically()
+    {
+        // Arrange
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id1 = new[] { 1, 2 },
+            Id2 = new[] { 10, 20 },
+            Name = new[] { "A", "B" },
+            Value = new[] { 100.0, 200.0 }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id1 = new[] { 2, 3 },
+            Id2 = new[] { 20, 30 },
+            Name = new[] { "B_Updated", "C_New" },
+            Value = new[] { 999.0, 888.0 }
+        });
+
+        var resultDf = targetDf.Merge(sourceDf, on: Cs.StartsWith("Id")).Execute();
+
+        // Assert
+        var id1Array = resultDf["Id1"].ToArray<int>();
+        var nameArray = resultDf["Name"].ToArray<string>();
+
+        Assert.Equal([1, 2, 3], id1Array);
+        Assert.Equal(["A", "B_Updated", "C_New"], nameArray);
+    }
+    [Fact]
+    [Trait("DataFrame", "MergeCondition")]
+    public void MergeBuilder_WithComplexConditions_ShouldHandleFullDataLifecycle()
+    {
+        // Arrange: 
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3, 4, 5 },
+            Category = new[] { "Seasonal", "Core", "Core", "Tech", "Tech" },
+            Price = new[] { 10.0, 20.0, 30.0, 100.0, 200.0 },
+            IsDiscontinued = new[] { false, false, false, false, false }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 3, 4, 5, 6, 7 },
+            Category = new[] { "Core", "Tech", "Tech", "New", "Trash" },
+            Price = new[] { 30.0, 120.0, 190.0, 50.0, 0.0 },
+            IsDiscontinued = new[] { true, false, false, false, false } 
+        });
+
+        var resultDf = targetDf.Merge(sourceDf, "Id")
+            // If matched as IsDiscontinued delete
+            .WhenMatchedDelete(m => m.Source("IsDiscontinued") == true)
+            // If matched price up then update
+            .WhenMatchedUpdate(m => m.Source("Price") > m.Target("Price"))
+            // Only insert price > 0 in source table
+            .WhenNotMatchedInsert(m => m.Source("Price") > 0.0)
+            // If record in source table is missing then delete target
+            .WhenNotMatchedBySourceDelete(m => m.Target("Category") == "Seasonal")
+            // Inspect plan to console
+            .InspectPlan(verbose: false) 
+            .Execute(); 
+
+        resultDf = resultDf.Sort("Id");
+
+        var idArray = resultDf["Id"].ToArray<int>();
+        var priceArray = resultDf["Price"].ToArray<double>();
+
+        // Assert: 
+        // Id 1 (Target): Seasonal item missed in source table -> NotMatchedBySourceDelete -> Delete
+        // Id 2 (Target): Core item missed in source table -> Keep
+        // Id 3 (Both): IsDiscontinued=true -> MatchedDelete -> Delete
+        // Id 4 (Both): Source Price(120) > Target Price(100) -> WhenMatchedUpdate -> Price: 120.0
+        // Id 5 (Both): Source Price(190) < Target Price(200) -> Keep
+        // Id 6 (Source): New Item in source and price(50) > 0 -> WhenNotMatchedInsert -> Insert
+        // Id 7 (Source): New Item in source but price(0) is invalid -> Discard
+        
+        Assert.Equal([2, 4, 5, 6], idArray);
+        Assert.Equal([20.0, 120.0, 200.0, 50.0], priceArray);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "MergeOrderAndExplain")]
+    public void MergeBuilder_OrderSensitive_ShouldRespectFirstMatchAndExplain()
+    {
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
+            Score = new[] { 10, 20, 30 }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 2, 3, 4 },
+            Score = new[] { 99, 15, 100 }
+        });
+
+        var mergeBuilder = targetDf.Merge(sourceDf, "Id")
+            .WhenMatchedDelete(m => m.Source("Score") > 90)
+            .WhenMatchedUpdate(m => m.Source("Score") > 10)
+            .WhenNotMatchedInsert().MaintainOrder(JoinMaintainOrder.Left);
+
+        Console.WriteLine(mergeBuilder);
+
+        var resultDf = mergeBuilder.Execute();
+
+        var idArray = resultDf["Id"].ToArray<int>();
+        var scoreArray = resultDf["Score"].ToArray<int>();
+
+        // Id = 1 : Target only，keep (10)
+        // Id = 2 : Delete(99 > 90)
+        // Id = 3 : Update(15 > 10, 15)
+        // Id = 4 : Insert(100)。
+        Assert.Equal([1, 3, 4], idArray);
+        Assert.Equal([10, 15, 100], scoreArray);
+    }
+    [Fact]
+    [Trait("DataFrame", "MergeIncludeNulls")]
+    public void MergeBuilder_IncludeNulls_ShouldControlNullOverwrite()
+    {
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
+            Score = new int?[] { 10, 20, 30 }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
+            Score = new int?[] { null, 99, null }
+        });
+
+        // Act 1: includeNulls = false
+        var resultWithoutNulls = targetDf.Merge(sourceDf, "Id")
+            .IncludeNulls(false)
+            .Execute()
+            .Sort("Id");
+
+        // Act 2:includeNulls = true
+        var resultWithNulls = targetDf.Merge(sourceDf, "Id")
+            .IncludeNulls(true)
+            .Execute()
+            .Sort("Id");
+
+        var scoreArrayWithoutNulls = resultWithoutNulls["Score"].ToArray<int?>();
+        var scoreArrayWithNulls = resultWithNulls["Score"].ToArray<int?>();
+
+        // includeNulls = false：
+        Assert.Equal([10, 99, 30], scoreArrayWithoutNulls);
+
+        // includeNulls = true：
+        Assert.Equal([null, 99, null], scoreArrayWithNulls);
+    }
+    [Fact]
+    [Trait("DataFrame", "MergePartialUpdate")]
+    public void MergeBuilder_WithSetters_ShouldPerformPartialColumnUpdates()
+    {
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
+            Name = new[] { "Apple", "Banana", "Orange" },
+            Price = new[] { 1.0, 2.0, 3.0 },
+            Stock = new[] { 100, 150, 200 }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 2, 3, 4 },
+            Name = new[] { "Banana_Ignored", "Orange_Ignored", "Grape" }, 
+            Price = new[] { 2.5, 2.5, 4.0 }, 
+            RestockQty = new[] { 50, 0, 200 }
+        });
+
+        var resultDf = targetDf.Merge(sourceDf, "Id")
+            .WhenMatchedUpdate(
+                condition: m => m.Source("Price") > m.Target("Price"),
+                set: s => s
+                    .Set("Price", m => m.Source("Price")) 
+                    .Set("Stock", m => m.Target("Stock") + m.Source("RestockQty")) 
+            )
+            .WhenNotMatchedInsert(
+                condition: null, 
+                set: s => s
+                    .Set("Id", m => m.Source("Id"))
+                    .Set("Name", m => m.Source("Name"))
+                    .Set("Price", m => m.Source("Price"))
+                    .Set("Stock", m => m.Source("RestockQty")) 
+            )
+            .InspectPlan(verbose: false) 
+            .Execute();
+
+        resultDf = resultDf.Sort("Id");
+
+        var idArray = resultDf["Id"].ToArray<int>();
+        var nameArray = resultDf["Name"].ToArray<string>();
+        var priceArray = resultDf["Price"].ToArray<double>();
+        var stockArray = resultDf["Stock"].ToArray<int>();
+
+        // Id 1: Target only -> Keep (Apple, 1.0, 100)
+        // Id 2: Matched & Hit(2.5 > 2.0) -> Price updated to 2.5, Stock updated (150+50)=200, Name keep "Banana"
+        // Id 3: Matched & Miss(2.5 < 3.0) -> Keep (Orange, 3.0, 200)
+        // Id 4: Source only -> Insert (Grape, 4.0, 200)
+        
+        Assert.Equal([1, 2, 3, 4], idArray);
+        Assert.Equal(["Apple", "Banana", "Orange", "Grape"], nameArray);
+        Assert.Equal([1.0, 2.5, 3.0, 4.0], priceArray);
+        Assert.Equal([100, 200, 200, 200], stockArray);
+    }
+    [Fact]
+    [Trait("DataFrame", "MergeSelectorUpdate")]
+    public void MergeBuilder_WithSelectors_ShouldPerformBatchColumnUpdates()
+    {
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
+            Name = new[] { "Hero", "Villain", "NPC" },
+            Stat_HP = new[] { 100, 100, 10 },    
+            Stat_MP = new[] { 50, 50, 0 },       
+            Score = new[] { 1000, 500, 0 },
+            Tag = new[] { "Old", "Old", "Old" }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 4 },
+            Name = new[] { "Hero_Ignored", "Villain", "Newbie" }, 
+            Stat_HP = new[] { 120, 0, 80 },
+            Stat_MP = new[] { 60, 0, 40 },
+            ScoreDelta = new[] { 200, 0, 50 },  
+            IsBanned = new[] { false, true, false }
+        });
+
+        var resultDf = targetDf.Merge(sourceDf, "Id")
+            .WhenMatchedDelete(m => m.Source("IsBanned")) 
+            .WhenMatchedUpdate(
+                condition: null, 
+                set: s => s
+                    .Set(Cs.StartsWith("Stat_"), (m, colName) => m.Source(colName))
+                    .Set("Score", m => m.Target("Score") + m.Source("ScoreDelta"))
+                    .Set("Tag", Pl.Lit("Updated"))
+            )
+            .WhenNotMatchedInsert(
+                condition: null,
+                set: s => s
+                    .Set("Id", m => m.Source("Id"))
+                    .Set("Name", m => m.Source("Name"))
+                    .Set(Cs.StartsWith("Stat_"), (m, colName) => m.Source(colName))
+                    .Set("Score", m => m.Source("ScoreDelta"))
+                    .Set("Tag", Pl.Lit("New"))
+            )
+            .InspectPlan(verbose: false) 
+            .Execute();
+
+        resultDf = resultDf.Sort("Id");
+
+        var idArray = resultDf["Id"].ToArray<int>();
+        var nameArray = resultDf["Name"].ToArray<string>();
+        var hpArray = resultDf["Stat_HP"].ToArray<int>();
+        var scoreArray = resultDf["Score"].ToArray<int>();
+        var tagArray = resultDf["Tag"].ToArray<string>();
+
+        // Id 1 (Hero):    Matched -> NotBanned -> Bulked update HP/MP, score 1000+200=1200, Tag -> Updated, name kept as Hero
+        // Id 2 (Villain): Matched -> IsBanned -> Deleted
+        // Id 3 (NPC):     Target Only -> Keep
+        // Id 4 (Newbie):  Source Only -> Insert
+
+        Assert.Equal([1, 3, 4], idArray);
+        Assert.Equal(["Hero", "NPC", "Newbie"], nameArray);
+        Assert.Equal([120, 10, 80], hpArray);
+        Assert.Equal([1200, 0, 50], scoreArray);
+        Assert.Equal(["Updated", "Old", "New"], tagArray);
+    }
+    [Fact]
+    [Trait("DataFrame", "MergeCompositeKeys")]
+    public void MergeBuilder_WithMultipleKeys_ShouldPerformCompositeKeyMerge()
+    {
+        //  Composite Keys: TenantId, UserId
+        var targetDf = DataFrame.FromColumns(new
+        {
+            TenantId = new[] { "T1", "T1", "T2", "T2" },
+            UserId = new[] { 101, 102, 101, 999 },
+            Role = new[] { "Admin", "User", "User", "Guest" },
+            IsActive = new[] { true, true, true, false }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            TenantId = new[] { "T1", "T2", "T2" },
+            UserId = new[] { 102, 101, 888 },
+            Role = new[] { "Editor", "Admin", "User" }, 
+            IsActive = new[] { true, true, true }
+        });
+        Selector selector = Cs.EndsWith("Id");
+        var resultDf = targetDf.Merge(sourceDf, selector) 
+            .WhenMatchedUpdate(
+                set: s => s
+                    .Set("Role", (m, c) => m.Source("Role"))
+                    .Set("IsActive", true)
+            )
+            .WhenNotMatchedBySourceDelete()
+            .WhenNotMatchedInsert(
+                set: s => s
+                    .Set("TenantId", m => m.Source("TenantId"))
+                    .Set("UserId", m => m.Source("UserId"))
+                    .Set("Role", m => m.Source("Role"))
+                    .Set("IsActive", true)
+            )
+            .InspectPlan(verbose: false) 
+            .Execute();
+
+        resultDf = resultDf.Sort(selector); 
+
+        var tIds = resultDf["TenantId"].ToArray<string>();
+        var uIds = resultDf["UserId"].ToArray<int>();
+        var roles = resultDf["Role"].ToArray<string>();
+
+        Assert.Equal(["T1", "T2", "T2"], tIds);
+        Assert.Equal([102, 101, 888], uIds);
+        Assert.Equal(["Editor", "Admin", "User"], roles);
+    }
+    [Fact]
+    [Trait("DataFrame", "MergeValidation")]
+    public void MergeBuilder_Validation_ThrowsOnTypeMismatch()
+    {
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { 1, 2, 3 },
+            Value = new[] { 10, 20, 30 }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new[] { "1", "2" }, 
+            Value = new[] { 100, 200 }
+        });
+
+        // Act & Assert
+        var ex = Assert.Throws<ArgumentException>(() =>
+        {
+            targetDf.Merge(sourceDf, "Id").Execute();
+        });
+        Assert.Contains("Merge Key Type Mismatch", ex.Message);
+        Assert.Contains("Source: str", ex.Message);
+        Assert.Contains("Target: i32", ex.Message);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "MergeValidation")]
+    public void MergeBuilder_Validation_ThrowsOnNullMergeKey()
+    {
+        var targetDf = DataFrame.FromColumns(new
+        {
+            Id = new int[] { 1, 2, 3 },
+            Value = new string[] { "A", "B", "C" }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            Id = new int?[] { 1, null, 3 }, 
+            Value = new string[] { "A1", "B1", "C1" }
+        });
+
+        // Act & Assert
+        var ex = Assert.Throws<InvalidDataException>(() =>
+        {
+            targetDf.Merge(sourceDf, "Id")
+                .WhenMatchedUpdate()
+                .Execute();
+        });
+        
+        Assert.Contains("CRITICAL ERROR: Null values detected in Merge Keys", ex.Message);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "MergeValidation")]
+    public void MergeBuilder_Validation_ThrowsOnDuplicateSourceKeys()
+    {
+        var targetDf = DataFrame.FromColumns(new
+        {
+            TenantId = new[] { "T1", "T2" },
+            UserId = new[] { 101, 102 },
+            Score = new[] { 10, 20 }
+        });
+
+        var sourceDf = DataFrame.FromColumns(new
+        {
+            TenantId = new[] { "T1", "T1", "T2" }, 
+            UserId = new[] { 101, 101, 102 },      
+            Score = new[] { 100, 999, 200 }
+        });
+
+        // Act & Assert
+        var ex = Assert.Throws<InvalidDataException>(() =>
+        {
+            targetDf.Merge(sourceDf, Cs.EndsWith("Id")) 
+                .WhenMatchedUpdate()
+                .Execute();
+        });
+        Assert.Contains("CRITICAL ERROR: Duplicate keys detected in SOURCE table", ex.Message);
+        Assert.Contains("duplicate_count", ex.Message);
+    }
+    [Fact]
+    [Trait("DataFrame", "Transpose")]
+    public void Test_DataFrame_Transpose()
+    {
+        // ID="A1", Val1=10, Val2=100
+        // ID="B2", Val1=20, Val2=200
+        using var df = DataFrame.FromColumns(new 
+        {
+            ID = new[] { "A1", "B2" },
+            Val1 = new[] { 10, 20 },
+            Val2 = new[] { 100, 200 }
+        });
+
+        // ==============================================================
+        // Set a new column name
+        // ==============================================================
+        using var t1 = df.Transpose(columnName: "ID", includeHeader: true, headerName: "metrics");
+        
+        Assert.Equal(2, t1.Height);
+        Assert.Equal(3, t1.Width);
+
+        Assert.Equal("metrics", t1.ColumnNames[0]);
+        Assert.Equal("A1", t1.ColumnNames[1]);
+        Assert.Equal("B2", t1.ColumnNames[2]);
+
+        Assert.Equal("Val1", t1.GetValue<string>(0, "metrics"));
+        Assert.Equal("Val2", t1.GetValue<string>(1, "metrics"));
+        
+        Assert.Equal(10, t1.GetValue<int>(0, "A1"));   
+        Assert.Equal(100, t1.GetValue<int>(1, "A1"));  
+
+        // ==============================================================
+        // Default Column Names
+        // ==============================================================
+        using var t2 = df.Transpose(includeHeader: false);
+        
+        Assert.Equal(3, t2.Height);
+        Assert.Equal(2, t2.Width);
+        Assert.Equal("column_0", t2.ColumnNames[0]);
+        Assert.Equal("column_1", t2.ColumnNames[1]);
+
+        // Type Coercion: 
+        Assert.Equal("A1", t2.GetValue<string>(0, "column_0"));
+        Assert.Equal("10", t2.GetValue<string>(1, "column_0"));  
+        Assert.Equal("100", t2.GetValue<string>(2, "column_0"));
+
+        // ==============================================================
+        // CustomNames
+        // ==============================================================
+        using var t3 = df.Transpose(customNames: ["Row_Alpha", "Row_Beta"], includeHeader: true, headerName: "Original_Column");
+
+        Assert.Equal(3, t3.Height);
+        Assert.Equal(3, t3.Width);
+
+        Assert.Equal("Original_Column", t3.ColumnNames[0]);
+        Assert.Equal("Row_Alpha", t3.ColumnNames[1]);
+        Assert.Equal("Row_Beta", t3.ColumnNames[2]);
+
+        Assert.Equal("ID", t3.GetValue<string>(0, "Original_Column"));
+        Assert.Equal("Val1", t3.GetValue<string>(1, "Original_Column"));
+    }
+    [Fact]
+    [Trait("DataFrame", "Upsample")]
+    public void Test_DataFrame_Upsample_With_Selectors()
+    {
+        var dates = new[]
+        {
+            new DateTime(2024, 1, 1),
+            new DateTime(2024, 1, 3),
+            new DateTime(2024, 1, 1),
+            new DateTime(2024, 1, 2)
+        };
+        var groups = new[] { "A", "A", "B", "B" };
+        var vals = new int?[] { 10, 30, 100, 200 };
+
+        using var df = DataFrame.FromColumns(new { ts = dates, grp = groups, val = vals });
+        using var sorted = df.Sort(["grp", "ts"]);
+
+        using var upsampled = sorted.Upsample(
+            timeColumn: Cs.Temporal(),  
+            every: TimeSpan.FromDays(1), 
+            groupBy: Cs.String(), 
+            maintainOrder: true
+        );
+        upsampled.Show();
+        Assert.Equal(5, upsampled.Height);
+        Assert.Equal(3, upsampled.Width);
+
+        using var groupA = upsampled.Filter(Pl.Col("grp") == Pl.Lit("A"));
+        Assert.Equal(3, groupA.Height);
+
+        Assert.Equal(10, groupA.GetValue<int>(0, "val"));
+
+        Assert.Equal(new DateTime(2024, 1, 2), groupA.GetValue<DateTime>(1, "ts"));
+        Assert.Null(groupA.GetValue<int?>(1, "val"));
+        
+        Assert.Equal(30, groupA.GetValue<int>(2, "val"));
+    }
+    [Fact]
+    [Trait("DataFrame", "ToDummies")]
+    public void Test_DataFrame_ToDummies()
+    {
+        var ids = new[] { 1, 2, 3, 4 };
+        var groups = new[] { "A", "B", "A", "C" };
+        var colors = new[] { "Red", "Blue", "Red", "Red" };
+
+        using var df = DataFrame.FromColumns(new 
+        { 
+            id = ids, 
+            group = groups, 
+            color = colors 
+        });
+
+        using var dummiesAll = df.ToDummies();
+
+        Assert.Equal(6, dummiesAll.Width);
+        Assert.Contains("group_A", dummiesAll.ColumnNames);
+        Assert.Contains("group_C", dummiesAll.ColumnNames);
+        Assert.Contains("color_Red", dummiesAll.ColumnNames);
+
+        Assert.Equal(1, dummiesAll.GetValue<byte>(0, "group_A"));
+        Assert.Equal(0, dummiesAll.GetValue<byte>(0, "group_B"));
+
+        using var dummiesSingle = df.ToDummies(columns: "group", dropFirst: true);
+        
+        Assert.Equal(4, dummiesSingle.Width);
+        Assert.Contains("color", dummiesSingle.ColumnNames); 
+        Assert.Contains("group_B", dummiesSingle.ColumnNames);
+        Assert.Contains("group_C", dummiesSingle.ColumnNames);
+        Assert.DoesNotContain("group_A", dummiesSingle.ColumnNames);
+
+        using var dummiesSelector = df.ToDummies(columns: Cs.String(), separator: "-");
+        
+        Assert.Contains("group-B", dummiesSelector.ColumnNames);
+        Assert.Contains("color-Blue", dummiesSelector.ColumnNames);
+    }
+    [Fact]
+    [Trait("DataFrame", "ShrinkToFit")]
+    public void Test_DataFrame_ShrinkToFit_MemoryReduction()
+    {
+        using var idExpr = Pl.IntRange(0, 100_000).Alias("id");
+        using var idSeries = Series.FromExpr(idExpr);
+
+        using var valSeries = Series.FromExpr((idExpr.Cast<double>() * 1.1).Alias("value"));
+
+        using var df = new DataFrame(idSeries, valSeries);
+
+        using var slicedDf = df.Slice(0..10);
+
+        slicedDf.ShrinkToFitInplace();
+        
+        var idArray = slicedDf["id"].ToArray<int>();
+        Assert.Equal(0, idArray[0]);
+        Assert.Equal(9, idArray[^1]);
+    }
+    [Fact]
+    [Trait("DataFrame", "AlignFrames")]
+    public void Test_AlignFrames_OuterJoin_And_Null_Padding()
+    {
+        var df1 = DataFrame.FromColumns(new 
+        { 
+            Time = (int[])[1, 2, 3], 
+            ValA = (double[])[1.1, 2.2, 3.3] 
+        });
+        var df2 = DataFrame.FromColumns(new 
+        { 
+            Time = (int[])[2, 3, 4], 
+            ValB = (double[])[20.0, 30.0, 40.0] 
+        });
+        var df3 = DataFrame.FromColumns(new 
+        { 
+            Time = (int[])[1, 3, 5], 
+            ValC = (double[])[100.0, 300.0, 500.0] 
+        });
+
+        DataFrame[] aligned = Pl.AlignFrames(
+            frames: [df1, df2, df3], 
+            on: ["Time"], 
+            how: JoinType.Outer 
+        );
+
+        Assert.Equal(3, aligned.Length);
+        foreach (var df in aligned)
+        {
+            Assert.Equal(5u, df.Height);
+            
+            Assert.Equal(1, df[0, "Time"]);
+            Assert.Equal(5, df[4, "Time"]);
+        }
+
+        Assert.Null(aligned[0][3, "ValA"]); 
+        Assert.Null(aligned[0][4, "ValA"]); // Time = 5
+
+        Assert.Null(aligned[1][0, "ValB"]); 
+        Assert.Equal(20.0, aligned[1][1, "ValB"]); 
+    }
+
+    [Fact]
+    [Trait("DataFrame", "AlignFrames")]
+    public void Test_AlignFrames_Name_Collision_Resolution()
+    {
+        var df1 = DataFrame.FromColumns(new { Id = (int[])[1, 2], Price = (int[])[10, 20] });
+        var df2 = DataFrame.FromColumns(new { Id = (int[])[2, 3], Price = (int[])[200, 300] });
+        var df3 = DataFrame.FromColumns(new { Id = (int[])[3, 4], Price = (int[])[3000, 4000] }); 
+
+        var aligned = Pl.AlignFrames(
+            frames: [df1, df2, df3], 
+            on: ["Id"], 
+            how: JoinType.Outer
+        );
+
+        Assert.Equal(["Id", "Price"], aligned[0].Columns);
+        Assert.Equal(["Id", "Price"], aligned[1].Columns);
+        Assert.Equal(["Id", "Price"], aligned[2].Columns);
+
+        Assert.Equal(20, aligned[0][1, "Price"]); 
+        Assert.Equal(200, aligned[1][1, "Price"]); 
+    }
+
+    [Fact]
+    [Trait("DataFrame", "AlignFramesAsync")]
+    public async Task Test_AlignFramesAsync_With_Select_Projection()
+    {
+        var df1 = DataFrame.FromColumns(new { Date = (string[])["2023"], Open = (int[])[10], Close = (int[])[15] });
+        var df2 = DataFrame.FromColumns(new { Date = (string[])["2023"], Open = (int[])[20], Close = (int[])[25] });
+
+        DataFrame[] aligned = await Pl.AlignFramesAsync(
+            frames: [df1, df2], 
+            on: ["Date"], 
+            select: ["Date", "Close"]
+        );
+
+        Assert.Equal(2, aligned.Length);
+
+        Assert.Equal(["Date", "Close"], aligned[0].Columns);
+        Assert.Equal(["Date", "Close"], aligned[1].Columns);
+
+        Assert.Equal(15, aligned[0][0, "Close"]);
+        Assert.Equal(25, aligned[1][0, "Close"]);
+    }
+    [Fact]
+    [Trait("Factory", "FromDicts")]
+    public void Test_FromDictionaries_BasicInference_And_MissingValues()
+    {
+        var data = new List<Dictionary<string, object?>>
+        {
+            new() { { "id", 1 }, { "name", "Alice" } },
+            new() { { "id", 2 }, { "age", 25 } }, 
+            new() { { "id", 3 }, { "name", "Bob" }, { "age", null } }
+        };
+
+        using var df = DataFrame.FromDicts(data);
+
+        Assert.Equal(3, df.Height);
+        Assert.Equal(3, df.Width); // id, name, age
+
+        Assert.Equal(DataType.Int32, df.Schema["id"]);
+        Assert.Equal(DataType.String, df.Schema["name"]);
+        Assert.Equal(DataType.Int32, df.Schema["age"]);
+    }
+
+    [Fact]
+    [Trait("Factory", "FromDicts")]
+    public void Test_FromDictionaries_TypePromotion()
+    {
+        var data = new List<Dictionary<string, object?>>
+        {
+            new() { { "value", 100 } },        // typeof(int)
+            new() { { "value", 99.9 } }      // typeof(double)
+        };
+
+        using var df = DataFrame.FromDicts(data);
+
+        Assert.Equal(2, df.Height);
+        Assert.Equal(DataType.Float64, df.Schema["value"]);
+    }
+
+    [Fact]
+    [Trait("Factory", "FromDictionaries")]
+    public void Test_FromDictionaries_StrictSchema_FastPath()
+    {
+        var data = new List<Dictionary<string, object?>>
+        {
+            new() { { "id", 1 }, { "secret_key", "xxx" }, { "score", 95.5 } }
+        };
+
+        // Dictionary -> IntoSchema
+        var schema = new Dictionary<string, DataType>
+        {
+            { "score", DataType.Float32 }, 
+            { "id", DataType.Int64 }       
+        };
+
+        using var df = DataFrame.FromDicts(data, schema: schema);
+
+        Assert.Equal(2, df.Width);
+        
+        var columns = df.Columns;
+        Assert.Equal("score", columns[0]);
+        Assert.Equal("id", columns[1]);
+
+        Assert.Equal(DataTypeKind.Float32, df.Schema["score"].Kind);
+        Assert.Equal(DataTypeKind.Int64, df.Schema["id"].Kind);
+    }
+
+    [Fact]
+    [Trait("Factory", "FromDictionaries")]
+    public void Test_FromDictionaries_SchemaOverrides()
+    {
+        var data = new List<Dictionary<string, object?>>
+        {
+            new() { { "id", 1 }, { "flag", 1 } }
+        };
+
+        var overrides = new (string, DataType)[] 
+        { 
+            ("flag", DataType.Boolean) 
+        };
+
+        using var df = DataFrame.FromDicts(data, schemaOverrides: overrides);
+
+        Assert.Equal(2, df.Width);
+        Assert.Equal(DataType.Int32, df.Schema["id"]);
+        Assert.Equal(DataType.Boolean, df.Schema["flag"]);
+    }
+
+    [Fact]
+    [Trait("Factory", "FromDicts")]
+    public void Test_FromDictionaries_AutoInferNamesOnly()
+    {
+        var data = new List<Dictionary<string, object?>>
+        {
+            new() { { "col_A", "text" }, { "col_B", 42 }, { "col_C", 3.14 } }
+        };
+
+        string[] names = ["col_A", "col_B"]; 
+
+        using var df = DataFrame.FromDicts(data, schema: names);
+
+        Assert.Equal(2, df.Width);
+        
+        Assert.Equal(DataType.String, df.Schema["col_A"]);
+        Assert.Equal(DataType.Int32, df.Schema["col_B"]);
+    }
+    [Fact]
+    [Trait("DataFrame", "JsonNormalize")]
+    public void Test_JsonNormalize_BasicFlattening()
+    {
+        var data = new Dictionary<string, object?>
+        {
+            { "id", 1 },
+            { "user", new Dictionary<string, object?>
+                {
+                    { "name", "Alice" },
+                    { "address", new Dictionary<string, object?>
+                        {
+                            { "city", "Tokyo" },
+                            { "zip", "100-0001" }
+                        }
+                    }
+                }
+            }
+        };
+
+        // Act 
+        using var df = Pl.JsonNormalize(data);
+
+        // Assert
+        Assert.Equal(1, df.Height);
+        Assert.Equal(4, df.Width);
+
+        var columns = df.Columns;
+        Assert.Contains("id", columns);
+        Assert.Contains("user.name", columns);
+        Assert.Contains("user.address.city", columns);
+        Assert.Contains("user.address.zip", columns);
+
+        Assert.Equal(DataType.Int32, df.Schema["id"]);
+        Assert.Equal(DataType.String, df.Schema["user.address.city"]);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "JsonNormalize")]
+    public void Test_JsonNormalize_ListAndCustomSeparator()
+    {
+        var data = new List<Dictionary<string, object?>>
+        {
+            new() { { "device", new Dictionary<string, object?> { { "sensor", 42.5 } } } },
+            new() { { "device", new Dictionary<string, object?> { { "sensor", 99.9 } } } }
+        };
+
+        using var df = Pl.JsonNormalize(data, separator: "_");
+
+        Assert.Equal(2, df.Height);
+        Assert.Single(df.Columns);
+        
+        Assert.Equal("device_sensor", df.Columns[0]);
+        Assert.Equal(DataType.Float64, df.Schema["device_sensor"]);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "JsonNormalize")]
+    public void Test_JsonNormalize_MaxLevelCutoff()
+    {
+        var data = new Dictionary<string, object?>
+        {
+            { "L1", new Dictionary<string, object?>
+                {
+                    { "L2", new Dictionary<string, object?>
+                        {
+                            { "L3", "deep_value" }
+                        }
+                    }
+                }
+            }
+        };
+
+        // 1. MaxLevel = 0
+        using var df0 = Pl.JsonNormalize(data, maxLevel: 0);
+        Assert.Single(df0.Columns);
+        Assert.Equal("L1", df0.Columns[0]);
+        Assert.Equal(DataType.String, df0.Schema["L1"]); 
+
+        // 2. MaxLevel = 1: Flatten L1 -> L2
+        using var df1 = Pl.JsonNormalize(data, maxLevel: 1);
+        Assert.Single(df1.Columns);
+        Assert.Equal("L1.L2", df1.Columns[0]);
+        Assert.Equal(DataType.String, df1.Schema["L1.L2"]);
+    }
+
+    [Fact]
+    [Trait("DataFrame", "JsonNormalize")]
+    public void Test_JsonNormalize_WithSchemaIntegration()
+    {
+        var data = new List<Dictionary<string, object?>>
+        {
+            new() {
+                { "meta", new Dictionary<string, object?> { { "tag", "A" }, { "version", 1 }, { "garbage", "xyz" } } }
+            },
+            new() {
+                { "meta", new Dictionary<string, object?> { { "tag", "B" } } }
+            }
+        };
+
+        var strictSchema = new Dictionary<string, DataType>
+        {
+            { "meta.tag", typeof(string) },
+            { "meta.version", typeof(double) }
+        };
+
+        using var df = Pl.JsonNormalize(data, schema: strictSchema);
+
+        Assert.Equal(2, df.Height);
+        Assert.Equal(2, df.Width);
+        Assert.Equal(DataType.Float64, df.Schema["meta.version"]);
+    }
+    
+    [Fact]
+    [Trait("DataFrame", "JsonNormalize")]
+    public void Test_JsonNormalize_EmptyData()
+    {
+        var emptyData = new List<Dictionary<string, object?>>();
+        using var df = Pl.JsonNormalize(emptyData);
+        
+        Assert.True(df.IsVoid);
+    }
+    [Fact]
+    [Trait("DataFrame", "JsonNormalize")]
+    public void Test_JsonNormalize_CustomEncoder()
+    {
+        var data = new Dictionary<string, object?>
+        {
+            { "event_id", 1024 },
+            { "payload", new Dictionary<string, object?>
+                {
+                    { "action", "click" },
+                    { "timestamp", "2024-01-01T12:00:00Z" }
+                }
+            }
+        };
+
+        bool encoderWasCalled = false;
+        string myCustomEncoder(object obj)
+        {
+            encoderWasCalled = true;
+            return $"<CustomEncoded>{JsonSerializer.Serialize(obj)}</CustomEncoded>";
+        }
+
+        // Act: maxLevel = 0 
+        using var df = Pl.JsonNormalize(data, maxLevel: 0, encoder: myCustomEncoder);
+
+        // Assert
+        Assert.Equal(1, df.Height);
+        Assert.Equal(2, df.Width);
+
+        Assert.Equal(DataType.Int32, df.Schema["event_id"]);
+        Assert.Equal(DataType.String, df.Schema["payload"]);
+
+        Assert.True(encoderWasCalled, "Custom Encoder is not called!");
+
+        string payloadValue = df["payload"].GetValue<string>(0); 
+        Assert.StartsWith("<CustomEncoded>", payloadValue);
+    }
+    [Fact]
+    [Trait("DataFrame", "JsonNormalizeFromString")]
+    public void Test_JsonNormalize_FromString_MaxLevelCutoff()
+    {
+        // JSON string with nested structure similar to the dictionary-based test
+        var json = @"
+        {
+            ""L1"": {
+                ""L2"": {
+                    ""L3"": ""deep_value""
+                }
+            }
+        }";
+
+        // 1. MaxLevel = 0: no flattening, nested object serialized as string
+        using var df0 = Pl.JsonNormalize(json, maxLevel: 0);
+        Assert.Single(df0.Columns);
+        Assert.Equal("L1", df0.Columns[0]);
+        Assert.Equal(DataType.String, df0.Schema["L1"]); // object is encoded as string by DefaultEncoder
+
+        // 2. MaxLevel = 1: flattens one level, L1.L2 becomes a column (L2 is still an object, so serialized)
+        using var df1 = Pl.JsonNormalize(json, maxLevel: 1);
+        Assert.Single(df1.Columns);
+        Assert.Equal("L1.L2", df1.Columns[0]);
+        Assert.Equal(DataType.String, df1.Schema["L1.L2"]); // L2 contains an object, so encoded as string
+
+        // 3. MaxLevel = 2: flattens two levels, L1.L2.L3 becomes a column with the actual value
+        using var df2 = Pl.JsonNormalize(json, maxLevel: 2);
+        Assert.Single(df2.Columns);
+        Assert.Equal("L1.L2.L3", df2.Columns[0]);
+        Assert.Equal(DataType.String, df2.Schema["L1.L2.L3"]);
+        var val = df2["L1.L2.L3"][0];
+        Assert.Equal("deep_value", val);
+    }
+    [Fact]
+    [Trait("DataFrame", "ToDict")]
+    public void Test_ToDict()
+    {
+        using var df = Pl.CreateDataFrame(
+            ("a", new int[] { 1, 2, 3 }),
+            ("b", new string[] { "x", "y", "z" })
+        );
+
+        var d = df.ToDict();
+        Assert.Equal(2, d.Count);
+        Assert.True(d.ContainsKey("a"));
+        Assert.True(d.ContainsKey("b"));
+
+        var aSeries = d["a"];
+        var bSeries = d["b"];
+        Assert.Equal([1, 2, 3], aSeries.ToArray<int?>());
+        Assert.Equal(new string[] { "x", "y", "z" }, bSeries.ToArray<string>());
+    }
+
+    [Fact]
+    [Trait("DataFrame", "ToDicts")]
+    public void Test_ToDicts()
+    {
+        using var df = Pl.CreateDataFrame(
+            ("foo", new int[] { 1, 2, 3 }),
+            ("bar", new double[] { 4.0, 5.0, 6.0 })
+        );
+
+        var dicts = df.ToDicts();
+        Assert.Equal(3, dicts.Count);
+
+        Assert.Equal(1, dicts[0]["foo"]);
+        Assert.Equal(4.0, dicts[0]["bar"]);
+        Assert.Equal(2, dicts[1]["foo"]);
+        Assert.Equal(5.0, dicts[1]["bar"]);
+        Assert.Equal(3, dicts[2]["foo"]);
+        Assert.Equal(6.0, dicts[2]["bar"]);
+    }    
+    [Fact]
+    [Trait("DataFrame", "Pipe")]
+    public void Test_DataFrame_Pipe()
+    {
+        using var df = Pl.CreateDataFrame(
+            ("name", new[] { "Alice", "Bob", "Charlie", "Diana" }),
+            ("score", new[] { 85, 92, 78, 88 })
+        );
+
+        static DataFrame process(DataFrame input)
+        {
+            var filtered = input.Filter(Pl.Col("score") > 80);
+            var withGrade = filtered.WithColumns(
+                Pl.When(Pl.Col("score") >= 90)
+                .Then(Pl.Lit("A"))
+                .Otherwise(Pl.Lit("B"))
+                .Alias("grade")
+            );
+            return withGrade.Sort("score", descending: true);
+        }
+
+        using var result = df.Pipe(process);
+
+        Assert.Equal(3, result.Height);
+        var names = result[0].ToArray<string>();
+        var scores = result[1].ToArray<int>();
+        var grades = result[2].ToArray<string>();
+
+        Assert.Equal(new[] { "Bob", "Diana", "Alice" }, names);
+        Assert.Equal([92, 88, 85], scores);
+        Assert.Equal(new[] { "A", "B", "B" }, grades);
+    }
+    [Fact]
+    [Trait("DataFrame", "Fold")]
+    public void Test_DataFrame_Fold_Empty_WithInitial_ReturnsInitial()
+    {
+        var init = Series.From("init", [1.0, 2.0]);
+        using var result = new DataFrame().Fold(init, (acc, col) => acc + col);
+
+        Assert.Equal(2, result.Length);
+        Assert.Equal(1.0, result.GetValue<double>(0));
+        Assert.Equal(2.0, result.GetValue<double>(1));
+        Assert.Equal("init", result.Name);
+    }
+    [Fact]
+    [Trait("DataFrame", "Fold")]
+    public void Test_DataFrame_Fold_String_Concat_WithCustomInitial()
+    {
+        using var strDf = DataFrame.FromColumns(
+            Series.From("first", ["foo", "bar"]),
+            Series.From("second", ["baz", "qux"])
+        );
+
+        var init = Series.From("prefix", ["start:", "start:"]);
+        using var result = strDf.Fold(init, (acc, col) => acc + col);
+
+        Assert.Equal(2, result.Length);
+        Assert.Equal("start:foobaz", result.GetValue<string>(0));
+        Assert.Equal("start:barqux", result.GetValue<string>(1));
+    }
+    [Fact]
+    [Trait("DataFrame", "Fold")]
+    public void Test_DataFrame_Fold_TypePromotion()
+    {
+        // 1. Int8 + String → String
+        using var strDf = DataFrame.FromColumns(
+            Series.From("int8", new sbyte[] { 1, 2 }),
+            Series.From("str", ["a", "b"])
+        );
+        using var strResult = strDf.Fold((acc, col) => acc + col);
+
+        Assert.Equal(typeof(string), strResult.DataType);
+        Assert.Equal("1a", strResult.GetValue<string>(0));
+        Assert.Equal("2b", strResult.GetValue<string>(1));
+
+        // 2. Float32 + Int64 → Float64
+        using var floatIntDf = DataFrame.FromColumns(
+            Series.From("f32", [1.5f, 2.5f]),
+            Series.From("i64", [10L, 20L])
+        );
+        using var floatIntResult = floatIntDf.Fold((acc, col) => acc + col);
+
+        Assert.Equal(typeof(double), floatIntResult.DataType);
+        Assert.Equal(11.5, floatIntResult.GetValue<double>(0), 4);
+        Assert.Equal(22.5, floatIntResult.GetValue<double>(1), 4);
+
+        // 3. Float32 + Float64 → Float64
+        using var floatDoubleDf = DataFrame.FromColumns(
+            Series.From("f32", [1.2f, 3.4f]),
+            Series.From("f64", [5.6, 7.8])
+        );
+        using var floatDoubleResult = floatDoubleDf.Fold((acc, col) => acc + col);
+
+        Assert.Equal(typeof(double), floatDoubleResult.DataType);
+        Assert.Equal(1.2 + 5.6, floatDoubleResult.GetValue<double>(0), 3);
+        Assert.Equal(3.4 + 7.8, floatDoubleResult.GetValue<double>(1), 3);
     }
 }

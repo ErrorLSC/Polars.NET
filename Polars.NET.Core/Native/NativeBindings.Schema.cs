@@ -8,18 +8,20 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial void pl_schema_free(IntPtr ptr);
 
-    [LibraryImport(LibName)]
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial SchemaHandle pl_schema_new(
-        IntPtr[] names, 
+        string[] names, 
         IntPtr[] dtypes, 
         UIntPtr len
     );
     // Introspection
     [LibraryImport(LibName)]
-    public static partial UIntPtr pl_schema_len(SchemaHandle schema);
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_schema_len(SchemaHandle schema,out uint len);
 
     [LibraryImport(LibName)]
-    public static partial void pl_schema_get_at_index(
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_schema_get_at_index(
         SchemaHandle schema,
         UIntPtr index,
         out IntPtr namePtr,

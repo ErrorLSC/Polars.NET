@@ -7,8 +7,63 @@ using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
 
-public static partial class PolarsWrapper
+public readonly partial struct PolarsWrapper
 {
+    // --- chunks ---
+    public static SeriesHandle SeriesRechunk(SeriesHandle handle)
+        => NativeBindings.pl_series_rechunk(handle);
+    public static void SeriesShrinkToFit(SeriesHandle s) 
+    {
+        NativeBindings.pl_series_shrink_to_fit(s);
+        ErrorHelper.CheckVoid();
+    }
+    public static nuint SeriesChunkCounts(SeriesHandle handle)
+    {
+        bool success = NativeBindings.pl_series_chunk_count(handle,out uint count);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return count;
+    }
+    public static nuint[] SeriesChunkLengths(SeriesHandle handle)
+    {
+        NativeBindings.pl_series_chunk_count(handle,out uint count);
+
+        if (count == 0)
+        {
+            return [];
+        }
+
+        nuint[] lengths = new nuint[count];
+
+        bool success = NativeBindings.pl_series_chunk_lengths(handle, ref lengths[0]);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return lengths;
+    }
+    public static long SeriesEstimatedSize(SeriesHandle series)
+    {
+        bool success = NativeBindings.pl_series_estimated_size(series,out nuint size);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return (long)size;
+    }
+    public static bool SeriesHasNulls(SeriesHandle series)
+    {
+        int status = NativeBindings.pl_series_has_nulls(series,out bool result);
+        ErrorHelper.CheckStatus(status);
+        return result;
+    }
+    public static SeriesHandle SeriesIsFirstDistinct(SeriesHandle series) => ErrorHelper.Check(NativeBindings.pl_series_is_first_distinct(series));
+    public static SeriesHandle SeriesIsLastDistinct(SeriesHandle series) => ErrorHelper.Check(NativeBindings.pl_series_is_last_distinct(series));
+    public static SeriesHandle SeriesIsUnique(SeriesHandle series) => ErrorHelper.Check(NativeBindings.pl_series_is_unique(series));
+    public static SeriesHandle SeriesIsDuplicated(SeriesHandle series) => ErrorHelper.Check(NativeBindings.pl_series_is_duplicated(series));
+    public static SeriesHandle SeriesIsIn(SeriesHandle series, SeriesHandle other, bool nullsLast) 
+        => ErrorHelper.Check(NativeBindings.pl_series_is_in(series,other, nullsLast));
+    public static SeriesHandle SeriesImplode(SeriesHandle series) => ErrorHelper.Check(NativeBindings.pl_series_implode(series));
+    public static SeriesHandle SeriesUniqueCounts(SeriesHandle series) => ErrorHelper.Check(NativeBindings.pl_series_unique_counts(series));
     // --- Constructors ---
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SeriesHandle SeriesNew(string name, ReadOnlySpan<sbyte> data, ReadOnlySpan<byte> validity = default)
@@ -808,10 +863,23 @@ public static partial class PolarsWrapper
     /// Get DataType Handle from Series
     /// </summary>
     public static DataTypeHandle GetSeriesDataType(SeriesHandle handle)
+        => ErrorHelper.Check(NativeBindings.pl_series_get_dtype(handle));
+    public static long SeriesLen(SeriesHandle handle)
     {
-        return ErrorHelper.Check(NativeBindings.pl_series_get_dtype(handle));
+        bool success = NativeBindings.pl_series_len(handle,out uint count);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return count;
     }
-    public static long SeriesLen(SeriesHandle h) => (long)NativeBindings.pl_series_len(h);
+    public static long SeriesApproxNUnique(SeriesHandle series)
+    {
+        bool success = NativeBindings.pl_series_approx_n_unique(series, out uint count);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return count;
+    }
     
     public static string SeriesName(SeriesHandle h) 
     {
@@ -819,7 +887,26 @@ public static partial class PolarsWrapper
         return ErrorHelper.CheckString(ptr) ;
     }
     
-    public static void SeriesRename(SeriesHandle h, string name) => NativeBindings.pl_series_rename(h, name);
+    public static void SeriesRename(SeriesHandle h, string name)
+    {
+
+        bool success = NativeBindings.pl_series_rename(h, name);
+        
+        ErrorHelper.CheckBool(success);
+    }
+
+    public static void SeriesAppend(SeriesHandle h, SeriesHandle other)
+    {
+        bool success = NativeBindings.pl_series_append(h, other);
+        
+        ErrorHelper.CheckBool(success);
+    }
+    public static void SeriesExtend(SeriesHandle h, SeriesHandle other)
+    {
+        bool success = NativeBindings.pl_series_extend(h, other);
+        
+        ErrorHelper.CheckBool(success);
+    }
 
     // --- DataFrame Conversion ---
     public static DataFrameHandle SeriesToFrame(SeriesHandle h) 
@@ -828,30 +915,63 @@ public static partial class PolarsWrapper
     }
     public static long? SeriesGetInt(SeriesHandle s, long idx)
     {
-        if (NativeBindings.pl_series_get_i64(s, (UIntPtr)idx, out long val)) return val;
-        return null;
+        bool success = NativeBindings.pl_series_get_i64(
+            s, (nuint)idx, out long val, out bool isNull);
+        
+        ErrorHelper.CheckBool(success);
+        if (isNull) return null;
+
+        return val;
     }
     public static Int128? SeriesGetInt128(SeriesHandle s, long idx)
     {
-        if (NativeBindings.pl_series_get_i128(s, (UIntPtr)idx, out Int128 val)) return val;
-        return null;
+        bool success = NativeBindings.pl_series_get_i128(
+            s, (nuint)idx, out Int128 val, out bool isNull);
+        
+        ErrorHelper.CheckBool(success);
+        if (isNull) return null;
+
+        return val;
     }
     public static UInt128? SeriesGetUInt128(SeriesHandle s, long idx)
     {
-        if (NativeBindings.pl_series_get_u128(s, (UIntPtr)idx, out UInt128 val)) return val;
-        return null;
+        bool success = NativeBindings.pl_series_get_u128(
+            s, (nuint)idx, out UInt128 val, out bool isNull);
+        
+        ErrorHelper.CheckBool(success);
+        if (isNull) return null;
+
+        return val;
     }
 
     public static double? SeriesGetDouble(SeriesHandle s, long idx)
     {
-        if (NativeBindings.pl_series_get_f64(s, (UIntPtr)idx, out double val)) return val;
-        return null;
+        bool success = NativeBindings.pl_series_get_f64(
+            s, (nuint)idx, out double val, out bool isNull);
+        
+        ErrorHelper.CheckBool(success);
+        if (isNull) return null;
+
+        return val;
     }
 
     public static bool? SeriesGetBool(SeriesHandle s, long idx)
     {
-        if (NativeBindings.pl_series_get_bool(s, (UIntPtr)idx, out bool val)) return val;
-        return null;
+        bool success = NativeBindings.pl_series_get_bool(
+            s, 
+            (nuint)idx, 
+            out bool val, 
+            out bool isNull
+        );
+
+        ErrorHelper.CheckBool(success);
+
+        if (isNull)
+        {
+            return null;
+        }
+
+        return val;
     }
 
     public static string? SeriesGetString(SeriesHandle s, long idx)
@@ -862,93 +982,171 @@ public static partial class PolarsWrapper
 
     public static decimal? SeriesGetDecimal(SeriesHandle s, long idx)
     {
-        // Get Int128 raw value and scale
-        if (NativeBindings.pl_series_get_decimal(s, (UIntPtr)idx, out Int128 val, out UIntPtr scalePtr))
+        bool success = NativeBindings.pl_series_get_decimal(
+            s, 
+            (nuint)idx, 
+            out Int128 val, 
+            out nuint precision, 
+            out nuint scale, 
+            out bool isNull
+        );
+
+        ErrorHelper.CheckBool(success);
+
+        if (isNull)
         {
-            int scale = (int)scalePtr;
-
-            // Boundary Check ：C# decimal max Scale is 28
-            // If Polars Scale > 28，C# decimal is not able to save such data
-            if (scale >= DecimalPacker.PowersOf10Int128.Length) 
-            {
-                // Fallback: lose accuracy or return null
-                try { return (decimal)val / (decimal)Math.Pow(10, scale); }
-                catch { return null; }
-            }
-
-            // Int128 -> Decimal
-            
-            Int128 divisor = DecimalPacker.PowersOf10Int128[scale];
-
-            // Integer Part
-            Int128 intPart = val / divisor;
-            // Fractional Part
-            Int128 remPart = val % divisor;
-
-            try 
-            {
-                // Int part
-                decimal dInt = (decimal)intPart;
-                
-                // rem part
-                decimal dRem = (decimal)remPart;
-                decimal dDivisor = (decimal)divisor; 
-                
-                // Assemble
-                return dInt + (dRem / dDivisor);
-            }
-            catch (OverflowException)
-            {
-                return null;
-            }
+            return null;
         }
-        return null;
+
+        int scaleInt = (int)scale;
+        int precisionInt = (int)precision;
+
+        // if (precisionInt > 29)
+        // {
+        //     throw new OverflowException(
+        //         $"Cannot safely marshal Polars Decimal({precisionInt}, {scaleInt}) to C# decimal. " +
+        //         "C# decimal supports a maximum precision of 29. " +
+        //         "Consider extracting this as a string (.Cast(DataType.String)) to preserve accuracy."
+        //     );
+        // }
+
+        if (scaleInt >= DecimalPacker.PowersOf10Int128.Length) 
+        {
+            try { return (decimal)val / (decimal)Math.Pow(10, scaleInt); }
+            catch { return null; }
+        }
+
+        Int128 divisor = DecimalPacker.PowersOf10Int128[scaleInt];
+        Int128 intPart = val / divisor;
+        Int128 remPart = val % divisor;
+
+        try 
+        {
+            decimal dInt = (decimal)intPart;
+            decimal dRem = (decimal)remPart;
+            decimal dDivisor = (decimal)divisor; 
+            
+            return dInt + (dRem / dDivisor);
+        }
+        catch (OverflowException)
+        {
+            return null;
+        }
     }
     // Date: Days since 1970-01-01
     public static DateOnly? SeriesGetDate(SeriesHandle s, long idx)
     {
-        if (NativeBindings.pl_series_get_date(s, (UIntPtr)idx, out int days))
+        bool success = NativeBindings.pl_series_get_date(
+            s, 
+            (nuint)idx, 
+            out int days, 
+            out bool isNull
+        );
+
+        ErrorHelper.CheckBool(success);
+
+        if (isNull)
         {
-            // 719162 is days from 0001-01-01 to 1970-01-01
-            return DateOnly.FromDayNumber(days + 719162); 
+            return null;
         }
-        return null;
+
+        return DateOnly.FromDayNumber(days + 719162); 
     }
 
     // Time: Nanoseconds since midnight
     public static TimeOnly? SeriesGetTime(SeriesHandle s, long idx)
     {
-        if (NativeBindings.pl_series_get_time(s, (UIntPtr)idx, out long ns))
+        bool success = NativeBindings.pl_series_get_time(
+            s, 
+            (nuint)idx, 
+            out long ns, 
+            out bool isNull
+        );
+        ErrorHelper.CheckBool(success);
+
+        if (isNull)
         {
-            // .NET Ticks = 100ns
-            long ticks = ns / 100;
-            return new TimeOnly(ticks);
+            return null;
         }
-        return null;
+
+        // .NET Ticks = 100ns
+        return new TimeOnly(ns /100);
     }
 
     // Datetime: Microseconds since 1970-01-01 (Assuming 'us' time unit)
-    public static DateTime? SeriesGetDatetime(SeriesHandle s, long idx)
+    /// <summary>
+    /// Gets the Datetime value at the specified index.
+    /// Returns a tuple containing the .NET DateTime and the TimeZone string (if aware).
+    /// </summary>
+    public static (DateTime Value, string? TimeZone)? SeriesGetDatetime(SeriesHandle s, long idx)
     {
-        if (NativeBindings.pl_series_get_datetime(s, (UIntPtr)idx, out long us))
+        bool success = NativeBindings.pl_series_get_datetime(
+            s, 
+            (nuint)idx, 
+            out long val, 
+            out PlTimeUnit timeUnit, 
+            out IntPtr tzPtr, 
+            out bool isNull
+        );
+
+        ErrorHelper.CheckBool(success);
+
+        if (isNull) return null;
+
+        string? timeZone = null;
+        if (tzPtr != IntPtr.Zero)
         {
-            // .NET Ticks = 100ns. 1 us = 10 ticks.
-            // Unix Epoch Ticks = 621355968000000000
-            long ticks = (us * 10) + 621355968000000000L;
-            return new DateTime(ticks, DateTimeKind.Unspecified); // Default Unspecified
+            try 
+            { 
+                timeZone = Marshal.PtrToStringUTF8(tzPtr); 
+            }
+            finally 
+            { 
+                NativeBindings.pl_free_string(tzPtr); 
+            }
         }
-        return null;
+
+        long ticks = timeUnit switch
+        {
+            PlTimeUnit.Nanoseconds => val / 100,             // Nanoseconds (ns)
+            PlTimeUnit.Microseconds => val * 10,              // Microseconds (us)
+            PlTimeUnit.Milliseconds => val * 10000,           // Milliseconds (ms)
+            _ => throw new PolarsException("Unknown TimeUnit returned from Polars.")
+        };
+
+        DateTime dt = DateTime.UnixEpoch.AddTicks(ticks);
+
+        // ====================================================================
+        // Wall Clock Modification
+        // ====================================================================
+        if (string.IsNullOrEmpty(timeZone))
+        {
+            dt = DateTime.SpecifyKind(dt, DateTimeKind.Unspecified);
+        }
+        else
+        {
+            dt = DateTime.SpecifyKind(dt, DateTimeKind.Utc);
+        }
+
+        return (dt, timeZone);
     }
 
-    // Duration: Microseconds (Assuming 'us')
+    // Duration
     public static TimeSpan? SeriesGetDuration(SeriesHandle s, long idx)
     {
-        if (NativeBindings.pl_series_get_duration(s, (UIntPtr)idx, out long us))
+        bool success = NativeBindings.pl_series_get_duration(
+            s, (nuint)idx, out long val, out PlTimeUnit timeUnit, out bool isNull);
+        
+        ErrorHelper.CheckBool(success);
+        if (isNull) return null;
+
+        return timeUnit switch
         {
-            // 1 us = 10 ticks
-            return new TimeSpan(us * 10);
-        }
-        return null;
+            PlTimeUnit.Nanoseconds => TimeSpan.FromTicks(val / 100),       // Nanoseconds
+            PlTimeUnit.Microseconds => TimeSpan.FromTicks(val * 10),        // Microseconds
+            PlTimeUnit.Milliseconds => TimeSpan.FromMilliseconds(val),      // Milliseconds
+            _ => throw new PolarsException("Unknown TimeUnit")
+        };
     }
     // --- Arrow Integration ---
 
@@ -959,53 +1157,71 @@ public static partial class PolarsWrapper
         var cArray = new CArrowArray();
         var cSchema = new CArrowSchema();
         
-        NativeBindings.pl_arrow_array_export(contextHandle, &cArray);
-        NativeBindings.pl_arrow_schema_export(contextHandle, &cSchema);
-        bool ownershipTransferred = false;
-        try
-        {
-            var importedField = CArrowSchemaImporter.ImportField(&cSchema);
-            
-            var array = CArrowArrayImporter.ImportArray(&cArray, importedField.DataType);
-            ownershipTransferred = true;
-            return array;
-        }
-        finally
-        {
-            if (!ownershipTransferred)
-            {
-                // CArrowArray.Free(&cArray);
-                // CArrowSchema.Free(&cSchema);
-            }
-        }
+        bool arraySuccess = NativeBindings.pl_arrow_array_export(contextHandle, out cArray);
+        ErrorHelper.CheckBool(arraySuccess);
+
+        bool schemaSuccess = NativeBindings.pl_arrow_schema_export(contextHandle, out cSchema);
+        ErrorHelper.CheckBool(schemaSuccess);
+
+        var importedField = CArrowSchemaImporter.ImportField(&cSchema);
+        
+        var array = CArrowArrayImporter.ImportArray(&cArray, importedField.DataType);
+        return array;
     }
     /// <summary>
     /// Imports an Arrow Array via C Data Interface.
     /// </summary>
     public static unsafe SeriesHandle SeriesFromArrow(string name, CArrowArray* cArray, CArrowSchema* cSchema)
         => ErrorHelper.Check(NativeBindings.pl_arrow_to_series(name, cArray, cSchema));
-    public static SeriesHandle SeriesCast(SeriesHandle s, DataTypeHandle dtype)
-        => ErrorHelper.Check(NativeBindings.pl_series_cast(s, dtype));
+    public static SeriesHandle SeriesCast(SeriesHandle series, DataTypeHandle dtype, bool strict, bool wrapNumerical)
+        => ErrorHelper.Check(NativeBindings.pl_series_cast(series, dtype, strict, wrapNumerical)); 
     public static SeriesHandle SeriesIsNull(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_null(s));
     public static SeriesHandle SeriesIsNotNull(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_not_null(s));
     public static SeriesHandle SeriesDropNulls(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_drop_nulls(s));
-    public static bool SeriesIsNullAt(SeriesHandle s, long idx) => NativeBindings.pl_series_is_null_at(s, (UIntPtr)idx);
+    public static bool SeriesIsNullAt(SeriesHandle s, long idx)
+    {
+        bool success = NativeBindings.pl_series_is_null_at(s, (nuint)idx, out bool isNull);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return isNull;
+    }
     public static SeriesHandle SeriesIsNan(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_nan(s));
     public static SeriesHandle SeriesIsNotNan(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_not_nan(s));
     public static SeriesHandle SeriesIsFinite(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_finite(s));
     public static SeriesHandle SeriesIsInfinite(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_infinite(s));
-    public static long SeriesNullCount(SeriesHandle s) => (long)NativeBindings.pl_series_null_count(s);
+    public static long SeriesNullCount(SeriesHandle s)
+    {
+        bool success = NativeBindings.pl_series_null_count(s, out uint count);
+
+        ErrorHelper.CheckBool(success); 
+        
+        return count;
+    }
     public static SeriesHandle SeriesUnique(SeriesHandle handle) => ErrorHelper.Check(NativeBindings.pl_series_unique(handle));
     public static SeriesHandle SeriesUniqueStable(SeriesHandle handle) => ErrorHelper.Check(NativeBindings.pl_series_unique_stable(handle));
-    public static ulong SeriesNUnique(SeriesHandle handle) => NativeBindings.pl_series_n_unique(handle);
+    public static long SeriesNUnique(SeriesHandle handle)
+    {
+        bool success = NativeBindings.pl_series_n_unique(handle,out uint count);
+        
+        ErrorHelper.CheckBool(success); 
+        
+        return count;
+    }
+    public static SeriesHandle SeriesReshape(SeriesHandle series, ReadOnlySpan<long> dimensions)
+        => ErrorHelper.Check(NativeBindings.pl_series_reshape(series, dimensions, (nuint)dimensions.Length));
+    
     // Ops
     public static SeriesHandle SeriesAdd(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_add(s1, s2));
     public static SeriesHandle SeriesSub(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_sub(s1, s2));
     public static SeriesHandle SeriesMul(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_mul(s1, s2));
     public static SeriesHandle SeriesDiv(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_div(s1, s2));
+    public static SeriesHandle SeriesRem(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_rem(s1, s2));
 
     public static SeriesHandle SeriesEq(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_eq(s1, s2));
+    public static SeriesHandle SeriesEqMissing(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_eq_missing(s1, s2));
     public static SeriesHandle SeriesNeq(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_neq(s1, s2));
+    public static SeriesHandle SeriesNeqMissing(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_neq_missing(s1, s2));
     public static SeriesHandle SeriesGt(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_gt(s1, s2));
     public static SeriesHandle SeriesLt(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_lt(s1, s2));
     public static SeriesHandle SeriesGtEq(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_gt_eq(s1, s2));
@@ -1016,9 +1232,14 @@ public static partial class PolarsWrapper
     public static SeriesHandle SeriesMean(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_mean(s));
     public static SeriesHandle SeriesMin(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_min(s));
     public static SeriesHandle SeriesMax(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_max(s));
+    public static SeriesHandle SeriesMode(SeriesHandle s,bool maintainOrder) => ErrorHelper.Check(NativeBindings.pl_series_mode(s,maintainOrder));
+    public static SeriesHandle SeriesNot(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_not(s));
+    
     // Slice
-    public static SeriesHandle SeriesSlice(SeriesHandle handle, long offset, long length)
+    public static SeriesHandle SeriesSlice(SeriesHandle handle, long offset, ulong length)
         => ErrorHelper.Check(NativeBindings.pl_series_slice(handle, offset, (UIntPtr)length));
+    public static SeriesHandle SeriesTake(SeriesHandle series, SeriesHandle indices)
+        => ErrorHelper.Check(NativeBindings.pl_series_take(series,indices)); 
     // Sort
     public static SeriesHandle SeriesSort(
         SeriesHandle series, 
@@ -1042,15 +1263,61 @@ public static partial class PolarsWrapper
         SeriesHandle series,
         bool sort,
         bool parallel,
-        string name,
+        string? name,
         bool normalize)
     {
+        string realName = name ?? (normalize ? "proportion" : "count");
         return ErrorHelper.Check(NativeBindings.pl_series_value_counts(
             series,
             sort,
             parallel,
-            name,
+            realName,
             normalize
         ));
     }
+    public static string SeriesToString(SeriesHandle handle) => ErrorHelper.CheckString(NativeBindings.pl_series_to_string(handle));
+    public static bool SeriesIsSorted(SeriesHandle handle,bool descending,bool nullsLast)
+    {
+        int code = NativeBindings.pl_series_is_sorted(handle,descending,nullsLast,out bool state);
+        ErrorHelper.CheckStatus(code);
+        return state;
+    }
+    public static SeriesHandle SeriesSetWithMask(SeriesHandle series,SeriesHandle mask, SeriesHandle value)
+        => ErrorHelper.Check(NativeBindings.pl_series_set_with_mask(series,mask,value));
+    public static SeriesHandle SeriesSetWithIndex(SeriesHandle series,SeriesHandle index, SeriesHandle value)
+        => ErrorHelper.Check(NativeBindings.pl_series_scatter_indices(series,index,value));
+    public static SeriesHandle SeriesZipWith(SeriesHandle series,SeriesHandle mask, SeriesHandle other)
+        => ErrorHelper.Check(NativeBindings.pl_series_zip_with(series,mask,other));
+    public static SeriesHandle SeriesSetSortedFlag(SeriesHandle handle,bool descending) 
+        => ErrorHelper.Check(NativeBindings.pl_series_set_sorted_flag(handle,descending));
+    public static PlSortStateFlags SeriesGetSortedFlags(SeriesHandle handle)
+    {
+        int status = NativeBindings.pl_series_get_sorted_flags(handle, out PlSortStateFlags flags);
+        ErrorHelper.CheckStatus(status);
+        return flags;
+    }
+    public static DataFrameHandle SeriesToDummies(SeriesHandle series,string? separator,bool dropFirst,bool dropNulls)
+        => ErrorHelper.Check(NativeBindings.pl_series_to_dummies(series,separator,dropFirst,dropNulls));
+    public static SeriesHandle SeriesNewFromIndex(SeriesHandle series,long index,long length)
+        => ErrorHelper.Check(NativeBindings.pl_series_new_from_index(series,(nuint)index,(nuint)length));
+    public static bool SeriesEquals(SeriesHandle left,SeriesHandle right)
+    {
+        int status = NativeBindings.pl_series_equals(left,right,out bool result);
+        ErrorHelper.CheckStatus(status);
+        return result;
+    }
+    public static ulong SeriesHash(SeriesHandle series)
+    {
+        int status = NativeBindings.pl_series_hash(series,out ulong hash);
+        ErrorHelper.CheckStatus(status);
+        return hash;
+    }
+    public static SeriesHandle SeriesToPhysical(SeriesHandle s)
+        => ErrorHelper.Check(NativeBindings.pl_series_to_physical(s));
+    public static SeriesHandle SeriesNewEmpty(string name,DataTypeHandle dtype)
+        => ErrorHelper.Check(NativeBindings.pl_series_new_empty(name,dtype));
+    public static SeriesHandle SeriesNewNull(string name,long length)
+        => ErrorHelper.Check(NativeBindings.pl_series_new_null(name,(nuint)length));
+    public static SeriesHandle SeriesClear(SeriesHandle series)
+        => ErrorHelper.Check(NativeBindings.pl_series_clear(series));
 }

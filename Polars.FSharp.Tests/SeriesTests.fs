@@ -4,6 +4,7 @@ open Xunit
 open Polars.FSharp
 open Apache.Arrow
 open System
+open System.Numerics.Tensors
 
 type ``Series Tests`` () =
     let count = 100_000 
@@ -62,14 +63,14 @@ type ``Series Tests`` () =
         // Series -> DataFrame
         let dfNew = sAge.ToFrame()
         Assert.Equal(1L, dfNew.Width)
-        Assert.Equal(2L, dfNew.Rows)
+        Assert.Equal(2L, dfNew.Height)
         Assert.Equal("age", dfNew.ColumnNames.[0])
     [<Fact>]
     member _.``Series: Cast to Categorical`` () =
         let data = ["apple"; "banana"; "apple"; "apple"; "banana"]
         use s = Series.create("fruits", data)
         
-        use sCat = s.Cast DataType.Categorical
+        use sCat = s.Cast(DataType.Categorical())
         
         let arrow = sCat.ToArrow()
         
@@ -92,7 +93,7 @@ type ``Series Tests`` () =
         use s = Series.create("money", data)
         
         // String -> Decimal (Precision=10, Scale=2)
-        use sDec = s.Cast(DataType.Decimal(Some 10,Some 2))
+        use sDec = s.Cast(DataType.Decimal(10,2))
         
         let arrow = sDec.ToArrow()
         let decArr = arrow :?> Decimal128Array
@@ -159,12 +160,12 @@ type ``Series Tests`` () =
         let s = Series.create("dates", [dt])
 
         // Truncate to 1h -> 10:00:00
-        let sTrunc = s.Dt.Truncate("1h")
+        let sTrunc = s.Dt.Truncate(Dur.String "1h")
         let valTrunc = sTrunc.GetValue<DateTime>(0)
         Assert.Equal(DateTime(2023, 1, 1, 10, 0, 0), valTrunc)
 
         // Offset by 1d -> 2023-01-02
-        let sOffset = s.Dt.OffsetBy("1d")
+        let sOffset = s.Dt.OffsetBy(Dur.String "1d")
         let valOffset = sOffset.GetValue<DateTime>(0)
         Assert.Equal(DateTime(2023, 1, 2, 10, 30, 45), valOffset)
 
@@ -188,7 +189,7 @@ type ``Series Tests`` () =
         let s = Series.create("txt", ["Hello"; "World"; "Polars"])
 
         // ToUpper
-        let sUpper = s.Str.ToUpper()
+        let sUpper = s.Str.ToUppercase()
         Assert.Equal("HELLO", sUpper.GetValue<string>(0))
 
         // Slice (Offset 1, Len 2) -> "el", "or", "ol"
@@ -197,7 +198,7 @@ type ``Series Tests`` () =
         Assert.Equal("or", sSlice.GetValue<string> 1)
         
         // Len
-        let sLen = s.Str.Len()
+        let sLen = s.Str.LenBytes()
         Assert.Equal(5u, sLen.GetValue<uint32> 0) // Polars len returns uint32
 
     [<Fact>]
@@ -205,7 +206,7 @@ type ``Series Tests`` () =
         let s = Series.create("txt", ["a1b"; "c2d"])
 
         // Replace Digit with * (Regex)
-        let sRep = s.Str.ReplaceAll("\d", "*", useRegex=true)
+        let sRep = s.Str.ReplaceAll("\d", "*", literal=false)
         Assert.Equal("a*b", sRep.GetValue<string> 0)
         Assert.Equal("c*d", sRep.GetValue<string> 1)
 
@@ -244,11 +245,11 @@ type ``Series Tests`` () =
         let s = Series.create("txt", ["  hello  "; "__world__"])
 
         // Strip Whitespace
-        let sTrim = s.Str.Strip()
+        let sTrim = s.Str.StripChars()
         Assert.Equal("hello", sTrim.GetValue<string> 0)
 
         // Strip custom chars
-        let sStripCustom = s.Str.Strip("_")
+        let sStripCustom = s.Str.StripChars("_")
         Assert.Equal("world", sStripCustom.GetValue<string> 1)
     [<Fact>]
     member _.``Series: List Basic Ops`` () =
@@ -306,7 +307,7 @@ type ``Series Tests`` () =
         let df = 
             DataFrame.ofRecords(data)
                 .WithColumns([
-                    pl.col("Vals").Cast(DataType.Array(DataType.Int32, 3UL))
+                    pl.col("Vals").Cast(DataType.Array(DataType.Int32, [|3u|]))
                 ])
 
         let s = df.Column "Vals"
@@ -329,7 +330,7 @@ type ``Series Tests`` () =
         let df = 
             DataFrame.ofRecords(data)
                 .WithColumns([
-                    pl.col("Vals").Cast(DataType.Array(DataType.Int32, 3UL))
+                    pl.col("Vals").Cast(DataType.Array(DataType.Int32, [|3u|]))
                 ])
         
         let s = df.Column "Vals"
@@ -351,7 +352,7 @@ type ``Series Tests`` () =
         let df = 
             DataFrame.ofRecords(data)
                 .WithColumns([
-                    pl.col("Vals").Cast(DataType.Array(DataType.String, 3UL))
+                    pl.col("Vals").Cast(DataType.Array(DataType.String, [|3u|]))
                 ])
         
         let s = df.Column "Vals"
@@ -397,7 +398,7 @@ type ``Series Tests`` () =
 
         // Rename Fields
         // A -> X, B -> Y
-        let sRenamed = s.Struct.RenameFields ["X"; "Y"]
+        let sRenamed = s.Struct.RenameFields [|"X"; "Y"|]
 
         let valX = sRenamed.Struct.Field("X")
         Assert.Equal(10, valX.GetValue<int> 0)
@@ -433,13 +434,13 @@ type ``Series Tests`` () =
         let s = Series.create("vals", [1.0; 2.0; 3.0])
 
         // Std (ddof=1): sqrt((1+0+1)/2) = 1.0
-        Assert.Equal(1.0, s.Std().GetValue<double> 0)
+        Assert.Equal(Some 1.0, s.Std())
 
         // Var (ddof=1): 1.0
-        Assert.Equal(1.0, s.Var().GetValue<double> 0)
+        Assert.Equal(Some 1.0, s.Var())
 
         // Median: 2.0
-        Assert.Equal(2.0, s.Median().GetValue<double> 0)
+        Assert.Equal(Some 2.0, s.Median())
 
         // Quantile (0.5) == Median
         Assert.Equal(2.0, s.Quantile(0.5).GetValue<double> 0)
@@ -519,18 +520,12 @@ type ``Series Tests`` () =
         // 1: 1+2=3
         // 2: 2+3=5
         // 3: 3+4=7
-        let sRoll = s.RollingSum("2i", minPeriod=1)
+        let sRoll = s.RollingSum(Dur.String "2i", minPeriod=1)
         
         Assert.Equal(1, sRoll.GetValue<int> 0)
         Assert.Equal(3, sRoll.GetValue<int> 1)
         Assert.Equal(5, sRoll.GetValue<int> 2)
         Assert.Equal(7, sRoll.GetValue<int> 3)
-    
-
-    // ==========================================
-    // 1. 测试标准 Option<'T> (引用类型包装)
-    // ==========================================
-
     [<Fact>]
     member _.``Series.ofOptionSeq: Int32 (Fast Path)`` () =
         // 准备数据: [Some 0, Some 1, Some 2, Some 3, None, Some 5 ...]
@@ -645,7 +640,6 @@ type ``Series Tests`` () =
         
         using (Series.ofArray2D("decimal_matrix", data)) (fun s ->
             
-            // 3. 验证
             Assert.Equal(2L, s.Length)
             
             let result = s.ToArray<decimal[]>()
@@ -692,3 +686,168 @@ type ``Series Tests`` () =
         Assert.Throws<OverflowException>(fun () -> 
             Series.ofArray2D("overflow_test", data) |> ignore
         )
+
+    [<Fact>]
+    [<Trait("Series", "AsReadOnlySpan")>]
+    member _.``ToReadOnlySpan - Valid 1D Numeric Series - Returns ZeroCopy Span`` () =
+
+        use series = Series.create("float_features", [| 1.5f; 2.5f; 3.5f; 4.5f |])
+
+        let span = series.AsReadOnlySpan<float32>()
+
+        Assert.Equal(4, span.Length)
+        Assert.Equal(1.5f, span.[0])
+        Assert.Equal(2.5f, span.[1])
+        Assert.Equal(3.5f, span.[2])
+        Assert.Equal(4.5f, span.[3])
+
+    [<Fact>]
+    [<Trait("Series", "AsReadOnlySpanException")>]
+    member _.``ToReadOnlySpan - String Series - Throws FSharp Layer Exception`` () =
+
+        use series = Series.create("string_tags", [| "hello"; "polars"; "fsharp" |])
+
+        let ex = Assert.Throws<InvalidOperationException>(fun () -> 
+            let _ = series.AsReadOnlySpan<int>()
+            ()
+        )
+        Assert.Contains("Cannot create Tensor/Span from a String Series", ex.Message)
+        Assert.Contains("Machine learning models and Spans require numeric inputs", ex.Message)
+
+    [<Fact>]
+    [<Trait("Series", "TensorSpanNull")>]
+    member _.``ToReadOnlySpan - Nullable Numeric Series - Throws Core Layer Exception`` () =
+        let dataWithNull = [| Some 1; None; Some 2 |]
+        use series = Series.create("dirty_data", dataWithNull)
+
+        let ex = Assert.Throws<InvalidOperationException>(fun () -> 
+
+            let _ = series.AsReadOnlySpan<int>()
+            ()
+        )
+        Assert.Contains("Cannot extract Tensor memory: contains null values.", ex.Message)
+    [<Fact>]
+    [<Trait("Series", "AsTensorSpan")>]
+    member _.``AsTensorSpan - 1D Series - Promotes To Column Vector`` () =
+
+        let data = [| 10; 20; 30 |]
+        use series = Series.create("1d_features", data)
+
+        let tensor = series.AsTensorSpan<int>()
+
+        Assert.Equal(2, tensor.Rank)
+        
+        Assert.Equal(3, int tensor.Lengths.[0]) 
+        Assert.Equal(1, int tensor.Lengths.[1]) 
+        
+        Assert.Equal(10, tensor.Item(ReadOnlySpan<nativeint> [| 0n; 0n |]))
+        Assert.Equal(20, tensor.Item(ReadOnlySpan<nativeint> [| 1n; 0n |]))
+        Assert.Equal(30, tensor.Item(ReadOnlySpan<nativeint> [| 2n; 0n |]))
+
+
+    [<Fact>]
+    [<Trait("Series", "AsTransposedTensorSpan")>]
+    member _.``AsTransposedTensorSpan - 2D Series - Returns Transposed View`` () =
+        let matrix = array2D [
+            [ 1.1f; 1.2f ]
+            [ 2.1f; 2.2f ]
+            [ 3.1f; 3.2f ]
+        ]
+        use series = Series.ofArray2D("embeddings", matrix)
+
+        let transposed = series.AsTransposedTensorSpan<float32>()
+
+        Assert.Equal(2, transposed.Rank)
+        Assert.Equal(2, int transposed.Lengths.[0])
+        Assert.Equal(3, int transposed.Lengths.[1])
+
+        Assert.Equal(2.1f, transposed.Item(ReadOnlySpan<nativeint> [| 0n; 1n |]))
+        Assert.Equal(1.2f, transposed.Item(ReadOnlySpan<nativeint> [| 1n; 0n |]))
+
+
+    [<Fact>]
+    [<Trait("Series", "AsTensorSpan3D")>]
+    member _.``FromTensor and AsTensorSpan - 3D Shape - Closed Loop`` () =
+        let flatData = [| 1.0f .. 8.0f |]
+
+        let shapeArray = [| 2n; 2n; 2n |] 
+        let shapeSpan = ReadOnlySpan<nativeint> shapeArray
+        
+        let tensorIn = ReadOnlyTensorSpan<float32>(flatData, shapeSpan)
+
+        use series = Series.ofTensor("image_batch", tensorIn)
+        Assert.Equal(2L, series.Length) 
+
+        let tensorOut = series.AsTensorSpan<float32> shapeSpan
+
+        Assert.Equal(3, tensorOut.Rank)
+        Assert.Equal(2, int tensorOut.Lengths.[0])
+        Assert.Equal(2, int tensorOut.Lengths.[1])
+        Assert.Equal(2, int tensorOut.Lengths.[2])
+
+        Assert.Equal(8.0f, tensorOut.Item(ReadOnlySpan<nativeint> [| 1n; 1n; 1n |]))
+    [<Fact>]
+    [<Trait("Series", "AsTensor")>]
+    member _.``AsTensor - 1D Series - Performs Deep Copy And Promotes To 2D`` () =
+        let data = [| 10; 20; 30; 40 |]
+        let series = Series.create("heap_tensor_1d", data)
+
+        let heapTensor = series.AsTensor<int>()
+
+        (series :> IDisposable).Dispose()
+
+        Assert.Equal(2, heapTensor.Rank)
+        Assert.Equal(4, int heapTensor.Lengths.[0]) // Rows
+        Assert.Equal(1, int heapTensor.Lengths.[1]) // Cols
+
+        Assert.Equal(10, heapTensor.Item(ReadOnlySpan<nativeint> [| 0n; 0n |]))
+        Assert.Equal(40, heapTensor.Item(ReadOnlySpan<nativeint> [| 3n; 0n |]))
+
+
+    [<Fact>]
+    [<Trait("Series", "AsTensor3D")>]
+    member _.``AsTensor - With Shape - Performs Deep Copy of 3D`` () =
+        let flatData = [| 1f; 2f; 3f; 4f; 5f; 6f; 7f; 8f |]
+        let series = Series.create("heap_tensor_3d", flatData)
+
+        let shape3D = [| 2n; 2n; 2n |]
+        let shapeSpan = ReadOnlySpan<nativeint> shape3D
+
+        let heapTensor = series.AsTensor<float32> shapeSpan
+
+        (series :> IDisposable).Dispose()
+
+        Assert.Equal(3, heapTensor.Rank)
+        Assert.Equal(2, int heapTensor.Lengths.[0])
+        Assert.Equal(2, int heapTensor.Lengths.[1])
+        Assert.Equal(2, int heapTensor.Lengths.[2])
+
+        Assert.Equal(8f, heapTensor.Item(ReadOnlySpan<nativeint> [| 1n; 1n; 1n |]))
+
+
+    [<Fact>]
+    [<Trait("Series", "AsUnmanagedTensor")>]
+    member _.``AsUnmanagedTensor - Returns Valid Memory For FFI`` () =
+
+        let matrix = array2D [
+            [ 1.1f; 1.2f; 1.3f ]
+            [ 2.1f; 2.2f; 2.3f ]
+        ]
+        
+        use series = Series.ofArray2D("ffi_matrix", matrix)
+
+        let struct (ptr, shape) = series.AsDangerousUnmanagedTensor<float32>()
+
+        Assert.Equal(2, shape.Length)
+        Assert.Equal(2L, shape.[0]) 
+        Assert.Equal(3L, shape.[1]) 
+
+        let totalElements = int (shape.[0] * shape.[1])
+        
+        let ptrVoid = ptr.ToPointer() 
+        let nativeSpan = ReadOnlySpan<float32>(ptrVoid, totalElements)
+
+        Assert.Equal(1.1f, nativeSpan.[0])
+        Assert.Equal(1.3f, nativeSpan.[2]) 
+        Assert.Equal(2.1f, nativeSpan.[3])
+        Assert.Equal(2.3f, nativeSpan.[5]) 

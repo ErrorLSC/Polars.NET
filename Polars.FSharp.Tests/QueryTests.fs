@@ -489,7 +489,7 @@ module QueryTests =
         let orderQuery = dfOrders.AsQueryable<OrderDto>()
 
         
-        // 预期 SQL: GROUP BY EXTRACT(YEAR FROM o."OrderDate"), o."Region"
+        // SQL: GROUP BY EXTRACT(YEAR FROM o."OrderDate"), o."Region"
         let multiGroupQuery = 
             query {
                 for o in orderQuery do
@@ -959,7 +959,7 @@ module QueryTests =
         // ==========================================
         use lfWithLinq = linqQuery.ToLazyFrame()
 
-        use finalLf = lfWithLinq.WithColumn(pl.col("salary").Std().Alias "salary_std")
+        use finalLf = lfWithLinq.WithColumns(pl.col("salary").Std().Alias "salary_std")
         
         // ==========================================
         // Collect

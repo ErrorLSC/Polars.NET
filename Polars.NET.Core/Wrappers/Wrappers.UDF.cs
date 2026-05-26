@@ -1,19 +1,22 @@
 using System.Runtime.InteropServices;
+using System.Text;
 using Apache.Arrow;
 using Apache.Arrow.C;
 using Polars.NET.Core.Native;
+using Polars.NET.Core.Arrow;
+using Apache.Arrow.Ipc;
 
 namespace Polars.NET.Core;
 
-public static partial class PolarsWrapper
+public readonly partial struct PolarsWrapper
 {
-    private static readonly CleanupCallback s_cleanupDelegate = CleanupTrampoline;
+    private static readonly NativeBindings.CleanupCallback s_cleanupDelegate = CleanupTrampoline;
 
-    private static void CleanupTrampoline(IntPtr userData)
+    private static void CleanupTrampoline(nint userData)
     {
         try
         {
-            if (userData != IntPtr.Zero)
+            if (userData != nint.Zero)
             {
                 GCHandle handle = GCHandle.FromIntPtr(userData);
                 if (handle.IsAllocated) handle.Free();
@@ -24,68 +27,112 @@ public static partial class PolarsWrapper
             Console.Error.WriteLine($"[Polars C#] Error freeing UDF handle: {ex}");
         }
     }
+    /// <summary>从 C 指针导入单个 Arrow 数组。</summary>
+    private static unsafe IArrowArray ImportSingle(CArrowArray* arr, CArrowSchema* sch)
+    {
+        var field = CArrowSchemaImporter.ImportField(sch);
+        return CArrowArrayImporter.ImportArray(arr, field.DataType);
+    }
+
+    /// <summary>将计算后的 Arrow 数组导出到 C 输出结构。</summary>
+    private static unsafe void ExportResult(IArrowArray result, CArrowArray* outArr, CArrowSchema* outSch)
+    {
+        *outArr = default;
+        *outSch = default;
+        CArrowArrayExporter.ExportArray(result, outArr);
+        var outField = new Field("result", result.Data.DataType, true);
+        CArrowSchemaExporter.ExportField(outField, outSch);
+    }
+
+    /// <summary>将异常信息写入 C 错误缓冲区（确保末尾为 0）。</summary>
+    private static unsafe void WriteErrorToBuffer(byte* buffer, int bufferLength, Exception ex)
+    {
+        string msg = ex.ToString();
+        byte[] bytes = Encoding.UTF8.GetBytes(msg);
+        int copyLen = Math.Min(bytes.Length, bufferLength - 1);
+        Marshal.Copy(bytes, 0, (IntPtr)buffer, copyLen);
+        buffer[copyLen] = 0;
+    }
 
     public static ExprHandle Map(ExprHandle expr, Func<IArrowArray, IArrowArray> func, DataTypeHandle outputType)
     {
-        unsafe int Trampoline(CArrowArray* inArr, CArrowSchema* inSch, CArrowArray* outArr, CArrowSchema* outSch, byte* msgBuf)
+        unsafe
         {
-            try 
+            NativeBindings.UdfCallback callback = (inArr, inSch, outArr, outSch, msgBuf) =>
             {
-                // Import Arrow
-                var field = CArrowSchemaImporter.ImportField(inSch);
-                var array = CArrowArrayImporter.ImportArray(inArr, field.DataType);
+                try
+                {
+                    var array = ImportSingle(inArr, inSch);
+                    var result = func(array);
+                    ExportResult(result, outArr, outSch);
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteErrorToBuffer(msgBuf, 1024, ex);
+                    *outArr = default;
+                    *outSch = default;
+                    return 1;
+                }
+            };
 
-                // UDF execuate
-                var resultArray = func(array);
-
-                // Clear output struct memory
-                *outArr = default;
-                *outSch = default;
-
-                CArrowArrayExporter.ExportArray(resultArray, outArr);
-
-                var outField = new Field("result", resultArray.Data.DataType, true);
-                CArrowSchemaExporter.ExportField(outField, outSch);
-                
-                return 0;
-            }
-            catch (Exception ex)
-            {
-                string errorMsg = ex.ToString(); 
-                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(errorMsg);
-                int maxLen = 1023; 
-                int copyLen = Math.Min(bytes.Length, maxLen);
-                Marshal.Copy(bytes, 0, (IntPtr)msgBuf, copyLen);
-                msgBuf[copyLen] = 0; 
-                
-                *outArr = default; 
-                *outSch = default;
-
-                return 1; 
-            }
-        }
-
-        unsafe 
-        {
-            UdfCallback callback = Trampoline;
-            GCHandle gcHandle = GCHandle.Alloc(callback);
-            IntPtr userData = GCHandle.ToIntPtr(gcHandle);
-
+            var handle = GCHandle.Alloc(callback);
             try
             {
-                var h = NativeBindings.pl_expr_map(
-                    expr,
-                    callback,
-                    outputType,
-                    s_cleanupDelegate,
-                    userData
-                );
-                expr.TransferOwnership();
-                return ErrorHelper.Check(h);
+                var h = NativeBindings.pl_expr_map(expr, callback, outputType, s_cleanupDelegate, GCHandle.ToIntPtr(handle));
+                var checkedHandle = ErrorHelper.Check(h);   
+                expr.TransferOwnership();                   
+                return checkedHandle;
             }
             catch
             {
-                if (gcHandle.IsAllocated) gcHandle.Free();
+                if (handle.IsAllocated) handle.Free();
+                throw;
+            }
+        }
+    }
+    public static ExprHandle MapMany(
+        ExprHandle main,
+        ExprHandle[] others,
+        Func<IReadOnlyList<IArrowArray>, IArrowArray> function,
+        DataTypeHandle outputType)
+    {
+        unsafe
+        {
+            NativeBindings.MultiUdfCallback callback = (n, arrs, schs, outArr, outSch, _, errorBuf, errorBufLen) =>
+            {
+                try
+                {
+                    var inputs = new List<IArrowArray>((int)n);
+                    for (int i = 0; i < n; i++)
+                        inputs.Add(ImportSingle(arrs[i], schs[i]));
+                    var result = function(inputs);
+                    ExportResult(result, outArr, outSch);
+                    return 0;
+                }
+                catch (Exception ex)
+                {
+                    WriteErrorToBuffer(errorBuf, (int)errorBufLen, ex);
+                    *outArr = default;
+                    *outSch = default;
+                    return 1;
+                }
+            };
+
+            var handle = GCHandle.Alloc(callback);
+            try
+            {
+                var argsPtrs = HandlesToPtrs(others);
+                var h = NativeBindings.pl_expr_map_many(
+                    main, argsPtrs, (nuint)argsPtrs.Length,
+                    callback, outputType, s_cleanupDelegate, GCHandle.ToIntPtr(handle));
+                var checkedHandle = ErrorHelper.Check(h);  
+                main.TransferOwnership();                   
+                return checkedHandle;
+            }
+            catch
+            {
+                if (handle.IsAllocated) handle.Free();
                 throw;
             }
         }

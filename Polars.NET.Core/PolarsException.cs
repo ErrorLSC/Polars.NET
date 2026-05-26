@@ -13,6 +13,17 @@ public class PolarsException : Exception
 internal static class ErrorHelper
 {
     // =========================================================================
+    // 0.Raw Pointer Check
+    // =========================================================================
+    public static nint Check(nint ptr)
+    {
+        if (ptr == nint.Zero)
+        {
+            ThrowRustError();
+        }
+        return ptr;
+    }
+    // =========================================================================
     // 1. Handle Check
     // =========================================================================
     public static T Check<T>(T handle) where T : PolarsHandle
@@ -71,6 +82,19 @@ internal static class ErrorHelper
     public static void CheckStatus(int statusCode)
     {
         if (statusCode == 0)
+        {
+            return;
+        }
+
+        ThrowRustError();
+    }
+
+    // =========================================================================
+    // 5. Bool Check (for ffi_bool_try! macro)
+    // =========================================================================
+    public static void CheckBool(bool success)
+    {
+        if (success)
         {
             return;
         }

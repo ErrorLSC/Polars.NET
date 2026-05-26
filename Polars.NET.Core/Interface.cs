@@ -1,5 +1,6 @@
 using Apache.Arrow;
 using Apache.Arrow.Adbc;
+using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 
 namespace Polars.NET.Core;
@@ -12,6 +13,7 @@ public interface IPolarsDataFrame : IDisposable
     IPolarsSchema Schema{get;}
     UpdateResult WriteToAdbc(AdbcStatement statement);
     IPolarsSeries Column(int index);
+    IArrowArrayStream ToArrowStream(ReadOnlySpan<int> columnIndices = default,ulong? seed = null);
 
 }
 
@@ -31,10 +33,10 @@ public interface IPolarsDataType: IDisposable
 }
 public interface IPolarsLazyFrame : IDisposable
 {
-    IPolarsDataFrame Collect(bool useStreaming=false);
+    IPolarsDataFrame Collect(PlEngine engine=PlEngine.Auto,bool useStreaming=false);
     IPolarsSchema Schema{get;}
     string Explain(bool optimized=true);
-    Task<IPolarsDataFrame> CollectAsync(bool useStreaming = false, CancellationToken cancellationToken = default);
+    Task<IPolarsDataFrame> CollectAsync(PlEngine engine=PlEngine.Auto,bool useStreaming = false, CancellationToken cancellationToken = default);
 }
 
 public interface IPolarsSqlContext : IDisposable
@@ -45,11 +47,7 @@ public interface IPolarsSqlContext : IDisposable
     IPolarsLazyFrame Execute(string sql);
 }
 
-public interface IPolarsSchema : IDisposable
+public interface IPolarsSchema : IDisposable,IReadOnlyDictionary<string, IPolarsDataType>
 {
-    int Length { get; }
-    List<string> ColumnNames { get; }
-    
-    IPolarsDataType this[string name] { get; } 
-    Dictionary<string,IPolarsDataType> ToDictionary();
+
 }

@@ -1,7 +1,6 @@
 // Polars.NET.Core / Arrow / ArrowFfiBridge.cs
 using Apache.Arrow;
 using Apache.Arrow.C;
-using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 using Polars.NET.Core.Native;
 
@@ -21,8 +20,8 @@ public static class ArrowFfiBridge
 
         try
         {
-            NativeBindings.pl_datatype_export_arrow_schema(dataTypeHandle, cSchema);
-
+            bool success = NativeBindings.pl_datatype_export_arrow_schema(dataTypeHandle, cSchema);
+            ErrorHelper.CheckBool(success);
             var field = CArrowSchemaImporter.ImportField(cSchema);
             return field.DataType;
         }
@@ -156,6 +155,23 @@ public static class ArrowFfiBridge
             CArrowSchema.Free(cSchema);
             throw;
         }
+    }
+    public static RecordBatch ToRecordBatch(StructArray structArray)
+    {
+        var structType = (StructType)structArray.Data.DataType;
+        var schema = new Apache.Arrow.Schema(structType.Fields, metadata: null);
+        return new RecordBatch(schema, structArray.Fields, structArray.Length);
+    }
+
+    public static StructArray ToStructArray(RecordBatch batch)
+    {
+        var structType = new StructType(batch.Schema.FieldsList);
+        return new StructArray(
+            structType,
+            batch.Length,
+            batch.Arrays,
+            nullBitmapBuffer: ArrowBuffer.Empty,
+            nullCount: 0);
     }
 }
 public static class ArrowStreamingExtensions

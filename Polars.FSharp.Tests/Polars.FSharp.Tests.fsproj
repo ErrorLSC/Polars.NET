@@ -5,7 +5,7 @@
     <IsPackable>false</IsPackable>
     <GenerateProgramFile>true</GenerateProgramFile>
     <IsTestProject>true</IsTestProject>
-    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <DisableImplicitFSharpCoreReference>false</DisableImplicitFSharpCoreReference>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -36,7 +36,7 @@
     <PackageReference Include="Npgsql" Version="10.0.1" />
     <PackageReference Include="xunit" Version="2.5.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
-    <PackageReference Include="FSharp.Core" Version="10.0.104" />
+    <PackageReference Include="System.Numerics.Tensors" Version="10.0.5" />
   </ItemGroup>
 
   <ItemGroup>
@@ -45,12 +45,12 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <RustLibPath>$(RustProjectDir)\target\release\libnative_shim.so</RustLibPath>
+    <RustLibPath>$(RustProjectDir)\target\debug\libnative_shim.so</RustLibPath>
     <RustLibName>libnative_shim.so</RustLibName>
   </PropertyGroup>
 
   <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-    <RustLibPath>$(RustProjectDir)\target\release\native_shim.dll</RustLibPath>
+    <RustLibPath>$(RustProjectDir)\target\debug\native_shim.dll</RustLibPath>
     <RustLibName>native_shim.dll</RustLibName>
   </PropertyGroup>
 

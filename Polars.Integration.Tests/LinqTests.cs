@@ -1,10 +1,10 @@
 using Polars.CSharp;
-using static Polars.CSharp.Polars;
+using Pl = Polars.CSharp.Polars;
 using Polars.NET.Linq.CSharpExtensions;
 using LinqToDB;
 using LinqToDB.Async;
 using Polars.NET.Linq;
-using LinqToDB.Mapping; 
+using LinqToDB.Mapping;
 
 namespace Polars.Integration.Tests;
 
@@ -178,7 +178,7 @@ public class LinqProviderTests
         using var dfDepts = DataFrame.From(depts);
         using var dfEmps = DataFrame.From(emps);
 
-        using var db = new PolarsDataContext(Sql(),ownsContext:true);
+        using var db = new PolarsDataContext(Pl.Sql(),ownsContext:true);
         var deptQuery = dfDepts.AsQueryable<Department>(db);
         var empQuery = dfEmps.AsQueryable<Employee>(db);
 
@@ -413,7 +413,7 @@ public class LinqProviderTests
         using var dfDepts = DataFrame.From(depts);
         using var dfEmps = DataFrame.From(emps);
 
-        using var db = new PolarsDataContext(Sql(),true);
+        using var db = new PolarsDataContext(Pl.Sql(),true);
         var deptQuery = dfDepts.AsQueryable(depts,db);
         var empQuery = dfEmps.AsQueryable(emps,db);
 
@@ -542,7 +542,7 @@ public class LinqProviderTests
         using var dfDepts = DataFrame.From(depts);
         using var dfEmps = DataFrame.From(emps);
 
-        using var db = new PolarsDataContext(Sql(), ownsContext: true);
+        using var db = new PolarsDataContext(Pl.Sql(), ownsContext: true);
         var deptQuery = db.RegisterTable<DeptDto>(dfDepts);
         var empQuery = db.RegisterTable<EmpDto>(dfEmps);
 
@@ -933,7 +933,7 @@ public class LinqProviderTests
         using var dfDepts = DataFrame.From(depts);
         using var dfEmps = DataFrame.From(emps);
 
-        using var db = new PolarsDataContext(Sql(),true);
+        using var db = new PolarsDataContext(Pl.Sql(),true);
         var deptQuery = dfDepts.AsQueryable<DeptDto>(db);
         var empQuery = db.RegisterTable<NullableEmpDto>(dfEmps);
 
@@ -1494,7 +1494,7 @@ David,40,80000";
 
             using var lf = LazyFrame.ScanCsv(fileName, schema: schema,hasHeader:false);
             
-            using var lfWithBonus = lf.WithColumns((Col("salary") * 0.1).Alias("bonus"));
+            using var lfWithBonus = lf.WithColumns((Pl.Col("salary") * 0.1).Alias("bonus"));
 
             var query = lfWithBonus.AsQueryable<StaffRecordWithBonus>()
                                    .Where(e => e.age > 30 && e.bonus >= 7000.0) 
@@ -1557,7 +1557,7 @@ David,40,80000";
 
         using LazyFrame lfWithLinq = query.ToLazyFrame();
 
-        using var finalLf = lfWithLinq.WithColumns(Col("salary").Std().Alias("salary_std"));
+        using var finalLf = lfWithLinq.WithColumns(Pl.Col("salary").Std().Alias("salary_std"));
         string plan2 = finalLf.Explain(true);
         Console.WriteLine(plan2);
         // WITH_COLUMNS:
@@ -1611,7 +1611,7 @@ David,40,80000";
             salary = new[] { 10, 20, 30 }
         });
 
-        using var resultDf = df.Select(multiSnippets.Select(SqlExpr).ToArray());
+        using var resultDf = df.Select(multiSnippets.Select(Pl.SqlExpr).ToArray());
         resultDf.Show();
         // shape: (3, 2)
         // ┌───────────┬────────────┐
@@ -1649,7 +1649,7 @@ David,40,80000";
             salary = new[] { 10.0, 20.0, 30.0 }
         });
 
-        using var resultDf = df.Select(SqlExprs(
+        using var resultDf = df.Select(Pl.SqlExprs(
             PolarsExpr.ToSqls<SalaryRecord, object>(e => new 
             { 
                 salary_sq = Math.Pow(e.salary, 2), 
@@ -1728,7 +1728,7 @@ David,40,80000";
 
         async Task<int> SimulateWebRequestAsync(int workerId)
         {
-            using var db = new PolarsDataContext(Sql(),true);
+            using var db = new PolarsDataContext(Pl.Sql(),true);
             
             var table = db.RegisterTable<TrafficRecord>(df);
 

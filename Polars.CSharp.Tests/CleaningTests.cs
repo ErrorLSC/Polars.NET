@@ -1,19 +1,18 @@
-using static Polars.CSharp.Polars;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;
 
 public class CleaningTests
 {
     [Fact]
+    [Trait("Cleaning","Fill")]
     public void Test_Forward_Backward_Fill()
     {
-        var content = "val\n1\n\n\n2\n\n"; 
-        
-        using var csv = new DisposableFile(content, ".csv");
-        using var df = DataFrame.ReadCsv(csv.Path);
-        
+        using DataFrame df = [
+          Series.From("val",new int?[] {1,null,null,2,null})  
+        ];
         // Forward Fill (limit=null -> 0 -> Infinite)
-        using var ff = df.Select(Col("val").ForwardFill().Alias("ff"));
+        using var ff = df.Select(Pl.Col("val").ForwardFill().Alias("ff"));
         
         Assert.Equal(1, ff.GetValue<int>(0,"ff"));
         Assert.Equal(1, ff.GetValue<int>(1,"ff")); 
@@ -22,6 +21,7 @@ public class CleaningTests
         Assert.Equal(2, ff.GetValue<int>(4,"ff")); 
     }
     [Fact]
+    [Trait("Cleaning","Sample")]
     public void Test_Sampling()
     {
         var rows = Enumerable.Range(0, 100).Select(i => new { Val = i });
@@ -29,11 +29,11 @@ public class CleaningTests
         Assert.Equal(100, df.Height);
 
         // Sample N=10
-        using var sampleN = df.Sample(n: 10, seed: 42);
+        using var sampleN = df.Sample(n: 10,shuffle:true, seed: 42);
         Assert.Equal(10, sampleN.Height);
 
         // Sample Frac=0.1 (10%)
-        using var sampleFrac = df.Sample(fraction: 0.1, seed: 42);
+        using var sampleFrac = df.Sample(fraction: 0.1,shuffle:true, seed: 42);
         Assert.Equal(10, sampleFrac.Height);
     }
     [Fact]
@@ -46,8 +46,8 @@ public class CleaningTests
 
         // --- 1. FillNull ---
         using var filledDf = df.WithColumns(
-            Col("A").FillNull(0), 
-            Col("B").FillNull("unknown")
+            Pl.Col("A").FillNull(0), 
+            Pl.Col("B").FillNull("unknown")
         );
         
         Assert.Equal(0, filledDf.GetValue<int>(1,"A")); // null -> 0
@@ -69,7 +69,7 @@ public class CleaningTests
         });
 
         // Clean
-        var cleanExpr = Col("RawData")
+        var cleanExpr = Pl.Col("RawData")
             // Step A: cast to Double，strict=false
             // "100" -> 100.0
             // "200.5" -> 200.5
@@ -103,7 +103,7 @@ public class CleaningTests
         
         using var s = Series.From("nums", [1, 2, 2, 3]);
 
-        using var unique = s.UniqueStable();
+        using var unique = s.Unique(maintainOrder:true);
         Assert.Equal(3, unique.Length);
         Assert.Equal(1, unique[0]);
         Assert.Equal(2, unique[1]);
@@ -135,10 +135,10 @@ public class CleaningTests
         });
 
         using var res = df.Lazy()
-            .GroupBy(Col("Group"))
+            .GroupBy(Pl.Col("Group"))
             .Agg(
-                Col("Val").Unique().Alias("UniqueVals"),
-                Col("Val").IsDuplicated().Sum().Alias("DupCount") 
+                Pl.Col("Val").Unique().Alias("UniqueVals"),
+                Pl.Col("Val").IsDuplicated().Sum().Alias("DupCount") 
             )
             .Sort("Group")
             .Collect();
@@ -165,7 +165,7 @@ public class CleaningTests
             vals = new int?[] { 10, null, 20 }
         });
 
-        var resultDf = df.Select(Col("vals").DropNulls());
+        var resultDf = df.Select(Pl.Col("vals").DropNulls());
         
         Assert.Equal(2, resultDf.Height);
         Assert.Equal(10, resultDf["vals"][0]);
@@ -189,9 +189,49 @@ public class CleaningTests
             Series.From("f",[double.NaN, 100.0, double.NaN])
         );
 
-        var resultDf = df.Select(Col("f").DropNans());
+        var resultDf = df.Select(Pl.Col("f").DropNans());
         
         Assert.Equal(1, resultDf.Height);
         Assert.Equal(100.0, resultDf["f"][0]);
+    }
+    [Fact]
+    [Trait("Cleaning","IsDuplicated")]
+    public void Test_DataFrame_IsDuplicated_IsUnique()
+    {
+        using var scoresDf = DataFrame.FromColumns(new 
+        {
+            student = new[] { "Alice", "Alice", "Bob" },
+            year    = new[] { 2023,    2023,    2023 },
+            score   = new[] { 85,      85,      70 },
+            note    = new[] { "Score1", "Score1", "Score3" } 
+        });
+        var dupDf = scoresDf.Filter(scoresDf.IsDuplicated());
+        Assert.Equal(2L,dupDf.Height);
+
+        var uniDf = scoresDf.Filter(scoresDf.IsUnique());
+        Assert.Equal(1L,uniDf.Height);
+
+    }
+    [Fact]
+    [Trait("Cleaning","Fill")]
+    public void Test_FillNull_And_FillNan_With_Selectors()
+    {
+        using var s1 = Series.From("ints", new int?[] { 1, null, 3 });
+        using var s2 = Series.From("floats", new double?[] { 1.1, double.NaN, null });
+        using var s3 = Series.From("strings", ["A", "B", "C"]); 
+        
+        using var df = DataFrame.FromSeries(s1, s2, s3);
+
+        using var nanFilledDf = df.FillNan(99.9);
+        
+        Assert.Equal(99.9, nanFilledDf["floats"][1]); 
+        Assert.Null(nanFilledDf["floats"][2]); 
+
+        using var lf2 = nanFilledDf.Lazy();
+        using var finalDf = lf2.FillNull(-1).Collect();
+
+        Assert.Equal(-1.0, finalDf["floats"][2]);
+        
+        Assert.Equal(-1, finalDf["ints"][1]);
     }
 }

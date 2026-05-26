@@ -36,7 +36,7 @@ type ``Expression Logic Tests`` () =
         
         let res = df |> pl.filter (col "val" .> lit 15)
         
-        Assert.Equal(2L, res.Rows)
+        Assert.Equal(2L, res.Height)
     [<Fact>]
     member _.``Filter by numeric value (< operator)`` () =
         use csv = new TempCsv "name,birthdate,weight,height\nBen Brown,1985-02-15,72.5,1.77\nQinglei,2025-11-25,70.0,1.80\nZhang,2025-10-31,55,1.75"
@@ -44,7 +44,7 @@ type ``Expression Logic Tests`` () =
 
         let res = df |> pl.filter ((col "birthdate").Dt.Year() .< lit 1990 )
 
-        Assert.Equal(1L,res.Rows)
+        Assert.Equal(1L,res.Height)
 
     [<Fact>]
     member _.``Filter by string value (== operator)`` () =
@@ -54,7 +54,7 @@ type ``Expression Logic Tests`` () =
         // SRTP 魔法测试
         let res = df |> pl.filter (pl.col "name" .== pl.lit "Alice")
         
-        Assert.Equal(2L, res.Rows)
+        Assert.Equal(2L, res.Height)
 
     [<Fact>]
     member _.``Filter by double value (== operator)`` () =
@@ -63,7 +63,7 @@ type ``Expression Logic Tests`` () =
         
         let res = df |> pl.filter (col "value" .== lit 3.36)
         
-        Assert.Equal(2L, res.Rows)
+        Assert.Equal(2L, res.Height)
 
     [<Fact>]
     member _.``Null handling works`` () =
@@ -80,11 +80,11 @@ type ``Expression Logic Tests`` () =
             )
             |> pl.filterLazy (col "age_filled" .>= lit 0)
             |> pl.collect
-        Assert.Equal(3L, res.Rows)
+        Assert.Equal(3L, res.Height)
 
         let df= DataFrame.ReadCsv csv.Path 
         let nulls = df |> pl.filter (pl.col "age" |> pl.isNull)
-        Assert.Equal(1L, nulls.Rows)
+        Assert.Equal(1L, nulls.Height)
     [<Fact>]
     member _.``IsBetween with DateTime Literals`` () =
 
@@ -108,7 +108,7 @@ type ``Expression Logic Tests`` () =
                 (pl.col "height" .> pl.lit 1.7)
             )
 
-        Assert.Equal(1L, res.Rows)
+        Assert.Equal(1L, res.Height)
         Assert.Equal("Qinglei", res.String("name", 0).Value)
     [<Fact>]
     member _.``Expr: DateTime Ops (Truncate, Offset, Timestamp)`` () =
@@ -127,16 +127,16 @@ type ``Expression Logic Tests`` () =
                 pl.col "ts"
 
                 // Truncate to 1 hour (10:15 -> 10:00)
-                pl.col("ts").Dt.Truncate("1h").Alias "truncated"
+                pl.col("ts").Dt.Truncate(Dur.String "1h").Alias "truncated"
 
                 // Round to 1 hour (10:45 -> 11:00)
-                pl.col("ts").Dt.Round("1h").Alias "rounded"
+                pl.col("ts").Dt.Round(Dur.String "1h").Alias "rounded"
 
                 // Offset by 30m (10:15 -> 10:45)
-                pl.col("ts").Dt.OffsetBy("30m").Alias "offset"
+                pl.col("ts").Dt.OffsetBy(Dur.String "30m").Alias "offset"
 
                 // Timestamp (Micros)
-                pl.col("ts").Dt.TimestampMicros().Alias "micros"
+                pl.col("ts").Dt.Timestamp(TimeUnit.Microseconds).Alias "micros"
             ])
             |> pl.show
         
@@ -180,14 +180,14 @@ type ``String Logic Tests`` () =
                 pl.col "raw"
 
                 // "  abc  " -> "abc"
-                pl.col("raw").Str.Strip().Alias "strip_default"
+                pl.col("raw").Str.StripChars().Alias "strip_default"
                 
                 // "  abc  " -> "abc  " / "  abc"
-                pl.col("raw").Str.LStrip().Alias "lstrip"
-                pl.col("raw").Str.RStrip().Alias "rstrip"
+                pl.col("raw").Str.StripCharsStart().Alias "lstrip"
+                pl.col("raw").Str.StripCharsEnd().Alias "rstrip"
 
                 // "__key__" -> "key"
-                pl.col("raw").Str.Strip(matches="_").Alias "strip_custom"
+                pl.col("raw").Str.StripChars("_").Alias "strip_custom"
 
                 // "https://pl.rs" -> "pl.rs"
                 // "data.csv" -> "data"
@@ -200,10 +200,10 @@ type ``String Logic Tests`` () =
 
                 // ToDate
                 // "20250101" -> Date
-                pl.col("raw").Str.ToDate("%Y%m%d").Alias "parsed_date"
+                pl.col("raw").Str.ToDate("%Y%m%d",false).Alias "parsed_date"
 
                 // "  2025-12-31  " -> "2025-12-31" -> Date
-                pl.col("raw").Str.Strip().Str.ToDate("%Y-%m-%d").Alias "chain_date"
+                pl.col("raw").Str.StripChars().Str.ToDate("%Y-%m-%d",false).Alias "chain_date"
             ])
 
         // Strip
@@ -302,12 +302,12 @@ type ``String Logic Tests`` () =
 
         Assert.Equal("2023/12/25", res.String("fmt_custom", 0).Value)
 
-        Assert.Equal("2023-12-25", res.String("date_only", 0).Value)
+        Assert.Equal(DateOnly(2023,12,25), res.Date("date_only", 0).Value)
 
         // --- Row 1: 2024-01-01 00:00:00 ---
         Assert.Equal(2024L, res.Int("y", 1).Value)
         Assert.Equal(1L, res.Int("m", 1).Value)
-        Assert.Equal(0L, res.Int("h", 1).Value) // 零点
+        Assert.Equal(0L, res.Int("h", 1).Value) 
 
     [<Fact>]
     member _.``Cast Ops: Int to Float, String to Int`` () =
@@ -334,7 +334,7 @@ type ``String Logic Tests`` () =
         Assert.Equal(1000.0, v2)
     [<Fact>]
     member _.``Control Flow: IfElse (When/Then/Otherwise)`` () =
-        // 构造成绩数据
+
         use csv = new TempCsv "student,score\nAlice,95\nBob,70\nCharlie,50"
         let df = DataFrame.ReadCsv csv.Path
 
@@ -357,7 +357,7 @@ type ``String Logic Tests`` () =
         let res = 
             df 
             |> pl.withColumn gradeExpr
-            |> pl.sort (pl.col "score", true) 
+            |> pl.sortDescending [pl.col "score"] 
 
         // Alice (95) -> A
         Assert.Equal("A", res.String("grade", 0).Value)
@@ -375,7 +375,7 @@ type ``String Logic Tests`` () =
             df 
             |> pl.select [
                 // 1. Regex Replace: number into #
-                (pl.col "text").Str.ReplaceAll("\d+", "#", useRegex=true).Alias "masked"
+                (pl.col "text").Str.ReplaceAll("\d+", "#", literal=false).Alias "masked"
                 
                 // 2. Regex Extract: extract number
                 (pl.col "text").Str.Extract("(\d+)", 1).Alias "extracted_id"
@@ -435,7 +435,7 @@ type ``String Logic Tests`` () =
         // Mask: Mon, Tue, Wed, Thu, Fri, Sat, Sun
         let customWeek = [| true; true; true; true; false; false; true |]
         
-        // 2023-01-05 (周四)
+        // 2023-01-05 (Thursday)
         // + 1 BD -> Fri(Skip), Sat(Skip) -> Sun (2023-01-08)
         let start = DateOnly(2023, 1, 5) 
         let df = DataFrame.ofRecords [ {| Date = start |} ]
@@ -500,7 +500,7 @@ type ``String Logic Tests`` () =
         let lf = 
             df.Lazy()
               .WithColumns([
-                  pl.col("Vals").Cast(DataType.Array(DataType.Int32, 3UL))
+                  pl.col("Vals").Cast(DataType.Array(DataType.Int32, [|3u|]))
               ])
 
         // Arr.Sum, Min, Max
@@ -529,7 +529,7 @@ type ``String Logic Tests`` () =
         let lf = 
             DataFrame.ofRecords(data).Lazy()
                 .WithColumns([
-                    pl.col("Vals").Cast(Array(String, 3UL))
+                    pl.col("Vals").Cast(DataType.Array(DataType.String, [|3u|]))
                 ])
 
         let res = 
@@ -567,7 +567,7 @@ type ``String Logic Tests`` () =
         let lf = 
             DataFrame.ofRecords(data).Lazy()
                 .WithColumns([
-                    pl.col("Vals").Cast(DataType.Array(DataType.Int32, 3UL))
+                    pl.col("Vals").Cast(DataType.Array(DataType.Int32,[|3u|]))
                 ])
 
         let res = 
@@ -800,3 +800,61 @@ type ``String Logic Tests`` () =
         let s = res.Column "Res"
         Assert.Equal("A", s.GetValue<string> 0)
         Assert.Equal("C", s.GetValue<string> 1)
+    [<Fact>]
+    [<Trait("Expr", "Fold")>]
+    member _.``Fold should accumulate sum horizontally across columns`` () =
+
+        use a = Series.create("a", [| 1; 2; 3 |])
+        use b = Series.create("b", [| 4; 5; 6 |])
+        use c = Series.create("c", [| 7; 8; 9 |])
+        use df = DataFrame.create(a, b, c)
+
+        let exprs = [ pl.col "a"; pl.col "b"; pl.col "c" ]
+
+        let foldExpr = 
+            exprs 
+            |> pl.fold (fun acc x -> acc + x) (pl.lit 10)
+            |> pl.alias "folded_sum"
+
+        use resultDf = df.Select [| foldExpr |]
+        let col = resultDf.Column "folded_sum"
+
+        Assert.Equal(22, col.GetValue<int>(0))
+        Assert.Equal(25, col.GetValue<int>(1))
+        Assert.Equal(28, col.GetValue<int>(2))
+
+
+    [<Fact>]
+    [<Trait("Expr", "Reduce")>]
+    member _.``Reduce should concatenate strings horizontally across columns`` () =
+        use part1 = Series.create("part1", [| "A"; "X" |])
+        use part2 = Series.create("part2", [| "B"; "Y" |])
+        use part3 = Series.create("part3", [| "C"; "Z" |])
+        use df = DataFrame.create(part1, part2, part3)
+
+        let exprs = [ pl.col "part1"; pl.col "part2"; pl.col "part3" ]
+
+        let reduceExpr = 
+            exprs 
+            |> pl.reduce (fun acc x -> acc + pl.lit "-" + x)
+            |> pl.alias "reduced_str"
+
+        use resultDf = df.Select [| reduceExpr |]
+        let col = resultDf.Column "reduced_str"
+
+        Assert.Equal("A-B-C", col.GetValue<string>(0))
+        Assert.Equal("X-Y-Z", col.GetValue<string>(1))
+
+
+    [<Fact>]
+    [<Trait("Expr", "Reduce")>]
+    member _.``Reduce should throw ArgumentException when sequence is empty`` () =
+        let emptyExprs = Seq.empty<Expr>
+        
+        let ex = Assert.Throws<ArgumentException>(fun () -> 
+            emptyExprs 
+            |> pl.reduce (fun acc x -> acc + x) 
+            |> ignore 
+        )
+        
+        Assert.Contains("empty", ex.Message.ToLower())

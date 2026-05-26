@@ -9,20 +9,23 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Apache.Arrow.Adbc" Version="0.22.0" />
+    <PackageReference Include="Apache.Arrow.Adbc" Version="0.23.0" />
     <PackageReference Include="AWSSDK.S3" Version="4.0.18.3" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.27.0" />
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="DuckDB.NET.Data.Full" Version="1.4.4" />
     <PackageReference Include="Google.Cloud.Storage.V1" Version="4.14.0" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.4" />
+    <PackageReference Include="Microsoft.ML" Version="5.0.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="Minio" Version="7.0.0" />
-    <PackageReference Include="Testcontainers" Version="4.10.0" />
-    <PackageReference Include="Testcontainers.Azurite" Version="4.10.0" />
-    <PackageReference Include="Testcontainers.Minio" Version="4.10.0" />
-    <PackageReference Include="Testcontainers.MsSql" Version="4.10.0" />
-    <PackageReference Include="Testcontainers.Xunit" Version="4.10.0" />
+    <PackageReference Include="OpenTelemetry.Api" Version="1.15.3" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.15.3" />
+    <PackageReference Include="Testcontainers" Version="4.11.0" />
+    <PackageReference Include="Testcontainers.Azurite" Version="4.11.0" />
+    <PackageReference Include="Testcontainers.Minio" Version="4.11.0" />
+    <PackageReference Include="Testcontainers.MsSql" Version="4.11.0" />
+    <PackageReference Include="Testcontainers.Xunit" Version="4.11.0" />
     <PackageReference Include="WireMock.Net" Version="1.25.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
@@ -35,6 +38,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Polars.CSharp\Polars.CSharp.csproj" />
     <ProjectReference Include="..\Polars.NET.Linq\Polars.NET.Linq.csproj" />
+    <ProjectReference Include="..\Polars.NET.ML\Polars.NET.ML.csproj" />
   </ItemGroup>
 
 </Project>

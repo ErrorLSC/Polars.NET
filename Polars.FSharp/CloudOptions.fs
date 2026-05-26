@@ -11,7 +11,6 @@ type CloudOptions =
         CacheTTL: uint64
     }
     with
-
         static member Default = 
             {
                 Provider = CloudProvider.NotCloud
