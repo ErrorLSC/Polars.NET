@@ -74,9 +74,9 @@ jobs:
 
       - name: Add Swap Space to prevent OOM
         if: runner.os == 'Linux'
-        uses: pierotofy/set-swap-space@master
+        uses: actionhippie/swap-space@v1
         with:
-          swap-size-gb: 10
+          size: 10G
 
       - name: Remove Local Config (Linux)
         if: runner.os == 'Linux'
