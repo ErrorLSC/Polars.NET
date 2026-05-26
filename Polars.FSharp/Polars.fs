@@ -89,7 +89,7 @@ module pl =
     /// <summary>
     /// Return the lines count of current context.
     /// </summary>
-    let len = new Expr(PolarsWrapper.Len())
+    let len() = new Expr(PolarsWrapper.Len())
     /// <summary>
     /// Alias for an element being evaluated in an eval or filter expression.
     /// </summary>
@@ -679,6 +679,7 @@ module pl =
     /// <summary> Collect LazyFrame into DataFrame (Eager execution). </summary>
     let collect (lf: LazyFrame) : DataFrame = 
         lf.Collect()
+    let collectWithEngine (engine:Engine) (lf:LazyFrame) = lf.Collect(engine)
     /// <summary>
     /// Collect multiple LazyFrames concurrently.
     /// </summary>
@@ -1035,9 +1036,13 @@ module pl =
     /// <summary> Get the first n rows of the DataFrame. </summary>
     let head (n: int) (df: DataFrame) : DataFrame =
         df.Head n
+    let headLazy(n:int) (lf:LazyFrame) = 
+        lf.Head(uint n)
     /// <summary> Get the last n rows of the DataFrame. </summary>
     let tail (n: int) (df: DataFrame) : DataFrame =
         df.Tail n
+    let tailLazy(n:int) (lf:LazyFrame) = 
+        lf.Tail(uint n)
     /// <summary> Explode list-like columns into multiple rows. </summary>
     let explode (columns: seq<string>) (df: DataFrame) : DataFrame =
         df.Explode columns

@@ -59,6 +59,10 @@ and Expr(handle: ExprHandle) =
             else
                 let rootsStr = String.concat "," rootsArray
                 rootsStr.GetHashCode()
+    override this.ToString (): string = 
+        if (this.Handle.IsInvalid) then 
+            "Expr (Disposed)"
+        else PolarsWrapper.ExprToString(this.Handle)
 
     // --- Column ---
     /// <summary>
@@ -900,6 +904,12 @@ and Selector(handle: SelectorHandle) =
     member internal this.CloneHandle() = 
         PolarsWrapper.CloneSelector handle
     member this.Clone() = new Selector(this.CloneHandle())
+
+    override this.ToString() =
+        if (this.Handle.IsInvalid) then 
+            "Selector (Disposed)"
+        else PolarsWrapper.SelectorToString(this.Handle);
+    
 
     // ==========================================
     // Methods

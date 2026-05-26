@@ -6,6 +6,7 @@ open System
 open System.Data
 open System.Diagnostics
 open Polars.NET.Core
+open System.IO
 
 type ``Complex Query Tests`` () =
     
@@ -55,8 +56,8 @@ type ``Complex Query Tests`` () =
 
 
         let keys = [ pl.col("birthdate").Dt.Year() / pl.lit 10 * pl.lit 10 |> pl.alias "decade" ]
-        let aggs = [ pl.len |> alias "cnt" ]
-        let havingCond = pl.len .> pl.lit 1
+        let aggs = [ pl.len() |> alias "cnt" ]
+        let havingCond = pl.len() .> pl.lit 1
         
         use res =
             df
@@ -1078,7 +1079,6 @@ type ``Complex Query Tests`` () =
         Assert.Equal(4L, df.Width)
         Assert.Equal(2L, df.Height)
 
-        // 检查具体值
         Assert.Equal(Some "Alice", df.String("name", 0))
         Assert.Equal(Some 30L, df.Int("age", 0))
         Assert.Equal(Some 90L, df.Int("scores.math", 0))
@@ -1100,3 +1100,417 @@ type ``Complex Query Tests`` () =
         Assert.Equal(Some "Widget", df.String("product", 0))
         Assert.Equal(Some 9.99, df.Float("price", 0))
         Assert.Equal(Some true, df.Bool("inStock", 0))
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``DataFrame: Merge basic update (no insert)`` () =
+
+        let target = pl.dataframe [
+            pl.series "id" [1;2;3]
+            pl.series "val" [10;20;30]
+        ]
+
+        let source = pl.dataframe [
+            pl.series "id" [2;4]
+            pl.series "val" [200;400]
+        ]
+
+        let result = 
+            target.Merge(source, pl.col "id")
+            |> Merge.whenMatchedUpdateAll
+            |> Merge.executeEager Engine.Auto
+
+        Assert.Equal(3L, result.Height)
+        Assert.Equal(Some 1L, result.Int("id", 0))
+        Assert.Equal(Some 2L, result.Int("id", 1))
+        Assert.Equal(Some 3L, result.Int("id", 2))
+        Assert.Equal(Some 10L, result.Int("val", 0))
+        Assert.Equal(Some 200L, result.Int("val", 1))
+        Assert.Equal(Some 30L, result.Int("val", 2))
+
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``DataFrame: Merge insert and delete`` () =
+        let target = pl.dataframe [
+            pl.series "key" [1;2;3]
+            pl.series "value" ["A";"B";"C"]
+        ]
+        let source = pl.dataframe [
+            pl.series "key" [2;4]
+            pl.series "value" ["B_new";"D"]
+        ]
+
+        let result = 
+            target.Merge(source, pl.col "key")
+            |> Merge.whenMatchedDelete (Some (fun ctx -> ctx.SourceCol "value" .== pl.lit "B_new"))
+            |> Merge.whenMatchedUpdateAll
+            |> Merge.whenNotMatchedInsertAll
+            |> Merge.executeEager Engine.Auto
+
+        Assert.Equal(3L, result.Height)
+
+        Assert.Equal(Some 1L, result.Int("key", 0))
+        Assert.Equal(Some "A", result.String("value", 0))
+        Assert.Equal(Some 3L, result.Int("key", 1))
+        Assert.Equal(Some "C", result.String("value", 1))
+        Assert.Equal(Some 4L, result.Int("key", 2))
+        Assert.Equal(Some "D", result.String("value", 2))
+
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``DataFrame: Merge includeNulls = true`` () =
+        let target = pl.dataframe [
+            pl.series "id" [1;2;3];
+            pl.series "score" [100;200;300]
+        ]
+        let source = pl.dataframe [
+            pl.series "id" [2;3];
+            pl.series "score" [None; Some 999]  
+        ]
+
+        let result = 
+            target.Merge(source, pl.col "id")
+            |> Merge.whenMatchedUpdateAll
+            |> Merge.includeNulls true
+            |> Merge.executeEager Engine.Auto
+
+        Assert.Equal(3L, result.Height)
+        Assert.Equal(Some 100L, result.Int("score", 0))
+        Assert.Equal(None, result.Int("score", 1))          // null
+        Assert.Equal(Some 999L, result.Int("score", 2))
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``DataFrame: Merge full pipeline with all actions and parameters`` () =
+        let target = pl.dataframe [
+            pl.series "key"     [1; 2; 3; 5]
+            pl.series "name"    ["Alice"; "Bob"; "Cathy"; "Eve"]
+            pl.series "score"   [80; 90; 85; 55]
+        ]
+        let source = pl.dataframe [
+            pl.series "key"     [1; 2; 4; 6]
+            pl.series "name"    [null; "Bobby"; "Diana"; "Frank"]
+            pl.series "score"   [85; 95; 75; 65]
+        ]
+
+        let result =
+            target.Merge(source, pl.col "key")
+            |> Merge.whenMatchedDelete (Some (fun ctx -> (ctx.SourceCol "name").Str.StartsWith "B"))
+            |> Merge.whenMatchedUpdateSet (Set.build [
+                Set.col "score" (fun ctx -> ctx.SourceCol "score" * pl.lit 2)
+            ])
+            |> Merge.whenNotMatchedInsertAll
+            |> Merge.whenNotMatchedBySourceDelete
+                (Some (fun ctx -> ctx.TargetCol "score" .< pl.lit 80))
+            |> Merge.maintainOrder JoinMaintainOrder.Left
+            |> Merge.executeEager Engine.Auto
+
+        Assert.Equal(4L, result.Height)
+        
+        Assert.Equal(Some 1L,      result.Int("key", 0))
+        Assert.Equal(Some "Alice",         result.String("name", 0))      // null
+        Assert.Equal(Some 170L,    result.Int("score", 0))
+
+        Assert.Equal(Some 3L,      result.Int("key", 1))
+        Assert.Equal(Some "Cathy", result.String("name", 1))
+        Assert.Equal(Some 85L,     result.Int("score", 1))
+
+        Assert.Equal(Some 4L,      result.Int("key", 2))
+        Assert.Equal(Some "Diana", result.String("name", 2))
+        Assert.Equal(Some 75L,     result.Int("score", 2))
+
+        Assert.Equal(Some 6L,      result.Int("key", 3))
+        Assert.Equal(Some "Frank", result.String("name", 3))
+        Assert.Equal(Some 65L,     result.Int("score", 3))
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``DataFrame: Merge respects first-match-wins (Delete before Update)`` () =
+        let target = pl.dataframe [
+            pl.series "Id"    [1; 2; 3]
+            pl.series "Score" [10; 20; 30]
+        ]
+
+        let source = pl.dataframe [
+            pl.series "Id"    [2; 3; 4]
+            pl.series "Score" [99; 15; 100]
+        ]
+        
+        let result =
+            target.Merge(source, pl.col "Id")
+            |> Merge.whenMatchedDelete (Some (fun ctx -> ctx.SourceCol "Score" .> pl.lit 90))
+            |> Merge.whenMatchedUpdate (Some (fun ctx -> ctx.SourceCol "Score" .> pl.lit 10)) None
+            |> Merge.whenNotMatchedInsertAll
+            |> Merge.maintainOrder JoinMaintainOrder.Left
+            |> Merge.executeEager Engine.Auto
+
+        Assert.Equal(3L, result.Height)
+        Assert.Equal(Some 1L,   result.Int("Id", 0))
+        Assert.Equal(Some 10L,  result.Int("Score", 0))
+        Assert.Equal(Some 3L,   result.Int("Id", 1))
+        Assert.Equal(Some 15L,  result.Int("Score", 1)) 
+        Assert.Equal(Some 4L,   result.Int("Id", 2))
+        Assert.Equal(Some 100L, result.Int("Score", 2))
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``DataFrame: Merge partial update with setters`` () =
+        let target = pl.dataframe [
+            pl.series "Id" [1;2;3]
+            pl.series "Name" ["Apple";"Banana";"Orange"]
+            pl.series "Price" [1.0;2.0;3.0]
+            pl.series "Stock" [100;150;200]
+        ]
+        let source = pl.dataframe [
+            pl.series "Id" [2;3;4]
+            pl.series "Name" ["Banana_Ignored";"Orange_Ignored";"Grape"]
+            pl.series "Price" [2.5;2.5;4.0]
+            pl.series "RestockQty" [50;0;200]
+        ]
+
+        let result =
+            target.Merge(source, pl.col "Id")
+            |> Merge.whenMatchedUpdate
+                (Some (fun ctx -> ctx.SourceCol "Price" .> ctx.TargetCol "Price"))
+                (Some (Set.build [
+                    Set.col "Price" (fun ctx -> ctx.SourceCol "Price")
+                    Set.col "Stock" (fun ctx -> ctx.TargetCol "Stock" + ctx.SourceCol "RestockQty")
+                ]))
+            |> Merge.whenNotMatchedInsertSet (Set.build [
+                Set.col "Id"    (fun ctx -> ctx.SourceCol "Id")
+                Set.col "Name"  (fun ctx -> ctx.SourceCol "Name")
+                Set.col "Price" (fun ctx -> ctx.SourceCol "Price")
+                Set.col "Stock" (fun ctx -> ctx.SourceCol "RestockQty")
+            ])
+            |> Merge.executeEager Engine.Auto
+            |> pl.sort [pl.col "Id"] false
+
+        // Id=1: Apple, 1.0, 100
+        Assert.Equal(Some 1L,   result.Int("Id", 0))
+        Assert.Equal(Some "Apple", result.String("Name", 0))
+        Assert.Equal(Some 1.0,  result.Float("Price", 0))
+        Assert.Equal(Some 100L, result.Int("Stock", 0))
+
+        // Id=2: Banana, 2.5, 200 (Stock=150+50)
+        Assert.Equal(Some 2L,   result.Int("Id", 1))
+        Assert.Equal(Some "Banana", result.String("Name", 1))
+        Assert.Equal(Some 2.5,  result.Float("Price", 1))
+        Assert.Equal(Some 200L, result.Int("Stock", 1))
+
+        // Id=3: Orange, 3.0, 200 (condition missed)
+        Assert.Equal(Some 3L,   result.Int("Id", 2))
+        Assert.Equal(Some "Orange", result.String("Name", 2))
+        Assert.Equal(Some 3.0,  result.Float("Price", 2))
+        Assert.Equal(Some 200L, result.Int("Stock", 2))
+
+        // Id=4: Grape, 4.0, 200
+        Assert.Equal(Some 4L,   result.Int("Id", 3))
+        Assert.Equal(Some "Grape", result.String("Name", 3))
+        Assert.Equal(Some 4.0,  result.Float("Price", 3))
+        Assert.Equal(Some 200L, result.Int("Stock", 3))
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``DataFrame: Merge with selector-based batch setters`` () =
+        let target = pl.dataframe [
+            pl.series "Id"       [1; 2; 3]
+            pl.series "Name"     ["Hero"; "Villain"; "NPC"]
+            pl.series "Stat_HP"  [100; 100; 10]
+            pl.series "Stat_MP"  [50; 50; 0]
+            pl.series "Score"    [1000; 500; 0]
+            pl.series "Tag"      ["Old"; "Old"; "Old"]
+        ]
+        let source = pl.dataframe [
+            pl.series "Id"         [1; 2; 4]
+            pl.series "Name"       ["Hero_Ignored"; "Villain"; "Newbie"]
+            pl.series "Stat_HP"    [120; 0; 80]
+            pl.series "Stat_MP"    [60; 0; 40]
+            pl.series "ScoreDelta" [200; 0; 50]
+            pl.series "IsBanned"   [false; true; false]
+        ]
+
+        let result =
+            target.Merge(source, pl.col "Id")
+            |> Merge.whenMatchedDelete (Some (fun ctx -> ctx.SourceCol "IsBanned"))
+            |> Merge.whenMatchedUpdateSet (Set.build [
+                Set.selector (pl.cs.startsWith "Stat_") (fun colName ctx -> ctx.SourceCol colName)
+                Set.col "Score" (fun ctx -> ctx.TargetCol "Score" + ctx.SourceCol "ScoreDelta")
+                Set.col "Tag"   (fun _ -> pl.lit "Updated")
+            ])
+            |> Merge.whenNotMatchedInsertSet (Set.build [
+                Set.col "Id"    (fun ctx -> ctx.SourceCol "Id")
+                Set.col "Name"  (fun ctx -> ctx.SourceCol "Name")
+                Set.selector (pl.cs.startsWith "Stat_") (fun colName ctx -> ctx.SourceCol colName)
+                Set.col "Score" (fun ctx -> ctx.SourceCol "ScoreDelta")
+                Set.col "Tag"   (fun _ -> pl.lit "New")
+            ])
+            |> Merge.printPlan
+            |> Merge.execute
+            |> pl.collect
+
+        let sorted = result |> pl.sort [pl.col "Id"] false
+
+        // Id=1: Hero, HP=120, MP=60, Score=1200, Tag=Updated
+        Assert.Equal(Some 1L,       sorted.Int("Id", 0))
+        Assert.Equal(Some "Hero",   sorted.String("Name", 0))
+        Assert.Equal(Some 120L,     sorted.Int("Stat_HP", 0))
+        Assert.Equal(Some 60L,      sorted.Int("Stat_MP", 0))
+        Assert.Equal(Some 1200L,    sorted.Int("Score", 0))
+        Assert.Equal(Some "Updated",sorted.String("Tag", 0))
+
+        // Id=3: NPC (untouched)
+        Assert.Equal(Some 3L,       sorted.Int("Id", 1))
+        Assert.Equal(Some "NPC",    sorted.String("Name", 1))
+        Assert.Equal(Some 10L,      sorted.Int("Stat_HP", 1))
+        Assert.Equal(Some 0L,       sorted.Int("Stat_MP", 1))
+        Assert.Equal(Some 0L,       sorted.Int("Score", 1))
+        Assert.Equal(Some "Old",    sorted.String("Tag", 1))
+
+        // Id=4: Newbie, HP=80, MP=40, Score=50, Tag=New
+        Assert.Equal(Some 4L,       sorted.Int("Id", 2))
+        Assert.Equal(Some "Newbie", sorted.String("Name", 2))
+        Assert.Equal(Some 80L,      sorted.Int("Stat_HP", 2))
+        Assert.Equal(Some 40L,      sorted.Int("Stat_MP", 2))
+        Assert.Equal(Some 50L,      sorted.Int("Score", 2))
+        Assert.Equal(Some "New",    sorted.String("Tag", 2))
+
+        Assert.Equal(3L, sorted.Height)
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``Merge composite keys with EndsWith selector`` () =
+        let target = pl.dataframe [
+            pl.series "TenantId" ["T1";"T1";"T2";"T2"]
+            pl.series "UserId"   [101;102;101;999]
+            pl.series "Role"     ["Admin";"User";"User";"Guest"]
+            pl.series "IsActive" [true;true;true;false]
+        ]
+        let source = pl.dataframe [
+            pl.series "TenantId" ["T1";"T2";"T2"]
+            pl.series "UserId"   [102;101;888]
+            pl.series "Role"     ["Editor";"Admin";"User"]
+            pl.series "IsActive" [true;true;true]
+        ]
+
+        let result =
+            target.Merge(source, pl.cs.endsWith "Id")
+            |> Merge.whenMatchedUpdateSet (Set.build [
+                Set.col "Role"     (fun ctx -> ctx.SourceCol "Role")
+                Set.col "IsActive" (fun _   -> pl.lit true)
+            ])
+            |> Merge.whenNotMatchedBySourceDelete None   
+            |> Merge.whenNotMatchedInsertSet (Set.build [
+                Set.col "TenantId" (fun ctx -> ctx.SourceCol "TenantId")
+                Set.col "UserId"   (fun ctx -> ctx.SourceCol "UserId")
+                Set.col "Role"     (fun ctx -> ctx.SourceCol "Role")
+                Set.col "IsActive" (fun _   -> pl.lit true)
+            ])
+            |> Merge.executeEager Engine.Auto
+
+        let sorted = result |> pl.sort [pl.col "TenantId"; pl.col "UserId"] false
+
+        Assert.Equal(3L, sorted.Height)
+
+        // T1, 102: Editor, Active=true
+        Assert.Equal(Some "T1", sorted.String("TenantId", 0))
+        Assert.Equal(Some 102L, sorted.Int("UserId", 0))
+        Assert.Equal(Some "Editor", sorted.String("Role", 0))
+        Assert.Equal(Some true, sorted.Bool("IsActive", 0))
+
+        // T2, 101: Admin, Active=true
+        Assert.Equal(Some "T2", sorted.String("TenantId", 1))
+        Assert.Equal(Some 101L, sorted.Int("UserId", 1))
+        Assert.Equal(Some "Admin", sorted.String("Role", 1))
+        Assert.Equal(Some true, sorted.Bool("IsActive", 1))
+
+        // T2, 888: User, Active=true (insert)
+        Assert.Equal(Some "T2", sorted.String("TenantId", 2))
+        Assert.Equal(Some 888L, sorted.Int("UserId", 2))
+        Assert.Equal(Some "User", sorted.String("Role", 2))
+        Assert.Equal(Some true, sorted.Bool("IsActive", 2))
+
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``Merge validation: type mismatch on key`` () =
+        let target = pl.dataframe [
+            pl.series "Id" [1;2;3]
+            pl.series "Value" [10;20;30]
+        ]
+        let source = pl.dataframe [
+            pl.series "Id" ["1";"2"]   
+            pl.series "Value" [100;200]
+        ]
+
+        let ex = Assert.Throws<ArgumentException>(fun () ->
+            target.Merge(source, pl.col "Id")
+            |> Merge.executeEager Engine.Auto
+            |> ignore
+        )
+        Assert.Contains("Key type mismatch for 'Id'", ex.Message)
+        Assert.Contains("source: str", ex.Message)
+        Assert.Contains("target: i32", ex.Message)
+
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``Merge validation: null merge key`` () =
+        let target = pl.dataframe [
+            pl.series "Id" [1;2;3]
+            pl.series "Value" ["A";"B";"C"]
+        ]
+        let source = pl.dataframe [
+            pl.series "Id" [Nullable(1); Nullable<int>(); Nullable(3)]   // 中间为 null
+            pl.series "Value" ["A1";"B1";"C1"]
+        ]
+
+        let ex = Assert.Throws<InvalidDataException>(fun () ->
+            target.Merge(source, pl.col "Id")
+            |> Merge.whenMatchedUpdateAll
+            |> Merge.executeEager Engine.Auto
+            |> ignore
+        )
+        Assert.Contains("Null values found in merge keys: Id", ex.Message)
+
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``Merge validation: duplicate source keys`` () =
+        let target = pl.dataframe [
+            pl.series "TenantId" ["T1";"T2"]
+            pl.series "UserId" [101;102]
+            pl.series "Score" [10;20]
+        ]
+        let source = pl.dataframe [
+            pl.series "TenantId" ["T1";"T1";"T2"]
+            pl.series "UserId"   [101;101;102]
+            pl.series "Score"    [100;999;200]
+        ]
+
+        let ex = Assert.Throws<InvalidDataException>(fun () ->
+            target.Merge(source, pl.cs.endsWith "Id")   
+            |> Merge.whenMatchedUpdateAll
+            |> Merge.executeEager Engine.Auto
+            |> ignore
+        )
+        Assert.Contains("Duplicate keys found in source for", ex.Message)
+    [<Fact>]
+    [<Trait("DataFrame", "Merge")>]
+    member _.``Merge: includeNulls controls null overwrite in default update (no setters)`` () =
+        let target = pl.dataframe [
+            pl.series "key" [1;2]
+            pl.series "val" ["A";"B"]
+        ]
+        let source = pl.dataframe [
+            pl.series "key" [1;2]
+            pl.series "val" [null; "new_B"]
+        ]
+
+        let resultNoNull =
+            target.Merge(source, pl.col "key")
+            |> Merge.whenMatchedUpdateAll
+            |> Merge.includeNulls false
+            |> Merge.executeEager Engine.Auto
+
+        Assert.Equal(Some "A", resultNoNull.String("val", 0))
+        Assert.Equal(Some "new_B", resultNoNull.String("val", 1))
+
+        let resultWithNull =
+            target.Merge(source, pl.col "key")
+            |> Merge.whenMatchedUpdateAll
+            |> Merge.includeNulls true
+            |> Merge.executeEager Engine.Auto
+
+        Assert.Equal(None, resultWithNull.String("val", 0))          // null
+        Assert.Equal(Some "new_B", resultWithNull.String("val", 1))
