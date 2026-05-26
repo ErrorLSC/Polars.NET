@@ -1,0 +1,163 @@
+{
+  "verso": "1.0",
+  "metadata": {
+    "defaultKernel": "csharp",
+    "activeLayout": "notebook"
+  },
+  "cells": [
+    {
+      "id": "dff42f92-4ca8-4eb4-a658-535003a2f52f",
+      "type": "code",
+      "language": "fsharp",
+      "source": "#r \u0022nuget: Polars.FSharp, 0.5.0\u0022\n#r \u0022nuget: Polars.NET.Core, 0.5.0\u0022\n#r \u0022nuget: Polars.NET.Native.linux-x64, 0.5.0\u0022\n#r \u0022nuget: Apache.Arrow, 23.0.0\u0022\n#r \u0022nuget: Apache.Arrow.Adbc\u0022\n#r \u0022nuget: Microsoft.DotNet.Interactive.Formatting, 1.0.0-beta.26120.1\u0022\nopen System\nopen Microsoft.DotNet.Interactive.Formatting\nopen Polars.FSharp\nlet display (x: obj) = x\nDisplay.init()",
+      "outputs": [
+        {
+          "mimeType": "text/html",
+          "content": "\u003Cdiv\u003E\u003Cb\u003EInstalled Packages\u003C/b\u003E\u003Cul\u003E\u003Cli\u003E\u003Cspan\u003EPolars.FSharp, 0.5.0\u003C/span\u003E\u003C/li\u003E\u003Cli\u003E\u003Cspan\u003EPolars.NET.Core, 0.5.0\u003C/span\u003E\u003C/li\u003E\u003Cli\u003E\u003Cspan\u003EPolars.NET.Native.linux-x64, 0.5.0\u003C/span\u003E\u003C/li\u003E\u003Cli\u003E\u003Cspan\u003EApache.Arrow, 23.0.0\u003C/span\u003E\u003C/li\u003E\u003Cli\u003E\u003Cspan\u003EApache.Arrow.Adbc, 0.23.0\u003C/span\u003E\u003C/li\u003E\u003Cli\u003E\u003Cspan\u003EMicrosoft.DotNet.Interactive.Formatting, 1.0.0-beta.26120.1\u003C/span\u003E\u003C/li\u003E\u003C/ul\u003E\u003C/div\u003E"
+        }
+      ],
+      "metadata": {
+        "execution_count": 1
+      }
+    },
+    {
+      "id": "18e12ff7-66e0-4466-9854-18460737c1fb",
+      "type": "code",
+      "language": "fsharp",
+      "source": "// Define data\ntype WeatherData = { Date: string; City: string; Temperature: float; Rain: bool }\n\nlet data = [\n    { Date=\u00222023-01-01\u0022; City=\u0022London\u0022;     Temperature=10.5; Rain=true }\n    { Date=\u00222023-01-01\u0022; City=\u0022Manchester\u0022; Temperature=9.0;  Rain=true }\n    { Date=\u00222023-01-02\u0022; City=\u0022London\u0022;     Temperature=12.1; Rain=false }\n]\n\nlet df = \n    DataFrame.ofRecords data\n    |\u003E pl.withColumn (pl.col(\u0022Date\u0022).Str.ToDate \u0022%Y-%m-%d\u0022)\n\ndf",
+      "outputs": [
+        {
+          "mimeType": "text/plain",
+          "content": "System.Exception: Failed to create series for column \u0027Date\u0027: Unable to load shared library \u0027native_shim\u0027 or one of its dependencies. In order to help diagnose loading problems, consider using a tool like strace. If you\u0027re using glibc, consider setting the LD_DEBUG environment variable: \n/home/qinglei/.vscode/extensions/datafication.verso-notebook-1.0.20/host/runtimes/linux-x64/native/native_shim.so: cannot open shared object file: No such file or directory\n/usr/lib64/dotnet/shared/Microsoft.NETCore.App/10.0.8/native_shim.so: cannot open shared object file: No such file or directory\n/tmp/verso-nuget-packages/net10.0/Polars.NET.Core/0.5.0/native_shim.so: cannot open shared object file: No such file or directory\n/home/qinglei/.vscode/extensions/datafication.verso-notebook-1.0.20/host/runtimes/linux-x64/native/libnative_shim.so: cannot open shared object file: No such file or directory\n/usr/lib64/dotnet/shared/Microsoft.NETCore.App/10.0.8/libnative_shim.so: cannot open shared object file: No such file or directory\n/tmp/verso-nuget-packages/net10.0/Polars.NET.Core/0.5.0/libnative_shim.so: cannot open shared object file: No such file or directory\n/home/qinglei/.vscode/extensions/datafication.verso-notebook-1.0.20/host/runtimes/linux-x64/native/native_shim: cannot open shared object file: No such file or directory\n/usr/lib64/dotnet/shared/Microsoft.NETCore.App/10.0.8/native_shim: cannot open shared object file: No such file or directory\n/tmp/verso-nuget-packages/net10.0/Polars.NET.Core/0.5.0/native_shim: cannot open shared object file: No such file or directory\n/home/qinglei/.vscode/extensions/datafication.verso-notebook-1.0.20/host/runtimes/linux-x64/native/libnative_shim: cannot open shared object file: No such file or directory\n/usr/lib64/dotnet/shared/Microsoft.NETCore.App/10.0.8/libnative_shim: cannot open shared object file: No such file or directory\n/tmp/verso-nuget-packages/net10.0/Polars.NET.Core/0.5.0/libnative_shim: cannot open shared object file: No such file or directory\n",
+          "isError": true,
+          "errorName": "Exception",
+          "errorStackTrace": "   at Microsoft.FSharp.Core.PrintfModule.PrintFormatToStringThenFail@1447.Invoke(String message)\n   at Polars.FSharp.DataFrameFactory.DataFrame.ofRecords.Static[T](IEnumerable\u00601 data)\n   at \u003CStartupCode$FSI_0010\u003E.$FSI_0010.main@() in /home/qinglei/Projects/Polars.NET/example/input.fsx:line 11\n   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)\n   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)"
+        }
+      ],
+      "metadata": {
+        "execution_count": 2
+      }
+    },
+    {
+      "id": "ec903e72-d89c-4840-a174-2c1f762ee829",
+      "type": "code",
+      "language": "fsharp",
+      "source": "let df_converted =\n    df \n    |\u003E pl.filter (pl.col \u0022City\u0022 .== pl.lit \u0022London\u0022)\n    |\u003E pl.select [\n        pl.col(\u0022Date\u0022)\n        (pl.col(\u0022Temperature\u0022) * pl.lit 1.8 \u002B pl.lit 32.0) |\u003E pl.alias \u0022Temp_F\u0022\n    ]\n\ndf_converted",
+      "outputs": [
+        {
+          "mimeType": "text/plain",
+          "content": "input.fsx (2,5)-(2,7) typecheck error The value or constructor \u0027df\u0027 is not defined.",
+          "isError": true,
+          "errorName": "CompilationError"
+        }
+      ],
+      "metadata": {
+        "execution_count": 3
+      }
+    },
+    {
+      "id": "3e63e883-2788-4a70-83ba-699febfe3cec",
+      "type": "code",
+      "language": "fsharp",
+      "source": "let londonDf = \n    df \n    |\u003E pl.filter (pl.col \u0022City\u0022 .== pl.lit \u0022London\u0022)\n\nlondonDf",
+      "outputs": [
+        {
+          "mimeType": "text/plain",
+          "content": "input.fsx (2,5)-(2,7) typecheck error The value or constructor \u0027df\u0027 is not defined.",
+          "isError": true,
+          "errorName": "CompilationError"
+        }
+      ],
+      "metadata": {
+        "execution_count": 4
+      }
+    },
+    {
+      "id": "ccf2a281-1033-4df8-9c1c-a1a4f3e53ffc",
+      "type": "code",
+      "language": "fsharp",
+      "source": "let aggDf = \n    df\n    |\u003E pl.groupBy [pl.col \u0022City\u0022]\n    |\u003E pl.agg [\n        pl.col(\u0022Temperature\u0022).Mean().Alias \u0022Avg_Temp\u0022\n        pl.col(\u0022Temperature\u0022).Max().Alias \u0022Max_Temp\u0022\n        pl.col(\u0022Rain\u0022).Sum().Alias \u0022Rainy_Days\u0022 // bool sum -\u003E count of true\n        pl.len().Alias \u0022Total_Records\u0022\n    ]\n\naggDf",
+      "outputs": [
+        {
+          "mimeType": "text/plain",
+          "content": "input.fsx (2,5)-(2,7) typecheck error The value or constructor \u0027df\u0027 is not defined.",
+          "isError": true,
+          "errorName": "CompilationError"
+        }
+      ],
+      "metadata": {
+        "execution_count": 5
+      }
+    },
+    {
+      "id": "6078c0a8-da8d-4075-ba15-a8fa3c924d55",
+      "type": "code",
+      "language": "fsharp",
+      "source": "let windowDf = \n    df\n    |\u003E pl.select [\n        pl.col \u0022Date\u0022\n        pl.col \u0022City\u0022\n        pl.col \u0022Temperature\u0022\n        \n        // Over(Date): Calculate mean value by group\n        (pl.col(\u0022Temperature\u0022).Mean().Over(pl.col \u0022Date\u0022))\n            |\u003E pl.alias \u0022Daily_Avg\u0022\n            \n        (pl.col \u0022Temperature\u0022 - pl.col(\u0022Temperature\u0022).Mean().Over(pl.col \u0022Date\u0022))\n            |\u003E pl.alias \u0022Diff\u0022\n    ]\n    |\u003E pl.sortAscending [pl.col \u0022Date\u0022] \nwindowDf\n",
+      "outputs": [
+        {
+          "mimeType": "text/plain",
+          "content": "input.fsx (2,5)-(2,7) typecheck error The value or constructor \u0027df\u0027 is not defined.",
+          "isError": true,
+          "errorName": "CompilationError"
+        }
+      ],
+      "metadata": {
+        "execution_count": 6
+      }
+    },
+    {
+      "id": "fadeeed4-9d1a-4d5a-a505-ac1c79a7a3c9",
+      "type": "code",
+      "language": "fsharp",
+      "source": "let lf = \n    df \n    |\u003E pl.asLazy\n    |\u003E pl.filterLazy (pl.col \u0022Temperature\u0022 .\u003E pl.lit 10.0)\n    |\u003E pl.groupByLazy [pl.col \u0022City\u0022] \n    |\u003E pl.aggLazy [(pl.col \u0022Temperature\u0022).Mean() |\u003E pl.alias \u0022Lazy_Avg_Temp\u0022]   \n    \nprintfn \u0022%s\u0022 (lf.Explain(optimized=true))\n\nlet finalDf = lf.Collect()\n\nfinalDf",
+      "outputs": [
+        {
+          "mimeType": "text/plain",
+          "content": "input.fsx (2,5)-(2,7) typecheck error The value or constructor \u0027df\u0027 is not defined.",
+          "isError": true,
+          "errorName": "CompilationError"
+        }
+      ],
+      "metadata": {
+        "execution_count": 7
+      }
+    },
+    {
+      "id": "45972c34-37f2-41e1-bd87-f2c3ae63c4e9",
+      "type": "code",
+      "language": "fsharp",
+      "source": "let data = [Some \u002210.50\u0022; Some \u002220.25\u0022; None]\nlet s = pl.series \u0022str_vals\u0022 data\n\nlet sDec = s.Cast(DataType.Decimal(10,2))\n\nlet logic (opt: decimal option) =\n    opt |\u003E Option.map (fun d -\u003E d * 2m)\n\nlet res = sDec.MapOption(logic, DataType.Decimal(10, 2))\n\nres.Show()",
+      "outputs": [
+        {
+          "mimeType": "text/plain",
+          "content": "System.DllNotFoundException: Unable to load shared library \u0027native_shim\u0027 or one of its dependencies. In order to help diagnose loading problems, consider using a tool like strace. If you\u0027re using glibc, consider setting the LD_DEBUG environment variable: \n/home/qinglei/.vscode/extensions/datafication.verso-notebook-1.0.20/host/runtimes/linux-x64/native/native_shim.so: cannot open shared object file: No such file or directory\n/usr/lib64/dotnet/shared/Microsoft.NETCore.App/10.0.8/native_shim.so: cannot open shared object file: No such file or directory\n/tmp/verso-nuget-packages/net10.0/Polars.NET.Core/0.5.0/native_shim.so: cannot open shared object file: No such file or directory\n/home/qinglei/.vscode/extensions/datafication.verso-notebook-1.0.20/host/runtimes/linux-x64/native/libnative_shim.so: cannot open shared object file: No such file or directory\n/usr/lib64/dotnet/shared/Microsoft.NETCore.App/10.0.8/libnative_shim.so: cannot open shared object file: No such file or directory\n/tmp/verso-nuget-packages/net10.0/Polars.NET.Core/0.5.0/libnative_shim.so: cannot open shared object file: No such file or directory\n/home/qinglei/.vscode/extensions/datafication.verso-notebook-1.0.20/host/runtimes/linux-x64/native/native_shim: cannot open shared object file: No such file or directory\n/usr/lib64/dotnet/shared/Microsoft.NETCore.App/10.0.8/native_shim: cannot open shared object file: No such file or directory\n/tmp/verso-nuget-packages/net10.0/Polars.NET.Core/0.5.0/native_shim: cannot open shared object file: No such file or directory\n/home/qinglei/.vscode/extensions/datafication.verso-notebook-1.0.20/host/runtimes/linux-x64/native/libnative_shim: cannot open shared object file: No such file or directory\n/usr/lib64/dotnet/shared/Microsoft.NETCore.App/10.0.8/libnative_shim: cannot open shared object file: No such file or directory\n/tmp/verso-nuget-packages/net10.0/Polars.NET.Core/0.5.0/libnative_shim: cannot open shared object file: No such file or directory\n",
+          "isError": true,
+          "errorName": "DllNotFoundException",
+          "errorStackTrace": "   at Polars.NET.Core.Native.NativeBindings.\u003Cpl_series_new_str_simd\u003Eg____PInvoke|717_0(Byte* __name_native, Byte* __values_ptr_native, UIntPtr __values_len_native, ArrowStringView* __views_ptr_native, Byte* __validity_ptr_native, UIntPtr __len_native)\n   at Polars.NET.Core.Native.NativeBindings.\u003Cpl_series_new_str_simd\u003Eg____PInvoke|717_0(Byte* __name_native, Byte* __values_ptr_native, UIntPtr __values_len_native, ArrowStringView* __views_ptr_native, Byte* __validity_ptr_native, UIntPtr __len_native)\n   at Polars.NET.Core.Native.NativeBindings.pl_series_new_str_simd(String name, Byte\u0026 values_ptr, UIntPtr values_len, ArrowStringView\u0026 views_ptr, Byte\u0026 validity_ptr, UIntPtr len)\n   at Polars.NET.Core.PolarsWrapper.SeriesNewStringSimd(String name, ReadOnlySpan\u00601 data)\n   at Polars.NET.Core.Helpers.SeriesFactory.CreateSpan[T](String name, ReadOnlySpan\u00601 data)\n   at Polars.FSharp.Series.create[T](String name, IEnumerable\u00601 data)\n   at \u003CStartupCode$FSI_0016\u003E.$FSI_0016.main@() in /home/qinglei/Projects/Polars.NET/example/input.fsx:line 2\n   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)\n   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)"
+        }
+      ],
+      "metadata": {
+        "execution_count": 8
+      }
+    },
+    {
+      "id": "73234870-262b-4df6-8977-2c0f8b1f4ccc",
+      "type": "code",
+      "language": "fsharp",
+      "source": "let result =\n    [\n        pl.series \u0022Id\u0022    [1; 2; 3]\n        pl.series \u0022Value\u0022 [\u0022A\u0022; \u0022B\u0022; \u0022C\u0022]\n    ] \n    |\u003E pl.dataframe |\u003E pl.asLazy\n    |\u003E Merge.initiate \n        (\n            [\n            pl.series \u0022Id\u0022    [2; 3; 4]\n            pl.series \u0022Value\u0022 [\u0022B_new\u0022; \u0022C_new\u0022; \u0022D\u0022]\n            ]\n            |\u003E pl.dataframe |\u003E pl.asLazy\n        ) \n        [\u0022Id\u0022]\n    |\u003E Merge.whenMatchedUpdateSet (Set.build [\n        Set.col \u0022Value\u0022 (fun ctx -\u003E ctx.SourceCol \u0022Value\u0022)\n    ])\n    |\u003E Merge.whenNotMatchedInsertAll\n    |\u003E Merge.execute\n    |\u003E pl.sortAscendingLazy [pl.col \u0022Id\u0022]\n    |\u003E pl.collect\n\nresult",
+      "outputs": [
+        {
+          "mimeType": "text/plain",
+          "content": "System.DllNotFoundException: Unable to load shared library \u0027native_shim\u0027 or one of its dependencies. In order to help diagnose loading problems, consider using a tool like strace. If you\u0027re using glibc, consider setting the LD_DEBUG environment variable: \n/home/qinglei/.vscode/extensions/datafication.verso-notebook-1.0.20/host/runtimes/linux-x64/native/native_shim.so: cannot open shared object file: No such file or directory\n/usr/lib64/dotnet/shared/Microsoft.NETCore.App/10.0.8/native_shim.so: cannot open shared object file: No such file or directory\n/tmp/verso-nuget-packages/net10.0/Polars.NET.Core/0.5.0/native_shim.so: cannot open shared object file: No such file or directory\n/home/qinglei/.vscode/extensions/datafication.verso-notebook-1.0.20/host/runtimes/linux-x64/native/libnative_shim.so: cannot open shared object file: No such file or directory\n/usr/lib64/dotnet/shared/Microsoft.NETCore.App/10.0.8/libnative_shim.so: cannot open shared object file: No such file or directory\n/tmp/verso-nuget-packages/net10.0/Polars.NET.Core/0.5.0/libnative_shim.so: cannot open shared object file: No such file or directory\n/home/qinglei/.vscode/extensions/datafication.verso-notebook-1.0.20/host/runtimes/linux-x64/native/native_shim: cannot open shared object file: No such file or directory\n/usr/lib64/dotnet/shared/Microsoft.NETCore.App/10.0.8/native_shim: cannot open shared object file: No such file or directory\n/tmp/verso-nuget-packages/net10.0/Polars.NET.Core/0.5.0/native_shim: cannot open shared object file: No such file or directory\n/home/qinglei/.vscode/extensions/datafication.verso-notebook-1.0.20/host/runtimes/linux-x64/native/libnative_shim: cannot open shared object file: No such file or directory\n/usr/lib64/dotnet/shared/Microsoft.NETCore.App/10.0.8/libnative_shim: cannot open shared object file: No such file or directory\n/tmp/verso-nuget-packages/net10.0/Polars.NET.Core/0.5.0/libnative_shim: cannot open shared object file: No such file or directory\n",
+          "isError": true,
+          "errorName": "DllNotFoundException",
+          "errorStackTrace": "   at Polars.NET.Core.Native.NativeBindings.\u003Cpl_arrow_to_series\u003Eg____PInvoke|781_0(Byte* __name_native, CArrowArray* __cArray_native, CArrowSchema* __cSchema_native)\n   at Polars.NET.Core.Native.NativeBindings.\u003Cpl_arrow_to_series\u003Eg____PInvoke|781_0(Byte* __name_native, CArrowArray* __cArray_native, CArrowSchema* __cSchema_native)\n   at Polars.NET.Core.Native.NativeBindings.pl_arrow_to_series(String name, CArrowArray* cArray, CArrowSchema* cSchema)\n   at Polars.NET.Core.PolarsWrapper.SeriesFromArrow(String name, CArrowArray* cArray, CArrowSchema* cSchema)\n   at Polars.NET.Core.Arrow.ArrowFfiBridge.ImportSeries(String name, IArrowArray arrowArray)\n   at Polars.NET.Core.Helpers.SeriesFactory.CreateGenericType[T](String name, IEnumerable\u00601 data)\n   at Polars.FSharp.Series.create[T](String name, IEnumerable\u00601 data)\n   at \u003CStartupCode$FSI_0017\u003E.$FSI_0017.main@() in /home/qinglei/Projects/Polars.NET/example/input.fsx:line 2\n   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)\n   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)"
+        }
+      ],
+      "metadata": {
+        "execution_count": 9
+      }
+    }
+  ]
+}

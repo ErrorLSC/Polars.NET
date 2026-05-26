@@ -18,6 +18,7 @@ mkdir -p docs/api/fsharp
 cp -r docs/api/fsharp_generated/* docs/api/fsharp/
 
 echo "=== 4. Building Site (DocFX) ==="
+export PATH="$PATH:/home/qinglei/.dotnet/tools"
 docfx metadata docs/docfx.json
 docfx build docs/docfx.json
 rm -rf docs/api/fsharp_generated

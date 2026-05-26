@@ -2,8 +2,9 @@
 // Polars.NET F# Quick Start Script
 // ==========================================
 
-#r "../Polars.NET.Core/bin/Debug/net10.0/Polars.NET.Core.dll"
-#r "../Polars.FSharp/bin/Debug/net10.0/Polars.FSharp.dll"
+#r "nuget: Polars.FSharp, 0.5.0"
+#r "nuget: Polars.NET.Core, 0.5.0"
+#r "nuget: Polars.NET.Native.linux-x64, 0.5.0"
 #r "nuget: Apache.Arrow, 23.0.0" 
 #r "nuget: Apache.Arrow.Adbc"
 
