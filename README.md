@@ -250,8 +250,8 @@ let lf = LazyFrame.ScanCsv "users.csv"
 let res = 
     lf
     |> pl.filterLazy (pl.col "age" .> pl.lit 28)
-    |> pl.groupByLazy 
-        [ pl.col "dept" ]
+    |> pl.groupByLazy [ pl.col "dept" ]
+    |> pl.aggLazy
         [ 
             pl.col("age").Mean().Alias "AvgAge" 
             pl.col("name").Count().Alias "Count"
