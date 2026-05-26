@@ -10,7 +10,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile> 
 
     <PackageId>Polars.NET.ML</PackageId> 
-    <Title>Polars.NET ML.NET Integration</Title>
+    <Title>Polars.NET and ML.NET Integration</Title>
     <Authors>ErrorLSC</Authors>
     <Description>The Machine Learning extension for Polars.NET. This package provides high-speed data bridges between Polars DataFrames, Apache Arrow memory, ML.NET (IDataView). Unlock hardware-accelerated SIMD math, train classic ML models, and seamlessly integrate with deep learning pipelines (ONNX).</Description>
     <PackageTags>polars;dataframe;machine-learning;mlnet;apache-arrow;data-science</PackageTags>

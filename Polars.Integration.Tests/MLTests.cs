@@ -286,7 +286,6 @@ public class DataViewConversionTests
         {
             { "User-Agent", "Polars.NET-Test" }
         });
-        // var explicitSchema = PolarsSchema.From<Iris>();
         using var lf = LazyFrame.ScanParquet(hfUrl, cloudOptions: options);
         
         // sepal length (cm), sepal width (cm), petal length (cm), petal width (cm)     

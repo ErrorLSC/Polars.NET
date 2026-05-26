@@ -39,7 +39,7 @@ type ``Complex Query Tests`` () =
         Assert.Equal(1L, df.Height)
 
     [<Fact>]
-    [<Trait("LazyFrame","GroupBy")>]
+    [<Trait("DataFrame","GroupBy")>]
     member _.``GroupBy Queries With Having`` () =
         let names = [| "Ben"; "Alice"; "Qinglei"; "Zhang" |]
         let dates = [| 
@@ -53,21 +53,16 @@ type ``Complex Query Tests`` () =
             pl.series "name" names
             pl.series "birthdate" dates
         |]
-
-
-        let keys = [ pl.col("birthdate").Dt.Year() / pl.lit 10 * pl.lit 10 |> pl.alias "decade" ]
-        let aggs = [ pl.len() |> alias "cnt" ]
-        let havingCond = pl.len() .> pl.lit 1
         
         use res =
             df
-            |> pl.asLazy
-            |> pl.groupByLazy keys
-            |> pl.havingLazy havingCond
-            |> pl.aggLazy aggs
-            |> pl.sortAscendingLazy [pl.col "decade"] 
-            |> pl.collect
-        res |> pl.show |> ignore
+            |> pl.groupBy 
+                [ pl.col("birthdate").Dt.Year() / pl.lit 10 * pl.lit 10 
+                |> pl.alias "decade" ]
+            |> pl.having (pl.len() .> pl.lit 1)
+            |> pl.agg [ pl.len() |> pl.alias "cnt" ]
+            |> pl.sortAscending [pl.col "decade"] 
+
         Assert.Equal(1L, res.Height) 
         
         Assert.Equal(2020L, int64 (res.Int("decade", 0).Value))
@@ -1335,35 +1330,34 @@ type ``Complex Query Tests`` () =
             ])
             |> Merge.printPlan
             |> Merge.execute
+            |> pl.sortAscendingLazy [pl.col "Id"] 
             |> pl.collect
 
-        let sorted = result |> pl.sortAscending [pl.col "Id"] 
-
         // Id=1: Hero, HP=120, MP=60, Score=1200, Tag=Updated
-        Assert.Equal(Some 1L,       sorted.Int("Id", 0))
-        Assert.Equal(Some "Hero",   sorted.String("Name", 0))
-        Assert.Equal(Some 120L,     sorted.Int("Stat_HP", 0))
-        Assert.Equal(Some 60L,      sorted.Int("Stat_MP", 0))
-        Assert.Equal(Some 1200L,    sorted.Int("Score", 0))
-        Assert.Equal(Some "Updated",sorted.String("Tag", 0))
+        Assert.Equal(Some 1L,       result.Int("Id", 0))
+        Assert.Equal(Some "Hero",   result.String("Name", 0))
+        Assert.Equal(Some 120L,     result.Int("Stat_HP", 0))
+        Assert.Equal(Some 60L,      result.Int("Stat_MP", 0))
+        Assert.Equal(Some 1200L,    result.Int("Score", 0))
+        Assert.Equal(Some "Updated",result.String("Tag", 0))
 
         // Id=3: NPC (untouched)
-        Assert.Equal(Some 3L,       sorted.Int("Id", 1))
-        Assert.Equal(Some "NPC",    sorted.String("Name", 1))
-        Assert.Equal(Some 10L,      sorted.Int("Stat_HP", 1))
-        Assert.Equal(Some 0L,       sorted.Int("Stat_MP", 1))
-        Assert.Equal(Some 0L,       sorted.Int("Score", 1))
-        Assert.Equal(Some "Old",    sorted.String("Tag", 1))
+        Assert.Equal(Some 3L,       result.Int("Id", 1))
+        Assert.Equal(Some "NPC",    result.String("Name", 1))
+        Assert.Equal(Some 10L,      result.Int("Stat_HP", 1))
+        Assert.Equal(Some 0L,       result.Int("Stat_MP", 1))
+        Assert.Equal(Some 0L,       result.Int("Score", 1))
+        Assert.Equal(Some "Old",    result.String("Tag", 1))
 
         // Id=4: Newbie, HP=80, MP=40, Score=50, Tag=New
-        Assert.Equal(Some 4L,       sorted.Int("Id", 2))
-        Assert.Equal(Some "Newbie", sorted.String("Name", 2))
-        Assert.Equal(Some 80L,      sorted.Int("Stat_HP", 2))
-        Assert.Equal(Some 40L,      sorted.Int("Stat_MP", 2))
-        Assert.Equal(Some 50L,      sorted.Int("Score", 2))
-        Assert.Equal(Some "New",    sorted.String("Tag", 2))
+        Assert.Equal(Some 4L,       result.Int("Id", 2))
+        Assert.Equal(Some "Newbie", result.String("Name", 2))
+        Assert.Equal(Some 80L,      result.Int("Stat_HP", 2))
+        Assert.Equal(Some 40L,      result.Int("Stat_MP", 2))
+        Assert.Equal(Some 50L,      result.Int("Score", 2))
+        Assert.Equal(Some "New",    result.String("Tag", 2))
 
-        Assert.Equal(3L, sorted.Height)
+        Assert.Equal(3L, result.Height)
     [<Fact>]
     [<Trait("DataFrame", "Merge")>]
     member _.``Merge composite keys with EndsWith selector`` () =
@@ -1394,28 +1388,27 @@ type ``Complex Query Tests`` () =
                 Set.col "IsActive" (fun _   -> pl.lit true)
             ])
             |> Merge.executeEager Engine.Auto
+            |> pl.sortAscending [pl.cs.endsWith "Id"] 
 
-        let sorted = result |> pl.sortAscending [pl.cs.endsWith "Id"] 
-
-        Assert.Equal(3L, sorted.Height)
+        Assert.Equal(3L, result.Height)
 
         // T1, 102: Editor, Active=true
-        Assert.Equal(Some "T1", sorted.String("TenantId", 0))
-        Assert.Equal(Some 102L, sorted.Int("UserId", 0))
-        Assert.Equal(Some "Editor", sorted.String("Role", 0))
-        Assert.Equal(Some true, sorted.Bool("IsActive", 0))
+        Assert.Equal(Some "T1", result.String("TenantId", 0))
+        Assert.Equal(Some 102L, result.Int("UserId", 0))
+        Assert.Equal(Some "Editor", result.String("Role", 0))
+        Assert.Equal(Some true, result.Bool("IsActive", 0))
 
         // T2, 101: Admin, Active=true
-        Assert.Equal(Some "T2", sorted.String("TenantId", 1))
-        Assert.Equal(Some 101L, sorted.Int("UserId", 1))
-        Assert.Equal(Some "Admin", sorted.String("Role", 1))
-        Assert.Equal(Some true, sorted.Bool("IsActive", 1))
+        Assert.Equal(Some "T2", result.String("TenantId", 1))
+        Assert.Equal(Some 101L, result.Int("UserId", 1))
+        Assert.Equal(Some "Admin", result.String("Role", 1))
+        Assert.Equal(Some true, result.Bool("IsActive", 1))
 
         // T2, 888: User, Active=true (insert)
-        Assert.Equal(Some "T2", sorted.String("TenantId", 2))
-        Assert.Equal(Some 888L, sorted.Int("UserId", 2))
-        Assert.Equal(Some "User", sorted.String("Role", 2))
-        Assert.Equal(Some true, sorted.Bool("IsActive", 2))
+        Assert.Equal(Some "T2", result.String("TenantId", 2))
+        Assert.Equal(Some 888L, result.Int("UserId", 2))
+        Assert.Equal(Some "User", result.String("Role", 2))
+        Assert.Equal(Some true, result.Bool("IsActive", 2))
 
     [<Fact>]
     [<Trait("DataFrame", "Merge")>]
@@ -1518,12 +1511,13 @@ type ``Complex Query Tests`` () =
             ] 
             |> pl.dataframe |> pl.asLazy
             |> Merge.initiate 
-                ([
-                    pl.series "Id"    [2; 3; 4]
-                    pl.series "Value" ["B_new"; "C_new"; "D"]
-                ]
-                |> pl.dataframe |> pl.asLazy) 
-
+                (
+                    [
+                        pl.series "Id"    [2; 3; 4]
+                        pl.series "Value" ["B_new"; "C_new"; "D"]
+                    ]
+                    |> pl.dataframe |> pl.asLazy
+                ) 
                 ["Id"]
             |> Merge.whenMatchedUpdateSet (Set.build [
                 Set.col "Value" (fun ctx -> ctx.SourceCol "Value")

@@ -1,340 +1,248 @@
 
-# Polars.NET 0.4.0 Release Note
+# Polars.NET 0.5.0 Release Note
 
 ![icon](assets/icon_lite.png)
 
 ## API
 
-- PolarsConfig class added. It is intended to inject env var into Rust core.
+<p style="font-size:1.3em; font-weight:bold; background-color:#ffff99;">
+<strong>ALMOST</strong> All API in python Polars now is available in both Polars.NET and Polars.FSharp.<br/>
+The only module left is <strong>config module</strong> which is still under refactoring in rust core.<br/>
+<strong>Config module will be introduced in next major release.</strong>
+</p>
 
-```csharp
-// Example
-PolarsConfig.SetEnvVar("POLARS_DELTA_MAX_RETRIES", "30");
-```
+- GroupBy now should be executed by chained GroupByBuilder APIs(C#) or pl.groupBy pipes(F#).
 
-- PolarSchema now can be created from record class or dictionary
+C#:
 
 ```CSharp
-// Example
-public record StaffRecord(string name, int age, int salary);
-using var schema = PolarsSchema.From<StaffRecord>();
-
-using (var tableSchema = PolarsSchema.From(new Dictionary<string, DataType>
-{
-    { "Id", DataType.Int32 },
-    { "Msg", DataType.String }
-}))
+var res = df
+    .GroupByDynamic(
+        indexColumn: "Time",
+        every: "1h", 
+        groupBy: [Pl.Col("Symbol")]
+    )
+    .Having(Pl.Col("Val").Mean() > 50) 
+    .Agg(
+        Pl.Col("Val").Mean().Alias("MeanVal"),
+        Pl.Col("Val").First().Alias("FirstVal"),
+        Pl.Col("Val").Last().Alias("LastVal")
+    );
 ```
 
-- Arg Min/Max/Unique, IndexOf, SearchSorted Expr have been added.
+F#:
 
-```csharp
-// Example
-using var res = df.Select(
-    Col("val").ArgMin().Alias("min_idx"),
-    Col("val").ArgMax().Alias("max_idx"),
-    Col("val").ArgUnique().Alias("unique_idx")
-);
-
-using var res = df.Select(
-    // --- IndexOf  ---
-    Col("val").IndexOf(Lit(20)).Alias("idx_of_20"),
-    Col("val").IndexOf(Lit(99)).Alias("idx_of_99"), 
-    
-    // --- SearchSorted ---
-    Col("val").SearchSorted(Lit(25)).Alias("search_25"),
-    
-    Col("val").SearchSorted(Lit(20), side: SearchSortedSide.Left).Alias("search_20_left"),
-
-    Col("val").SearchSorted(Lit(20), side: SearchSortedSide.Right).Alias("search_20_right")
-);
+```FSharp
+let res =
+    df
+    |> pl.groupBy 
+        [ pl.col("birthdate").Dt.Year() / pl.lit 10 * pl.lit 10 
+        |> pl.alias "decade" ]
+    |> pl.having (pl.len() .> pl.lit 1)
+    |> pl.agg [ pl.len() |> pl.alias "cnt" ]
+    |> pl.sortAscending [pl.col "decade"] 
 ```
-
-- AsDataReader() added for DataFrame.
-
-```Csharp
-// Example: This is a MSSQL fixture
-using var bulkReader = df.AsDataReader(bufferSize: 100, typeOverrides: overrides);
-
-using var bulk = new SqlBulkCopy(_fixture.ConnectionString);
-bulk.DestinationTableName = tableName;
-bulk.EnableStreaming = true; 
-bulk.BatchSize = 2000;
-
-bulk.ColumnMappings.Add("OrderId", "OrderId");
-bulk.ColumnMappings.Add("Region", "Region");
-bulk.ColumnMappings.Add("Amount", "Amount");
-bulk.ColumnMappings.Add("OrderDate", "OrderDate");
-
-await bulk.WriteToServerAsync(bulkReader);
-```
-
-- DataFrame.ReadCsv, LazyFrame.ScanCsv now accept full PolarsSchema(with all column names and datatypes strictly) as parameter schema,  
-    or partial PolarsSchema as dtypeOverride(column name won't be changed).
 
 ## New Features
 
-- UnityCatalog Features added.
-- ADBC Read&Write added.
-- Polars.NET.Linq Extension package released. Enjoy LINQ powered with Polars Query Engine!
+- TensorInterop
+    AsReadOnlySpan– Zero-copy view as a contiguous Span for flat numeric columns.
 
-C# LINQ:
+    AsTensorSpan – Automatically shaped 1D/2D/N-D tensor views (supports explicit reshaping or transposition via strides).
 
-```CSharp
-using Polars.NET.Linq.CSharpExtensions;
-using Polars.NET.Linq;
-// DataFrame
-var empQuery = dfEmps.AsQueryable<EmployeeSalary>();
+    AsTensor – Deep-copies data into a managed Tensor on the GC heap, safe for async/threading.
 
-var query = from e in empQuery
-            group e by e.DeptId into g
-            where g.Sum(x => x.Salary) > 5000.0 
-            orderby g.Key
-            select new DeptStatsDto
-            {
-                DeptId = g.Key,
-                TotalSalary = g.Sum(x => x.Salary),
-                EmployeeCount = g.Count()
-            };
+    AsDangerousUnmanagedTensor – Extracts raw pointer (nint, shape) for direct FFI with C++ libraries (ONNX Runtime, TorchSharp, MKL, CUDA). Requires Rechunk() and manual lifecycle management.
 
-var results = query.ToList();
-// ToDataFrame(), ToLazyFrame() also available
+    Series.FromTensor – Converts any ReadOnlyTensorSpan back into a Polars Series, supporting nested array columns for N-D data.
 
-// Series
-using var series = Series.From("my_numbers", Enumerable.Range(1, 100).ToArray());
+All operations work zero-copy where possible, eliminating serialization overhead when moving data between Polars and high-performance .NET code or native ML backends.
 
-var query = series.AsQueryable<int>().Where(x => x > 90)
-                    .OrderByDescending(x => x)
-                    .Take(5)
-                    .Skip(1);
+Only numeric, null‑free, contiguous series are supported – strings and categoricals must be encoded first.
+TensorInterop:
 
-var results = query.ToList();
-// ToSeries() available
+```C#
+float[,] matrix = new float[,]
+{
+    { 1.1f, 1.2f, 1.3f },
+    { 2.1f, 2.2f, 2.3f }
+};
+
+using var series = Series.From("ffi_matrix", matrix);
+
+var (ptr, shape) = series.AsDangerousUnmanagedTensor<float>();
+
+int totalElements = (int)(shape[0] * shape[1]); 
+
+float* rawFloatPtr = (float*)ptr.ToPointer();
+
+var nativeSpan = new ReadOnlySpan<float>(rawFloatPtr, totalElements);
 ```
 
-F# Computation Expression:
+- ML.NET integration
+
+ToDataFrame(this IDataView, batchSize = 64000)
+Converts any ML.NET IDataView into a Polars DataFrame. Data flows through Arrow record batches without unnecessary serialization or type conversions.
+
+AsDataView(this IPolarsDataFrame, enableMacroShuffle = false)
+Wraps a Polars DataFrame as an ML.NET IDataView. The underlying Arrow memory is shared directly, enabling ML.NET trainers (e.g., SgdCalibrated, FastTree) to consume Polars data.
+
+```CSharp
+// ==========================================
+// Data Loading
+// ==========================================
+var hfUrl = "https://huggingface.co/datasets/scikit-learn/iris/resolve/refs%2Fconvert%2Fparquet/default/train/0000.parquet";
+var options = CloudOptions.Http(new Dictionary<string, string>
+{
+    { "User-Agent", "Polars.NET-Test" }
+});
+using var lf = LazyFrame.ScanParquet(hfUrl, cloudOptions: options);
+
+// sepal length (cm), sepal width (cm), petal length (cm), petal width (cm)     
+using var cleanlf = lf.Cast((typeof(double),typeof(float)));
+using var cleanDf = cleanlf.WithColumns(Pl.ConcatArray(Cs.Float().ToExpr().Alias("Features"))).Collect();
+// ==========================================
+// Polars -> ML.NET
+// ==========================================
+var dataView = cleanDf.AsDataView();
+
+var mlContext = new MLContext(seed: 42);
+
+// ==========================================
+// ML.NET Pipeline
+// ==========================================
+// Form VBuffer<float> tensor
+var pipeline = mlContext.Clustering.Trainers.KMeans("Features", numberOfClusters: 3);
+var model = pipeline.Fit(dataView);
+// ==========================================
+// ML.NET Transform and Read Back
+// ==========================================
+var predictions = model.Transform(dataView);
+
+// ML.NET -> Polars
+using var resultDf = predictions.ToDataFrame();
+```
+
+- SQL MERGE
+
+Declarative actions – WhenMatchedUpdate(...), WhenMatchedDelete(...), WhenNotMatchedInsert(...), WhenNotMatchedBySourceDelete(...)
+
+Automatic validation – checks for key type mismatches, nulls in join keys, and duplicate source keys before execution.
+
+Execution plan inspection – call .Explain() or .InspectPlan() to see the logical/physical Polars plan, or .ToMergePlanString() for a human‑readable summary of the MERGE strategy.
+
+Zero‑copy core – the entire operation is compiled into a Polars logical plan and executed by the native engine; no unnecessary copying of data.
+
+Rich overloads – specify join keys by column names, a selector (Cs.Numeric()), or any column expression.
+
+C# Example:
+
+```C#
+var targetDf = DataFrame.FromColumns(new
+{
+    Id = new[] { 1, 2, 3, 4, 5 },
+    Category = new[] { "Seasonal", "Core", "Core", "Tech", "Tech" },
+    Price = new[] { 10.0, 20.0, 30.0, 100.0, 200.0 },
+    IsDiscontinued = new[] { false, false, false, false, false }
+});
+
+var sourceDf = DataFrame.FromColumns(new
+{
+    Id = new[] { 3, 4, 5, 6, 7 },
+    Category = new[] { "Core", "Tech", "Tech", "New", "Trash" },
+    Price = new[] { 30.0, 120.0, 190.0, 50.0, 0.0 },
+    IsDiscontinued = new[] { true, false, false, false, false } 
+});
+
+var resultDf = targetDf.Merge(sourceDf, "Id")
+    // If matched as IsDiscontinued delete
+    .WhenMatchedDelete(m => m.Source("IsDiscontinued") == true)
+    // If matched price up then update
+    .WhenMatchedUpdate(m => m.Source("Price") > m.Target("Price"))
+    // Only insert price > 0 in source table
+    .WhenNotMatchedInsert(m => m.Source("Price") > 0.0)
+    // If record in source table is missing then delete target
+    .WhenNotMatchedBySourceDelete(m => m.Target("Category") == "Seasonal")
+    // Inspect plan to console
+    .InspectPlan(verbose: false) 
+    .Execute(); 
+
+// Id 1 (Target): Seasonal item missed in source table -> NotMatchedBySourceDelete -> Delete
+// Id 2 (Target): Core item missed in source table -> Keep
+// Id 3 (Both): IsDiscontinued=true -> MatchedDelete -> Delete
+// Id 4 (Both): Source Price(120) > Target Price(100) -> WhenMatchedUpdate -> Price: 120.0
+// Id 5 (Both): Source Price(190) < Target Price(200) -> Keep
+// Id 6 (Source): New Item in source and price(50) > 0 -> WhenNotMatchedInsert -> Insert
+// Id 7 (Source): New Item in source but price(0) is invalid -> Discard
+```
+
+F# Example:
 
 ```F#
-open Polars.NET.Linq.FSharpExtensions
-open Polars.NET.Linq
+[
+    pl.series "Id"    [1; 2; 3]
+    pl.series "Value" ["A"; "B"; "C"]
+] 
+|> pl.dataframe |> pl.asLazy
+|> Merge.initiate 
+    (
+        [
+            pl.series "Id"    [2; 3; 4]
+            pl.series "Value" ["B_new"; "C_new"; "D"]
+        ]
+        |> pl.dataframe |> pl.asLazy
+    ) 
+    ["Id"]
+|> Merge.whenMatchedUpdateSet (Set.build [
+    Set.col "Value" (fun ctx -> ctx.SourceCol "Value")
+])
+|> Merge.whenNotMatchedInsertAll
+|> Merge.printPlan
+|> Merge.execute
+|> pl.sortAscendingLazy [pl.col "Id"]
+|> pl.collect
 
-let empQuery = dfEmps.AsQueryable<EmployeeSalary>()
+// Merge Plan
+// MERGE ON: Id
 
-let queryResult = 
-    query {
-        for e in empQuery do
-        groupBy e.DeptId into g
-        
-        where (g.Sum(fun x -> x.Salary) > 5000.0)
-        
-        sortBy g.Key
-        
-        select {
-            DeptId = g.Key
-            TotalSalary = g.Sum(fun x -> x.Salary)
-            EmployeeCount = g.Count()
-        }
-    } |> Seq.toList 
-// ToDataFrame(), ToLazyFrame() also available
+// MATCH STRATEGY:
+//   First Match Wins (Sequential Evaluation)
 
-// Series
-let numbers = [| 1 .. 100 |]
-use series = Series.create("my_numbers", numbers)
+// WHEN MATCHED:
+//   [1] UPDATE
+//       SET (1 overrides):
+//         - Value = col("Value.Source")
 
-let queryable = series.AsQueryable<int>()
+// WHEN NOT MATCHED:
+//   [1] INSERT
+//       SET: (All Source Columns)
 
-let seriesQuery = 
-    query {
-        for x in queryable do
-        where (x > 90)
-        sortByDescending x
-        select x
-    }
-    
-let result = seriesQuery.ToSeries()
-```
+// JOIN STRATEGY:
+//   Type: Outer (Upgraded to Outer to support INSERT)
+//   MaintainOrder: Left
 
-With ADBC, you can play them together:
-
-```CSharp
-var options = new DataOptions().UseConnectionString(ProviderName.PostgreSQL15, "Server=Dummy;");
-
-var records = new[]
-{
-    new { id = 101, name = "Data", language = "C" },
-    new { id = 102, name = "Frame", language = "C++" },
-    new { id = 103, name = "Engine", language = "Rust" }
-};
-using var df = DataFrame.FromEnumerable(records);
-df.WriteToAdbc(_connection, "stage1_table");
-
-using var duckDbTranslator = new DataConnection(options); 
-
-using var pushdownDf = duckDbTranslator.GetTable<AdbcE2ERecord>()
-    .TableName("stage1_table")
-    .Where(x => x.Id > 101) 
-    .Select(x => new 
-    {
-        x.Id,
-        x.Name,
-        UpperLang = Sql.Upper(x.Language)
-    })
-    .ToDataFrameAdbc(_connection);
-    
-// shape: (2, 3)
-// ┌─────┬────────┬───────────┐
-// │ Id  ┆ Name   ┆ UpperLang │
-// │ --- ┆ ---    ┆ ---       │
-// │ i32 ┆ str    ┆ str       │
-// ╞═════╪════════╪═══════════╡
-// │ 102 ┆ Frame  ┆ C++       │
-// │ 103 ┆ Engine ┆ RUST      │
-// └─────┴────────┴───────────┘
-
-using var finalPolarsDf = pushdownDf.AsQueryable<PushdownRecord>()
-    .Select(x => new 
-    {
-        FinalId = x.Id + 1000,                            
-        SuperName = x.Name + " Pro Max",                  
-        LangStatus = x.UpperLang == "RUST" ? "Genshin" : "Impact" 
-    })
-    .ToDataFrame(); 
-
-// shape: (2, 3)
-// ┌─────────┬────────────────┬────────────┐
-// │ FinalId ┆ SuperName      ┆ LangStatus │
-// │ ---     ┆ ---            ┆ ---        │
-// │ i32     ┆ str            ┆ str        │
-// ╞═════════╪════════════════╪════════════╡
-// │ 1102    ┆ Frame Pro Max  ┆ Impact     │
-// │ 1103    ┆ Engine Pro Max ┆ Genshin    │
-// └─────────┴────────────────┴────────────┘
-
-finalPolarsDf.WriteToAdbc(_connection, "final_destination_table");
-
-using var verifyFinalDf = DataFrame.ReadAdbc(_connection, "SELECT * FROM final_destination_table ORDER BY FinalId");
-
-// shape: (2, 3)
-// ┌─────────┬────────────────┬────────────┐
-// │ FinalId ┆ SuperName      ┆ LangStatus │
-// │ ---     ┆ ---            ┆ ---        │
-// │ i32     ┆ str            ┆ str        │
-// ╞═════════╪════════════════╪════════════╡
-// │ 1102    ┆ Frame Pro Max  ┆ Impact     │
-// │ 1103    ┆ Engine Pro Max ┆ Genshin    │
-// └─────────┴────────────────┴────────────┘
-```
-
-Or with Delta Lake:
-
-```CSharp
-var tableName = $"delta_merge_composite_ordered_{Guid.NewGuid():N}";
-var rootUrl = $"s3://{minio.BucketName}/{tableName}";
-
-var options = CloudOptions.Aws(
-    region: minio.Region,
-    accessKey: minio.AccessKey,
-    secretKey: minio.SecretKey,
-    endpoint: $"http://{minio.Endpoint.Replace("http://", "").Replace("https://", "").TrimEnd('/')}"
-);
-options.Credentials!["AWS_ALLOW_HTTP"] = "true";
-options.Credentials!["aws_s3_force_path_style"] = "true";
-options.Credentials!["AWS_S3_ALLOW_UNSAFE_RENAME"] = "true";
-
-
-using (var df = DataFrame.FromColumns(new { 
-    Region = new[]  { "North", "North", "South", "South", "East" },
-    StoreId = new[] { 101,     102,     101,     999,     555 },
-    Stock = new[]   { 10,      20,      5,       0,       50 },
-    Status = new[]  { "Active","Active","Recall","Obsolete","Active" }
-}))
-{
-    df.WriteDelta(
-        rootUrl, 
-        partitionBy: "Region", 
-        mode: DeltaSaveMode.Append, 
-        cloudOptions: options
-    );
-}
-
-using var targetReadDf = DataFrame.ReadDelta(rootUrl, cloudOptions: options);
-
-// LINQ to Polars
-var sourceQuery = targetReadDf.AsQueryable<StoreRecord>()
-    .Where(x => x.Region == "North" || (x.Region == "South" && x.StoreId == 101))
-    .Select(x => new StoreRecord(
-        x.Region,
-        x.StoreId,
-        (x.Region == "North" && x.StoreId == 101) ? 100 : 
-        (x.Region == "North" && x.StoreId == 102) ? 15 : 0, 
-        (x.Region == "South" && x.StoreId == 101) ? "DeleteMe" : x.Status
-    ))
-    .Concat([
-        new StoreRecord("West", 888, 60, "New"),
-        new StoreRecord("West", 999, 0, "Bad")
-    ]);
-using var sourceDf = sourceQuery.ToDataFrame();
-
-// shape: (5, 4)
-// ┌────────┬─────────┬───────┬──────────┐
-// │ Region ┆ StoreId ┆ Stock ┆ Status   │
-// │ ---    ┆ ---     ┆ ---   ┆ ---      │
-// │ str    ┆ i32     ┆ i32   ┆ str      │
-// ╞════════╪═════════╪═══════╪══════════╡
-// │ North  ┆ 101     ┆ 100   ┆ Active   │
-// │ North  ┆ 102     ┆ 15    ┆ Active   │
-// │ South  ┆ 101     ┆ 0     ┆ DeleteMe │
-// │ West   ┆ 888     ┆ 60    ┆ New      │
-// │ West   ┆ 999     ┆ 0     ┆ Bad      │
-// └────────┴─────────┴───────┴──────────┘
-
-var updateCond = Delta.Source("Stock") > Delta.Target("Stock");
-var matchDeleteCond = Delta.Source("Status") == "DeleteMe";
-var insertCond = Delta.Source("Stock") > 0;
-var srcDeleteCond = Delta.Target("Status") == "Obsolete";
-
-// ==========================================
-// Ordered Full Merge
-// ==========================================
-
-sourceDf.MergeDeltaOrdered(
-        rootUrl,
-        mergeKeys: ["Region", "StoreId"], 
-        cloudOptions: options
-    )
-    .WhenMatchedDelete(matchDeleteCond)           
-    .WhenMatchedUpdate(updateCond)                
-    .WhenNotMatchedInsert(insertCond)             
-    .WhenNotMatchedBySourceDelete(srcDeleteCond)  
-    .Execute();                                   
-
-
-using var dfRes = LazyFrame.ScanDelta(rootUrl, cloudOptions: options)
-    .Collect()
-    .Sort(["Region", "StoreId"]);
-
-// shape: (4, 4)
-// ┌────────┬─────────┬───────┬────────┐
-// │ Region ┆ StoreId ┆ Stock ┆ Status │
-// │ ---    ┆ ---     ┆ ---   ┆ ---    │
-// │ str    ┆ i32     ┆ i32   ┆ str    │
-// ╞════════╪═════════╪═══════╪════════╡
-// │ East   ┆ 555     ┆ 50    ┆ Active │
-// │ North  ┆ 101     ┆ 100   ┆ Active │
-// │ North  ┆ 102     ┆ 20    ┆ Active │
-// │ West   ┆ 888     ┆ 60    ┆ New    │
-// └────────┴─────────┴───────┴────────┘
+// >>> MERGE Execution Result
+// shape: (4, 2)
+// ┌─────┬───────┐
+// │ Id  ┆ Value │
+// │ --- ┆ ---   │
+// │ i32 ┆ str   │
+// ╞═════╪═══════╡
+// │ 1   ┆ A     │
+// │ 2   ┆ B_new │
+// │ 3   ┆ C_new │
+// │ 4   ┆ D     │
+// └─────┴───────┘
 ```
 
 ## BugFix
 
-- DataFrame.Show() if strings contains /0, it will crash. Now \0 will be replaced as ␀.
+- Removed hard-coded dataframe html background color (19)
 
-```rust
-if s.contains('\0') {
-    s = s.replace('\0', "␀"); 
-}
-```
+## Docs
 
-- Delta Write/Sink/Merge/Optimize Concurrent Safety Enhanced(#15)
-- C# API Expr use afte free fixed(#16)
+- Examples in /example are updated.
+
+## Others
+
+- Since .NET Interactive and Polyglot Notebook are EOL, related code in Polars.NET won't be removed, but there might not be any updates about such features.
