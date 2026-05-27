@@ -29,8 +29,4 @@
     <ProjectReference Include="..\Polars.FSharp\Polars.FSharp.fsproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <None Include="..\README.md" Pack="true" PackagePath="\" />
-  </ItemGroup>
-
 </Project>
