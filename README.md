@@ -56,6 +56,8 @@ dotnet add package Polars.NET
 dotnet add package Polars.NET.Native.win-x64
 # Add LINQ extension package once you need to write LINQ
 dotnet add package Polars.NET.Linq
+# Add ML.NET integration if needed
+dotnet add package Polars.NET.ML
 ```
 
 F# Users:
@@ -66,6 +68,8 @@ dotnet add package Polars.FSharp
 dotnet add package Polars.NET.Native.win-x64
 # Add LINQ extension package once you need to write LINQ or computation expressions
 dotnet add package Polars.NET.Linq
+# Add ML.NET integration if needed
+dotnet add package Polars.NET.ML
 ```
 
 - Requirements: .NET 8+.
@@ -75,9 +79,11 @@ dotnet add package Polars.NET.Linq
 
 Bringing .NET to Polars is not enough, it is the time to bring Polars to .NET.
 
-- ML.NET & Tensor InterOp
+- ML.NET & Tensor Interop
 
 Prepare data with polars, then train it with ML.NET & ONNX, finally analyze results back with polars.
+
+Notice: Tensor Interop doesn't need any extra package but ML.NET integration requires **Polars.NET.ML** extension nuget package.
 
 ```CSharp
 // ==========================================
@@ -265,6 +271,11 @@ let res =
 
 - [Benchmark Code](https://github.com/ErrorLSC/Polars.NET-Benchmark)
 
+## Extension Nuget Package
+
+- Polars.NET.Linq
+- Polars.NET.ML
+
 ## Architecture
 
 3-Layer Architecture ensures API stability.
@@ -294,3 +305,4 @@ Contributions are welcome. Whether it's adding new expression mappings, improvin
 ## License
 
 MIT License. See LICENSE for details.
+For Third party licenses please check THIRD_PARTY_LICENSES.html
