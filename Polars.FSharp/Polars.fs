@@ -237,7 +237,8 @@ module pl =
     /// Syntactic sugar for Col(names).CumSum().
     /// </summary>
     /// <param name="columns">Name(s) of the columns to use in the aggregation.</param>
-    let cumSum(names:seq<string>) =
+    let cumSum(names:seq<string>) =  
+     
         cols(names).CumSum()
     /// <summary>
     /// Return the cumulative count of the non-null values in the column.This function is syntactic sugar for Col(column).CumCount().

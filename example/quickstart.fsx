@@ -5,8 +5,6 @@
 #r "nuget: Polars.FSharp, 0.5.0"
 #r "nuget: Polars.NET.Core, 0.5.0"
 #r "nuget: Polars.NET.Native.linux-x64, 0.5.0"
-#r "nuget: Apache.Arrow, 23.0.0" 
-#r "nuget: Apache.Arrow.Adbc"
 
 open System
 open Polars.FSharp
