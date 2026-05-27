@@ -1,7 +1,7 @@
 # --- Rust ---
 /native_shim/target/
 **/*.rs.bk
-
+/native_shim/tree
 # --- .NET (C# & F#) ---
 **/bin/
 **/obj/
