@@ -7,6 +7,8 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-online-brightgreen.svg?style=flat-square&logo=read-the-docs&logoColor=white)](https://errorlsc.github.io/Polars.NET/index.html)
 
+F# & C# E2E examples repo:[Polars.NET-Cookbook](https://github.com/ErrorLSC/Polars.NET-Cookbook)
+
 **High-Performance, DataFrame Engine for .NET, powered by Rust & Apache Arrow. With cloud and deltalake features.**
 
 ![icon](assets/icon_lite.png)

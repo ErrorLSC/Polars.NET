@@ -1195,7 +1195,7 @@ type ``Complex Query Tests`` () =
         Assert.Equal(4L, result.Height)
         
         Assert.Equal(Some 1L,      result.Int("key", 0))
-        Assert.Equal(Some "Alice",         result.String("name", 0))      // null
+        Assert.Equal(Some "Alice", result.String("name", 0))      // null
         Assert.Equal(Some 170L,    result.Int("score", 0))
 
         Assert.Equal(Some 3L,      result.Int("key", 1))

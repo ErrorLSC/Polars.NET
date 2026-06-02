@@ -22,4 +22,4 @@ type Data = CsvProvider<path,UseOriginalNames=true>
 let schema = Unchecked.defaultof<Data.Row>
 
 DataFrame.ReadCsv path 
-    |> pl.select [pl.col (nameof schema.byebye)] |> pl.show
+    |> pl.select [pl.col (nameof schema.byebye)] |> pl.show 

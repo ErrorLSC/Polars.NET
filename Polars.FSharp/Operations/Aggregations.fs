@@ -42,7 +42,6 @@ module AggregateOps =
         /// Aggregate the columns in the Frame to their standard deviation value.
         /// </summary>
         /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
-        /// <returns></returns>
         member this.Std(?ddof:byte) = 
             let d = defaultArg ddof 1uy
             this.Select(Expr.All().Std(ddof=d))
@@ -50,7 +49,6 @@ module AggregateOps =
         /// Aggregate the columns in the Frame to their variance value.
         /// </summary>
         /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
-        /// <returns></returns>
         member this.Var(?ddof:byte) =
             let d = defaultArg ddof 1uy
             this.Select(Expr.All().Var(ddof=d))
@@ -59,7 +57,6 @@ module AggregateOps =
         /// </summary>
         /// <param name="quantile">Quantile between 0.0 and 1.0.</param>
         /// <param name="method">['nearest’, ‘higher’, ‘lower’, ‘midpoint’, ‘linear’] Interpolation method.</param>
-        /// <returns></returns>
         member this.Quantile(quantile:float, ?method: QuantileMethod) =
             let met = defaultArg method QuantileMethod.Linear
             this.Select(Expr.All().Quantile(quantile,met))
@@ -67,66 +64,56 @@ module AggregateOps =
         /// <summary>
         /// Return the number of non-null elements for each column.
         /// </summary>
-        /// <returns></returns>
         member this.Count() = 
-            this.Lazy().Count()
+            this.Lazy().Count().Collect()
         /// <summary>
         /// Aggregate the columns in the Frame to their sum value.
         /// </summary>
-        /// <returns></returns>
         member this.Sum() =
-            this.Lazy().Sum()
+            this.Lazy().Sum().Collect()
         /// <summary>
         /// Aggregate the columns in the Frame to their maximum value.
         /// </summary>
-        /// <returns></returns>
         member this.Max() =
-            this.Lazy().Max()
+            this.Lazy().Max().Collect()
         /// Aggregate the columns in the Frame to their minimum value.
         /// </summary>
-        /// <returns></returns>
         member this.Min() =
-            this.Lazy().Min()
+            this.Lazy().Min().Collect()
         /// <summary>
         /// Aggregate the columns in the Frame to their mean value.
         /// </summary>
-        /// <returns></returns>
         member this.Mean() =
-            this.Lazy().Mean()
+            this.Lazy().Mean().Collect()
         /// <summary>
         /// Aggregate the columns in the Frame to their median value.
         /// </summary>
-        /// <returns></returns>
         member this.Median() =
-            this.Lazy().Median()
+            this.Lazy().Median().Collect()
         /// <summary>
         /// Aggregate the columns in the Frame as the sum of their null value count.
         /// </summary>
-        /// <returns></returns>
         member this.NullCount() = 
-            this.Lazy().NullCount()
+            this.Lazy().NullCount().Collect()
         /// <summary>
         /// Aggregate the columns in the Frame to their standard deviation value.
         /// </summary>
         /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
-        /// <returns></returns>
         member this.Std(?ddof:byte) = 
             let d = defaultArg ddof 1uy
-            this.Lazy().Std(ddof=d)
+            this.Lazy().Std(ddof=d).Collect()
         /// <summary>
         /// Aggregate the columns in the Frame to their variance value.
         /// </summary>
         /// <param name="ddof">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</param>
-        /// <returns></returns>
         member this.Var(?ddof:byte) =
             let d = defaultArg ddof 1uy
-            this.Lazy().Var(ddof=d)
+            this.Lazy().Var(ddof=d).Collect()
         /// <summary>
         /// Aggregate the columns in the Frame to their quantile value.
         /// </summary>
         /// <param name="quantile">Quantile between 0.0 and 1.0.</param>
         /// <param name="method">['nearest’, ‘higher’, ‘lower’, ‘midpoint’, ‘linear’] Interpolation method.</param>
-        /// <returns></returns>
         member this.Quantile(quantile:float, ?method: QuantileMethod) =
             let met = defaultArg method QuantileMethod.Linear
-            this.Lazy().Quantile(quantile,met)
+            this.Lazy().Quantile(quantile,met).Collect()
