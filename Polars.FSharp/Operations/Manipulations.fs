@@ -162,7 +162,7 @@ module ManipulateOps =
 
         member this.Explode(column: string) = 
             this.Explode [column]
-           /// <summary>
+        /// <summary>
         /// Decompose a struct column into multiple columns.
         /// </summary>
         member this.Unnest(selector: Selector,?separator: string) =
