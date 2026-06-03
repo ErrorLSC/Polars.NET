@@ -1,5 +1,0 @@
-# native_shim/Cross.toml
-
-[target.aarch64-unknown-linux-gnu]
-# Forces cross to use an older manylinux base image to lower glibc version
-image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:ubuntu20.04"
