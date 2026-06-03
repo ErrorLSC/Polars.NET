@@ -30,6 +30,7 @@ jobs:
             artifact_name: libnative_shim.so
             use_cross: false
             rustflags: "-C target-cpu=x86-64-v3"
+            container: quay.io/pypa/manylinux_2_28_x86_64
 
           # --- Linux x64 Musl ---
           - os: ubuntu-latest
@@ -38,6 +39,7 @@ jobs:
             artifact_name: libnative_shim.so
             use_cross: true 
             rustflags: "-C target-feature=-crt-static -C target-cpu=x86-64-v3"
+            container: null
             
           # --- Linux ARM64 glibc---
           - os: ubuntu-latest
@@ -45,6 +47,7 @@ jobs:
             rid: linux-arm64
             artifact_name: libnative_shim.so
             use_cross: true
+            container: null
             
           # --- Linux ARM64 Musl ---
           - os: ubuntu-latest
@@ -53,6 +56,7 @@ jobs:
             artifact_name: libnative_shim.so
             use_cross: true
             rustflags: "-C target-feature=-crt-static"
+            container: null
           
           # Windows x64
           - os: windows-latest
@@ -61,6 +65,7 @@ jobs:
             artifact_name: native_shim.dll
             use_cross: false
             rustflags: "-C target-cpu=x86-64-v3"
+            container: null
 
           # MacOS ARM64 (Apple Silicon) - 
           - os: macos-latest
@@ -68,12 +73,15 @@ jobs:
             rid: osx-arm64
             artifact_name: libnative_shim.dylib
             use_cross: false
+            container: null
+
+    container: ${{ matrix.container }}
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Add Swap Space to prevent OOM
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.container == null
         uses: pierotofy/set-swap-space@master
         with:
           swap-size-gb: 10
@@ -96,7 +104,7 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          key: ${{ matrix.target }}-${{ matrix.rid }}
           workspaces: ./native_shim
       
       # Compile Rust (Release mode)
