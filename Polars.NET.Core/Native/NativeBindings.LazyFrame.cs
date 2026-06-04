@@ -170,6 +170,10 @@ unsafe internal partial class NativeBindings
     public static partial LazyFrameHandle pl_lazy_clone(LazyFrameHandle lf);
 
     [LibraryImport(LibName)] public static partial LazyFrameHandle pl_lazy_with_columns(LazyFrameHandle lf, IntPtr[] exprs, UIntPtr len);
+    [LibraryImport(LibName)] public static partial LazyFrameHandle pl_lazyframe_gather(
+        LazyFrameHandle lf, 
+        LazyFrameHandle index,
+        [MarshalAs(UnmanagedType.U1)] bool nullOnOob);
     [LibraryImport(LibName)] 
     public static partial LazyFrameHandle pl_lazyframe_explode(
         LazyFrameHandle lf,
@@ -196,7 +200,8 @@ unsafe internal partial class NativeBindings
         IntPtr aggExpr,
         PlPivotAgg aggCode, 
         [MarshalAs(UnmanagedType.U1)] bool maintainOrder,
-        string? separator
+        string? separator,
+        PlPivotColumnNaming columnNaming
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)] 
     public static partial LazyFrameHandle pl_lazyframe_unpivot(

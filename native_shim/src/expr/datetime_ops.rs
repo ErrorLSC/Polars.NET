@@ -187,13 +187,13 @@ pub extern "C" fn pl_expr_add_business_days(
     expr_ptr: *mut ExprContext,
     n_ptr: *mut ExprContext,
     week_mask_ptr: *const u8, 
-    holidays_ptr: *const i32, 
-    holidays_len: usize,
+    holidays_ptr: *mut ExprContext, 
     roll_strategy: u8          
 ) -> *mut ExprContext {
     ffi_try!({
         let e = unsafe { Box::from_raw(expr_ptr) };
         let n = unsafe { Box::from_raw(n_ptr) };
+        let h = unsafe { Box::from_raw(holidays_ptr) };
         
         // Build Week Mask [bool; 7]
         // Order: Mon, Tue, Wed, Thu, Fri, Sat, Sun
@@ -204,11 +204,6 @@ pub extern "C" fn pl_expr_add_business_days(
                 arr[i] = slice[i] != 0; 
             }
             arr
-        };
-
-        // Build Holidays Vec<i32>
-        let holidays = unsafe {
-            std::slice::from_raw_parts(holidays_ptr, holidays_len).to_vec()
         };
 
         // Build Roll Strategy
@@ -222,7 +217,7 @@ pub extern "C" fn pl_expr_add_business_days(
         let new_expr = e.inner.dt().add_business_days(
             n.inner,
             week_mask,
-            holidays,
+            h.inner,
             roll
         );
 
@@ -234,12 +229,11 @@ pub extern "C" fn pl_expr_add_business_days(
 pub extern "C" fn pl_expr_is_business_day(
     expr_ptr: *mut ExprContext,
     week_mask_ptr: *const u8,
-    holidays_ptr: *const i32,
-    holidays_len: usize
+    holidays_ptr: *mut ExprContext
 ) -> *mut ExprContext {
     ffi_try!({
         let e = unsafe { Box::from_raw(expr_ptr) };
-
+        let h = unsafe { Box::from_raw(holidays_ptr) };
         let week_mask = unsafe {
         let slice = std::slice::from_raw_parts(week_mask_ptr, 7);
         let mut arr = [false; 7];
@@ -249,13 +243,9 @@ pub extern "C" fn pl_expr_is_business_day(
             arr
         };
 
-        let holidays = unsafe {
-            std::slice::from_raw_parts(holidays_ptr, holidays_len).to_vec()
-        };
-
         let new_expr = e.inner.dt().is_business_day(
             week_mask,
-            holidays
+            h.inner
         );
 
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
@@ -305,8 +295,7 @@ pub extern "C" fn pl_expr_business_day_count(
     start_ptr: *mut ExprContext,
     end_ptr:*mut ExprContext,
     week_mask_ptr: *const u8,
-    holidays_ptr: *const i32,
-    holidays_len: usize
+    holidays_ptr: *mut ExprContext
 ) -> *mut ExprContext {
     ffi_try!({
         unsafe {
@@ -321,9 +310,9 @@ pub extern "C" fn pl_expr_business_day_count(
                 arr
             };
 
-        let holidays = std::slice::from_raw_parts(holidays_ptr, holidays_len).to_vec();
+        let h = Box::from_raw(holidays_ptr) ;
 
-        let new_expr = polars_plan::dsl::functions::business_day_count(start.inner, end.inner, week_mask, holidays);
+        let new_expr = polars_plan::dsl::functions::business_day_count(start.inner, end.inner, week_mask, h.inner);
 
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))}
     })

@@ -2076,7 +2076,7 @@ public class SeriesTests
         using Series sCut = s.Cut(breaks, labels: cutLabels);
         sCut.Show();
         Assert.Equal(10, sCut.Length);
-        Assert.Equal(DataTypeKind.Categorical,sCut.DataType.Kind);
+        Assert.Equal(DataTypeKind.Enum,sCut.DataType.Kind);
 
         // quantiles: 0.5  -> (-inf, 50%], (50%, inf]
         ReadOnlySpan<double> probs = [0.5];

@@ -1133,7 +1133,7 @@ pub extern "C" fn pl_series_scatter_indices(
 
         let result = if is_scalar {
             let mut mask_vec = vec![false; s.len()];
-            for opt_idx in idx_ca.into_iter() {
+            for opt_idx in idx_ca.iter() {
                 if let Some(idx) = opt_idx {
                     let idx_usize = idx as usize;
                     if idx_usize < s.len() {
@@ -1149,7 +1149,7 @@ pub extern "C" fn pl_series_scatter_indices(
             broadcasted_value.zip_with(&mask_bool, s)?
         } else {
             let mut s_vec: Vec<AnyValue> = s.iter().collect();
-            for (i, opt_idx) in idx_ca.into_iter().enumerate() {
+            for (i, opt_idx) in idx_ca.iter().enumerate() {
                 if let Some(idx) = opt_idx {
                     let idx_usize = idx as usize;
                     if idx_usize < s.len() {

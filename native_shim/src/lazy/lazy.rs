@@ -1,4 +1,5 @@
 use std::ffi::{CStr, CString, c_char, c_int};
+use polars::frame::PivotColumnNaming;
 use polars::prelude::*;
 use crate::{types::*, utils::parse_closed_window};
 use polars::lazy::dsl::UnpivotArgsDSL;
@@ -430,6 +431,23 @@ pub extern "C" fn pl_lazyframe_explode(
         Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_lazyframe_gather(
+    lf_ptr: *mut LazyFrameContext,
+    index_ptr: *mut LazyFrameContext,
+    null_on_oob: bool
+) -> *mut LazyFrameContext {
+    ffi_try!({
+        let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
+        let index_ctx = unsafe { Box::from_raw(index_ptr) };
+
+        let new_lf = lf_ctx.inner.gather(index_ctx.inner,null_on_oob);
+        
+        Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
+    })
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_lazyframe_unnest(
     lf_ptr: *mut LazyFrameContext,
@@ -461,15 +479,11 @@ pub extern "C" fn pl_lazyframe_unnest(
 pub extern "C" fn pl_lazy_collect(
     lf_ptr: *mut LazyFrameContext, 
     engine_code: u8,
-    use_streaming: bool
+    _use_streaming: bool
 ) -> *mut DataFrameContext {
     ffi_try!({
         let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
-        let mut lf = lf_ctx.inner;
-
-        if use_streaming {
-            lf = lf.with_new_streaming(true);
-        }
+        let lf = lf_ctx.inner;
 
         let engine = match engine_code {
             1 => Engine::InMemory,
@@ -478,7 +492,9 @@ pub extern "C" fn pl_lazy_collect(
             _ => Engine::Auto,
         };
 
-        let df = lf.collect_with_engine(engine)?;
+        let query_result = lf.collect_with_engine(engine)?;
+        
+        let df = query_result.unwrap_single();
 
         Ok(Box::into_raw(Box::new(DataFrameContext { df })))
     })
@@ -497,9 +513,8 @@ pub extern "C" fn pl_lazy_collect_all(
         
         for &ptr in ptrs {
             let lf_ctx = unsafe { Box::from_raw(ptr) };
-            
-            let lf = lf_ctx.inner.with_new_streaming(true);
-            plans.push(lf.logical_plan);
+
+            plans.push(lf_ctx.inner.logical_plan);
         }
 
         let engine = match engine_code {
@@ -612,6 +627,7 @@ pub extern "C" fn pl_lazyframe_pivot(
     agg_code: u8, 
     maintain_order: bool,
     separator_ptr: *const c_char,
+    column_naming : u8
 ) -> *mut LazyFrameContext {
     ffi_try!({
         // 1. Unbox Contexts
@@ -649,6 +665,13 @@ pub extern "C" fn pl_lazyframe_pivot(
             PlSmallStr::from_str(ptr_to_str(separator_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?)
         };
 
+        let column_naming_input = 
+            match column_naming { 
+                0 => PivotColumnNaming::Auto,
+                1 => PivotColumnNaming::Combine,
+                _ => PivotColumnNaming::Auto
+            };
+
         // 4. Call LazyFrame::pivot
         let new_lf = lf_ctx.inner.pivot(
             on_ctx.inner,
@@ -658,6 +681,7 @@ pub extern "C" fn pl_lazyframe_pivot(
             agg_expr,
             maintain_order,
             separator,
+            column_naming_input
         );
 
         Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))
@@ -997,6 +1021,7 @@ pub extern "C" fn pl_lazyframe_merge_sorted(
     lf_ptr: *mut LazyFrameContext,
     other_ptr: *mut LazyFrameContext,
     key_ptr: *const std::os::raw::c_char,
+    maintain_order: bool
 ) -> *mut LazyFrameContext {
     ffi_try!({
         let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
@@ -1006,7 +1031,8 @@ pub extern "C" fn pl_lazyframe_merge_sorted(
 
         let new_lf = lf_ctx.inner.merge_sorted(
             other_ctx.inner, 
-            key_str
+            key_str,
+            maintain_order
         )?;
 
         Ok(Box::into_raw(Box::new(LazyFrameContext { inner: new_lf })))

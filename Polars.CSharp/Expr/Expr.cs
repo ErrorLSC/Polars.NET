@@ -854,6 +854,11 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="signed">If True, reinterpret as signed integer. Otherwise, reinterpret as unsigned integer.</param>
     public Expr Reinterpret(bool signed=true) => new(PolarsWrapper.ExprReinterpret(CloneHandle(),signed));
     /// <summary>
+    /// Reinterpret the underlying bits as a signed/unsigned integer or float.
+    /// </summary>
+    /// <param name="dtype">DataType to reinterpret to.</param>
+    public Expr Reinterpret(DataType dtype) => new(PolarsWrapper.ExprReinterpret(CloneHandle(),dtype.Handle));
+    /// <summary>
     /// Repeat the elements in this Series as specified in the given expression.
     /// The repeated elements are expanded into a List.
     /// </summary>

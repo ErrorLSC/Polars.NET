@@ -186,24 +186,61 @@ public readonly struct IntoDuration
     }
 }
 
-public readonly struct IntoDateSeries
+public readonly struct IntoDateExpr
 {
-    public readonly Series DateSeries;
-
-    public static implicit operator IntoDateSeries(ReadOnlySpan<DateOnly> datelist) => new(Pl.CreateSeries("__Date__",datelist));
-    public static implicit operator IntoDateSeries(Series series) => new(series);
-    public static implicit operator IntoDateSeries(Expr dateExpr) => new(Series.FromExpr(dateExpr));
-
-    private IntoDateSeries(Series series)
+    private readonly Expr _dateExpr;
+    private readonly bool _ownsExpr;
+    internal static IntoDateExpr Empty => new(
+            Pl.Lit(Pl.CreateSeries("__Date__", ReadOnlySpan<DateOnly>.Empty))
+            .Cast(DataType.Date)
+            .Implode(true),
+            ownsExpr: true
+        );
+    public static implicit operator IntoDateExpr(ReadOnlySpan<DateOnly> datelist)
     {
-        if (series.DataType != DataType.Date)
-            throw new ArgumentException("This series is not a date series,please try to cast it to dateonly");   
+        var series = Pl.CreateSeries("__Date__", datelist); 
+        var expr = Pl.Lit(series).Cast(DataType.Date).Implode(true);
+        return new IntoDateExpr(expr, ownsExpr: true);
+    }
+    public static implicit operator IntoDateExpr(Series series)
+    {
+        ArgumentNullException.ThrowIfNull(series);
+
+        var innerType = series.DataType;
         
-        DateSeries = series;
+        var expr = innerType switch
+        {
+            var t when t == DataType.Date => Pl.Lit(series).Implode(true),
+            var t when t == DataType.List(DataType.Date) => Pl.Lit(series),
+            _ => throw new ArgumentException($"Cannot convert Series of {innerType} into a Date List expression. Expected Date or List(Date).")
+        };
+
+        return new IntoDateExpr(expr, ownsExpr: true);
+    }
+    public static implicit operator IntoDateExpr(Expr dateExpr)
+    {
+        ArgumentNullException.ThrowIfNull(dateExpr);
+
+        var currentType = Pl.DataTypeOf(dateExpr).ToLiteral();
+
+        var finalExpr = currentType switch
+        {
+            var t when t == DataType.Date => dateExpr.Implode(true),
+            var t when t == DataType.List(DataType.Date) => dateExpr,
+            _ => throw new ArgumentException($"The expression evaluates to {currentType}, which is not a date series or list. Please cast or implode it first.")
+        };
+
+        return new IntoDateExpr(finalExpr, ownsExpr: false);
     }
 
-    public ReadOnlySpan<int> ToPhysicalSpan() => DateSeries.DropNulls().ToPhysical().AsReadOnlySpan<int>();
-    public int[] ToPhysicalArray() => DateSeries.DropNulls().ToPhysical().ToArray<int>();
+    private IntoDateExpr(Expr dateExpr,bool ownsExpr)
+    {
+        _dateExpr = dateExpr;
+        _ownsExpr = ownsExpr;
+    }
+
+    public Expr Consume()
+        => _ownsExpr ? _dateExpr : new(_dateExpr.CloneHandle());
 }
 
 public readonly struct DurationOrExpr

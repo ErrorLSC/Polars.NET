@@ -1,4 +1,3 @@
-use polars_io::pl_async::get_runtime;
 use std::ffi::c_char;
 use polars::error::PolarsError;
 use polars::error::PolarsResult;
@@ -6,6 +5,7 @@ use polars::error::PolarsResult;
 use crate::catalog::utils::load_catalog_table;
 use crate::catalog::ffi::CatalogContext;
 use crate::delta::utils::build_delta_storage_options_map;
+use crate::delta::utils::get_runtime;
 use crate::utils::ptr_to_str;
 
 #[unsafe(no_mangle)]

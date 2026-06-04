@@ -11,29 +11,12 @@ gen_namespace_unary!(pl_expr_array_mean, arr, mean);
 gen_namespace_unary!(pl_expr_array_median, arr, median);
 gen_namespace_unary!(pl_expr_array_arg_max, arr, arg_max);
 gen_namespace_unary!(pl_expr_array_arg_min, arr, arg_min);
-gen_namespace_unary!(pl_expr_array_any, arr, any);
-gen_namespace_unary!(pl_expr_array_all, arr, all);
 gen_namespace_unary!(pl_expr_array_len, arr, len);
-gen_namespace_unary!(pl_expr_array_n_unique, arr, n_unique);
 gen_namespace_unary!(pl_expr_array_to_list, arr, to_list);
-gen_namespace_unary!(pl_expr_array_reverse, arr, reverse);
 
 impl_expr_namespace_expr_arg!(pl_expr_array_count_matches, arr, count_matches);
 impl_expr_namespace_expr_arg!(pl_expr_array_agg, arr, agg);
 impl_expr_namespace_expr_arg!(pl_expr_array_shift, arr, shift);
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_array_unique(expr_ptr: *mut ExprContext, stable: bool) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let new_expr = if stable {
-            ctx.inner.arr().unique_stable()
-        } else {
-            ctx.inner.arr().unique()
-        };
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_array_head(expr_ptr: *mut ExprContext, head_ptr: *mut ExprContext, as_list :bool) -> *mut ExprContext {

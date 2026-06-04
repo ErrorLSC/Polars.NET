@@ -3,7 +3,7 @@ use std::ffi::c_void;
 use std::os::raw::c_char;
 use crate::gen_namespace_unary;
 use crate::types::ExprContext;
-use crate::utils::{ptr_to_str};
+use crate::utils::{FreeHandleCallback, FreeStringCallback, GcHandleGuard, MapStringCallback, ptr_to_str};
 
 gen_namespace_unary!(pl_expr_name_keep, name, keep);
 gen_namespace_unary!(pl_expr_name_to_lowercase, name, to_lowercase);
@@ -75,24 +75,6 @@ pub extern "C" fn pl_expr_name_suffix_fields(
         let new_expr = ctx.inner.name().suffix_fields(suffix);
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
-}
-
-pub type MapStringCallback = extern "C" fn(*const c_char) -> *mut c_char;
-pub type FreeStringCallback = extern "C" fn(*mut c_char);
-pub type FreeHandleCallback = extern "C" fn(*mut c_void);
-
-struct GcHandleGuard {
-    handle_ptr: *mut c_void,
-    free_cb: FreeHandleCallback,
-}
-unsafe impl Send for GcHandleGuard {}
-unsafe impl Sync for GcHandleGuard {}
-impl Drop for GcHandleGuard {
-    fn drop(&mut self) {
-        if !self.handle_ptr.is_null() {
-            (self.free_cb)(self.handle_ptr);
-        }
-    }
 }
 
 fn build_string_map_callback(

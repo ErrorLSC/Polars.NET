@@ -241,26 +241,27 @@ pub(crate) fn phase_1_analyze_source(
             .unique(None, UniqueKeepStrategy::Any)
             .limit((MAX_PRUNING_CANDIDATES + 1) as u32);
 
-        if let Ok(df) = distinct_lf.collect_with_engine(Engine::Streaming) {
-            if df.height() <= MAX_PRUNING_CANDIDATES {
-                let s = df.column(&key_col).unwrap();
-                let dtype = s.dtype();
-                if dtype.is_integer() {
-                    if let Ok(s_cast) = s.cast(&DataType::Int64) {
-                        if let Ok(ca) = s_cast.i64() {
-                            let mut keys: Vec<i64> = ca.into_iter().flatten().collect();
-                            keys.sort_unstable();
-                            if !keys.is_empty() { pruning_candidates = Some(PruningCandidates::Integers(keys)); }
-                        }
+        let df = distinct_lf.collect_with_engine(Engine::Streaming)?.unwrap_single(); 
+
+        if df.height() <= MAX_PRUNING_CANDIDATES {
+            let s = df.column(&key_col).unwrap();
+            let dtype = s.dtype();
+            if dtype.is_integer() {
+                if let Ok(s_cast) = s.cast(&DataType::Int64) {
+                    if let Ok(ca) = s_cast.i64() {
+                        let mut keys: Vec<i64> = ca.iter().flatten().collect();
+                        keys.sort_unstable();
+                        if !keys.is_empty() { pruning_candidates = Some(PruningCandidates::Integers(keys)); }
                     }
-                } else if dtype == &DataType::String {
-                     if let Ok(ca) = s.str() {
-                         let mut keys: Vec<String> = ca.into_iter().flatten().map(|v| v.to_string()).collect();
-                         keys.sort_unstable();
-                         if !keys.is_empty() { pruning_candidates = Some(PruningCandidates::Strings(keys)); }
-                     }
                 }
+            } else if dtype == &DataType::String {
+                    if let Ok(ca) = s.str() {
+                        let mut keys: Vec<String> = ca.iter().flatten().map(|v| v.to_string()).collect();
+                        keys.sort_unstable();
+                        if !keys.is_empty() { pruning_candidates = Some(PruningCandidates::Strings(keys)); }
+                    }
             }
+            
         }
     }
 
@@ -423,7 +424,7 @@ pub(crate) fn phase_validation(
 
     let check_lf = source_lf.clone()
         .select([
-            len().over(partition_exprs.clone()).alias("group_count"),
+            len().over(partition_exprs.clone())?.alias("group_count"),
             has_null_expr
         ])
         .filter(
@@ -432,7 +433,7 @@ pub(crate) fn phase_validation(
         )
         .limit(1); 
 
-    let check_df = check_lf.collect_with_engine(Engine::Streaming)?;
+    let check_df = check_lf.collect_with_engine(Engine::Streaming)?.unwrap_single();
 
     // =========================================================
     // Error Reporting
@@ -559,7 +560,7 @@ pub(crate) fn construct_target_lf(
                 
                 let indices: Vec<u32> = bitmap.into_iter().collect();
                 if !indices.is_empty() {
-                    let mask = col("__row_index").is_in(lit(Series::new(PlSmallStr::from_static(""), indices)).implode(),false).not();
+                    let mask = col("__row_index").is_in(lit(Series::new(PlSmallStr::from_static(""), indices)).implode(false),false).not();
                     lf = lf.filter(mask);
                 }
             }
@@ -1330,7 +1331,7 @@ pub(crate) fn merge_delta_internal_custom(
 
         let tombstones_df_opt = match tombstones_lf_opt {
             Some(lf) => {
-                let df = lf.group_by([col("__file_path")]).agg([col("__row_index")]).collect_with_engine(Engine::Streaming)?;
+                let df = lf.group_by([col("__file_path")]).agg([col("__row_index")]).collect_with_engine(Engine::Streaming)?.unwrap_single();
                 if df.height() > 0 { Some(df) } else { None }
             },
             None => None,

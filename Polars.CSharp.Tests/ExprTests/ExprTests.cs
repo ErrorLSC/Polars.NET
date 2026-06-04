@@ -868,6 +868,7 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(700, result[3, "RollingSumInt"]);
     }
     [Fact]
+    [Trait("Expr", "AddBusinessDays")]
     public void Test_AddBusinessDays_SupplyChain_Scenario()
     {
         // 2024-01-05 is Friday
@@ -884,7 +885,6 @@ TooShort,1990-05-20,1.60";
                 .AddBusinessDays(2) 
                 .Alias("Delivery")
         );
-
         var delivery1 = (DateOnly)res1["Delivery"][0];
         Assert.Equal(new DateOnly(2024, 1, 9), delivery1); 
 

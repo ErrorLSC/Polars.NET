@@ -124,7 +124,8 @@ unsafe internal partial class NativeBindings
         PlPivotAgg aggCode,     // agg_code
         [MarshalAs(UnmanagedType.U1)] bool maintainOrder,
         [MarshalAs(UnmanagedType.U1)] bool sortColumns,
-        string? separator       // separator_ptr
+        string? separator,       // separator_ptr
+        PlPivotColumnNaming columnNaming
     );
     // Stack Ops
     [LibraryImport(LibName)]

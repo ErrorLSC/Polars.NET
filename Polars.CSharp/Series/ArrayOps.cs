@@ -64,10 +64,10 @@ public readonly struct SeriesArrayOps
     public Series Var(byte ddof = 1) => Apply(e => e.Array.Var(ddof));
 
     /// <summary>Check if any element in the sub-array is true.</summary>
-    public Series Any() => Apply(e => e.Array.Any());
+    public Series Any(bool ignoreNulls=true) => Apply(e => e.Array.Any(ignoreNulls));
 
     /// <summary>Check if all elements in the sub-array are true.</summary>
-    public Series All() => Apply(e => e.Array.All());
+    public Series All(bool ignoreNulls=true) => Apply(e => e.Array.All());
 
     /// <summary>Sort elements in every sub-array.</summary>
     public Series Sort(bool descending = false, bool nullsLast = false, bool maintainOrder = false) 
@@ -112,5 +112,5 @@ public readonly struct SeriesArrayOps
         => Apply(e => e.Array.Contains(item, nullsEqual));
 
     /// <summary>Get unique elements in every sub-array.</summary>
-    public Series Unique(bool stable = false) => Apply(e => e.Array.Unique(stable));
+    public Series Unique(bool maintainOrder = false) => Apply(e => e.Array.Unique(maintainOrder));
 }

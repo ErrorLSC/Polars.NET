@@ -324,7 +324,8 @@ public readonly partial struct PolarsWrapper
         ExprHandle? aggExpr, 
         PlPivotAgg aggCode, 
         bool maintainOrder, 
-        string? separator)
+        string? separator,
+        PlPivotColumnNaming columnNaming)
     {
         IntPtr aggExprPtr = aggExpr?.TransferOwnership() ?? IntPtr.Zero;
 
@@ -337,7 +338,8 @@ public readonly partial struct PolarsWrapper
             aggExprPtr,
             aggCode,
             maintainOrder,
-            separator
+            separator,
+            columnNaming
         );
         
         lf.TransferOwnership();

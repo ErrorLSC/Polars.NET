@@ -303,10 +303,11 @@ public readonly partial struct Polars
     /// <param name="end">End dates.</param>
     /// <param name="weekMask">Which days of the week to count. The default is Monday to Friday. If you wanted to count only Monday to Thursday, you would pass (True, True, True, True, False, False, False).</param>
     /// <param name="holidays">Holidays to exclude from the count.</param>
-    public static Expr BusinessDayCount(IntoExprColumn start,IntoExprColumn end,bool[]? weekMask=null,IntoDateSeries? holidays=null)
+    public static Expr BusinessDayCount(IntoExprColumn start,IntoExprColumn end,bool[]? weekMask=null,IntoDateExpr? holidays=null)
     {
         bool[] realWeek = weekMask ?? DtOps.DefaultWeekMask;
-        int[] holidaysMask = holidays?.ToPhysicalArray() ?? [];
+        IntoDateExpr actualHolidays = holidays ?? IntoDateExpr.Empty;
+        ExprHandle holidaysMask = actualHolidays.Consume().Handle;
         return new(PolarsWrapper.DtBusinessDayCount(start.Consume().Handle,end.Consume().Handle,realWeek,holidaysMask));
     }
     // ==========================================

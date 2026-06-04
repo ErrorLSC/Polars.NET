@@ -58,6 +58,12 @@ public enum PlPivotAgg: byte
     Last = 8
 }
 
+public enum PlPivotColumnNaming: byte
+{
+    Auto = 0,
+    Combine = 1,
+}
+
 public enum PlTimeUnit: byte
 {
     Nanoseconds = 0,

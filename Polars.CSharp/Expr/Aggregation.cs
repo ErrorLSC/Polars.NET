@@ -195,7 +195,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// */
     /// </code>
     /// </example>
-    public Expr Implode() => new(PolarsWrapper.Implode(CloneHandle()));
+    public Expr Implode(bool maintainOrder=true) => new(PolarsWrapper.Implode(CloneHandle(),maintainOrder));
     /// <summary>
     /// Return the number of non-null elements in the column.
     /// </summary>

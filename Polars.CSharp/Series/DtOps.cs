@@ -118,11 +118,11 @@ public readonly struct SeriesDtOps
     public Series AddBusinessDays(
         Expr n, 
         bool[]? weekMask = null,
-        IntoDateSeries? holidays = null,  
+        IntoDateExpr? holidays = null,  
         Roll roll = Roll.Raise)
         =>Apply(e => e.Dt.AddBusinessDays(n,weekMask,holidays,roll));
-    /// <inheritdoc cref="DtOps.IsBusinessDay(bool[],IntoDateSeries?)"/>
-    public Series IsBusinessDay(bool[]? weekMask = null,IntoDateSeries? holidays=null)
+    /// <inheritdoc cref="DtOps.IsBusinessDay(bool[],IntoDateExpr?)"/>
+    public Series IsBusinessDay(bool[]? weekMask = null,IntoDateExpr? holidays=null)
         =>Apply(e => e.Dt.IsBusinessDay(weekMask,holidays));
     /// <inheritdoc cref="DtOps.Replace"/>
     public Series Replace(

@@ -379,30 +379,30 @@ pub fn prune_file_from_add(ctx: &DeleteContext, add: &Add) -> PolarsResult<FileA
         if let Ok(mini_df) = DataFrame::new(1,columns) {
             let eval_result = mini_df.lazy()
                 .select([ctx.predicate.clone().alias("result")])
-                .collect_with_engine(Engine::Streaming);
+                .collect_with_engine(Engine::Streaming)?
+                .unwrap_single();
 
-            if let Ok(res) = eval_result {
-                if let Ok(bool_s) = res.column("result") {
-                    if bool_s.bool().ok().map(|b| b.get(0) == Some(true)).unwrap_or(false) {
-                        // Match -> Full Drop
-                        let remove = Remove {
-                            path: add.path.clone(),
-                            deletion_timestamp: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64),
-                            data_change: true,
-                            extended_file_metadata: Some(true),
-                            partition_values: Some(add.partition_values.clone()),
-                            size: Some(add.size),
-                            deletion_vector: add.deletion_vector.clone(),
-                            tags: None,
-                            base_row_id: None,
-                            default_row_commit_version: None,
-                        };
-                        return Ok(FileActionDecision::FullDrop(Action::Remove(remove)));
-                    } else {
-                        return Ok(FileActionDecision::Skip);
-                    }
+            if let Ok(bool_s) = eval_result.column("result") {
+                if bool_s.bool().ok().map(|b| b.get(0) == Some(true)).unwrap_or(false) {
+                    // Match -> Full Drop
+                    let remove = Remove {
+                        path: add.path.clone(),
+                        deletion_timestamp: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64),
+                        data_change: true,
+                        extended_file_metadata: Some(true),
+                        partition_values: Some(add.partition_values.clone()),
+                        size: Some(add.size),
+                        deletion_vector: add.deletion_vector.clone(),
+                        tags: None,
+                        base_row_id: None,
+                        default_row_commit_version: None,
+                    };
+                    return Ok(FileActionDecision::FullDrop(Action::Remove(remove)));
+                } else {
+                    return Ok(FileActionDecision::Skip);
                 }
             }
+            
         }
     }
 
@@ -486,7 +486,8 @@ pub fn execute_copy_on_write(
     let has_match_df = lf.clone()
         .filter(ctx.predicate.clone())
         .limit(1)
-        .collect_with_engine(Engine::Streaming)?;
+        .collect_with_engine(Engine::Streaming)?
+        .unwrap_single();
     
     if has_match_df.height() == 0 {
         // No Predicate -> Keep File
@@ -643,7 +644,8 @@ pub fn execute_merge_on_read(
         .with_row_index("row_nr", None)
         .filter(ctx.predicate.clone()) 
         .select([col("row_nr")])
-        .collect_with_engine(Engine::Streaming)?;
+        .collect_with_engine(Engine::Streaming)?
+        .unwrap_single();
 
     if deleted_indices_df.height() == 0 {
         return Ok(Vec::new()); 

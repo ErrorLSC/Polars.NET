@@ -390,16 +390,17 @@ public readonly struct DtOps
     public Expr AddBusinessDays(
         IntOrExpr n,
         bool[]? weekMask = null,
-        IntoDateSeries? holidays = null,
+        IntoDateExpr? holidays = null,
         Roll roll = Roll.Raise)
     {
         var mask = weekMask ?? DefaultWeekMask;
-
-        return new Expr(PolarsWrapper.DtAddBusinessDays(
+        IntoDateExpr actualHolidays = holidays ?? IntoDateExpr.Empty;
+        ExprHandle holidaysMask = actualHolidays.Consume().Handle;
+        return new(PolarsWrapper.DtAddBusinessDays(
             _expr.CloneHandle(),
             n.Expression.CloneHandle(),
             mask,
-            holidays?.ToPhysicalArray() ?? [],
+            holidaysMask,
             roll.ToNative()
         ));
     }
@@ -409,10 +410,11 @@ public readonly struct DtOps
     /// <param name="holidays">Holidays to exclude from the count.</param>
     /// <param name="weekMask">Which days of the week to count. The default is Monday to Friday. If you wanted to count only Monday to Thursday, you would pass (True, True, True, True, False, False, False).</param>
     /// <returns>Expression/Series of data type Boolean.</returns>
-    public Expr IsBusinessDay(bool[]? weekMask = null,IntoDateSeries? holidays= null)
+    public Expr IsBusinessDay(bool[]? weekMask = null,IntoDateExpr? holidays= null)
     {
         var mask = weekMask ?? DefaultWeekMask;
-        int[] holidaysMask = holidays?.ToPhysicalArray() ?? [];
+        IntoDateExpr actualHolidays = holidays ?? IntoDateExpr.Empty;
+        ExprHandle holidaysMask = actualHolidays.Consume().Handle;
         return new Expr(PolarsWrapper.DtIsBusinessDay(_expr.CloneHandle(), mask, holidaysMask));
     }
     /// <summary>

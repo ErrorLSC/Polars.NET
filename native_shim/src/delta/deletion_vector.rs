@@ -134,7 +134,7 @@ pub fn apply_deletion_vector(
     let lf_filtered = lf
         .with_row_index("row_nr", None) 
         .filter(
-            col("row_nr").is_in(lit(del_series).implode(),false).not()
+            col("row_nr").is_in(lit(del_series).implode(false),false).not()
         )
         .drop(Selector::ByName {
             names: Arc::from([PlSmallStr::from_static("row_nr")]),

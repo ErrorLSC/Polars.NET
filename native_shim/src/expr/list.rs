@@ -5,8 +5,6 @@ use crate::{gen_namespace_unary, impl_expr_namespace_expr_arg};
 use crate::types::ExprContext;
 use crate::utils::{ptr_to_str, ptr_to_vec_pl_string_with_default};
 
-gen_namespace_unary!(pl_expr_list_any, list, any);
-gen_namespace_unary!(pl_expr_list_all, list, all);
 gen_namespace_unary!(pl_expr_list_sum, list, sum);
 gen_namespace_unary!(pl_expr_list_min, list, min);
 gen_namespace_unary!(pl_expr_list_max, list, max);
@@ -14,29 +12,14 @@ gen_namespace_unary!(pl_expr_list_arg_max, list, arg_max);
 gen_namespace_unary!(pl_expr_list_arg_min, list, arg_min);
 gen_namespace_unary!(pl_expr_list_mean, list, mean);
 gen_namespace_unary!(pl_expr_list_median, list, median);
-gen_namespace_unary!(pl_expr_list_reverse, list, reverse);
 gen_namespace_unary!(pl_expr_list_len, list, len);
 gen_namespace_unary!(pl_expr_list_drop_nulls, list, drop_nulls);
-gen_namespace_unary!(pl_expr_list_n_unique, list, n_unique);
 
 impl_expr_namespace_expr_arg!(pl_expr_list_head, list, head);
 impl_expr_namespace_expr_arg!(pl_expr_list_tail, list, tail);
 impl_expr_namespace_expr_arg!(pl_expr_list_count_matches, list, count_matches);
 impl_expr_namespace_expr_arg!(pl_expr_list_agg, list, agg);
 impl_expr_namespace_expr_arg!(pl_expr_list_shift, list, shift);
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_expr_list_unique(expr_ptr: *mut ExprContext, stable: bool) -> *mut ExprContext {
-    ffi_try!({
-        let ctx = unsafe { Box::from_raw(expr_ptr) };
-        let new_expr = if stable {
-            ctx.inner.list().unique_stable()
-        } else {
-            ctx.inner.list().unique()
-        };
-        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-    })
-}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_list_get(
@@ -280,6 +263,16 @@ pub extern "C" fn pl_concat_list(
 
         let new_expr = concat_list(exprs)?;
         
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_list_eval(expr_ptr: *mut ExprContext,other_ptr: *mut ExprContext) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let other = unsafe { Box::from_raw(other_ptr) };
+        let new_expr = ctx.inner.list().eval(other.inner);
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }

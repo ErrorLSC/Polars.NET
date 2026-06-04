@@ -133,6 +133,11 @@ public readonly struct SeriesListOps
     /// <param name="expr">Expression to run. Note that you can select an element with Pl.Element().</param>
     public Series Agg(Expr expr) => Apply(e=>e.List.Agg(expr));
     /// <summary>
+    /// Run any polars expression against the lists’ elements.
+    /// </summary>
+    /// <param name="expr">Expression to run. Note that you can select an element with Pl.Element().</param>
+    public Series Eval(Expr expr) => Apply(e=>e.List.Eval(expr));
+    /// <summary>
     /// Get the length of the sublists.
     /// </summary>
     public Series Len() => Apply(e => e.List.Len());

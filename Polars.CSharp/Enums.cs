@@ -16,6 +16,20 @@ public enum PivotAgg : byte
 {
     First,Sum,Min,Max, Mean,Median,Count,Len,Last
 }
+
+public enum PivotColumnNaming : byte
+{
+    /// <summary>
+    /// The default; combine with separator if there are multiple
+    /// values columns, otherwise just use the on_columns names.
+    /// </summary>
+    Auto,
+    /// <summary>
+    /// Always combine the values columns’ names with
+    /// the on_columns names.
+    /// </summary>
+    Combine
+}
 /// <summary>
 /// TimeUnit Enums
 /// </summary>
@@ -676,6 +690,13 @@ internal static class EnumExtensions
         PivotAgg.Len => CoreEnums.PlPivotAgg.Len,
         PivotAgg.Last => CoreEnums.PlPivotAgg.Last,
         _ => CoreEnums.PlPivotAgg.First
+    };
+
+    internal static CoreEnums.PlPivotColumnNaming ToNative(this PivotColumnNaming columnNaming) => columnNaming switch
+    {
+        PivotColumnNaming.Auto => CoreEnums.PlPivotColumnNaming.Auto,
+        PivotColumnNaming.Combine => CoreEnums.PlPivotColumnNaming.Combine,
+        _ => CoreEnums.PlPivotColumnNaming.Auto
     };
     
     internal static CoreEnums.PlConcatType ToNative(this ConcatType type) => type switch
