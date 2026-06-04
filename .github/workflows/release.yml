@@ -118,6 +118,16 @@ jobs:
             CARGO_CMD="cross"
           fi
           
+          echo "=== Environmental Inspection ==="
+          echo "Runner OS: $RUNNER_OS"
+
+          if [ -f /etc/os-release ]; then
+            grep "PRETTY_NAME" /etc/os-release
+          fi
+
+          ldd --version | head -n 1
+          echo "================================"
+
           echo "Building for ${{ matrix.target }} using $CARGO_CMD..."
           echo "RUSTFLAGS: $RUSTFLAGS"
 
