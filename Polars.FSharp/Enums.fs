@@ -98,6 +98,24 @@ type WindowMappingStrategy =
         | Explode -> PlWindowMapping.Explode
         | Join -> PlWindowMapping.Join 
 
+[<RequireQualifiedAccess>]
+type PivotColumnNaming =
+    /// <summary>
+    /// The default; combine with separator if there are multiple
+    /// values columns, otherwise just use the on_columns names.
+    /// </summary>
+    | Auto
+    /// <summary>
+    /// Always combine the values columns’ names with
+    /// the on_columns names.
+    /// </summary>
+    | Combine
+    member internal this.ToNative() =
+        match this with
+        | Auto -> PlPivotColumnNaming.Auto
+        | Combine -> PlPivotColumnNaming.Combine
+
+
 /// <summary>
 /// Specifies the aggregation function for pivot operations.
 /// </summary>

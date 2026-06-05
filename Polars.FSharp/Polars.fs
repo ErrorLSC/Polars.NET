@@ -658,11 +658,11 @@ module pl =
         let st = start.CloneHandle()
         let ed = endDay.CloneHandle()
         let wm = weekMask |> Seq.toArray
-        let ho = 
+        let dateExpr =
             match holidays with
-            | Some s -> s.DropNulls().ToPhysical().ToArray<int>()
-            | None -> System.Array.Empty<int>()
-        new Expr(PolarsWrapper.DtBusinessDayCount(st,ed,wm,ho))
+            | Some ho -> litSeries ho
+            | None -> Series.create("__Date__",[||]).Cast<DateOnly>().Implode() |> litSeries
+        new Expr(PolarsWrapper.DtBusinessDayCount(st,ed,wm,dateExpr.Handle))
         
     /// <summary> Create a Polars Expr from a SQL string. </summary>
     /// <param name="sql">The SQL expression string.</param>

@@ -514,7 +514,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         using var dfV1 = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions).Collect();
         Assert.Equal(5, dfV1.Height);
-
+        dfV1.Show();
         
         // Predicate: (Year == '2024') & (Id == 4)
         var predicateRewrite = (Pl.Col("Year") == Pl.Lit("2024")) & (Pl.Col("Id") == 4);

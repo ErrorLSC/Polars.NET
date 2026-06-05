@@ -3,6 +3,12 @@
 
 ![icon](assets/icon_lite.png)
 
+## Upgrades
+
+- Bumped up to LINQ2DB 6.3.0
+
+- Bumped rust polars to 0.54.4
+
 ## API
 
 - DataFrame pivot pivotcolumnnaming enum added
@@ -17,9 +23,20 @@
 
 - expr reinterpret option dtype added
 
+- expr isempty, has nulls added
+
 - lazyframe/dataframe gather added
+
+- Config module added
+
+## Behavior Change
+
+- Expr Cut now return Enum type rather than Categorical type
+
+- Expr all, any ignoreNulls default value will true
 
 ## BugFix
 
-- DataFrame aggregation return lazyframe bug fixed.
+- FSharp DataFrame aggregation return lazyframe bug fixed.
 
+- Delta delete partition pruning bug fixed.

@@ -245,7 +245,7 @@ unsafe internal partial class NativeBindings
         LazyFrameHandle lf, 
         IntPtr selector,
         PlUniqueKeepStrategy keep,
-        [MarshalAs(UnmanagedType.I1)] bool maintainOrder
+        [MarshalAs(UnmanagedType.U1)] bool maintainOrder
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_lazyframe_match_to_schema(
@@ -273,5 +273,6 @@ unsafe internal partial class NativeBindings
     public static partial LazyFrameHandle pl_lazyframe_merge_sorted(
         LazyFrameHandle lf,
         LazyFrameHandle other,
-        string key);
+        string key,
+        [MarshalAs(UnmanagedType.U1)] bool maintainOrder);
 }

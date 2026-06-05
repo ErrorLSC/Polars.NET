@@ -16,7 +16,7 @@ module ExprAggregation =
         /// </param>
         /// <returns>A new expression representing the boolean result.</returns>
         member this.All(?ignoreNulls:bool) = 
-            let ignore = defaultArg ignoreNulls false
+            let ignore = defaultArg ignoreNulls true
             new Expr(PolarsWrapper.All(this.CloneHandle(),ignore))
         /// <summary>
         /// Check if <b>any</b> value in the boolean expression is <c>true</c>.
@@ -28,7 +28,7 @@ module ExprAggregation =
         /// </param>
         /// <returns>A new expression representing the boolean result.</returns>
         member this.Any(?ignoreNulls:bool) = 
-            let ignore = defaultArg ignoreNulls false
+            let ignore = defaultArg ignoreNulls true
             new Expr(PolarsWrapper.Any(this.CloneHandle(),ignore))
         /// <summary>
         /// Calculate the sum of the values in the group or column.
@@ -128,7 +128,9 @@ module ExprAggregation =
         member this.ArgMin() =
             new Expr(PolarsWrapper.ArgMin(this.CloneHandle()))
         /// <summary> Implode multiple rows to a list. </summary>
-        member this.Implode() = new Expr(PolarsWrapper.Implode(this.CloneHandle()))
+        member this.Implode(?maintainOrder) = 
+            let ma = defaultArg maintainOrder true
+            new Expr(PolarsWrapper.Implode(this.CloneHandle(),ma))
         /// <summary>
         /// Count the number of valid (non-null) values.
         /// </summary>

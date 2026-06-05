@@ -99,7 +99,7 @@ public readonly struct ArrayOps
         => new(PolarsWrapper.ArrayContains(_expr.CloneHandle(),item.CloneHandle(), nullsEqual));
     /// <inheritdoc cref="SeriesArrayOps.Unique"/>
     public Expr Unique(bool maintainOrder = false)
-        => Eval(Pl.Element().Unique(maintainOrder));
+        => Eval(Pl.Element().Unique(maintainOrder),asList:true);
     /// <summary>
     /// Concat this Array expression with other Array expressions.
     /// </summary>

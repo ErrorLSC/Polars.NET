@@ -258,17 +258,18 @@ type [<Struct>] DtOps(handle: ExprHandle) =
         let mask = defaultArg weekMask [| true; true; true; true; true; false; false |]
         let r = defaultArg roll Roll.Raise
         
-        let epoch = DateOnly(1970, 1, 1).DayNumber
-        let holidayInts = 
+        let dateSeries = 
             match holidays with
-            | Some hols -> hols |> Seq.map (fun d -> d.DayNumber - epoch) |> Seq.toArray
-            | None -> [||]
+            | Some ho -> Series.create("__Date__",ho).Implode()
+            | None -> Series.create("__Date__",[||]).Cast<DateOnly>().Implode()
+        
+        let dateHandle = PolarsWrapper.Lit dateSeries.Handle
 
         new Expr(PolarsWrapper.DtAddBusinessDays(
             handle, 
             n.CloneHandle(), 
             mask, 
-            holidayInts, 
+            dateHandle, 
             r.ToNative()
         ))
 
@@ -292,16 +293,17 @@ type [<Struct>] DtOps(handle: ExprHandle) =
     member this.IsBusinessDay(?weekMask: bool[], ?holidays: seq<DateOnly>) =
         let mask = defaultArg weekMask [| true; true; true; true; true; false; false |]
         
-        let epoch = DateOnly(1970, 1, 1).DayNumber
-        let holidayInts = 
+        let dateSeries = 
             match holidays with
-            | Some hols -> hols |> Seq.map (fun d -> d.DayNumber - epoch) |> Seq.toArray
-            | None -> [||]
+            | Some ho -> Series.create("__Date__",ho).Implode()
+            | None -> Series.create("__Date__",[||]).Cast<DateOnly>().Implode()
+        
+        let dateHandle = PolarsWrapper.Lit dateSeries.Handle
 
         new Expr(PolarsWrapper.DtIsBusinessDay(
             handle,
             mask,
-            holidayInts
+            dateHandle
         ))
     /// <summary>
     /// Get the time passed since the Unix epoch (1970-01-01 00:00:00).

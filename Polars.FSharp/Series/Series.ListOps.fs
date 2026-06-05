@@ -31,8 +31,8 @@ type SeriesListNameSpace(parent: Series) =
     member _.Max() = apply (fun e -> e.List.Max())
     member _.Mean() = apply (fun e -> e.List.Mean())
     member _.Median() = apply (fun e -> e.List.Median())
-    member _.All() = apply (fun e->e.List.All())
-    member _.Any() = apply (fun e->e.List.Any())
+    member _.All(?ignoreNulls) = apply (fun e->e.List.All(?ignoreNulls=ignoreNulls))
+    member _.Any(?ignoreNulls) = apply (fun e->e.List.Any(?ignoreNulls=ignoreNulls))
     member _.DropNulls() = apply (fun e->e.List.DropNulls())
     member _.NUnique() = apply (fun e->e.List.NUnique())
     member _.ArgMax() = apply (fun e-> e.List.ArgMax())
@@ -40,6 +40,7 @@ type SeriesListNameSpace(parent: Series) =
     member _.Std(?ddof) = apply (fun e-> e.List.Std(?ddof=ddof))
     member _.Var(?ddof) = apply (fun e-> e.List.Var(?ddof=ddof))
     member _.Reverse() = apply (fun e -> e.List.Reverse())
+    member _.Eval(expr) = apply (fun e-> e.List.Eval(expr))
     member _.Unique(?maintainOrder) = apply (fun e->e.List.Unique(?maintainOrder=maintainOrder))
     member _.Sort(?descending, ?nullsLast, ?maintainOrder) =
         apply (fun e -> e.List.Sort(?descending=descending, ?nullsLast=nullsLast, ?maintainOrder=maintainOrder))

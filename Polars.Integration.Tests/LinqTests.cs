@@ -1492,7 +1492,7 @@ David,40,80000";
         {
             using var schema = PolarsSchema.From<StaffRecord>();
 
-            using var lf = LazyFrame.ScanCsv(fileName, schema: schema,hasHeader:false);
+            using var lf = LazyFrame.ScanCsv(fileName, schema: schema,hasHeader:false,truncateRaggedLines:true);
             
             using var lfWithBonus = lf.WithColumns((Pl.Col("salary") * 0.1).Alias("bonus"));
 

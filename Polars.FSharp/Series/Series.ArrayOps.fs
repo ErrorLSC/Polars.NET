@@ -21,8 +21,8 @@ type SeriesArrayNameSpace(parent: Series) =
         apply (fun e -> e.Array.Std(?ddof=ddof))
     member _.Var(?ddof: int) = 
         apply (fun e -> e.Array.Var(?ddof=ddof))
-    member _.Any() = apply (fun e -> e.Array.Any())
-    member _.All() = apply (fun e -> e.Array.All())
+    member _.Any(?ignoreNulls) = apply (fun e -> e.Array.Any(?ignoreNulls=ignoreNulls))
+    member _.All(?ignoreNulls) = apply (fun e -> e.Array.All(?ignoreNulls=ignoreNulls))
     /// <summary> Check if array contains an Item (Expr). </summary>
     member _.Contains(item: Expr, ?nullsEqual: bool) =
         apply (fun e -> e.Array.Contains(item, ?nullsEqual=nullsEqual))
@@ -34,8 +34,8 @@ type SeriesArrayNameSpace(parent: Series) =
     /// <summary> Check if array contains a literal int. </summary>
     member _.Contains(item: int, ?nullsEqual: bool) =
         apply (fun e -> e.Array.Contains(item, ?nullsEqual=nullsEqual))
-    member _.Unique(?stable: bool) = 
-        apply (fun e -> e.Array.Unique(?stable=stable))
+    member _.Unique(?maintainOrder: bool) = 
+        apply (fun e -> e.Array.Unique(?maintainOrder=maintainOrder))
 
     member _.Join(separator: string, ?ignoreNulls: bool) =
         apply (fun e -> e.Array.Join(separator, ?ignoreNulls=ignoreNulls))

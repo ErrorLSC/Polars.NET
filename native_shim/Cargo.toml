@@ -20,6 +20,7 @@ polars-utils = { version = "0.54.4" }
 polars-buffer = {version="0.54.4"}
 polars-plan = {version="0.54.4"}
 polars-ops = {version="0.54.4"}
+polars-async = {version="0.54.4"}
 flate2 = { version = "1.1.8", features = ["rust_backend"] }
 serde_json = "*"
 calamine = { version = "0.35", features = ["dates","chrono"] }

@@ -13,23 +13,29 @@ use deltalake::kernel::{Add, LogicalFileView, StructType};
 use deltalake::protocol::SaveMode;
 use polars::{error::PolarsError, prelude::*};
 use polars_arrow::ffi::{import_field_from_c,ArrowSchema as PolarsFFISchema};
-use tokio::runtime::Runtime;
+use polars_core::runtime::ASYNC;
+use polars_async::RuntimeManager;
+// use tokio::runtime::Runtime;
 use std::os::raw::c_char;
 use std::collections::HashMap;
-use std::sync::OnceLock;
+// use std::sync::OnceLock;
 use url::Url;
 use serde_json::{json, Value};
 
-static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+// static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 
 // Get global tokio runtime
-pub(crate) fn get_runtime() -> &'static Runtime {
-    RUNTIME.get_or_init(|| {
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("Failed to create global Tokio runtime")
-    })
+// pub(crate) fn get_runtime() -> &'static Runtime {
+//     RUNTIME.get_or_init(|| {
+//         tokio::runtime::Builder::new_multi_thread()
+//             .enable_all()
+//             .build()
+//             .expect("Failed to create global Tokio runtime")
+//     })
+// }
+
+pub(crate) fn get_runtime() -> &'static RuntimeManager {
+    &ASYNC
 }
 
 /// Extract Parquet Stat then convert to Delta JSON format

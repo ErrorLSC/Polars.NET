@@ -14,7 +14,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// If <c>false</c> (default), the result propagates nulls (i.e., if there is a null and no false, the result might be null).
     /// </param>
     /// <returns>A new expression representing the boolean result.</returns>
-    public Expr All(bool ignoreNulls=false) => new(PolarsWrapper.All(CloneHandle(),ignoreNulls));
+    public Expr All(bool ignoreNulls=true) => new(PolarsWrapper.All(CloneHandle(),ignoreNulls));
     /// <summary>
     /// Check if <b>any</b> value in the boolean expression is <c>true</c>.
     /// <para>This is a boolean aggregation.</para>
@@ -24,7 +24,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// If <c>false</c> (default), the result propagates nulls.
     /// </param>
     /// <returns>A new expression representing the boolean result.</returns>
-    public Expr Any(bool ignoreNulls=false) => new(PolarsWrapper.Any(CloneHandle(),ignoreNulls));
+    public Expr Any(bool ignoreNulls=true) => new(PolarsWrapper.Any(CloneHandle(),ignoreNulls));
     /// <summary>
     /// Calculate the sum of the values in the group or column.
     /// <para>
