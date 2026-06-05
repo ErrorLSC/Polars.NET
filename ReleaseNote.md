@@ -5,29 +5,31 @@
 
 ## Upgrades
 
-- Bumped up to LINQ2DB 6.3.0
+- Bumped LINQ2DB up to 6.3.0
 
-- Bumped rust polars to 0.54.4
+- Bumped rust polars up to 0.54.4
+
+- Bumped delta-rs up to 0.32.3
 
 ## API
 
-- DataFrame pivot pivotcolumnnaming enum added
+- DataFrame pivot pivotcolumnnaming enum added(need test,F#)
 
-- LazyFrame merge sorted add maintainOrder bool
+- LazyFrame merge sorted add maintainOrder bool(need test,F#)
 
 - Implode add maintainOrder bool
 
-- setsorted nulls last bool added
+- setsorted nulls last bool added(need test)
 
-- expr truncate added
+- expr truncate added(need test,F#)
 
-- expr reinterpret option dtype added
+- expr reinterpret option dtype added(need test,F#)
 
-- expr isempty, has nulls added
+- expr isempty, has nulls added(need test,F#)
 
-- lazyframe/dataframe gather added
+- lazyframe/dataframe gather added(need add,F#)
 
-- Config module added
+- Config module added(need add from rust)
 
 ## Behavior Change
 

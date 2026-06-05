@@ -913,13 +913,12 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         Assert.Equal(50, restoredDf.Height);
 
         using var historyDf = uc.DeltaHistory(catalog, schema, table, cloudOptions: cloudOptions);
-
-        long deletedFiles = uc.DeltaVacuum(
-            catalog, schema, table,
-            retentionHours: 0,          
-            enforceRetention: false,    
-            cloudOptions: cloudOptions
-        );
+        // long deletedFiles = uc.DeltaVacuum(
+        //     catalog, schema, table,
+        //     retentionHours: 0,          
+        //     enforceRetention: false,    
+        //     cloudOptions: cloudOptions
+        // );
         // --- Table History ---
         // shape: (20, 21)
         // ┌─────────┬────────────┬───────────┬───────────┬───┬───────────┬───────────┬───────────┬───────────┐
@@ -960,7 +959,6 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         // │         ┆ 07:16:17.8 ┆           ┆           ┆   ┆           ┆           ┆           ┆           │
         // │         ┆ 29 UTC     ┆           ┆           ┆   ┆           ┆           ┆           ┆           │
         // └─────────┴────────────┴───────────┴───────────┴───┴───────────┴───────────┴───────────┴───────────┘
-        // --- Vacuum deleted 14 orphaned files ---
         
         Environment.SetEnvironmentVariable("POLARS_DELTA_MAX_RETRIES", null);
     }

@@ -1794,6 +1794,39 @@ TooShort,1990-05-20,1.60";
         Assert.True(res.GetValue<bool>(1, "name_in_whitelist"));
     }
     [Fact]
+    [Trait("Expr","IsEmpty")]
+    public void Test_Expr_IsEmpty()
+    {
+        using DataFrame df1 = [
+            Pl.CreateSeries<int?>("nihao",[null,null])
+        ];
+        var isEmptyIgnore = df1.WithColumns(Cs.Integer().ToExpr().IsEmpty(ignoreNulls:true));
+        var isEmpty= df1.WithColumns(Cs.Integer().ToExpr().IsEmpty(ignoreNulls:false));
+        Assert.Equal(isEmptyIgnore.Height,isEmpty.Height);
+        Assert.Equal(2L,isEmpty.Height);
+        Assert.True((bool)isEmptyIgnore[0][0]);
+        Assert.False((bool)isEmpty[0][0]);
+
+        using DataFrame df2 = [
+            Pl.CreateSeries<int?>("nihao",[]),
+            Pl.CreateSeries<string>("byebye",[])
+        ];
+        var isEmptyBlank = df2.WithColumns(Cs.All().ToExpr().IsEmpty(ignoreNulls:true));
+        Assert.Equal(0L,isEmptyBlank.Height);
+    }
+    [Fact]
+    [Trait("Expr","HasNulls")]
+    public void Test_Expr_HasNulls()
+    {
+        using DataFrame df = [
+            Pl.CreateSeries<int?>("nihao",[null,1]),
+            Pl.CreateSeries("byebye",[0.5f,float.NaN])
+        ];
+        var hasNulls = df.WithColumns(Cs.Numeric().ToExpr().HasNulls());
+        Assert.True((bool)hasNulls[0][0]);
+        Assert.False((bool)hasNulls[1][1]);
+    }
+    [Fact]
     public void Test_Lit_Primitives_And_Nullables()
     {
         using var df = DataFrame.FromColumns(new { _ = new[] { 0, 0, 0 } }); // Height=3

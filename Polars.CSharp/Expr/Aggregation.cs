@@ -45,8 +45,8 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// 
     /// // 1. GroupBy Aggregation
     /// df.GroupBy("group").Agg(
-    ///     Col("val").Sum().Alias("sum"),
-    ///     Col("val").Mean().Alias("mean")
+    ///     Pl.Col("val").Sum().Alias("sum"),
+    ///     Pl.Col("val").Mean().Alias("mean")
     /// ).Show();
     /// /* Output:
     /// shape: (2, 3)
@@ -62,8 +62,8 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// 
     /// // 2. Global Aggregation (Select)
     /// df.Select(
-    ///     Col("val").Sum().Alias("total_sum"),
-    ///     Col("val").Count().Alias("total_count")
+    ///     Pl.Col("val").Sum().Alias("total_sum"),
+    ///     Pl.Col("val").Count().Alias("total_count")
     /// ).Show();
     /// /* Output:
     /// shape: (1, 2)
@@ -104,6 +104,11 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// Count the number of null.
     /// </summary>
     public Expr NullCount() => new(PolarsWrapper.NullCount(CloneHandle()));
+    /// <summary>
+    /// Return whether the column is empty.
+    /// </summary>
+    /// <param name="ignoreNulls">If true a column containing only nulls will also be considered empty. The default is false.</param>
+    public Expr IsEmpty(bool ignoreNulls=false) => new(PolarsWrapper.IsEmpty(CloneHandle(),ignoreNulls));
     /// <summary>
     /// Count unique values.
     /// Notes: Null is considered to be a unique value for the purposes of this operation.
@@ -180,8 +185,8 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <code>
     /// // Collect all IDs and Tags into single lists
     /// df.Select(
-    ///     Col("id").Implode().Alias("all_ids"), 
-    ///     Col("tags").Implode().Alias("nested_tags")
+    ///     Pl.Col("id").Implode().Alias("all_ids"), 
+    ///     Pl.Col("tags").Implode().Alias("nested_tags")
     /// ).Show();
     /// /* Output:
     /// shape: (1, 2)
@@ -206,7 +211,6 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <returns></returns>
     public Expr Len() => new(PolarsWrapper.ExprLen(CloneHandle()));
-
     /// <summary>
     /// Get the standard deviation.
     /// </summary>

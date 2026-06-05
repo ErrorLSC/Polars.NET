@@ -27,7 +27,7 @@ calamine = { version = "0.35", features = ["dates","chrono"] }
 chrono = "0.4.41"
 rust_xlsxwriter = { version = "0.95", features = ["chrono"] }
 mimalloc = { version = "*", default-features = false }
-deltalake = { version = "0.32.1", default-features = false, features = ["s3", "azure", "gcs", "rustls"] }
+deltalake = { version = "0.32.3", default-features = false, features = ["s3", "azure", "gcs", "rustls"] }
 tokio = { version = "1.49.0"}
 url = "2.5.8"
 uuid = {version="1.20.0", features=["v4"]}

@@ -551,6 +551,8 @@ public readonly partial struct PolarsWrapper
     }
     public static ExprHandle InterpolateBy(ExprHandle e, ExprHandle by) => BinaryOp(NativeBindings.pl_expr_interpolate_by, e, by);
     public static ExprHandle IsNull(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_is_null, expr);
+    public static ExprHandle IsEmpty(ExprHandle expr,bool ignoreNulls) => UnaryBoolOp(NativeBindings.pl_expr_is_empty, expr,ignoreNulls);
+    public static ExprHandle HasNulls(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_has_nulls, expr);
     public static ExprHandle IsNotNull(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_is_not_null, expr);
     public static ExprHandle ExprIsNan(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_is_nan, expr);
     public static ExprHandle ExprIsNotNan(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_is_not_nan, expr);

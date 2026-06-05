@@ -859,6 +859,10 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="dtype">DataType to reinterpret to.</param>
     public Expr Reinterpret(DataType dtype) => new(PolarsWrapper.ExprReinterpret(CloneHandle(),dtype.Handle));
     /// <summary>
+    /// Reinterpret the underlying bits as a signed/unsigned integer or float.
+    /// </summary>
+    public Expr Reinterpret<T>() => Reinterpret(typeof(T));
+    /// <summary>
     /// Repeat the elements in this Series as specified in the given expression.
     /// The repeated elements are expanded into a List.
     /// </summary>

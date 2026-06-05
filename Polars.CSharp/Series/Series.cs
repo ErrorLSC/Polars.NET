@@ -314,6 +314,10 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
         => ApplyExpr(Pl.Col(Name).Sample(fraction,withReplacement,shuffle,seed));
     /// <inheritdoc cref="Expr.Reinterpret(bool)"/> 
     public Series Reinterpret(bool signed=true) => ApplyExpr(Pl.Col(Name).Reinterpret(signed));
+    /// <inheritdoc cref="Expr.Reinterpret(DataType)"/> 
+    public Series Reinterpret(DataType dtype) => ApplyExpr(Pl.Col(Name).Reinterpret(dtype));
+    /// <inheritdoc cref="Expr.Reinterpret(DataType)"/> 
+    public Series Reinterpret<T>() => ApplyExpr(Pl.Col(Name).Reinterpret<T>());
     /// <inheritdoc cref="Expr.RepeatBy(IntoExpr)"/> 
     public Series RepeatBy(IntoExpr by) => ApplyExpr(Pl.Col(Name).RepeatBy(by));
     /// <summary>

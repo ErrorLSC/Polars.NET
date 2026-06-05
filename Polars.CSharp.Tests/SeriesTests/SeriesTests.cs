@@ -2376,6 +2376,9 @@ public class SeriesTests
         using var s1 = Series.From("Reinterpret",[1231,324234,45345,345]);
         using var s2 = s1.Reinterpret(false);
         Assert.Equal(DataType.UInt32,s2.DataType);
+
+        using var s3 = s1.Reinterpret<float>();
+        Assert.Equal(Pl.Float32,s3.DataType);
     }
     [Fact]
     [Trait("Series", "RepeatBy")]

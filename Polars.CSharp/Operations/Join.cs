@@ -464,7 +464,6 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     }
     /// <summary>
     /// Join with another LazyFrame using multiple boolean expressions.
-    /// Aligns perfectly with C# 12 collection expressions.
     /// Usage: lf.JoinWhere(other, [Pl.Col("start") &gt; Pl.Col("end"), Pl.Col("id") != null], how: JoinType.Left)
     /// </summary>
     public LazyFrame JoinWhere(
