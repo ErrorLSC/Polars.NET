@@ -6,7 +6,7 @@ namespace Polars.NET.Core.Native;
 unsafe internal partial class NativeBindings
 {
     [LibraryImport(LibName)]
-    public static partial int pl_expr_meta_eq(ExprHandle expr, ExprHandle other, [MarshalAs(UnmanagedType.I1)] out bool outVal);
+    public static partial int pl_expr_meta_eq(ExprHandle expr, ExprHandle other, [MarshalAs(UnmanagedType.U1)] out bool outVal);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_set_env_var(
     string key, 
@@ -27,7 +27,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lit_u16(ushort val);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lit_i32(int val);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lit_u32(uint val);
-    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lit_bool([MarshalAs(UnmanagedType.I1)] bool val);
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lit_bool([MarshalAs(UnmanagedType.U1)] bool val);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lit_i64(long val);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lit_u64(ulong val);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_lit_i128(ulong low,long high);
@@ -117,8 +117,8 @@ unsafe internal partial class NativeBindings
         nuint breaks_len,
         string[]? labels,
         nuint labels_len,
-        [MarshalAs(UnmanagedType.I1)] bool left_closed,
-        [MarshalAs(UnmanagedType.I1)] bool include_breaks
+        [MarshalAs(UnmanagedType.U1)] bool left_closed,
+        [MarshalAs(UnmanagedType.U1)] bool include_breaks
     );
 
     [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
@@ -128,9 +128,9 @@ unsafe internal partial class NativeBindings
         nuint probs_len,
         string[]? labels,
         nuint labels_len,
-        [MarshalAs(UnmanagedType.I1)] bool left_closed,
-        [MarshalAs(UnmanagedType.I1)] bool allow_duplicates,
-        [MarshalAs(UnmanagedType.I1)] bool include_breaks
+        [MarshalAs(UnmanagedType.U1)] bool left_closed,
+        [MarshalAs(UnmanagedType.U1)] bool allow_duplicates,
+        [MarshalAs(UnmanagedType.U1)] bool include_breaks
     );
 
     [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
@@ -139,9 +139,9 @@ unsafe internal partial class NativeBindings
         nuint n_bins,
         string[]? labels,
         nuint labels_len,
-        [MarshalAs(UnmanagedType.I1)] bool left_closed,
-        [MarshalAs(UnmanagedType.I1)] bool allow_duplicates,
-        [MarshalAs(UnmanagedType.I1)] bool include_breaks
+        [MarshalAs(UnmanagedType.U1)] bool left_closed,
+        [MarshalAs(UnmanagedType.U1)] bool allow_duplicates,
+        [MarshalAs(UnmanagedType.U1)] bool include_breaks
     );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_replace(ExprHandle expr, ExprHandle old,ExprHandle newExpr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_replace_strict(ExprHandle expr, ExprHandle old,ExprHandle newExpr,nint defaultExpr, nint dtype);
@@ -513,7 +513,7 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_array_get(
         ExprHandle expr, 
         ExprHandle index, 
-        [MarshalAs(UnmanagedType.I1)] bool nullOnOob
+        [MarshalAs(UnmanagedType.U1)] bool nullOnOob
     );
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_array_explode(
@@ -597,10 +597,10 @@ unsafe internal partial class NativeBindings
         nuint partitionByLen,
         nint[] orderByPtr,
         nuint orderByLen,
-        [MarshalAs(UnmanagedType.I1)] bool descending,
-        [MarshalAs(UnmanagedType.I1)] bool nullsLast,
-        [MarshalAs(UnmanagedType.I1)] bool multithreaded,
-        [MarshalAs(UnmanagedType.I1)] bool maintainOrder,
+        [MarshalAs(UnmanagedType.U1)] bool descending,
+        [MarshalAs(UnmanagedType.U1)] bool nullsLast,
+        [MarshalAs(UnmanagedType.U1)] bool multithreaded,
+        [MarshalAs(UnmanagedType.U1)] bool maintainOrder,
         PlWindowMapping mappingCode 
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
@@ -729,15 +729,15 @@ unsafe internal partial class NativeBindings
     public static partial ExprHandle pl_expr_get(
         ExprHandle expr, 
         ExprHandle idx, 
-        [MarshalAs(UnmanagedType.I1)] bool nullOnOob
+        [MarshalAs(UnmanagedType.U1)] bool nullOnOob
     );
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_sort(
         ExprHandle expr,
-        [MarshalAs(UnmanagedType.I1)] bool descending,
-        [MarshalAs(UnmanagedType.I1)] bool nullsLast,
-        [MarshalAs(UnmanagedType.I1)] bool multithreaded,
-        [MarshalAs(UnmanagedType.I1)] bool maintainOrder,
+        [MarshalAs(UnmanagedType.U1)] bool descending,
+        [MarshalAs(UnmanagedType.U1)] bool nullsLast,
+        [MarshalAs(UnmanagedType.U1)] bool multithreaded,
+        [MarshalAs(UnmanagedType.U1)] bool maintainOrder,
         uint* limitPtr
     );
     [LibraryImport(LibName)]
@@ -749,8 +749,8 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_arg_sort(
         ExprHandle expr, 
-        [MarshalAs(UnmanagedType.I1)] bool descending,
-        [MarshalAs(UnmanagedType.I1)] bool nullsLast
+        [MarshalAs(UnmanagedType.U1)] bool descending,
+        [MarshalAs(UnmanagedType.U1)] bool nullsLast
     );
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_arg_sort_by(
@@ -758,8 +758,8 @@ unsafe internal partial class NativeBindings
         nuint len,
         ReadOnlySpan<byte> descending, 
         ReadOnlySpan<byte> nullsLast,  
-        [MarshalAs(UnmanagedType.I1)] bool multithreaded,
-        [MarshalAs(UnmanagedType.I1)] bool maintainOrder
+        [MarshalAs(UnmanagedType.U1)] bool multithreaded,
+        [MarshalAs(UnmanagedType.U1)] bool maintainOrder
     );
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_arg_where(ExprHandle condition);
@@ -774,7 +774,7 @@ unsafe internal partial class NativeBindings
         ExprHandle expr, 
         ExprHandle element,
         PlSearchSortedSide side,
-        [MarshalAs(UnmanagedType.I1)] bool descending
+        [MarshalAs(UnmanagedType.U1)] bool descending
     );
     [LibraryImport(LibName)] public static partial SelectorHandle pl_expr_try_into_selector(ExprHandle expr);
     [LibraryImport(LibName)]
@@ -787,7 +787,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial int pl_expr_meta_into_tree_formatter(
         ExprHandle expr, 
-        [MarshalAs(UnmanagedType.I1)] bool displayAsDot, 
+        [MarshalAs(UnmanagedType.U1)] bool displayAsDot, 
         IntPtr schemaPtr,
         out IntPtr outStr);
     [LibraryImport(LibName)]

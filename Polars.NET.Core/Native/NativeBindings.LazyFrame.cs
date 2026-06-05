@@ -24,7 +24,7 @@ unsafe internal partial class NativeBindings
         string period,
         string offset,
         PlLabel label,
-        [MarshalAs(UnmanagedType.I1)] bool includeBoundaries,
+        [MarshalAs(UnmanagedType.U1)] bool includeBoundaries,
         PlClosedInterval closedWindow,
         PlStartBy startBy,
         nint[] keys, nuint keysLen,

@@ -2442,6 +2442,20 @@ public class SeriesTests
         Assert.Null(arr[3]);
     }
     [Fact]
+    [Trait("Series", "Truncate")]
+    public void Test_Truncate()
+    {
+        using var s = Pl.CreateSeries("values", new double?[] { 12345.0, 0.0012345, 1.2345, null });
+
+        using var res = s.Truncate(decimals: 0);
+        var arr = res.ToArray<double?>();
+
+        Assert.Equal(12345.0, arr[0]);
+        Assert.Equal(0.0, arr[1]);
+        Assert.Equal(1.0, arr[2]);
+        Assert.Null(arr[3]);
+    }
+    [Fact]
     [Trait("Series", "Sample")]
     public void Test_SeriesSample()
     {

@@ -95,20 +95,20 @@ internal partial class NativeBindings
         // --- Scan Args ---
         IntPtr n_rows, // null for None
         PlParallelStrategy parallel_code,
-        [MarshalAs(UnmanagedType.I1)] bool low_memory,
-        [MarshalAs(UnmanagedType.I1)] bool use_statistics,
-        [MarshalAs(UnmanagedType.I1)] bool glob,
-        [MarshalAs(UnmanagedType.I1)] bool rechunk, 
-        [MarshalAs(UnmanagedType.I1)] bool cache,   
+        [MarshalAs(UnmanagedType.U1)] bool low_memory,
+        [MarshalAs(UnmanagedType.U1)] bool use_statistics,
+        [MarshalAs(UnmanagedType.U1)] bool glob,
+        [MarshalAs(UnmanagedType.U1)] bool rechunk, 
+        [MarshalAs(UnmanagedType.U1)] bool cache,   
         // --- Option Names ---
         string? row_index_name,
         uint row_index_offset,
         string? include_path_col,
         // --- Schema ---
         IntPtr schema,
-        [MarshalAs(UnmanagedType.I1)] bool hive_partitioning,
+        [MarshalAs(UnmanagedType.U1)] bool hive_partitioning,
         IntPtr hive_schema,
-        [MarshalAs(UnmanagedType.I1)] bool try_parse_hive_dates,
+        [MarshalAs(UnmanagedType.U1)] bool try_parse_hive_dates,
         // --- Cloud Options (Must match pl_scan_parquet pattern) ---
         PlCloudProvider cloud_provider,
         UIntPtr cloud_retries,

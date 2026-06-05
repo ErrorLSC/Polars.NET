@@ -590,6 +590,16 @@ public readonly partial struct PolarsWrapper
         other.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static LazyFrameHandle LazyFrameGather(
+        LazyFrameHandle lf,
+        LazyFrameHandle index,
+        bool nullOnOob)
+    {
+        var h = NativeBindings.pl_lazyframe_gather(lf,index,nullOnOob);
+        lf.TransferOwnership();
+        index.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     public static Task<DataFrameHandle> LazyCollectAsync(
         LazyFrameHandle handle, 
         PlEngine engine,

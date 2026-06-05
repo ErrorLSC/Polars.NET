@@ -366,9 +366,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
 
         return schema.ToDataFrame(n);
     }
-    /// <inheritdoc cref="LazyFrame.GatherEvery(int, int)"/>
-    public DataFrame GatherEvery(int n, int offset = 0)
-        => Select(Pl.All().GatherEvery((ulong)n, (ulong)offset));
+
     /// <inheritdoc cref="LazyFrame.Interpolate"/>
     public DataFrame Interpolate()
         => Select(Pl.All().Interpolate(InterpolationMethod.Linear));

@@ -678,6 +678,12 @@ public readonly partial struct PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle Truncate(ExprHandle e, uint decimals)
+    {
+        var h = NativeBindings.pl_expr_truncate(e, decimals);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
 
     // Statistics
     public static ExprHandle Count(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_count, e);

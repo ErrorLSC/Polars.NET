@@ -198,6 +198,11 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <param name="digits">Number of significant figures to round to.</param>
     public Expr RoundSigFigs(int digits) => new(PolarsWrapper.RoundSigFigs(CloneHandle(),digits));
+    /// <summary>
+    /// Truncate numeric data toward zero to decimals number of decimal places.
+    /// </summary>
+    /// <param name="decimals">Number of decimal places to truncate to.</param>
+    public Expr Truncate(uint decimals=0) => new(PolarsWrapper.Truncate(CloneHandle(),decimals));
     /// <summary>Compute the element-wise sign (-1, 0, 1).</summary>
     public Expr Sign() => new(PolarsWrapper.Sign(CloneHandle()));
 

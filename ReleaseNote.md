@@ -13,7 +13,7 @@
 
 ## API
 
-- DataFrame pivot pivotcolumnnaming enum added(need test,F#)
+- DataFrame pivot pivotcolumnnaming enum added(F#)
 
 - LazyFrame merge sorted add maintainOrder bool(need test,F#)
 
@@ -21,11 +21,11 @@
 
 - setsorted nulls last bool added(need test)
 
-- expr truncate added(need test,F#)
+- expr truncate added(F#)
 
-- expr reinterpret option dtype added(need test,F#)
+- expr reinterpret option dtype added(F#)
 
-- expr isempty, has nulls added(need test,F#)
+- expr isempty, has nulls added(F#)
 
 - lazyframe/dataframe gather added(need add,F#)
 

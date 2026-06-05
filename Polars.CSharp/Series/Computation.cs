@@ -64,6 +64,8 @@ public partial class Series : IDisposable,IPolarsSeries
     public Series Round(uint decimals=0,RoundMode mode = RoundMode.HalfToEven) => ApplyExpr(Pl.Col(Name).Round(decimals,mode));
     /// <inheritdoc cref="Expr.RoundSigFigs"/> 
     public Series RoundSigFigs(int digits) => ApplyExpr(Pl.Col(Name).RoundSigFigs(digits));
+    /// <inheritdoc cref="Expr.Truncate"/> 
+    public Series Truncate(uint decimals=0) => ApplyExpr(Pl.Col(Name).Truncate(decimals));
     /// <summary>Compute the element-wise sign (-1, 0, 1).</summary>
     public Series Sign() => ApplyExpr(Pl.Col(Name).Sign());
 
