@@ -47,7 +47,10 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <summary>
     /// True if the Series is empty.
     /// </summary>
-    public bool IsEmpty => Length == 0;
+    public bool IsEmpty(bool ignoreNulls = false)
+        => ignoreNulls 
+            ? (Length - NullCount) == 0 
+            : Length == 0;
     /// <summary>
     /// Gets the number of underlying Arrow memory chunks.
     /// </summary>

@@ -113,7 +113,6 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     internal Series ApplyExpr(IntoExprColumn expr)
     {
         using var df = new DataFrame(this);
-
         using var dfRes = df.Select(expr);
 
         return dfRes[0];
@@ -413,7 +412,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <param name="n"></param>
     public Series Clear(uint n = 0)
     {
-        if (IsEmpty)
+        if (IsEmpty(ignoreNulls:false))
             return this.Clone();
         else if (n == 0)  
             return new(PolarsWrapper.SeriesClear(Handle));

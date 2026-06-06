@@ -15,11 +15,11 @@
 
 - DataFrame pivot pivotcolumnnaming enum added(F#)
 
-- LazyFrame merge sorted add maintainOrder bool(need test,F#)
+- LazyFrame merge sorted add maintainOrder bool(F#, joinwhere)
 
 - Implode add maintainOrder bool
 
-- setsorted nulls last bool added(need test)
+- setsorted nulls last bool added()
 
 - expr truncate added(F#)
 
@@ -27,7 +27,7 @@
 
 - expr isempty, has nulls added(F#)
 
-- lazyframe/dataframe gather added(need add,F#)
+- lazyframe/dataframe gather added(F#)
 
 - Config module added(need add from rust)
 
@@ -37,8 +37,14 @@
 
 - Expr all, any ignoreNulls default value will true
 
+- Series isempty now is a method.
+
 ## BugFix
 
 - FSharp DataFrame aggregation return lazyframe bug fixed.
 
 - Delta delete partition pruning bug fixed.
+
+## Others
+
+- Linux X64-glibc now is built in manylinux_2_28_x86_64 to allow lower glibc version linux environments.

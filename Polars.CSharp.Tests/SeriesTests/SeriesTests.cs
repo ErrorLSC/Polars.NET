@@ -2352,11 +2352,11 @@ public class SeriesTests
     public void Test_EmptyFactory()
     {
         using var s1 = new Series();
-        Assert.True(s1.IsEmpty);
+        Assert.True(s1.IsEmpty());
         using var s2 = new Series("aiyou",typeof(bool));
         Assert.Equal("aiyou",s2.Name);
         Assert.Equal(DataType.Boolean,s2.DataType);
-        Assert.True(s2.IsEmpty);
+        Assert.True(s2.IsEmpty());
     }
     [Fact]
     [Trait("Series", "Clear")]
@@ -2366,7 +2366,7 @@ public class SeriesTests
         using var s2 = s1.Clear();
         using var s3 = s1.Clear(10);
         Assert.Equal(s1.DataType,s2.DataType);
-        Assert.True(s2.IsEmpty);
+        Assert.True(s2.IsEmpty());
         Assert.Equal(10L,s3.Length);
     }
     [Fact]

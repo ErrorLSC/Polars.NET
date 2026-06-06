@@ -80,4 +80,9 @@ public partial class DataFrame
     /// <inheritdoc cref="LazyFrame.GatherEvery(int, int)"/>
     public DataFrame GatherEvery(int n, int offset = 0)
         => Select(Pl.All().GatherEvery((ulong)n, (ulong)offset));
+    /// <summary>
+    /// Alias for gather
+    /// </summary>
+    public DataFrame Take(IntoIndexLazyFrame index,bool nullOnOob = false)
+        => Gather(index,nullOnOob);   
 }

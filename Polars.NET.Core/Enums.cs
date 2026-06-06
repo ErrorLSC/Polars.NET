@@ -106,6 +106,12 @@ public enum PlLabel: byte
     DataPoint = 2
 }
 
+public enum PlFloatFormat: byte
+{
+    Mixed = 0,
+    Full = 1
+}
+
 public enum PlEngine : byte
 {
     Auto = 0,
@@ -114,6 +120,46 @@ public enum PlEngine : byte
     Gpu = 3
 }
 
+public enum PlTableCellAlignment: byte
+{
+    Left,Center,Right
+}
+
+public enum PlTableFormatting: byte
+{
+    ASCII_FULL,
+    ASCII_FULL_CONDENSED,
+    ASCII_NO_BORDERS,
+    ASCII_BORDERS_ONLY, 
+    ASCII_BORDERS_ONLY_CONDENSED, 
+    ASCII_HORIZONTAL_ONLY, 
+    ASCII_MARKDOWN,
+    MARKDOWN,
+    UTF8_FULL, 
+    UTF8_FULL_CONDENSED, 
+    UTF8_NO_BORDERS,
+    UTF8_BORDERS_ONLY,
+    UTF8_HORIZONTAL_ONLY,
+    NOTHING
+}
+public enum PlResolveMode:byte
+{
+    None = 0,
+    RowCounts = 1,
+    Full = 2
+}
+
+public enum PlOOCSpillPolicy: byte 
+{
+    NoSpill = 0,
+    Spill = 1
+}
+
+public enum PlOOCSpillFormat: byte 
+{
+    Ipc = 0
+    
+}
 public enum PlStartBy : byte
 {
     WindowBound = 0,

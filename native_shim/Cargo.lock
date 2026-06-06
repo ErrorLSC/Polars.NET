@@ -2841,6 +2841,7 @@ dependencies = [
  "polars-arrow",
  "polars-async",
  "polars-buffer",
+ "polars-config",
  "polars-core",
  "polars-io",
  "polars-ops",

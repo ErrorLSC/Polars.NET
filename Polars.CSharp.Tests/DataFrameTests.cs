@@ -1359,9 +1359,9 @@ public class DataFrameTests
 
         var hashNull = scoresDf.HashRows(seed:null);
         var hash42 = scoresDf.HashRows(seed:42);
-        
-        Assert.False(hashNull.IsEmpty);
-        Assert.False(hash42.IsEmpty);
+
+        Assert.False(hashNull.IsEmpty());
+        Assert.False(hash42.IsEmpty());
     }
     [Fact]
     [Trait("DataFrame","ToStruct")]

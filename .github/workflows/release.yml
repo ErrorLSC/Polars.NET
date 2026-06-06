@@ -94,7 +94,7 @@ jobs:
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2026-01-09 
+          toolchain: nightly-2026-04-01 
           targets: ${{ matrix.target }}
 
       # Install Cross
@@ -125,7 +125,7 @@ jobs:
             grep "PRETTY_NAME" /etc/os-release
           fi
 
-          ldd --version | head -n 1
+          ldd --version 2>/dev/null | head -n 1 || echo "ldd not available (likely musl environment)"
           echo "================================"
 
           echo "Building for ${{ matrix.target }} using $CARGO_CMD..."

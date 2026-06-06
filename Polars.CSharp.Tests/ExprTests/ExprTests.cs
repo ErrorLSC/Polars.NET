@@ -1811,8 +1811,9 @@ TooShort,1990-05-20,1.60";
             Pl.CreateSeries<int?>("nihao",[]),
             Pl.CreateSeries<string>("byebye",[])
         ];
-        var isEmptyBlank = df2.WithColumns(Cs.All().ToExpr().IsEmpty(ignoreNulls:true));
-        Assert.Equal(0L,isEmptyBlank.Height);
+        var isEmptyBlank = df2.Select(Cs.All().ToExpr().IsEmpty(ignoreNulls:true));
+        Assert.Equal(1L,isEmptyBlank.Height);
+        Assert.True((bool)isEmptyBlank[0][0]);
     }
     [Fact]
     [Trait("Expr","HasNulls")]

@@ -65,6 +65,10 @@ pub fn ptr_to_str<'a>(ptr: *const c_char) -> Result<&'a str, std::str::Utf8Error
     unsafe { CStr::from_ptr(ptr).to_str() }
 }
 
+pub unsafe fn ptr_to_str_unchecked<'a>(ptr: *const c_char) -> Result<&'a str, std::str::Utf8Error> {
+    unsafe { CStr::from_ptr(ptr) }.to_str()
+}
+
 pub(crate) unsafe fn consume_exprs_array(
     ptr: *const *mut ExprContext, 
     len: usize
