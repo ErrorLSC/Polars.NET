@@ -1,7 +1,4 @@
 using Pl = Polars.CSharp.Polars;
-using Cs = Polars.CSharp.Polars.Selectors;
-using System.Runtime.InteropServices;
-using System.Text;
 
 namespace Polars.CSharp.Tests;
 
@@ -26,7 +23,7 @@ public class ConfigTests
         using var df = Pl.CreateSeries("nihao",["123","321"]).ToFrame();
         Pl.Config.SetTableFormatting(TableFormatting.Nothing);
         string dfS1 = df.ToString();
-        using (Pl.Config.SetTableHideDataFrameShape(true).Enter())
+        using (Pl.Config.SetTableHideDataFrameShape(true).BeginScope())
         {
             Assert.Equal("1", Pl.Config["POLARS_FMT_TABLE_HIDE_DATAFRAME_SHAPE_INFORMATION"]);
             using var s = Pl.CreateSeries("byebye",[114514,1919810]);
@@ -161,7 +158,7 @@ public class ConfigTests
             IntVal   = new[] { 123456789 }
         });
 
-        using (Pl.Config.SetAsciiTables(true).Enter())
+        using (Pl.Config.SetAsciiTables(true).BeginScope())
         {
             Assert.Equal("ASCII_FULL_CONDENSED", Pl.Config["POLARS_FMT_TABLE_FORMATTING"]); 
 
@@ -171,7 +168,7 @@ public class ConfigTests
             Assert.DoesNotContain("┌", asciiString);
         }
 
-        using (Pl.Config.SetDecimalSeparator(',').SetThousandsSeparator('.').Enter())
+        using (Pl.Config.SetDecimalSeparator(',').SetThousandsSeparator('.').BeginScope())
         {
             var deStatus = Pl.Config.Status(ifSet: true);
             Assert.Equal(",", deStatus["decimal_separator"]);
@@ -183,7 +180,7 @@ public class ConfigTests
             Assert.Contains("123.456.789", deString);
         }
 
-        using (Pl.Config.SetThousandsSeparator(true).Enter())
+        using (Pl.Config.SetThousandsSeparator(true).BeginScope())
         {
             var enStatus = Pl.Config.Status(ifSet: true);
             Assert.Equal(".", enStatus["decimal_separator"]);
@@ -198,8 +195,7 @@ public class ConfigTests
 
         Assert.Equal("$", Pl.Config["decimal_separator"]);
         string weirdString = df.ToString();
-
-        Assert.Contains("114,514$19", weirdString); 
+        Assert.Contains("114514$19", weirdString); 
 
         Pl.Config.RestoreDefaults();
     }
@@ -212,7 +208,7 @@ public class ConfigTests
         var s = Pl.CreateSeries("DecimalVal", [12.3400m]);
         var df = s.ToFrame();
 
-        using (Pl.Config.SetTrimDecimalZeros(true).Enter())
+        using (Pl.Config.SetTrimDecimalZeros(true).BeginScope())
         {
             Assert.Equal("1", Pl.Config["trim_decimal_zeros"]);
 
@@ -222,7 +218,7 @@ public class ConfigTests
             Assert.DoesNotContain("12.3400", trimmedString);
         }
 
-        using (Pl.Config.SetTrimDecimalZeros(false).Enter())
+        using (Pl.Config.SetTrimDecimalZeros(false).BeginScope())
         {
             Assert.Equal("0", Pl.Config["trim_decimal_zeros"]);
 
@@ -233,7 +229,7 @@ public class ConfigTests
 
         var dfFloat = DataFrame.FromColumns(new { BigFloat = new[] { 123456789.123 } });
         
-        using (Pl.Config.SetFormatFloat(FloatFormat.Mixed).Enter())
+        using (Pl.Config.SetFormatFloat(FloatFormat.Mixed).BeginScope())
         {
             var status = Pl.Config.Status(ifSet: true);
             Assert.Equal("Mixed", status["float_format"]);
@@ -242,7 +238,7 @@ public class ConfigTests
             Assert.Contains("e8", mixedString);
         }
 
-        using (Pl.Config.SetFormatFloat(FloatFormat.Full).Enter())
+        using (Pl.Config.SetFormatFloat(FloatFormat.Full).BeginScope())
         {
             var status = Pl.Config.Status(ifSet: true);
             Assert.Equal("Full", status["float_format"]);
@@ -266,7 +262,7 @@ public class ConfigTests
         string longStr = "原神启动";
         var dfStr = DataFrame.FromColumns(new { Text = new[] { longStr } });
 
-        using (Pl.Config.SetFormatStringLength(2).Enter())
+        using (Pl.Config.SetFormatStringLength(2).BeginScope())
         {
             Assert.Equal("2", Pl.Config["POLARS_FMT_STR_LEN"]);
 
@@ -275,7 +271,7 @@ public class ConfigTests
             Assert.Contains("…", strOutput); 
         }
 
-        using (Pl.Config.SetFormatStringLength(999).Enter())
+        using (Pl.Config.SetFormatStringLength(999).BeginScope())
         {
             Assert.Equal("999", Pl.Config["POLARS_FMT_STR_LEN"]);
             string strOutput = dfStr.ToString();
@@ -285,7 +281,7 @@ public class ConfigTests
         using var listSeries = Pl.IntRangesAsSeries(start: 0, end: 20, name: "MyList");
         var dfList = listSeries.ToFrame();
 
-        using (Pl.Config.SetFormatTableCellListLength(0).Enter())
+        using (Pl.Config.SetFormatTableCellListLength(0).BeginScope())
         {
             Assert.Equal("0", Pl.Config["POLARS_FMT_TABLE_CELL_LIST_LEN"]);
 
@@ -297,7 +293,7 @@ public class ConfigTests
         using (Pl.Config
             .SetFormatTableCellListLength(-1)
             .SetTableWidthChars(-1) 
-            .Enter())
+            .BeginScope())
         {
             Assert.Equal("-1", Pl.Config["POLARS_FMT_TABLE_CELL_LIST_LEN"]);
             Assert.Equal("-1", Pl.Config["POLARS_TABLE_WIDTH"]);
@@ -323,16 +319,16 @@ public class ConfigTests
             NumCol  = new[] { 123 }
         });
 
-        using (Pl.Config.SetTableWidthChars(-1).Enter())
+        using (Pl.Config.SetTableWidthChars(-1).BeginScope())
         {
-            using (Pl.Config.SetTableCellAlignment(Alignment.Right).Enter())
+            using (Pl.Config.SetTableCellAlignment(Alignment.Right).BeginScope())
             {
                 Assert.Equal("RIGHT", Pl.Config["POLARS_FMT_TABLE_CELL_ALIGNMENT"]);
 
                 string rightOutput = df.ToString();
             }
 
-            using (Pl.Config.SetTableCellNumericAlignment(Alignment.Left).Enter())
+            using (Pl.Config.SetTableCellNumericAlignment(Alignment.Left).BeginScope())
             {
                 Assert.Equal("LEFT", Pl.Config["POLARS_FMT_TABLE_CELL_NUMERIC_ALIGNMENT"]);
             }
@@ -356,10 +352,10 @@ public class ConfigTests
             ColC = new[] { 7, 8, 9 }
         });
 
-        using (Pl.Config.SetTableWidthChars(-1).Enter())
+        using (Pl.Config.SetTableWidthChars(-1).BeginScope())
         {
  
-            using (Pl.Config.SetTableRows(1).Enter())
+            using (Pl.Config.SetTableRows(1).BeginScope())
             {
                 Assert.Equal("1", Pl.Config["POLARS_FMT_MAX_ROWS"]);
 
@@ -370,7 +366,7 @@ public class ConfigTests
                 Assert.Contains("…", rowFoldOutput);
             }
 
-            using (Pl.Config.SetTableRows(-1).Enter())
+            using (Pl.Config.SetTableRows(-1).BeginScope())
             {
                 Assert.Equal("-1", Pl.Config["POLARS_FMT_MAX_ROWS"]);
 
@@ -379,7 +375,7 @@ public class ConfigTests
                 Assert.DoesNotContain("…", rowFullOutput);
             }
 
-            using (Pl.Config.SetTableCols(1).Enter())
+            using (Pl.Config.SetTableCols(1).BeginScope())
             {
                 Assert.Equal("1", Pl.Config["POLARS_FMT_MAX_COLS"]);
 
@@ -389,7 +385,7 @@ public class ConfigTests
                 Assert.Contains("…", colFoldOutput);
             }
 
-            using (Pl.Config.SetTableCols(-1).Enter())
+            using (Pl.Config.SetTableCols(-1).BeginScope())
             {
                 Assert.Equal("-1", Pl.Config["POLARS_FMT_MAX_COLS"]);
 
@@ -397,7 +393,7 @@ public class ConfigTests
                 Assert.Contains("ColC", colFullOutput);
             }
 
-            using (Pl.Config.SetTableColumnDataTypeInline(true).Enter())
+            using (Pl.Config.SetTableColumnDataTypeInline(true).BeginScope())
             {
                 Assert.Equal("1", Pl.Config["POLARS_FMT_TABLE_INLINE_COLUMN_DATA_TYPE"]);
 
@@ -406,7 +402,7 @@ public class ConfigTests
                 Assert.Contains("ColA (i32)", inlineOutput);
             }
 
-            using (Pl.Config.SetTableColumnDataTypeInline(false).Enter())
+            using (Pl.Config.SetTableColumnDataTypeInline(false).BeginScope())
             {
                 Assert.Equal("0", Pl.Config["POLARS_FMT_TABLE_INLINE_COLUMN_DATA_TYPE"]);
 
@@ -420,7 +416,6 @@ public class ConfigTests
         Pl.Config.SetTableRows(50);
         Assert.Equal("50", Pl.Config["POLARS_FMT_MAX_ROWS"]);
 
-        // 5. 收尾清理
         Pl.Config.RestoreDefaults();
     }
     [Fact]
@@ -435,10 +430,10 @@ public class ConfigTests
             Age  = new[] { 20, 25, 30 }
         });
 
-        using (Pl.Config.SetTableWidthChars(-1).Enter())
+        using (Pl.Config.SetTableWidthChars(-1).BeginScope())
         {
 
-            using (Pl.Config.SetTableDataFrameShapeBelow(true).Enter())
+            using (Pl.Config.SetTableDataFrameShapeBelow(true).BeginScope())
             {
                 Assert.Equal("1", Pl.Config["POLARS_FMT_TABLE_DATAFRAME_SHAPE_BELOW"]);
 
@@ -449,7 +444,7 @@ public class ConfigTests
                 Assert.EndsWith("(3, 2)", shapeBelowOutput);
             }
 
-            using (Pl.Config.SetTableDataFrameShapeBelow(false).Enter())
+            using (Pl.Config.SetTableDataFrameShapeBelow(false).BeginScope())
             {
                 Assert.Equal("0", Pl.Config["POLARS_FMT_TABLE_DATAFRAME_SHAPE_BELOW"]);
 
@@ -457,7 +452,7 @@ public class ConfigTests
                 Assert.StartsWith("shape:", shapeAboveOutput);
             }
 
-            using (Pl.Config.SetTableHideColumnDataTypes(true).Enter())
+            using (Pl.Config.SetTableHideColumnDataTypes(true).BeginScope())
             {
                 Assert.Equal("1", Pl.Config["POLARS_FMT_TABLE_HIDE_COLUMN_DATA_TYPES"]);
 
@@ -467,7 +462,7 @@ public class ConfigTests
                 Assert.DoesNotContain("i64", noTypesOutput);
             }
 
-            using (Pl.Config.SetTableHideColumnNames(true).Enter())
+            using (Pl.Config.SetTableHideColumnNames(true).BeginScope())
             {
                 Assert.Equal("1", Pl.Config["POLARS_FMT_TABLE_HIDE_COLUMN_NAMES"]);
 
@@ -477,7 +472,7 @@ public class ConfigTests
                 Assert.DoesNotContain("Age", noNamesOutput);
             }
 
-            using (Pl.Config.SetTableHideDataTypeSeparator(true).Enter())
+            using (Pl.Config.SetTableHideDataTypeSeparator(true).BeginScope())
             {
                 Assert.Equal("1", Pl.Config["POLARS_FMT_TABLE_HIDE_COLUMN_SEPARATOR"]);
 
@@ -486,10 +481,9 @@ public class ConfigTests
                 Assert.DoesNotContain("---", noSepOutput);
             }
 
-            using (Pl.Config.SetTableHideDataTypeSeparator(false).Enter())
+            using (Pl.Config.SetTableHideDataTypeSeparator(false).BeginScope())
             {
                 Assert.Equal("0", Pl.Config["POLARS_FMT_TABLE_HIDE_COLUMN_SEPARATOR"]);
-
                 string hasSepOutput = df.ToString();
                 Assert.Contains("---", hasSepOutput);
             }
