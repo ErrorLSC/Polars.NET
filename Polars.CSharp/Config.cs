@@ -9,28 +9,25 @@ namespace Polars.CSharp;
 public sealed class PolarsConfig:IDisposable
 {
     private string? _previousStateBackup;
-    
-    private readonly string? _presetJson;
-
+    private bool _isContextActivated;
     public PolarsConfig() { }
-
-    internal PolarsConfig(string presetJson)
+    private void RecordOldValueAndApply(Action applyAction)
     {
-        _presetJson = presetJson;
-    }
+        if (!_isContextActivated && _previousStateBackup == null)
+        {
+            _previousStateBackup = CoreConfig.Save(ifSet: false);
+        }
 
+        applyAction();
+
+        PolarsWrapper.ReloadEnvVarAll();
+    }
     /// <summary>
     /// Activates this config profile by backing up the current global state and applying overrides.
     /// </summary>
     public PolarsConfig Enter()
     {
-        _previousStateBackup = CoreConfig.Save(ifSet: false);
-
-        if (_presetJson != null)
-        {
-            CoreConfig.Load(_presetJson);
-        }
-
+        _isContextActivated = true;
         return this;
     }
 
@@ -107,23 +104,67 @@ public sealed class PolarsConfig:IDisposable
             string normalizedKey = key.Trim();
             string lowerKey = normalizedKey.ToLowerInvariant();
 
-            if (lowerKey is "decimal_separator" or "thousands_separator" or "float_precision" or "float_format" or "prefetch_buffer_size")
+            RecordOldValueAndApply(() =>
             {
-                string miniJson = $"{{\"environment\":{{}},\"direct\":{{\"{lowerKey}\":{(value == null ? "null" : $"\"{value}\"")}}}}}";
-                Load(miniJson);
-            }
-            else
-            {
-                PolarsWrapper.SetEnvVar(normalizedKey, value);
-                PolarsWrapper.ReloadEnvVarAll();
-            }
+                if (lowerKey is "decimal_separator" or "thousands_separator" or "float_precision" or "float_format" or "prefetch_buffer_size" or "trim_decimal_zeros")
+                {
+                    switch (lowerKey)
+                    {
+                        case "decimal_separator":
+                            CoreConfig.DecimalSeparator = string.IsNullOrEmpty(value) ? null : value[0];
+                            break;
+                        case "thousands_separator":
+                            CoreConfig.ThousandsSeparator = string.IsNullOrEmpty(value) ? null : value[0];
+                            break;
+                        case "float_precision":
+                            CoreConfig.FloatPrecision = long.TryParse(value, out long prec) ? prec : null;
+                            break;
+                        case "float_format":
+                            CoreConfig.FloatFormat = Enum.TryParse<PlFloatFormat>(value, out var fmt) ? fmt : null;
+                            break;
+                        case "prefetch_buffer_size":
+                            if (int.TryParse(value, out int pbSize)) CoreConfig.DefaultPrefetchBufferSize = pbSize;
+                            break;
+                        case "trim_decimal_zeros":
+                            if (value == null)
+                            {
+                                CoreConfig.TrimDecimalZeros = null;
+                            }
+                            else
+                            {
+                                string cleanVal = value.Trim().ToLowerInvariant();
+                                
+                                if (cleanVal is "1" or "true")
+                                {
+                                    CoreConfig.TrimDecimalZeros = true;
+                                }
+                                else if (cleanVal is "0" or "false")
+                                {
+                                    CoreConfig.TrimDecimalZeros = false;
+                                }
+                                else
+                                {
+                                    CoreConfig.TrimDecimalZeros = null; 
+                                }
+                            }
+                            break;
+                    }
+                }
+                else
+                {
+                    PolarsWrapper.SetEnvVar(normalizedKey, value);
+                }
+            });
         }
     }
     /// <summary>
     /// Inject Environment var to Rust
     /// </summary>
     public static void SetEnvVar(string key, string value)
-        =>PolarsWrapper.SetEnvVar(key, value);
+    {
+        PolarsWrapper.SetEnvVar(key, value);
+        PolarsWrapper.ReloadEnvVar(key);
+    }
     /// <summary>
     /// Inject Environment var to Rust by KeyValuePair
     /// </summary>
@@ -134,20 +175,24 @@ public sealed class PolarsConfig:IDisposable
         
         foreach (var kvp in variables)
         {
-            SetEnvVar(kvp.Key, kvp.Value);
+            PolarsWrapper.SetEnvVar(kvp.Key, kvp.Value);
         }
+
+        PolarsWrapper.ReloadEnvVarAll();
     }
     /// <summary>
     /// Inject Environment var to Rust by KeyValuePair tuple
     /// </summary>
     public static void SetEnvVars(params (string Key, string Value)[] variables)
     {
-        if (variables == null) return;
+        if (variables == null || variables.Length == 0) return;
         
         foreach (var (key, value) in variables)
         {
-            SetEnvVar(key, value);
+            PolarsWrapper.SetEnvVar(key, value);
         }
+
+        PolarsWrapper.ReloadEnvVarAll();
     }
     /// <summary>
     /// Use ASCII characters to display table outlines.
@@ -196,7 +241,7 @@ public sealed class PolarsConfig:IDisposable
     /// </summary>
     public PolarsConfig SetThousandsSeparator(char? separator = null)
     {
-        CoreConfig.ThousandsSeparator = separator;
+        RecordOldValueAndApply(() => {CoreConfig.ThousandsSeparator = separator;});
         return this;
     }
     /// <summary>
@@ -205,7 +250,7 @@ public sealed class PolarsConfig:IDisposable
     /// <param name="active">Enable stripping of trailing ‘0’ characters from Decimal values.</param>
     public PolarsConfig SetTrimDecimalZeros(bool? active=true)
     {
-        CoreConfig.TrimDecimalZeros = active;
+        RecordOldValueAndApply(() => {CoreConfig.TrimDecimalZeros = active;});
         return this;
     }
     /// <summary>
@@ -215,7 +260,7 @@ public sealed class PolarsConfig:IDisposable
     /// However, the query is not guaranteed to execute with the specified engine.</param>
     public PolarsConfig SetEngineAffinity(Engine? engine=null)
     {
-        CoreConfig.EngineAffinity = engine?.ToNative();
+        RecordOldValueAndApply(() => {CoreConfig.EngineAffinity = engine?.ToNative();});
         return this;
     }
     /// <summary>
@@ -224,7 +269,7 @@ public sealed class PolarsConfig:IDisposable
     /// <param name="precision">Number of decimal places to display; set to None to revert to the default/standard behaviour.</param>
     public PolarsConfig SetFloatPrecision(long? precision=null)
     {
-        CoreConfig.FloatPrecision = precision;
+        RecordOldValueAndApply(() => {CoreConfig.FloatPrecision = precision;});
         return this;
     }
     /// <summary>
@@ -233,7 +278,7 @@ public sealed class PolarsConfig:IDisposable
     /// <param name="format">How to format floating point numbers</param>
     public PolarsConfig SetFormatFloat(FloatFormat? format=FloatFormat.Mixed)
     {
-        CoreConfig.FloatFormat = format?.ToNative();
+        RecordOldValueAndApply(() => {CoreConfig.FloatFormat = format?.ToNative();});
         return this;
     }
     /// <summary>
@@ -242,7 +287,7 @@ public sealed class PolarsConfig:IDisposable
     /// <param name="n">Number of characters to display.</param>
     public PolarsConfig SetFormatStringLength(int? n)
     {
-        CoreConfig.StringLength = n;
+        RecordOldValueAndApply(() => {CoreConfig.StringLength = n;});
         return this;
     }
     /// <summary>
@@ -255,7 +300,7 @@ public sealed class PolarsConfig:IDisposable
     /// <param name="n">Number of values to display.</param>
     public PolarsConfig SetFormatTableCellListLength(int? n)
     {
-        CoreConfig.TableCellListLength = n;
+        RecordOldValueAndApply(() => {CoreConfig.TableCellListLength = n;});
         return this;
     }
     /// <summary>
@@ -266,7 +311,7 @@ public sealed class PolarsConfig:IDisposable
     /// <param name="size">Number of rows per chunk. Every thread will process chunks of this size.</param>
     public PolarsConfig SetStreamingChunkSize(ulong? size)
     {
-        CoreConfig.StreamingChunkSize = size;
+        RecordOldValueAndApply(() => {CoreConfig.StreamingChunkSize = size;});
         return this;
     }
     /// <summary>
@@ -274,7 +319,7 @@ public sealed class PolarsConfig:IDisposable
     /// </summary>
     public PolarsConfig SetTableCellAlignment(Alignment? format)
     {
-        CoreConfig.TableCellAlignment = format?.ToNative();
+        RecordOldValueAndApply(() => {CoreConfig.TableCellAlignment = format?.ToNative();});
         return this;
     }
     /// <summary>
@@ -282,7 +327,7 @@ public sealed class PolarsConfig:IDisposable
     /// </summary>
     public PolarsConfig SetTableCellNumericAlignment(Alignment? format)
     {
-        CoreConfig.TableCellNumericAlignment = format?.ToNative();
+        RecordOldValueAndApply(() => {CoreConfig.TableCellNumericAlignment = format?.ToNative();});
         return this;
     }
     /// <summary>
@@ -291,7 +336,7 @@ public sealed class PolarsConfig:IDisposable
     /// <param name="n">Number of columns to display; if n is less than 0 (eg: -1), display all columns.</param>
     public PolarsConfig SetTableCols(int? n)
     {
-        CoreConfig.TableMaxCols = n;
+        RecordOldValueAndApply(() => {CoreConfig.TableMaxCols = n;});
         return this;
     }
     /// <summary>
@@ -300,7 +345,7 @@ public sealed class PolarsConfig:IDisposable
     /// <param name="n">Number of rows to display; if n is less than 0 (eg: -1), display all rows (DataFrame) and all elements (Series).</param>
     public PolarsConfig SetTableRows(int? n)
     {
-        CoreConfig.TableMaxRows = n;
+        RecordOldValueAndApply(() => {CoreConfig.TableMaxRows = n;});
         return this;
     }
     /// <summary>
@@ -308,7 +353,7 @@ public sealed class PolarsConfig:IDisposable
     /// </summary>
     public PolarsConfig SetTableColumnDataTypeInline(bool? active=true)
     {
-        CoreConfig.TableColumnDataTypeInline = active;
+        RecordOldValueAndApply(() => {CoreConfig.TableColumnDataTypeInline = active;});
         return this;
     }
     /// <summary>
@@ -316,7 +361,7 @@ public sealed class PolarsConfig:IDisposable
     /// </summary>
     public PolarsConfig SetVerbose(bool? verbose=true)
     {
-        CoreConfig.Verbose = verbose;
+        RecordOldValueAndApply(() => {CoreConfig.Verbose = verbose;});
         return this; 
     }
     /// <summary>
@@ -324,7 +369,7 @@ public sealed class PolarsConfig:IDisposable
     /// </summary>
     public PolarsConfig SetTableDataFrameShapeBelow(bool? active = true)
     {
-        CoreConfig.TableDataFrameShapeBelow = active;
+        RecordOldValueAndApply(() => {CoreConfig.TableDataFrameShapeBelow = active;});
         return this;
     }
     /// <summary>
@@ -332,7 +377,7 @@ public sealed class PolarsConfig:IDisposable
     /// </summary>
     public PolarsConfig SetTableFormatting(TableFormatting? format=null, bool? roundedCorners = false)
     {
-        CoreConfig.TableFormatting = (format?.ToNative(), roundedCorners);
+        RecordOldValueAndApply(() => {CoreConfig.TableFormatting = (format?.ToNative(), roundedCorners);});
         return this;
     }
     /// <summary>
@@ -340,7 +385,7 @@ public sealed class PolarsConfig:IDisposable
     /// </summary>
     public PolarsConfig SetTableHideColumnDataTypes(bool? active = true)
     {
-        CoreConfig.TableHideColumnDataTypes = active;
+        RecordOldValueAndApply(() => {CoreConfig.TableHideColumnDataTypes = active;});
         return this;
     }
     /// <summary>
@@ -348,17 +393,15 @@ public sealed class PolarsConfig:IDisposable
     /// </summary>
     public PolarsConfig SetTableHideColumnNames(bool? active = true)
     {
-        CoreConfig.TableHideColumnNames = active;
+        RecordOldValueAndApply(() => {CoreConfig.TableHideColumnNames = active;});
         return this;
     }
     /// <summary>
     /// Hide the DataFrame shape information when displaying tables.
     /// </summary>
-    /// <param name="active"></param>
-    /// <returns></returns>
     public PolarsConfig SetTableHideDataFrameShape(bool? active = true)
     {
-        CoreConfig.TableHideDataFrameShape = active;
+        RecordOldValueAndApply(() => {CoreConfig.TableHideDataFrameShape = active;});
         return this;
     }
     /// <summary>
@@ -366,7 +409,7 @@ public sealed class PolarsConfig:IDisposable
     /// </summary>
     public PolarsConfig SetTableHideDataTypeSeparator(bool? active = true)
     {
-        CoreConfig.TableHideDataTypeSeparator =active;
+        RecordOldValueAndApply(() => {CoreConfig.TableHideDataTypeSeparator =active;});
         return this;
     }
     /// <summary>
@@ -375,7 +418,7 @@ public sealed class PolarsConfig:IDisposable
     /// <param name="width">Maximum table width in characters; if n is less than 0 (eg: -1), display full width.</param>
     public PolarsConfig SetTableWidthChars(int? width)
     {
-        CoreConfig.TableWidthChars =width;
+        RecordOldValueAndApply(() => {CoreConfig.TableWidthChars =width;});
         return this;
     }
 

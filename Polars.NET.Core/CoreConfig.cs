@@ -11,6 +11,9 @@ internal static class CoreConfig
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static string? ToFmtString(this bool? value) =>
         value == null ? null : (value.Value ? "1" : "0");
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static string ToFmtString(this bool value) => value ? "1" : "0";
+    
     private const string PrefetchBufferSizeKey = "POLARS_NET_PREFETCH_SIZE";
     private static int _defaultPrefetchBufferSize = GetDefaultPrefetchSizeFromEnv();
     /// <summary>
@@ -103,6 +106,10 @@ internal static class CoreConfig
         (
             "float_format", 
             () => FloatFormat?.ToString() 
+        ),
+        (
+            "trim_decimal_zeros", 
+            () => TrimDecimalZeros?.ToFmtString() 
         )
     ];
 
@@ -247,6 +254,30 @@ internal static class CoreConfig
                             else if (!string.IsNullOrEmpty(strValue)) DecimalSeparator = strValue[0];
                             break;
 
+                        case "trim_decimal_zeros":
+                            if (isNull || string.IsNullOrEmpty(strValue))
+                            {
+                                TrimDecimalZeros = null;
+                            }
+                            else
+                            {
+                                string cleanVal = strValue.Trim().ToLowerInvariant();
+                                
+                                if (cleanVal is "1" or "true")
+                                {
+                                    TrimDecimalZeros = true;
+                                }
+                                else if (cleanVal is "0" or "false")
+                                {
+                                    TrimDecimalZeros = false;
+                                }
+                                else
+                                {
+                                    TrimDecimalZeros = null; 
+                                }
+                            }
+                            break;
+
                         case "thousands_separator":
                             if (isNull) ThousandsSeparator = null;
                             else if (!string.IsNullOrEmpty(strValue)) ThousandsSeparator = strValue[0];
@@ -319,7 +350,8 @@ internal static class CoreConfig
         DecimalSeparator = null;         
         ThousandsSeparator = null;       
         FloatPrecision = null;           
-        FloatFormat = null;              
+        FloatFormat = null;
+        TrimDecimalZeros = null;              
 
         PolarsWrapper.ReloadEnvVarAll();
     }

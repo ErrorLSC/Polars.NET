@@ -822,6 +822,15 @@ public readonly partial struct Polars
         
         return Regex.Escape(s);
     }
+    /// <summary>
+    /// Create a new PolarsConfig instance.
+    /// </summary>
+    public static PolarsConfig Config => new();
+    /// <summary>
+    /// Return the number of threads in the Polars thread pool.
+    /// </summary>
+    public static ulong ThreadPoolSize() => (ulong)CoreConfig.ThreadPoolSize!;
+
 }
 
 internal static class InterfaceUnwrapperExtensions

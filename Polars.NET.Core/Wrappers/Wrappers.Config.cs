@@ -50,7 +50,7 @@ public readonly partial struct PolarsWrapper
             }
         }
 
-        ReloadEnvVar(key);
+        // ReloadEnvVar(key);
         ErrorHelper.CheckVoid();
     }
     public static void ReloadEnvVar(string key)
