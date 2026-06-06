@@ -3,7 +3,7 @@ using CoreEnums = Polars.NET.Core;
 
 namespace Polars.CSharp;
 /// <summary>
-/// Enums of JoinTypes
+/// Enums of RightTypes
 /// </summary>
 public enum JoinType: byte
 {
@@ -609,6 +609,41 @@ public enum CategoricalPhysical : byte
     U8 = 2 
 }
 
+public enum FloatFormat: byte
+{
+    /// <summary>
+    /// Limit the number of decimal places and use scientific notation for large/small values.
+    /// </summary>
+    Mixed = 0,
+    /// <summary>
+    /// Print the full precision of the floating point number.
+    /// </summary>
+    Full = 1
+}
+
+public enum Alignment: byte
+{
+    Left,Center,Right
+}
+
+public enum TableFormatting: byte
+{
+    AsciiFull,
+    AsciiFullCondensed,
+    AsciiNoBorders,
+    AsciiBordersOnly, 
+    AsciiBordersOnlyCondensed, 
+    AsciiHorizontalOnly, 
+    AsciiMarkdown,
+    Markdown,
+    Utf8Full, 
+    Utf8FullCondensed, 
+    Utf8NoBorders,
+    Utf8BordersOnly,
+    Utf8HorizontalOnly,
+    Nothing
+}
+
 public enum MissingColumnsPolicy : byte { Raise = 0, Insert = 1 }
 public enum UpcastOrForbid : byte { Forbid = 0, Upcast = 1 }
 public enum ExtraColumnsPolicy : byte { Raise = 0, Ignore = 1 }
@@ -658,12 +693,6 @@ internal static class EnumExtensions
         TimeUnit.Nanoseconds => CoreEnums.PlTimeUnit.Nanoseconds,
         TimeUnit.Microseconds => CoreEnums.PlTimeUnit.Microseconds,
         TimeUnit.Milliseconds => CoreEnums.PlTimeUnit.Milliseconds,
-        // TimeUnit.Second => CoreEnums.PlTimeUnit.Second,
-        // TimeUnit.Minute => CoreEnums.PlTimeUnit.Minute,
-        // TimeUnit.Hour => CoreEnums.PlTimeUnit.Hour,
-        // TimeUnit.Day => CoreEnums.PlTimeUnit.Day,
-        // TimeUnit.Month => CoreEnums.PlTimeUnit.Month,
-        // TimeUnit.Year => CoreEnums.PlTimeUnit.Year,
         _ => CoreEnums.PlTimeUnit.Microseconds
     };
     internal static CoreEnums.PlJoinType ToNative(this JoinType type) => type switch
@@ -981,6 +1010,37 @@ internal static class EnumExtensions
         WindowMappingStrategy.Explode => CoreEnums.PlWindowMapping.Explode,
         WindowMappingStrategy.Join => CoreEnums.PlWindowMapping.Join,
         _ => throw new ArgumentOutOfRangeException(nameof(mapping), mapping, null)
+    };
+    internal static CoreEnums.PlTableFormatting ToNative(this TableFormatting format) => format switch
+    {
+        TableFormatting.AsciiBordersOnly => CoreEnums.PlTableFormatting.AsciiBordersOnly,
+        TableFormatting.AsciiBordersOnlyCondensed => CoreEnums.PlTableFormatting.AsciiBordersOnlyCondensed,
+        TableFormatting.AsciiFull => CoreEnums.PlTableFormatting.AsciiFull,
+        TableFormatting.AsciiFullCondensed => CoreEnums.PlTableFormatting.AsciiFullCondensed,
+        TableFormatting.AsciiHorizontalOnly => CoreEnums.PlTableFormatting.AsciiHorizontalOnly,
+        TableFormatting.AsciiMarkdown => CoreEnums.PlTableFormatting.AsciiMarkdown,
+        TableFormatting.AsciiNoBorders => CoreEnums.PlTableFormatting.AsciiNoBorders,
+        TableFormatting.Markdown => CoreEnums.PlTableFormatting.Markdown,
+        TableFormatting.Utf8BordersOnly => CoreEnums.PlTableFormatting.Utf8BordersOnly,
+        TableFormatting.Utf8Full => CoreEnums.PlTableFormatting.Utf8Full,
+        TableFormatting.Utf8FullCondensed => CoreEnums.PlTableFormatting.Utf8FullCondensed,
+        TableFormatting.Utf8HorizontalOnly => CoreEnums.PlTableFormatting.Utf8HorizontalOnly,
+        TableFormatting.Utf8NoBorders => CoreEnums.PlTableFormatting.Utf8NoBorders,
+        TableFormatting.Nothing => CoreEnums.PlTableFormatting.Nothing,
+        _ => throw new ArgumentOutOfRangeException(nameof(format), format, null)
+    };
+    internal static CoreEnums.PlTableCellAlignment ToNative(this Alignment alignment) => alignment switch
+    {
+        Alignment.Left => CoreEnums.PlTableCellAlignment.Left,
+        Alignment.Center => CoreEnums.PlTableCellAlignment.Center,
+        Alignment.Right => CoreEnums.PlTableCellAlignment.Right,
+        _ => throw new ArgumentOutOfRangeException(nameof(alignment), alignment, null)
+    };
+    internal static CoreEnums.PlFloatFormat ToNative(this FloatFormat fmt) => fmt switch
+    {
+        FloatFormat.Mixed => CoreEnums.PlFloatFormat.Mixed,
+        FloatFormat.Full => CoreEnums.PlFloatFormat.Full,
+        _ => throw new ArgumentOutOfRangeException(nameof(fmt), fmt, null)
     };
 }
 

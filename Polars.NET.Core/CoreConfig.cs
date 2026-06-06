@@ -591,20 +591,20 @@ internal static class CoreConfig
             string? fmtEnv = Environment.GetEnvironmentVariable(TableFormattingKey);
             PlTableFormatting? format = fmtEnv?.ToUpperInvariant() switch
             {
-                "ASCII_FULL" => PlTableFormatting.ASCII_FULL,
-                "ASCII_FULL_CONDENSED" => PlTableFormatting.ASCII_FULL_CONDENSED,
-                "ASCII_NO_BORDERS" => PlTableFormatting.ASCII_NO_BORDERS,
-                "ASCII_BORDERS_ONLY" => PlTableFormatting.ASCII_BORDERS_ONLY,
-                "ASCII_BORDERS_ONLY_CONDENSED" => PlTableFormatting.ASCII_BORDERS_ONLY_CONDENSED,
-                "ASCII_HORIZONTAL_ONLY" => PlTableFormatting.ASCII_HORIZONTAL_ONLY,
-                "ASCII_MARKDOWN" => PlTableFormatting.ASCII_MARKDOWN,
-                "MARKDOWN" => PlTableFormatting.MARKDOWN,
-                "UTF8_FULL" => PlTableFormatting.UTF8_FULL,
-                "UTF8_FULL_CONDENSED" => PlTableFormatting.UTF8_FULL_CONDENSED,
-                "UTF8_NO_BORDERS" => PlTableFormatting.UTF8_NO_BORDERS,
-                "UTF8_BORDERS_ONLY" => PlTableFormatting.UTF8_BORDERS_ONLY,
-                "UTF8_HORIZONTAL_ONLY" => PlTableFormatting.UTF8_HORIZONTAL_ONLY,
-                "NOTHING" => PlTableFormatting.NOTHING,
+                "ASCII_FULL" => PlTableFormatting.AsciiFull,
+                "ASCII_FULL_CONDENSED" => PlTableFormatting.AsciiFullCondensed,
+                "ASCII_NO_BORDERS" => PlTableFormatting.AsciiNoBorders,
+                "ASCII_BORDERS_ONLY" => PlTableFormatting.AsciiBordersOnly,
+                "ASCII_BORDERS_ONLY_CONDENSED" => PlTableFormatting.AsciiBordersOnlyCondensed,
+                "ASCII_HORIZONTAL_ONLY" => PlTableFormatting.AsciiHorizontalOnly,
+                "ASCII_MARKDOWN" => PlTableFormatting.AsciiMarkdown,
+                "MARKDOWN" => PlTableFormatting.Markdown,
+                "UTF8_FULL" => PlTableFormatting.Utf8Full,
+                "UTF8_FULL_CONDENSED" => PlTableFormatting.Utf8FullCondensed,
+                "UTF8_NO_BORDERS" => PlTableFormatting.Utf8NoBorders,
+                "UTF8_BORDERS_ONLY" => PlTableFormatting.Utf8BordersOnly,
+                "UTF8_HORIZONTAL_ONLY" => PlTableFormatting.Utf8HorizontalOnly,
+                "NOTHING" => PlTableFormatting.Nothing,
                 _ => null
             };
 
@@ -622,20 +622,20 @@ internal static class CoreConfig
         {
             string? fmtStr = value.Format switch
             {
-                PlTableFormatting.ASCII_FULL => "ASCII_FULL",
-                PlTableFormatting.ASCII_FULL_CONDENSED => "ASCII_FULL_CONDENSED",
-                PlTableFormatting.ASCII_NO_BORDERS => "ASCII_NO_BORDERS",
-                PlTableFormatting.ASCII_BORDERS_ONLY => "ASCII_BORDERS_ONLY",
-                PlTableFormatting.ASCII_BORDERS_ONLY_CONDENSED => "ASCII_BORDERS_ONLY_CONDENSED",
-                PlTableFormatting.ASCII_HORIZONTAL_ONLY => "ASCII_HORIZONTAL_ONLY",
-                PlTableFormatting.ASCII_MARKDOWN => "ASCII_MARKDOWN",
-                PlTableFormatting.MARKDOWN => "MARKDOWN",
-                PlTableFormatting.UTF8_FULL => "UTF8_FULL",
-                PlTableFormatting.UTF8_FULL_CONDENSED => "UTF8_FULL_CONDENSED",
-                PlTableFormatting.UTF8_NO_BORDERS => "UTF8_NO_BORDERS",
-                PlTableFormatting.UTF8_BORDERS_ONLY => "UTF8_BORDERS_ONLY",
-                PlTableFormatting.UTF8_HORIZONTAL_ONLY => "UTF8_HORIZONTAL_ONLY",
-                PlTableFormatting.NOTHING => "NOTHING",
+                PlTableFormatting.AsciiFull => "ASCII_FULL",
+                PlTableFormatting.AsciiFullCondensed => "ASCII_FULL_CONDENSED",
+                PlTableFormatting.AsciiNoBorders => "ASCII_NO_BORDERS",
+                PlTableFormatting.AsciiBordersOnly => "ASCII_BORDERS_ONLY",
+                PlTableFormatting.AsciiBordersOnlyCondensed => "ASCII_BORDERS_ONLY_CONDENSED",
+                PlTableFormatting.AsciiHorizontalOnly => "ASCII_HORIZONTAL_ONLY",
+                PlTableFormatting.AsciiMarkdown => "ASCII_MARKDOWN",
+                PlTableFormatting.Markdown => "MARKDOWN",
+                PlTableFormatting.Utf8Full => "UTF8_FULL",
+                PlTableFormatting.Utf8FullCondensed => "UTF8_FULL_CONDENSED",
+                PlTableFormatting.Utf8NoBorders => "UTF8_NO_BORDERS",
+                PlTableFormatting.Utf8BordersOnly => "UTF8_BORDERS_ONLY",
+                PlTableFormatting.Utf8HorizontalOnly => "UTF8_HORIZONTAL_ONLY",
+                PlTableFormatting.Nothing => "NOTHING",
                 _ => null
             };
 
