@@ -21,7 +21,6 @@ public sealed class PolarsConfigScope(string backupPayload) : IDisposable
         {
             CoreConfig.Load(_backupPayload);
 
-            PolarsWrapper.ReloadEnvVarAll();
             _backupPayload = null;
         }
         GC.SuppressFinalize(this);
