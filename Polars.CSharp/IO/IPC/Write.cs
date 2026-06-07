@@ -89,7 +89,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     /// <param name="path">Path to the IPC stream file or a byte buffer</param>
     /// <param name="compression">Compression method. Defaults to None.</param>
-    /// <param name="compatLevel">Use a specific compatibility level when exporting Polars’ internal data structures.</param>
+    /// <param name="compatLevel">Use a specific compatibility level 
+    /// when exporting Polars’ internal data structures.</param>
     public void WriteIpcStream(
         string path,
         IpcCompression compression = IpcCompression.None,

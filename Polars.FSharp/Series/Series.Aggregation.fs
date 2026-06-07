@@ -6,7 +6,7 @@ open Polars.NET.Core
 module SeriesAggregateOps = 
     type Series with
         member internal this.ExtractScalar<'T>(aggregator: unit -> Series) : 'T option =
-            if box this = null || this.IsEmpty then 
+            if box this = null || this.IsEmpty() then 
                 None
             else
                 use tempSeries = aggregator()

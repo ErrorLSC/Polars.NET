@@ -13,31 +13,31 @@
 
 ## API
 
-- DataFrame pivot pivotcolumnnaming enum added(F#)
+- DataFrame pivot pivotcolumnnaming enum added
 
-- LazyFrame merge sorted add maintainOrder bool(F#, joinwhere)
+- LazyFrame merge sorted add maintainOrder bool
 
 - Implode add maintainOrder bool
 
 - setsorted nulls last bool added
 
-- expr truncate added(F#)
+- expr,series truncate added
 
-- expr reinterpret option dtype added(F#)
+- expr,series reinterpret option dtype added
 
-- expr isempty, has nulls added(F#)
+- expr,series isempty, has nulls added
 
-- lazyframe/dataframe gather added(F#)
+- lazyframe/dataframe gather added
 
 - Config module added(F#)
 
-- DataFrame IPC Stream reader/writer added(Rust done)
+- DataFrame IPC Stream reader/writer along with schema reader added
 
 ## Behavior Change
 
 - Expr Cut now return Enum type rather than Categorical type
 
-- Expr all, any ignoreNulls default value will true
+- Expr all, any ignoreNulls default value become true
 
 - Series isempty now is a method.
 

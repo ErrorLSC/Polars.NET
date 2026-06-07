@@ -70,6 +70,7 @@ module SeriesOperationExtensions =
         member this.SampleFrac(fraction:Expr,?withReplacement:bool,?shuffle:bool,?seed:uint64) =
             this.ApplyExpr(Expr.Col(this.Name).SampleFrac(fraction,?withReplacement=withReplacement,?shuffle=shuffle,?seed=seed))
         member this.Reinterpret(?signed) = this.ApplyExpr(Expr.Col(this.Name).Reinterpret(?signed=signed))
+        member this.Reinterpret(dtype:DataType) = this.ApplyExpr(Expr.Col(this.Name).Reinterpret(dtype))
         member this.RepeatBy by = this.ApplyExpr(Expr.Col(this.Name).RepeatBy by)
         /// <summary>
         /// Create an empty copy of the current Series, with zero to ‘n’ elements.
@@ -77,7 +78,7 @@ module SeriesOperationExtensions =
         /// </summary>
         /// <param name="n"></param>
         member this.Clear(?n: uint32) : Series =
-            if this.IsEmpty then 
+            if this.IsEmpty() then 
                 this.Clone()
             else
                 match defaultArg n 0u with

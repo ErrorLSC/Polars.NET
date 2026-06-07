@@ -861,9 +861,18 @@ module ManipulateOps =
                 ))
 
     /// ========================
-    /// Gather Every
+    /// Gather & Gather Every
     /// ========================
     type LazyFrame with
+        /// <summary>
+        /// Selects rows from this LazyFrame at the given indices.
+        /// </summary>
+        /// <param name="index">The indices of the rows to select.</param>
+        /// <param name="nullOnOutOfBounds">If true when an index is out-of-bounds a null row will be generated instead of raising an error.</param>
+        member this.Gather(index:seq<int64>,?nullOnOutOfBounds) =
+            let nul = defaultArg nullOnOutOfBounds false
+            let indexLf = Series.create("",index).ToFrame().Lazy()
+            new LazyFrame(PolarsWrapper.LazyFrameGather(this.CloneHandle(),indexLf.Handle,nul))
         /// <summary>
         /// Take every nth row in the Frame and return as a new Frame.
         /// </summary>
@@ -874,6 +883,13 @@ module ManipulateOps =
             let offsetD = defaultArg offset 0UL
             this.Select(Expr.All().GatherEvery(n,offsetD))
     type DataFrame with
+        /// <summary>
+        /// Selects rows from this DataFrame at the given indices.
+        /// </summary>
+        /// <param name="index">The indices of the rows to select.</param>
+        /// <param name="nullOnOutOfBounds">If true when an index is out-of-bounds a null row will be generated instead of raising an error.</param>
+        member this.Gather(index,?nullOnOutOfBounds) :DataFrame=
+            this.Lazy().Gather(index,?nullOnOutOfBounds=nullOnOutOfBounds).Collect()
         /// <summary>
         /// Take every nth row in the Frame and return as a new Frame.
         /// </summary>

@@ -9,10 +9,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Create DataFrame from Apache Arrow RecordBatch.
     /// </summary>
     public static DataFrame FromArrow(RecordBatch batch)
-    {
-        var handle = ArrowFfiBridge.ImportDataFrame(batch);
-        return new DataFrame(handle);
-    }
+        => new(ArrowFfiBridge.ImportDataFrame(batch));
     /// <summary>
     /// Transfer a DataFrame to Arrow
     /// </summary>

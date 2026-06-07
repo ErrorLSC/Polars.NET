@@ -65,7 +65,10 @@ type Series(handle: SeriesHandle) =
     /// <summary>
     /// True if the Series is empty.
     /// </summary>
-    member this.IsEmpty = this.Length = 0
+    member this.IsEmpty(?ignoreNulls) =
+        match defaultArg ignoreNulls false with
+        | true -> this.Length = this.NullCount
+        | false -> this.Length = 0
     /// <summary>
     /// Shape of this Series. 
     /// In Polars, a Series is always 1D, so this returns an array of length 1.
@@ -840,7 +843,7 @@ and DataFrame(handle: DataFrameHandle) =
 
     /// <summary> Create a DataFrame directly from an Apache Arrow RecordBatch. </summary>
     static member FromArrow (batch: Apache.Arrow.RecordBatch) : DataFrame =
-        new DataFrame(PolarsWrapper.FromArrow batch)
+        new DataFrame(ArrowFfiBridge.ImportDataFrame batch)
 
     // ---- ADBC ----
     static member FromArrowStream(stream:IArrowArrayStream) =

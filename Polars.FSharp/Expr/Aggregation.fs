@@ -194,3 +194,11 @@ module ExprAggregation =
         /// Perform an aggregation of bitwise Xors.
         /// </summary>
         member this.BitwiseXor() = new Expr(PolarsWrapper.BitwiseXor (this.CloneHandle()))
+        /// <summary>
+        /// Return whether the column is empty.
+        /// </summary>
+        /// <param name="ignoreNulls">If true a column containing only nulls will also be considered empty.
+        ///  The default is false.</param>
+        member this.IsEmpty(?ignoreNulls) = 
+            let ig = defaultArg ignoreNulls false
+            new Expr(PolarsWrapper.IsEmpty(this.CloneHandle(),ig))

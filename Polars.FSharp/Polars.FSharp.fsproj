@@ -26,7 +26,7 @@
     <Compile Include="DataType.fs" />
     <Compile Include="CloudOptions.fs" />
     <Compile Include="UdfUtils.fs" />
-    <Compile Include="Exprs.fs" />
+    <Compile Include="Expr/Exprs.fs" />
     <Compile Include="Expr/Aggregation.fs" />
     <Compile Include="Expr/Boolean.fs" />
     <Compile Include="Expr/Computation.fs" />
@@ -68,6 +68,7 @@
     <Compile Include="IO/Parquet/Write.fs" />
     <Compile Include="IO/IPC/Read.fs" />
     <Compile Include="IO/IPC/Write.fs" />
+    <Compile Include="IO/IPC/IPCStream.fs" />
     <Compile Include="IO/ADO.NET/Read.fs" />
     <Compile Include="IO/ADO.NET/Write.fs" />
     <Compile Include="IO/ADBC.fs" />

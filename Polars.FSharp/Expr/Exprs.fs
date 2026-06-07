@@ -199,6 +199,13 @@ and Expr(handle: ExprHandle) =
     /// </summary>
     /// <param name="digits">Number of significant figures to round to.</param>
     member this.RoundSigFigs(digits:int) = new Expr(PolarsWrapper.RoundSigFigs(this.CloneHandle(),digits))
+    /// <summary>
+    /// Truncate numeric data toward zero to decimals number of decimal places.
+    /// </summary>
+    /// <param name="decimals">Number of decimal places to truncate to.</param>
+    member this.Truncate(?decimals) = 
+        let de = defaultArg decimals 0u
+        new Expr(PolarsWrapper.Truncate(this.CloneHandle(),de))
     /// <summary> Compute the element-wise sign (-1, 0, 1). </summary>
     member this.Sign() = new Expr(PolarsWrapper.Sign(this.CloneHandle()))
     /// <summary> Round up to the nearest integer. </summary>
@@ -638,6 +645,12 @@ and Expr(handle: ExprHandle) =
     member this.Reinterpret(?signed) =
         let s = defaultArg signed true
         new Expr(PolarsWrapper.ExprReinterpret(this.CloneHandle(),s))
+    /// <summary>
+    /// Reinterpret the underlying bits as a signed/unsigned integer or float.
+    /// </summary>
+    /// <param name="dtype">DataType to reinterpret to.</param>
+    member this.Reinterpret(dtype:DataType) =
+        new Expr(PolarsWrapper.ExprReinterpret(this.CloneHandle(),dtype.Handle))
     /// <summary>
     /// Repeat the elements in this Series as specified in the given expression.
     /// The repeated elements are expanded into a List.
