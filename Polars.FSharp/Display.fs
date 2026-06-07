@@ -5,6 +5,7 @@ open System.IO
 open System.Text
 open Microsoft.DotNet.Interactive.Formatting
 open Polars.NET.Core.Arrow
+open Polars.NET.Core
 open Apache.Arrow.Types
 /// <summary>
 /// Display utilities for DataFrame and LazyFrame in interactive environments.
@@ -13,16 +14,29 @@ open Apache.Arrow.Types
 module Display =
 
     /// <summary>
-    /// Display DataFrame as Html Table
+    /// Display DataFrame as Html Table.
+    /// Respects global Polars configurations from CoreConfig.
     /// </summary>
     let toHtml (df: DataFrame) =
-        let rowsToShow = 10
+        let configRows = CoreConfig.TableMaxRows
+        let rowsToShow = 
+            if configRows.HasValue && configRows.Value > 0 then configRows.Value
+            else 10 
+            
         let totalRows = df.Height
         let n = Math.Min(int64 rowsToShow, totalRows)
         
         use pSchema = df.Schema
         let colNames = pSchema.Names 
-        let colCount = colNames.Length
+        let rawColCount = colNames.Length
+
+        let configCols = CoreConfig.TableMaxCols
+        let maxColsToShow = 
+            if configCols.HasValue && configCols.Value > 0 then configCols.Value
+            else 8
+
+        let isColTruncated = rawColCount > maxColsToShow
+        let colCount = if isColTruncated then maxColsToShow else rawColCount
 
         use previewDf = df.Head(int n)
         use batch = ArrowFfiBridge.ExportDataFrame previewDf.Handle
@@ -30,7 +44,7 @@ module Display =
 
         let sb = StringBuilder()
         
-        // CSS Style: 
+        // CSS Style
         sb.Append("""<style>
             .pl-frame { font-family: "Consolas", "Monaco", monospace; font-size: 13px; border-collapse: collapse; border: 1px solid rgba(128, 128, 128, 0.2); }
             .pl-frame th { font-weight: bold; text-align: left; padding: 6px 12px; border-bottom: 2px solid rgba(128, 128, 128, 0.3); }
@@ -42,25 +56,27 @@ module Display =
             .pl-null { color: rgba(128, 128, 128, 0.5); font-style: italic; }
         </style>""") |> ignore
 
-        // 4. Dimension Info
-        sb.AppendFormat("<div class='pl-dim'>Polars DataFrame: <b>({0} rows, {1} columns)</b></div>", totalRows, colCount) |> ignore
+        // Dimension Info
+        sb.AppendFormat("<div class='pl-dim'>Polars DataFrame: <b>({0} rows, {1} columns)</b></div>", totalRows, rawColCount) |> ignore
         
-        // 5. Build Table
+        // Build Table
         sb.Append "<div style='overflow-x:auto'><table class='pl-frame'>" |> ignore
         
         // --- Table Head  ---
         sb.Append "<thead><tr>" |> ignore
-        for name in colNames do
+        for c in 0 .. colCount - 1 do
+            let name = colNames.[c]
             let dtype = pSchema.[name] 
             sb.AppendFormat("<th>{0}<span class='pl-type'>{1}</span></th>", 
                 System.Net.WebUtility.HtmlEncode name, 
                 dtype.ToString()) |> ignore 
+        if isColTruncated then
+            sb.Append "<th>...</th>" |> ignore
         sb.Append "</tr></thead>" |> ignore
 
         // --- Table Body  ---
         sb.Append "<tbody>" |> ignore
         let rowCount = batch.Length
-        // assert batch.ColumnCount == colCount
 
         for i in 0 .. rowCount - 1 do
             sb.Append "<tr>" |> ignore
@@ -92,12 +108,15 @@ module Display =
                     // Truncate long strings
                     let finalStr = if valStr.Length > 100 then valStr.Substring(0, 97) + "..." else valStr
                     sb.AppendFormat("<td>{0}</td>", System.Net.WebUtility.HtmlEncode finalStr) |> ignore
+            if isColTruncated then
+                sb.Append "<td style='font-style:italic; opacity: 0.5; text-align:center'>...</td>" |> ignore
             sb.Append "</tr>" |> ignore
 
-        // Footer
+        // Footer for remaining rows
+        let finalDisplayColSpan = if isColTruncated then colCount + 1 else colCount
         if totalRows > int64 rowsToShow then
              let remaining = totalRows - int64 rowsToShow
-             sb.AppendFormat("<tr><td colspan='{0}' style='text-align:center; font-style:italic; opacity: 0.6; padding: 10px'>... {1} more rows ...</td></tr>", colCount, remaining) |> ignore
+             sb.AppendFormat("<tr><td colspan='{0}' style='text-align:center; font-style:italic; opacity: 0.6; padding: 10px'>... {1} more rows ...</td></tr>", finalDisplayColSpan, remaining) |> ignore
 
         sb.Append "</tbody></table></div>" |> ignore
         sb.ToString()
@@ -119,7 +138,6 @@ module Display =
                 
                 use schema = lf.Schema
                 let schemaStr = schema.ToString()
-                // --------------
                 
                 let html = $"""
                 <div style="font-family: monospace;">

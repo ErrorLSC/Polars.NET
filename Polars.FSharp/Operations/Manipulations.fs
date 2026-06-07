@@ -409,7 +409,7 @@ module ManipulateOps =
         /// <summary>
         /// Drop one or more columns from the DataFrame.
         /// Returns a new DataFrame.
-        member this.Drop([<ParamArray>]columns: string array) =
+        member this.Drop([<ParamArray>]columns: string array):DataFrame =
             if isNull columns || columns.Length = 0 then
                 new DataFrame(PolarsWrapper.CloneDataFrame this.Handle)
             else
@@ -419,14 +419,14 @@ module ManipulateOps =
         /// <summary>
         /// Drop columns using Polars Selectors or Expressions.
         /// </summary>
-        member this.Drop(exprs: seq<Expr>) =
+        member this.Drop(exprs: seq<Expr>):DataFrame =
             if isNull exprs then nullArg (nameof exprs)
 
             use lf = this.Lazy()
             use droppedLf:LazyFrame = lf.Drop exprs
             
             droppedLf.Collect()
-        member this.Drop([<ParamArray>]exprs: Expr array) =
+        member this.Drop([<ParamArray>]exprs: Expr array):DataFrame =
             this.Drop(exprs :> seq<Expr>)
         /// <summary>
         /// Drop a column in-place and return it as a Series.

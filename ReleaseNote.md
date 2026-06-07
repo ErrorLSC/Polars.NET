@@ -29,7 +29,7 @@
 
 - lazyframe/dataframe gather added
 
-- Config module added
+- Config module added, interactive environment also accept such settings.
 
 - DataFrame IPC Stream reader/writer along with schema reader added
 
