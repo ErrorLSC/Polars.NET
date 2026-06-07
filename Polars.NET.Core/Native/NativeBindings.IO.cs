@@ -598,6 +598,8 @@ unsafe internal partial class NativeBindings
         string path,
         string[]? columns,
         nuint columnsLen,
+        nuint[]? projection,
+        nuint projectionLen,
         nint nRows,
         string? rowIndexName,
         uint rowIndexOffset,
@@ -609,10 +611,20 @@ unsafe internal partial class NativeBindings
         nuint bufferLen,
         string[]? columns,
         nuint columnsLen,
+        nuint[]? projection,
+        nuint projectionLen,
         nint nRows,
         string? rowIndexName,
         uint rowIndexOffset,
         [MarshalAs(UnmanagedType.U1)] bool rechunk
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial SchemaHandle pl_read_ipc_stream_schema(string path);
+
+    [LibraryImport(LibName)]
+    public static partial SchemaHandle pl_read_ipc_stream_schema_memory(
+        ReadOnlySpan<byte> buffer,
+        nuint bufferLen
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_dataframe_write_ipc_stream(

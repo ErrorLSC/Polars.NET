@@ -5,13 +5,19 @@ use std::fs::File;
 use std::os::raw::c_char;
 use crate::pl_io::ffi_buffer::{FfiBuffer, SharedMemoryWriter};
 use crate::utils::{ptr_to_str,ptr_to_vec_string};
-use crate::types::DataFrameContext;
+use crate::types::{DataFrameContext, SchemaContext};
+
+// ==========================================
+// IPC Stream Reader / Writer (FFI Layer)
+// ==========================================
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_read_ipc_stream(
     path_ptr: *const c_char,
     columns_ptr: *const *const c_char,
     columns_len: usize,
+    projection_ptr: *const usize, 
+    projection_len: usize,       
     n_rows_ptr: *const usize,
     row_index_name: *const c_char,
     row_index_offset: u32,
@@ -42,7 +48,13 @@ pub extern "C" fn pl_read_ipc_stream(
             }
         }
 
-        // 4. Handle row index column if name is provided
+        // 4. Projection
+        if !projection_ptr.is_null() && projection_len > 0 {
+            let proj_slice = unsafe { std::slice::from_raw_parts(projection_ptr, projection_len) };
+            reader = reader.with_projection(Some(proj_slice.to_vec()));
+        }
+
+        // 5. Handle row index column if name is provided
         if !row_index_name.is_null() {
             let name_str = ptr_to_str(row_index_name)
                 .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
@@ -56,7 +68,6 @@ pub extern "C" fn pl_read_ipc_stream(
 
         // Execute reader and return DataFrameContext
         let df = reader.finish()?;
-
         Ok(Box::into_raw(Box::new(DataFrameContext { df })))
     })
 }
@@ -69,6 +80,8 @@ pub extern "C" fn pl_read_ipc_stream_memory(
     buffer_len: usize,
     columns_ptr: *const *const c_char,
     columns_len: usize,
+    projection_ptr: *const usize, 
+    projection_len: usize,      
     n_rows_ptr: *const usize,
     row_index_name: *const c_char,
     row_index_offset: u32,
@@ -80,7 +93,6 @@ pub extern "C" fn pl_read_ipc_stream_memory(
         }
 
         let slice = unsafe { std::slice::from_raw_parts(buffer_ptr, buffer_len) };
-        
         let memory_stream = Cursor::new(slice);
 
         let mut reader = IpcStreamReader::new(memory_stream)
@@ -98,6 +110,12 @@ pub extern "C" fn pl_read_ipc_stream_memory(
             }
         }
 
+        // Projection
+        if !projection_ptr.is_null() && projection_len > 0 {
+            let proj_slice = unsafe { std::slice::from_raw_parts(projection_ptr, projection_len) };
+            reader = reader.with_projection(Some(proj_slice.to_vec()));
+        }
+
         if !row_index_name.is_null() {
             let name_str = ptr_to_str(row_index_name)
                 .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
@@ -113,7 +131,6 @@ pub extern "C" fn pl_read_ipc_stream_memory(
         Ok(Box::into_raw(Box::new(DataFrameContext { df })))
     })
 }
-
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_write_ipc_stream(
     df_ptr: *mut DataFrameContext,
@@ -208,5 +225,43 @@ pub extern "C" fn pl_dataframe_write_ipc_stream_memory(
         }
 
         Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_read_ipc_stream_schema(
+    path_ptr: *const c_char,
+) -> *mut SchemaContext {
+    ffi_try!({
+        let path = ptr_to_str(path_ptr)
+            .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+
+        let file = File::open(path)
+            .map_err(|e| PolarsError::ComputeError(format!("IPC Stream file not found: {}", e).into()))?;
+
+        let mut reader = IpcStreamReader::new(file);
+        let schema = reader.schema()?;
+
+        Ok(Box::into_raw(Box::new(SchemaContext { schema:schema.into() })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_read_ipc_stream_schema_memory(
+    buffer_ptr: *const u8,
+    buffer_len: usize,
+) -> *mut SchemaContext {
+    ffi_try!({
+        if buffer_ptr.is_null() || buffer_len == 0 {
+            return Err(PolarsError::ComputeError("Null or empty pointer passed to pl_read_ipc_stream_schema_memory".into()));
+        }
+
+        let slice = unsafe { std::slice::from_raw_parts(buffer_ptr, buffer_len) };
+        let memory_stream = Cursor::new(slice);
+
+        let mut reader = IpcStreamReader::new(memory_stream);
+        let schema = reader.schema()?;
+
+        Ok(Box::into_raw(Box::new(SchemaContext { schema:schema.into() })))
     })
 }

@@ -193,6 +193,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     /// <param name="path">Path to the IPC stream file or a byte buffer</param>
     /// <param name="columns">Columns to select.</param>
+    /// <param name="projection">Column indices to select.</param>
     /// <param name="nRows">Stop reading from IPC stream after reading n rows</param>
     /// <param name="rowIndexName">Insert a row index column with the given name into the DataFrame as the first column. 
     /// If set to None (default), no row index column is created.</param>
@@ -201,6 +202,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     public static DataFrame ReadIpcStream(
         string path,
         string[]? columns = null,
+        uint[]? projection = null,
         ulong? nRows = null,
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
@@ -210,15 +212,17 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         return new(PolarsWrapper.ReadIpcStream(
             path,
             columns,
+            projection,
             nRows,
             rowIndexName,
             rowIndexOffset,
             rechunk)); 
     }
-    /// <inheritdoc cref="DataFrame.ReadIpcStream(string, string[], ulong?, string?, uint, bool)"/>
+    /// <inheritdoc cref="DataFrame.ReadIpcStream(string, string[],uint[],ulong?, string?, uint, bool)"/>
     public static DataFrame ReadIpcStream(
         ReadOnlySpan<byte> buffer,
         string[]? columns = null,
+        uint[]? projection = null,
         ulong? nRows = null,
         string? rowIndexName = null,
         uint rowIndexOffset = 0,
@@ -228,9 +232,19 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         return new(PolarsWrapper.ReadIpcStream(
             buffer,
             columns,
+            projection,
             nRows,
             rowIndexName,
             rowIndexOffset,
             rechunk)); 
     }
+    /// <summary>
+    /// Get the schema of an IPC file without reading data.
+    /// </summary>
+    public static PolarsSchema ReadIpcStreamSchema(string path)
+        => new(PolarsWrapper.ReadIpcStreamSchema(path));
+
+    /// <inheritdoc cref="ReadIpcStreamSchema(string)"/>
+    public static PolarsSchema ReadIpcStreamSchema(ReadOnlySpan<byte> buffer)
+        => new(PolarsWrapper.ReadIpcStreamSchema(buffer));
 }

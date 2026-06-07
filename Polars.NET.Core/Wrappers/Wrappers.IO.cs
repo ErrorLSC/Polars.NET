@@ -1272,6 +1272,7 @@ public readonly partial struct PolarsWrapper
     public static DataFrameHandle ReadIpcStream(
         string path, 
         string[]? columns,
+        uint[]? projection,
         ulong? nRows, 
         string? rowIndexName,
         uint rowIndexOffset,
@@ -1285,11 +1286,19 @@ public readonly partial struct PolarsWrapper
             nint rowsPtr = nRows.HasValue ? (nint)(&rowsVal) : nint.Zero;
 
             nuint columnsLen = (nuint)(columns?.Length ?? 0);
-            
+            nuint[]? nativeProjection = null;
+            nuint projectionLen = 0;
+            if (projection != null)
+            {
+                nativeProjection = System.Array.ConvertAll(projection, x => (nuint)x);
+                projectionLen = (nuint)projection.Length;
+            }
             var h = NativeBindings.pl_read_ipc_stream(
                 path,
                 columns,
                 columnsLen,
+                nativeProjection,
+                projectionLen,
                 rowsPtr,
                 rowIndexName,
                 rowIndexOffset,
@@ -1302,6 +1311,7 @@ public readonly partial struct PolarsWrapper
     public static DataFrameHandle ReadIpcStream(
         ReadOnlySpan<byte> buffer,
         string[]? columns,
+        uint[]? projection,
         ulong? nRows,
         string? rowIndexName,
         uint rowIndexOffset,
@@ -1316,12 +1326,20 @@ public readonly partial struct PolarsWrapper
 
             nuint columnsLen = (nuint)(columns?.Length ?? 0);
             nuint bufferLen = (nuint)buffer.Length;
-
+            nuint[]? nativeProjection = null;
+            nuint projectionLen = 0;
+            if (projection != null)
+            {
+                nativeProjection = System.Array.ConvertAll(projection, x => (nuint)x);
+                projectionLen = (nuint)projection.Length;
+            }
             var h = NativeBindings.pl_read_ipc_stream_memory(
                 buffer,
                 bufferLen,
                 columns,
                 columnsLen,
+                nativeProjection,
+                projectionLen,
                 rowsPtr,
                 rowIndexName,
                 rowIndexOffset,
@@ -1330,6 +1348,22 @@ public readonly partial struct PolarsWrapper
 
             return ErrorHelper.Check(h);
         }
+    }
+    public static SchemaHandle ReadIpcStreamSchema(string path)
+    {
+        if (!File.Exists(path)) throw new FileNotFoundException($"Ipc Stream file not found: {path}");
+
+        var h = NativeBindings.pl_read_ipc_stream_schema(path);
+        return ErrorHelper.Check(h);
+    }
+
+    public static SchemaHandle ReadIpcStreamSchema(ReadOnlySpan<byte> buffer)
+    {
+        if (buffer.IsEmpty) throw new ArgumentException("Buffer cannot be empty.", nameof(buffer));
+
+        nuint bufferLen = (nuint)buffer.Length;
+        var h = NativeBindings.pl_read_ipc_stream_schema_memory(buffer, bufferLen);
+        return ErrorHelper.Check(h);
     }
     /// <summary>
     /// Sinks the LazyFrame to an IPC file. 
