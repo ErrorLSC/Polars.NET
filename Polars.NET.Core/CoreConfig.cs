@@ -84,7 +84,8 @@ internal static class CoreConfig
         TableHideDataTypeSeparatorKey,
         TableWidthCharsKey,
         // Polars.NET specified
-        PrefetchBufferSizeKey
+        PrefetchBufferSizeKey,
+        PolarsDeltaMaxRetryKey 
         
 
     ];
@@ -387,10 +388,8 @@ internal static class CoreConfig
             string? res = PolarsWrapper.ConfigGetDecimalSeparator();
             return string.IsNullOrEmpty(res) ? null : res[0];
         }
-        set
-        {
-            PolarsWrapper.ConfigSetDecimalSeparator(value?.ToString());
-        }
+        set => PolarsWrapper.ConfigSetDecimalSeparator(value?.ToString());
+        
     }
     public static char? ThousandsSeparator
     {
@@ -399,10 +398,7 @@ internal static class CoreConfig
             string? res = PolarsWrapper.ConfigGetThousandsSeparator();
             return string.IsNullOrEmpty(res) ? null : res[0];
         }
-        set
-        {
-            PolarsWrapper.ConfigSetThousandsSeparator(value?.ToString());
-        }
+        set => PolarsWrapper.ConfigSetThousandsSeparator(value?.ToString());
     }
     private const string EngineAffinityKey = "POLARS_ENGINE_AFFINITY";
     /// <summary>
@@ -439,10 +435,7 @@ internal static class CoreConfig
             long precision = PolarsWrapper.ConfigGetFloatPrecision();
             return precision < 0 ? null : precision;
         }
-        set
-        {
-            PolarsWrapper.ConfigSetFloatPrecision(value ?? -1);
-        }
+        set => PolarsWrapper.ConfigSetFloatPrecision(value ?? -1);
     } 
 
     public static PlFloatFormat? FloatFormat
@@ -460,10 +453,7 @@ internal static class CoreConfig
             string? current = Environment.GetEnvironmentVariable(StringLengthKey);
             return int.TryParse(current, out int result) ? result : null;
         }
-        set
-        {
-            PolarsWrapper.SetEnvVar(StringLengthKey, value?.ToString());
-        }
+        set => PolarsWrapper.SetEnvVar(StringLengthKey, value?.ToString());
     }
 
     private const string TableCellListLengthKey = "POLARS_FMT_TABLE_CELL_LIST_LEN";
@@ -475,10 +465,8 @@ internal static class CoreConfig
             string? current = Environment.GetEnvironmentVariable(TableCellListLengthKey);
             return int.TryParse(current, out int result) ? result : null;
         }
-        set
-        {
-            PolarsWrapper.SetEnvVar(TableCellListLengthKey, value?.ToString());
-        }
+        set => PolarsWrapper.SetEnvVar(TableCellListLengthKey, value?.ToString());
+        
     }
 
     private const string StreamingChunkSizeKey = "POLARS_IDEAL_MORSEL_SIZE";
@@ -879,5 +867,20 @@ internal static class CoreConfig
     {
         get => PolarsWrapper.ConfigGetProjectionPushdownPruneStrictHconcatInputs();
         set => PolarsWrapper.SetEnvVar(ProjectionPushdownPruneStrictHconcatInputsKey,value.ToFmtString());
+    }
+    private const string PolarsDeltaMaxRetryKey = "POLARS_DELTA_MAX_RETRIES";
+    public static int? PolarsDeltaMaxRetry
+    {
+        get
+        {
+            var envValue = Environment.GetEnvironmentVariable(PolarsDeltaMaxRetryKey);
+        
+            if (int.TryParse(envValue, out int size) && size > 0)
+            {
+                return size;
+            }
+            return null;
+        }
+        set => PolarsWrapper.SetEnvVar(PolarsDeltaMaxRetryKey,value?.ToString());
     }
 }

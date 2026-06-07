@@ -8,7 +8,7 @@ license = "MIT"
 polars = { version = "0.54.4", features = ["lazy", "csv","parquet","strings","regex","cloud","dot_product","dot_diagram","mode","interpolate","interpolate_by",
 "timezones","semi_anti_join","cross_join","iejoin","is_between","is_in","is_unique","log","random","array_arithmetic","list_arithmetic","reinterpret",
 "abs","round_series","dtype-full","array_to_struct","pivot","sql","diff","rolling_window","rolling_window_by","avro","repeat_by",
-"json","ipc","asof_join","diagonal_concat","top_k","rank","moment","pct_change","ewma","ewma_by","product","arg_where","fmt",
+"json","ipc","asof_join","diagonal_concat","top_k","rank","moment","pct_change","ewma","ewma_by","product","arg_where","fmt","ipc_streaming",
 "aws","azure","gcp","http","dynamic_group_by","business","search_sorted","bitwise","index_of","simd","row_hash","approx_unique","merge_sorted","partition_by",
 "to_dummies","is_first_distinct","is_last_distinct","unique_counts","propagate_nans","array_count","list_count","list_drop_nulls","list_sample",
 "list_gather","list_to_struct","list_sets","find_many","concat_str","extract_groups","string_pad","string_encoding", "string_normalize","string_reverse",

@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Runtime.InteropServices;
 
 namespace Polars.NET.Core.Native;
@@ -5,7 +6,7 @@ namespace Polars.NET.Core.Native;
 [StructLayout(LayoutKind.Sequential)]
 public struct FfiBuffer
 {
-    public IntPtr Data;
+    public nuint Data;
     public nuint Length;
     public nuint Capacity;
 }
@@ -576,10 +577,10 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_scan_ipc_memory(
         byte* buffer, 
-        UIntPtr bufferLen,
+        nuint bufferLen,
         
         // --- Unified Args ---
-        IntPtr nRows,
+        nint nRows,
         [MarshalAs(UnmanagedType.U1)] bool rechunk,
         [MarshalAs(UnmanagedType.U1)] bool cache,
         string? rowIndexName,
@@ -587,10 +588,45 @@ unsafe internal partial class NativeBindings
         string? includePathColumn,
         
         // --- Schema & Hive ---
-        IntPtr schema,
+        nint schema,
         [MarshalAs(UnmanagedType.U1)] bool hivePartitioning,
-        IntPtr hiveSchema,
+        nint hiveSchema,
         [MarshalAs(UnmanagedType.U1)] bool tryParseHiveDates
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial DataFrameHandle pl_read_ipc_stream(
+        string path,
+        string[]? columns,
+        nuint columnsLen,
+        nint nRows,
+        string? rowIndexName,
+        uint rowIndexOffset,
+        [MarshalAs(UnmanagedType.U1)] bool rechunk
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial DataFrameHandle pl_read_ipc_stream_memory(
+        ReadOnlySpan<byte> buffer,
+        nuint bufferLen,
+        string[]? columns,
+        nuint columnsLen,
+        nint nRows,
+        string? rowIndexName,
+        uint rowIndexOffset,
+        [MarshalAs(UnmanagedType.U1)] bool rechunk
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_dataframe_write_ipc_stream(
+        DataFrameHandle df,
+        string path,
+        PlIpcCompression compression,
+        int compatLevel
+    );
+    [LibraryImport(LibName)]
+    public static partial void pl_dataframe_write_ipc_stream_memory(
+        DataFrameHandle df,
+        out FfiBuffer out_buffer,
+        PlIpcCompression compression,
+        int compatLevel
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_lazyframe_sink_ipc(
@@ -619,6 +655,7 @@ unsafe internal partial class NativeBindings
         string[]? cloud_values,
         nuint cloud_len
     );
+
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_lazyframe_sink_ipc_partitioned(
         LazyFrameHandle lf,

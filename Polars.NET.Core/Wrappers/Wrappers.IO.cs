@@ -1237,20 +1237,20 @@ public readonly partial struct PolarsWrapper
             fixed (byte* pBuf = buffer)
             {
                 ulong rowsVal = nRows.GetValueOrDefault();
-                IntPtr rowsPtr = nRows.HasValue ? (IntPtr)(&rowsVal) : IntPtr.Zero;
+                nint rowsPtr = nRows.HasValue ? (nint)(&rowsVal) : nint.Zero;
 
                 using var schemaLock = new SafeHandleLock<SchemaHandle>(
                     schema != null ? new[] { schema } : null
                 );
-                IntPtr schemaPtr = schema != null ? schemaLock.Pointers[0] : IntPtr.Zero;
+                nint schemaPtr = schema != null ? schemaLock.Pointers[0] : nint.Zero;
 
                 using var hiveLock = new SafeHandleLock<SchemaHandle>(
                     hivePartitionSchema != null ? new[] { hivePartitionSchema } : null
                 );
-                IntPtr hiveSchemaPtr = hivePartitionSchema != null ? hiveLock.Pointers[0] : IntPtr.Zero;
+                nint hiveSchemaPtr = hivePartitionSchema != null ? hiveLock.Pointers[0] : nint.Zero;
 
                 var h = NativeBindings.pl_scan_ipc_memory(
-                    pBuf, (UIntPtr)buffer.Length,
+                    pBuf, (nuint)buffer.Length,
                     // --- Unified Args ---
                     rowsPtr,
                     rechunk,
@@ -1269,7 +1269,68 @@ public readonly partial struct PolarsWrapper
             }
         }
     }
+    public static DataFrameHandle ReadIpcStream(
+        string path, 
+        string[]? columns,
+        ulong? nRows, 
+        string? rowIndexName,
+        uint rowIndexOffset,
+        bool rechunk)
+    {
+        if (!File.Exists(path)) throw new FileNotFoundException($"Ipc Stream file not found: {path}");
 
+        unsafe
+        {
+            ulong rowsVal = nRows.GetValueOrDefault();
+            nint rowsPtr = nRows.HasValue ? (nint)(&rowsVal) : nint.Zero;
+
+            nuint columnsLen = (nuint)(columns?.Length ?? 0);
+            
+            var h = NativeBindings.pl_read_ipc_stream(
+                path,
+                columns,
+                columnsLen,
+                rowsPtr,
+                rowIndexName,
+                rowIndexOffset,
+                rechunk
+            );
+
+            return ErrorHelper.Check(h);
+        }
+    }
+    public static DataFrameHandle ReadIpcStream(
+        ReadOnlySpan<byte> buffer,
+        string[]? columns,
+        ulong? nRows,
+        string? rowIndexName,
+        uint rowIndexOffset,
+        bool rechunk)
+    {
+        if (buffer.IsEmpty) throw new ArgumentException("Buffer cannot be empty.", nameof(buffer));
+
+        unsafe
+        {
+            ulong rowsVal = nRows.GetValueOrDefault();
+            nint rowsPtr = nRows.HasValue ? (nint)(&rowsVal) : nint.Zero;
+
+            nuint columnsLen = (nuint)(columns?.Length ?? 0);
+            nuint bufferLen = (nuint)buffer.Length;
+
+            var h = NativeBindings.pl_read_ipc_stream_memory(
+                buffer,
+                bufferLen,
+                columns,
+                columnsLen,
+                rowsPtr,
+                rowIndexName,
+                rowIndexOffset,
+                rechunk
+            );
+
+            return ErrorHelper.Check(h);
+        }
+    }
     /// <summary>
     /// Sinks the LazyFrame to an IPC file. 
     /// Consumes the LazyFrame handle.
@@ -1424,23 +1485,54 @@ public readonly partial struct PolarsWrapper
             NativeBindings.pl_free_ffi_buffer(ffiBuffer);
         }
     }
-    public static unsafe DataFrameHandle FromArrow(RecordBatch batch)
+    public static void WriteIpcStream(
+        DataFrameHandle df, 
+        string path, 
+        PlIpcCompression compression, 
+        int compatLevel)
     {
-        // Alloc C struct at stack
-        var cArray = new CArrowArray();
-        var cSchema = new CArrowSchema();
+        NativeBindings.pl_dataframe_write_ipc_stream(
+            df,
+            path,
+            compression,
+            compatLevel
+        );
 
-        // Export to C Arrow
-        // Step A: Export Data 
-        CArrowArrayExporter.ExportRecordBatch(batch, &cArray);
+        ErrorHelper.CheckVoid();
+    }
 
-        // Step B: Export Schema 
-        CArrowSchemaExporter.ExportSchema(batch.Schema, &cSchema);
+    public static byte[] WriteIpcStreamMemory(
+        DataFrameHandle df, 
+        PlIpcCompression compression, 
+        int compatLevel)
+    {
+        NativeBindings.pl_dataframe_write_ipc_stream_memory(
+            df,
+            out var ffiBuffer,
+            compression,
+            compatLevel
+        );
 
-        // Transfer to Rust
-        var h = NativeBindings.pl_dataframe_from_arrow_record_batch(&cArray, &cSchema);
-        
-        return ErrorHelper.Check(h);
+        ErrorHelper.CheckVoid();
+
+        try
+        {
+            unsafe
+            {
+                if (ffiBuffer.Data == 0 || ffiBuffer.Length == 0)
+                {
+                    return [];
+                }
+
+                var span = new ReadOnlySpan<byte>((void*)ffiBuffer.Data, (int)ffiBuffer.Length);
+                
+                return span.ToArray();
+            }
+        }
+        finally
+        {
+            NativeBindings.pl_free_ffi_buffer(ffiBuffer);
+        }
     }
     public static unsafe LazyFrameHandle LazyFrameScanStream(
         CArrowSchema* schema,
@@ -1538,7 +1630,7 @@ public readonly partial struct PolarsWrapper
         unsafe
         {
             ulong rowsVal = nRows.GetValueOrDefault();
-            IntPtr rowsPtr = nRows.HasValue ? (IntPtr)(&rowsVal) : IntPtr.Zero;
+            nint rowsPtr = nRows.HasValue ? (nint)(&rowsVal) : nint.Zero;
 
             nuint columnsLen = (nuint)(columns?.Length ?? 0);
             

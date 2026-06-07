@@ -1273,4 +1273,114 @@ ID;ProductName;Weight;ReleaseDate
         Assert.True(dfPartialByIndex.ColumnNames.Contains("id"));
         Assert.False(dfPartialByIndex.ColumnNames.Contains("name"));
     }
+    [Fact]
+    [Trait("IO", "IpcStreamFile")]
+    public void Test_ReadWriteIpcStream_Advanced()
+    {
+        using var sId = new Series("id", [10, 20, 30, 40, 50]);
+        using var sName = new Series("name", ["Alice", "Bob", null, "David", "Eve"]); 
+        using var df = new DataFrame(sId, sName);
+
+        using var f = new DisposableFile(".ipc");
+        
+        df.WriteIpcStream(
+            f.Path,
+            compression: IpcCompression.ZSTD, 
+            compatLevel: -1                  
+        );
+
+        Assert.True(File.Exists(f.Path));
+        Assert.True(new FileInfo(f.Path).Length > 0);
+
+        using var dfFull = DataFrame.ReadIpcStream(f.Path);
+        Assert.Equal(5, dfFull.Height);
+        Assert.Equal(2, dfFull.Width);
+        Assert.Equal(10, dfFull.GetValue<int>(0, "id"));
+        Assert.Equal("Alice", dfFull.GetValue<string>(0, "name"));
+        Assert.Null(dfFull.GetValue<string>(2, "name"));
+
+        using var dfPartial = DataFrame.ReadIpcStream(
+            f.Path,
+            columns: ["name"], 
+            nRows: 3         
+        );
+                
+        Assert.Equal(3, dfPartial.Height); 
+        Assert.Equal(1, dfPartial.Width); 
+        
+        Assert.True(dfPartial.ColumnNames.Contains("name"));
+        Assert.False(dfPartial.ColumnNames.Contains("id"));
+        Assert.Equal("Bob", dfPartial.GetValue<string>(1, "name"));
+
+        using var dfWithIndex = DataFrame.ReadIpcStream(
+            f.Path,
+            rowIndexName: "custom_index_col",
+            rowIndexOffset: 100, 
+            rechunk: true
+        );
+
+        Assert.Equal(5, dfWithIndex.Height);
+        Assert.Equal(3, dfWithIndex.Width); 
+        
+        Assert.True(dfWithIndex.ColumnNames.Contains("custom_index_col"));
+        
+        Assert.Equal(100u, dfWithIndex.GetValue<uint>(0, "custom_index_col"));
+        Assert.Equal(101u, dfWithIndex.GetValue<uint>(1, "custom_index_col"));
+        Assert.Equal(104u, dfWithIndex.GetValue<uint>(4, "custom_index_col"));
+    }
+    [Fact]
+    [Trait("IO", "IpcStreamMemory")]
+    public void Test_ReadWriteIpcStream_Memory_Advanced()
+    {
+        using var sId = new Series("id", [100, 200, 300, 400, 500]);
+        using var sName = new Series("name", ["Alice", "Bob", null, "David", "Eve"]); 
+        using var df = new DataFrame(sId, sName);
+
+        byte[] memoryBuffer = df.WriteIpcStreamMemory(
+            compression: IpcCompression.LZ4, 
+            compatLevel: -1               
+        );
+
+        Assert.NotNull(memoryBuffer);
+        Assert.True(memoryBuffer.Length > 0);
+
+        ReadOnlySpan<byte> bufferSpan = memoryBuffer;
+
+        using var dfFull = DataFrame.ReadIpcStream(bufferSpan);
+        
+        Assert.Equal(5, dfFull.Height);
+        Assert.Equal(2, dfFull.Width);
+        Assert.Equal(100, dfFull.GetValue<int>(0, "id"));
+        Assert.Equal("Alice", dfFull.GetValue<string>(0, "name"));
+        Assert.Null(dfFull.GetValue<string>(2, "name")); 
+
+        using var dfPartial = DataFrame.ReadIpcStream(
+            bufferSpan,
+            columns: ["id"], 
+            nRows: 2         
+        );
+                
+        Assert.Equal(2, dfPartial.Height); 
+        Assert.Equal(1, dfPartial.Width); 
+        
+        Assert.True(dfPartial.ColumnNames.Contains("id"));
+        Assert.False(dfPartial.ColumnNames.Contains("name"));
+        Assert.Equal(200, dfPartial.GetValue<int>(1, "id"));
+
+        using var dfWithIndex = DataFrame.ReadIpcStream(
+            bufferSpan,
+            rowIndexName: "auto_row_id",
+            rowIndexOffset: 50, 
+            rechunk: true
+        );
+
+        Assert.Equal(5, dfWithIndex.Height);
+        Assert.Equal(3, dfWithIndex.Width);
+        
+        Assert.True(dfWithIndex.ColumnNames.Contains("auto_row_id"));
+        
+        Assert.Equal(50u, dfWithIndex.GetValue<uint>(0, "auto_row_id"));
+        Assert.Equal(51u, dfWithIndex.GetValue<uint>(1, "auto_row_id"));
+        Assert.Equal(54u, dfWithIndex.GetValue<uint>(4, "auto_row_id"));
+    }
 }

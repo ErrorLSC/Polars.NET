@@ -157,7 +157,7 @@ public class ConfigTests
             FloatVal = new[] { 114514.1919810 },
             IntVal   = new[] { 123456789 }
         });
-
+        df.Show();
         using (Pl.Config.SetAsciiTables(true).BeginScope())
         {
             Assert.Equal("ASCII_FULL_CONDENSED", Pl.Config["POLARS_FMT_TABLE_FORMATTING"]); 
@@ -195,6 +195,7 @@ public class ConfigTests
 
         Assert.Equal("$", Pl.Config["decimal_separator"]);
         string weirdString = df.ToString();
+        df.Show();
         Assert.Contains("114514$19", weirdString); 
 
         Pl.Config.RestoreDefaults();
@@ -493,5 +494,36 @@ public class ConfigTests
         Assert.Equal("0", Pl.Config["POLARS_FMT_TABLE_HIDE_COLUMN_NAMES"]);
 
         Pl.Config.RestoreDefaults();
+    }
+    [Fact]
+    [Trait("Config", "SingletonGhostContamination")]
+    public void Test_Config_Singleton_Snapshot_Isolation()
+    {
+        Pl.Config.RestoreDefaults();
+
+        try
+        {
+            Pl.Config.SetFloatPrecision(9);
+
+            Assert.Equal("9", Pl.Config["float_precision"]);
+
+            using (Pl.Config.SetTableRows(3).BeginScope())
+            {
+                var currentStatus = Pl.Config.Status(ifSet: true);
+                
+                Assert.Equal("3", currentStatus["POLARS_FMT_MAX_ROWS"]);
+                Assert.Equal("9", currentStatus["float_precision"]); 
+            } 
+
+            var postStatus = Pl.Config.Status(ifSet: true);
+
+            Assert.DoesNotContain("POLARS_FMT_MAX_ROWS", postStatus.Keys);
+
+            Assert.Equal("9", Pl.Config["float_precision"]);
+        }
+        finally
+        {
+            Pl.Config.RestoreDefaults();
+        }
     }
 }

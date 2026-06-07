@@ -637,8 +637,8 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
     [Trait("Catalog", "Chaos")]
     public async Task Test_Concurrent_Chaos_Mixed_Append_Delete_Merge_Async()
     {
-        PolarsConfig.SetEnvVar("POLARS_DELTA_MAX_RETRIES", "20");
-
+        // PolarsConfig.SetEnvVar("POLARS_DELTA_MAX_RETRIES", "20");
+        Pl.Config.SetDeltaMaxRetries(20);
         var catalog = "main";
         var schema = "default";
         var table = $"delta_chaos_ultimate_{Guid.NewGuid():N}";
@@ -741,7 +741,8 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         Assert.Contains(201, remainingIds);
         Assert.Contains(250, remainingIds);
         
-        Environment.SetEnvironmentVariable("POLARS_DELTA_MAX_RETRIES", null);
+        // Environment.SetEnvironmentVariable("POLARS_DELTA_MAX_RETRIES", null);
+        Pl.Config.RestoreDefaults();
     }
     [Fact]
     [Trait("Catalog", "FourWayChaos")]

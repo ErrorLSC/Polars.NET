@@ -19,7 +19,7 @@
 
 - Implode add maintainOrder bool
 
-- setsorted nulls last bool added()
+- setsorted nulls last bool added
 
 - expr truncate added(F#)
 
@@ -29,7 +29,9 @@
 
 - lazyframe/dataframe gather added(F#)
 
-- Config module added(need add from rust)
+- Config module added(F#)
+
+- DataFrame IPC Stream reader/writer added(Rust done)
 
 ## Behavior Change
 

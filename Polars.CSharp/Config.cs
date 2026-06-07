@@ -10,7 +10,6 @@ namespace Polars.CSharp;
 public sealed class PolarsConfigScope(string backupPayload) : IDisposable
 {
     private string? _backupPayload = backupPayload;
-
     /// <summary>
     /// Closes the scope, restoring the global and Rust environment states 
     /// back to the initial snapshot captured before the scope was entered.
@@ -31,13 +30,13 @@ public sealed class PolarsConfigScope(string backupPayload) : IDisposable
 /// </summary>
 public sealed class PolarsConfig
 {
-    private readonly string _initialState;
+    private readonly string _snapshotBeforeChain;
     /// <summary>
     /// Create a new PolarsConfig instance.
     /// </summary>
     public PolarsConfig()
     {
-        _initialState = CoreConfig.Save(ifSet: false);
+        _snapshotBeforeChain = CoreConfig.Save(ifSet: false);
     }
     private PolarsConfig Apply(Action applyAction)
     {
@@ -48,7 +47,7 @@ public sealed class PolarsConfig
     /// <summary>
     /// Activates this config profile by backing up the current global state and applying overrides.
     /// </summary>
-    public PolarsConfigScope BeginScope() => new(_initialState);
+    public PolarsConfigScope BeginScope() => new (_snapshotBeforeChain);
     /// <summary>
     /// Save the current set of Config options as a JSON string.
     /// </summary>
@@ -423,6 +422,15 @@ public sealed class PolarsConfig
     public PolarsConfig SetTableWidthChars(int? width)
     {
         Apply(() => CoreConfig.TableWidthChars =width);
+        return this;
+    }
+    /// <summary>
+    /// Set the maximum Retires for Delta Table operations.
+    /// </summary>
+    /// <param name="retries">Max retries for delta module</param>
+    public PolarsConfig SetDeltaMaxRetries(int? retries)
+    {
+        Apply(()=> CoreConfig.PolarsDeltaMaxRetry = retries);
         return this;
     }
 
