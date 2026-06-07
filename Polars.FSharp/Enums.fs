@@ -592,3 +592,63 @@ type UnstackDirection =
     | Vertical
     | Horizontal
 
+[<RequireQualifiedAccess>]
+type TableFormatting =
+    | AsciiFull
+    | AsciiFullCondensed
+    | AsciiNoBorders
+    | AsciiBordersOnly
+    | AsciiBordersOnlyCondensed
+    | AsciiHorizontalOnly
+    | AsciiMarkdown
+    | Markdown
+    | Utf8Full
+    | Utf8FullCondensed
+    | Utf8NoBorders
+    | Utf8BordersOnly
+    | Utf8HorizontalOnly
+    | Nothing
+    member internal this.ToNative() = 
+        match this with
+        | AsciiFull -> PlTableFormatting.AsciiFull
+        | AsciiFullCondensed -> PlTableFormatting.AsciiFullCondensed
+        | AsciiNoBorders -> PlTableFormatting.AsciiNoBorders
+        | AsciiBordersOnly -> PlTableFormatting.AsciiBordersOnly
+        | AsciiBordersOnlyCondensed -> PlTableFormatting.AsciiBordersOnlyCondensed
+        | AsciiHorizontalOnly -> PlTableFormatting.AsciiHorizontalOnly
+        | AsciiMarkdown -> PlTableFormatting.AsciiMarkdown
+        | Markdown -> PlTableFormatting.Markdown
+        | Utf8Full -> PlTableFormatting.Utf8Full
+        | Utf8FullCondensed -> PlTableFormatting.Utf8FullCondensed
+        | Utf8NoBorders -> PlTableFormatting.Utf8NoBorders
+        | Utf8BordersOnly -> PlTableFormatting.Utf8BordersOnly
+        | Utf8HorizontalOnly -> PlTableFormatting.Utf8HorizontalOnly
+        | Nothing -> PlTableFormatting.Nothing
+
+[<RequireQualifiedAccess>]
+type Alignment =
+    | Left
+    | Center
+    | Right
+    member internal this.ToNative() = 
+       match this with
+        | Left -> PlTableCellAlignment.Left
+        | Center -> PlTableCellAlignment.Center
+        | Right -> PlTableCellAlignment.Right 
+
+[<RequireQualifiedAccess>]
+type FloatFormat =
+
+    /// <summary>
+    /// Limit the number of decimal places and use scientific notation for large/small values.
+    /// </summary>
+    | Mixed
+    /// <summary>
+    /// Print the full precision of the floating point number.
+    /// </summary>
+    | Full 
+    member internal this.ToNative() = 
+       match this with
+        | Mixed -> PlFloatFormat.Mixed
+        | Full -> PlFloatFormat.Full
+

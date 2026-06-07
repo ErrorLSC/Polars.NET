@@ -51,7 +51,8 @@ public sealed class PolarsConfig
     /// <summary>
     /// Save the current set of Config options as a JSON string.
     /// </summary>
-    /// <param name="ifSet">By default this will save the state of all configuration options; set to False to save only those that have been set to a non-default value.</param>
+    /// <param name="ifSet">By default this will save the state of all configuration options;
+    ///  set to False to save only those that have been set to a non-default value.</param>
     public string Save(bool ifSet = false) => CoreConfig.Save(ifSet);
 
     /// <summary>
@@ -75,7 +76,7 @@ public sealed class PolarsConfig
     public void RestoreDefaults() => CoreConfig.RestoreDefaults();
 
     /// <summary>
-    /// Reset all polars Config settings to their default state.
+    /// Show the current state of all Config variables in the environment as a dict.
     /// </summary>
     /// <param name="ifSet">By default this will show the state of all Config environment variables. 
     /// change this to True to restrict the returned dictionary to include only those that have been set to a specific value.</param>

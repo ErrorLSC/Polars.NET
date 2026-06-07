@@ -26,6 +26,7 @@
     <Compile Include="ExcelTests.fs" />
     <Compile Include="DeltaTests.fs" />
     <Compile Include="QueryTests.fs" />
+    <Compile Include="ConfigTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

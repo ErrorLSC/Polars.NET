@@ -5,7 +5,7 @@ open System
 open Polars.NET.Core
 open System.Threading.Tasks
 open Polars.NET.Core.Helpers
-
+open System.Diagnostics
 type CjkColumnOptions = {
     Chinese       : bool
     Japanese      : bool
@@ -1051,7 +1051,10 @@ module pl =
         df.UnnestColumns columns
     let unnestColumnsLazy(columns: seq<string>) (lf:LazyFrame) =
         lf.Unnest columns
-
+    let drop(columns:seq<string>) (df:DataFrame):DataFrame =
+        df.Drop(columns |> Seq.toArray)
+    let dropLazy(columns:seq<string>) (lf:LazyFrame):LazyFrame =
+        lf.Drop(columns |> Seq.toArray)
     /// <summary>
     /// Horizontally stack columns to the DataFrame.
     /// </summary>
@@ -1200,7 +1203,10 @@ module pl =
         setEnvVar ("POLARS_" + suffix) value
     let setEnvVarAll vars =
         vars |> Seq.iter (fun (k, v) -> PolarsWrapper.SetEnvVar(k, v))
-    
+    let threadPoolSize() = 
+        match Option.ofNullable CoreConfig.ThreadPoolSize with
+        | Some v -> int v
+        | None -> Process.GetCurrentProcess().Threads.Count
     /// <summary> Accumulate over multiple columns horizontally/row-wise. </summary>
     let fold (f: Expr -> Expr -> Expr) (acc: Expr) (exprs: seq<Expr>) : Expr =
         Seq.fold f acc exprs

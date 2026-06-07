@@ -5,7 +5,6 @@ open Polars.FSharp
 open System
 open System.Data
 open System.Diagnostics
-open Polars.NET.Core
 open System.IO
 
 type ``Complex Query Tests`` () =

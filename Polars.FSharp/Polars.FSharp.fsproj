@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <Compile Include="Enums.fs" />
+    <Compile Include="Config.fs" />
     <Compile Include="DataType.fs" />
     <Compile Include="CloudOptions.fs" />
     <Compile Include="UdfUtils.fs" />
@@ -98,7 +99,6 @@
     <Compile Include="IO/Delta/Read.fs" />
     <Compile Include="IO/Delta/Write.fs" />
     <Compile Include="IO/Catalog.fs" />
-    <Compile Include="Config.fs" />
   </ItemGroup>
 
   <ItemGroup>

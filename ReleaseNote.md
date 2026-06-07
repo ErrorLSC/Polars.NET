@@ -29,7 +29,7 @@
 
 - lazyframe/dataframe gather added
 
-- Config module added(F#)
+- Config module added
 
 - DataFrame IPC Stream reader/writer along with schema reader added
 
