@@ -106,12 +106,18 @@ jobs:
         with:
           key: ${{ matrix.target }}-${{ matrix.rid }}
           workspaces: ./native_shim
-      
+      - name: Install Musl Toolchain (Ubuntu)
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools gcc-aarch64-linux-gnu
+        
       # Compile Rust (Release mode)
       - name: Build Native Shim
         shell: bash
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
+          CC_aarch64_unknown_linux_musl: aarch64-linux-gnu-gcc
         run: |
           CARGO_CMD="cargo"
           if [[ "${{ matrix.use_cross }}" == "true" ]]; then
