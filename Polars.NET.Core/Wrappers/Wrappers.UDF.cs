@@ -3,8 +3,6 @@ using System.Text;
 using Apache.Arrow;
 using Apache.Arrow.C;
 using Polars.NET.Core.Native;
-using Polars.NET.Core.Arrow;
-using Apache.Arrow.Ipc;
 
 namespace Polars.NET.Core;
 
@@ -27,14 +25,12 @@ public readonly partial struct PolarsWrapper
             Console.Error.WriteLine($"[Polars C#] Error freeing UDF handle: {ex}");
         }
     }
-    /// <summary>从 C 指针导入单个 Arrow 数组。</summary>
     private static unsafe IArrowArray ImportSingle(CArrowArray* arr, CArrowSchema* sch)
     {
         var field = CArrowSchemaImporter.ImportField(sch);
         return CArrowArrayImporter.ImportArray(arr, field.DataType);
     }
 
-    /// <summary>将计算后的 Arrow 数组导出到 C 输出结构。</summary>
     private static unsafe void ExportResult(IArrowArray result, CArrowArray* outArr, CArrowSchema* outSch)
     {
         *outArr = default;
@@ -44,13 +40,12 @@ public readonly partial struct PolarsWrapper
         CArrowSchemaExporter.ExportField(outField, outSch);
     }
 
-    /// <summary>将异常信息写入 C 错误缓冲区（确保末尾为 0）。</summary>
     private static unsafe void WriteErrorToBuffer(byte* buffer, int bufferLength, Exception ex)
     {
         string msg = ex.ToString();
         byte[] bytes = Encoding.UTF8.GetBytes(msg);
         int copyLen = Math.Min(bytes.Length, bufferLength - 1);
-        Marshal.Copy(bytes, 0, (IntPtr)buffer, copyLen);
+        Marshal.Copy(bytes, 0, (nint)buffer, copyLen);
         buffer[copyLen] = 0;
     }
 

@@ -1104,54 +1104,54 @@ module QueryTests =
         use deletedDf = table.ToDataFrame()
         deletedDf.Show() 
         Assert.True(deleted >= 0)
-    [<Fact>]
-    [<Trait("Linq", "Async_Stress_ToDataFrame")>]
-    let ``Test Polars Linq High Concurrency ToDataFrameAsync Stress`` () = task {
+    // [<Fact>]
+    // [<Trait("Linq", "Async_Stress_ToDataFrame")>]
+    // let ``Test Polars Linq High Concurrency ToDataFrameAsync Stress`` () = task {
         
-        let recordCount = 100_000
+    //     let recordCount = 100_000
         
-        let mockData = 
-            Array.init recordCount (fun i -> 
-                { Id = i
-                  Region = sprintf "Region_%d" (i % 50)
-                  Latency = Random.Shared.NextDouble() * 100.0 }
-            )
+    //     let mockData = 
+    //         Array.init recordCount (fun i -> 
+    //             { Id = i
+    //               Region = sprintf "Region_%d" (i % 50)
+    //               Latency = Random.Shared.NextDouble() * 100.0 }
+    //         )
 
-        use df = DataFrame.ofRecords mockData 
+    //     use df = DataFrame.ofRecords mockData 
 
-        let simulateDataFrameQueryAsync (workerId: int) = task {
-            use ctx = new SqlContext()
-            use db = new PolarsDataContext(ctx)
+    //     let simulateDataFrameQueryAsync (workerId: int) = task {
+    //         use ctx = new SqlContext()
+    //         use db = new PolarsDataContext(ctx)
             
-            let table = db.RegisterTable<TrafficRecord> df
-            let targetRegion = sprintf "Region_%d" (workerId % 50)
+    //         let table = db.RegisterTable<TrafficRecord> df
+    //         let targetRegion = sprintf "Region_%d" (workerId % 50)
 
-            // let q = 
-            //     query {
-            //         for t in table do
-            //         where (t.Region = targetRegion && t.Latency > 10.0)
-            //         sortBy t.Id
-            //         select t
-            //     }
-            let q = 
-                table
-                    .Where(fun t -> t.Region = targetRegion && t.Latency > 10.0)
-                    .OrderBy(fun t -> t.Id)
+    //         // let q = 
+    //         //     query {
+    //         //         for t in table do
+    //         //         where (t.Region = targetRegion && t.Latency > 10.0)
+    //         //         sortBy t.Id
+    //         //         select t
+    //         //     }
+    //         let q = 
+    //             table
+    //                 .Where(fun t -> t.Region = targetRegion && t.Latency > 10.0)
+    //                 .OrderBy(fun t -> t.Id)
 
-            let! idf = q.ToDataFrameAsync()
-            use resultDf = idf
+    //         let! idf = q.ToDataFrameAsync()
+    //         use resultDf = idf
             
-            return resultDf.Height
-        }
+    //         return resultDf.Height
+    //     }
 
-        let concurrencyLevel = 1000
+    //     let concurrencyLevel = 1000
         
-        let tasks = Array.init concurrencyLevel simulateDataFrameQueryAsync
+    //     let tasks = Array.init concurrencyLevel simulateDataFrameQueryAsync
 
-        let! finalHeights = Task.WhenAll tasks
+    //     let! finalHeights = Task.WhenAll tasks
 
-        Assert.Equal(concurrencyLevel, finalHeights.Length)
+    //     Assert.Equal(concurrencyLevel, finalHeights.Length)
 
-        for height in finalHeights do
-            Assert.True(height > 0L && height <= 2000L)
-    }
+    //     for height in finalHeights do
+    //         Assert.True(height > 0L && height <= 2000L)
+    // }

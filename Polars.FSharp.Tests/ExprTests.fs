@@ -51,7 +51,7 @@ type ``Expression Logic Tests`` () =
         use csv = new TempCsv "name\nAlice\nBob\nAlice"
         let df = DataFrame.ReadCsv csv.Path
         
-        // SRTP 魔法测试
+        // SRTP
         let res = df |> pl.filter (pl.col "name" .== pl.lit "Alice")
         
         Assert.Equal(2L, res.Height)

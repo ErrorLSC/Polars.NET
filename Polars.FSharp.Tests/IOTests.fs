@@ -354,7 +354,6 @@ Charlie,35,true"""
             // File Mode
             // =================================================================
             let testFileMode () =
-                // 限制只读前 3 行，并生成行号列 "idx_col"
                 use lf = LazyFrame.ScanIpc(
                     path, 
                     nRows=3UL, 
