@@ -17,7 +17,7 @@ jobs:
   # The Matrix Build
   # ===================================================
   build-rust:
-    name: Build Rust (${{ matrix.os }} - ${{ matrix.rid }})
+    name: Build Rust (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -29,7 +29,6 @@ jobs:
             rid: linux-x64
             artifact_name: libnative_shim.so
             use_cross: false
-            container_image: quay.io/pypa/manylinux_2_28_x86_64
             rustflags: "-C target-cpu=x86-64-v3"
             container: quay.io/pypa/manylinux_2_28_x86_64
 
@@ -38,12 +37,12 @@ jobs:
             target: x86_64-unknown-linux-musl
             rid: linux-musl-x64
             artifact_name: libnative_shim.so
-            use_cross: true
+            use_cross: true 
             rustflags: "-C target-feature=-crt-static -C target-cpu=x86-64-v3"
             container: null
             
           # --- Linux ARM64 glibc---
-          - os: ubuntu-24.04-arm
+          - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             rid: linux-arm64
             artifact_name: libnative_shim.so
@@ -107,39 +106,16 @@ jobs:
         with:
           key: ${{ matrix.target }}-${{ matrix.rid }}
           workspaces: ./native_shim
-
-      - name: Pull Container Image
-        if: matrix.container_image
-        run: docker pull ${{ matrix.container_image }}
-
+      
       # Compile Rust (Release mode)
       - name: Build Native Shim
         shell: bash
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
         run: |
-          if [[ -n "${{ matrix.container_image }}" ]]; then
-            echo "Building for ${{ matrix.target }} inside ${{ matrix.container_image }}..."
-            echo "RUSTFLAGS: $RUSTFLAGS"
-            docker run --rm \
-              -v "${{ github.workspace }}:/workspace" \
-              -v "$HOME/.rustup:/root/.rustup" \
-              -v "$HOME/.cargo:/root/.cargo" \
-              -w /workspace/native_shim \
-              -e RUSTFLAGS="$RUSTFLAGS" \
-              -e RUSTUP_HOME=/root/.rustup \
-              -e CARGO_HOME=/root/.cargo \
-              ${{ matrix.container_image }} \
-              bash -c 'export PATH="/root/.cargo/bin:$PATH" && cargo build --release --target ${{ matrix.target }}'
-          else
-            CARGO_CMD="cargo"
-            if [[ "${{ matrix.use_cross }}" == "true" ]]; then
-              CARGO_CMD="cross"
-            fi
-            echo "Building for ${{ matrix.target }} using $CARGO_CMD..."
-            echo "RUSTFLAGS: $RUSTFLAGS"
-            cd native_shim
-            $CARGO_CMD build --release --target ${{ matrix.target }}
+          CARGO_CMD="cargo"
+          if [[ "${{ matrix.use_cross }}" == "true" ]]; then
+            CARGO_CMD="cross"
           fi
           
           echo "=== Environmental Inspection ==="
@@ -248,8 +224,6 @@ jobs:
         include:
           - os: ubuntu-latest
             native_rid: linux-x64
-          - os: ubuntu-24.04-arm
-            native_rid: linux-arm64
           - os: windows-latest
             native_rid: win-x64
           - os: macos-14
