@@ -434,7 +434,7 @@ type [<Struct>] StringOps(handle: ExprHandle) =
         
         let h = PolarsWrapper.Strptime(
             handle, 
-            dtype.ToDataTypeExpr().handle, 
+            dtype.ToDataTypeExpr().Handle, 
             fmt, 
             st, 
             ex, 

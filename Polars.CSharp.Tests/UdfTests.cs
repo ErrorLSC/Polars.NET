@@ -244,13 +244,13 @@ public class UdfTests
     [Fact]
     public void Test_UDF_Nullable_Input()
     {
-        using var csv = new DisposableFile("num\n10\n\n",".csv"); 
-        using var df = DataFrame.ReadCsv(csv.Path);
+        int? [] values = [10,null,null];
+        using DataFrame df = [Pl.CreateSeries("num", values)];
 
         // int? -> string
         // null -> "FoundNull" or "Value:{x}"
         var checkNullExpr = Pl.Col("num")
-            .Map<long?, string>(x => x.HasValue ? $"Value:{x}" : "FoundNull", Pl.Utf8)
+            .Map<int?, string>(x => x.HasValue ? $"Value:{x}" : "FoundNull", Pl.Utf8)
             .Alias("status");
 
         using var res = df.Select(Pl.Col("num"), checkNullExpr);

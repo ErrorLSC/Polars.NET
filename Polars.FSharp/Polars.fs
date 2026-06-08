@@ -383,7 +383,7 @@ module pl =
     /// <param name="step">Step size of the range.</param>
     /// <returns>A Literal Expression containing the integer series.</returns>
     let intRange<'T>(start:int64) (endRange:int64) (step:int64) =
-        let dtexpr = DataType.FromNetType<'T>().ToDataTypeExpr().handle
+        let dtexpr = DataType.FromNetType<'T>().ToDataTypeExpr().Handle
         let st = (lit start).Handle
         let ed = (lit endRange).Handle
         (new Expr(PolarsWrapper.IntRange(st,ed,step,dtexpr))).SetSorted(step<0)
@@ -395,7 +395,7 @@ module pl =
     /// Resulting column is of dtype List(dtype).
     /// </summary>
     let intRanges<'T>(start:int64)(endRange:int64)(step:int64) =
-        let dtexpr = DataType.FromNetType<'T>().ToDataTypeExpr().handle
+        let dtexpr = DataType.FromNetType<'T>().ToDataTypeExpr().Handle
         let st = (lit start).Handle
         let ed = (lit endRange).Handle
         let stp = (lit step).Handle

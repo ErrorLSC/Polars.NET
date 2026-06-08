@@ -156,7 +156,6 @@ module TensorInterops =
         /// Automatically handles memory fragmentation and performs the Column-Major to Row-Major transposition.
         /// </summary>
         member this.AsTensor<'T when 'T : unmanaged and 'T : struct and 'T :> ValueType and 'T : (new: unit -> 'T)>([<ParamArray>] columnNames: string[]) : Tensor<'T> =
-            
             let targetColumns =
                 if isNull columnNames || columnNames.Length = 0 then
                     this.GetColumns()
@@ -175,20 +174,22 @@ module TensorInterops =
             try
                 for c = 0 to cols - 1 do
                     let col = targetColumns.[c]
-
                     let needsRechunk = not col.IsContiguous
                     let activeCol = if needsRechunk then col.Rechunk() else col
 
                     try
-                        let span = activeCol.AsReadOnlySpan<'T>()
+                        let srcSpan = activeCol.AsReadOnlySpan<'T>()
                         
+                        let mutable destIdx = c
                         for r = 0 to rows - 1 do
-                            destSpan.[r * cols + c] <- span.[r]
+                            destSpan.[destIdx] <- srcSpan.[r]
+                            destIdx <- destIdx + cols
+                            
                     finally
                         if needsRechunk then activeCol.Dispose()
             finally
-                for col in targetColumns do
-                    if not (isNull (box col)) then col.Dispose()
+                targetColumns |> Array.iter (fun col -> 
+                    if not (isNull (box col)) then col.Dispose())
 
             let shape = [| nativeint rows; nativeint cols |]
             Tensor.Create(tensorData, ReadOnlySpan<nativeint> shape)

@@ -29,16 +29,11 @@ type LazyGroupBy (lfHandle: LazyFrameHandle, groupByType: GroupByType, keys: Exp
 
     member this.Dispose() =
         if not disposed then
-            for h in ownedKeyHandles do
-                if not (isNull (box h)) && not h.IsInvalid then 
-                    h.Dispose()
-            
-            if not lfHandle.IsClosed then 
-                lfHandle.Dispose()
+            ownedKeyHandles 
+            |> Array.iter (fun h -> if not h.IsInvalid then h.Dispose())
             
             disposed <- true
-            
-        GC.SuppressFinalize this
+            GC.SuppressFinalize(this)
 
     interface IDisposable with
         member this.Dispose() = this.Dispose()
@@ -197,11 +192,11 @@ type GroupBy (df: DataFrame, groupByType: GroupByType, keys: Expr[]) =
 
     member this.Dispose() =
         if not disposed then
-            for h in ownedKeyHandles do
-                if not (isNull (box h)) && not h.IsInvalid then 
-                    h.Dispose()
+            ownedKeyHandles 
+            |> Array.iter (fun h -> if not h.IsInvalid then h.Dispose())
+            
             disposed <- true
-        GC.SuppressFinalize(this)
+            GC.SuppressFinalize(this)
 
     interface IDisposable with
         member this.Dispose() = this.Dispose()
@@ -221,7 +216,7 @@ type GroupBy (df: DataFrame, groupByType: GroupByType, keys: Expr[]) =
             
         use lazyResult = finalBuilder.Agg aggs
         
-        for k in safeKeys do (k :> IDisposable).Dispose()
+        safeKeys |> Array.iter (fun k -> (k :> IDisposable).Dispose())
 
         lazyResult.Collect()
 

@@ -323,8 +323,8 @@ type [<Struct>] DtOps(handle: ExprHandle) =
         | EpochTimeUnit.Milliseconds -> this.Timestamp(TimeUnit.Milliseconds)
         | EpochTimeUnit.Second -> this.Timestamp(TimeUnit.Milliseconds).FloorDiv(new Expr(PolarsWrapper.Lit 1000L))
         | EpochTimeUnit.Day -> 
-            let h1 = PolarsWrapper.ExprCast(handle,DataType.Date.ToDataTypeExpr().handle,true,false)
-            new Expr(PolarsWrapper.ExprCast(h1,DataType.Int32.ToDataTypeExpr().handle,true,false))
+            let h1 = PolarsWrapper.ExprCast(handle,DataType.Date.ToDataTypeExpr().Handle,true,false)
+            new Expr(PolarsWrapper.ExprCast(h1,DataType.Int32.ToDataTypeExpr().Handle,true,false))
     /// <summary>
     /// Replace the datetime components of the underlying Datetime/Date.
     /// </summary>

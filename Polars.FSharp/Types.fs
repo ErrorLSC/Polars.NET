@@ -4,17 +4,14 @@ namespace Polars.FSharp
 
 open System
 open Polars.NET.Core
-// open Apache.Arrow
 open System.Collections.Generic
 open Polars.NET.Core.Arrow
 open Polars.NET.Core.Helpers
 open System.Threading.Tasks
 open System.Collections
-open System.Text
 open System.Threading
 open Apache.Arrow.Adbc
 open Apache.Arrow.Ipc
-open System.Linq
 /// --- Series ---
 /// <summary>
 /// An eager Series holding a single column of data.
@@ -372,7 +369,7 @@ type Series(handle: SeriesHandle) =
             raise (IndexOutOfRangeException(sprintf "Index %d is out of bounds for Series length %d." index len))
 
         // Consistent Null Check
-        if this.IsNullAt(index) then
+        if this.IsNullAt index then
             Unchecked.defaultof<'T>
         else
             // 2. Getvalue
@@ -481,10 +478,10 @@ type Series(handle: SeriesHandle) =
     /// <param name="index">The 64-bit row index location.</param>
     /// <returns>ValueSome value if valid, or ValueNone if null.</returns>
     member inline this.TryGetValue<'T>(index: int64) : 'T voption =
-        if this.IsNullAt(index) then 
+        if this.IsNullAt index then 
             ValueNone
         else 
-            ValueSome (this.GetValue<'T>(index)) 
+            ValueSome (this.GetValue<'T> index) 
     /// <summary>
     /// [Indexer] Access value at specific index as boxed object.
     /// Syntax: series.[index]
@@ -582,7 +579,7 @@ type Series(handle: SeriesHandle) =
         | :? Series as other -> (this :> IEquatable<Series>).Equals(other)
         | _ -> false
     override this.GetHashCode() =
-        int (PolarsWrapper.SeriesHash(this.Handle))
+        PolarsWrapper.SeriesHash this.Handle |> int
 
     interface IDisposable with 
         member this.Dispose() = this.Dispose()
@@ -1163,8 +1160,6 @@ and LazyFrame(handle: LazyFrameHandle) =
     /// </param>
     member this.Rename(mapping: (string * string) list, ?strict: bool) =
         let oldNames, newNames = List.unzip mapping
-        let isStrict = defaultArg strict true
-        let oldNames, newNames = List.unzip mapping
         let pOldNames = List.toArray oldNames
         let pNewNames = List.toArray newNames
         let pStrict = defaultArg strict true
@@ -1201,13 +1196,13 @@ and PolarsSchema (handle: SchemaHandle) =
 
     // --- Constructors ---
     static member private CreateHandleFromFields(fields: seq<string * DataType>) =
-            let names = fields |> Seq.map fst |> Seq.toArray
-            let typeHandles = fields |> Seq.map (fun (_, t) -> t.CreateHandle()) |> Seq.toArray
-            
-            try
-                PolarsWrapper.NewSchema(names, typeHandles)
-            finally
-                for th in typeHandles do th.Dispose()
+        let names = fields |> Seq.map fst |> Seq.toArray
+        let typeHandles = fields |> Seq.map (fun (_, t) -> t.CreateHandle()) |> Seq.toArray
+        
+        try
+            PolarsWrapper.NewSchema(names, typeHandles)
+        finally
+            for th in typeHandles do th.Dispose()
     /// <summary> Create an empty schema </summary>
     new () = new PolarsSchema(PolarsWrapper.SchemaCreate())
     new (fields: seq<Field>) =
@@ -1244,7 +1239,7 @@ and PolarsSchema (handle: SchemaHandle) =
         finally
             if not typeHandle.IsInvalid then 
                 typeHandle.Dispose()
-    member private this.GetFields() =
+    member this.GetFields() =
         seq { 0UL .. this.Len() - 1UL } 
         |> Seq.map this.GetFieldAt
     /// <summary> Get all column names </summary>
@@ -1316,22 +1311,24 @@ and PolarsSchema (handle: SchemaHandle) =
 
     override this.Equals(obj: obj) =
         match obj with
-        | :? PolarsSchema as other -> (this :> IEquatable<_>).Equals(other)
+        | :? PolarsSchema as other -> (this :> IEquatable<_>).Equals other
         | _ -> false
 
     override this.GetHashCode() =
         if this.Handle.IsInvalid then 0
         else
-            let hash = HashCode()
-            for name, dt in this.ToList() do
-                hash.Add(name)
-                hash.Add(dt) 
-            hash.ToHashCode()
+            let mutable hash = HashCode()
+            
+            this.GetFields() 
+            |> Seq.iter (fun (name, dt) -> 
+                hash.Add name
+                hash.Add dt
+            )
 
+            hash.ToHashCode()
     static member op_Equality (left: PolarsSchema, right: PolarsSchema) =
         if Object.ReferenceEquals(left, null) then Object.ReferenceEquals(right, null)
-        else left.Equals(right)
-
+        else left.Equals right
     static member op_Inequality (left: PolarsSchema, right: PolarsSchema) =
         not (left = right)
 
@@ -1350,6 +1347,14 @@ and PolarsSchema (handle: SchemaHandle) =
                     this.TryFindField(key, len, i + 1UL, &value)
             finally
                 if not th.IsInvalid then th.Dispose()
+    member this.Count = int (this.Len())
+    
+    member this.ContainsKey(key: string) =
+        this.GetFields() |> Seq.exists (fun (name, _) -> name = key)
+        
+    member this.TryGetValue(key: string, value: byref<IPolarsDataType>) : bool =
+        this.TryFindField(key, this.Len(), 0UL, &value)
+        
     // --- Interface ---
     interface IDisposable with
         member this.Dispose() = 
@@ -1358,21 +1363,20 @@ and PolarsSchema (handle: SchemaHandle) =
 
     interface IPolarsSchema with
         member this.Item with get(key: string) : IPolarsDataType = 
-            this.get_Item(key) :> IPolarsDataType
+            this.get_Item key :> IPolarsDataType
         member this.Keys : IEnumerable<string> = 
             this.Names :> IEnumerable<string>
         member this.Values : IEnumerable<IPolarsDataType> =
             this.DataTypes |> Seq.map (fun dt -> dt :> IPolarsDataType)
-        member this.Count = int (this.Len())
-        member this.ContainsKey(key: string) =
-            this.GetFields() |> Seq.exists (fun (name, _) -> name = key)
-        member this.TryGetValue(key: string, value: byref<IPolarsDataType>) : bool =
-            this.TryFindField(key, this.Len(), 0UL, &value)
+        member this.Count = this.Count                     
+        member this.ContainsKey(key) = this.ContainsKey(key)
+        member this.TryGetValue(key, value) = this.TryGetValue(key, &value)
         member this.GetEnumerator() : IEnumerator<KeyValuePair<string, IPolarsDataType>> =
-            (this.ToList() |> Seq.map (fun (n, dt) -> KeyValuePair(n, dt :> IPolarsDataType))).GetEnumerator()
+            (this.GetFields() 
+             |> Seq.map (fun (n, dt) -> KeyValuePair(n, dt :> IPolarsDataType))).GetEnumerator()
 
-        member this.GetEnumerator() : System.Collections.IEnumerator =
-            (this :> IPolarsSchema).GetEnumerator() :> System.Collections.IEnumerator
+        member this.GetEnumerator() : IEnumerator =
+            (this :> IPolarsSchema).GetEnumerator() :> IEnumerator
 
 /// <summary>
 /// SQL Context for executing SQL queries on registered LazyFrames.

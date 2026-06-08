@@ -8,35 +8,55 @@ internal static class UdfUtils
 {
     public static Func<IArrowArray, IArrowArray> Wrap<TIn, TOut>(Func<TIn, TOut> userFunc)
     {
+        var tIn = typeof(TIn);
+        
+        bool isNullableValueType = tIn.IsValueType && Nullable.GetUnderlyingType(tIn) != null;
+        
+        bool isPureValueType = tIn.IsValueType && Nullable.GetUnderlyingType(tIn) == null;
+
         return inputArray =>
         {
             int length = inputArray.Length;
-
-            // 1. Reader: ArrowReader
-            var rawGetter = ArrowReader.CreateAccessor(inputArray, typeof(TIn));
-
-            // 2. Writer: DbToArrowStream
+            var rawGetter = ArrowReader.CreateAccessor(inputArray, tIn);
             var buffer = ColumnBufferFactory.Create(typeof(TOut), length);
 
-            // 3. Null 
-            bool inputIsValueType = typeof(TIn).IsValueType && Nullable.GetUnderlyingType(typeof(TIn)) == null;
-
-            for (int i = 0; i < length; i++)
+            if (isPureValueType)
             {
-                // check null logic
-                bool isNull = inputArray.IsNull(i);
-
-                if (isNull && inputIsValueType)
+                for (int i = 0; i < length; i++)
                 {
-                    buffer.Add(null!); 
+                    if (inputArray.IsNull(i))
+                    {
+                        buffer.Add(null!);
+                    }
+                    else
+                    {
+                        buffer.Add(userFunc((TIn)rawGetter(i)!)!);
+                    }
                 }
-                else
+            }
+
+            else if (isNullableValueType)
+            {
+                for (int i = 0; i < length; i++)
                 {
-                    TIn input = (TIn)rawGetter(i)!;
-                    
-                    TOut output = userFunc(input);
-                    
-                    buffer.Add(output!);
+                    if (inputArray.IsNull(i))
+                    {
+                        TIn nullInstance = default!; 
+                        buffer.Add(userFunc(nullInstance)!);
+                    }
+                    else
+                    {
+                        buffer.Add(userFunc((TIn)rawGetter(i)!)!);
+                    }
+                }
+            }
+
+            else
+            {
+                for (int i = 0; i < length; i++)
+                {
+                    TIn input = inputArray.IsNull(i) ? default! : (TIn)rawGetter(i)!;
+                    buffer.Add(userFunc(input)!);
                 }
             }
 

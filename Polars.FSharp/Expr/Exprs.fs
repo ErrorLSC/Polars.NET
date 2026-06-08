@@ -997,17 +997,17 @@ and Selector(handle: SelectorHandle) =
          new Selector(PolarsWrapper.SelectorXor(l.CloneHandle(), r.CloneHandle()))
 
 and DataTypeExpr =
-    val internal handle : DataTypeExprHandle
-    internal new (handle: DataTypeExprHandle) = { handle = handle }
+    val internal Handle : DataTypeExprHandle
+    internal new (handle: DataTypeExprHandle) = { Handle = handle }
 
     interface IDisposable with
         member this.Dispose() =
-            if not (isNull (box this.handle)) && not this.handle.IsInvalid then
-                this.handle.Dispose()
+            if not (isNull (box this.Handle)) && not this.Handle.IsInvalid then
+                this.Handle.Dispose()
             GC.SuppressFinalize(this)
 
     member internal this.CloneHandle() = 
-        PolarsWrapper.DataTypeExprClone(this.handle)
+        PolarsWrapper.DataTypeExprClone(this.Handle)
 
     /// <summary>Clone this DataTypeExpr.</summary>
     member this.Clone() = 

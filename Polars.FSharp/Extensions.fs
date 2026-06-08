@@ -48,64 +48,54 @@ module Describe =
         /// <summary>
         /// Return a dense preview of the DataFrame as a formatted string.
         /// </summary>
-        member this.GlimpseString(?maxItemsPerColumn:int,?maxColnameLength: int ) =
+        member this.GlimpseString(?maxItemsPerColumn: int, ?maxColnameLength: int) =
             let nRows = this.Height
             let nCols = this.Width
             let itemLimit = defaultArg maxItemsPerColumn 10
             let nameLimit = defaultArg maxColnameLength 50
             let limit = int (min (int64 itemLimit) nRows)
 
-            let schema = this.Schema
-            let cols = schema.ToList()
-
             use headDf = this.Head limit
             use strDf = headDf.Select [| Expr.All().Cast<string>() |]
 
-            let mutable maxNameLen = 0
-            let mutable maxDtypeLen = 0
-
-            let rowInfos = 
-                cols |> List.mapi (fun colIdx (colName, dtype) ->
-                    
+            let rawRowInfos = 
+                this.Schema.GetFields()
+                |> Seq.map (fun (colName, dtype) ->
                     let displayColName = 
-                        if colName.Length > nameLimit then
-                            colName.Substring(0, nameLimit - 1) + "…"
-                        else
-                            colName
+                        if colName.Length > nameLimit then colName.Substring(0, nameLimit - 1) + "…"
+                        else colName
                     
-                    maxNameLen <- max maxNameLen displayColName.Length
-
-                    let dtypeStr = sprintf "<%s>" (dtype.ToString())
-                    maxDtypeLen <- max maxDtypeLen dtypeStr.Length
-
-                    use strSeries = strDf.Column colName 
+                    let dtypeStr = $"<{dtype}>"
                     
-                    let valStrs =
-                        [ for rowIdx in 0 .. (limit - 1) do
-                            if strSeries.IsNullAt rowIdx then
-                                yield "null"
+                    use strSeries = strDf.Column colName
+                    let valStrs = 
+                        Array.init limit (fun rowIdx ->
+                            if strSeries.IsNullAt rowIdx then "null"
                             else
                                 let s = strSeries.GetValue<string> rowIdx
-                                if dtype = DataType.String then
-                                    yield sprintf "'%s'" s
-                                else
-                                    yield s
-                        ]
-
-                    displayColName, dtypeStr, System.String.Join(", ", valStrs)
+                                if dtype = DataType.String then $"'{s}'" else s
+                        )
+                    
+                    displayColName, dtypeStr, String.concat ", " valStrs
                 )
+                |> Seq.toList 
+
+            let maxNameLen = rawRowInfos |> List.map (fun (name, _, _) -> name.Length) |> function [] -> 0 | xs -> List.max xs
+            let maxDtypeLen = rawRowInfos |> List.map (fun (_, dtypeStr, _) -> dtypeStr.Length) |> function [] -> 0 | xs -> List.max xs
+
+            let outputLines = [
+                yield $"Rows: {nRows}"
+                yield $"Columns: {nCols}"
+                
+                for name, dtypeStr, values in rawRowInfos do
+                    let paddedName = name.PadRight maxNameLen
+                    let paddedDtype = dtypeStr.PadLeft maxDtypeLen
+                    yield $"$ {paddedName} {paddedDtype} {values}"
+            ]
 
             let sb = StringBuilder()
-            sb.AppendLine(sprintf "Rows: %d" nRows) |> ignore
-            sb.AppendLine(sprintf "Columns: %d" nCols) |> ignore
-
-            for name, dtypeStr, values in rowInfos do
-                let paddedName = name.PadRight maxNameLen
-                let paddedDtype = dtypeStr.PadLeft maxDtypeLen
-                sb.AppendLine(sprintf "$ %s %s %s" paddedName paddedDtype values) |> ignore
-
+            outputLines |> List.iter (fun line -> sb.AppendLine line |> ignore)
             sb.ToString()
-
         /// <summary>
         /// Print a dense preview of the DataFrame to the standard output.
         /// </summary>
