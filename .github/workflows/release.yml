@@ -31,6 +31,7 @@ jobs:
             use_cross: false
             rustflags: "-C target-cpu=x86-64-v3"
             container: quay.io/pypa/manylinux_2_28_x86_64
+            lto_type: "fat"
 
           # --- Linux x64 Musl ---
           - os: ubuntu-latest
@@ -40,6 +41,7 @@ jobs:
             use_cross: true 
             rustflags: "-C target-feature=-crt-static -C target-cpu=x86-64-v3"
             container: null
+            lto_type: "thin"
             
           # --- Linux ARM64 glibc---
           - os: ubuntu-latest
@@ -48,6 +50,7 @@ jobs:
             artifact_name: libnative_shim.so
             use_cross: true
             container: null
+            lto_type: "thin"
             
           # --- Linux ARM64 Musl ---
           - os: ubuntu-24.04-arm             
@@ -57,6 +60,7 @@ jobs:
             use_cross: false                  
             rustflags: "-C target-feature=-crt-static"
             container: null
+            lto_type: "thin"
           
           # Windows x64
           - os: windows-latest
@@ -66,6 +70,7 @@ jobs:
             use_cross: false
             rustflags: "-C target-cpu=x86-64-v3"
             container: null
+            lto_type: "thin"
 
           # MacOS ARM64 (Apple Silicon) - 
           - os: macos-latest
@@ -74,6 +79,7 @@ jobs:
             artifact_name: libnative_shim.dylib
             use_cross: false
             container: null
+            lto_type: "thin"
 
     container: ${{ matrix.container }}
 
@@ -118,6 +124,7 @@ jobs:
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
           CC_aarch64_unknown_linux_musl: aarch64-linux-gnu-gcc
+          CARGO_PROFILE_RELEASE_LTO: ${{ matrix.lto_type || 'fat' }}
         run: |
           CARGO_CMD="cargo"
           if [[ "${{ matrix.use_cross }}" == "true" ]]; then
@@ -136,6 +143,7 @@ jobs:
 
           echo "Building for ${{ matrix.target }} using $CARGO_CMD..."
           echo "RUSTFLAGS: $RUSTFLAGS"
+          echo "LTO Mode: $CARGO_PROFILE_RELEASE_LTO"
 
           cd native_shim
           $CARGO_CMD build --release --target ${{ matrix.target }}
