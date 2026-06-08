@@ -50,11 +50,11 @@ jobs:
             container: null
             
           # --- Linux ARM64 Musl ---
-          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm             
             target: aarch64-unknown-linux-musl
             rid: linux-musl-arm64
             artifact_name: libnative_shim.so
-            use_cross: true
+            use_cross: false                  
             rustflags: "-C target-feature=-crt-static"
             container: null
           
