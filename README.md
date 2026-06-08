@@ -12,7 +12,7 @@
 F# & C# E2E examples repo:[Polars.NET-Cookbook](https://github.com/ErrorLSC/Polars.NET-Cookbook)
 
 
-**High-Performance, DataFrame Engine for .NET, powered by Rust & Apache Arrow. With cloud and deltalake features.**
+**High-Performance, DataFrame Engine for .NET, powered by Rust Polars & Apache Arrow. With cloud and deltalake features.**
 
 ![icon](assets/icon_lite.png)
 
@@ -21,9 +21,7 @@ Cloud: AWS, Azure and GCP
 Data Lake: Delta Lake
 
 <p style="font-size:1.3em; font-weight:bold; background-color:#ffff99;">
-<strong>ALMOST</strong> All API in python Polars now is available in both Polars.NET and Polars.FSharp.<br/>
-The only module left is <strong>config module</strong> which is still under refactoring in rust core.<br/>
-<strong>Config module will be introduced in next major release.</strong>
+99% API in python Polars now is available in both Polars.NET and Polars.FSharp.<br/>
 </p>
 
 ## Why Polars.NET exists
@@ -291,11 +289,9 @@ let res =
 
 ## Roadmap
 
-- Config module
-
 - More code examples, user cases
 
-- Documentation: [**Docs Here**](https://errorlsc.github.io/Polars.NET/index.html)
+- Native LINQ Provider
 
 ## Contributing
 
