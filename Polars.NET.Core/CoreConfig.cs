@@ -286,7 +286,7 @@ internal static class CoreConfig
 
                         case "float_precision":
                             if (isNull) FloatPrecision = null;
-                            else if (long.TryParse(strValue, out long precision)) FloatPrecision = precision;
+                            else if (int.TryParse(strValue, out int precision)) FloatPrecision = precision;
                             break;
 
                         case "float_format":
@@ -428,11 +428,11 @@ internal static class CoreConfig
         }
     }
 
-    public static long? FloatPrecision
+    public static int? FloatPrecision
     {
         get
         {
-            long precision = PolarsWrapper.ConfigGetFloatPrecision();
+            int precision = (int)PolarsWrapper.ConfigGetFloatPrecision();
             return precision < 0 ? null : precision;
         }
         set => PolarsWrapper.ConfigSetFloatPrecision(value ?? -1);

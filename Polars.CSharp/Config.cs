@@ -120,7 +120,7 @@ public sealed class PolarsConfig
                             CoreConfig.ThousandsSeparator = string.IsNullOrEmpty(value) ? null : value[0];
                             break;
                         case "float_precision":
-                            CoreConfig.FloatPrecision = long.TryParse(value, out long prec) ? prec : null;
+                            CoreConfig.FloatPrecision = int.TryParse(value, out int prec) ? prec : null;
                             break;
                         case "float_format":
                             CoreConfig.FloatFormat = Enum.TryParse<PlFloatFormat>(value, out var fmt) ? fmt : null;
@@ -271,7 +271,7 @@ public sealed class PolarsConfig
     /// Control the number of decimal places displayed for floating point values.
     /// </summary>
     /// <param name="precision">Number of decimal places to display; set to None to revert to the default/standard behaviour.</param>
-    public PolarsConfig SetFloatPrecision(long? precision=null)
+    public PolarsConfig SetFloatPrecision(int? precision=null)
     {
         Apply(() => CoreConfig.FloatPrecision = precision);
         return this;

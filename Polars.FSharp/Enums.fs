@@ -608,33 +608,37 @@ type TableFormatting =
     | Utf8BordersOnly
     | Utf8HorizontalOnly
     | Nothing
+    | ResetToDefault
     member internal this.ToNative() = 
         match this with
-        | AsciiFull -> PlTableFormatting.AsciiFull
-        | AsciiFullCondensed -> PlTableFormatting.AsciiFullCondensed
-        | AsciiNoBorders -> PlTableFormatting.AsciiNoBorders
-        | AsciiBordersOnly -> PlTableFormatting.AsciiBordersOnly
-        | AsciiBordersOnlyCondensed -> PlTableFormatting.AsciiBordersOnlyCondensed
-        | AsciiHorizontalOnly -> PlTableFormatting.AsciiHorizontalOnly
-        | AsciiMarkdown -> PlTableFormatting.AsciiMarkdown
-        | Markdown -> PlTableFormatting.Markdown
-        | Utf8Full -> PlTableFormatting.Utf8Full
-        | Utf8FullCondensed -> PlTableFormatting.Utf8FullCondensed
-        | Utf8NoBorders -> PlTableFormatting.Utf8NoBorders
-        | Utf8BordersOnly -> PlTableFormatting.Utf8BordersOnly
-        | Utf8HorizontalOnly -> PlTableFormatting.Utf8HorizontalOnly
-        | Nothing -> PlTableFormatting.Nothing
+        | AsciiFull -> Nullable PlTableFormatting.AsciiFull
+        | AsciiFullCondensed -> Nullable PlTableFormatting.AsciiFullCondensed
+        | AsciiNoBorders -> Nullable PlTableFormatting.AsciiNoBorders
+        | AsciiBordersOnly -> Nullable PlTableFormatting.AsciiBordersOnly
+        | AsciiBordersOnlyCondensed -> Nullable PlTableFormatting.AsciiBordersOnlyCondensed
+        | AsciiHorizontalOnly -> Nullable PlTableFormatting.AsciiHorizontalOnly
+        | AsciiMarkdown -> Nullable PlTableFormatting.AsciiMarkdown
+        | Markdown -> Nullable PlTableFormatting.Markdown
+        | Utf8Full -> Nullable PlTableFormatting.Utf8Full
+        | Utf8FullCondensed -> Nullable PlTableFormatting.Utf8FullCondensed
+        | Utf8NoBorders -> Nullable PlTableFormatting.Utf8NoBorders
+        | Utf8BordersOnly -> Nullable PlTableFormatting.Utf8BordersOnly
+        | Utf8HorizontalOnly -> Nullable PlTableFormatting.Utf8HorizontalOnly
+        | Nothing -> Nullable PlTableFormatting.Nothing
+        | ResetToDefault -> Nullable ()
 
 [<RequireQualifiedAccess>]
 type Alignment =
     | Left
     | Center
     | Right
+    | ResetToDefault
     member internal this.ToNative() = 
        match this with
-        | Left -> PlTableCellAlignment.Left
-        | Center -> PlTableCellAlignment.Center
-        | Right -> PlTableCellAlignment.Right 
+        | Left -> Nullable PlTableCellAlignment.Left
+        | Center -> Nullable PlTableCellAlignment.Center
+        | Right -> Nullable PlTableCellAlignment.Right 
+        | ResetToDefault -> Nullable ()
 
 [<RequireQualifiedAccess>]
 type FloatFormat =
@@ -647,8 +651,11 @@ type FloatFormat =
     /// Print the full precision of the floating point number.
     /// </summary>
     | Full 
+
+    | ResetToDefault
     member internal this.ToNative() = 
        match this with
-        | Mixed -> PlFloatFormat.Mixed
-        | Full -> PlFloatFormat.Full
+        | Mixed -> Nullable PlFloatFormat.Mixed
+        | Full -> Nullable PlFloatFormat.Full
+        | ResetToDefault -> Nullable ()
 

@@ -4,6 +4,49 @@ open System
 open System.Collections.Generic
 open Polars.NET.Core
 
+[<RequireQualifiedAccess>] 
+type Active = 
+    | Set of bool
+    | ResetToDefault
+
+    member internal this.ToNative() =
+        match this with
+        | Set true -> Nullable true
+        | Set false -> Nullable false
+        | ResetToDefault -> Nullable ()
+
+[<RequireQualifiedAccess>] 
+type CharSet = 
+    | Set of char
+    | ResetToDefault
+    member internal this.ToNative() =
+        match this with
+        | Set cr -> Nullable cr
+        | ResetToDefault -> Nullable ()
+
+[<RequireQualifiedAccess>] 
+type NumSet =
+    | Set of int
+    | ResetToDefault
+    member internal this.ToNative() =
+        match this with
+        | Set i -> Nullable i
+        | ResetToDefault -> Nullable ()
+
+[<RequireQualifiedAccess>] 
+type ChunkSet =
+    | Set of uint64
+    | ResetToDefault
+    member internal this.ToNative() =
+        match this with
+        | Set i -> Nullable i
+        | ResetToDefault -> Nullable ()
+
+[<RequireQualifiedAccess>] 
+type ConfigScope =
+    | SetOnly
+    | All
+
 /// <summary>
 /// Config for Polars.FSharp
 /// </summary>
@@ -31,13 +74,16 @@ module Config =
     /// <summary>
     /// Save the current set of Config options as a JSON string.
     /// </summary>
-    let save() = CoreConfig.Save(ifSet=false)
+    let save(scope:ConfigScope) = 
+        match scope with
+        | ConfigScope.SetOnly -> CoreConfig.Save(ifSet=true)
+        | ConfigScope.All -> CoreConfig.Save(ifSet=false)
     /// <summary>
     /// Save the current set of Config options as a JSON file.
     /// </summary>
     let saveToFile path = CoreConfig.SaveToFile(path=path,ifSet=false)
     /// <summary>
-    /// Load (and set) previously saved Config options from a JSON string.
+    /// Load (and set) previously saved Config options from a JSON string.Only already set parameter will be recorded.
     /// </summary>
     let load cfgJson = CoreConfig.Load cfgJson
     /// <summary>
@@ -51,15 +97,17 @@ module Config =
     /// <summary>
     /// Show the current state of all Config variables in the environment as a dict.
     /// </summary>
-    let status() = CoreConfig.GetState(false,false)
-    /// <summary>
+    let status (scope:ConfigScope) = 
+        match scope with
+        | ConfigScope.SetOnly -> CoreConfig.GetState(ifSet=true,envOnly=false)
+        | ConfigScope.All -> CoreConfig.GetState(ifSet=false,envOnly=false)
     /// Safely retrieves the current configuration value for the specified key.
     /// Matches keys in a case-insensitive manner.
     /// </summary>
     let tryGet (key: string) : string option =
         if String.IsNullOrEmpty(key) then None
         else
-            let currentStatus = status() 
+            let currentStatus = status ConfigScope.All 
             match currentStatus.TryGetValue(key) with
             | true, value -> Some value
             | false, _ ->
@@ -103,20 +151,14 @@ module Config =
     /// Use ASCII characters to display table outlines.
     /// Set False to revert to the standard UTF8_FULL_CONDENSED formatting style.
     /// </summary>
-    let asciiTables (active: bool option) =
-        fun () -> 
-            match active with
-            | Some v -> CoreConfig.AsciiTables <- Nullable v
-            | None   -> CoreConfig.AsciiTables <- Nullable ()
+    let asciiTables (active: Active) =
+        fun () -> CoreConfig.AsciiTables <- active.ToNative()
 
     /// <summary>
     /// Set the decimal separator character.
     /// </summary>
-    let decimalSeparator (separator: char option) =
-        fun () -> 
-            match separator with
-            | Some v -> CoreConfig.DecimalSeparator <- Nullable v
-            | None   -> CoreConfig.DecimalSeparator <- Nullable ()
+    let decimalSeparator (separator: CharSet) =
+        fun () -> CoreConfig.DecimalSeparator <- separator.ToNative()
 
     /// <summary>
     /// Configures the thousands separator with a shortcut boolean.
@@ -126,216 +168,141 @@ module Config =
     let thousandsSeparatorFormat (useDefaultFormat: bool) =
         fun () ->
             if useDefaultFormat then
-                CoreConfig.DecimalSeparator <- Nullable '.'
-                CoreConfig.ThousandsSeparator <- Nullable ','
+                CoreConfig.DecimalSeparator <- (CharSet.Set '.').ToNative()
+                CoreConfig.ThousandsSeparator <- (CharSet.Set ',').ToNative()
             else
-                CoreConfig.ThousandsSeparator <- Nullable ()
+                CoreConfig.ThousandsSeparator <- CharSet.ResetToDefault.ToNative()
 
     /// <summary>
     /// Configures the thousands separator with a specific single character.
     /// Set to None to clear/reset the separator.
     /// </summary>
-    let thousandsSeparator (separator: char option) =
-        fun () -> 
-            match separator with
-            | Some v -> CoreConfig.ThousandsSeparator <- Nullable v
-            | None   -> CoreConfig.ThousandsSeparator <- Nullable ()
+    let thousandsSeparator (separator: CharSet) =
+        fun () -> CoreConfig.ThousandsSeparator <- separator.ToNative()
 
     /// <summary>
     /// Strip trailing zeros from Decimal data type values.
     /// </summary>
-    let trimDecimalZeros (active: bool option) =
-        fun () -> 
-            match active with
-            | Some v -> CoreConfig.TrimDecimalZeros <- Nullable v
-            | None   -> CoreConfig.TrimDecimalZeros <- Nullable ()
+    let trimDecimalZeros (active: Active) =
+        fun () -> CoreConfig.TrimDecimalZeros <- active.ToNative() 
 
     /// <summary>
     /// Set which engine to use by default.
     /// </summary>
-    let engineAffinity (engine: Engine option) =
-        fun () -> 
-            CoreConfig.EngineAffinity <- 
-                match engine with 
-                | Some e -> Nullable (e.ToNative()) 
-                | None   -> Nullable ()
-
+    let engineAffinity (engine: Engine) =
+        fun () -> CoreConfig.EngineAffinity <- Nullable (engine.ToNative())
+                
     /// <summary>
     /// Control the number of decimal places displayed for floating point values.
     /// </summary>
-    let floatPrecision (precision: int64 option) =
-        fun () -> 
-            match precision with
-            | Some v -> CoreConfig.FloatPrecision <- Nullable v
-            | None   -> CoreConfig.FloatPrecision <- Nullable ()
+    let floatPrecision (precision: NumSet) =
+        fun () -> CoreConfig.FloatPrecision <- precision.ToNative()
 
     /// <summary>
     /// Control how floating point values are displayed.
     /// </summary>
-    let formatFloat (format: FloatFormat option) =
+    let formatFloat (format: FloatFormat) =
         fun () -> 
-            CoreConfig.FloatFormat <- 
-                match format with 
-                | Some e -> Nullable (e.ToNative()) 
-                | None   -> Nullable ()
+            CoreConfig.FloatFormat <- format.ToNative()
 
     /// <summary>
     /// Set the number of characters used to display string values.
     /// </summary>
-    let formatStringLength (n: int option) =
-        fun () -> 
-            match n with
-            | Some v -> CoreConfig.StringLength <- Nullable v
-            | None   -> CoreConfig.StringLength <- Nullable ()
+    let formatStringLength (n: NumSet) =
+        fun () -> CoreConfig.StringLength <- n.ToNative()
 
     /// <summary>
     /// Set the number of elements to display for List values.
     /// </summary>
-    let formatTableCellListLength (n: int option) =
-        fun () -> 
-            match n with
-            | Some v -> CoreConfig.TableCellListLength <- Nullable v
-            | None   -> CoreConfig.TableCellListLength <- Nullable ()
+    let formatTableCellListLength (n: NumSet) =
+        fun () -> CoreConfig.TableCellListLength <- n.ToNative()
 
     /// <summary>
     /// Overwrite chunk size used in streaming engine.
     /// </summary>
-    let streamingChunkSize (size: uint64 option) =
-        fun () -> 
-            match size with
-            | Some v -> CoreConfig.StreamingChunkSize <- Nullable v
-            | None   -> CoreConfig.StreamingChunkSize <- Nullable ()
+    let streamingChunkSize (size: ChunkSet) =
+        fun () -> CoreConfig.StreamingChunkSize <- size.ToNative()
 
     /// <summary>
     /// Set table cell alignment.
     /// </summary>
-    let tableCellAlignment (format: Alignment option) =
-        fun () -> 
-            CoreConfig.TableCellAlignment <- 
-                match format with 
-                | Some e -> Nullable (e.ToNative()) 
-                | None   -> Nullable ()
+    let tableCellAlignment (format: Alignment) =
+        fun () -> CoreConfig.TableCellAlignment <- format.ToNative()
 
     /// <summary>
     /// Set table cell alignment for numeric columns.
     /// </summary>
-    let tableCellNumericAlignment (format: Alignment option) =
-        fun () -> 
-            CoreConfig.TableCellNumericAlignment <- 
-                match format with 
-                | Some e -> Nullable (e.ToNative()) 
-                | None   -> Nullable ()
+    let tableCellNumericAlignment (format: Alignment) =
+        fun () -> CoreConfig.TableCellNumericAlignment <- format.ToNative()
 
     /// <summary>
     /// Set the number of columns that are visible when displaying tables.
     /// </summary>
-    let tableCols (n: int option) =
-        fun () -> 
-            match n with
-            | Some v -> CoreConfig.TableMaxCols <- Nullable v
-            | None   -> CoreConfig.TableMaxCols <- Nullable ()
+    let tableCols (n: NumSet) =
+        fun () -> CoreConfig.TableMaxCols <- n.ToNative()
 
     /// <summary>
     /// Set the max number of rows used to draw the table (both Dataframe and Series).
     /// </summary>
-    let tableRows (n: int option) =
-        fun () -> 
-            match n with
-            | Some v -> CoreConfig.TableMaxRows <- Nullable v
-            | None   -> CoreConfig.TableMaxRows <- Nullable ()
+    let tableRows (n: NumSet) =
+        fun () -> CoreConfig.TableMaxRows <- n.ToNative()
 
     /// <summary>
     /// Display the data type next to the column name (to the right, in parentheses).
     /// </summary>
-    let tableColumnDataTypeInline (active: bool option) =
-        fun () -> 
-            match active with
-            | Some v -> CoreConfig.TableColumnDataTypeInline <- Nullable v
-            | None   -> CoreConfig.TableColumnDataTypeInline <- Nullable ()
+    let tableColumnDataTypeInline (active: Active) =
+        fun () -> CoreConfig.TableColumnDataTypeInline <- active.ToNative()
 
     /// <summary>
     /// Configures whether Polars should run in verbose mode, printing query profiles and optimization decisions.
     /// </summary>
-    let verbose (active: bool option) =
-        fun () -> 
-            match active with
-            | Some v -> CoreConfig.Verbose <- Nullable v
-            | None   -> CoreConfig.Verbose <- Nullable ()
+    let verbose (active: Active) =
+        fun () -> CoreConfig.Verbose <- active.ToNative()
 
     /// <summary>
     /// Print the DataFrame shape information below the data when displaying tables.
     /// </summary>
-    let tableDataFrameShapeBelow (active: bool option) =
-        fun () -> 
-            match active with
-            | Some v -> CoreConfig.TableDataFrameShapeBelow <- Nullable v
-            | None   -> CoreConfig.TableDataFrameShapeBelow <- Nullable ()
+    let tableDataFrameShapeBelow (active: Active) =
+        fun () ->  CoreConfig.TableDataFrameShapeBelow <- active.ToNative()
 
     /// <summary>
     /// Sets the text/ASCII formatting style for outputting DataFrames.
     /// </summary>
-    let tableFormatting (format: TableFormatting option, roundedCorners: bool option) =
-        fun () -> 
-            let nativeFormat =             
-                match format with 
-                | Some e -> Nullable (e.ToNative()) 
-                | None   -> Nullable ()
-            let rc =             
-                match roundedCorners with
-                | Some v -> Nullable v
-                | None   -> Nullable false
-            CoreConfig.TableFormatting <- nativeFormat, rc
+    let tableFormatting (format: TableFormatting, roundedCorners: Active) =
+        fun () -> CoreConfig.TableFormatting <- format.ToNative(), roundedCorners.ToNative()
 
     /// <summary>
     /// Hide table column data types (i64, f64, str etc.).
     /// </summary>
-    let tableHideColumnDataTypes (active: bool option) =
-        fun () -> 
-            match active with
-            | Some v -> CoreConfig.TableHideColumnDataTypes <- Nullable v
-            | None   -> CoreConfig.TableHideColumnDataTypes <- Nullable ()
+    let tableHideColumnDataTypes (active: Active) =
+        fun () ->  CoreConfig.TableHideColumnDataTypes <- active.ToNative()
 
     /// <summary>
     /// Hide table column names.
     /// </summary>
-    let tableHideColumnNames (active: bool option) =
-        fun () -> 
-            match active with
-            | Some v -> CoreConfig.TableHideColumnNames <- Nullable v
-            | None   -> CoreConfig.TableHideColumnNames <- Nullable ()
+    let tableHideColumnNames (active: Active) =
+        fun () -> CoreConfig.TableHideColumnNames <- active.ToNative()
 
     /// <summary>
     /// Hide the DataFrame shape information when displaying tables.
     /// </summary>
-    let tableHideDataFrameShape (active: bool option) =
-        fun () -> 
-            match active with
-            | Some v -> CoreConfig.TableHideDataFrameShape <- Nullable v
-            | None   -> CoreConfig.TableHideDataFrameShape <- Nullable ()
+    let tableHideDataFrameShape (active: Active) =
+        fun () -> CoreConfig.TableHideDataFrameShape <- active.ToNative()
 
     /// <summary>
     /// Hide the ‘—’ separator displayed between the column names and column types.
     /// </summary>
-    let tableHideDataTypeSeparator (active: bool option) =
-        fun () -> 
-            match active with
-            | Some v -> CoreConfig.TableHideDataTypeSeparator <- Nullable v
-            | None   -> CoreConfig.TableHideDataTypeSeparator <- Nullable ()
+    let tableHideDataTypeSeparator (active: Active) =
+        fun () -> CoreConfig.TableHideDataTypeSeparator <- active.ToNative()
 
     /// <summary>
     /// Set the maximum width of a table in characters.
     /// </summary>
-    let tableWidthChars (width: int option) =
-        fun () -> 
-            match width with
-            | Some v -> CoreConfig.TableWidthChars <- Nullable v
-            | None   -> CoreConfig.TableWidthChars <- Nullable ()
+    let tableWidthChars (width: NumSet) =
+        fun () -> CoreConfig.TableWidthChars <- width.ToNative()
 
     /// <summary>
     /// Set the maximum Retires for Delta Table operations.
     /// </summary>
-    let deltaMaxRetries (retries: int option) =
-        fun () -> 
-            match retries with
-            | Some v -> CoreConfig.PolarsDeltaMaxRetry <- Nullable v
-            | None   -> CoreConfig.PolarsDeltaMaxRetry <- Nullable ()
+    let deltaMaxRetries (retries: NumSet) =
+        fun () -> CoreConfig.PolarsDeltaMaxRetry <- retries.ToNative()
