@@ -41,7 +41,7 @@ jobs:
             use_cross: true 
             rustflags: "-C target-feature=-crt-static -C target-cpu=x86-64-v3"
             container: null
-            lto_type: "thin"
+            lto_type: "fat"
             
           # --- Linux ARM64 glibc---
           - os: ubuntu-latest
@@ -70,7 +70,7 @@ jobs:
             use_cross: false
             rustflags: "-C target-cpu=x86-64-v3"
             container: null
-            lto_type: "thin"
+            lto_type: "fat"
 
           # MacOS ARM64 (Apple Silicon) - 
           - os: macos-latest
@@ -79,8 +79,8 @@ jobs:
             artifact_name: libnative_shim.dylib
             use_cross: false
             container: null
-            lto_type: "thin"
-
+            lto_type: "fat"
+            
     container: ${{ matrix.container }}
 
     steps:
