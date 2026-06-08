@@ -5,7 +5,6 @@ open System
 open Polars.NET.Core
 open System.Threading.Tasks
 open Polars.NET.Core.Helpers
-open System.Diagnostics
 type CjkColumnOptions = {
     Chinese       : bool
     Japanese      : bool
@@ -1198,15 +1197,12 @@ module pl =
         }
     /// --- Config ---
     let setEnvVar (key:string) (value:string) = 
-        PolarsWrapper.SetEnvVar(key,value)
-    let setEnvVarPrefixKey suffix value =
-        setEnvVar ("POLARS_" + suffix) value
-    let setEnvVarAll vars =
-        vars |> Seq.iter (fun (k, v) -> PolarsWrapper.SetEnvVar(k, v))
+        Config.set key value
     let threadPoolSize() = 
-        match Option.ofNullable CoreConfig.ThreadPoolSize with
-        | Some v -> int v
-        | None -> Process.GetCurrentProcess().Threads.Count
+        CoreConfig.ThreadPoolSize 
+        |> Option.ofNullable 
+        |> Option.map int
+        |> Option.defaultWith (fun () -> Environment.ProcessorCount)
     /// <summary> Accumulate over multiple columns horizontally/row-wise. </summary>
     let fold (f: Expr -> Expr -> Expr) (acc: Expr) (exprs: seq<Expr>) : Expr =
         Seq.fold f acc exprs

@@ -52,25 +52,22 @@ type ConfigScope =
 /// </summary>
 [<RequireQualifiedAccess>] 
 module Config =
-
+    let internal setEnv (k, v) = 
+        PolarsWrapper.SetEnvVar(k, v)
+        PolarsWrapper.ReloadEnvVar k
+    let internal setEnvKvp (kvp: KeyValuePair<string, string>) = 
+        setEnv(kvp.Key, kvp.Value)
     /// Inject Environment var to Rust
-    let set (key: string) (value: string) =
-        PolarsWrapper.SetEnvVar(key, value)
-        PolarsWrapper.ReloadEnvVar key
+    let set (key: string) (value: string) = (key,value) |> setEnv
 
     /// Inject Environment vars to Rust from KeyValuePair sequence
-    let setFromKvp (variables: seq<KeyValuePair<string, string>>) =
+    let setMap (variables: Map<string, string>) =
         ArgumentNullException.ThrowIfNull(variables)
-        for kvp in variables do
-            PolarsWrapper.SetEnvVar(kvp.Key, kvp.Value)
-        PolarsWrapper.ReloadEnvVarAll()
-
+        variables |> Seq.iter setEnvKvp
     /// Inject Environment vars to Rust from a sequence of tuples
     let setMany (variables: seq<string * string>) =
         ArgumentNullException.ThrowIfNull(variables)
-        for key, value in variables do
-            PolarsWrapper.SetEnvVar(key, value)
-        PolarsWrapper.ReloadEnvVarAll()
+        variables |> Seq.iter setEnv
     /// <summary>
     /// Save the current set of Config options as a JSON string.
     /// </summary>
@@ -132,12 +129,11 @@ module Config =
     /// </summary>
     /// <param name="actions">A sequence of configuration modification actions (unit -> unit).</param>
     /// <param name="f">The operation to execute within this configuration scope.</param>
-    let withConfig (actions: seq<unit -> unit>) (f: unit -> 'T) : 'T =
+    let withConfig (actions: list<unit -> unit>) (f: unit -> 'T) : 'T =
         ArgumentNullException.ThrowIfNull actions
         let backupPayload = CoreConfig.Save(ifSet = false)
         try
-            for action in actions do
-                action ()
+            actions |> List.iter (fun f -> f ())
             PolarsWrapper.ReloadEnvVarAll()
             f ()
         finally
@@ -161,21 +157,7 @@ module Config =
         fun () -> CoreConfig.DecimalSeparator <- separator.ToNative()
 
     /// <summary>
-    /// Configures the thousands separator with a shortcut boolean.
-    /// If true, applies standard English format: sets thousands separator to ',' and decimal separator to '.'.
-    /// If false, clears the thousands separator.
-    /// </summary>
-    let thousandsSeparatorFormat (useDefaultFormat: bool) =
-        fun () ->
-            if useDefaultFormat then
-                CoreConfig.DecimalSeparator <- (CharSet.Set '.').ToNative()
-                CoreConfig.ThousandsSeparator <- (CharSet.Set ',').ToNative()
-            else
-                CoreConfig.ThousandsSeparator <- CharSet.ResetToDefault.ToNative()
-
-    /// <summary>
     /// Configures the thousands separator with a specific single character.
-    /// Set to None to clear/reset the separator.
     /// </summary>
     let thousandsSeparator (separator: CharSet) =
         fun () -> CoreConfig.ThousandsSeparator <- separator.ToNative()
@@ -202,8 +184,7 @@ module Config =
     /// Control how floating point values are displayed.
     /// </summary>
     let formatFloat (format: FloatFormat) =
-        fun () -> 
-            CoreConfig.FloatFormat <- format.ToNative()
+        fun () -> CoreConfig.FloatFormat <- format.ToNative()
 
     /// <summary>
     /// Set the number of characters used to display string values.

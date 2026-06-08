@@ -254,19 +254,19 @@ type Series(handle: SeriesHandle) =
     /// Supports: Primitives, String, DateTime, DateOnly, TimeOnly, List, Struct.
     /// </summary>
     member this.AsSeq<'T>() : seq<'T option> =
-        seq {
-            use cArray = PolarsWrapper.SeriesToArrow this.Handle
-            
-            let accessor = ArrowReader.GetSeriesAccessor<'T> cArray
-            let len = cArray.Length
+        use cArray = PolarsWrapper.SeriesToArrow this.Handle
+        
+        let accessor = ArrowReader.GetSeriesAccessor<'T> cArray
+        let len = int cArray.Length 
 
-            for i in 0 .. len - 1 do
+        let result = 
+            Array.init len (fun i ->
                 let valObj = accessor.Invoke i
-                if isNull valObj then 
-                    None 
-                else 
-                    Some(unbox<'T> valObj)
-        }
+                if isNull valObj then None 
+                else Some(unbox<'T> valObj)
+            )
+
+        result :> seq<'T option>
     /// <summary>
     /// Get values as a list (forces evaluation).
     /// </summary>
@@ -949,11 +949,13 @@ and DataFrame(handle: DataFrameHandle) =
     member this.Dispose() =
         if not this.Handle.IsInvalid then 
             this.Handle.Dispose()
+        let targets = backingResources.ToArray()
 
-        for res in backingResources do
-            res.Dispose()
-            
         backingResources.Clear()
+
+        targets |> Array.iter (fun res -> 
+            if not (isNull res) then res.Dispose())
+
         GC.SuppressFinalize this
     /// <summary>
     /// Check if this DataFrame is strictly equal to another DataFrame.
@@ -997,12 +999,9 @@ and DataFrame(handle: DataFrameHandle) =
 
     interface IEnumerable<Series> with
         member this.GetEnumerator() : IEnumerator<Series> =
-            let seq = seq {
-                let w = this.Columns.Length
-                for i in 0 .. w - 1 do
-                    yield this.Column(i)
-            }
-            seq.GetEnumerator()
+            let cols = Array.init this.Columns.Length (fun i -> this.Column(i))
+            
+            (cols :> IEnumerable<Series>).GetEnumerator()
 
     interface IEnumerable with
         member this.GetEnumerator() : IEnumerator =

@@ -1,6 +1,5 @@
 #pragma warning disable 1591
 #pragma warning disable 0618
-using System.Diagnostics;
 using System.Text.RegularExpressions;
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
@@ -831,7 +830,7 @@ public readonly partial struct Polars
     /// Return the number of threads in the Polars thread pool.
     /// </summary>
     public static ulong ThreadPoolSize()
-        => CoreConfig.ThreadPoolSize ?? (ulong)Process.GetCurrentProcess().Threads.Count;
+        => CoreConfig.ThreadPoolSize ?? (ulong)Environment.ProcessorCount;
 }
 
 internal static class InterfaceUnwrapperExtensions
