@@ -58,6 +58,12 @@ public enum PlPivotAgg: byte
     Last = 8
 }
 
+public enum PlPivotColumnNaming: byte
+{
+    Auto = 0,
+    Combine = 1,
+}
+
 public enum PlTimeUnit: byte
 {
     Nanoseconds = 0,
@@ -100,6 +106,8 @@ public enum PlLabel: byte
     DataPoint = 2
 }
 
+
+
 public enum PlEngine : byte
 {
     Auto = 0,
@@ -108,6 +116,52 @@ public enum PlEngine : byte
     Gpu = 3
 }
 
+public enum PlFloatFormat: byte
+{
+    Mixed = 0,
+    Full = 1
+}
+
+public enum PlTableCellAlignment: byte
+{
+    Left,Center,Right
+}
+
+public enum PlTableFormatting: byte
+{
+    AsciiFull,
+    AsciiFullCondensed,
+    AsciiNoBorders,
+    AsciiBordersOnly, 
+    AsciiBordersOnlyCondensed, 
+    AsciiHorizontalOnly, 
+    AsciiMarkdown,
+    Markdown,
+    Utf8Full, 
+    Utf8FullCondensed, 
+    Utf8NoBorders,
+    Utf8BordersOnly,
+    Utf8HorizontalOnly,
+    Nothing
+}
+public enum PlResolveMode:byte
+{
+    None = 0,
+    RowCounts = 1,
+    Full = 2
+}
+
+public enum PlOOCSpillPolicy: byte 
+{
+    NoSpill = 0,
+    Spill = 1
+}
+
+public enum PlOOCSpillFormat: byte 
+{
+    Ipc = 0
+    
+}
 public enum PlStartBy : byte
 {
     WindowBound = 0,

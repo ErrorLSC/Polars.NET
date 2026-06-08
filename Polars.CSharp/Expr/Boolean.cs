@@ -8,7 +8,7 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <summary>
     /// Check whether the expression contains one or more null values.
     /// </summary>
-    public Expr HasNulls() => NullCount() > 0;
+    public Expr HasNulls() => new(PolarsWrapper.HasNulls(CloneHandle()));
     /// <summary>
     /// Check if the value is between lower and upper bounds (inclusive).
     /// </summary>

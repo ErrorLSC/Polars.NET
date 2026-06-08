@@ -1492,7 +1492,7 @@ David,40,80000";
         {
             using var schema = PolarsSchema.From<StaffRecord>();
 
-            using var lf = LazyFrame.ScanCsv(fileName, schema: schema,hasHeader:false);
+            using var lf = LazyFrame.ScanCsv(fileName, schema: schema,hasHeader:false,truncateRaggedLines:true);
             
             using var lfWithBonus = lf.WithColumns((Pl.Col("salary") * 0.1).Alias("bonus"));
 
@@ -2420,10 +2420,6 @@ David,40,80000";
         using var ctx = new SqlContext();
         using var db = new PolarsDataContext(ctx);
 
-        // 构造测试数据
-        // Ratio 用于反三角函数输入 (-1 到 1)
-        // Deg 用于基于角度的三角函数输入 (如 30度, 90度)
-        // Rad 用于弧度和余切输入
         var mockData = new[] 
         { 
             new { Id = 1, Ratio = 0.5, Deg = 30.0, Rad = 0.523, Y = 1.0, X = 1.0 },

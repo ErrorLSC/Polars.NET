@@ -2,12 +2,14 @@ use polars::prelude::file::Writeable;
 use polars::prelude::file_provider::HivePathProvider;
 use polars::prelude::*;
 use polars_io::cloud::CloudOptions;
-use std::ffi::CStr;
+// use polars_plan::dsl::sink::{SinkedPathsCallback, SinkedPathsCallbackArgs};
+use std::ffi::{CStr};
 use std::os::raw::c_char;
 use std::sync::Mutex;
 use crate::pl_io::ffi_buffer::SharedMemoryWriter;
 use crate::types::SelectorContext;
 use crate::utils::{map_sync_on_close,ptr_to_str};
+// use crate::utils::{FreeHandleCallback, FreeStringCallback, GcHandleGuard, MapStringCallback};
 
 fn ms_to_duration(ms: u64) -> Option<std::time::Duration> {
     if ms == 0 {
@@ -79,6 +81,43 @@ pub(crate) unsafe fn build_cloud_options(
     Some(opts)
 }
 
+// pub(crate) fn build_sinked_paths_callback(
+//     callback: MapStringCallback,
+//     free_string_cb: FreeStringCallback,
+//     gc_handle_ptr: *mut c_void,
+//     free_handle_cb: FreeHandleCallback,
+// ) -> SinkedPathsCallback {
+//     let handle_guard = GcHandleGuard {
+//         handle_ptr: gc_handle_ptr,
+//         free_cb: free_handle_cb,
+//     };
+
+//     let inner_plan_callback = PlanCallback::Rust(SpecialEq::new(Arc::new(
+//         move |args: SinkedPathsCallbackArgs| -> PolarsResult<()> {
+//             let _keep_alive = &handle_guard;
+
+//             let paths_joined = args.path_info_list
+//                 .iter()
+//                 .map(|info| info.path.as_str())
+//                 .collect::<Vec<&str>>()
+//                 .join(";");
+
+//             let c_paths = std::ffi::CString::new(paths_joined)
+//                 .map_err(|_| PolarsError::ComputeError("Invalid UTF-8 path list".into()))?;
+
+//             let result_ptr = callback(c_paths.as_ptr());
+            
+//             if !result_ptr.is_null() {
+//                 free_string_cb(result_ptr);
+//             }
+
+//             Ok(())
+//         }
+//     )));
+
+//     SinkedPathsCallback::Callback(inner_plan_callback)
+// }
+
 #[inline]
 pub(crate) unsafe fn build_unified_sink_args(
     mkdir: bool,
@@ -93,7 +132,11 @@ pub(crate) unsafe fn build_unified_sink_args(
     cloud_cache_ttl: u64,
     cloud_keys: *const *const c_char,
     cloud_values: *const *const c_char,
-    cloud_len: usize
+    cloud_len: usize,
+    // path_callback: Option<MapStringCallback>, 
+    // free_string_cb: Option<FreeStringCallback>,
+    // gc_handle_ptr: *mut c_void,
+    // free_handle_cb: Option<FreeHandleCallback>,
 ) -> UnifiedSinkArgs {
     
     // CloudOptions
@@ -112,12 +155,23 @@ pub(crate) unsafe fn build_unified_sink_args(
     // SyncOnClose
     let sync_on_close = map_sync_on_close(sync_on_close_code);
 
+    // let sinked_paths_callback = if let (Some(cb), Some(free_str), Some(free_handle)) = (path_callback, free_string_cb, free_handle_cb) {
+    //         Some(build_sinked_paths_callback(
+    //             cb,
+    //             free_str,
+    //             gc_handle_ptr,
+    //             free_handle,
+    //         ))
+    //     } else {
+    //         None
+    //     };
     // Return
     UnifiedSinkArgs {
         mkdir,
         maintain_order,
         sync_on_close,
         cloud_options,
+        sinked_paths_callback:None
     }
 }
 

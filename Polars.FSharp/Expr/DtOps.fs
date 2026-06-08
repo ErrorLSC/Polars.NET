@@ -258,17 +258,18 @@ type [<Struct>] DtOps(handle: ExprHandle) =
         let mask = defaultArg weekMask [| true; true; true; true; true; false; false |]
         let r = defaultArg roll Roll.Raise
         
-        let epoch = DateOnly(1970, 1, 1).DayNumber
-        let holidayInts = 
+        let dateSeries = 
             match holidays with
-            | Some hols -> hols |> Seq.map (fun d -> d.DayNumber - epoch) |> Seq.toArray
-            | None -> [||]
+            | Some ho -> Series.create("__Date__",ho).Implode()
+            | None -> Series.create("__Date__",[||]).Cast<DateOnly>().Implode()
+        
+        let dateHandle = PolarsWrapper.Lit dateSeries.Handle
 
         new Expr(PolarsWrapper.DtAddBusinessDays(
             handle, 
             n.CloneHandle(), 
             mask, 
-            holidayInts, 
+            dateHandle, 
             r.ToNative()
         ))
 
@@ -292,16 +293,17 @@ type [<Struct>] DtOps(handle: ExprHandle) =
     member this.IsBusinessDay(?weekMask: bool[], ?holidays: seq<DateOnly>) =
         let mask = defaultArg weekMask [| true; true; true; true; true; false; false |]
         
-        let epoch = DateOnly(1970, 1, 1).DayNumber
-        let holidayInts = 
+        let dateSeries = 
             match holidays with
-            | Some hols -> hols |> Seq.map (fun d -> d.DayNumber - epoch) |> Seq.toArray
-            | None -> [||]
+            | Some ho -> Series.create("__Date__",ho).Implode()
+            | None -> Series.create("__Date__",[||]).Cast<DateOnly>().Implode()
+        
+        let dateHandle = PolarsWrapper.Lit dateSeries.Handle
 
         new Expr(PolarsWrapper.DtIsBusinessDay(
             handle,
             mask,
-            holidayInts
+            dateHandle
         ))
     /// <summary>
     /// Get the time passed since the Unix epoch (1970-01-01 00:00:00).
@@ -321,8 +323,8 @@ type [<Struct>] DtOps(handle: ExprHandle) =
         | EpochTimeUnit.Milliseconds -> this.Timestamp(TimeUnit.Milliseconds)
         | EpochTimeUnit.Second -> this.Timestamp(TimeUnit.Milliseconds).FloorDiv(new Expr(PolarsWrapper.Lit 1000L))
         | EpochTimeUnit.Day -> 
-            let h1 = PolarsWrapper.ExprCast(handle,DataType.Date.ToDataTypeExpr().handle,true,false)
-            new Expr(PolarsWrapper.ExprCast(h1,DataType.Int32.ToDataTypeExpr().handle,true,false))
+            let h1 = PolarsWrapper.ExprCast(handle,DataType.Date.ToDataTypeExpr().Handle,true,false)
+            new Expr(PolarsWrapper.ExprCast(h1,DataType.Int32.ToDataTypeExpr().Handle,true,false))
     /// <summary>
     /// Replace the datetime components of the underlying Datetime/Date.
     /// </summary>

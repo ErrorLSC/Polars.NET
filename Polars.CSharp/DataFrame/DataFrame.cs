@@ -302,31 +302,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
         }
     }
 
-    /// <summary>
-    /// Take rows by physical integer indices.
-    /// Note: Negative indices are not supported. All values must be >= 0.
-    /// </summary>
-    /// <param name="indices">A Series containing integer indices (e.g., UInt32, Int32).</param>
-    /// <exception cref="ArgumentException">Thrown when the series is not an integer type.</exception>
-    public DataFrame Take(Series indices)
-    {
-        if (!indices.DataType.IsInteger)
-        {
-            throw new ArgumentException($"Take requires an integer Series, but got {indices.DataType.Kind}.", nameof(indices));
-        }
-
-        try
-        {
-            return new DataFrame(PolarsWrapper.DataFrameTake(Handle, indices.Handle));
-        }
-        catch (Exception ex) when (ex.Message.Contains("OutOfBounds") || ex.Message.Contains("out of bounds"))
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(indices), 
-                "Index out of bounds. This may be caused by index values exceeding the DataFrame's height, or by using negative indices which are not supported in Take.");
-        }
-    }
-
     // ==========================================
     // Sampling
     // ==========================================
@@ -366,9 +341,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
 
         return schema.ToDataFrame(n);
     }
-    /// <inheritdoc cref="LazyFrame.GatherEvery(int, int)"/>
-    public DataFrame GatherEvery(int n, int offset = 0)
-        => Select(Pl.All().GatherEvery((ulong)n, (ulong)offset));
+
     /// <inheritdoc cref="LazyFrame.Interpolate"/>
     public DataFrame Interpolate()
         => Select(Pl.All().Interpolate(InterpolationMethod.Linear));

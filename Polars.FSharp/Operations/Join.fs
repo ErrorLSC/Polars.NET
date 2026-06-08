@@ -257,8 +257,44 @@ module JoinOps =
                     ?coalesce = coalesce, ?maintainOrder=maintainOrder,?joinSide=joinSide,
                     ?nullsEqual = nullsEqual, ?sliceOffset = sliceOffset , ?sliceLen = sliceLen 
                 )
+        /// <summary>
+        /// Join with another LazyFrame using multiple boolean expressions.
+        /// </summary>
+        member this.JoinWhere(other:LazyFrame,predicates:seq<Expr>,?how,?suffix,?validation,?coalesce,?maintainOrder,?nullsEqual) =
+            let pre = predicates |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
+            let ho = defaultArg how JoinType.Inner |> _.ToNative()
+            let suf = defaultArg suffix null
+            let va = defaultArg validation JoinValidation.ManyToMany |> _.ToNative()
+            let coa = defaultArg coalesce JoinCoalesce.JoinSpecific |> _.ToNative()
+            let ma = defaultArg maintainOrder JoinMaintainOrder.NotMaintainOrder |> _.ToNative()
+            let nul = defaultArg nullsEqual false
+            let h = PolarsWrapper.JoinWhere(
+                this.CloneHandle(),
+                other.CloneHandle(),
+                pre,ho,suf,va,coa,ma,nul
+            )
+            new LazyFrame(h)
+        member this.MergeSorted(other:LazyFrame,key,?maintainOrder) =
+            let ma = defaultArg maintainOrder false
+            let h = PolarsWrapper.MergeSorted(this.CloneHandle(),other.CloneHandle(),key,ma)
+            new LazyFrame(h)
+            
     type DataFrame with
-        /// <summary> Join with another DataFrame. </summary>
+        /// <summary>
+        /// Join with another DataFrame.
+        /// </summary>
+        /// <param name="other">The right DataFrame to join with.</param>
+        /// <param name="leftOn">Column names in the left DataFrame to join on.</param>
+        /// <param name="rightOn">Column names in the right DataFrame to join on.</param>
+        /// <param name="how">Type of join (Inner, Left, Outer, Cross, etc.). Default is Inner.</param>
+        /// <param name="suffix">Suffix to append to columns with same name in right DataFrame. Default "_right".</param>
+        /// <param name="validation">Check if join keys are unique.</param>
+        /// <param name="coalesce">How to coalesce the join keys.</param>
+        /// <param name="maintainOrder">How to maintain the order of the join.</param>
+        /// <param name="joinSide">Specifies the strategy for the hash join build side.</param>
+        /// <param name="nullsEqual">Consider nulls as equal.</param>
+        /// <param name="sliceOffset">Slice the result starting at this offset.</param>
+        /// <param name="sliceLen">Length of the slice.</param>
         member this.Join (other: DataFrame,
                         leftOn: seq<Expr>,
                         rightOn: seq<Expr>,
@@ -300,6 +336,9 @@ module JoinOps =
                 ?sliceLen=sliceLen
             )
             lf.Collect()
+        /// <summary>
+        /// Join with another DataFrame with single on Expr.
+        /// </summary>
         member this.Join(other, 
                         on: Expr seq, 
                         how: JoinType,
@@ -315,6 +354,47 @@ module JoinOps =
             this.Join(other,leftOn=on,rightOn=on,how = how,
                 ?suffix=suffix,?validation=validation,?coalesce=coalesce,?maintainOrder=maintainOrder,
                 ?joinSide=joinSide,?nullsEqual=nullsEqual,?sliceOffset=sliceOffset,?sliceLen=sliceLen)
+        /// <summary>
+        /// Perform an As-of join (also known as a time-series join).
+        /// <para>
+        /// This is similar to a left join except that we match on nearest key rather than equal keys.
+        /// The join keys must be sorted.
+        /// </para>
+        /// </summary>
+        /// <param name="other">The right LazyFrame to join with.</param>
+        /// <param name="leftOn">Join key of the left LazyFrame. Must be sorted.</param>
+        /// <param name="rightOn">Join key of the right LazyFrame. Must be sorted.</param>
+        /// <param name="tolerance">
+        /// Tolerance as a time duration string (e.g., "2h", "10s", "1d"), int or double or TimeSpan. 
+        /// Matches that are further away than this duration are discarded.
+        /// </param>
+        /// <param name="strategy">
+        /// The strategy to determine which value is "nearest" (Backward, Forward, or Nearest).
+        /// Defaults to <see cref="AsofStrategy.Backward"/>.
+        /// </param>
+        /// <param name="leftBy">
+        /// Columns to match exactly (equivalence join) before performing the as-of join. 
+        /// Useful for joining separate time-series per group (e.g., by "Symbol").
+        /// </param>
+        /// <param name="rightBy">
+        /// Columns to match exactly in the right DataFrame.
+        /// </param>
+        /// <param name="allowEq">
+        /// If true, allow exact matches to be included in the result. 
+        /// If false, a match must be strictly unequal (e.g. less than for Backward strategy) to the key.
+        /// </param>
+        /// <param name="checkSorted">
+        /// Check if the join keys are sorted. 
+        /// If false, the user must ensure keys are sorted; otherwise results are undefined (but execution is faster).
+        /// </param>
+        /// <param name="suffix">Suffix to append to columns with name conflicts. Defaults to "_right".</param>
+        /// <param name="validation">Check if join keys are unique (mostly relevant for the 'by' columns).</param>
+        /// <param name="coalesce">How to coalesce the join keys.</param>
+        /// <param name="maintainOrder">How to maintain the order of the join.</param>
+        /// <param name="joinSide">pecifies the strategy for the hash join build side.</param>
+        /// <param name="nullsEqual">Consider nulls as equal.</param>
+        /// <param name="sliceOffset">Slice the result starting at this offset (optimization).</param>
+        /// <param name="sliceLen">Length of the slice to keep.</param>
         member this.JoinAsOf(other: DataFrame, 
                             leftOn: Expr, 
                             rightOn: Expr, 
@@ -342,4 +422,14 @@ module JoinOps =
                     ?coalesce = coalesce, ?maintainOrder=maintainOrder,?joinSide=joinSide,
                     ?nullsEqual = nullsEqual, ?sliceOffset = sliceOffset , ?sliceLen = sliceLen 
                 ).Collect()
+        /// <summary>
+        /// Join with another LazyFrame using multiple boolean expressions.
+        /// </summary>
+        member this.JoinWhere(other:DataFrame,predicates:seq<Expr>,?how,?suffix,?validation,?coalesce,?maintainOrder,?nullsEqual):DataFrame =
+            this.Lazy().JoinWhere(other.Lazy(),predicates,?how=how,?suffix=suffix,?validation=validation,?coalesce=coalesce,
+            ?maintainOrder=maintainOrder,?nullsEqual=nullsEqual).Collect()
+        member this.MergeSorted(other:DataFrame,key,?maintainOrder):DataFrame=
+            this.Lazy().MergeSorted(other.Lazy(),key,?maintainOrder=maintainOrder).Collect()
+    
+        
 

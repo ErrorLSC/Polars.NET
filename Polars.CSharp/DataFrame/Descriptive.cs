@@ -271,12 +271,20 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// Generates an HTML representation of the DataFrame.
     /// Useful for rendering in Jupyter/Polyglot Notebooks.
     /// </summary>
-    /// <param name="limit">Max rows to display (default 10).</param>
-    public string ToHtml(int limit = 10)
+    public string ToHtml()
     {
-        int rowsToShow = (int)Math.Min(Height, limit);
+        int? configRows = CoreConfig.TableMaxRows;
+        int rowsToShowSetting = (configRows.HasValue && configRows.Value > 0) ? configRows.Value : 10;
+        int rowsToShow = (int)Math.Min(Height, rowsToShowSetting);
+
+        int? configCols = CoreConfig.TableMaxCols;
+        int maxColsToShow = (configCols.HasValue && configCols.Value > 0) ? configCols.Value : 8;
+
+        int rawColCount = (int)Width;
+        bool isColTruncated = rawColCount > maxColsToShow;
+        int colCount = isColTruncated ? maxColsToShow : rawColCount;
+
         using var previewDf = this.Head(rowsToShow);
-        
         using var batch = ArrowFfiBridge.ExportDataFrame(previewDf.Handle);
         var schema = batch.Schema;
 
@@ -295,18 +303,23 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
 </style>");
 
         // Dimensions Info
-        sb.Append($"<div class='pl-dim'>Polars DataFrame: <b>({Height} rows, {Width} columns)</b></div>");
+        sb.Append($"<div class='pl-dim'>Polars DataFrame: <b>({Height} rows, {rawColCount} columns)</b></div>");
         
         sb.Append("<div style='overflow-x:auto'><table class='pl-dataframe'>");
 
         // Header (From Arrow Schema)
         sb.Append("<thead><tr>");
-        foreach (var field in schema.FieldsList)
+        for (int c = 0; c < colCount; c++)
         {
+            var field = schema.FieldsList[c];
             var colName = System.Net.WebUtility.HtmlEncode(field.Name);
             var colType = field.DataType.Name; 
             
             sb.Append($"<th>{colName}<span class='pl-dtype'>{colType}</span></th>");
+        }
+        if (isColTruncated)
+        {
+            sb.Append("<th>...</th>");
         }
         sb.Append("</tr></thead>");
 
@@ -314,7 +327,6 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         sb.Append("<tbody>");
         
         int rowCount = batch.Length;
-        int colCount = batch.ColumnCount;
 
         for (int r = 0; r < rowCount; r++)
         {
@@ -350,14 +362,19 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
                     sb.Append($"<td>{System.Net.WebUtility.HtmlEncode(valStr)}</td>");
                 }
             }
+            if (isColTruncated)
+            {
+                sb.Append("<td style='font-style:italic; opacity: 0.5; text-align:center'>...</td>");
+            }
             sb.Append("</tr>");
         }
         
         // Footer for hidden rows
+        int finalDisplayColSpan = isColTruncated ? colCount + 1 : colCount;
         long remaining = Height - rowsToShow;
         if (remaining > 0)
         {
-             sb.Append($"<tr><td colspan='{colCount}' style='text-align:center; font-style:italic; opacity: 0.6; padding: 10px'>... {remaining} more rows ...</td></tr>");
+             sb.Append($"<tr><td colspan='{finalDisplayColSpan}' style='text-align:center; font-style:italic; opacity: 0.6; padding: 10px'>... {remaining} more rows ...</td></tr>");
         }
 
         sb.Append("</tbody></table></div>");

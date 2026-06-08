@@ -50,7 +50,7 @@ pub fn write_excel_native(
                 let ca = series.cast(&DataType::Int64)?; 
                 let ca_i64 = ca.i64()?;
                 
-                for (row_offset, opt_val) in ca_i64.into_iter().enumerate() {
+                for (row_offset, opt_val) in ca_i64.iter().enumerate() {
                     if let Some(v) = opt_val {
                         worksheet.write_number((row_offset + 1) as u32, col_u16, v as f64)
                             .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
@@ -64,7 +64,7 @@ pub fn write_excel_native(
                 let s_str = series.cast(&DataType::String)?;
                 let ca = s_str.str()?;
                 
-                for (row_offset, opt_val) in ca.into_iter().enumerate() {
+                for (row_offset, opt_val) in ca.iter().enumerate() {
                     if let Some(v) = opt_val {
                         worksheet.write_string((row_offset + 1) as u32, col_u16, v)
                             .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
@@ -77,7 +77,7 @@ pub fn write_excel_native(
                 let ca = series.cast(&DataType::Float64)?;
                 let ca_f64 = ca.f64()?;
 
-                for (row_offset, opt_val) in ca_f64.into_iter().enumerate() {
+                for (row_offset, opt_val) in ca_f64.iter().enumerate() {
                     if let Some(v) = opt_val {
                          worksheet.write_number((row_offset + 1) as u32, col_u16, v)
                             .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
@@ -88,7 +88,7 @@ pub fn write_excel_native(
             // --- String ---
             DataType::String => {
                 let ca = series.str()?;
-                for (row_offset, opt_val) in ca.into_iter().enumerate() {
+                for (row_offset, opt_val) in ca.iter().enumerate() {
                     if let Some(v) = opt_val {
                         worksheet.write_string((row_offset + 1) as u32, col_u16, v)
                             .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
@@ -99,7 +99,7 @@ pub fn write_excel_native(
             // --- Boolean ---
             DataType::Boolean => {
                 let ca = series.bool()?;
-                for (row_offset, opt_val) in ca.into_iter().enumerate() {
+                for (row_offset, opt_val) in ca.iter().enumerate() {
                     if let Some(v) = opt_val {
                         worksheet.write_boolean((row_offset + 1) as u32, col_u16, v)
                             .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
@@ -148,7 +148,7 @@ pub fn write_excel_native(
             _ => {
                 if let Ok(s_str) = series.cast(&DataType::String) {
                      let ca = s_str.str()?;
-                     for (row_offset, opt_val) in ca.into_iter().enumerate() {
+                     for (row_offset, opt_val) in ca.iter().enumerate() {
                         if let Some(v) = opt_val {
                             worksheet.write_string((row_offset + 1) as u32, col_u16, v)
                                 .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;

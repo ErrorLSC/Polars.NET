@@ -253,6 +253,7 @@ pub extern "C" fn pl_lazyframe_sink_csv_memory(
             maintain_order,
             sync_on_close: Default::default(),
             cloud_options: None,
+            sinked_paths_callback:None
         };
 
         let sink_lf = lf_ctx.inner

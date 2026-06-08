@@ -175,16 +175,13 @@ module Merge =
         let srcSchema = plan.Source.Schema
         let tgtSchema = plan.Target.Schema
 
-        for key in plan.On do
-            if not (List.contains key srcSchema.Names) then
-                invalidArg "on" $"Key '{key}' not found in source."
-            if not (List.contains key tgtSchema.Names) then
-                invalidArg "on" $"Key '{key}' not found in target."
+        plan.On |> Array.iter (fun key ->
+            if not (srcSchema.ContainsKey key) then invalidArg "on" $"Key '{key}' not found in source."
+            if not (tgtSchema.ContainsKey key) then invalidArg "on" $"Key '{key}' not found in target."
 
-            let srcType = srcSchema.[key]
-            let tgtType = tgtSchema.[key]
-            if srcType <> tgtType then
-                invalidArg "on" $"Key type mismatch for '{key}': source: {srcType}, target: {tgtType}."
+            if srcSchema.[key] <> tgtSchema.[key] then
+                invalidArg "on" $"Key type mismatch for '{key}': source: {srcSchema.[key]}, target: {tgtSchema.[key]}."
+        )
 
         let nullCheckExpr = 
             plan.On
@@ -390,29 +387,34 @@ module Merge =
 
         let printActionGroup (title: string) (actions: (string * (MergeContext -> Expr) * SetterSpec option) list) =
             if not actions.IsEmpty then
-                sb.AppendLine title |> ignore
-                actions |> List.iteri (fun i (name, cond, setters) ->
-                    let condStr = formatConditionInline suffix cond ctx
-                    let alwaysTrue = isAlwaysTrueCond condStr
-                    if alwaysTrue then
-                        sb.AppendLine $"  [{i+1}] {name}" |> ignore
-                    else
-                        sb.AppendLine $"  [{i+1}] {name} WHERE {condStr}" |> ignore
+                let lines = [
+                    yield title
+                    
+                    for i, (name, cond, setters) in List.indexed actions do
+                        let condStr = formatConditionInline suffix cond ctx
+                        
+                        if isAlwaysTrueCond condStr then
+                            yield $"  [{i+1}] {name}"
+                        else
+                            yield $"  [{i+1}] {name} WHERE {condStr}"
 
-                    if name = "UPDATE" || name = "INSERT" then
-                        match setters with
-                        | Some spec ->
-                            let expanded = expandSetters suffix ctx spec
-                            if not expanded.IsEmpty then
-                                sb.AppendLine $"      SET ({expanded.Count} overrides):" |> ignore
-                                for kv in expanded do
-                                    sb.AppendLine $"        - {kv.Key} = {kv.Value}" |> ignore
-                            else
-                                sb.AppendLine "      SET: (All Source Columns)" |> ignore
-                        | None ->
-                            sb.AppendLine "      SET: (All Source Columns)" |> ignore
-                )
-                sb.AppendLine() |> ignore
+                        if name = "UPDATE" || name = "INSERT" then
+                            match setters with
+                            | Some spec ->
+                                let expanded = expandSetters suffix ctx spec
+                                if not expanded.IsEmpty then
+                                    yield $"      SET ({expanded.Count} overrides):"
+                                    for kv in expanded do
+                                        yield $"        - {kv.Key} = {kv.Value}"
+                                else
+                                    yield "      SET: (All Source Columns)"
+                            | None ->
+                                yield "      SET: (All Source Columns)"
+                    
+                    yield ""
+                ]
+
+                lines |> List.iter (fun line -> sb.AppendLine line |> ignore)
 
         printActionGroup "WHEN MATCHED:" matchedActions
         printActionGroup "WHEN NOT MATCHED:" notMatchedActions

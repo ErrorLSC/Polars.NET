@@ -39,16 +39,16 @@ unsafe internal partial class NativeBindings
     );
     // --- Series Getters ---
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.I1)]
+    [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_get_i64(SeriesHandle s, UIntPtr idx, out long val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.I1)]
+    [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_get_i128(SeriesHandle s, UIntPtr idx, out Int128 val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.I1)]
+    [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_get_u128(SeriesHandle series, UIntPtr idx, out UInt128 val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.I1)]
+    [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_get_f64(SeriesHandle s, UIntPtr idx, out double val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
 
     [LibraryImport(LibName)]
@@ -75,11 +75,11 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] out bool isNull
     );
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.I1)]
+    [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_get_date(SeriesHandle s, nuint idx, out int val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
 
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.I1)]
+    [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_get_time(SeriesHandle s, UIntPtr idx, out long val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
 
     [LibraryImport(LibName)]
@@ -94,7 +94,7 @@ unsafe internal partial class NativeBindings
     );
 
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.I1)]
+    [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_get_duration(SeriesHandle s, UIntPtr idx, out long val, out PlTimeUnit timeUnit, [MarshalAs(UnmanagedType.U1)] out bool isNull);
     // --- Series Constructors ---
     // DataFrame -> Series (ByName)
@@ -378,12 +378,12 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_is_not_null(SeriesHandle s);
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.I1)]
-    public static partial bool pl_series_is_null_at(SeriesHandle s,nuint idx,[MarshalAs(UnmanagedType.I1)] out bool IsNull);
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static partial bool pl_series_is_null_at(SeriesHandle s,nuint idx,[MarshalAs(UnmanagedType.U1)] out bool IsNull);
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_drop_nulls(SeriesHandle s);
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.I1)]
+    [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_null_count(SeriesHandle s, out uint count);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_nan(SeriesHandle s);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_not_nan(SeriesHandle s);
@@ -409,10 +409,10 @@ unsafe internal partial class NativeBindings
         SeriesHandle indices
     ); 
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.I1)] 
+    [return: MarshalAs(UnmanagedType.U1)] 
     public static partial bool pl_series_append(SeriesHandle s_ptr, SeriesHandle other_ptr);
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.I1)] 
+    [return: MarshalAs(UnmanagedType.U1)] 
     public static partial bool pl_series_extend(SeriesHandle s_ptr, SeriesHandle other_ptr);
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_reshape(
@@ -518,7 +518,7 @@ unsafe internal partial class NativeBindings
     public static partial int pl_series_equals(
         SeriesHandle ptr1, 
         SeriesHandle ptr2, 
-        [MarshalAs(UnmanagedType.I1)] out bool result
+        [MarshalAs(UnmanagedType.U1)] out bool result
     );
 
     [LibraryImport(LibName)]

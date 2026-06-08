@@ -151,14 +151,6 @@ public partial class LazyFrame : IDisposable,IPolarsLazyFrame
     /// <inheritdoc cref="Limit"/>
     public LazyFrame Head(uint n=5) => Limit(n);
     /// <summary>
-    /// Take every nth row in the Frame and return as a new Frame.
-    /// </summary>
-    /// <param name="n">Gather every n-th row.</param>
-    /// <param name="offset">Starting Index</param>
-    /// <returns></returns>
-    public LazyFrame GatherEvery(int n, int offset = 0)
-        => Select(Pl.All().GatherEvery((ulong)n, (ulong)offset));
-    /// <summary>
     /// Interpolate intermediate values. The interpolation method is linear.
     /// Nulls at the beginning and end of the series remain null.
     /// </summary>

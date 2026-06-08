@@ -1,3 +1,4 @@
+using System.Data;
 using Polars.NET.Core;
 using Pl = Polars.CSharp.Polars;
 
@@ -98,9 +99,11 @@ public readonly struct ListOps
     public Expr Tail(long n=5) => Tail(Pl.Lit(n));
     /// <inheritdoc cref="SeriesListOps.Agg(Expr)"/>
     public Expr Agg(Expr expr) => new(PolarsWrapper.ListAgg(_expr.CloneHandle(),expr.CloneHandle()));
+    /// <inheritdoc cref="SeriesListOps.Eval(Expr)"/>
+    public Expr Eval(Expr expr) => new(PolarsWrapper.ListEval(_expr.CloneHandle(),expr.CloneHandle()));
     /// <inheritdoc cref="SeriesListOps.Shift(Expr)"/>
     public Expr Shift(Expr n) => new(PolarsWrapper.ListShift(_expr.CloneHandle(),n.CloneHandle()));
-    /// <inheritdoc cref="SeriesListOps.Agg(Expr)"/>
+    /// <inheritdoc cref="SeriesListOps.Shift(Expr)"/>
     public Expr Shift() => Shift(1);
     /// <inheritdoc cref="SeriesListOps.Diff"/>
     public Expr Diff(long n=1,NullBehavior nullBehavior=NullBehavior.Ignore) => new(PolarsWrapper.ListDiff(_expr.CloneHandle(),n,nullBehavior.ToNative()));
@@ -172,13 +175,13 @@ public readonly struct ListOps
     /// <inheritdoc cref="SeriesListOps.Median"/>
     public Expr Median() => Wrap(PolarsWrapper.ListMedian);
     /// <inheritdoc cref="SeriesListOps.All"/>
-    public Expr All() => Wrap(PolarsWrapper.ListAll);
+    public Expr All(bool ignoreNulls=true) => Agg(Pl.Element().All(ignoreNulls));
     /// <inheritdoc cref="SeriesListOps.Any"/>
-    public Expr Any() => Wrap(PolarsWrapper.ListAny);
+    public Expr Any(bool ignoreNulls=true) => Agg(Pl.Element().Any(ignoreNulls));
     /// <inheritdoc cref="SeriesListOps.DropNulls"/>
     public Expr DropNulls() => Wrap(PolarsWrapper.ListDropNulls);
     /// <inheritdoc cref="SeriesListOps.NUnique"/>
-    public Expr NUnique() => Wrap(PolarsWrapper.ListNUnique);
+    public Expr NUnique() => Agg(Pl.Element().NUnique());
     /// <inheritdoc cref="SeriesListOps.ArgMax"/>
     public Expr ArgMax() => Wrap(PolarsWrapper.ListArgMax);
     /// <inheritdoc cref="SeriesListOps.ArgMin"/>
@@ -188,7 +191,7 @@ public readonly struct ListOps
     /// <inheritdoc cref="Expr.Var"/>
     public Expr Var(byte ddof=1) => new(PolarsWrapper.ListVar(_expr.CloneHandle(),ddof));
     /// <inheritdoc cref="SeriesListOps.Unique"/>
-    public Expr Unique(bool maintainOrder=false) => new(PolarsWrapper.ListUnique(_expr.CloneHandle(),maintainOrder));
+    public Expr Unique(bool maintainOrder=false) => Eval(Pl.Element().Unique(maintainOrder));
     /// <summary>
     /// Check if the list contains a specific item.
     /// </summary>
@@ -229,7 +232,7 @@ public readonly struct ListOps
     public Expr Concat<T>(IEnumerable<T> other) 
         => Concat(Pl.Lit(other));
     /// <inheritdoc cref="SeriesListOps.Reverse"/>
-    public Expr Reverse() => Wrap(PolarsWrapper.ListReverse);
+    public Expr Reverse() => Eval(Pl.Element().Reverse());
     /// <inheritdoc cref="SeriesListOps.Explode"/>
     public Expr Explode(bool emptyAsNull=true,bool keepNulls=true) => _expr.Explode(emptyAsNull,keepNulls);
     /// <inheritdoc cref="SeriesListOps.ToArray"/>

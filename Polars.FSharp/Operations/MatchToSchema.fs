@@ -75,19 +75,19 @@ module MatchToSchemaOps =
                                 ?extraColumns: ExtraColumnsPolicy,
                                 ?defaultConfig: MatchSchemaConfig,
                                 ?columnOverrides: Map<string, MatchSchemaConfig>) : LazyFrame =
-            if box schema = null then 
-                ArgumentNullException.ThrowIfNull(schema)
+                                
             let exa = defaultArg extraColumns ExtraColumnsPolicy.Raise
             let coreDefault = (defaultArg defaultConfig MatchSchemaConfig.Default).ToCoreConfig()
 
             let coreOverrides = 
-                match columnOverrides with
-                | Some overrides when not overrides.IsEmpty ->
-                    let dict = Dictionary<string, PolarsWrapper.PlMatchToSchemaConfig>(overrides.Count)
-                    for kvp in overrides do
-                        dict.[kvp.Key] <- kvp.Value.ToCoreConfig()
-                    dict
-                | _ -> null
+                columnOverrides
+                |> Option.filter (fun m -> not m.IsEmpty)
+                |> Option.map (fun m ->
+                    let d = Dictionary<_,_>()
+                    m |> Map.iter (fun k v -> d.[k] <- v.ToCoreConfig())
+                    d
+                )
+                |> Option.toObj
 
             let handle = 
                 PolarsWrapper.MatchToSchema(

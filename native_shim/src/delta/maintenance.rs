@@ -3,7 +3,6 @@ use chrono::Utc;
 use deltalake::DeltaTable;
 use deltalake::kernel::TableFeatures;
 use deltalake::operations::vacuum::VacuumMode;
-use polars_io::pl_async::get_runtime;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::ffi::c_char;
@@ -11,6 +10,7 @@ use polars::error::PolarsError;
 use polars::error::PolarsResult;
 
 use crate::delta::utils::build_delta_storage_options_map;
+use crate::delta::utils::get_runtime;
 use crate::delta::utils::parse_table_url;
 use crate::utils::ptr_to_str;
 

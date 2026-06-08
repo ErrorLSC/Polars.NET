@@ -84,4 +84,24 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             maintainOrder
         );
     }
+    /// <summary>
+    /// Write to Arrow IPC record batch stream.
+    /// </summary>
+    /// <param name="path">Path to the IPC stream file or a byte buffer</param>
+    /// <param name="compression">Compression method. Defaults to None.</param>
+    /// <param name="compatLevel">Use a specific compatibility level 
+    /// when exporting Polars’ internal data structures.</param>
+    public void WriteIpcStream(
+        string path,
+        IpcCompression compression = IpcCompression.None,
+        int compatLevel = -1
+    )
+        => PolarsWrapper.WriteIpcStream(Handle,path,compression.ToNative(),compatLevel);
+    /// <inheritdoc cref="DataFrame.WriteIpcStream"/>
+    public byte[] WriteIpcStreamMemory(
+        IpcCompression compression = IpcCompression.None,
+        int compatLevel = -1
+    )
+        => PolarsWrapper.WriteIpcStreamMemory(Handle,compression.ToNative(),compatLevel);
+    
 }

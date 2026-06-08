@@ -69,8 +69,7 @@ internal partial class NativeBindings
         ExprHandle expr,
         ExprHandle n,
         [In, MarshalAs(UnmanagedType.LPArray, SizeConst = 7)] byte[] weekMask,
-        [In, MarshalAs(UnmanagedType.LPArray)] int[] holidays,     
-        UIntPtr holidaysLen,
+        ExprHandle holidays,
         PlRoll rollStrategy
     );
     [LibraryImport(LibName)]
@@ -78,15 +77,13 @@ internal partial class NativeBindings
         ExprHandle start,
         ExprHandle end,
         [In, MarshalAs(UnmanagedType.LPArray, SizeConst = 7)] byte[] weekMask,
-        [In, MarshalAs(UnmanagedType.LPArray)] int[] holidays,     
-        nuint holidaysLen
+        ExprHandle holidays
     );
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_is_business_day(
         ExprHandle expr,
         [In, MarshalAs(UnmanagedType.LPArray, SizeConst = 7)] byte[] weekMask,
-        [In, MarshalAs(UnmanagedType.LPArray)] int[] holidays,
-        UIntPtr holidaysLen
+        ExprHandle holidays
     );
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_dt_replace(

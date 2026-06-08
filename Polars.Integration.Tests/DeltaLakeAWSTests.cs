@@ -608,7 +608,6 @@ public class DeltaLakeTests(MinioFixture minio) : IClassFixture<MinioFixture>
         // ==========================================
         // Drop Partition
         // ==========================================
-
         
         var predicateDrop = Pl.Col("Year") == Pl.Lit("2023");
         

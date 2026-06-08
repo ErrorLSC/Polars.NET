@@ -325,7 +325,9 @@ pub(crate) fn merge_delta_internal(
 
         let tombstones_df_opt = match tombstones_lf_opt {
             Some(lf) => {
-                let df = lf.group_by([col("__file_path")]).agg([col("__row_index")]).collect_with_engine(Engine::Streaming)?;
+                let df = lf.group_by([col("__file_path")]).agg([col("__row_index")])
+                    .collect_with_engine(Engine::Streaming)?
+                    .unwrap_single();
                 if df.height() > 0 { Some(df) } else { None }
             },
             None => None,

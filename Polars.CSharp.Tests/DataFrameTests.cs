@@ -226,7 +226,92 @@ public class DataFrameTests
         Assert.Equal(101, res.GetValue<int>(0, "code_item"));
         Assert.Equal(102, res.GetValue<int>(1, "code_item"));
     }
+    [Fact]
+    [Trait("DataFrame", "Gather")]
+    public void Test_DataFrame_Gather_Implicit_Conversions_And_Oob()
+    {
+        string[] names = ["Alice", "Bob", "Charlie", "David", "Eva"];
+        int[] ages = [20, 25, 30, 35, 40];
 
+        using var df = DataFrame.FromColumns(
+            Series.From("name", names),
+            Series.From("age", ages)
+        );
+        using var singleGather = df.Gather(2);
+        Assert.Equal(1, singleGather.Height);
+        Assert.Equal("Charlie", singleGather.Column("name").GetValue<string>(0));
+        Assert.Equal(30, singleGather.Column("age").GetValue<int>(0));
+
+        int[] indicesArray = [0, 4, 1];
+        using var spanGather = df.Gather(indicesArray);
+        Assert.Equal(3, spanGather.Height);
+        Assert.Equal("Alice", spanGather.Column("name").GetValue<string>(0));
+        Assert.Equal("Eva", spanGather.Column("name").GetValue<string>(1));
+        Assert.Equal("Bob", spanGather.Column("name").GetValue<string>(2));
+        Assert.Equal(40, spanGather.Column("age").GetValue<int>(1));
+
+        using var indexSeries = Series.From("idx", [3, 2]);
+        using var seriesGather = df.Gather(indexSeries);
+        Assert.Equal(2, seriesGather.Height);
+        Assert.Equal("David", seriesGather.Column("name").GetValue<string>(0));
+        Assert.Equal("Charlie", seriesGather.Column("name").GetValue<string>(1));
+
+        using var indexDf = DataFrame.FromColumns(Series.From("idx", [1, 3]));
+        using var lfGather = df.Gather(indexDf.Lazy());
+        Assert.Equal(2, lfGather.Height);
+        Assert.Equal("Bob", lfGather.Column("name").GetValue<string>(0));
+        Assert.Equal("David", lfGather.Column("name").GetValue<string>(1));
+
+        Assert.ThrowsAny<Exception>(() =>
+        {
+            using var _ = df.Gather(10, nullOnOob: false);
+        });
+
+        using var oobGather = df.Gather(new int[] { 1, 10 }, nullOnOob: true);
+        Assert.Equal(2, oobGather.Height);
+        Assert.Equal("Bob", oobGather.Column("name").GetValue<string>(0));
+
+        Assert.Null(oobGather.Column("name").GetValue<string>(1)); 
+    }
+    [Fact]
+    [Trait("DataFrame", "Gather")]
+    public void Test_DataFrame_Gather_Invalid_DataType_Throws()
+    {
+        using var df = DataFrame.FromColumns(
+            Series.From("name", ["Alice", "Bob"]),
+            Series.From("age", [20, 25])
+        );
+
+        using var invalidSeries = Series.From("idx", ["0", "1"]);
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+        {
+            using var _ = df.Gather(invalidSeries);
+        });
+
+        Assert.Contains("integer data type", ex.Message);
+        Assert.Contains("idx", ex.Message);
+    }
+    [Fact]
+    [Trait("DataFrame", "GatherEvery")]
+    public void Test_DataFrame_GatherEvery_With_Offset()
+    {
+        using var df = DataFrame.FromColumns(
+            Pl.IntRangeAsSeries(10,95,10,"seq")
+        );
+
+        using var gatherEvery0 = df.GatherEvery(n: 3, offset: 0);
+        Assert.Equal(3, gatherEvery0.Height);
+        Assert.Equal(10, gatherEvery0.Column("seq").GetValue<int>(0));
+        Assert.Equal(40, gatherEvery0.Column("seq").GetValue<int>(1));
+        Assert.Equal(70, gatherEvery0.Column("seq").GetValue<int>(2));
+
+        using var gatherEvery1 = df.GatherEvery(n: 3, offset: 1);
+        Assert.Equal(3, gatherEvery1.Height);
+        Assert.Equal(20, gatherEvery1.Column("seq").GetValue<int>(0));
+        Assert.Equal(50, gatherEvery1.Column("seq").GetValue<int>(1));
+        Assert.Equal(80, gatherEvery1.Column("seq").GetValue<int>(2));
+    }
     [Fact]
     [Trait("DataFrame", "Reverse")]
     public void Test_Expr_Reverse_Standalone()
@@ -390,21 +475,34 @@ public class DataFrameTests
             city = new[] { "NY", "LA", "NY", "LA" },
             temp = new[] { 5.0, 20.0, 2.0, 18.0 } 
         });
-
+        string values = "temp";
         // --- Step 1: Standard Pivot ---
         using var pivoted = df.Pivot(
             index: "date",
             on: "city",
-            values: "temp",
+            values: values,
             aggregateFunction: PivotAgg.First,
             maintainOrder:true
         );
+        using var pivoted2 = df.Pivot(
+            index: "date",
+            on: "city",
+            values: values,
+            aggregateFunction: PivotAgg.First,
+            maintainOrder:true,
+            columnNaming:PivotColumnNaming.Combine
+        );
+
         Assert.Equal(2, pivoted.Height);
         Assert.Equal(3, pivoted.Width); // date, LA, NY (Sorted)
 
         var cols = pivoted.ColumnNames;
         Assert.Contains("LA", cols);
         Assert.Contains("NY", cols);
+
+        var cols2 = pivoted2.ColumnNames;
+        Assert.Contains(values + "_LA", cols2);
+        Assert.Contains(values + "_NY", cols2);
 
         Assert.Equal(20.0, pivoted.GetValue<double>(0, "LA")); 
         Assert.Equal(5.0, pivoted.GetValue<double>(0, "NY")); 
@@ -1261,9 +1359,9 @@ public class DataFrameTests
 
         var hashNull = scoresDf.HashRows(seed:null);
         var hash42 = scoresDf.HashRows(seed:42);
-        
-        Assert.False(hashNull.IsEmpty);
-        Assert.False(hash42.IsEmpty);
+
+        Assert.False(hashNull.IsEmpty());
+        Assert.False(hash42.IsEmpty());
     }
     [Fact]
     [Trait("DataFrame","ToStruct")]

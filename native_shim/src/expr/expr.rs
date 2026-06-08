@@ -1,6 +1,7 @@
 use polars::{chunked_array::cast::CastOptions, prelude::*, series::ops::NullBehavior, sql::sql_expr};
+use polars_plan::plans::AExprSorted;
 use std::{ffi::{CStr, CString}, os::raw::c_char, slice::from_raw_parts};
-use crate::{types::{DataTypeExprContext, ExprContext, SeriesContext}, utils::{parse_closed_window, ptr_to_opt_pl_str_vec}};
+use crate::{types::{DataTypeContext, DataTypeExprContext, ExprContext, SeriesContext}, utils::{parse_closed_window, ptr_to_opt_pl_str_vec}};
 use std::ops::{Add, Sub, Mul, Div, Rem};
 use crate::utils::{consume_exprs_array, ptr_to_str};
 use polars_arrow::array::PrimitiveArray;
@@ -348,12 +349,14 @@ gen_unary_op!(pl_expr_upper_bound, upper_bound);
 gen_unary_op!(pl_expr_lower_bound, lower_bound);
 gen_unary_op_arg_bool!(pl_expr_any, any);
 gen_unary_op_arg_bool!(pl_expr_all, all);
+gen_unary_op_arg_bool!(pl_expr_is_empty, is_empty);
 gen_unary_op_arg_bool!(pl_expr_item, item);
 // Logic Not (!)
 gen_unary_op!(pl_expr_not, not);
 // is_null()
 gen_unary_op!(pl_expr_is_null, is_null);
 gen_unary_op!(pl_expr_is_not_null, is_not_null);
+gen_unary_op!(pl_expr_has_nulls, has_nulls);
 gen_unary_op!(pl_expr_is_nan, is_nan);
 gen_unary_op!(pl_expr_is_not_nan, is_not_nan);
 gen_unary_op!(pl_expr_is_infinite, is_infinite);
@@ -441,8 +444,7 @@ gen_binary_op!(pl_expr_pow,pow);
 gen_unary_op!(pl_expr_log1p, log1p);
 gen_binary_op!(pl_expr_log,log);
 gen_binary_op!(pl_expr_dot,dot);
-// Gather 
-gen_binary_op!(pl_expr_gather, gather);
+
 // --- Cumulative Functions ---
 gen_unary_op_arg_bool!(pl_expr_cum_sum, cum_sum);
 gen_unary_op_arg_bool!(pl_expr_cum_max, cum_max);
@@ -450,7 +452,6 @@ gen_unary_op_arg_bool!(pl_expr_cum_min, cum_min);
 gen_unary_op_arg_bool!(pl_expr_cum_prod, cum_prod);
 gen_unary_op_arg_bool!(pl_expr_cum_count, cum_count);
 gen_unary_op_arg_bool!(pl_expr_mode, mode);
-gen_unary_op_arg_bool!(pl_expr_reinterpret, reinterpret);
 // --- EWM Functions ---
 // Mean/Std/Var all share the same signature now
 gen_ewm_op!(pl_expr_ewm_mean, ewm_mean);
@@ -597,6 +598,22 @@ pub extern "C" fn pl_expr_get(
         let idx = unsafe { Box::from_raw(idx_ptr) };
         
         let new_expr = ctx.inner.get(idx.inner, null_on_oob);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_gather(
+    expr_ptr: *mut ExprContext,
+    idx_ptr: *mut ExprContext,
+    null_on_oob: bool,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let idx = unsafe { Box::from_raw(idx_ptr) };
+        
+        let new_expr = ctx.inner.gather(idx.inner, null_on_oob);
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
@@ -887,7 +904,7 @@ pub extern "C" fn pl_format_str(
             exprs.push(expr_ctx.inner);
         }
 
-        let new_expr = format_str(format_template, exprs)?;
+        let new_expr = format_str(format_template, &exprs)?;
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
@@ -1120,19 +1137,41 @@ pub extern "C" fn pl_expr_round_sig_figs(
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_reinterpret(
+    expr_ptr: *mut ExprContext,
+    signed:bool,
+    dtype_ptr: *mut DataTypeContext,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let (opt_signed, opt_dtype) = if dtype_ptr.is_null() {
+            (Some(signed), None)
+        } else {
+            let dtype = unsafe { &*dtype_ptr };
+            (None, Some(dtype.dtype.clone()))
+        };
 
-// #[unsafe(no_mangle)]
-// pub extern "C" fn pl_expr_truncate(
-//     expr_ptr: *mut ExprContext, 
-//     digits: i32
-// ) -> *mut ExprContext {
-//     ffi_try!({
-//         let ctx = unsafe { Box::from_raw(expr_ptr) };
+        // 3. 调用 0.54 的官方 API
+        let new_expr = ctx.inner.reinterpret(opt_signed, opt_dtype);
+        
+        // 4. 重新装箱返回
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
 
-//         let new_expr = ctx.inner.truncate(digits); 
-//         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
-//     })
-// }
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_truncate(
+    expr_ptr: *mut ExprContext, 
+    digits: u32
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+
+        let new_expr = ctx.inner.truncate(digits); 
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_expr_shuffle(
@@ -1537,7 +1576,7 @@ pub extern "C" fn pl_expr_over(
         
         let partition_by = unsafe { consume_exprs_array(partition_by_ptr, len) };
 
-        let new_expr = ctx.inner.over(partition_by);
+        let new_expr = ctx.inner.over(partition_by)?;
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
@@ -2049,10 +2088,10 @@ pub extern "C" fn pl_expr_explode(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pl_expr_implode(expr: *mut Expr) -> *mut Expr {
+pub unsafe extern "C" fn pl_expr_implode(expr: *mut Expr,maintain_order: bool) -> *mut Expr {
     ffi_try!({
         let e = unsafe { Box::from_raw(expr) };
-        let new_expr = e.implode();
+        let new_expr = e.implode(maintain_order);
         Ok(Box::into_raw(Box::new(new_expr)))
     })
 }
@@ -2112,15 +2151,14 @@ pub unsafe extern "C" fn pl_expr_coalesce(
 pub extern "C" fn pl_expr_set_sorted_flag(
     expr_ptr: *mut ExprContext,
     descending: bool,
-    _nulls_last: bool
+    nulls_last: bool 
 ) -> *mut ExprContext {
     ffi_try!({
-        let ctx = unsafe {Box::from_raw(expr_ptr) };
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
 
-        let sorted_flag = if descending {
-            polars::series::IsSorted::Descending
-        } else {
-            polars::series::IsSorted::Ascending
+        let sorted_flag = AExprSorted {
+            descending: Some(descending),
+            nulls_last: Some(nulls_last),
         };
 
         let res_expr = ctx.inner.set_sorted_flag(sorted_flag);

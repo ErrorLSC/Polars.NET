@@ -198,6 +198,11 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <param name="digits">Number of significant figures to round to.</param>
     public Expr RoundSigFigs(int digits) => new(PolarsWrapper.RoundSigFigs(CloneHandle(),digits));
+    /// <summary>
+    /// Truncate numeric data toward zero to decimals number of decimal places.
+    /// </summary>
+    /// <param name="decimals">Number of decimal places to truncate to.</param>
+    public Expr Truncate(uint decimals=0) => new(PolarsWrapper.Truncate(CloneHandle(),decimals));
     /// <summary>Compute the element-wise sign (-1, 0, 1).</summary>
     public Expr Sign() => new(PolarsWrapper.Sign(CloneHandle()));
 
@@ -853,6 +858,15 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// </summary>
     /// <param name="signed">If True, reinterpret as signed integer. Otherwise, reinterpret as unsigned integer.</param>
     public Expr Reinterpret(bool signed=true) => new(PolarsWrapper.ExprReinterpret(CloneHandle(),signed));
+    /// <summary>
+    /// Reinterpret the underlying bits as a signed/unsigned integer or float.
+    /// </summary>
+    /// <param name="dtype">DataType to reinterpret to.</param>
+    public Expr Reinterpret(DataType dtype) => new(PolarsWrapper.ExprReinterpret(CloneHandle(),dtype.Handle));
+    /// <summary>
+    /// Reinterpret the underlying bits as a signed/unsigned integer or float.
+    /// </summary>
+    public Expr Reinterpret<T>() => Reinterpret(typeof(T));
     /// <summary>
     /// Repeat the elements in this Series as specified in the given expression.
     /// The repeated elements are expanded into a List.

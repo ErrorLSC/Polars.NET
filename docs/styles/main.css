@@ -1,14 +1,12 @@
 /* styles/main.css */
 
-/* 针对顶部导航栏的 Logo 进行强制缩放 */
 .navbar-brand img, 
 .navbar-brand > img {
-    height: 40px !important;  /* 强制高度为导航栏高度的一半左右 */
-    width: auto !important;   /* 宽度自动保持比例 */
-    max-width: 100%;          /* 防止溢出 */
+    height: 40px !important;  
+    width: auto !important;   
+    max-width: 100%;         
 }
 
-/* 有时候 DocFX 会给 SVG 加个 class="svg" */
 img.svg {
     height: 40px !important;
 }

@@ -5,7 +5,6 @@ open System
 open Polars.NET.Core
 open System.Threading.Tasks
 open Polars.NET.Core.Helpers
-
 type CjkColumnOptions = {
     Chinese       : bool
     Japanese      : bool
@@ -384,7 +383,7 @@ module pl =
     /// <param name="step">Step size of the range.</param>
     /// <returns>A Literal Expression containing the integer series.</returns>
     let intRange<'T>(start:int64) (endRange:int64) (step:int64) =
-        let dtexpr = DataType.FromNetType<'T>().ToDataTypeExpr().handle
+        let dtexpr = DataType.FromNetType<'T>().ToDataTypeExpr().Handle
         let st = (lit start).Handle
         let ed = (lit endRange).Handle
         (new Expr(PolarsWrapper.IntRange(st,ed,step,dtexpr))).SetSorted(step<0)
@@ -396,7 +395,7 @@ module pl =
     /// Resulting column is of dtype List(dtype).
     /// </summary>
     let intRanges<'T>(start:int64)(endRange:int64)(step:int64) =
-        let dtexpr = DataType.FromNetType<'T>().ToDataTypeExpr().handle
+        let dtexpr = DataType.FromNetType<'T>().ToDataTypeExpr().Handle
         let st = (lit start).Handle
         let ed = (lit endRange).Handle
         let stp = (lit step).Handle
@@ -658,11 +657,11 @@ module pl =
         let st = start.CloneHandle()
         let ed = endDay.CloneHandle()
         let wm = weekMask |> Seq.toArray
-        let ho = 
+        let dateExpr =
             match holidays with
-            | Some s -> s.DropNulls().ToPhysical().ToArray<int>()
-            | None -> System.Array.Empty<int>()
-        new Expr(PolarsWrapper.DtBusinessDayCount(st,ed,wm,ho))
+            | Some ho -> litSeries ho
+            | None -> Series.create("__Date__",[||]).Cast<DateOnly>().Implode() |> litSeries
+        new Expr(PolarsWrapper.DtBusinessDayCount(st,ed,wm,dateExpr.Handle))
         
     /// <summary> Create a Polars Expr from a SQL string. </summary>
     /// <param name="sql">The SQL expression string.</param>
@@ -1051,7 +1050,10 @@ module pl =
         df.UnnestColumns columns
     let unnestColumnsLazy(columns: seq<string>) (lf:LazyFrame) =
         lf.Unnest columns
-
+    let drop(columns:seq<string>) (df:DataFrame):DataFrame =
+        df.Drop(columns |> Seq.toArray)
+    let dropLazy(columns:seq<string>) (lf:LazyFrame):LazyFrame =
+        lf.Drop(columns |> Seq.toArray)
     /// <summary>
     /// Horizontally stack columns to the DataFrame.
     /// </summary>
@@ -1195,12 +1197,12 @@ module pl =
         }
     /// --- Config ---
     let setEnvVar (key:string) (value:string) = 
-        PolarsWrapper.SetEnvVar(key,value)
-    let setEnvVarPrefixKey suffix value =
-        setEnvVar ("POLARS_" + suffix) value
-    let setEnvVarAll vars =
-        vars |> Seq.iter (fun (k, v) -> PolarsWrapper.SetEnvVar(k, v))
-    
+        Config.set key value
+    let threadPoolSize() = 
+        CoreConfig.ThreadPoolSize 
+        |> Option.ofNullable 
+        |> Option.map int
+        |> Option.defaultWith (fun () -> Environment.ProcessorCount)
     /// <summary> Accumulate over multiple columns horizontally/row-wise. </summary>
     let fold (f: Expr -> Expr -> Expr) (acc: Expr) (exprs: seq<Expr>) : Expr =
         Seq.fold f acc exprs

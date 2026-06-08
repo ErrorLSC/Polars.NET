@@ -303,10 +303,11 @@ public readonly partial struct Polars
     /// <param name="end">End dates.</param>
     /// <param name="weekMask">Which days of the week to count. The default is Monday to Friday. If you wanted to count only Monday to Thursday, you would pass (True, True, True, True, False, False, False).</param>
     /// <param name="holidays">Holidays to exclude from the count.</param>
-    public static Expr BusinessDayCount(IntoExprColumn start,IntoExprColumn end,bool[]? weekMask=null,IntoDateSeries? holidays=null)
+    public static Expr BusinessDayCount(IntoExprColumn start,IntoExprColumn end,bool[]? weekMask=null,IntoDateExpr? holidays=null)
     {
         bool[] realWeek = weekMask ?? DtOps.DefaultWeekMask;
-        int[] holidaysMask = holidays?.ToPhysicalArray() ?? [];
+        IntoDateExpr actualHolidays = holidays ?? IntoDateExpr.Empty;
+        ExprHandle holidaysMask = actualHolidays.Consume().Handle;
         return new(PolarsWrapper.DtBusinessDayCount(start.Consume().Handle,end.Consume().Handle,realWeek,holidaysMask));
     }
     // ==========================================
@@ -821,6 +822,15 @@ public readonly partial struct Polars
         
         return Regex.Escape(s);
     }
+    /// <summary>
+    /// Create a new PolarsConfig instance.
+    /// </summary>
+    public static PolarsConfig Config => new();
+    /// <summary>
+    /// Return the number of threads in the Polars thread pool.
+    /// </summary>
+    public static ulong ThreadPoolSize()
+        => CoreConfig.ThreadPoolSize ?? (ulong)Environment.ProcessorCount;
 }
 
 internal static class InterfaceUnwrapperExtensions

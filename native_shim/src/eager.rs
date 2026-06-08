@@ -1,3 +1,4 @@
+use polars::frame::PivotColumnNaming;
 use polars::prelude::*;
 use polars_arrow::Either;
 use polars_core::utils::concat_df;
@@ -417,6 +418,7 @@ pub extern "C" fn pl_dataframe_pivot(
     maintain_order: bool, 
     sort_columns: bool,   
     separator_ptr: *const c_char,
+    column_naming : u8
 ) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*df_ptr };
@@ -481,6 +483,13 @@ pub extern "C" fn pl_dataframe_pivot(
             on_columns = on_columns.sort(on_names, SortMultipleOptions::default())?;
         }
 
+        let column_naming_input = 
+            match column_naming { 
+                0 => PivotColumnNaming::Auto,
+                1 => PivotColumnNaming::Combine,
+                _ => PivotColumnNaming::Auto
+            };
+
         // 6. Execute Pivot
         // [FIX]: We pass the REAL values selector (not empty).
         // Since agg_expr uses col("") (implicit ref), Polars will accept both.
@@ -494,6 +503,7 @@ pub extern "C" fn pl_dataframe_pivot(
                 agg_expr,
                 maintain_order,
                 separator,
+                column_naming_input
             )
             .collect()?;
 

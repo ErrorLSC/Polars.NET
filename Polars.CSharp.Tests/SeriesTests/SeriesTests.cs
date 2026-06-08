@@ -2076,7 +2076,7 @@ public class SeriesTests
         using Series sCut = s.Cut(breaks, labels: cutLabels);
         sCut.Show();
         Assert.Equal(10, sCut.Length);
-        Assert.Equal(DataTypeKind.Categorical,sCut.DataType.Kind);
+        Assert.Equal(DataTypeKind.Enum,sCut.DataType.Kind);
 
         // quantiles: 0.5  -> (-inf, 50%], (50%, inf]
         ReadOnlySpan<double> probs = [0.5];
@@ -2352,11 +2352,11 @@ public class SeriesTests
     public void Test_EmptyFactory()
     {
         using var s1 = new Series();
-        Assert.True(s1.IsEmpty);
+        Assert.True(s1.IsEmpty());
         using var s2 = new Series("aiyou",typeof(bool));
         Assert.Equal("aiyou",s2.Name);
         Assert.Equal(DataType.Boolean,s2.DataType);
-        Assert.True(s2.IsEmpty);
+        Assert.True(s2.IsEmpty());
     }
     [Fact]
     [Trait("Series", "Clear")]
@@ -2366,7 +2366,7 @@ public class SeriesTests
         using var s2 = s1.Clear();
         using var s3 = s1.Clear(10);
         Assert.Equal(s1.DataType,s2.DataType);
-        Assert.True(s2.IsEmpty);
+        Assert.True(s2.IsEmpty());
         Assert.Equal(10L,s3.Length);
     }
     [Fact]
@@ -2376,6 +2376,9 @@ public class SeriesTests
         using var s1 = Series.From("Reinterpret",[1231,324234,45345,345]);
         using var s2 = s1.Reinterpret(false);
         Assert.Equal(DataType.UInt32,s2.DataType);
+
+        using var s3 = s1.Reinterpret<float>();
+        Assert.Equal(Pl.Float32,s3.DataType);
     }
     [Fact]
     [Trait("Series", "RepeatBy")]
@@ -2436,6 +2439,20 @@ public class SeriesTests
         Assert.Equal(12300.0, arr[0]);
         Assert.Equal(0.00123, arr[1]);
         Assert.Equal(1.23, arr[2]);
+        Assert.Null(arr[3]);
+    }
+    [Fact]
+    [Trait("Series", "Truncate")]
+    public void Test_Truncate()
+    {
+        using var s = Pl.CreateSeries("values", new double?[] { 12345.0, 0.0012345, 1.2345, null });
+
+        using var res = s.Truncate(decimals: 0);
+        var arr = res.ToArray<double?>();
+
+        Assert.Equal(12345.0, arr[0]);
+        Assert.Equal(0.0, arr[1]);
+        Assert.Equal(1.0, arr[2]);
         Assert.Null(arr[3]);
     }
     [Fact]

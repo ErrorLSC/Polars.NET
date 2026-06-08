@@ -54,6 +54,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// <param name="aggregateFunction">Aggregation function to use if <paramref name="aggregateExpr"/> is null. Default is First.</param>
     /// <param name="maintainOrder">Sort the result by the index column.</param>
     /// <param name="separator">Separator used to combine column names when multiple value columns are selected.</param>
+    /// <param name="columnNaming">How resulting column names will be constructed.</param>
     /// <returns>A new LazyFrame with the pivot operation applied.</returns>
     public LazyFrame Pivot(
         IntoSelector on,                       
@@ -63,7 +64,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         Expr? aggregateExpr = null,            
         PivotAgg aggregateFunction = PivotAgg.First, 
         bool maintainOrder = false,        
-        string separator = "_")               
+        string separator = "_",
+        PivotColumnNaming columnNaming = PivotColumnNaming.Auto)               
     {
         using var safeOn = on.Consume();
         using var safeIndex = index?.Consume();
@@ -84,7 +86,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
             aggExprH,                
             aggregateFunction.ToNative(),
             maintainOrder,
-            separator
+            separator,
+            columnNaming.ToNative()
         );
 
         return new LazyFrame(h);
@@ -103,6 +106,7 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// <param name="aggregateFunction">Aggregation function. Default is First.</param>
     /// <param name="maintainOrder">Sort the result by the index column.</param>
     /// <param name="separator">Separator for generated column names.</param>
+    /// <param name="columnNaming">How resulting column names will be constructed.</param>
     public LazyFrame Pivot(
         IEnumerable<string> on,
         IntoPivotHint onColumns,
@@ -111,7 +115,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         Expr? aggregateExpr = null,
         PivotAgg aggregateFunction = PivotAgg.First,
         bool maintainOrder = false,
-        string separator = "_")
+        string separator = "_",
+        PivotColumnNaming columnNaming = PivotColumnNaming.Auto)
     {
         var onArr = on as string[] ?? [.. on];
         if (onArr.Length == 0) 
@@ -132,7 +137,8 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
             aggregateExpr: aggregateExpr, 
             aggregateFunction: aggregateFunction, 
             maintainOrder: maintainOrder, 
-            separator: separator
+            separator: separator,
+            columnNaming:columnNaming
         );
     }
     /// <summary>
@@ -210,6 +216,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="aggregateFunction">Aggregation function to use if <paramref name="aggregateExpr"/> is null. Default is First.</param>
     /// <param name="maintainOrder">Keep the original order of the rows (index).</param>
     /// <param name="separator">Separator used to combine column names when multiple value columns are selected.</param>
+    /// <param name="columnNaming">How resulting column names will be constructed.</param>
     public DataFrame Pivot(
         IntoSelector on,
         IntoSelector? index = null,
@@ -217,7 +224,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         Expr? aggregateExpr = null,
         PivotAgg aggregateFunction = PivotAgg.First,
         bool maintainOrder = false,
-        string separator = "_")
+        string separator = "_",
+        PivotColumnNaming columnNaming = PivotColumnNaming.Auto)
     {
         using var safeOn = on.Consume();
         
@@ -236,7 +244,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             aggregateExpr: aggregateExpr,
             aggregateFunction: aggregateFunction,
             maintainOrder: maintainOrder,
-            separator: separator
+            separator: separator,
+            columnNaming:columnNaming
         );
 
         return lf.Collect();
@@ -257,6 +266,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <param name="aggregateFunction">Aggregation function to use if multiple values exist for an index/column pair. Default is First.</param>
     /// <param name="maintainOrder">Keep the original order of the rows.</param>
     /// <param name="separator">Used as separator/delimiter in generated column names in case of multiple values columns.</param>
+    /// <param name="columnNaming">How resulting column names will be constructed.</param>
     /// <returns>A wide-format DataFrame.</returns>
     /// <example>
     /// <code>
@@ -295,7 +305,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         Expr? aggregateExpr = null,
         PivotAgg aggregateFunction = PivotAgg.First,
         bool maintainOrder = false,
-        string separator = "_")
+        string separator = "_",
+        PivotColumnNaming columnNaming = PivotColumnNaming.Auto)
     {
         var onArr = on as string[] ?? [.. on];
         if (onArr.Length == 0) 
@@ -316,13 +327,14 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             aggregateExpr: aggregateExpr, 
             aggregateFunction: aggregateFunction, 
             maintainOrder: maintainOrder, 
-            separator: separator
+            separator: separator,
+            columnNaming:columnNaming
         );
     }
     /// <summary>
     /// Unpivot (Melt) the DataFrame from wide to long format.
     /// <para>
-    /// This is the reverse of <see cref="Pivot(IntoSelector, IntoSelector?, IntoSelector?, Expr?, PivotAgg, bool, string)"/>. It collapses multiple columns into key-value pairs.
+    /// This is the reverse of <see cref="Pivot(IntoSelector, IntoSelector?, IntoSelector?, Expr?, PivotAgg, bool, string,PivotColumnNaming)"/>. It collapses multiple columns into key-value pairs.
     /// </para>
     /// </summary>
     /// <param name="index">Column names to keep as identifiers (id_vars).</param>

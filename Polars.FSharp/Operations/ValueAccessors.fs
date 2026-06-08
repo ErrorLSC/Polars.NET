@@ -155,14 +155,7 @@ module ValueAccessorOps =
             let h = int64 this.Height
             if int64 index < 0L || int64 index >= h then
                 raise (IndexOutOfRangeException(sprintf "Row index %d is out of bounds. Height: %d" index h))
-
-            let w = this.Columns.Length
-            let rowData = Array.zeroCreate<obj> w
-
-            for i in 0 .. w - 1 do
-                rowData.[i] <- this.[index, i]
-
-            rowData
+            Array.init this.Columns.Length (fun i -> this.[index, i])
 
         
 

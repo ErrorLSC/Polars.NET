@@ -868,6 +868,7 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(700, result[3, "RollingSumInt"]);
     }
     [Fact]
+    [Trait("Expr", "AddBusinessDays")]
     public void Test_AddBusinessDays_SupplyChain_Scenario()
     {
         // 2024-01-05 is Friday
@@ -884,7 +885,6 @@ TooShort,1990-05-20,1.60";
                 .AddBusinessDays(2) 
                 .Alias("Delivery")
         );
-
         var delivery1 = (DateOnly)res1["Delivery"][0];
         Assert.Equal(new DateOnly(2024, 1, 9), delivery1); 
 
@@ -1792,6 +1792,40 @@ TooShort,1990-05-20,1.60";
         Assert.False(res.GetValue<bool>(0, "name_in_whitelist"));
         // Row 1: Bob -> True
         Assert.True(res.GetValue<bool>(1, "name_in_whitelist"));
+    }
+    [Fact]
+    [Trait("Expr","IsEmpty")]
+    public void Test_Expr_IsEmpty()
+    {
+        using DataFrame df1 = [
+            Pl.CreateSeries<int?>("nihao",[null,null])
+        ];
+        var isEmptyIgnore = df1.WithColumns(Cs.Integer().ToExpr().IsEmpty(ignoreNulls:true));
+        var isEmpty= df1.WithColumns(Cs.Integer().ToExpr().IsEmpty(ignoreNulls:false));
+        Assert.Equal(isEmptyIgnore.Height,isEmpty.Height);
+        Assert.Equal(2L,isEmpty.Height);
+        Assert.True((bool)isEmptyIgnore[0][0]);
+        Assert.False((bool)isEmpty[0][0]);
+
+        using DataFrame df2 = [
+            Pl.CreateSeries<int?>("nihao",[]),
+            Pl.CreateSeries<string>("byebye",[])
+        ];
+        var isEmptyBlank = df2.Select(Cs.All().ToExpr().IsEmpty(ignoreNulls:true));
+        Assert.Equal(1L,isEmptyBlank.Height);
+        Assert.True((bool)isEmptyBlank[0][0]);
+    }
+    [Fact]
+    [Trait("Expr","HasNulls")]
+    public void Test_Expr_HasNulls()
+    {
+        using DataFrame df = [
+            Pl.CreateSeries<int?>("nihao",[null,1]),
+            Pl.CreateSeries("byebye",[0.5f,float.NaN])
+        ];
+        var hasNulls = df.WithColumns(Cs.Numeric().ToExpr().HasNulls());
+        Assert.True((bool)hasNulls[0][0]);
+        Assert.False((bool)hasNulls[1][1]);
     }
     [Fact]
     public void Test_Lit_Primitives_And_Nullables()

@@ -79,6 +79,12 @@ type [<Struct>] ListOps(handle: ExprHandle) =
     member _.Agg(expr:Expr) =
         new Expr(PolarsWrapper.ListAgg(handle,expr.CloneHandle()))
     /// <summary>
+    /// Run any polars expression against the lists’ elements.
+    /// </summary>
+    /// <param name="expr">Expression to run. Note that you can select an element with Pl.Element().</param>
+    member _.Eval(expr:Expr) =
+        new Expr(PolarsWrapper.ListEval(handle,expr.CloneHandle()))
+    /// <summary>
     /// Shift list values by the given number of indices.
     /// </summary>
     /// <param name="n">Number of indices to shift forward. 
@@ -158,7 +164,7 @@ type [<Struct>] ListOps(handle: ExprHandle) =
     /// </summary>
     member _.Len() = new Expr(PolarsWrapper.ListLen handle)
     /// <summary> Reverse the list. </summary>
-    member _.Reverse() = new Expr(PolarsWrapper.ListReverse handle)
+    member this.Reverse() = this.Eval(Expr.Col("").Reverse())
     /// <summary>
     /// Calculate the sum of the values in the list (row-wise).
     /// </summary>
@@ -182,11 +188,11 @@ type [<Struct>] ListOps(handle: ExprHandle) =
     /// <summary>
     /// Evaluate whether all boolean values in a list are true.
     /// </summary>
-    member _.All() = new Expr(PolarsWrapper.ListAll handle)
+    member this.All(?ignoreNulls) = this.Agg(Expr.Col("").All(?ignoreNulls=ignoreNulls))
     /// <summary>
     /// Evaluate whether any boolean value in a list is true.
     /// </summary>
-    member _.Any() = new Expr(PolarsWrapper.ListAny handle)
+    member this.Any(?ignoreNulls) = this.Agg(Expr.Col("").Any(?ignoreNulls=ignoreNulls))
     /// <summary>
     /// Drop all null values in the list.
     /// The original order of the remaining elements is preserved.
@@ -195,7 +201,7 @@ type [<Struct>] ListOps(handle: ExprHandle) =
     /// <summary>
     /// Count the number of unique values in every sub-lists.
     /// </summary>
-    member _.NUnique() = new Expr(PolarsWrapper.ListNUnique handle)
+    member this.NUnique() = this.Agg(Expr.Col("").NUnique())
     /// <summary>
     /// Retrieve the index of the maximum value in every sublist.
     /// </summary>
@@ -224,9 +230,7 @@ type [<Struct>] ListOps(handle: ExprHandle) =
     /// Get the unique/distinct values in the list.
     /// </summary>
     /// <param name="maintainOrder">Maintain order of data. This requires more work.</param>
-    member _.Unique(?maintainOrder:bool) = 
-        let ma = defaultArg maintainOrder false
-        new Expr(PolarsWrapper.ListUnique(handle,ma))
+    member this.Unique(?maintainOrder:bool) = this.Eval(Expr.Col("").Unique(?maintainOrder=maintainOrder))
     /// <summary>
     /// Sort the lists in this column.
     /// </summary>

@@ -92,11 +92,10 @@ type ``Extensions Tests`` () =
             Series.ofSeq("data", data) 
         ]
         
-
         df.PrintSchema() 
-        let dfFlat = df.GlimpseFrame() |> pl.show |> pl.unnestColumns ["data"]
-        
-        let readBack = dfFlat.ToRecords<ComplexData>() |> Seq.toList
+        df.GlimpseFrame() |> pl.show |> ignore
+
+        let readBack = df.UnnestColumn("data").ToRecords<ComplexData>() |> Seq.toList
         Assert.Equal(2, readBack.Length)
         
         let row1 = readBack.[0]

@@ -98,6 +98,24 @@ type WindowMappingStrategy =
         | Explode -> PlWindowMapping.Explode
         | Join -> PlWindowMapping.Join 
 
+[<RequireQualifiedAccess>]
+type PivotColumnNaming =
+    /// <summary>
+    /// The default; combine with separator if there are multiple
+    /// values columns, otherwise just use the on_columns names.
+    /// </summary>
+    | Auto
+    /// <summary>
+    /// Always combine the values columns’ names with
+    /// the on_columns names.
+    /// </summary>
+    | Combine
+    member internal this.ToNative() =
+        match this with
+        | Auto -> PlPivotColumnNaming.Auto
+        | Combine -> PlPivotColumnNaming.Combine
+
+
 /// <summary>
 /// Specifies the aggregation function for pivot operations.
 /// </summary>
@@ -573,4 +591,71 @@ type ExtraColumnsPolicy =
 type UnstackDirection =
     | Vertical
     | Horizontal
+
+[<RequireQualifiedAccess>]
+type TableFormatting =
+    | AsciiFull
+    | AsciiFullCondensed
+    | AsciiNoBorders
+    | AsciiBordersOnly
+    | AsciiBordersOnlyCondensed
+    | AsciiHorizontalOnly
+    | AsciiMarkdown
+    | Markdown
+    | Utf8Full
+    | Utf8FullCondensed
+    | Utf8NoBorders
+    | Utf8BordersOnly
+    | Utf8HorizontalOnly
+    | Nothing
+    | ResetToDefault
+    member internal this.ToNative() = 
+        match this with
+        | AsciiFull -> Nullable PlTableFormatting.AsciiFull
+        | AsciiFullCondensed -> Nullable PlTableFormatting.AsciiFullCondensed
+        | AsciiNoBorders -> Nullable PlTableFormatting.AsciiNoBorders
+        | AsciiBordersOnly -> Nullable PlTableFormatting.AsciiBordersOnly
+        | AsciiBordersOnlyCondensed -> Nullable PlTableFormatting.AsciiBordersOnlyCondensed
+        | AsciiHorizontalOnly -> Nullable PlTableFormatting.AsciiHorizontalOnly
+        | AsciiMarkdown -> Nullable PlTableFormatting.AsciiMarkdown
+        | Markdown -> Nullable PlTableFormatting.Markdown
+        | Utf8Full -> Nullable PlTableFormatting.Utf8Full
+        | Utf8FullCondensed -> Nullable PlTableFormatting.Utf8FullCondensed
+        | Utf8NoBorders -> Nullable PlTableFormatting.Utf8NoBorders
+        | Utf8BordersOnly -> Nullable PlTableFormatting.Utf8BordersOnly
+        | Utf8HorizontalOnly -> Nullable PlTableFormatting.Utf8HorizontalOnly
+        | Nothing -> Nullable PlTableFormatting.Nothing
+        | ResetToDefault -> Nullable ()
+
+[<RequireQualifiedAccess>]
+type Alignment =
+    | Left
+    | Center
+    | Right
+    | ResetToDefault
+    member internal this.ToNative() = 
+       match this with
+        | Left -> Nullable PlTableCellAlignment.Left
+        | Center -> Nullable PlTableCellAlignment.Center
+        | Right -> Nullable PlTableCellAlignment.Right 
+        | ResetToDefault -> Nullable ()
+
+[<RequireQualifiedAccess>]
+type FloatFormat =
+
+    /// <summary>
+    /// Limit the number of decimal places and use scientific notation for large/small values.
+    /// </summary>
+    | Mixed
+    /// <summary>
+    /// Print the full precision of the floating point number.
+    /// </summary>
+    | Full 
+
+    | ResetToDefault
+    member internal this.ToNative() = 
+       match this with
+        | Mixed -> Nullable PlFloatFormat.Mixed
+        | Full -> Nullable PlFloatFormat.Full
+        | ResetToDefault -> Nullable ()
 

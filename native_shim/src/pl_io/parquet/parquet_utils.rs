@@ -146,6 +146,7 @@ pub(crate) fn build_parquet_write_options(
         max_value: statistics,
         distinct_count: statistics,
         null_count: statistics,
+        binary_statistics_truncate_length: None
     };
 
     // 3. Handle Compat Level

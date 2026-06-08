@@ -7,6 +7,8 @@ using System.Data.Common;
 using System.Threading.Channels;
 using System.Numerics.Tensors;
 using Pl = Polars.CSharp.Polars;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace Polars.CSharp;
 
@@ -135,19 +137,9 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// <returns>A 2D <see cref="Tensor{T}"/> representing the feature matrix.</returns>
     public Tensor<T> AsTensor<T>(params string[] columnNames) where T : unmanaged
     {
-        Series[] targetColumns;
-        if (columnNames == null || columnNames.Length == 0)
-        {
-            targetColumns = GetColumns();
-        }
-        else
-        {
-            targetColumns = new Series[columnNames.Length];
-            for (int i = 0; i < columnNames.Length; i++)
-            {
-                targetColumns[i] = Column(columnNames[i]); 
-            }
-        }
+        var targetColumns = (columnNames == null || columnNames.Length == 0)
+            ? GetColumns()
+            : System.Array.ConvertAll(columnNames, Column);
 
         if (targetColumns.Length == 0) 
             throw new InvalidOperationException("Cannot create a Tensor from an empty DataFrame.");
@@ -163,17 +155,22 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
             for (int c = 0; c < cols; c++)
             {
                 var col = targetColumns[c];
-
                 bool needsRechunk = !col.IsContiguous;
-                Series activeCol = needsRechunk ? col.Rechunk() : col;
+                var activeCol = needsRechunk ? col.Rechunk() : col;
 
                 try
                 {
-                    ReadOnlySpan<T> span = activeCol.AsReadOnlySpan<T>();
+                    ReadOnlySpan<T> srcSpan = activeCol.AsReadOnlySpan<T>();
+
+                    int destIdx = c;
 
                     for (int r = 0; r < rows; r++)
                     {
-                        destSpan[r * cols + c] = span[r];
+                        Unsafe.Add(
+                            ref MemoryMarshal.GetReference(destSpan), 
+                            destIdx) = srcSpan[r];
+
+                        destIdx += cols;
                     }
                 }
                 finally

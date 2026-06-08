@@ -36,8 +36,8 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_dataframe_width(DataFrameHandle df,out uint width);
-    [LibraryImport(LibName)] public static partial IntPtr pl_dataframe_get_column_name(DataFrameHandle df, UIntPtr index);
-    [LibraryImport(LibName)] public static partial IntPtr pl_dataframe_to_string(DataFrameHandle df);
+    [LibraryImport(LibName)] public static partial nint pl_dataframe_get_column_name(DataFrameHandle df, UIntPtr index);
+    [LibraryImport(LibName)] public static partial nint pl_dataframe_to_string(DataFrameHandle df);
     [LibraryImport(LibName)] 
     public static partial DataFrameHandle pl_dataframe_clone(DataFrameHandle df);
     [LibraryImport(LibName)]
@@ -81,11 +81,11 @@ unsafe internal partial class NativeBindings
     );
 
     [LibraryImport(LibName)]
-    public static partial DataFrameHandle pl_dataframe_sample_n_literal(DataFrameHandle df, nuint n, [MarshalAs(UnmanagedType.U1)] bool replacement, [MarshalAs(UnmanagedType.I1)] bool shuffle, ulong* seed);
+    public static partial DataFrameHandle pl_dataframe_sample_n_literal(DataFrameHandle df, nuint n, [MarshalAs(UnmanagedType.U1)] bool replacement, [MarshalAs(UnmanagedType.U1)] bool shuffle, ulong* seed);
     [LibraryImport(LibName)]
-    public static partial DataFrameHandle pl_dataframe_sample_n(DataFrameHandle df, SeriesHandle n, [MarshalAs(UnmanagedType.U1)] bool replacement, [MarshalAs(UnmanagedType.I1)] bool shuffle, ulong* seed);
+    public static partial DataFrameHandle pl_dataframe_sample_n(DataFrameHandle df, SeriesHandle n, [MarshalAs(UnmanagedType.U1)] bool replacement, [MarshalAs(UnmanagedType.U1)] bool shuffle, ulong* seed);
     [LibraryImport(LibName)]
-    public static partial DataFrameHandle pl_dataframe_sample_frac(DataFrameHandle df, SeriesHandle frac, [MarshalAs(UnmanagedType.U1)] bool replacement, [MarshalAs(UnmanagedType.I1)] bool shuffle, ulong* seed);
+    public static partial DataFrameHandle pl_dataframe_sample_frac(DataFrameHandle df, SeriesHandle frac, [MarshalAs(UnmanagedType.U1)] bool replacement, [MarshalAs(UnmanagedType.U1)] bool shuffle, ulong* seed);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial DataFrameHandle pl_dataframe_unnest(
         DataFrameHandle df,
@@ -124,7 +124,8 @@ unsafe internal partial class NativeBindings
         PlPivotAgg aggCode,     // agg_code
         [MarshalAs(UnmanagedType.U1)] bool maintainOrder,
         [MarshalAs(UnmanagedType.U1)] bool sortColumns,
-        string? separator       // separator_ptr
+        string? separator,       // separator_ptr
+        PlPivotColumnNaming columnNaming
     );
     // Stack Ops
     [LibraryImport(LibName)]

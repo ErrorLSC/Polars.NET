@@ -322,7 +322,7 @@ public class AdbcLocalTests : IDisposable
 
         df.WriteToAdbc(_connection, "polars_dotnet_poison",ingestMode:AdbcIngestMode.Create);
         var verifyDf = DataFrame.ReadAdbc(_connection, "SELECT * FROM polars_dotnet_poison ORDER BY id;");
-        // verifyDf.Show();
+        verifyDf.Show();
         // shape: (2, 6)
         // ┌─────┬─────────────────────────┬────────────────────────┬────────────┬──────────┬─────────────────┐
         // │ id  ┆ money                   ┆ uuid                   ┆ birthday   ┆ alarm    ┆ duration        │

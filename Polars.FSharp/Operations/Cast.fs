@@ -28,7 +28,7 @@ module ExprCastExtension =
             if strict && wn then
                 invalidArg "strict/wrapNumerical" "Cannot set both 'strict' and 'wrapNumerical' to true."
             use target = Dtype.consume source
-            let h = PolarsWrapper.ExprCast(this.CloneHandle(), target.handle, strict, wn)
+            let h = PolarsWrapper.ExprCast(this.CloneHandle(), target.Handle, strict, wn)
             new Expr(h)
 
         /// <summary>Cast expression to the type of 'T.</summary>

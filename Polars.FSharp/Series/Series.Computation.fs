@@ -47,10 +47,11 @@ module SeriesComputationOps =
             this.ExtractScalar<'T>(fun () -> this.Dot(other))
         /// <summary> Round to given decimals. </summary>
         member this.Round(decimals: uint,?mode: RoundMode) =
-            let mo = defaultArg mode RoundMode.HalfToEven 
-            this.ApplyExpr(Expr.Col(this.Name).Round(decimals,mo))
+            this.ApplyExpr(Expr.Col(this.Name).Round(decimals,?mode=mode))
         member this.RoundSigFigs(digits) =
             this.ApplyExpr(Expr.Col(this.Name).RoundSigFigs(digits))
+        member this.Truncate(?decimals) = 
+            this.ApplyExpr(Expr.Col(this.Name).Truncate(?decimals=decimals))
         /// <summary> Element-wise sign. </summary>
         member this.Sign() = this.ApplyExpr(Expr.Col(this.Name).Sign())
 

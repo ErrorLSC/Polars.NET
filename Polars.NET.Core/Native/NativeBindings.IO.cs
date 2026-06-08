@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Runtime.InteropServices;
 
 namespace Polars.NET.Core.Native;
@@ -5,7 +6,7 @@ namespace Polars.NET.Core.Native;
 [StructLayout(LayoutKind.Sequential)]
 public struct FfiBuffer
 {
-    public IntPtr Data;
+    public nuint Data;
     public nuint Length;
     public nuint Capacity;
 }
@@ -245,19 +246,19 @@ unsafe internal partial class NativeBindings
         string path,
         IntPtr n_rows, // null for None
         PlParallelStrategy parallel_code,
-        [MarshalAs(UnmanagedType.I1)] bool low_memory,
-        [MarshalAs(UnmanagedType.I1)] bool use_statistics,
-        [MarshalAs(UnmanagedType.I1)] bool glob,
-        [MarshalAs(UnmanagedType.I1)] bool allow_missing_columns,
-        [MarshalAs(UnmanagedType.I1)] bool rechunk, 
-        [MarshalAs(UnmanagedType.I1)] bool cache,   
+        [MarshalAs(UnmanagedType.U1)] bool low_memory,
+        [MarshalAs(UnmanagedType.U1)] bool use_statistics,
+        [MarshalAs(UnmanagedType.U1)] bool glob,
+        [MarshalAs(UnmanagedType.U1)] bool allow_missing_columns,
+        [MarshalAs(UnmanagedType.U1)] bool rechunk, 
+        [MarshalAs(UnmanagedType.U1)] bool cache,   
         string? row_index_name,
         uint row_index_offset,
         string? include_path_col,
         IntPtr schema,
-        [MarshalAs(UnmanagedType.I1)] bool hive_partitioning,
+        [MarshalAs(UnmanagedType.U1)] bool hive_partitioning,
         IntPtr hive_schema,
-        [MarshalAs(UnmanagedType.I1)] bool try_parse_hive_dates,
+        [MarshalAs(UnmanagedType.U1)] bool try_parse_hive_dates,
         // Cloud Options
         PlCloudProvider cloud_provider,
         UIntPtr cloud_retries,
@@ -275,19 +276,19 @@ unsafe internal partial class NativeBindings
         UIntPtr buffer_len,
         IntPtr n_rows,
         PlParallelStrategy parallel_code,
-        [MarshalAs(UnmanagedType.I1)] bool low_memory,
-        [MarshalAs(UnmanagedType.I1)] bool use_statistics,
-        [MarshalAs(UnmanagedType.I1)] bool glob,
-        [MarshalAs(UnmanagedType.I1)] bool allow_missing_columns,
-        [MarshalAs(UnmanagedType.I1)] bool rechunk, 
-        [MarshalAs(UnmanagedType.I1)] bool cache,   
+        [MarshalAs(UnmanagedType.U1)] bool low_memory,
+        [MarshalAs(UnmanagedType.U1)] bool use_statistics,
+        [MarshalAs(UnmanagedType.U1)] bool glob,
+        [MarshalAs(UnmanagedType.U1)] bool allow_missing_columns,
+        [MarshalAs(UnmanagedType.U1)] bool rechunk, 
+        [MarshalAs(UnmanagedType.U1)] bool cache,   
         string? row_index_name,
         uint row_index_offset,
         string? include_path_col,
         IntPtr schema,
-        [MarshalAs(UnmanagedType.I1)] bool hive_partitioning,
+        [MarshalAs(UnmanagedType.U1)] bool hive_partitioning,
         IntPtr hive_schema,
-        [MarshalAs(UnmanagedType.I1)] bool try_parse_hive_dates
+        [MarshalAs(UnmanagedType.U1)] bool try_parse_hive_dates
     );
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
@@ -576,10 +577,10 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_scan_ipc_memory(
         byte* buffer, 
-        UIntPtr bufferLen,
+        nuint bufferLen,
         
         // --- Unified Args ---
-        IntPtr nRows,
+        nint nRows,
         [MarshalAs(UnmanagedType.U1)] bool rechunk,
         [MarshalAs(UnmanagedType.U1)] bool cache,
         string? rowIndexName,
@@ -587,10 +588,57 @@ unsafe internal partial class NativeBindings
         string? includePathColumn,
         
         // --- Schema & Hive ---
-        IntPtr schema,
+        nint schema,
         [MarshalAs(UnmanagedType.U1)] bool hivePartitioning,
-        IntPtr hiveSchema,
+        nint hiveSchema,
         [MarshalAs(UnmanagedType.U1)] bool tryParseHiveDates
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial DataFrameHandle pl_read_ipc_stream(
+        string path,
+        string[]? columns,
+        nuint columnsLen,
+        nuint[]? projection,
+        nuint projectionLen,
+        nint nRows,
+        string? rowIndexName,
+        uint rowIndexOffset,
+        [MarshalAs(UnmanagedType.U1)] bool rechunk
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial DataFrameHandle pl_read_ipc_stream_memory(
+        ReadOnlySpan<byte> buffer,
+        nuint bufferLen,
+        string[]? columns,
+        nuint columnsLen,
+        nuint[]? projection,
+        nuint projectionLen,
+        nint nRows,
+        string? rowIndexName,
+        uint rowIndexOffset,
+        [MarshalAs(UnmanagedType.U1)] bool rechunk
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial SchemaHandle pl_read_ipc_stream_schema(string path);
+
+    [LibraryImport(LibName)]
+    public static partial SchemaHandle pl_read_ipc_stream_schema_memory(
+        ReadOnlySpan<byte> buffer,
+        nuint bufferLen
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial void pl_dataframe_write_ipc_stream(
+        DataFrameHandle df,
+        string path,
+        PlIpcCompression compression,
+        int compatLevel
+    );
+    [LibraryImport(LibName)]
+    public static partial void pl_dataframe_write_ipc_stream_memory(
+        DataFrameHandle df,
+        out FfiBuffer out_buffer,
+        PlIpcCompression compression,
+        int compatLevel
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_lazyframe_sink_ipc(
@@ -619,6 +667,7 @@ unsafe internal partial class NativeBindings
         string[]? cloud_values,
         nuint cloud_len
     );
+
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial void pl_lazyframe_sink_ipc_partitioned(
         LazyFrameHandle lf,

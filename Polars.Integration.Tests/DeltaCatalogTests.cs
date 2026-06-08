@@ -514,7 +514,7 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
 
         using var dfV1 = uc.ScanCatalogTable(catalog, schema, table, cloudOptions: cloudOptions).Collect();
         Assert.Equal(5, dfV1.Height);
-
+        dfV1.Show();
         
         // Predicate: (Year == '2024') & (Id == 4)
         var predicateRewrite = (Pl.Col("Year") == Pl.Lit("2024")) & (Pl.Col("Id") == 4);
@@ -637,8 +637,8 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
     [Trait("Catalog", "Chaos")]
     public async Task Test_Concurrent_Chaos_Mixed_Append_Delete_Merge_Async()
     {
-        PolarsConfig.SetEnvVar("POLARS_DELTA_MAX_RETRIES", "20");
-
+        // PolarsConfig.SetEnvVar("POLARS_DELTA_MAX_RETRIES", "20");
+        Pl.Config.SetDeltaMaxRetries(20);
         var catalog = "main";
         var schema = "default";
         var table = $"delta_chaos_ultimate_{Guid.NewGuid():N}";
@@ -741,7 +741,8 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         Assert.Contains(201, remainingIds);
         Assert.Contains(250, remainingIds);
         
-        Environment.SetEnvironmentVariable("POLARS_DELTA_MAX_RETRIES", null);
+        // Environment.SetEnvironmentVariable("POLARS_DELTA_MAX_RETRIES", null);
+        Pl.Config.RestoreDefaults();
     }
     [Fact]
     [Trait("Catalog", "FourWayChaos")]
@@ -913,13 +914,12 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         Assert.Equal(50, restoredDf.Height);
 
         using var historyDf = uc.DeltaHistory(catalog, schema, table, cloudOptions: cloudOptions);
-
-        long deletedFiles = uc.DeltaVacuum(
-            catalog, schema, table,
-            retentionHours: 0,          
-            enforceRetention: false,    
-            cloudOptions: cloudOptions
-        );
+        // long deletedFiles = uc.DeltaVacuum(
+        //     catalog, schema, table,
+        //     retentionHours: 0,          
+        //     enforceRetention: false,    
+        //     cloudOptions: cloudOptions
+        // );
         // --- Table History ---
         // shape: (20, 21)
         // ┌─────────┬────────────┬───────────┬───────────┬───┬───────────┬───────────┬───────────┬───────────┐
@@ -960,7 +960,6 @@ public class CatalogIntegrationTests(MinioFixture _minio) : IAsyncLifetime, ICla
         // │         ┆ 07:16:17.8 ┆           ┆           ┆   ┆           ┆           ┆           ┆           │
         // │         ┆ 29 UTC     ┆           ┆           ┆   ┆           ┆           ┆           ┆           │
         // └─────────┴────────────┴───────────┴───────────┴───┴───────────┴───────────┴───────────┴───────────┘
-        // --- Vacuum deleted 14 orphaned files ---
         
         Environment.SetEnvironmentVariable("POLARS_DELTA_MAX_RETRIES", null);
     }

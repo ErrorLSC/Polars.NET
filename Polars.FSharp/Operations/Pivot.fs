@@ -31,11 +31,13 @@ module PivotOps =
             ?aggregateExpr: Expr,
             ?aggregateFunction: PivotAgg,
             ?maintainOrder: bool,
-            ?separator: string
+            ?separator: string,
+            ?columnNaming: PivotColumnNaming
         ) =
             let aggFunc = defaultArg aggregateFunction PivotAgg.First
             let mo = defaultArg maintainOrder true
             let sep = Option.toObj separator
+            let cn = defaultArg columnNaming PivotColumnNaming.Auto
 
             use indexH = index.CloneHandle()
             use columnsH = columns.CloneHandle()
@@ -54,7 +56,8 @@ module PivotOps =
                 aggExprH,           // aggExpr
                 aggFunc.ToNative(), // aggregateFunction mapping
                 mo,                 // maintainOrder
-                sep                 // separator
+                sep,                 // separator
+                cn.ToNative()
             )
 
             new LazyFrame(h)
@@ -77,7 +80,8 @@ module PivotOps =
             onColumns: DataFrame,
             ?aggregateFunction: PivotAgg,
             ?maintainOrder: bool,
-            ?separator: string
+            ?separator: string,
+            ?columnNaming: PivotColumnNaming
         ) =
             use sIndex = new Selector(PolarsWrapper.SelectorCols(index |> Seq.toArray))
             use sColumns = new Selector(PolarsWrapper.SelectorCols(columns |> Seq.toArray))
@@ -90,7 +94,8 @@ module PivotOps =
                 onColumns,
                 ?aggregateFunction = aggregateFunction,
                 ?maintainOrder = maintainOrder,
-                ?separator = separator
+                ?separator = separator,
+                ?columnNaming = columnNaming
             )
 
         /// <summary>
@@ -103,7 +108,8 @@ module PivotOps =
             onColumns: DataFrame,
             aggregateExpr: Expr,
             ?maintainOrder: bool,
-            ?separator: string
+            ?separator: string,
+            ?columnNaming: PivotColumnNaming
         ) =
             use sIndex = new Selector(PolarsWrapper.SelectorCols(index |> Seq.toArray))
             use sColumns = new Selector(PolarsWrapper.SelectorCols(columns |> Seq.toArray))
@@ -116,7 +122,8 @@ module PivotOps =
                 onColumns,
                 aggregateExpr = aggregateExpr,
                 ?maintainOrder = maintainOrder,
-                ?separator = separator
+                ?separator = separator,
+                ?columnNaming = columnNaming
             )
     type DataFrame with
            /// <summary>
@@ -138,14 +145,15 @@ module PivotOps =
             ?aggregateFunction: PivotAgg,
             ?sortColumns: bool,
             ?maintainOrder: bool,
-            ?separator: string
+            ?separator: string,
+            ?columnNaming: PivotColumnNaming
         ) =
             // 1. Resolve Defaults
             let aggFunc = defaultArg aggregateFunction PivotAgg.First
             let sort = defaultArg sortColumns false
             let mo = defaultArg maintainOrder true
             let sep = Option.toObj separator
-
+            let cn = defaultArg columnNaming PivotColumnNaming.Auto
             // 2. Clone Handles
             use indexH = index.CloneHandle()
             use columnsH = columns.CloneHandle()
@@ -165,7 +173,8 @@ module PivotOps =
                 aggFunc.ToNative(),
                 sort,
                 mo,
-                sep
+                sep,
+                cn.ToNative()
             )
             new DataFrame(h)
 
@@ -179,7 +188,8 @@ module PivotOps =
             ?aggFn: PivotAgg,
             ?sortColumns: bool,
             ?maintainOrder: bool,
-            ?separator: string
+            ?separator: string,
+            ?columnNaming: PivotColumnNaming
         ) =
             use sIndex = new Selector(PolarsWrapper.SelectorCols(index |> Seq.toArray))
             use sColumns = new Selector(PolarsWrapper.SelectorCols(columns |> Seq.toArray))
@@ -192,7 +202,8 @@ module PivotOps =
                 ?aggregateFunction = aggFn,
                 ?sortColumns = sortColumns,
                 ?maintainOrder = maintainOrder,
-                ?separator = separator
+                ?separator = separator,
+                ?columnNaming=columnNaming
             )
 
         /// <summary>
@@ -205,7 +216,8 @@ module PivotOps =
             aggExpr: Expr,
             ?sortColumns: bool,
             ?maintainOrder: bool,
-            ?separator: string
+            ?separator: string,
+            ?columnNaming: PivotColumnNaming
         ) =        
             use sIndex = new Selector(PolarsWrapper.SelectorCols(index |> Seq.toArray))
             use sColumns = new Selector(PolarsWrapper.SelectorCols(columns |> Seq.toArray))
@@ -218,7 +230,8 @@ module PivotOps =
                 aggregateExpr = aggExpr,
                 ?sortColumns = sortColumns,
                 ?maintainOrder = maintainOrder,
-                ?separator = separator
+                ?separator = separator,
+                ?columnNaming= columnNaming
             )
 
 

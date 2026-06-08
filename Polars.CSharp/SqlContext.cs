@@ -54,23 +54,14 @@ public class SqlContext : IDisposable,IPolarsSqlContext
         Register(tableName, lf);
     }
 
-    void IPolarsSqlContext.Register(string tableName,IPolarsDataFrame df)
-    {
-        Register(tableName,(DataFrame)df);
-    }
-    void IPolarsSqlContext.Register(string tableName,IPolarsLazyFrame lf)
-    {
-        Register(tableName,(LazyFrame)lf);
-    }
-
+    void IPolarsSqlContext.Register(string tableName,IPolarsDataFrame df) => Register(tableName,(DataFrame)df);
+    void IPolarsSqlContext.Register(string tableName,IPolarsLazyFrame lf) => Register(tableName,(LazyFrame)lf);
+    
     /// <summary>
     /// UnRegister a LazyFrame as a table.
     /// </summary>
-    public void UnRegister(string tableName)
-    {
-        PolarsWrapper.SqlUnRegister(Handle,tableName);
-    }
-
+    public void UnRegister(string tableName) => PolarsWrapper.SqlUnRegister(Handle,tableName);
+    
     /// <summary>
     /// Execute a SQL query.
     /// </summary>
@@ -81,18 +72,12 @@ public class SqlContext : IDisposable,IPolarsSqlContext
         var lfHandle = PolarsWrapper.SqlExecute(Handle, query);
         return new LazyFrame(lfHandle);
     }
-    IPolarsLazyFrame IPolarsSqlContext.Execute(string query)
-    {
-        return Execute(query);
-    }
+    IPolarsLazyFrame IPolarsSqlContext.Execute(string query) => Execute(query);
     /// <summary>
     /// Get the names of all registered tables, in sorted order.
     /// </summary>
     /// <returns>An array of registered table names.</returns>
-    public string[] GetTables()
-    {
-        return PolarsWrapper.SqlGetTables(Handle);
-    }
+    public string[] GetTables() => PolarsWrapper.SqlGetTables(Handle);
     /// <summary>
     /// Dispose the SQL Context and release resources.
     /// </summary>

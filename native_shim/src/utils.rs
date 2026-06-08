@@ -65,6 +65,10 @@ pub fn ptr_to_str<'a>(ptr: *const c_char) -> Result<&'a str, std::str::Utf8Error
     unsafe { CStr::from_ptr(ptr).to_str() }
 }
 
+pub unsafe fn ptr_to_str_unchecked<'a>(ptr: *const c_char) -> Result<&'a str, std::str::Utf8Error> {
+    unsafe { CStr::from_ptr(ptr) }.to_str()
+}
+
 pub(crate) unsafe fn consume_exprs_array(
     ptr: *const *mut ExprContext, 
     len: usize
@@ -276,3 +280,20 @@ pub(crate) fn map_external_compression(
     }
 }
 
+pub type MapStringCallback = extern "C" fn(*const c_char) -> *mut c_char;
+pub type FreeStringCallback = extern "C" fn(*mut c_char);
+pub type FreeHandleCallback = extern "C" fn(*mut c_void);
+
+pub struct GcHandleGuard {
+    pub handle_ptr: *mut c_void,
+    pub free_cb: FreeHandleCallback,
+}
+unsafe impl Send for GcHandleGuard {}
+unsafe impl Sync for GcHandleGuard {}
+impl Drop for GcHandleGuard {
+    fn drop(&mut self) {
+        if !self.handle_ptr.is_null() {
+            (self.free_cb)(self.handle_ptr);
+        }
+    }
+}

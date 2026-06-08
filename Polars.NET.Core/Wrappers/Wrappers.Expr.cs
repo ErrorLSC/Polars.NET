@@ -550,6 +550,8 @@ public readonly partial struct PolarsWrapper
     }
     public static ExprHandle InterpolateBy(ExprHandle e, ExprHandle by) => BinaryOp(NativeBindings.pl_expr_interpolate_by, e, by);
     public static ExprHandle IsNull(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_is_null, expr);
+    public static ExprHandle IsEmpty(ExprHandle expr,bool ignoreNulls) => UnaryBoolOp(NativeBindings.pl_expr_is_empty, expr,ignoreNulls);
+    public static ExprHandle HasNulls(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_has_nulls, expr);
     public static ExprHandle IsNotNull(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_is_not_null, expr);
     public static ExprHandle ExprIsNan(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_is_nan, expr);
     public static ExprHandle ExprIsNotNan(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_is_not_nan, expr);
@@ -675,6 +677,12 @@ public readonly partial struct PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle Truncate(ExprHandle e, uint decimals)
+    {
+        var h = NativeBindings.pl_expr_truncate(e, decimals);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
 
     // Statistics
     public static ExprHandle Count(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_count, e);
@@ -728,7 +736,7 @@ public readonly partial struct PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     } 
-    public static ExprHandle Implode(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_implode, e);
+    public static ExprHandle Implode(ExprHandle e,bool maintainOrder) => UnaryBoolOp(NativeBindings.pl_expr_implode, e,maintainOrder);
     
     public static ExprHandle ListJoin(ExprHandle e, string sep,bool ignoreNulls)
     {
@@ -744,14 +752,9 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle ListMax(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_max, e);
     public static ExprHandle ListMean(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_mean, e);
     public static ExprHandle ListMedian(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_median, e);
-    public static ExprHandle ListAll(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_all, e);
-    public static ExprHandle ListAny(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_any, e);
     public static ExprHandle ListDropNulls(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_drop_nulls, e);
-    public static ExprHandle ListNUnique(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_n_unique, e);
     public static ExprHandle ListArgMax(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_arg_max, e);
     public static ExprHandle ListArgMin(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_arg_min, e);
-    public static ExprHandle ListUnique(ExprHandle e,bool maintainOrder)
-        => UnaryBoolOp(NativeBindings.pl_expr_list_unique,e,maintainOrder);
     public static ExprHandle ListStd(ExprHandle e,byte ddof)
     {
         var h = NativeBindings.pl_expr_list_std(e, ddof);
@@ -803,7 +806,8 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle ListHead(ExprHandle listExpr, ExprHandle n) => BinaryOp(NativeBindings.pl_expr_list_head,listExpr,n);
     public static ExprHandle ListTail(ExprHandle listExpr, ExprHandle n) => BinaryOp(NativeBindings.pl_expr_list_tail,listExpr,n);
     public static ExprHandle ListCountMatches(ExprHandle listExpr, ExprHandle item) => BinaryOp(NativeBindings.pl_expr_list_count_matches,listExpr,item);
-    public static ExprHandle ListAgg(ExprHandle listExpr, ExprHandle agg) => BinaryOp(NativeBindings.pl_expr_list_agg,listExpr,agg);    
+    public static ExprHandle ListAgg(ExprHandle listExpr, ExprHandle agg) => BinaryOp(NativeBindings.pl_expr_list_agg,listExpr,agg);  
+    public static ExprHandle ListEval(ExprHandle listExpr, ExprHandle agg) => BinaryOp(NativeBindings.pl_expr_list_eval,listExpr,agg);    
     public static ExprHandle ListShift(ExprHandle listExpr, ExprHandle shift)=> BinaryOp(NativeBindings.pl_expr_list_shift,listExpr,shift);
     public static ExprHandle ListDiff(ExprHandle listExpr, long n, PlNullBehavior nullBehavior)
     {
@@ -912,7 +916,6 @@ public readonly partial struct PolarsWrapper
             (nuint)exprs.Length
         ));
     }
-    public static ExprHandle ListReverse(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_list_reverse, e);
     // --- Array ---
     public static ExprHandle ConcatArray(ExprHandle[] exprs)
     {
@@ -928,7 +931,6 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle ArrayMean(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_array_mean, e);
     public static ExprHandle ArrayMedian(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_array_median, e);
     public static ExprHandle ArrayLen(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_array_len, e);
-    public static ExprHandle ArrayNUnique(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_array_n_unique, e);
     public static ExprHandle ArrayCountMatches(ExprHandle e,ExprHandle item) => BinaryOp(NativeBindings.pl_expr_array_count_matches, e,item);
     public static ExprHandle ArrayShift(ExprHandle e,ExprHandle shift) => BinaryOp(NativeBindings.pl_expr_array_shift, e,shift);
     public static ExprHandle ArrayAgg(ExprHandle e,ExprHandle agg) => BinaryOp(NativeBindings.pl_expr_array_agg, e,agg);
@@ -944,8 +946,6 @@ public readonly partial struct PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }    
-    public static ExprHandle ArrayUnique(ExprHandle e,bool stable)   
-        => UnaryBoolOp(NativeBindings.pl_expr_array_unique,e,stable);
     public static ExprHandle ArrayJoin(ExprHandle e,string sep,bool ignoreNulls)
     {
         var h = NativeBindings.pl_expr_array_join(e, sep,ignoreNulls);
@@ -959,8 +959,6 @@ public readonly partial struct PolarsWrapper
         item.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle ArrayAny(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_array_any, e);
-    public static ExprHandle ArrayAll(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_array_all, e);
     public static ExprHandle ArraySort(ExprHandle e, bool descending, bool nullsLast, bool maintainOrder)
     {
         var h = NativeBindings.pl_expr_array_sort(e, descending, nullsLast, maintainOrder);
@@ -974,7 +972,6 @@ public readonly partial struct PolarsWrapper
         index.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle ArrayReverse(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_array_reverse, e);
     public static ExprHandle ArrayArgMin(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_array_arg_min, e);
     public static ExprHandle ArrayArgMax(ExprHandle e) => UnaryOp(NativeBindings.pl_expr_array_arg_max, e);
     public static ExprHandle ArrayExplode(ExprHandle e, bool emptyAsNull,bool keepNulls)
@@ -1796,7 +1793,17 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(h);
     }
     public static ExprHandle ExprReinterpret(ExprHandle expr, bool signed)
-        => UnaryBoolOp(NativeBindings.pl_expr_reinterpret,expr,signed);
+        => ExprReinterpretInternal(expr,signed,nint.Zero);
+        
+    public static ExprHandle ExprReinterpret(ExprHandle expr, DataTypeHandle dtype)
+        => ExprReinterpretInternal(expr,false,dtype.DangerousGetHandle());
+    
+    private static ExprHandle ExprReinterpretInternal(ExprHandle expr, bool signed, nint dtypeHandle)
+    {
+        var h = NativeBindings.pl_expr_reinterpret(expr, signed, dtypeHandle);
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     public static ExprHandle ExprRepeat(ExprHandle value, ExprHandle n)
         => BinaryOp(NativeBindings.pl_expr_repeat,value,n);
     public static ExprHandle ExprRepeatBy(ExprHandle expr, ExprHandle by)

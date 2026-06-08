@@ -23,10 +23,11 @@
 
   <ItemGroup>
     <Compile Include="Enums.fs" />
+    <Compile Include="Config.fs" />
     <Compile Include="DataType.fs" />
     <Compile Include="CloudOptions.fs" />
     <Compile Include="UdfUtils.fs" />
-    <Compile Include="Exprs.fs" />
+    <Compile Include="Expr/Exprs.fs" />
     <Compile Include="Expr/Aggregation.fs" />
     <Compile Include="Expr/Boolean.fs" />
     <Compile Include="Expr/Computation.fs" />
@@ -39,8 +40,6 @@
     <Compile Include="Expr/NameOps.fs" />
     <Compile Include="Expr/StructOps.fs" />
     <Compile Include="Expr/MetaOps.fs" />
-    <Compile Include="Expr/DtOps.fs" />
-    <Compile Include="Expr/ExprNamespaces.fs" />
     <Compile Include="Types.fs" />  
     <Compile Include="Lit.fs" />  
     <Compile Include="Operations/Cast.fs" />
@@ -48,6 +47,11 @@
     <Compile Include="Series/Series.Aggregation.fs" />
     <Compile Include="Series/Series.Descriptive.fs" />
     <Compile Include="Series/Series.Computation.fs" />
+    <Compile Include="Expr/DtOps.fs" />
+    <Compile Include="Expr/ExprNamespaces.fs" />
+    <Compile Include="Expr/RollingOps.fs" />
+    <Compile Include="Series/Series.RollingOps.fs" />
+    <Compile Include="Operations/ValueAccessors.fs" />
     <Compile Include="Series/Series.ExtOps.fs" />
     <Compile Include="Series/Series.CatOps.fs" />
     <Compile Include="Series/Series.StringOps.fs" />
@@ -55,9 +59,6 @@
     <Compile Include="Series/Series.ListOps.fs" />
     <Compile Include="Series/Series.ArrayOps.fs" />
     <Compile Include="Series/Series.StructOps.fs" />
-    <Compile Include="Expr/RollingOps.fs" />
-    <Compile Include="Series/Series.RollingOps.fs" />
-    <Compile Include="Operations/ValueAccessors.fs" />
     <Compile Include="Series/Series.DtOps.fs" />
     <Compile Include="Series/Series.Namespaces.fs" />
     <Compile Include="IO/CSV/Read.fs" />
@@ -68,6 +69,7 @@
     <Compile Include="IO/Parquet/Write.fs" />
     <Compile Include="IO/IPC/Read.fs" />
     <Compile Include="IO/IPC/Write.fs" />
+    <Compile Include="IO/IPC/IPCStream.fs" />
     <Compile Include="IO/ADO.NET/Read.fs" />
     <Compile Include="IO/ADO.NET/Write.fs" />
     <Compile Include="IO/ADBC.fs" />
@@ -97,7 +99,6 @@
     <Compile Include="IO/Delta/Read.fs" />
     <Compile Include="IO/Delta/Write.fs" />
     <Compile Include="IO/Catalog.fs" />
-    <Compile Include="Config.fs" />
   </ItemGroup>
 
   <ItemGroup>

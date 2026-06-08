@@ -1,11 +1,12 @@
 namespace Polars.FSharp
-open Polars.NET.Core
 
 [<AutoOpen>]
 module TensorInterops = 
     open System
     open Polars.NET.Core.TensorInterop
     open System.Numerics.Tensors
+    open System.Runtime.InteropServices
+    open System.Runtime.CompilerServices
     type Series with
         /// <summary>
         /// Generate zero-copy ReadOnlySpan from a numeric Series.
@@ -156,12 +157,9 @@ module TensorInterops =
         /// Automatically handles memory fragmentation and performs the Column-Major to Row-Major transposition.
         /// </summary>
         member this.AsTensor<'T when 'T : unmanaged and 'T : struct and 'T :> ValueType and 'T : (new: unit -> 'T)>([<ParamArray>] columnNames: string[]) : Tensor<'T> =
-            
             let targetColumns =
-                if isNull columnNames || columnNames.Length = 0 then
-                    this.GetColumns()
-                else
-                    columnNames |> Array.map this.Column
+                if isNull columnNames || columnNames.Length = 0 then this.GetColumns()
+                else columnNames |> Array.map this.Column
 
             if targetColumns.Length = 0 then
                 invalidOp "Cannot create a Tensor from an empty DataFrame."
@@ -170,25 +168,31 @@ module TensorInterops =
             let rows = int this.Height
 
             let tensorData = Array.zeroCreate<'T> (rows * cols)
+            
             let destSpan = Span<'T> tensorData
 
             try
                 for c = 0 to cols - 1 do
                     let col = targetColumns.[c]
-
                     let needsRechunk = not col.IsContiguous
                     let activeCol = if needsRechunk then col.Rechunk() else col
 
                     try
-                        let span = activeCol.AsReadOnlySpan<'T>()
+                        let srcSpan = activeCol.AsReadOnlySpan<'T>()
                         
+                        let refDest = &MemoryMarshal.GetReference(destSpan)
+                        
+                        let mutable destIdx = c
                         for r = 0 to rows - 1 do
-                            destSpan.[r * cols + c] <- span.[r]
+                            Unsafe.Add(&refDest, destIdx) <- srcSpan.[r]
+                            
+                            destIdx <- destIdx + cols 
+                            
                     finally
                         if needsRechunk then activeCol.Dispose()
             finally
-                for col in targetColumns do
-                    if not (isNull (box col)) then col.Dispose()
+                targetColumns |> Array.iter (fun col -> 
+                    if not (isNull (box col)) then col.Dispose())
 
             let shape = [| nativeint rows; nativeint cols |]
             Tensor.Create(tensorData, ReadOnlySpan<nativeint> shape)

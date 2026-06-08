@@ -1,4 +1,3 @@
-#pragma warning disable CS1573
 #pragma warning disable CS1591
 using Polars.NET.Core;
 using Polars.NET.Core.Helpers;
@@ -464,7 +463,6 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     }
     /// <summary>
     /// Join with another LazyFrame using multiple boolean expressions.
-    /// Aligns perfectly with C# 12 collection expressions.
     /// Usage: lf.JoinWhere(other, [Pl.Col("start") &gt; Pl.Col("end"), Pl.Col("id") != null], how: JoinType.Left)
     /// </summary>
     public LazyFrame JoinWhere(
@@ -534,9 +532,19 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
         
         return JoinWhere(other, (IEnumerable<IntoExprColumn>)predicates);
     }
-
-    public LazyFrame MergeSorted(LazyFrame other, string key)
-        => new(PolarsWrapper.MergeSorted(CloneHandle(),other.CloneHandle(),key));
+    /// <summary>
+    /// Take two sorted DataFrames and merge them by the sorted key.
+    /// The output of this operation will also be sorted. 
+    /// It is the callers responsibility that the frames are sorted in ascending order by the key, 
+    /// with null keys at the end, otherwise the order of the output will not make sense.
+    /// The schemas of both LazyFrames must be equal.
+    /// </summary>
+    /// <param name="other">Other DataFrame that must be merged</param>
+    /// <param name="key">Key that is sorted.</param>
+    /// <param name="maintainOrder">If True, the output is guaranteed to have left-biased ordering for equal keys: 
+    /// rows from the left frame appear before rows from the right frame when their keys are equal.</param>
+    public LazyFrame MergeSorted(LazyFrame other, string key,bool maintainOrder=false)
+        => new(PolarsWrapper.MergeSorted(CloneHandle(),other.CloneHandle(),key,maintainOrder));
 
 }
 
@@ -861,8 +869,8 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// // Find the latest quote BEFORE or AT the trade time
     /// var asof = trades.JoinAsOf(
     ///     quotes, 
-    ///     leftOn: Col("time"), 
-    ///     rightOn: Col("time"),
+    ///     leftOn: Pl.Col("time"), 
+    ///     rightOn: Pl.Col("time"),
     ///     strategy: AsofStrategy.Backward
     /// );
     /// 
@@ -994,10 +1002,11 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
         
         return JoinWhere(other, (IEnumerable<IntoExprColumn>)predicates);
     }
-    public DataFrame MergeSorted(DataFrame other, string key)
+    /// <inheritdoc cref="LazyFrame.MergeSorted(LazyFrame, string, bool)"/>
+    public DataFrame MergeSorted(DataFrame other, string key,bool maintainOrder=false)
     {
         using var right = other.Lazy();  
         using var left = Lazy();
-        return left.MergeSorted(right,key).Collect();
+        return left.MergeSorted(right,key,maintainOrder).Collect();
     }
 }

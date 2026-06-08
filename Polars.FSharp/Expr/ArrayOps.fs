@@ -22,7 +22,7 @@ type [<Struct>] ArrayOps(handle: ExprHandle) =
     /// <summary>
     /// Count the number of unique values in every sub-arrays.
     /// </summary>
-    member _.NUnique() = new Expr(PolarsWrapper.ArrayNUnique handle)
+    member this.NUnique() = this.Agg(Expr.Col("").NUnique())
     /// <summary> Compute the standard deviation of the values in the array. </summary>
     member _.Std(?ddof: int) = 
         let d = defaultArg ddof 1 |> byte
@@ -47,10 +47,12 @@ type [<Struct>] ArrayOps(handle: ExprHandle) =
         let asL = defaultArg asList false
         new Expr(PolarsWrapper.ArrayEval(handle,expr.CloneHandle(),asL))
     /// <summary> Check if any value in the array is true. </summary>
-    member _.Any() = new Expr(PolarsWrapper.ArrayAny handle)
+    member this.Any(?ignoreNulls) = 
+        this.Agg(Expr.Col("").Any(?ignoreNulls=ignoreNulls))
 
     /// <summary> Check if all values in the array are true. </summary>
-    member _.All() = new Expr(PolarsWrapper.ArrayAll handle)
+    member this.All(?ignoreNulls) =
+        this.Agg(Expr.Col("").All(?ignoreNulls=ignoreNulls))
 
     /// <summary> Check if the array contains a specific item. </summary>
     member _.Contains(item: Expr, ?nullsEqual: bool) =
@@ -70,9 +72,8 @@ type [<Struct>] ArrayOps(handle: ExprHandle) =
     // --- Operations ---
 
     /// <summary> Get unique values in the array. </summary>
-    member _.Unique(?stable: bool) = 
-        let s = defaultArg stable false
-        new Expr(PolarsWrapper.ArrayUnique(handle, s))
+    member this.Unique(?maintainOrder: bool) = 
+        this.Eval(Expr.Col("").Unique(?maintainOrder=maintainOrder),true)
 
     /// <summary> Join array elements into a string. </summary>
     member _.Join(separator: string, ?ignoreNulls: bool) =
@@ -87,7 +88,7 @@ type [<Struct>] ArrayOps(handle: ExprHandle) =
         new Expr(PolarsWrapper.ArraySort(handle, desc, nLast, stable))
 
     /// <summary> Reverse the array. </summary>
-    member _.Reverse() = new Expr(PolarsWrapper.ArrayReverse handle)
+    member this.Reverse() = this.Eval(Expr.Col("").Reverse())
 
     /// <summary> Get the index of the minimum value. </summary>
     member _.ArgMin() = new Expr(PolarsWrapper.ArrayArgMin handle)

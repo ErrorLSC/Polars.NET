@@ -75,11 +75,11 @@ public class ExcelTests
 
             // dropEmptyRows = true
             using var dfDropped = DataFrame.ReadExcel(tempFile, dropEmptyRows: true);
-            Assert.Equal(2, dfDropped.Height); // 中间那行应该没了
+            Assert.Equal(2, dfDropped.Height); 
             Assert.Equal("A", dfDropped.GetValue<string>(0, "Col1"));
             Assert.Equal("C", dfDropped.GetValue<string>(1, "Col1"));
 
-            // 测试 dropEmptyRows = false
+            // dropEmptyRows = false
             using var dfKept = DataFrame.ReadExcel(tempFile, dropEmptyRows: false);
             Assert.Equal(3, dfKept.Height);
             Assert.Null(dfKept.GetValue<string>(1, "Col1")); 

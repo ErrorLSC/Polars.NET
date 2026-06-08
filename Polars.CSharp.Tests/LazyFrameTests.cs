@@ -996,7 +996,7 @@ David,40,80000";
         });
         using var lfRight = dfRight.Lazy();
 
-        using var mergedLf = lfLeft.MergeSorted(lfRight, "id");
+        using var mergedLf = lfLeft.MergeSorted(lfRight, "id",maintainOrder:true);
         
         using var resDf = mergedLf.Collect();
 

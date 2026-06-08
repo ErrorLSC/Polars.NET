@@ -107,7 +107,7 @@ unsafe internal partial class NativeBindings
     public static partial FrozenCategoriesHandle pl_datatype_get_enum_categories(DataTypeHandle ptr);
 
     [LibraryImport(LibName)]
-    public static partial int pl_datatype_eq(DataTypeHandle a, DataTypeHandle b, [MarshalAs(UnmanagedType.I1)] out bool isEqual);
+    public static partial int pl_datatype_eq(DataTypeHandle a, DataTypeHandle b, [MarshalAs(UnmanagedType.U1)] out bool isEqual);
     [LibraryImport(LibName)]
     public static partial int pl_datatype_get_extension_name(DataTypeHandle dtype,out nint name);
     [LibraryImport(LibName)]

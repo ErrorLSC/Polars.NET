@@ -4,17 +4,14 @@ namespace Polars.FSharp
 
 open System
 open Polars.NET.Core
-// open Apache.Arrow
 open System.Collections.Generic
 open Polars.NET.Core.Arrow
 open Polars.NET.Core.Helpers
 open System.Threading.Tasks
 open System.Collections
-open System.Text
 open System.Threading
 open Apache.Arrow.Adbc
 open Apache.Arrow.Ipc
-open System.Linq
 /// --- Series ---
 /// <summary>
 /// An eager Series holding a single column of data.
@@ -65,7 +62,10 @@ type Series(handle: SeriesHandle) =
     /// <summary>
     /// True if the Series is empty.
     /// </summary>
-    member this.IsEmpty = this.Length = 0
+    member this.IsEmpty(?ignoreNulls) =
+        match defaultArg ignoreNulls false with
+        | true -> this.Length = this.NullCount
+        | false -> this.Length = 0
     /// <summary>
     /// Shape of this Series. 
     /// In Polars, a Series is always 1D, so this returns an array of length 1.
@@ -251,19 +251,19 @@ type Series(handle: SeriesHandle) =
     /// Supports: Primitives, String, DateTime, DateOnly, TimeOnly, List, Struct.
     /// </summary>
     member this.AsSeq<'T>() : seq<'T option> =
-        seq {
-            use cArray = PolarsWrapper.SeriesToArrow this.Handle
-            
-            let accessor = ArrowReader.GetSeriesAccessor<'T> cArray
-            let len = cArray.Length
+        use cArray = PolarsWrapper.SeriesToArrow this.Handle
+        
+        let accessor = ArrowReader.GetSeriesAccessor<'T> cArray
+        let len = int cArray.Length 
 
-            for i in 0 .. len - 1 do
+        let result = 
+            Array.init len (fun i ->
                 let valObj = accessor.Invoke i
-                if isNull valObj then 
-                    None 
-                else 
-                    Some(unbox<'T> valObj)
-        }
+                if isNull valObj then None 
+                else Some(unbox<'T> valObj)
+            )
+
+        result :> seq<'T option>
     /// <summary>
     /// Get values as a list (forces evaluation).
     /// </summary>
@@ -369,7 +369,7 @@ type Series(handle: SeriesHandle) =
             raise (IndexOutOfRangeException(sprintf "Index %d is out of bounds for Series length %d." index len))
 
         // Consistent Null Check
-        if this.IsNullAt(index) then
+        if this.IsNullAt index then
             Unchecked.defaultof<'T>
         else
             // 2. Getvalue
@@ -478,10 +478,10 @@ type Series(handle: SeriesHandle) =
     /// <param name="index">The 64-bit row index location.</param>
     /// <returns>ValueSome value if valid, or ValueNone if null.</returns>
     member inline this.TryGetValue<'T>(index: int64) : 'T voption =
-        if this.IsNullAt(index) then 
+        if this.IsNullAt index then 
             ValueNone
         else 
-            ValueSome (this.GetValue<'T>(index)) 
+            ValueSome (this.GetValue<'T> index) 
     /// <summary>
     /// [Indexer] Access value at specific index as boxed object.
     /// Syntax: series.[index]
@@ -579,7 +579,7 @@ type Series(handle: SeriesHandle) =
         | :? Series as other -> (this :> IEquatable<Series>).Equals(other)
         | _ -> false
     override this.GetHashCode() =
-        int (PolarsWrapper.SeriesHash(this.Handle))
+        PolarsWrapper.SeriesHash this.Handle |> int
 
     interface IDisposable with 
         member this.Dispose() = this.Dispose()
@@ -840,7 +840,7 @@ and DataFrame(handle: DataFrameHandle) =
 
     /// <summary> Create a DataFrame directly from an Apache Arrow RecordBatch. </summary>
     static member FromArrow (batch: Apache.Arrow.RecordBatch) : DataFrame =
-        new DataFrame(PolarsWrapper.FromArrow batch)
+        new DataFrame(ArrowFfiBridge.ImportDataFrame batch)
 
     // ---- ADBC ----
     static member FromArrowStream(stream:IArrowArrayStream) =
@@ -946,11 +946,13 @@ and DataFrame(handle: DataFrameHandle) =
     member this.Dispose() =
         if not this.Handle.IsInvalid then 
             this.Handle.Dispose()
+        let targets = backingResources.ToArray()
 
-        for res in backingResources do
-            res.Dispose()
-            
         backingResources.Clear()
+
+        targets |> Array.iter (fun res -> 
+            if not (isNull res) then res.Dispose())
+
         GC.SuppressFinalize this
     /// <summary>
     /// Check if this DataFrame is strictly equal to another DataFrame.
@@ -994,12 +996,9 @@ and DataFrame(handle: DataFrameHandle) =
 
     interface IEnumerable<Series> with
         member this.GetEnumerator() : IEnumerator<Series> =
-            let seq = seq {
-                let w = this.Columns.Length
-                for i in 0 .. w - 1 do
-                    yield this.Column(i)
-            }
-            seq.GetEnumerator()
+            let cols = Array.init this.Columns.Length (fun i -> this.Column(i))
+            
+            (cols :> IEnumerable<Series>).GetEnumerator()
 
     interface IEnumerable with
         member this.GetEnumerator() : IEnumerator =
@@ -1161,8 +1160,6 @@ and LazyFrame(handle: LazyFrameHandle) =
     /// </param>
     member this.Rename(mapping: (string * string) list, ?strict: bool) =
         let oldNames, newNames = List.unzip mapping
-        let isStrict = defaultArg strict true
-        let oldNames, newNames = List.unzip mapping
         let pOldNames = List.toArray oldNames
         let pNewNames = List.toArray newNames
         let pStrict = defaultArg strict true
@@ -1199,13 +1196,13 @@ and PolarsSchema (handle: SchemaHandle) =
 
     // --- Constructors ---
     static member private CreateHandleFromFields(fields: seq<string * DataType>) =
-            let names = fields |> Seq.map fst |> Seq.toArray
-            let typeHandles = fields |> Seq.map (fun (_, t) -> t.CreateHandle()) |> Seq.toArray
-            
-            try
-                PolarsWrapper.NewSchema(names, typeHandles)
-            finally
-                for th in typeHandles do th.Dispose()
+        let names = fields |> Seq.map fst |> Seq.toArray
+        let typeHandles = fields |> Seq.map (fun (_, t) -> t.CreateHandle()) |> Seq.toArray
+        
+        try
+            PolarsWrapper.NewSchema(names, typeHandles)
+        finally
+            for th in typeHandles do th.Dispose()
     /// <summary> Create an empty schema </summary>
     new () = new PolarsSchema(PolarsWrapper.SchemaCreate())
     new (fields: seq<Field>) =
@@ -1242,11 +1239,9 @@ and PolarsSchema (handle: SchemaHandle) =
         finally
             if not typeHandle.IsInvalid then 
                 typeHandle.Dispose()
-    member private this.GetFields() =
-        seq {
-            for i in 0UL .. this.Len() - 1UL do
-                yield this.GetFieldAt(i)
-        }
+    member this.GetFields() =
+        seq { 0UL .. this.Len() - 1UL } 
+        |> Seq.map this.GetFieldAt
     /// <summary> Get all column names </summary>
     member this.Names = this.GetFields() |> Seq.map fst |> Seq.toList
 
@@ -1292,14 +1287,14 @@ and PolarsSchema (handle: SchemaHandle) =
     override this.ToString() =
         if this.Handle.IsInvalid then "Schema: {}"
         else
-            let sb = StringBuilder "Schema: {"
-            let len = this.Len()
-            for i in 0UL .. (len - 1UL) do
-                let name, dtype = this.GetFieldAt(i)
-                sb.Append $"{name}: {dtype}" |> ignore
-                if i < len - 1UL then sb.Append(", ") |> ignore
-            sb.Append "}" |> ignore
-            sb.ToString()
+            let len = int (this.Len())
+            
+            let fields = Array.init len (fun i -> 
+                let name, dtype = this.GetFieldAt(uint64 i)
+                $"{name}: {dtype}"
+            )
+            
+            $"""Schema: {String.concat ", " fields}"""
 
     // ==========================================
     // Equality Members
@@ -1308,38 +1303,59 @@ and PolarsSchema (handle: SchemaHandle) =
     interface IEquatable<PolarsSchema> with
         member this.Equals(other: PolarsSchema) =
             if Object.ReferenceEquals(this, other) then true
-            elif this.Handle.IsInvalid || other.Handle.IsInvalid then false
+            
+            elif this.Handle.IsInvalid || other.Handle.IsInvalid || this.Len() <> other.Len() then 
+                false
             else
-                let myList = this.ToList()
-                let otherList = other.ToList()
-                
-                if myList.Length <> otherList.Length then false
-                else
-                    Enumerable.SequenceEqual(myList, otherList)
+                Seq.forall2 (=) (this.GetFields()) (other.GetFields())
 
     override this.Equals(obj: obj) =
         match obj with
-        | :? PolarsSchema as other -> (this :> IEquatable<_>).Equals(other)
+        | :? PolarsSchema as other -> (this :> IEquatable<_>).Equals other
         | _ -> false
 
     override this.GetHashCode() =
         if this.Handle.IsInvalid then 0
         else
-            let hash = HashCode()
-            for name, dt in this.ToList() do
-                hash.Add(name)
-                hash.Add(dt) 
-            hash.ToHashCode()
+            let mutable hash = HashCode()
+            
+            this.GetFields() 
+            |> Seq.iter (fun (name, dt) -> 
+                hash.Add name
+                hash.Add dt
+            )
 
+            hash.ToHashCode()
     static member op_Equality (left: PolarsSchema, right: PolarsSchema) =
         if Object.ReferenceEquals(left, null) then Object.ReferenceEquals(right, null)
-        else left.Equals(right)
-
+        else left.Equals right
     static member op_Inequality (left: PolarsSchema, right: PolarsSchema) =
         not (left = right)
 
-    // --- Interface ---
+    member private this.TryFindField(key: string, len: uint64, i: uint64, value: byref<IPolarsDataType>) : bool =
+        if i >= len then 
+            false
+        else
+            let mutable name = null
+            let mutable th = new DataTypeHandle()
+            PolarsWrapper.GetSchemaFieldAt(this.Handle, i, &name, &th)
+            try
+                if name = key then
+                    value <- DataType.FromHandle th :> IPolarsDataType
+                    true
+                else
+                    this.TryFindField(key, len, i + 1UL, &value)
+            finally
+                if not th.IsInvalid then th.Dispose()
+    member this.Count = int (this.Len())
     
+    member this.ContainsKey(key: string) =
+        this.GetFields() |> Seq.exists (fun (name, _) -> name = key)
+        
+    member this.TryGetValue(key: string, value: byref<IPolarsDataType>) : bool =
+        this.TryFindField(key, this.Len(), 0UL, &value)
+        
+    // --- Interface ---
     interface IDisposable with
         member this.Dispose() = 
             if not (isNull (box this.Handle)) && not this.Handle.IsInvalid then
@@ -1347,51 +1363,20 @@ and PolarsSchema (handle: SchemaHandle) =
 
     interface IPolarsSchema with
         member this.Item with get(key: string) : IPolarsDataType = 
-            this.get_Item(key) :> IPolarsDataType
+            this.get_Item key :> IPolarsDataType
         member this.Keys : IEnumerable<string> = 
             this.Names :> IEnumerable<string>
         member this.Values : IEnumerable<IPolarsDataType> =
             this.DataTypes |> Seq.map (fun dt -> dt :> IPolarsDataType)
-        member this.Count = int (this.Len())
-        member this.ContainsKey(key: string) =
-            let len = this.Len()
-            let rec check i =
-                if i >= len then false
-                else
-                    let mutable name = Unchecked.defaultof<string>
-                    let mutable _th = Unchecked.defaultof<DataTypeHandle>
-                    PolarsWrapper.GetSchemaFieldAt(this.Handle, i, &name, &_th)
-                    if not _th.IsInvalid then _th.Dispose()
-                    if name = key then true
-                    else check (i + 1UL)
-            check 0UL
-        member this.TryGetValue(key: string, value: byref<IPolarsDataType>) : bool =
-            let len = this.Len()
-            let mutable found = false
-            let mutable result = Unchecked.defaultof<IPolarsDataType>
-            let mutable i = 0UL
-            while not found && i < len do
-                let mutable name = Unchecked.defaultof<string>
-                let mutable th = Unchecked.defaultof<DataTypeHandle>
-                PolarsWrapper.GetSchemaFieldAt(this.Handle, i, &name, &th)
-                try
-                    if name = key then
-                        result <- DataType.FromHandle th :> IPolarsDataType
-                        found <- true
-                finally
-                    if not th.IsInvalid then th.Dispose()
-                i <- i + 1UL
-            if found then
-                value <- result
-                true
-            else
-                false
-
+        member this.Count = this.Count                     
+        member this.ContainsKey(key) = this.ContainsKey(key)
+        member this.TryGetValue(key, value) = this.TryGetValue(key, &value)
         member this.GetEnumerator() : IEnumerator<KeyValuePair<string, IPolarsDataType>> =
-            (this.ToList() |> Seq.map (fun (n, dt) -> KeyValuePair(n, dt :> IPolarsDataType))).GetEnumerator()
+            (this.GetFields() 
+             |> Seq.map (fun (n, dt) -> KeyValuePair(n, dt :> IPolarsDataType))).GetEnumerator()
 
-        member this.GetEnumerator() : System.Collections.IEnumerator =
-            (this :> IPolarsSchema).GetEnumerator() :> System.Collections.IEnumerator
+        member this.GetEnumerator() : IEnumerator =
+            (this :> IPolarsSchema).GetEnumerator() :> IEnumerator
 
 /// <summary>
 /// SQL Context for executing SQL queries on registered LazyFrames.

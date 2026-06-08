@@ -324,7 +324,8 @@ public readonly partial struct PolarsWrapper
         ExprHandle? aggExpr, 
         PlPivotAgg aggCode, 
         bool maintainOrder, 
-        string? separator)
+        string? separator,
+        PlPivotColumnNaming columnNaming)
     {
         IntPtr aggExprPtr = aggExpr?.TransferOwnership() ?? IntPtr.Zero;
 
@@ -337,7 +338,8 @@ public readonly partial struct PolarsWrapper
             aggExprPtr,
             aggCode,
             maintainOrder,
-            separator
+            separator,
+            columnNaming
         );
         
         lf.TransferOwnership();
@@ -580,11 +582,22 @@ public readonly partial struct PolarsWrapper
     public static LazyFrameHandle MergeSorted(
         LazyFrameHandle lf,
         LazyFrameHandle other,
-        string key)
+        string key,
+        bool maintainOrder)
     {
-        var h = NativeBindings.pl_lazyframe_merge_sorted(lf,other,key);
+        var h = NativeBindings.pl_lazyframe_merge_sorted(lf,other,key,maintainOrder);
         lf.TransferOwnership();
         other.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static LazyFrameHandle LazyFrameGather(
+        LazyFrameHandle lf,
+        LazyFrameHandle index,
+        bool nullOnOob)
+    {
+        var h = NativeBindings.pl_lazyframe_gather(lf,index,nullOnOob);
+        lf.TransferOwnership();
+        index.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     public static Task<DataFrameHandle> LazyCollectAsync(

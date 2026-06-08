@@ -8,7 +8,7 @@ use deltalake::parquet::arrow::async_reader::{AsyncFileReader, ParquetObjectRead
 use deltalake::protocol::DeltaOperation;
 use deltalake::logstore::object_store::ObjectStoreExt;
 use futures::StreamExt;
-use polars::{error::{PolarsError, PolarsResult}, frame::DataFrame, prelude::{DataType, LazyFrame, PlRefPath, ScanArgsParquet}, series::Series};
+use polars::{error::{PolarsError, PolarsResult}, frame::DataFrame, prelude::{ LazyFrame, PlRefPath, ScanArgsParquet}, series::Series};
 use polars::prelude::*;
 use rand::RngExt;
 use roaring::RoaringBitmap;
@@ -359,47 +359,56 @@ pub fn prune_file_from_add(ctx: &DeleteContext, add: &Add) -> PolarsResult<FileA
     
     // 1. Partition Pruning
     if !ctx.partition_cols.is_empty() {
-        // Build Mini-DataFrame from Add.partition_values (Map<String, Option<String>>)
-        let mut columns = Vec::with_capacity(ctx.partition_cols.len());
+        // Build Mini-DataFrame from ALL schema columns to avoid ColumnNotFound
+        let mut columns = Vec::with_capacity(ctx.polars_schema.len());
         
-        for target_col in &ctx.partition_cols {
-            let val_opt = add.partition_values.get(target_col).and_then(|v| v.as_ref());
+        for (col_name, dtype) in ctx.polars_schema.iter() {
+            let col_str = col_name.as_str();
+            let is_partition = ctx.partition_cols.iter().any(|p| p.as_str() == col_str);
             
-            let dtype = ctx.polars_schema.get_field(target_col)
-                .map(|f| f.dtype.clone())
-                .unwrap_or(DataType::String);
-            
-            let s = match val_opt {
-                Some(v) => Series::new(target_col.into(), &[v.as_str()]).cast(&dtype)?,
-                None => Series::new_null(target_col.into(), 1).cast(&dtype)?
+            let s = if is_partition {
+                let val_opt = add.partition_values.get(col_str).and_then(|v| v.as_ref());
+                match val_opt {
+                    Some(v) => Series::new(col_str.into(), &[v.as_str()]).cast(dtype)?,
+                    None => Series::new_null(col_str.into(), 1).cast(dtype)?
+                }
+            } else {
+                Series::new_null(col_str.into(), 1).cast(dtype)?
             };
             columns.push(s.into());
         }
 
-        if let Ok(mini_df) = DataFrame::new(1,columns) {
+        if let Ok(mini_df) = DataFrame::new(1, columns) {
             let eval_result = mini_df.lazy()
                 .select([ctx.predicate.clone().alias("result")])
-                .collect_with_engine(Engine::Streaming);
+                .collect_with_engine(Engine::Streaming)?
+                .unwrap_single();
 
-            if let Ok(res) = eval_result {
-                if let Ok(bool_s) = res.column("result") {
-                    if bool_s.bool().ok().map(|b| b.get(0) == Some(true)).unwrap_or(false) {
-                        // Match -> Full Drop
-                        let remove = Remove {
-                            path: add.path.clone(),
-                            deletion_timestamp: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64),
-                            data_change: true,
-                            extended_file_metadata: Some(true),
-                            partition_values: Some(add.partition_values.clone()),
-                            size: Some(add.size),
-                            deletion_vector: add.deletion_vector.clone(),
-                            tags: None,
-                            base_row_id: None,
-                            default_row_commit_version: None,
-                        };
-                        return Ok(FileActionDecision::FullDrop(Action::Remove(remove)));
-                    } else {
-                        return Ok(FileActionDecision::Skip);
+            if let Ok(bool_s) = eval_result.column("result") {
+                if let Ok(ca) = bool_s.bool() {
+                    if ca.len() > 0 {
+                        match ca.get(0) {
+                            Some(true) => {
+                                let remove = Remove {
+                                    path: add.path.clone(),
+                                    deletion_timestamp: Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64),
+                                    data_change: true,
+                                    extended_file_metadata: Some(true),
+                                    partition_values: Some(add.partition_values.clone()),
+                                    size: Some(add.size),
+                                    deletion_vector: add.deletion_vector.clone(),
+                                    tags: None,
+                                    base_row_id: None,
+                                    default_row_commit_version: None,
+                                };
+                                return Ok(FileActionDecision::FullDrop(Action::Remove(remove)));
+                            }
+                            Some(false) => {
+                                return Ok(FileActionDecision::Skip);
+                            }
+                            None => {
+                            }
+                        }
                     }
                 }
             }
@@ -486,7 +495,8 @@ pub fn execute_copy_on_write(
     let has_match_df = lf.clone()
         .filter(ctx.predicate.clone())
         .limit(1)
-        .collect_with_engine(Engine::Streaming)?;
+        .collect_with_engine(Engine::Streaming)?
+        .unwrap_single();
     
     if has_match_df.height() == 0 {
         // No Predicate -> Keep File
@@ -643,7 +653,8 @@ pub fn execute_merge_on_read(
         .with_row_index("row_nr", None)
         .filter(ctx.predicate.clone()) 
         .select([col("row_nr")])
-        .collect_with_engine(Engine::Streaming)?;
+        .collect_with_engine(Engine::Streaming)?
+        .unwrap_single();
 
     if deleted_indices_df.height() == 0 {
         return Ok(Vec::new()); 

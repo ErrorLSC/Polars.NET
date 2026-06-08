@@ -29,7 +29,7 @@ public readonly struct ArrayOps
     /// <inheritdoc cref="SeriesArrayOps.Median"/>
     public Expr Median() => Wrap(PolarsWrapper.ArrayMedian); 
     /// <inheritdoc cref="SeriesArrayOps.NUnique"/>
-    public Expr NUnique() => Wrap(PolarsWrapper.ArrayNUnique); 
+    public Expr NUnique() => Agg(Pl.Element().NUnique());
     /// <inheritdoc cref="SeriesArrayOps.Std"/>
     public Expr Std(byte ddof = 1) => new(PolarsWrapper.ArrayStd(PolarsWrapper.CloneExpr(_expr.Handle), ddof)); 
     /// <inheritdoc cref="SeriesArrayOps.Var"/>
@@ -46,14 +46,14 @@ public readonly struct ArrayOps
     public Expr Last() => Get(-1,true);
     // --- Boolean ---
     /// <inheritdoc cref="SeriesArrayOps.Any"/>
-    public Expr Any() => Wrap(PolarsWrapper.ArrayAny); 
+    public Expr Any(bool ignoreNulls=true) => Agg(Pl.Element().Any(ignoreNulls)); 
     /// <inheritdoc cref="SeriesArrayOps.All"/>
-    public Expr All() => Wrap(PolarsWrapper.ArrayAll); 
+    public Expr All(bool ignoreNulls=true) => Agg(Pl.Element().All(ignoreNulls)); 
     /// <inheritdoc cref="SeriesArrayOps.Sort"/>
     public Expr Sort(bool descending = false, bool nullsLast = false, bool maintainOrder = false)
         => new(PolarsWrapper.ArraySort(_expr.CloneHandle(), descending, nullsLast, maintainOrder));
     /// <inheritdoc cref="SeriesArrayOps.Reverse"/>
-    public Expr Reverse() => Wrap(PolarsWrapper.ArrayReverse); 
+    public Expr Reverse() => Eval(Pl.Element().Reverse()); 
     /// <inheritdoc cref="SeriesArrayOps.ArgMin"/>
     public Expr ArgMin() => Wrap(PolarsWrapper.ArrayArgMin); 
     /// <inheritdoc cref="SeriesArrayOps.ArgMax"/>
@@ -98,8 +98,8 @@ public readonly struct ArrayOps
     public Expr Contains(Expr item, bool nullsEqual = false)
         => new(PolarsWrapper.ArrayContains(_expr.CloneHandle(),item.CloneHandle(), nullsEqual));
     /// <inheritdoc cref="SeriesArrayOps.Unique"/>
-    public Expr Unique(bool stable = false)
-        => new(PolarsWrapper.ArrayUnique(_expr.CloneHandle(), stable));
+    public Expr Unique(bool maintainOrder = false)
+        => Eval(Pl.Element().Unique(maintainOrder),asList:true);
     /// <summary>
     /// Concat this Array expression with other Array expressions.
     /// </summary>

@@ -80,7 +80,7 @@ public readonly partial struct PolarsWrapper
         ExprHandle expr, 
         ExprHandle n, 
         bool[] weekMask, 
-        int[] holidays,
+        ExprHandle holidays,
         PlRoll roll) 
     {
         if (weekMask.Length != 7) 
@@ -94,17 +94,17 @@ public readonly partial struct PolarsWrapper
                 n,
                 maskBytes,
                 holidays,
-                (UIntPtr)holidays.Length,
                 roll
             ));
         expr.TransferOwnership();
         n.TransferOwnership();
+        holidays.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     public static ExprHandle DtIsBusinessDay(
         ExprHandle expr,
         bool[] weekMask,
-        int[] holidays)
+        ExprHandle holidays)
     {
         if (weekMask.Length != 7) 
             throw new ArgumentException("Week mask must have length 7.");
@@ -115,9 +115,9 @@ public readonly partial struct PolarsWrapper
         var h = ErrorHelper.Check(NativeBindings.pl_expr_is_business_day(
             expr,
             maskBytes,
-            holidays,
-            (UIntPtr)holidays.Length
+            holidays
         ));
+        holidays.TransferOwnership();
         expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
@@ -125,7 +125,7 @@ public readonly partial struct PolarsWrapper
         ExprHandle start, 
         ExprHandle end, 
         bool[] weekMask, 
-        int[] holidays) 
+        ExprHandle holidays) 
     {
         if (weekMask.Length != 7) 
             throw new ArgumentException("Week mask must have length 7.");
@@ -137,11 +137,11 @@ public readonly partial struct PolarsWrapper
                 start,
                 end,
                 maskBytes,
-                holidays,
-                (nuint)holidays.Length
+                holidays
             ));
         start.TransferOwnership();
         end.TransferOwnership();
+        holidays.TransferOwnership();
         return ErrorHelper.Check(h);
     }
     public static ExprHandle DtCastTimeUnit(ExprHandle expr,PlTimeUnit unit)

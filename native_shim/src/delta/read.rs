@@ -202,26 +202,20 @@ pub(crate) fn phase_inject_schema(
     try_parse_hive_dates: bool,
 ) {
     // 1. Inject Delta Schema 
-    // 如果用户没有显式指定读取 Schema，我们就把 Delta 表原本的 Schema 塞进去
     if args.schema.is_none() {
-        // 由于 polars_schema 已经是 Arc，这里的 clone 只是增加引用计数，极其轻量
         args.schema = Some(polars_schema.clone());
     }
 
     // 2. Inject Hive Partition Schema 
-    // 如果存在分区，且用户没有传入自定义的 Hive Schema，我们自动推断并构建 HiveOptions
     if hive_schema_is_null && !partition_cols.is_empty() {
         let mut part_schema = polars::prelude::Schema::with_capacity(partition_cols.len());
         
-        // 遍历 Delta 日志里的分区列名
         for col_name in partition_cols {
-            // 从完整 Schema 中提取对应的 DataType
             if let Some(dtype) = polars_schema.get(col_name) {
                 part_schema.insert(col_name.into(), dtype.clone());
             }
         }
         
-        // 组装并注入 HiveOptions
         if !part_schema.is_empty() {
             args.hive_options = HiveOptions {
                 enabled: Some(true),
@@ -241,8 +235,7 @@ pub(crate) fn phase_build_lazyframes(
 ) -> PolarsResult<Vec<LazyFrame>> {
     let mut lfs = Vec::new();
 
-    // 3.1 Handle Clean Files (无删除向量的文件)
-    // 纯净文件可以直接使用 scan_parquet_files 进行批量极速扫描
+    // 3.1 Handle Clean Files
     if !clean_paths.is_empty() {
         let pl_paths: Vec<PlRefPath> = clean_paths.iter().map(|s| PlRefPath::new(s)).collect();
         let buffer: Buffer<PlRefPath> = pl_paths.into();
@@ -251,7 +244,7 @@ pub(crate) fn phase_build_lazyframes(
         lfs.push(lf_clean);
     }
 
-    // 3.2 Handle Dirty Files (包含删除向量的文件)
+    // 3.2 Handle Dirty Files
     if !dirty_infos.is_empty() {
         let object_store = table.object_store(); 
         let table_root = deltalake::Path::from(table.table_url().to_string());
@@ -260,13 +253,13 @@ pub(crate) fn phase_build_lazyframes(
         let dirty_lfs = rt.block_on(async {
             let mut processed = Vec::with_capacity(dirty_infos.len());
             
-            // 逐个文件扫描，并应用对应的 Deletion Vector
+            // Deletion Vector
             for (full_path, dv_descriptor) in dirty_infos {
                 
                 // A. Scan single file
                 let mut lf = LazyFrame::scan_parquet(
                     PlRefPath::new(&full_path), 
-                    args.clone() // 注意：每个 LazyFrame 需要独立的 args 副本
+                    args.clone() 
                 )?;
 
                 // B. Read and apply DV
@@ -293,19 +286,17 @@ pub(crate) fn phase_concat_lazyframes(
     mut lfs: Vec<LazyFrame>,
     polars_schema: &Arc<Schema>,
 ) -> PolarsResult<LazyFrame> {
-    // 4.1 处理空表的情况（没有找到任何可读的 parquet 文件）
+
     if lfs.is_empty() {
-        // 利用 Phase 1 解析出的结构生成一个空 DataFrame，然后转化为 LazyFrame
+
         let df = DataFrame::empty_with_schema(polars_schema);
         return Ok(df.lazy());
     }
 
-    // 4.2 处理只有一个 LazyFrame 的情况（避免不必要的 Concat 开销）
     if lfs.len() == 1 {
         return Ok(lfs.pop().unwrap());
     }
 
-    // 4.3 处理多个 LazyFrame 的拼接
     let args = polars::prelude::UnionArgs {
         parallel: true,           
         rechunk: false,           
@@ -313,7 +304,7 @@ pub(crate) fn phase_concat_lazyframes(
         maintain_order: false,    
         strict: false,            
         diagonal: true,           
-        from_partitioned_ds: false, // 视 Delta 目录结构而定
+        from_partitioned_ds: false, 
     };
 
     let final_lf = polars::prelude::concat(lfs, args)

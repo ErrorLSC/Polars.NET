@@ -135,10 +135,10 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
 
         | DataTypeKind.Categorical maybeCat ->
             let cat = defaultArg maybeCat (Categories.Global())
-            PolarsWrapper.NewCategoricalType(cat.Handle)
+            PolarsWrapper.NewCategoricalType cat.Handle
 
         | DataTypeKind.Enum frozenCat ->
-            PolarsWrapper.NewEnumType(frozenCat.Handle)
+            PolarsWrapper.NewEnumType frozenCat.Handle
 
         | DataTypeKind.Decimal(p, s) ->
             let prec = defaultArg p 0
@@ -155,13 +155,12 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
             try
                 PolarsWrapper.NewStructType(names, typeHandles)
             finally
-                for h in typeHandles do h.Dispose()
-
+                typeHandles |> Array.iter (fun h -> h.Dispose())
         | DataTypeKind.Array(innerType, shape) ->
             if shape.Length = 0 then
                 invalidArg "shape" "Shape must not be empty."
             use innerHandle = innerType.CreateHandle()
-            let span = System.ReadOnlySpan(shape)
+            let span = ReadOnlySpan shape
             PolarsWrapper.NewArrayType(innerHandle, span)
 
         | DataTypeKind.Extension ext ->
@@ -179,11 +178,11 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
 
     static member Categorical ?categories =
         let cat = defaultArg categories (Categories.Global())
-        let handle = PolarsWrapper.NewCategoricalType(cat.Handle)
+        let handle = PolarsWrapper.NewCategoricalType cat.Handle
         new DataType(handle, DataTypeKind.Categorical(Some cat))
 
     static member Enum(frozen: FrozenCategories) =
-        let handle = PolarsWrapper.NewEnumType(frozen.Handle)
+        let handle = PolarsWrapper.NewEnumType frozen.Handle
         new DataType(handle, DataTypeKind.Enum frozen)
 
     static member Decimal(?precision, ?scale) =
@@ -194,7 +193,7 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
 
     static member List(inner: DataType) =
         use innerHandle = inner.CreateHandle()
-        let handle = PolarsWrapper.NewListType(innerHandle)
+        let handle = PolarsWrapper.NewListType innerHandle
         new DataType(handle, DataTypeKind.List inner)
 
     static member Struct(fields: seq<Field> ) =
@@ -204,7 +203,7 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
             let handle = PolarsWrapper.NewStructType(names, typeHandles)
             new DataType(handle, DataTypeKind.Struct fields)
         finally
-            for h in typeHandles do h.Dispose()
+            typeHandles |> Array.iter (fun h -> h.Dispose())
 
     static member Array(inner: DataType, shape: uint[]) =
         if shape.Length = 0 then invalidArg "shape" "Shape must not be empty."
@@ -262,15 +261,21 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         | PlDataType.Null -> DataType.Null
 
         | PlDataType.Struct ->
-            let len = PolarsWrapper.GetStructLen handle
+            let len = int (PolarsWrapper.GetStructLen handle)
+            
             let fields =
-                [ for i in 0UL .. len - 1UL do
-                    let mutable name = Unchecked.defaultof<string>
-                    let mutable fieldHandle = Unchecked.defaultof<DataTypeHandle>
-                    PolarsWrapper.GetStructField(handle, i, &name, &fieldHandle)
-                    use h = fieldHandle
-                    yield { Name = name; DataType = DataType.FromHandle h }
-                ]
+                List.init len (fun i ->
+                    let mutable name = null
+                    let mutable fieldHandle = new DataTypeHandle()
+                    
+                    PolarsWrapper.GetStructField(handle, uint64 i, &name, &fieldHandle)
+                    
+                    try
+                        { Name = name; DataType = DataType.FromHandle fieldHandle }
+                    finally
+                        if not fieldHandle.IsInvalid then fieldHandle.Dispose()
+                )
+                
             DataType.Struct fields
 
         | PlDataType.List ->
