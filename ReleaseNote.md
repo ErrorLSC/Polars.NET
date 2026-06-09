@@ -37,13 +37,13 @@
 
 - Expr Cut now return Enum type rather than Categorical type
 
-- Expr all, any ignoreNulls default value become true
+- Expr All, Any ignoreNulls default value become true
 
-- Series isempty now is a method.
+- Series IsEmpty now is a method.
 
 ## BugFix
 
-- FSharp DataFrame aggregation return lazyframe bug fixed.
+- FSharp DataFrame aggregation return Lazyframe bug fixed.
 
 - Delta delete partition pruning bug fixed.
 

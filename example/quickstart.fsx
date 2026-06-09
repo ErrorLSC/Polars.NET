@@ -2,9 +2,8 @@
 // Polars.NET F# Quick Start Script
 // ==========================================
 
-#r "nuget: Polars.FSharp, 0.5.0"
-#r "nuget: Polars.NET.Core, 0.5.0"
-#r "nuget: Polars.NET.Native.linux-x64, 0.5.0"
+#r "nuget: Polars.FSharp, 0.6.0"
+#r "nuget: Polars.NET.Native.linux-x64, 0.6.0"
 
 open System
 open Polars.FSharp
@@ -22,7 +21,7 @@ let printHeaderWithString (title: string) (data: string) =
     printfn "%O" data
 
 // ==========================================
-// Create DataFrame by F# Records
+// 1. Create DataFrame by F# Records
 // ==========================================
 
 type WeatherData = { 
@@ -52,6 +51,12 @@ let df =
 df 
 |> pl.filter (pl.col "City" .== pl.lit "London")
 |> printHeader "Filtering: London Only"
+
+// ==========================================
+// 2.5 Config
+// ==========================================
+
+Config.tableFormatting (TableFormatting.AsciiFull,Active.ResetToDefault)()
 
 // ==========================================
 // 3. GroupBy & Aggregation

@@ -73,18 +73,18 @@ jobs:
             lto_type: "fat"
 
           # MacOS ARM64 (Apple Silicon) - 
-          - os: macos-latest
+          - os: macos-26
             target: aarch64-apple-darwin
             rid: osx-arm64
             artifact_name: libnative_shim.dylib
             use_cross: false
             container: null
             lto_type: "fat"
-            
+
     container: ${{ matrix.container }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Add Swap Space to prevent OOM
         if: runner.os == 'Linux' && matrix.container == null
@@ -157,7 +157,7 @@ jobs:
 
       # Upload Artifact to Git Actions
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: native-lib-${{ matrix.rid }}
           path: native_shim/${{ matrix.artifact_name }}
@@ -172,9 +172,9 @@ jobs:
     name: Pack NuGet Packages
     
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 8.0.x
 
@@ -187,17 +187,17 @@ jobs:
           mkdir -p libs/win-x64
           mkdir -p libs/osx-arm64
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with: { name: native-lib-linux-x64, path: libs/linux-x64 }
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with: { name: native-lib-linux-musl-x64, path: libs/linux-musl-x64 }
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with: { name: native-lib-linux-arm64, path: libs/linux-arm64 }
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with: { name: native-lib-linux-musl-arm64, path: libs/linux-musl-arm64 }
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with: { name: native-lib-win-x64, path: libs/win-x64 }
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with: { name: native-lib-osx-arm64, path: libs/osx-arm64 }
 
       - name: Inspect Directory Structure
@@ -221,7 +221,7 @@ jobs:
           dotnet pack Polars.NET.ML/Polars.NET.ML.csproj -c Release -p:BuildRustNative=false -o nupkgs
 
       - name: Upload NuGet Packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: polars-net-nugets
           path: nupkgs
@@ -244,12 +244,12 @@ jobs:
             native_rid: osx-arm64
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 8.0.x
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: polars-net-nugets
           path: local_feed
