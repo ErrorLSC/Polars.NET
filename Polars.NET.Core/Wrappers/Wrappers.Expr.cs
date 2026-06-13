@@ -1389,6 +1389,61 @@ public readonly partial struct PolarsWrapper
         expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle SortBy(
+        ExprHandle expr,              
+        ExprHandle[] by,                  
+        bool[]? descending,          
+        bool[]? nullsLast,           
+        bool multithreaded,         
+        bool maintainOrder         
+    )
+    {
+        if (by == null || by.Length == 0)
+        {
+            throw new ArgumentException("The 'by' expressions array cannot be null or empty.", nameof(by));
+        }
+
+        if (descending != null && descending.Length > 1 && descending.Length != by.Length)
+        {
+            throw new ArgumentException(
+                $"Length of '{nameof(descending)}' ({descending.Length}) must match the number of 'by' expressions ({by.Length}) or be a single element.", 
+                nameof(descending));
+        }
+
+        if (nullsLast != null && nullsLast.Length > 1 && nullsLast.Length != by.Length)
+        {
+            throw new ArgumentException(
+                $"Length of '{nameof(nullsLast)}' ({nullsLast.Length}) must match the number of 'by' expressions ({by.Length}) or be a single element.", 
+                nameof(nullsLast));
+        }
+
+        nint[] byPtrs = HandlesToPtrs(by);
+        nuint byLen = (nuint)byPtrs.Length;
+
+        ReadOnlySpan<byte> descSpan = descending != null 
+            ? MemoryMarshal.Cast<bool, byte>(descending) 
+            : default;
+        nuint descLen = (nuint)descSpan.Length;
+
+        ReadOnlySpan<byte> nullsSpan = nullsLast != null 
+            ? MemoryMarshal.Cast<bool, byte>(nullsLast) 
+            : default;
+        nuint nullsLen = (nuint)nullsSpan.Length;
+
+        var resultHandle = NativeBindings.pl_expr_sort_by(
+            expr,
+            byPtrs,
+            byLen,
+            descSpan,
+            descLen,
+            nullsSpan,
+            nullsLen,
+            multithreaded,
+            maintainOrder
+        );
+        expr.TransferOwnership();
+        return ErrorHelper.Check(resultHandle);
+    }
     public static ExprHandle ArgUnique(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_arg_unique,expr);
     public static ExprHandle ArgMax(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_arg_max,expr);
     public static ExprHandle ArgMin(ExprHandle expr) => UnaryOp(NativeBindings.pl_expr_arg_min,expr);

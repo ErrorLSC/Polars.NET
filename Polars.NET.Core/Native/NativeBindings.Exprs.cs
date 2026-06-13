@@ -737,6 +737,18 @@ unsafe internal partial class NativeBindings
         uint* limitPtr
     );
     [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_sort_by(
+        ExprHandle expr,
+        nint[] by,
+        nuint byLen,
+        ReadOnlySpan<byte> descending,
+        nuint desc_len,
+        ReadOnlySpan<byte> nullsLast,
+        nuint nullsLastLen,
+        [MarshalAs(UnmanagedType.U1)] bool multithreaded,
+        [MarshalAs(UnmanagedType.U1)] bool maintainOrder
+    );
+    [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_arg_unique(ExprHandle expr);
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_arg_min(ExprHandle expr);

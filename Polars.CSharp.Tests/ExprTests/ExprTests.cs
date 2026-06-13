@@ -3492,6 +3492,33 @@ TooShort,1990-05-20,1.60";
         Assert.Equal(schema,df1.Schema);
     }
     [Fact]
+    [Trait("Expr", "SortBy")]
+    public void Test_ExprSortBy_MultipleColumns()
+    {
+        using var sA = Pl.CreateSeries("col_A", [2, 1, 2, 1]);
+        using var sB = Pl.CreateSeries("col_B", [10, 20, 30, 40]);
+        using DataFrame df = [sA, sB];
+
+        var sortKeys = new[] { Pl.Col("col_A"), Pl.Col("col_B") };
+
+        using var exprAsc = Pl.All().SortBy(sortKeys, descending: false);
+        using var dfAsc = df.Select(exprAsc);
+
+        var resultA_Asc = dfAsc["col_A"].ToArray<int>();
+        var resultB_Asc = dfAsc["col_B"].ToArray<int>();
+        Assert.Equal([1, 1, 2, 2], resultA_Asc);
+        Assert.Equal([20, 40, 10, 30], resultB_Asc);
+
+        var descOptions = new[] { false, true }; 
+        using var exprMixed = Pl.All().SortBy(sortKeys, descending: descOptions);
+        using var dfMixed = df.Select(exprMixed);
+
+        var resultA_Mixed = dfMixed["col_A"].ToArray<int>();
+        var resultB_Mixed = dfMixed["col_B"].ToArray<int>();
+        Assert.Equal([1, 1, 2, 2], resultA_Mixed);
+        Assert.Equal([40, 20, 30, 10], resultB_Mixed); 
+    }
+    [Fact]
     [Trait("Expr", "Slice")]
     public void Test_ExprSlice()
     {

@@ -670,6 +670,56 @@ pub extern "C" fn pl_expr_sort(
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_sort_by(
+    expr_ptr: *mut ExprContext,
+    by_ptr: *const *mut ExprContext,
+    by_len: usize,
+    
+    descending_ptr: *const bool,
+    descending_len: usize,
+    
+    nulls_last_ptr: *const bool,
+    nulls_last_len: usize,
+    
+    multithreaded: bool,
+    maintain_order: bool,
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        
+        let by_exprs = if by_ptr.is_null() || by_len == 0 {
+            vec![]
+        } else {
+            unsafe { consume_exprs_array(by_ptr, by_len) }
+        };
+        
+        let descending = if descending_ptr.is_null() || descending_len == 0 {
+            vec![false] 
+        } else {
+            unsafe { std::slice::from_raw_parts(descending_ptr, descending_len).to_vec() }
+        };
+
+        let nulls_last = if nulls_last_ptr.is_null() || nulls_last_len == 0 {
+            vec![false] 
+        } else {
+            unsafe { std::slice::from_raw_parts(nulls_last_ptr, nulls_last_len).to_vec() }
+        };
+
+        let options = SortMultipleOptions {
+            descending,
+            nulls_last,
+            multithreaded,
+            maintain_order,
+            limit: None, 
+        };
+        
+        let new_expr = ctx.inner.sort_by(&by_exprs, options);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
+
 // ==========================================
 // Arg Ops
 // ==========================================

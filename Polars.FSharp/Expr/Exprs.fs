@@ -113,6 +113,39 @@ and Expr(handle: ExprHandle) =
         let mai = defaultArg maintainOrder false
         let lim = limit |> Option.toNullable
         new Expr(PolarsWrapper.Sort(this.CloneHandle(),des,nul,mul,mai,lim))
+    /// <summary>
+    /// Sort this column by the ordering of other columns using uniform sorting options.
+    /// </summary>
+    /// <param name="by">Column(s) to sort by.</param>
+    /// <param name="descending">Sort in descending order for all columns.</param>
+    /// <param name="nullsLast">Place null values last for all columns.</param>
+    /// <param name="multithreaded">Sort using multiple threads.</param>
+    /// <param name="maintainOrder">Whether the order should be maintained if elements are equal.</param>
+    member this.SortBy(by:seq<Expr>,?descending:seq<bool>,?nullsLast:seq<bool>,?multithreaded,?maintainOrder) =
+        let byHandles = by |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray 
+        let des = 
+            match descending with
+            | Some d -> d |> Seq.toArray
+            | None -> null 
+        let nul = 
+            match nullsLast with
+            | Some n -> n |> Seq.toArray
+            | None -> null 
+        let mul = defaultArg multithreaded true
+        let mai = defaultArg maintainOrder false
+        new Expr(PolarsWrapper.SortBy(this.CloneHandle(),byHandles,des,nul,mul,mai))
+    /// <summary>
+    /// Sort this column by the ordering of other columns using uniform sorting options.
+    /// </summary>
+    /// <param name="by">Column(s) to sort by.</param>
+    /// <param name="descending">Sort in descending order for all columns.</param>
+    /// <param name="nullsLast">Place null values last for all columns.</param>
+    /// <param name="multithreaded">Sort using multiple threads.</param>
+    /// <param name="maintainOrder">Whether the order should be maintained if elements are equal.</param>
+    member this.SortBy(by:seq<Expr>,?descending:bool,?nullsLast:bool,?multithreaded,?maintainOrder) =
+        let des = defaultArg descending false
+        let nul = defaultArg nullsLast false
+        this.SortBy(by,descending=des,nullsLast=nul,?multithreaded=multithreaded,?maintainOrder=maintainOrder)
     /// <summary> Create a Struct expression from a list of expressions. </summary>
     static member AsStruct (exprs: seq<Expr>) =
         let handles = exprs |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray

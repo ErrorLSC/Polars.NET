@@ -57,6 +57,58 @@ public partial class Expr : IDisposable,IEquatable<Expr>
             limit
         ));
     }
+    /// <summary>
+    /// Sort this column by the ordering of other columns.
+    /// <para>When used in a projection/selection context, the whole column is sorted. </para>
+    /// <para>When used in a group by context, the groups are sorted.</para>
+    /// </summary>
+    /// <param name="by">Column(s) to sort by.</param>
+    /// <param name="descending">Sort in descending order. When sorting by multiple columns, can be specified per column by passing a sequence of booleans.</param>
+    /// <param name="nullsLast">Place null values last; can specify a single boolean applying to all columns or a sequence of booleans for per-column control.</param>
+    /// <param name="multithreaded">Sort using multiple threads.</param>
+    /// <param name="maintainOrder">Whether the order should be maintained if elements are equal.</param>
+    public Expr SortBy(
+        IEnumerable<Expr> by,
+        bool[]? descending=null,
+        bool[]? nullsLast=null,
+        bool multithreaded = true,
+        bool maintainOrder = false
+    )
+    {
+        var byArr = by.Select(e => e.CloneHandle()).ToArray();
+        return new Expr(PolarsWrapper.SortBy(
+            CloneHandle(),
+            byArr,
+            descending,
+            nullsLast,
+            multithreaded,
+            maintainOrder
+        ));
+    }
+    /// <summary>
+    /// Sort this column by the ordering of other columns using uniform sorting options.
+    /// </summary>
+    /// <param name="by">Column(s) to sort by.</param>
+    /// <param name="descending">Sort in descending order for all columns.</param>
+    /// <param name="nullsLast">Place null values last for all columns.</param>
+    /// <param name="multithreaded">Sort using multiple threads.</param>
+    /// <param name="maintainOrder">Whether the order should be maintained if elements are equal.</param>
+    public Expr SortBy(
+        IEnumerable<Expr> by,
+        bool descending=false,
+        bool nullsLast = false,
+        bool multithreaded = true,
+        bool maintainOrder = false
+    )
+    {
+        return SortBy(
+            by, 
+            [descending], 
+            [nullsLast], 
+            multithreaded, 
+            maintainOrder
+        );
+    }
     // ==========================================
     // Indexing & Searching (Arg / Index / Search)
     // ==========================================
