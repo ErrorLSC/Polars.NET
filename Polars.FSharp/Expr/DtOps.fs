@@ -11,7 +11,7 @@ type Dur =
 [<RequireQualifiedAccess>]
 module Dur =
     open Polars.NET.Core.Helpers
-    let consume (src: Dur) =
+    let internal consume (src: Dur) =
         match src with
         | Dur.String s ->
             if String.IsNullOrWhiteSpace s then
