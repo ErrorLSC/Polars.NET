@@ -84,6 +84,7 @@
     <Compile Include="Operations/Pivot.fs" />
     <Compile Include="Operations/TensorInterops.fs" />
     <Compile Include="DataFrame/DataFrame.Factory.fs" />
+    <Compile Include="DataFrame/DataFrame.PartitionBy.fs" />
     <Compile Include="DataFrame/DataFrame.Conversions.fs" />
     <Compile Include="DataFrame/DataFrame.Descriptive.fs" />
     <Compile Include="DataFrame/DataFrame.Transpose.fs" />
