@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Apache.Arrow.Adbc" Version="0.23.0" />
+    <PackageReference Include="Apache.Arrow.Adbc" Version="0.24.0" />
     <PackageReference Include="AWSSDK.S3" Version="4.0.18.3" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.27.0" />
     <PackageReference Include="coverlet.collector" Version="6.0.4" />

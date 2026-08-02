@@ -61,7 +61,7 @@
 
   <ItemGroup>
     <PackageReference Include="Apache.Arrow" Version="23.0.0" />
-    <PackageReference Include="Apache.Arrow.Adbc" Version="0.23.0" />
+    <PackageReference Include="Apache.Arrow.Adbc" Version="0.24.0" />
     <PackageReference Include="FSharp.Core" Version="8.0.100" Condition="'$(TargetFramework)' == 'net8.0'" />
     <PackageReference Include="FSharp.Core" Version="9.0.100" Condition="'$(TargetFramework)' == 'net9.0'" />
     <PackageReference Include="FSharp.Core" Version="10.0.100" Condition="'$(TargetFramework)' == 'net10.0'" />
