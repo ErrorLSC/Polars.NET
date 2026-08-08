@@ -1,0 +1,1778 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Struct Polars.Selectors | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Struct Polars.Selectors | Polars.NET ">
+      
+      <meta name="description" content="String matching selectors namespace. Usage: Cs.StartsWith(&amp;quot;A&amp;quot;) or Pl.Cs.StartWith(&amp;quot;A&amp;quot;)">
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="../toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/new/main/apiSpec/new?filename=Polars_CSharp_Polars_Selectors.md&amp;value=---%0Auid%3A%20Polars.CSharp.Polars.Selectors%0Asummary%3A%20&#39;*You%20can%20override%20summary%20for%20the%20API%20here%20using%20*MARKDOWN*%20syntax&#39;%0A---%0A%0A*Please%20type%20below%20more%20information%20about%20this%20API%3A*%0A%0A">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="ManagedReference">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.CSharp.Polars.Selectors">
+
+
+
+  <h1 id="Polars_CSharp_Polars_Selectors" data-uid="Polars.CSharp.Polars.Selectors" class="text-break">
+Struct Polars.Selectors  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L13"><i class="bi bi-code-slash"></i></a>
+  </h1>
+
+  <div class="facts text-secondary">
+    <dl><dt>Namespace</dt><dd><a class="xref" href="Polars.html">Polars</a>.<a class="xref" href="Polars.CSharp.html">CSharp</a></dd></dl>
+  <dl><dt>Assembly</dt><dd>Polars.CSharp.dll</dd></dl>
+  </div>
+
+  <div class="markdown summary"><p>String matching selectors namespace.
+Usage: Cs.StartsWith(&quot;A&quot;) or Pl.Cs.StartWith(&quot;A&quot;)</p>
+</div>
+  <div class="markdown conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public readonly struct Polars.Selectors</code></pre>
+  </div>
+
+
+
+
+
+
+
+  <dl class="typelist inheritedMembers">
+    <dt>Inherited Members</dt>
+    <dd>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.valuetype.equals">ValueType.Equals(object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.valuetype.gethashcode">ValueType.GetHashCode()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.valuetype.tostring">ValueType.ToString()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.equals#system-object-equals(system-object-system-object)">object.Equals(object, object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.gettype">object.GetType()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.referenceequals">object.ReferenceEquals(object, object)</a>
+    </div>
+  </dd></dl>
+
+
+
+
+
+
+  <h2 class="section" id="methods">Methods
+</h2>
+
+
+  <a id="Polars_CSharp_Polars_Selectors_All_" data-uid="Polars.CSharp.Polars.Selectors.All*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_All" data-uid="Polars.CSharp.Polars.Selectors.All">
+  All()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L18"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select all columns.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector All()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Alpha_" data-uid="Polars.CSharp.Polars.Selectors.Alpha*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Alpha_System_Boolean_System_Boolean_" data-uid="Polars.CSharp.Polars.Selectors.Alpha(System.Boolean,System.Boolean)">
+  Alpha(bool, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L165"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select all columns with alphabetic names.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Alpha(bool asciiOnly = false, bool ignoreSpaces = false)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>asciiOnly</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+    <dt><code>ignoreSpaces</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Alphanumeric_" data-uid="Polars.CSharp.Polars.Selectors.Alphanumeric*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Alphanumeric_System_Boolean_System_Boolean_" data-uid="Polars.CSharp.Polars.Selectors.Alphanumeric(System.Boolean,System.Boolean)">
+  Alphanumeric(bool, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L237"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select all columns with alphanumeric names.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Alphanumeric(bool asciiOnly = false, bool ignoreSpaces = false)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>asciiOnly</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+    <dt><code>ignoreSpaces</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Array_" data-uid="Polars.CSharp.Polars.Selectors.Array*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Array_Polars_CSharp_Selector_System_Nullable_System_Int64__" data-uid="Polars.CSharp.Polars.Selectors.Array(Polars.CSharp.Selector,System.Nullable{System.Int64})">
+  Array(Selector?, long?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L109"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select array columns. Optionally filter by inner data type and fixed width.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Array(Selector? inner = null, long? width = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>inner</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>width</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a>?</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Binary_" data-uid="Polars.CSharp.Polars.Selectors.Binary*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Binary" data-uid="Polars.CSharp.Polars.Selectors.Binary">
+  Binary()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L90"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Binary()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Boolean_" data-uid="Polars.CSharp.Polars.Selectors.Boolean*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Boolean" data-uid="Polars.CSharp.Polars.Selectors.Boolean">
+  Boolean()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L89"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Boolean()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_ByDtype_" data-uid="Polars.CSharp.Polars.Selectors.ByDtype*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_ByDtype_Polars_CSharp_DataType_" data-uid="Polars.CSharp.Polars.Selectors.ByDtype(Polars.CSharp.DataType)">
+  ByDtype(DataType)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L36"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select columns by specific DataType.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector ByDtype(DataType type)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>type</code> <a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_ByDtype_" data-uid="Polars.CSharp.Polars.Selectors.ByDtype*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_ByDtype_System_Type_" data-uid="Polars.CSharp.Polars.Selectors.ByDtype(System.Type)">
+  ByDtype(Type)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L44"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select columns by specific DataType.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector ByDtype(Type type)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>type</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.type">Type</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_ByDtype_" data-uid="Polars.CSharp.Polars.Selectors.ByDtype*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_ByDtype__1" data-uid="Polars.CSharp.Polars.Selectors.ByDtype``1">
+  ByDtype&lt;T&gt;()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L55"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select columns by Generic Type.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector ByDtype&lt;T&gt;()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Type Parameters</h4>
+  <dl class="parameters">
+    <dt><code>T</code></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_ByIndex_" data-uid="Polars.CSharp.Polars.Selectors.ByIndex*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_ByIndex_System_ReadOnlySpan_System_Int64__" data-uid="Polars.CSharp.Polars.Selectors.ByIndex(System.ReadOnlySpan{System.Int64})">
+  ByIndex(params ReadOnlySpan&lt;long&gt;)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L27"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select columns by their index.
+Usage: Cs.ByIndex(0, 2, 4)</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector ByIndex(params ReadOnlySpan&lt;long&gt; indices)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>indices</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.readonlyspan-1">ReadOnlySpan</a>&lt;<a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a>&gt;</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_ByIndex_" data-uid="Polars.CSharp.Polars.Selectors.ByIndex*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_ByIndex_System_ReadOnlySpan_System_Int64__System_Boolean_" data-uid="Polars.CSharp.Polars.Selectors.ByIndex(System.ReadOnlySpan{System.Int64},System.Boolean)">
+  ByIndex(ReadOnlySpan&lt;long&gt;, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L32"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select columns by their index with strictness control.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector ByIndex(ReadOnlySpan&lt;long&gt; indices, bool strict)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>indices</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.readonlyspan-1">ReadOnlySpan</a>&lt;<a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a>&gt;</dt>
+    <dd></dd>
+    <dt><code>strict</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_ByName_" data-uid="Polars.CSharp.Polars.Selectors.ByName*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_ByName_System_String___" data-uid="Polars.CSharp.Polars.Selectors.ByName(System.String[])">
+  ByName(params string[])
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L22"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select columns.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector ByName(params string[] columns)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>columns</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>[]</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_CJK_" data-uid="Polars.CSharp.Polars.Selectors.CJK*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_CJK_System_Boolean_System_Boolean_System_Boolean_System_Boolean_" data-uid="Polars.CSharp.Polars.Selectors.CJK(System.Boolean,System.Boolean,System.Boolean,System.Boolean)">
+  CJK(bool, bool, bool, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L184"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>[EN] Select columns whose names consist entirely of CJK scripts (Han, Hiragana, Katakana, Hangul).
+The 'chinese' option enables \p{Han}, which also includes Japanese Kanji and Korean Hanja.</p>
+<p>[ZH] 选择列名完全由中日韩字符（Han / 平假名 / 片假名 / 韩文）组成的列。
+注意：'chinese' 实际匹配 \p{Han}，包含日文汉字与韩文汉字。</p>
+<p>[JA] 列名がCJK文字（漢字・ひらがな・カタカナ・ハングル）のみで構成される列を選択します。
+※ 'chinese' は \p{Han}（日本・韓国の漢字を含む）を有効にします。</p>
+<p>[KO] 열 이름이 CJK 문자(한자, 히라가나, 가타카나, 한글)로만 구성된 열을 선택합니다.
+※ 'chinese'는 \p{Han}을 의미하며 일본/한국 한자도 포함합니다.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector CJK(bool chinese = true, bool japanese = true, bool korean = true, bool ignoreSpaces = false)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>chinese</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+    <dt><code>japanese</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+    <dt><code>korean</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+    <dt><code>ignoreSpaces</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_CJKAlphanumeric_" data-uid="Polars.CSharp.Polars.Selectors.CJKAlphanumeric*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_CJKAlphanumeric_System_Boolean_System_Boolean_System_Boolean_System_Boolean_System_Boolean_" data-uid="Polars.CSharp.Polars.Selectors.CJKAlphanumeric(System.Boolean,System.Boolean,System.Boolean,System.Boolean,System.Boolean)">
+  CJKAlphanumeric(bool, bool, bool, bool, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L211"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>[EN] Select columns whose names consist of CJK scripts, Unicode digits (\p{N}),
+and optionally ASCII/full-width Latin letters.</p>
+<p>[ZH] 选择列名由中日韩字符、数字（\p{N}，含全/半角）以及可选英文字母（全/半角）组成的列。</p>
+<p>[JA] 列名がCJK文字・数字（\p{N}、全角/半角）および英字（全角/半角）で構成される列を選択します。</p>
+<p>[KO] 열 이름이 CJK 문자, 숫자(\p{N}, 전각/반각) 및 영문자(전각/반각)로 구성된 열을 선택합니다.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector CJKAlphanumeric(bool chinese = true, bool japanese = true, bool korean = true, bool includeLetters = true, bool ignoreSpaces = false)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>chinese</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+    <dt><code>japanese</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+    <dt><code>korean</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+    <dt><code>includeLetters</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+    <dt><code>ignoreSpaces</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Contains_" data-uid="Polars.CSharp.Polars.Selectors.Contains*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Contains_System_String_" data-uid="Polars.CSharp.Polars.Selectors.Contains(System.String)">
+  Contains(string)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L155"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select column whose name contains given string.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Contains(string str)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>str</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Date_" data-uid="Polars.CSharp.Polars.Selectors.Date*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Date" data-uid="Polars.CSharp.Polars.Selectors.Date">
+  Date()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L88"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select all date columns.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Date()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Datetime_" data-uid="Polars.CSharp.Polars.Selectors.Datetime*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Datetime_System_Nullable_Polars_CSharp_TimeUnit__" data-uid="Polars.CSharp.Polars.Selectors.Datetime(System.Nullable{Polars.CSharp.TimeUnit})">
+  Datetime(TimeUnit?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L117"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select all datetime columns (both with and without timezones).</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Datetime(TimeUnit? timeUnit = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>timeUnit</code> <a class="xref" href="Polars.CSharp.TimeUnit.html">TimeUnit</a>?</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_DatetimeAware_" data-uid="Polars.CSharp.Polars.Selectors.DatetimeAware*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_DatetimeAware_System_Nullable_Polars_CSharp_TimeUnit__" data-uid="Polars.CSharp.Polars.Selectors.DatetimeAware(System.Nullable{Polars.CSharp.TimeUnit})">
+  DatetimeAware(TimeUnit?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L125"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select ONLY timezone-aware datetime columns (any timezone).</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector DatetimeAware(TimeUnit? timeUnit = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>timeUnit</code> <a class="xref" href="Polars.CSharp.TimeUnit.html">TimeUnit</a>?</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_DatetimeExact_" data-uid="Polars.CSharp.Polars.Selectors.DatetimeExact*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_DatetimeExact_System_String_System_Nullable_Polars_CSharp_TimeUnit__" data-uid="Polars.CSharp.Polars.Selectors.DatetimeExact(System.String,System.Nullable{Polars.CSharp.TimeUnit})">
+  DatetimeExact(string, TimeUnit?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L129"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select datetime columns matching a specific timezone (e.g., &quot;UTC&quot;, &quot;Asia/Shanghai&quot;).</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector DatetimeExact(string timeZone, TimeUnit? timeUnit = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>timeZone</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd></dd>
+    <dt><code>timeUnit</code> <a class="xref" href="Polars.CSharp.TimeUnit.html">TimeUnit</a>?</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_DatetimeNaive_" data-uid="Polars.CSharp.Polars.Selectors.DatetimeNaive*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_DatetimeNaive_System_Nullable_Polars_CSharp_TimeUnit__" data-uid="Polars.CSharp.Polars.Selectors.DatetimeNaive(System.Nullable{Polars.CSharp.TimeUnit})">
+  DatetimeNaive(TimeUnit?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L121"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select ONLY timezone-naive datetime columns (no timezone set).</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector DatetimeNaive(TimeUnit? timeUnit = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>timeUnit</code> <a class="xref" href="Polars.CSharp.TimeUnit.html">TimeUnit</a>?</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Decimal_" data-uid="Polars.CSharp.Polars.Selectors.Decimal*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Decimal" data-uid="Polars.CSharp.Polars.Selectors.Decimal">
+  Decimal()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L96"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Decimal()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Duration_" data-uid="Polars.CSharp.Polars.Selectors.Duration*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Duration_System_Nullable_Polars_CSharp_TimeUnit__" data-uid="Polars.CSharp.Polars.Selectors.Duration(System.Nullable{Polars.CSharp.TimeUnit})">
+  Duration(TimeUnit?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L137"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select all duration columns. Optionally match a specific TimeUnit.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Duration(TimeUnit? timeUnit = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>timeUnit</code> <a class="xref" href="Polars.CSharp.TimeUnit.html">TimeUnit</a>?</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Empty_" data-uid="Polars.CSharp.Polars.Selectors.Empty*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Empty" data-uid="Polars.CSharp.Polars.Selectors.Empty">
+  Empty()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L91"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Empty()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_EndsWith_" data-uid="Polars.CSharp.Polars.Selectors.EndsWith*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_EndsWith_System_String_" data-uid="Polars.CSharp.Polars.Selectors.EndsWith(System.String)">
+  EndsWith(string)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L149"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select column whose name ends with given suffix.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector EndsWith(string suffix)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>suffix</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Enum_" data-uid="Polars.CSharp.Polars.Selectors.Enum*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Enum" data-uid="Polars.CSharp.Polars.Selectors.Enum">
+  Enum()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L97"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Enum()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Exclude_" data-uid="Polars.CSharp.Polars.Selectors.Exclude*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Exclude_System_ReadOnlySpan_Polars_CSharp_DataType__" data-uid="Polars.CSharp.Polars.Selectors.Exclude(System.ReadOnlySpan{Polars.CSharp.DataType})">
+  Exclude(params ReadOnlySpan&lt;DataType&gt;)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L64"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select all columns EXCEPT the specified Data Types.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Exclude(params ReadOnlySpan&lt;DataType&gt; dtypes)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>dtypes</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.readonlyspan-1">ReadOnlySpan</a>&lt;<a class="xref" href="Polars.CSharp.DataType.html">DataType</a>&gt;</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Exclude_" data-uid="Polars.CSharp.Polars.Selectors.Exclude*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Exclude_System_ReadOnlySpan_Polars_CSharp_Selector__" data-uid="Polars.CSharp.Polars.Selectors.Exclude(System.ReadOnlySpan{Polars.CSharp.Selector})">
+  Exclude(params ReadOnlySpan&lt;Selector&gt;)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L60"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select all columns EXCEPT the specified Selectors.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Exclude(params ReadOnlySpan&lt;Selector&gt; selectors)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>selectors</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.readonlyspan-1">ReadOnlySpan</a>&lt;<a class="xref" href="Polars.CSharp.Selector.html">Selector</a>&gt;</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Exclude_" data-uid="Polars.CSharp.Polars.Selectors.Exclude*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Exclude_System_String___" data-uid="Polars.CSharp.Polars.Selectors.Exclude(System.String[])">
+  Exclude(params string[])
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L68"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select all columns EXCEPT the specified Column names.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Exclude(params string[] columns)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>columns</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>[]</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_ExpandSelector_" data-uid="Polars.CSharp.Polars.Selectors.ExpandSelector*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_ExpandSelector_Polars_CSharp_DataFrame_Polars_CSharp_Expr_" data-uid="Polars.CSharp.Polars.Selectors.ExpandSelector(Polars.CSharp.DataFrame,Polars.CSharp.Expr)">
+  ExpandSelector(DataFrame, Expr)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L264"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Expand an Expr against a DataFrame to get the matched column names.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static string[] ExpandSelector(DataFrame target, Expr expr)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>target</code> <a class="xref" href="Polars.CSharp.DataFrame.html">DataFrame</a></dt>
+    <dd></dd>
+    <dt><code>expr</code> <a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>[]</dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_ExpandSelector_" data-uid="Polars.CSharp.Polars.Selectors.ExpandSelector*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_ExpandSelector_Polars_CSharp_DataFrame_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Polars.Selectors.ExpandSelector(Polars.CSharp.DataFrame,Polars.CSharp.Selector)">
+  ExpandSelector(DataFrame, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L249"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Expand a Selector against a DataFrame to get the matched column names.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static string[] ExpandSelector(DataFrame target, Selector selector)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>target</code> <a class="xref" href="Polars.CSharp.DataFrame.html">DataFrame</a></dt>
+    <dd></dd>
+    <dt><code>selector</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>[]</dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_ExpandSelector_" data-uid="Polars.CSharp.Polars.Selectors.ExpandSelector*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_ExpandSelector_Polars_CSharp_LazyFrame_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Polars.Selectors.ExpandSelector(Polars.CSharp.LazyFrame,Polars.CSharp.Selector)">
+  ExpandSelector(LazyFrame, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L273"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static string[] ExpandSelector(LazyFrame target, Selector selector)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>target</code> <a class="xref" href="Polars.CSharp.LazyFrame.html">LazyFrame</a></dt>
+    <dd></dd>
+    <dt><code>selector</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>[]</dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_First_" data-uid="Polars.CSharp.Polars.Selectors.First*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_First" data-uid="Polars.CSharp.Polars.Selectors.First">
+  First()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L72"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select the first column.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector First()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Float_" data-uid="Polars.CSharp.Polars.Selectors.Float*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Float" data-uid="Polars.CSharp.Polars.Selectors.Float">
+  Float()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L95"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Float()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Integer_" data-uid="Polars.CSharp.Polars.Selectors.Integer*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Integer" data-uid="Polars.CSharp.Polars.Selectors.Integer">
+  Integer()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L92"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Integer()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Last_" data-uid="Polars.CSharp.Polars.Selectors.Last*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Last" data-uid="Polars.CSharp.Polars.Selectors.Last">
+  Last()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L76"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select the last column.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Last()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_List_" data-uid="Polars.CSharp.Polars.Selectors.List*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_List_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Polars.Selectors.List(Polars.CSharp.Selector)">
+  List(Selector?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L105"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select list columns. Optionally filter by the inner data type.
+Example: Cs.List(Cs.Integer())</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector List(Selector? inner = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>inner</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Matches_" data-uid="Polars.CSharp.Polars.Selectors.Matches*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Matches_System_String_" data-uid="Polars.CSharp.Polars.Selectors.Matches(System.String)">
+  Matches(string)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L161"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select column whose name matches given string.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Matches(string regex)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>regex</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>Regular Expression</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Nested_" data-uid="Polars.CSharp.Polars.Selectors.Nested*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Nested" data-uid="Polars.CSharp.Polars.Selectors.Nested">
+  Nested()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L98"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Nested()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Numeric_" data-uid="Polars.CSharp.Polars.Selectors.Numeric*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Numeric" data-uid="Polars.CSharp.Polars.Selectors.Numeric">
+  Numeric()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L80"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select all numeric columns (Int, Float, etc.).</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Numeric()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_SignedInteger_" data-uid="Polars.CSharp.Polars.Selectors.SignedInteger*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_SignedInteger" data-uid="Polars.CSharp.Polars.Selectors.SignedInteger">
+  SignedInteger()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L94"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector SignedInteger()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_StartsWith_" data-uid="Polars.CSharp.Polars.Selectors.StartsWith*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_StartsWith_System_String_" data-uid="Polars.CSharp.Polars.Selectors.StartsWith(System.String)">
+  StartsWith(string)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L143"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select column whose name starts with given prefix.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector StartsWith(string prefix)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>prefix</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_String_" data-uid="Polars.CSharp.Polars.Selectors.String*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_String" data-uid="Polars.CSharp.Polars.Selectors.String">
+  String()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L84"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Select all string/utf8 columns.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector String()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Struct_" data-uid="Polars.CSharp.Polars.Selectors.Struct*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Struct" data-uid="Polars.CSharp.Polars.Selectors.Struct">
+  Struct()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L99"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Struct()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_Temporal_" data-uid="Polars.CSharp.Polars.Selectors.Temporal*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_Temporal" data-uid="Polars.CSharp.Polars.Selectors.Temporal">
+  Temporal()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L100"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector Temporal()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Polars_Selectors_UnsignedInteger_" data-uid="Polars.CSharp.Polars.Selectors.UnsignedInteger*"></a>
+
+  <h3 id="Polars_CSharp_Polars_Selectors_UnsignedInteger" data-uid="Polars.CSharp.Polars.Selectors.UnsignedInteger">
+  UnsignedInteger()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L93"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector UnsignedInteger()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Polars/Cs.cs/#L13" class="edit-link">Edit this page</a>
+        </div>
+
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

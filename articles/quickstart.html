@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Getting Started | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Getting Started | Polars.NET ">
+      
+      
+      <link rel="icon" href="../images/logo.svg">
+      <link rel="stylesheet" href="../public/docfx.min.css">
+      <link rel="stylesheet" href="../public/main.css">
+      <meta name="docfx:navrel" content="../toc.html">
+      <meta name="docfx:tocrel" content="../toc.html">
+      
+      <meta name="docfx:rel" content="../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/articles/quickstart.md/#L1">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../index.html">
+            <img id="logo" class="svg" src="../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+
+      <div class="content">
+        <div class="actionbar">
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="">
+<h1 id="getting-started">Getting Started</h1>
+
+<p>This guide will walk you through the core functionalities of Polars.NET: creating DataFrames, inspecting data, applying transformations, and leveraging the Lazy engine for maximum performance.</p>
+<h1 id="prerequisites">Prerequisites</h1>
+<p>First, install the NuGet packages.</p>
+<pre><code class="lang-bash">dotnet add package Polars.NET
+
+# For F# users (includes idiomatic extensions)
+dotnet add package Polars.FSharp
+</code></pre>
+<h2 id="1-creating-a-dataframe">1. Creating a DataFrame</h2>
+<p>Polars.NET supports creating DataFrames from CSV, Parquet, JSON, Database, or in-memory objects.
+C# (Fluent API)</p>
+<pre><code class="lang-cs">using Polars;
+using Polars.CSharp;
+using static Polars.CSharp.Polars; // Allows using Col(), Lit() directly
+
+// Create from in-memory columns
+var df = DataFrame.FromColumns(new 
+{
+    Date = new[] { &quot;2023-01-01&quot;, &quot;2023-01-01&quot;, &quot;2023-01-02&quot; },
+    City = new[] { &quot;London&quot;, &quot;Manchester&quot;, &quot;London&quot; },
+    Temperature = new[] { 10.5, 9.0, 12.1 },
+    Rain = new[] { true, true, false }
+});
+
+// Parse date string to Date32 type
+df = df.WithColumn(Col(&quot;Date&quot;).Str.ToDate(&quot;%Y-%m-%d&quot;));
+
+// Preview
+df.Show();
+</code></pre>
+<p>F# (Pipeline API)</p>
+<pre><code class="lang-fsharp">open Polars.FSharp
+
+type WeatherData = { Date: string; City: string; Temperature: float; Rain: bool }
+
+let data = [
+    { Date=&quot;2023-01-01&quot;; City=&quot;London&quot;;     Temperature=10.5; Rain=true }
+    { Date=&quot;2023-01-01&quot;; City=&quot;Manchester&quot;; Temperature=9.0;  Rain=true }
+    { Date=&quot;2023-01-02&quot;; City=&quot;London&quot;;     Temperature=12.1; Rain=false }
+]
+
+let df = 
+    DataFrame.ofRecords data
+    |&gt; pl.withColumn (pl.col(&quot;Date&quot;).Str.ToDate &quot;%Y-%m-%d&quot;)
+
+// In F#, the DataFrame prints nicely in interactive sessions
+df
+</code></pre>
+<h2 id="2-selection--filtering">2. Selection &amp; Filtering</h2>
+<p>Polars expressions allow you to define transformations efficiently. Notice how C# uses method chaining, while F# uses the pipe operator (|&gt;).</p>
+<p>C#</p>
+<pre><code class="lang-cs">var londonData = df
+    .Filter(Col(&quot;City&quot;) == &quot;London&quot;)
+    .Select(
+        Col(&quot;Date&quot;),
+        // Arithmetic on columns
+        (Col(&quot;Temperature&quot;) * 1.8 + 32).Alias(&quot;Temp_F&quot;) 
+    );
+</code></pre>
+<p>F#</p>
+<pre><code class="lang-fs">let londonData =
+    df 
+    |&gt; pl.filter (pl.col &quot;City&quot; .== pl.lit &quot;London&quot;)
+    |&gt; pl.select [
+        pl.col &quot;Date&quot;
+        // Arithmetic using overloaded operators
+        (pl.col &quot;Temperature&quot; * pl.lit 1.8 + pl.lit 32.0).Alias &quot;Temp_F&quot;
+    ]
+</code></pre>
+<h2 id="3-aggregation-groupby">3. Aggregation (GroupBy)</h2>
+<p>Compute summary statistics by groups. Polars executes aggregations in parallel.</p>
+<p>C#</p>
+<pre><code class="lang-cs">var aggDf = df
+    .GroupBy(&quot;City&quot;)
+    .Agg(
+        Col(&quot;Temperature&quot;).Mean().Alias(&quot;Avg_Temp&quot;),
+        Col(&quot;Temperature&quot;).Max().Alias(&quot;Max_Temp&quot;),
+        Col(&quot;Rain&quot;).Sum().Alias(&quot;Rainy_Days&quot;), // Sum of bool = count true
+        Col(&quot;City&quot;).Count().Alias(&quot;Total_Records&quot;)
+    );
+</code></pre>
+<p>F#</p>
+<pre><code class="lang-fs">let aggDf = 
+    df
+    |&gt; pl.groupBy [pl.col &quot;City&quot;] [
+        pl.col(&quot;Temperature&quot;).Mean().Alias &quot;Avg_Temp&quot;
+        pl.col(&quot;Temperature&quot;).Max().Alias &quot;Max_Temp&quot;
+        pl.col(&quot;Rain&quot;).Sum().Alias &quot;Rainy_Days&quot;
+        pl.count().Alias &quot;Total_Records&quot;
+    ]
+</code></pre>
+<h2 id="4-window-functions">4. Window Functions</h2>
+<p>Window functions allow you to compute values relative to a group without collapsing the rows (unlike GroupBy). This is extremely powerful for time-series analysis or calculating differences from averages.</p>
+<p>C#</p>
+<pre><code class="lang-cs">// Calculate daily average and the difference from that average
+var windowDf = df.Select(
+    Col(&quot;Date&quot;),
+    Col(&quot;City&quot;),
+    Col(&quot;Temperature&quot;),
+    
+    // Window Expression: Mean over Date
+    Col(&quot;Temperature&quot;).Mean().Over(&quot;Date&quot;).Alias(&quot;Daily_Avg&quot;),
+    
+    // Calculate difference immediately
+    (Col(&quot;Temperature&quot;) - Col(&quot;Temperature&quot;).Mean().Over(&quot;Date&quot;)).Alias(&quot;Diff&quot;)
+).Sort(&quot;Date&quot;, descending: false);
+</code></pre>
+<p>F#</p>
+<pre><code class="lang-fs">let windowDf = 
+    df
+    |&gt; pl.select [
+        pl.col &quot;Date&quot;
+        pl.col &quot;City&quot;
+        pl.col &quot;Temperature&quot;
+        
+        (pl.col(&quot;Temperature&quot;).Mean().Over(pl.col &quot;Date&quot;)).Alias &quot;Daily_Avg&quot;
+        
+        (pl.col &quot;Temperature&quot; - pl.col(&quot;Temperature&quot;).Mean().Over(pl.col &quot;Date&quot;)).Alias &quot;Diff&quot;
+    ]
+    |&gt; pl.sort (pl.col &quot;Date&quot;, false)
+</code></pre>
+<h2 id="5-the-lazy-api-performance">5. The Lazy API (Performance)</h2>
+<p>This is where Polars.NET shines. Instead of executing every step immediately, Lazy() builds a query plan. Collect() optimizes and runs it.</p>
+<h4 id="why-lazy">Why Lazy?</h4>
+<ol>
+<li><p>Predicate Pushdown: Filters are applied before loading data (if possible).</p>
+</li>
+<li><p>Projection Pushdown: Only necessary columns are loaded.</p>
+</li>
+<li><p>Parallel Execution: Branching logic is executed in parallel.</p>
+</li>
+</ol>
+<p>C#</p>
+<pre><code class="lang-cs">var lf = df.Lazy()
+    .Filter(Col(&quot;Temperature&quot;) &gt; 10.0)
+    .GroupBy(&quot;City&quot;)
+    .Agg(Col(&quot;Temperature&quot;).Mean().Alias(&quot;Lazy_Avg_Temp&quot;));
+
+// See the optimized query plan
+Console.WriteLine(lf.Explain());
+
+// Execute
+var finalDf = lf.Collect();
+</code></pre>
+<p>F#</p>
+<pre><code class="lang-fs">let lf = 
+    df.Lazy()
+    |&gt; LazyFrame.filter (pl.col &quot;Temperature&quot; .&gt; pl.lit 10.0)
+    |&gt; LazyFrame.groupBy [pl.col &quot;City&quot;] [
+         pl.mean(pl.col &quot;Temperature&quot;).Alias &quot;Lazy_Avg_Temp&quot;
+    ]
+
+printfn &quot;%s&quot; (lf.Explain(optimized=true))
+
+let finalDf = lf.Collect()
+</code></pre>
+<h2 id="next-steps">Next Steps</h2>
+<ul>
+<li><p>IO Operations: Learn how to read/write CSV, Parquet, and Excel.</p>
+</li>
+<li><p>User Defined Functions: Learn how to map C# functions for custom logic.</p>
+</li>
+<li><p>API Reference: Explore the full list of available Expressions.</p>
+</li>
+</ul>
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/articles/quickstart.md/#L1" class="edit-link">Edit this page</a>
+        </div>
+
+        <div class="next-article d-print-none border-top" id="nextArticle"></div>
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

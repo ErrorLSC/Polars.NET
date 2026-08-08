@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Class DataTypeExpr | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Class DataTypeExpr | Polars.NET ">
+      
+      <meta name="description" content="A lazily instantiated DataType that can be used in an Expr. This expression is made to represent a DataType that can be used to reference a datatype in a lazy context.">
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="../toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/new/main/apiSpec/new?filename=Polars_CSharp_DataTypeExpr.md&amp;value=---%0Auid%3A%20Polars.CSharp.DataTypeExpr%0Asummary%3A%20&#39;*You%20can%20override%20summary%20for%20the%20API%20here%20using%20*MARKDOWN*%20syntax&#39;%0A---%0A%0A*Please%20type%20below%20more%20information%20about%20this%20API%3A*%0A%0A">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="ManagedReference">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.CSharp.DataTypeExpr">
+
+
+
+  <h1 id="Polars_CSharp_DataTypeExpr" data-uid="Polars.CSharp.DataTypeExpr" class="text-break">
+Class DataTypeExpr  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/DataTypeExpr.cs/#L10"><i class="bi bi-code-slash"></i></a>
+  </h1>
+
+  <div class="facts text-secondary">
+    <dl><dt>Namespace</dt><dd><a class="xref" href="Polars.html">Polars</a>.<a class="xref" href="Polars.CSharp.html">CSharp</a></dd></dl>
+  <dl><dt>Assembly</dt><dd>Polars.CSharp.dll</dd></dl>
+  </div>
+
+  <div class="markdown summary"><p>A lazily instantiated DataType that can be used in an Expr.
+This expression is made to represent a DataType that can be used to reference a datatype in a lazy context.</p>
+</div>
+  <div class="markdown conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public class DataTypeExpr : IDisposable</code></pre>
+  </div>
+
+
+
+
+  <dl class="typelist inheritance">
+    <dt>Inheritance</dt>
+    <dd>
+      <div><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object">object</a></div>
+      <div><span class="xref">DataTypeExpr</span></div>
+    </dd>
+  </dl>
+
+  <dl class="typelist implements">
+    <dt>Implements</dt>
+    <dd>
+      <div><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.idisposable">IDisposable</a></div>
+    </dd>
+  </dl>
+
+
+  <dl class="typelist inheritedMembers">
+    <dt>Inherited Members</dt>
+    <dd>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.equals#system-object-equals(system-object)">object.Equals(object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.equals#system-object-equals(system-object-system-object)">object.Equals(object, object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.gethashcode">object.GetHashCode()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.gettype">object.GetType()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.memberwiseclone">object.MemberwiseClone()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.referenceequals">object.ReferenceEquals(object, object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.tostring">object.ToString()</a>
+    </div>
+  </dd></dl>
+
+
+
+
+
+
+  <h2 class="section" id="properties">Properties
+</h2>
+
+
+  <a id="Polars_CSharp_DataTypeExpr_Array_" data-uid="Polars.CSharp.DataTypeExpr.Array*"></a>
+
+  <h3 id="Polars_CSharp_DataTypeExpr_Array" data-uid="Polars.CSharp.DataTypeExpr.Array">
+  Array
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/DataTypeExpr.cs/#L133"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DataTypeExpr.ArrayNameSpace Array { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataTypeExpr.html">DataTypeExpr</a>.<a class="xref" href="Polars.CSharp.DataTypeExpr.ArrayNameSpace.html">ArrayNameSpace</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataTypeExpr_List_" data-uid="Polars.CSharp.DataTypeExpr.List*"></a>
+
+  <h3 id="Polars_CSharp_DataTypeExpr_List" data-uid="Polars.CSharp.DataTypeExpr.List">
+  List
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/DataTypeExpr.cs/#L132"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DataTypeExpr.ListNameSpace List { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataTypeExpr.html">DataTypeExpr</a>.<a class="xref" href="Polars.CSharp.DataTypeExpr.ListNameSpace.html">ListNameSpace</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataTypeExpr_Struct_" data-uid="Polars.CSharp.DataTypeExpr.Struct*"></a>
+
+  <h3 id="Polars_CSharp_DataTypeExpr_Struct" data-uid="Polars.CSharp.DataTypeExpr.Struct">
+  Struct
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/DataTypeExpr.cs/#L134"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DataTypeExpr.StructNameSpace Struct { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataTypeExpr.html">DataTypeExpr</a>.<a class="xref" href="Polars.CSharp.DataTypeExpr.StructNameSpace.html">StructNameSpace</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <h2 class="section" id="methods">Methods
+</h2>
+
+
+  <a id="Polars_CSharp_DataTypeExpr_Clone_" data-uid="Polars.CSharp.DataTypeExpr.Clone*"></a>
+
+  <h3 id="Polars_CSharp_DataTypeExpr_Clone" data-uid="Polars.CSharp.DataTypeExpr.Clone">
+  Clone()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/DataTypeExpr.cs/#L24"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Clone DataTypeExpr</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DataTypeExpr Clone()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataTypeExpr.html">DataTypeExpr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataTypeExpr_CollectDataType_" data-uid="Polars.CSharp.DataTypeExpr.CollectDataType*"></a>
+
+  <h3 id="Polars_CSharp_DataTypeExpr_CollectDataType_Polars_CSharp_DataFrame_" data-uid="Polars.CSharp.DataTypeExpr.CollectDataType(Polars.CSharp.DataFrame)">
+  CollectDataType(DataFrame)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/DataTypeExpr.cs/#L41"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Materialize the DataTypeExpr using a DataFrame's schema as context.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DataType CollectDataType(DataFrame df)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>df</code> <a class="xref" href="Polars.CSharp.DataFrame.html">DataFrame</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataTypeExpr_CollectDataType_" data-uid="Polars.CSharp.DataTypeExpr.CollectDataType*"></a>
+
+  <h3 id="Polars_CSharp_DataTypeExpr_CollectDataType_Polars_CSharp_LazyFrame_" data-uid="Polars.CSharp.DataTypeExpr.CollectDataType(Polars.CSharp.LazyFrame)">
+  CollectDataType(LazyFrame)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/DataTypeExpr.cs/#L50"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Materialize the DataTypeExpr using a LazyFrame's schema as context.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DataType CollectDataType(LazyFrame lf)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>lf</code> <a class="xref" href="Polars.CSharp.LazyFrame.html">LazyFrame</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataTypeExpr_CollectDataType_" data-uid="Polars.CSharp.DataTypeExpr.CollectDataType*"></a>
+
+  <h3 id="Polars_CSharp_DataTypeExpr_CollectDataType_Polars_CSharp_PolarsSchema_" data-uid="Polars.CSharp.DataTypeExpr.CollectDataType(Polars.CSharp.PolarsSchema)">
+  CollectDataType(PolarsSchema)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/DataTypeExpr.cs/#L30"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Materialize the DataTypeExpr in a specific context.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DataType CollectDataType(PolarsSchema schema)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>schema</code> <a class="xref" href="Polars.CSharp.PolarsSchema.html">PolarsSchema</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataTypeExpr_DefaultValue_" data-uid="Polars.CSharp.DataTypeExpr.DefaultValue*"></a>
+
+  <h3 id="Polars_CSharp_DataTypeExpr_DefaultValue_System_Int32_System_Boolean_System_Int32_" data-uid="Polars.CSharp.DataTypeExpr.DefaultValue(System.Int32,System.Boolean,System.Int32)">
+  DefaultValue(int, bool, int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/DataTypeExpr.cs/#L88"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Get a default value of a specific type.</p>
+<p>
+Integers and floats are their zero value as default, unless otherwise specified</p>
+<p>Temporals are a physical zero as default</p>
+<p>Decimal is zero as default</p>
+<p>String and Binary are an empty string</p>
+<p>List is an empty list, unless otherwise specified</p>
+<p>Array is the inner default value repeated over the shape</p>
+<p>Struct is the inner default value for all fields</p>
+<p>Enum is the first category if it exists</p>
+<p>Null, Object and Categorical are null.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr DefaultValue(int n = 1, bool numericToOne = false, int numListValues = 0)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>n</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd><p>Number of types you want the value</p>
+</dd>
+    <dt><code>numericToOne</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Use 1 instead of 0 as the default value for numeric types</p>
+</dd>
+    <dt><code>numListValues</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd><p>The amount of values a list contains</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataTypeExpr_Display_" data-uid="Polars.CSharp.DataTypeExpr.Display*"></a>
+
+  <h3 id="Polars_CSharp_DataTypeExpr_Display" data-uid="Polars.CSharp.DataTypeExpr.Display">
+  Display()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/DataTypeExpr.cs/#L94"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Get a formatted version of the output DataType.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Display()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataTypeExpr_Dispose_" data-uid="Polars.CSharp.DataTypeExpr.Dispose*"></a>
+
+  <h3 id="Polars_CSharp_DataTypeExpr_Dispose" data-uid="Polars.CSharp.DataTypeExpr.Dispose">
+  Dispose()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/DataTypeExpr.cs/#L204"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Dispose a handle.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public void Dispose()</code></pre>
+  </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataTypeExpr_InnerDataType_" data-uid="Polars.CSharp.DataTypeExpr.InnerDataType*"></a>
+
+  <h3 id="Polars_CSharp_DataTypeExpr_InnerDataType" data-uid="Polars.CSharp.DataTypeExpr.InnerDataType">
+  InnerDataType()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/DataTypeExpr.cs/#L99"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Get the inner DataType of a List or Array.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DataTypeExpr InnerDataType()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataTypeExpr.html">DataTypeExpr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataTypeExpr_Matches_" data-uid="Polars.CSharp.DataTypeExpr.Matches*"></a>
+
+  <h3 id="Polars_CSharp_DataTypeExpr_Matches_Polars_CSharp_Selector_" data-uid="Polars.CSharp.DataTypeExpr.Matches(Polars.CSharp.Selector)">
+  Matches(Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/DataTypeExpr.cs/#L105"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Get whether the output DataType is matches a certain selector.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Matches(Selector selector)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>selector</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataTypeExpr_ToLiteral_" data-uid="Polars.CSharp.DataTypeExpr.ToLiteral*"></a>
+
+  <h3 id="Polars_CSharp_DataTypeExpr_ToLiteral" data-uid="Polars.CSharp.DataTypeExpr.ToLiteral">
+  ToLiteral()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/DataTypeExpr.cs/#L61"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Convert DataTypeExpr into DataType Literal.
+Returns null if the expression is not a literal (e.g. SelfDtype).</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DataType? ToLiteral()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd><p>A DataType instance or null.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataTypeExpr_ToSignedInteger_" data-uid="Polars.CSharp.DataTypeExpr.ToSignedInteger*"></a>
+
+  <h3 id="Polars_CSharp_DataTypeExpr_ToSignedInteger" data-uid="Polars.CSharp.DataTypeExpr.ToSignedInteger">
+  ToSignedInteger()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/DataTypeExpr.cs/#L123"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Get the signed integer version of the same bitsize.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DataTypeExpr ToSignedInteger()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataTypeExpr.html">DataTypeExpr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataTypeExpr_ToUnsignedInteger_" data-uid="Polars.CSharp.DataTypeExpr.ToUnsignedInteger*"></a>
+
+  <h3 id="Polars_CSharp_DataTypeExpr_ToUnsignedInteger" data-uid="Polars.CSharp.DataTypeExpr.ToUnsignedInteger">
+  ToUnsignedInteger()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/DataTypeExpr.cs/#L128"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Get the unsigned integer version of the same bitsize.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DataTypeExpr ToUnsignedInteger()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataTypeExpr.html">DataTypeExpr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataTypeExpr_WrapInArray_" data-uid="Polars.CSharp.DataTypeExpr.WrapInArray*"></a>
+
+  <h3 id="Polars_CSharp_DataTypeExpr_WrapInArray_System_UInt32_" data-uid="Polars.CSharp.DataTypeExpr.WrapInArray(System.UInt32)">
+  WrapInArray(uint)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/DataTypeExpr.cs/#L118"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Get the DataType wrapped in an array.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DataTypeExpr WrapInArray(uint width)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>width</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.uint32">uint</a></dt>
+    <dd><p>Array Width</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataTypeExpr.html">DataTypeExpr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataTypeExpr_WrapInList_" data-uid="Polars.CSharp.DataTypeExpr.WrapInList*"></a>
+
+  <h3 id="Polars_CSharp_DataTypeExpr_WrapInList" data-uid="Polars.CSharp.DataTypeExpr.WrapInList">
+  WrapInList()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/DataTypeExpr.cs/#L111"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Get the DataType wrapped in a list.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DataTypeExpr WrapInList()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataTypeExpr.html">DataTypeExpr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/DataTypeExpr.cs/#L10" class="edit-link">Edit this page</a>
+        </div>
+
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

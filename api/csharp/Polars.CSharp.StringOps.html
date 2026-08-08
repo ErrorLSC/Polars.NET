@@ -1,0 +1,2265 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Struct StringOps | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Struct StringOps | Polars.NET ">
+      
+      <meta name="description" content="Offers multiple methods for checking, parsing, and transforming string columns. Access this via .">
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="../toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/new/main/apiSpec/new?filename=Polars_CSharp_StringOps.md&amp;value=---%0Auid%3A%20Polars.CSharp.StringOps%0Asummary%3A%20&#39;*You%20can%20override%20summary%20for%20the%20API%20here%20using%20*MARKDOWN*%20syntax&#39;%0A---%0A%0A*Please%20type%20below%20more%20information%20about%20this%20API%3A*%0A%0A">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="ManagedReference">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.CSharp.StringOps">
+
+
+
+  <h1 id="Polars_CSharp_StringOps" data-uid="Polars.CSharp.StringOps" class="text-break">
+Struct StringOps  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L14"><i class="bi bi-code-slash"></i></a>
+  </h1>
+
+  <div class="facts text-secondary">
+    <dl><dt>Namespace</dt><dd><a class="xref" href="Polars.html">Polars</a>.<a class="xref" href="Polars.CSharp.html">CSharp</a></dd></dl>
+  <dl><dt>Assembly</dt><dd>Polars.CSharp.dll</dd></dl>
+  </div>
+
+  <div class="markdown summary"><p>Offers multiple methods for checking, parsing, and transforming string columns.
+Access this via <a class="xref" href="Polars.CSharp.Expr.html#Polars_CSharp_Expr_Str">Str</a>.</p>
+</div>
+  <div class="markdown conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public readonly struct StringOps</code></pre>
+  </div>
+
+
+
+
+
+
+
+  <dl class="typelist inheritedMembers">
+    <dt>Inherited Members</dt>
+    <dd>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.valuetype.equals">ValueType.Equals(object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.valuetype.gethashcode">ValueType.GetHashCode()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.valuetype.tostring">ValueType.ToString()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.equals#system-object-equals(system-object-system-object)">object.Equals(object, object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.gettype">object.GetType()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.referenceequals">object.ReferenceEquals(object, object)</a>
+    </div>
+  </dd></dl>
+
+
+
+
+
+
+  <h2 class="section" id="methods">Methods
+</h2>
+
+
+  <a id="Polars_CSharp_StringOps_Contains_" data-uid="Polars.CSharp.StringOps.Contains*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_Contains_Polars_CSharp_StringOrExpr_System_Boolean_System_Boolean_" data-uid="Polars.CSharp.StringOps.Contains(Polars.CSharp.StringOrExpr,System.Boolean,System.Boolean)">
+  Contains(StringOrExpr, bool, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L215"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Check if the string contains a substring or regex pattern.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Contains(StringOrExpr pattern, bool literal = false, bool strict = true)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>pattern</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+    <dd></dd>
+    <dt><code>literal</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+    <dt><code>strict</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+  <h4 class="section" id="Polars_CSharp_StringOps_Contains_Polars_CSharp_StringOrExpr_System_Boolean_System_Boolean__examples">Examples</h4>
+  <pre><code class="lang-csharp">var df = DataFrame.FromColumns(new
+{
+    code = new[] { "ID-001", "ID-002", "ID-999", "XX-000", "ID-ABC" },
+    text = new[] { "Polars", "Data", "Rust", null, "123" }
+});
+
+df.Select(
+    Pl.Col("code"),
+    // Replace "-" with "_"
+    Pl.Col("code").Str.ReplaceAll("-", "_").Alias("replaced"),
+    // Extract numbers using Regex group 1
+    Pl.Col("code").Str.Extract(@"(\d+)", 1).Alias("extracted_num"),
+    // Check if text contains "a"
+    Pl.Col("text").Str.Contains("a").Alias("has_a")
+).Show();
+/* Output:
+shape: (5, 4)
+┌────────┬──────────┬───────────────┬───────┐
+│ code   ┆ replaced ┆ extracted_num ┆ has_a │
+│ ---    ┆ ---      ┆ ---           ┆ ---   │
+│ str    ┆ str      ┆ str           ┆ bool  │
+╞════════╪══════════╪═══════════════╪═══════╡
+│ ID-001 ┆ ID_001   ┆ 001           ┆ true  │
+│ ID-002 ┆ ID_002   ┆ 002           ┆ true  │
+│ ID-999 ┆ ID_999   ┆ 999           ┆ false │
+│ XX-000 ┆ XX_000   ┆ 000           ┆ null  │
+│ ID-ABC ┆ ID_ABC   ┆ null          ┆ false │
+└────────┴──────────┴───────────────┴───────┘
+*/</code></pre>
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_ContainsAny_" data-uid="Polars.CSharp.StringOps.ContainsAny*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_ContainsAny_Polars_CSharp_StringOrExpr_System_Boolean_" data-uid="Polars.CSharp.StringOps.ContainsAny(Polars.CSharp.StringOrExpr,System.Boolean)">
+  ContainsAny(StringOrExpr, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L225"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Use the Aho-Corasick algorithm to find matches.
+Determines if any of the patterns are contained in the string.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr ContainsAny(StringOrExpr patterns, bool asciiCaseInsensitive = false)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>patterns</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+    <dd><p>String patterns to search.</p>
+</dd>
+    <dt><code>asciiCaseInsensitive</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Enable ASCII-aware case-insensitive matching.
+When this option is enabled, searching will be performed without respect to case for ASCII letters
+(a-z and A-Z) only.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_CountMatches_" data-uid="Polars.CSharp.StringOps.CountMatches*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_CountMatches_Polars_CSharp_StringOrExpr_System_Boolean_" data-uid="Polars.CSharp.StringOps.CountMatches(Polars.CSharp.StringOrExpr,System.Boolean)">
+  CountMatches(StringOrExpr, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L285"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Count all successive non-overlapping regex matches.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr CountMatches(StringOrExpr pattern, bool literal = false)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>pattern</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+    <dd><p>A valid regular expression pattern, compatible with the regex crate.</p>
+</dd>
+    <dt><code>literal</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Treat pattern as a literal string, not as a regular expression.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>Expression of data type UInt32. Returns null if the original value is null.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_Decode_" data-uid="Polars.CSharp.StringOps.Decode*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_Decode_Polars_CSharp_TransferEncoding_System_Boolean_" data-uid="Polars.CSharp.StringOps.Decode(Polars.CSharp.TransferEncoding,System.Boolean)">
+  Decode(TransferEncoding, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L458"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Decode values using the provided encoding.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Decode(TransferEncoding encoding, bool strict = true)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>encoding</code> <a class="xref" href="Polars.CSharp.TransferEncoding.html">TransferEncoding</a></dt>
+    <dd><p>The encoding to use.</p>
+</dd>
+    <dt><code>strict</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Raise an error if the underlying value cannot be decoded, otherwise mask out with a null value.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>Expression of data type Binary.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <h4 class="section">Exceptions</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.argumentoutofrangeexception">ArgumentOutOfRangeException</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+  <a id="Polars_CSharp_StringOps_Encode_" data-uid="Polars.CSharp.StringOps.Encode*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_Encode_Polars_CSharp_TransferEncoding_" data-uid="Polars.CSharp.StringOps.Encode(Polars.CSharp.TransferEncoding)">
+  Encode(TransferEncoding)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L444"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Encode values using the provided encoding.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Encode(TransferEncoding encoding)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>encoding</code> <a class="xref" href="Polars.CSharp.TransferEncoding.html">TransferEncoding</a></dt>
+    <dd><p>The encoding to use.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>Expression of data type String.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <h4 class="section">Exceptions</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.argumentoutofrangeexception">ArgumentOutOfRangeException</a></dt>
+    <dd><p>&quot;Unsupported transfer encoding.&quot;</p>
+</dd>
+  </dl>
+
+
+
+  <a id="Polars_CSharp_StringOps_EndsWith_" data-uid="Polars.CSharp.StringOps.EndsWith*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_EndsWith_Polars_CSharp_StringOrExpr_" data-uid="Polars.CSharp.StringOps.EndsWith(Polars.CSharp.StringOrExpr)">
+  EndsWith(StringOrExpr)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L358"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Check if the string ends with the given suffix.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr EndsWith(StringOrExpr suffix)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>suffix</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_EscapeRegex_" data-uid="Polars.CSharp.StringOps.EscapeRegex*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_EscapeRegex" data-uid="Polars.CSharp.StringOps.EscapeRegex">
+  EscapeRegex()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L40"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Returns string values with all regular expression meta characters escaped.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr EscapeRegex()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_Extract_" data-uid="Polars.CSharp.StringOps.Extract*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_Extract_Polars_CSharp_StringOrExpr_System_Int32_" data-uid="Polars.CSharp.StringOps.Extract(Polars.CSharp.StringOrExpr,System.Int32)">
+  Extract(StringOrExpr, int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L154"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Extract the first match of a regex pattern.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Extract(StringOrExpr pattern, int groupIndex = 1)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>pattern</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+    <dd><p>Regex pattern with capture groups.</p>
+</dd>
+    <dt><code>groupIndex</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd><p>The index of the capture group to extract (usually 1).</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_ExtractAll_" data-uid="Polars.CSharp.StringOps.ExtractAll*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_ExtractAll_Polars_CSharp_StringOrExpr_" data-uid="Polars.CSharp.StringOps.ExtractAll(Polars.CSharp.StringOrExpr)">
+  ExtractAll(StringOrExpr)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L172"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Extract all matches for the given regex pattern.
+Extract each successive non-overlapping regex match in an individual string as a list. If the haystack string is null, null is returned.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr ExtractAll(StringOrExpr pattern)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>pattern</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+    <dd><p>A valid regular expression pattern, compatible with the regex crate.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>Expression of data type List(String).</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_ExtractGroups_" data-uid="Polars.CSharp.StringOps.ExtractGroups*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_ExtractGroups_System_String_" data-uid="Polars.CSharp.StringOps.ExtractGroups(System.String)">
+  ExtractGroups(string)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L178"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Extract all capture groups for the given regex pattern.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr ExtractGroups(string pattern)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>pattern</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>A valid regular expression pattern containing at least one capture group, compatible with the regex crate.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>Expression of data type Struct with fields of data type String.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_ExtractMany_" data-uid="Polars.CSharp.StringOps.ExtractMany*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_ExtractMany_Polars_CSharp_IntoExprColumn_System_Boolean_System_Boolean_System_Boolean_" data-uid="Polars.CSharp.StringOps.ExtractMany(Polars.CSharp.IntoExprColumn,System.Boolean,System.Boolean,System.Boolean)">
+  ExtractMany(IntoExprColumn, bool, bool, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L164"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Use the Aho-Corasick algorithm to extract many matches.This method supports matching on string literals only, and does not support regular expression matching.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr ExtractMany(IntoExprColumn patterns, bool asciiCaseInsensitive = false, bool overlapping = false, bool leftmost = false)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>patterns</code> <a class="xref" href="Polars.CSharp.IntoExprColumn.html">IntoExprColumn</a></dt>
+    <dd><p>String patterns to search.Notice:string will be parsed as column name</p>
+</dd>
+    <dt><code>asciiCaseInsensitive</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Enable ASCII-aware case-insensitive matching. When this option is enabled, searching will be performed without respect to case for ASCII letters (a-z and A-Z) only.</p>
+</dd>
+    <dt><code>overlapping</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Whether matches may overlap.</p>
+</dd>
+    <dt><code>leftmost</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Guarantees in case there are overlapping matches that the leftmost match is used. In case there are multiple candidates for the leftmost match the pattern which comes first in patterns is used.
+May not be used together with overlapping = True.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_Find_" data-uid="Polars.CSharp.StringOps.Find*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_Find_Polars_CSharp_StringOrExpr_System_Boolean_System_Boolean_" data-uid="Polars.CSharp.StringOps.Find(Polars.CSharp.StringOrExpr,System.Boolean,System.Boolean)">
+  Find(StringOrExpr, bool, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L267"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Return the bytes offset of the first substring matching a pattern.
+If the pattern is not found, returns None.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Find(StringOrExpr pattern, bool literal = false, bool strict = true)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>pattern</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+    <dd><p>A valid regular expression pattern, compatible with the regex crate.</p>
+</dd>
+    <dt><code>literal</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Treat pattern as a literal string, not as a regular expression.</p>
+</dd>
+    <dt><code>strict</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Raise an error if the underlying pattern is not a valid regex,
+otherwise mask out with a null value.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_FindMany_" data-uid="Polars.CSharp.StringOps.FindMany*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_FindMany_Polars_CSharp_StringOrExpr_System_Boolean_System_Boolean_System_Boolean_" data-uid="Polars.CSharp.StringOps.FindMany(Polars.CSharp.StringOrExpr,System.Boolean,System.Boolean,System.Boolean)">
+  FindMany(StringOrExpr, bool, bool, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L277"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Use the Aho-Corasick algorithm to find many matches.This method supports matching on string literals only, and does not support regular expression matching.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr FindMany(StringOrExpr patterns, bool asciiCaseInsensitive = false, bool overlapping = false, bool leftmost = false)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>patterns</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+    <dd><p>String patterns to search.</p>
+</dd>
+    <dt><code>asciiCaseInsensitive</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Enable ASCII-aware case-insensitive matching. When this option is enabled, searching will be performed without respect to case for ASCII letters (a-z and A-Z) only.</p>
+</dd>
+    <dt><code>overlapping</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Whether matches may overlap.</p>
+</dd>
+    <dt><code>leftmost</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Guarantees in case there are overlapping matches that the leftmost match is used. In case there are multiple candidates for the leftmost match the pattern which comes first in patterns is used. May not be used together with overlapping = True.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>The function will return the bytes offset of the start of each match. The return type will be List{UInt32}</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_Head_" data-uid="Polars.CSharp.StringOps.Head*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_Head_Polars_CSharp_IntOrExpr_" data-uid="Polars.CSharp.StringOps.Head(Polars.CSharp.IntOrExpr)">
+  Head(IntOrExpr)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L370"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Return the first n characters of each string in a String Series.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Head(IntOrExpr n)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>n</code> <a class="xref" href="Polars.CSharp.IntOrExpr.html">IntOrExpr</a></dt>
+    <dd><p>Length of the slice (integer or expression)</p>
+<pre><code>&lt;p&gt;When the n input is negative, head returns characters up to the n`th from the end of the string.
+For example, if n = -3, then all characters except the last three are returned.&lt;/p&gt;
+</code></pre>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>Expression of data type String.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_Join_" data-uid="Polars.CSharp.StringOps.Join*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_Join_System_String_System_Boolean_" data-uid="Polars.CSharp.StringOps.Join(System.String,System.Boolean)">
+  Join(string, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L432"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Vertically concatenate the string values in the column to a single string value.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Join(string delimiter = &quot;&quot;, bool ignoreNulls = true)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>delimiter</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The delimiter to insert between consecutive string values.</p>
+</dd>
+    <dt><code>ignoreNulls</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Ignore null values (default). If set to False, null values will be propagated. This means that if the column contains any null values, the output is null.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>Expression of data type String.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_JsonDecode_" data-uid="Polars.CSharp.StringOps.JsonDecode*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_JsonDecode_Polars_CSharp_IntoDataTypeExpr_" data-uid="Polars.CSharp.StringOps.JsonDecode(Polars.CSharp.IntoDataTypeExpr)">
+  JsonDecode(IntoDataTypeExpr)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L395"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Parse string values as JSON.
+Throws an error if invalid JSON strings are encountered.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr JsonDecode(IntoDataTypeExpr dtype)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>dtype</code> <a class="xref" href="Polars.CSharp.IntoDataTypeExpr.html">IntoDataTypeExpr</a></dt>
+    <dd><p>The datatype to cast the extracted value to.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_JsonPathMatch_" data-uid="Polars.CSharp.StringOps.JsonPathMatch*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_JsonPathMatch_Polars_CSharp_StringOrExpr_" data-uid="Polars.CSharp.StringOps.JsonPathMatch(Polars.CSharp.StringOrExpr)">
+  JsonPathMatch(StringOrExpr)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L388"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Extract the first match from a JSON string using the provided JSONPath.
+Throws errors if invalid JSON strings are encountered. All return values are cast to String, regardless of the original value.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr JsonPathMatch(StringOrExpr jsonPath)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>jsonPath</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+    <dd><p>A valid JSONPath query string.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>Expression of data type String. Contains null values if original value is null or the json_path returns nothing.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_LenBytes_" data-uid="Polars.CSharp.StringOps.LenBytes*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_LenBytes" data-uid="Polars.CSharp.StringOps.LenBytes">
+  LenBytes()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L45"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Get length in bytes.</p>
+<p>Note: Multi-byte characters (like emojis or CJK) count as &gt; 1 byte.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr LenBytes()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_LenChars_" data-uid="Polars.CSharp.StringOps.LenChars*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_LenChars" data-uid="Polars.CSharp.StringOps.LenChars">
+  LenChars()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L50"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Return the length of each string as the number of characters.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr LenChars()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>Expression of data type UInt32.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_Normalize_" data-uid="Polars.CSharp.StringOps.Normalize*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_Normalize_System_Text_NormalizationForm_" data-uid="Polars.CSharp.StringOps.Normalize(System.Text.NormalizationForm)">
+  Normalize(NormalizationForm)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L659"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Returns the Unicode normal form of the string values.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Normalize(NormalizationForm form)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>form</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.text.normalizationform">NormalizationForm</a></dt>
+    <dd><p>Unicode form to use.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_PadEnd_" data-uid="Polars.CSharp.StringOps.PadEnd*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_PadEnd_Polars_CSharp_IntOrExpr_System_String_" data-uid="Polars.CSharp.StringOps.PadEnd(Polars.CSharp.IntOrExpr,System.String)">
+  PadEnd(IntOrExpr, string)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L420"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Pad the end of the string until it reaches the given length.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr PadEnd(IntOrExpr length, string fillChar = &quot; &quot;)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>length</code> <a class="xref" href="Polars.CSharp.IntOrExpr.html">IntOrExpr</a></dt>
+    <dd><p>Pad the string until it reaches this length. Strings with length equal to or greater than this value are returned as-is.</p>
+</dd>
+    <dt><code>fillChar</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The character to pad the string with.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_PadStart_" data-uid="Polars.CSharp.StringOps.PadStart*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_PadStart_Polars_CSharp_IntOrExpr_System_String_" data-uid="Polars.CSharp.StringOps.PadStart(Polars.CSharp.IntOrExpr,System.String)">
+  PadStart(IntOrExpr, string)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L413"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Pad the start of the string until it reaches the given length.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr PadStart(IntOrExpr length, string fillChar = &quot; &quot;)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>length</code> <a class="xref" href="Polars.CSharp.IntOrExpr.html">IntOrExpr</a></dt>
+    <dd><p>Pad the string until it reaches this length. Strings with length equal to or greater than this value are returned as-is.</p>
+</dd>
+    <dt><code>fillChar</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The character to pad the string with.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_Replace_" data-uid="Polars.CSharp.StringOps.Replace*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_Replace_Polars_CSharp_StringOrExpr_Polars_CSharp_StringOrExpr_System_Boolean_System_Int32_" data-uid="Polars.CSharp.StringOps.Replace(Polars.CSharp.StringOrExpr,Polars.CSharp.StringOrExpr,System.Boolean,System.Int32)">
+  Replace(StringOrExpr, StringOrExpr, bool, int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L111"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Replace first matching regex/literal substring with a new string value.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Replace(StringOrExpr pattern, StringOrExpr value, bool literal = false, int n = 1)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>pattern</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+    <dd><p>A valid regular expression pattern, compatible with the regex crate.</p>
+</dd>
+    <dt><code>value</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+    <dd><p>String that will replace the matched substring.</p>
+</dd>
+    <dt><code>literal</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Treat pattern as a literal string, not a regex.</p>
+</dd>
+    <dt><code>n</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd><p>Number of matches to replace.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_ReplaceAll_" data-uid="Polars.CSharp.StringOps.ReplaceAll*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_ReplaceAll_Polars_CSharp_StringOrExpr_Polars_CSharp_StringOrExpr_System_Boolean_" data-uid="Polars.CSharp.StringOps.ReplaceAll(Polars.CSharp.StringOrExpr,Polars.CSharp.StringOrExpr,System.Boolean)">
+  ReplaceAll(StringOrExpr, StringOrExpr, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L119"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Replace all occurrences of a pattern with a value.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr ReplaceAll(StringOrExpr pattern, StringOrExpr value, bool literal = false)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>pattern</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+    <dd><p>The pattern to search for.</p>
+</dd>
+    <dt><code>value</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+    <dd><p>The value to replace with.</p>
+</dd>
+    <dt><code>literal</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Whether to interpret the pattern as literal value(not Regex).</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_ReplaceMany_" data-uid="Polars.CSharp.StringOps.ReplaceMany*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_ReplaceMany_Polars_CSharp_IntoExprColumn_Polars_CSharp_IntoExprColumn_System_Boolean_System_Boolean_" data-uid="Polars.CSharp.StringOps.ReplaceMany(Polars.CSharp.IntoExprColumn,Polars.CSharp.IntoExprColumn,System.Boolean,System.Boolean)">
+  ReplaceMany(IntoExprColumn, IntoExprColumn, bool, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L128"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Use the Aho-Corasick algorithm to replace many matches.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr ReplaceMany(IntoExprColumn patterns, IntoExprColumn replaceWith, bool asciiCaseInsensitive = false, bool leftmost = false)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>patterns</code> <a class="xref" href="Polars.CSharp.IntoExprColumn.html">IntoExprColumn</a></dt>
+    <dd><p>Expression yielding string patterns to search and replace.</p>
+</dd>
+    <dt><code>replaceWith</code> <a class="xref" href="Polars.CSharp.IntoExprColumn.html">IntoExprColumn</a></dt>
+    <dd><p>Strings to replace where a pattern was a match. Length must match the length of patterns or have length 1. This can be broadcasted, so it supports many:one and many:many.</p>
+</dd>
+    <dt><code>asciiCaseInsensitive</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Enable ASCII-aware case-insensitive matching.</p>
+</dd>
+    <dt><code>leftmost</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Guarantees in case there are overlapping matches that the leftmost match is used.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_ReplaceMany_" data-uid="Polars.CSharp.StringOps.ReplaceMany*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_ReplaceMany_System_Collections_Generic_IReadOnlyDictionary_System_String_System_String__System_Boolean_System_Boolean_" data-uid="Polars.CSharp.StringOps.ReplaceMany(System.Collections.Generic.IReadOnlyDictionary{System.String,System.String},System.Boolean,System.Boolean)">
+  ReplaceMany(IReadOnlyDictionary&lt;string, string&gt;, bool, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L136"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Use the Aho-Corasick algorithm to replace many matches using a dictionary mapping.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr ReplaceMany(IReadOnlyDictionary&lt;string, string&gt; mapping, bool asciiCaseInsensitive = false, bool leftmost = false)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>mapping</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.collections.generic.ireadonlydictionary-2">IReadOnlyDictionary</a>&lt;<a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>, <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>&gt;</dt>
+    <dd><p>A mapping of patterns to their replacement.</p>
+</dd>
+    <dt><code>asciiCaseInsensitive</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Enable ASCII-aware case-insensitive matching.</p>
+</dd>
+    <dt><code>leftmost</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Guarantees in case there are overlapping matches that the leftmost match is used.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_Reverse_" data-uid="Polars.CSharp.StringOps.Reverse*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_Reverse" data-uid="Polars.CSharp.StringOps.Reverse">
+  Reverse()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L54"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Returns string values in reversed order.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Reverse()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_Slice_" data-uid="Polars.CSharp.StringOps.Slice*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_Slice_Polars_CSharp_IntOrExpr_System_Nullable_Polars_CSharp_IntOrExpr__" data-uid="Polars.CSharp.StringOps.Slice(Polars.CSharp.IntOrExpr,System.Nullable{Polars.CSharp.IntOrExpr})">
+  Slice(IntOrExpr, IntOrExpr?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L92"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Slice the string by offset and length.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Slice(IntOrExpr offset, IntOrExpr? length = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>offset</code> <a class="xref" href="Polars.CSharp.IntOrExpr.html">IntOrExpr</a></dt>
+    <dd><p>Start index.</p>
+</dd>
+    <dt><code>length</code> <a class="xref" href="Polars.CSharp.IntOrExpr.html">IntOrExpr</a>?</dt>
+    <dd><p>Length of the slice.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+  <h4 class="section" id="Polars_CSharp_StringOps_Slice_Polars_CSharp_IntOrExpr_System_Nullable_Polars_CSharp_IntOrExpr___examples">Examples</h4>
+  <pre><code class="lang-csharp">var df = DataFrame.FromColumns(new
+{
+    text = new[] { "Polars", "  Data  ", "Rust", null, "123-abc" }
+});
+
+// 1. ToUpper
+// 2. Len (bytes)
+// 3. Slice (offset=1, len=3)
+df.Select(
+    Pl.Col("text"),
+    Pl.Col("text").Str.ToUpper().Alias("upper"),
+    Pl.Col("text").Str.Len().Alias("len_bytes"), 
+    Pl.Col("text").Str.Slice(1, 3).Alias("sliced") 
+).Show();
+/* Output:
+shape: (5, 4)
+┌──────────┬──────────┬───────────┬────────┐
+│ text     ┆ upper    ┆ len_bytes ┆ sliced │
+│ ---      ┆ ---      ┆ ---       ┆ ---    │
+│ str      ┆ str      ┆ u32       ┆ str    │
+╞══════════╪══════════╪═══════════╪════════╡
+│ Polars   ┆ POLARS   ┆ 6         ┆ ola    │
+│   Data   ┆   DATA   ┆ 8         ┆  Da    │
+│ Rust     ┆ RUST     ┆ 4         ┆ ust    │
+│ null     ┆ null     ┆ null      ┆ null   │
+│ 123-abc  ┆ 123-ABC  ┆ 7         ┆ 23-    │
+└──────────┴──────────┴───────────┴────────┘
+*/</code></pre>
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_Split_" data-uid="Polars.CSharp.StringOps.Split*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_Split_Polars_CSharp_StringOrExpr_System_Boolean_System_Boolean_System_Boolean_" data-uid="Polars.CSharp.StringOps.Split(Polars.CSharp.StringOrExpr,System.Boolean,System.Boolean,System.Boolean)">
+  Split(StringOrExpr, bool, bool, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L235"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Split the string by a substring.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Split(StringOrExpr by, bool inclusive = false, bool literal = true, bool strict = true)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>by</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+    <dd><p>Substring to split by.</p>
+</dd>
+    <dt><code>inclusive</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If True, include the split character/string in the results.</p>
+</dd>
+    <dt><code>literal</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Treat by as a literal string, not as a regular expression.</p>
+</dd>
+    <dt><code>strict</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Raise an error if the underlying pattern is not a valid regex, otherwise mask out with a null value.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>Expression/Series of data type String.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_SplitExact_" data-uid="Polars.CSharp.StringOps.SplitExact*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_SplitExact_Polars_CSharp_StringOrExpr_System_Int32_System_Boolean_" data-uid="Polars.CSharp.StringOps.SplitExact(Polars.CSharp.StringOrExpr,System.Int32,System.Boolean)">
+  SplitExact(StringOrExpr, int, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L257"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Split the string by a substring using n splits.
+Results in a struct of n+1 fields.
+If it cannot make n splits, the remaining field elements will be null.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr SplitExact(StringOrExpr by, int n, bool inclusive = false)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>by</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+    <dd><p>Substring to split by.</p>
+</dd>
+    <dt><code>n</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd><p>Number of splits to make.</p>
+</dd>
+    <dt><code>inclusive</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If True, include the split character/string in the results.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>Expression/Series of data type Struct with fields of data type String.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_SplitN_" data-uid="Polars.CSharp.StringOps.SplitN*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_SplitN_Polars_CSharp_StringOrExpr_System_Int32_" data-uid="Polars.CSharp.StringOps.SplitN(Polars.CSharp.StringOrExpr,System.Int32)">
+  SplitN(StringOrExpr, int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L246"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Split the string by a substring, restricted to returning at most n items.</p>
+<p>If the number of possible splits is less than n-1, the remaining field elements will be null. 
+If the number of possible splits is n-1 or greater, the last (nth) substring will contain the remainder of the string.
+</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr SplitN(StringOrExpr by, int n)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>by</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+    <dd><p>Substring to split by.</p>
+</dd>
+    <dt><code>n</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd><p>Max number of items to return.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>Expression/Series of data type Struct with fields of data type String.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_StartsWith_" data-uid="Polars.CSharp.StringOps.StartsWith*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_StartsWith_Polars_CSharp_StringOrExpr_" data-uid="Polars.CSharp.StringOps.StartsWith(Polars.CSharp.StringOrExpr)">
+  StartsWith(StringOrExpr)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L353"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Check if the string starts with the given prefix.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr StartsWith(StringOrExpr prefix)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>prefix</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_StripChars_" data-uid="Polars.CSharp.StringOps.StripChars*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_StripChars_System_Nullable_Polars_CSharp_StringOrExpr__" data-uid="Polars.CSharp.StringOps.StripChars(System.Nullable{Polars.CSharp.StringOrExpr})">
+  StripChars(StringOrExpr?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L307"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Remove leading and trailing characters.
+If matches is null, whitespace is removed.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr StripChars(StringOrExpr? characters = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>characters</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a>?</dt>
+    <dd><p>The set of characters to be removed.
+All combinations of this set of characters will be stripped from the start and end of the string.
+If set to None (default), all leading and trailing whitespace is removed instead.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+  <h4 class="section" id="Polars_CSharp_StringOps_StripChars_System_Nullable_Polars_CSharp_StringOrExpr___examples">Examples</h4>
+  <pre><code class="lang-csharp">df.Select(
+    // "  Data  " -&gt; "Data"
+    Pl.Col("text").Str.StripChars().Alias("trimmed"),
+    // Remove "ID-" prefix
+    Pl.Col("code").Str.StripPrefix("ID-").Alias("no_prefix")
+);</code></pre>
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_StripCharsEnd_" data-uid="Polars.CSharp.StringOps.StripCharsEnd*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_StripCharsEnd_System_Nullable_Polars_CSharp_StringOrExpr__" data-uid="Polars.CSharp.StringOps.StripCharsEnd(System.Nullable{Polars.CSharp.StringOrExpr})">
+  StripCharsEnd(StringOrExpr?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L329"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Remove trailing characters.
+If matches is null, whitespace is removed.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr StripCharsEnd(StringOrExpr? characters = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>characters</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a>?</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_StripCharsStart_" data-uid="Polars.CSharp.StringOps.StripCharsStart*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_StripCharsStart_System_Nullable_Polars_CSharp_StringOrExpr__" data-uid="Polars.CSharp.StringOps.StripCharsStart(System.Nullable{Polars.CSharp.StringOrExpr})">
+  StripCharsStart(StringOrExpr?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L319"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Remove leading characters.
+If matches is null, whitespace is removed.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr StripCharsStart(StringOrExpr? characters = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>characters</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a>?</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_StripPrefix_" data-uid="Polars.CSharp.StringOps.StripPrefix*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_StripPrefix_Polars_CSharp_StringOrExpr_" data-uid="Polars.CSharp.StringOps.StripPrefix(Polars.CSharp.StringOrExpr)">
+  StripPrefix(StringOrExpr)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L338"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Remove a specific prefix string.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr StripPrefix(StringOrExpr prefix)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>prefix</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_StripSuffix_" data-uid="Polars.CSharp.StringOps.StripSuffix*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_StripSuffix_Polars_CSharp_StringOrExpr_" data-uid="Polars.CSharp.StringOps.StripSuffix(Polars.CSharp.StringOrExpr)">
+  StripSuffix(StringOrExpr)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L343"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Remove a specific suffix string.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr StripSuffix(StringOrExpr suffix)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>suffix</code> <a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_Strptime_" data-uid="Polars.CSharp.StringOps.Strptime*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_Strptime_Polars_CSharp_IntoDataTypeExpr_System_String_System_Boolean_System_Boolean_System_Boolean_System_Nullable_Polars_CSharp_AmbiguousArg__" data-uid="Polars.CSharp.StringOps.Strptime(Polars.CSharp.IntoDataTypeExpr,System.String,System.Boolean,System.Boolean,System.Boolean,System.Nullable{Polars.CSharp.AmbiguousArg})">
+  Strptime(IntoDataTypeExpr, string?, bool, bool, bool, AmbiguousArg?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L600"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Convert a String column into a Date/Datetime/Time column.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Strptime(IntoDataTypeExpr dtype, string? format = null, bool strict = true, bool exact = true, bool cache = true, AmbiguousArg? ambiguous = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>dtype</code> <a class="xref" href="Polars.CSharp.IntoDataTypeExpr.html">IntoDataTypeExpr</a></dt>
+    <dd><p>The data type to convert into. Can be either Date, Datetime, or Time.</p>
+</dd>
+    <dt><code>format</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The parsing format (e.g., &quot;%Y-%m-%d&quot;). Null for auto-inference.</p>
+</dd>
+    <dt><code>strict</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Raise an error if any conversion fails.</p>
+</dd>
+    <dt><code>exact</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Require an exact format match. If False, allow the format to match anywhere in the target string. Conversion to the Time type is always exact.</p>
+</dd>
+    <dt><code>cache</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Use a cache of unique, converted dates to apply the datetime conversion.</p>
+</dd>
+    <dt><code>ambiguous</code> <a class="xref" href="Polars.CSharp.AmbiguousArg.html">AmbiguousArg</a>?</dt>
+    <dd><p>Determine how to deal with ambiguous datetimes:
+'raise' (default): raise
+'earliest': use the earliest datetime
+'latest': use the latest datetime
+'null': set to null</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_Tail_" data-uid="Polars.CSharp.StringOps.Tail*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_Tail_Polars_CSharp_IntOrExpr_" data-uid="Polars.CSharp.StringOps.Tail(Polars.CSharp.IntOrExpr)">
+  Tail(IntOrExpr)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L378"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Return the last n characters of each string in a String Series.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Tail(IntOrExpr n)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>n</code> <a class="xref" href="Polars.CSharp.IntOrExpr.html">IntOrExpr</a></dt>
+    <dd><p>Length of the slice (integer or expression)</p>
+<pre><code>&lt;p&gt;When the n input is negative, head returns characters up to the n`th from the start of the string.
+For example, if n = -3, then all characters except the first three are returned.&lt;/p&gt;
+</code></pre>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>Expression of data type String.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_ToDate_" data-uid="Polars.CSharp.StringOps.ToDate*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_ToDate_System_String_System_Boolean_System_Boolean_System_Boolean_" data-uid="Polars.CSharp.StringOps.ToDate(System.String,System.Boolean,System.Boolean,System.Boolean)">
+  ToDate(string?, bool, bool, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L507"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Convert string to Date using the specified format.</p>
+<p>
+Strict parsing: Format mismatches result in null.
+Format string is similar to `strftime` (e.g. "%Y-%m-%d").
+</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr ToDate(string? format = null, bool strict = true, bool exact = true, bool cache = true)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>format</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The parsing format (e.g., &quot;%Y-%m-%d&quot;). Null for auto-inference.</p>
+</dd>
+    <dt><code>strict</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If true, raises an error on parsing failure. If false, returns nulls.</p>
+</dd>
+    <dt><code>exact</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If true, requires an exact match. If false, allows matching substrings.</p>
+</dd>
+    <dt><code>cache</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Use a cache of unique converted dates to speed up parsing.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+  <h4 class="section" id="Polars_CSharp_StringOps_ToDate_System_String_System_Boolean_System_Boolean_System_Boolean__examples">Examples</h4>
+  <pre><code class="lang-csharp">var dateDf = DataFrame.FromColumns(new { 
+    raw = new[] { "2024-01-01", "2024/02/01", "invalid" } 
+});
+
+dateDf.Select(
+    Pl.Col("raw"),
+    Pl.Col("raw").Str.ToDate("%Y-%m-%d").Alias("fmt_dash"), 
+    Pl.Col("raw").Str.ToDate("%Y/%m/%d").Alias("fmt_slash")
+).Show();
+/* Output:
+shape: (3, 3)
+┌────────────┬────────────┬────────────┐
+│ raw        ┆ fmt_dash   ┆ fmt_slash  │
+│ ---        ┆ ---        ┆ ---        │
+│ str        ┆ date       ┆ date       │
+╞════════════╪════════════╪════════════╡
+│ 2024-01-01 ┆ 2024-01-01 ┆ null       │
+│ 2024/02/01 ┆ null       ┆ 2024-02-01 │
+│ invalid    ┆ null       ┆ null       │
+└────────────┴────────────┴────────────┘
+*/</code></pre>
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_ToDatetime_" data-uid="Polars.CSharp.StringOps.ToDatetime*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_ToDatetime_System_String_System_Nullable_Polars_CSharp_TimeUnit__System_String_System_Boolean_System_Boolean_System_Boolean_System_Nullable_Polars_CSharp_AmbiguousArg__" data-uid="Polars.CSharp.StringOps.ToDatetime(System.String,System.Nullable{Polars.CSharp.TimeUnit},System.String,System.Boolean,System.Boolean,System.Boolean,System.Nullable{Polars.CSharp.AmbiguousArg})">
+  ToDatetime(string?, TimeUnit?, string?, bool, bool, bool, AmbiguousArg?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L561"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Convert string to Datetime. If format is null, Polars will attempt to infer it.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr ToDatetime(string? format = null, TimeUnit? timeUnit = null, string? timeZone = null, bool strict = true, bool exact = true, bool cache = true, AmbiguousArg? ambiguous = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>format</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The parsing format (e.g., &quot;%Y-%m-%d&quot;). Null for auto-inference.</p>
+</dd>
+    <dt><code>timeUnit</code> <a class="xref" href="Polars.CSharp.TimeUnit.html">TimeUnit</a>?</dt>
+    <dd><p>Target time unit. Null to use default (usually Microseconds).</p>
+</dd>
+    <dt><code>timeZone</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>Target time zone (e.g., &quot;UTC&quot;, &quot;Asia/Shanghai&quot;).</p>
+</dd>
+    <dt><code>strict</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If true, raises an error on parsing failure. If false, returns nulls.</p>
+</dd>
+    <dt><code>exact</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If true, requires an exact match. If false, allows matching substrings.</p>
+</dd>
+    <dt><code>cache</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Use a cache of unique converted dates to speed up parsing.</p>
+</dd>
+    <dt><code>ambiguous</code> <a class="xref" href="Polars.CSharp.AmbiguousArg.html">AmbiguousArg</a>?</dt>
+    <dd><p>Determine how to deal with ambiguous datetimes:
+'raise' (default): raise
+'earliest': use the earliest datetime
+'latest': use the latest datetime
+'null': set to null</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_ToDecimal_" data-uid="Polars.CSharp.StringOps.ToDecimal*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_ToDecimal_System_Int32_" data-uid="Polars.CSharp.StringOps.ToDecimal(System.Int32)">
+  ToDecimal(int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L626"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Convert a String column into a Decimal column.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr ToDecimal(int scale)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>scale</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd><p>Number of digits after the comma to use for the decimals.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_ToInteger_" data-uid="Polars.CSharp.StringOps.ToInteger*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_ToInteger_System_Nullable_Polars_CSharp_IntOrExpr__Polars_CSharp_DataType_System_Boolean_" data-uid="Polars.CSharp.StringOps.ToInteger(System.Nullable{Polars.CSharp.IntOrExpr},Polars.CSharp.DataType,System.Boolean)">
+  ToInteger(IntOrExpr?, DataType?, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L635"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Convert a String column into an Integer column with the specified radix (base).</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr ToInteger(IntOrExpr? radix = null, DataType? dtype = null, bool strict = true)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>radix</code> <a class="xref" href="Polars.CSharp.IntOrExpr.html">IntOrExpr</a>?</dt>
+    <dd><p>Positive integer or expression which is the base of the string we are parsing. Default is 10.</p>
+</dd>
+    <dt><code>dtype</code> <a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd><p>Integer data type to cast the result to. Default is Int64.</p>
+</dd>
+    <dt><code>strict</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If true, raises ComputeError on failure. If false, silently converts to Null.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>Expression of destinated integer data type.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_ToLowercase_" data-uid="Polars.CSharp.StringOps.ToLowercase*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_ToLowercase" data-uid="Polars.CSharp.StringOps.ToLowercase">
+  ToLowercase()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L29"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Convert string to lowercase.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr ToLowercase()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_ToTime_" data-uid="Polars.CSharp.StringOps.ToTime*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_ToTime_System_String_System_Boolean_System_Boolean_System_Boolean_" data-uid="Polars.CSharp.StringOps.ToTime(System.String,System.Boolean,System.Boolean,System.Boolean)">
+  ToTime(string?, bool, bool, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L530"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Convert a String column into a Time column.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr ToTime(string? format = null, bool strict = true, bool exact = true, bool cache = true)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>format</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The parsing format (e.g., &quot;%H:%M:%S&quot;). Null for auto-inference.</p>
+</dd>
+    <dt><code>strict</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Raise an error if any conversion fails.</p>
+</dd>
+    <dt><code>exact</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If true, requires an exact match. If false, allows matching substrings.</p>
+</dd>
+    <dt><code>cache</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Use a cache of unique, converted times to apply the conversion.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_ToTitlecase_" data-uid="Polars.CSharp.StringOps.ToTitlecase*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_ToTitlecase" data-uid="Polars.CSharp.StringOps.ToTitlecase">
+  ToTitlecase()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L36"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Modify strings to their titlecase equivalent.</p>
+<p>This is a form of case transform where the first letter of each word is capitalized, with the rest of the word in lowercase.
+Non-alphanumeric characters define the word boundaries.
+</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr ToTitlecase()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_ToUppercase_" data-uid="Polars.CSharp.StringOps.ToUppercase*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_ToUppercase" data-uid="Polars.CSharp.StringOps.ToUppercase">
+  ToUppercase()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L25"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Convert string to uppercase.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr ToUppercase()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StringOps_Zfill_" data-uid="Polars.CSharp.StringOps.Zfill*"></a>
+
+  <h3 id="Polars_CSharp_StringOps_Zfill_Polars_CSharp_IntOrExpr_" data-uid="Polars.CSharp.StringOps.Zfill(Polars.CSharp.IntOrExpr)">
+  Zfill(IntOrExpr)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L407"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Pad the start of the string with zeros until it reaches the given length.</p>
+<p>A sign prefix (-) is handled by inserting the padding after the sign character rather than before.</p>
+<p>This method is intended for padding numeric strings. If your data contains non-ASCII characters, use pad_start() instead.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Zfill(IntOrExpr length)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>length</code> <a class="xref" href="Polars.CSharp.IntOrExpr.html">IntOrExpr</a></dt>
+    <dd><p>Pad the string until it reaches this length. Strings with length equal to or greater than this value are returned as-is.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StringOps.cs/#L14" class="edit-link">Edit this page</a>
+        </div>
+
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

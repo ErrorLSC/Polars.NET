@@ -1,0 +1,2583 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Class DataType | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Class DataType | Polars.NET ">
+      
+      <meta name="description" content="Represents a Polars data type. Wraps the underlying Rust DataType Handle and provides high-level metadata.">
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="../toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/new/main/apiSpec/new?filename=Polars_CSharp_DataType.md&amp;value=---%0Auid%3A%20Polars.CSharp.DataType%0Asummary%3A%20&#39;*You%20can%20override%20summary%20for%20the%20API%20here%20using%20*MARKDOWN*%20syntax&#39;%0A---%0A%0A*Please%20type%20below%20more%20information%20about%20this%20API%3A*%0A%0A">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="ManagedReference">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.CSharp.DataType">
+
+
+
+  <h1 id="Polars_CSharp_DataType" data-uid="Polars.CSharp.DataType" class="text-break">
+Class DataType  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L13"><i class="bi bi-code-slash"></i></a>
+  </h1>
+
+  <div class="facts text-secondary">
+    <dl><dt>Namespace</dt><dd><a class="xref" href="Polars.html">Polars</a>.<a class="xref" href="Polars.CSharp.html">CSharp</a></dd></dl>
+  <dl><dt>Assembly</dt><dd>Polars.CSharp.dll</dd></dl>
+  </div>
+
+  <div class="markdown summary"><p>Represents a Polars data type.
+Wraps the underlying Rust DataType Handle and provides high-level metadata.</p>
+</div>
+  <div class="markdown conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public class DataType : IEquatable&lt;DataType&gt;, IPolarsDataType, IDisposable</code></pre>
+  </div>
+
+
+
+
+  <dl class="typelist inheritance">
+    <dt>Inheritance</dt>
+    <dd>
+      <div><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object">object</a></div>
+      <div><span class="xref">DataType</span></div>
+    </dd>
+  </dl>
+
+  <dl class="typelist implements">
+    <dt>Implements</dt>
+    <dd>
+      <div><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.iequatable-1">IEquatable</a>&lt;<a class="xref" href="Polars.CSharp.DataType.html">DataType</a>&gt;</div>
+      <div><span class="xref">IPolarsDataType</span></div>
+      <div><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.idisposable">IDisposable</a></div>
+    </dd>
+  </dl>
+
+  <dl class="typelist derived">
+    <dt>Derived</dt>
+    <dd>
+      <div><a class="xref" href="Polars.CSharp.BaseExtension.html">BaseExtension</a></div>
+    </dd>
+  </dl>
+
+  <dl class="typelist inheritedMembers">
+    <dt>Inherited Members</dt>
+    <dd>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.equals#system-object-equals(system-object-system-object)">object.Equals(object, object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.gettype">object.GetType()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.memberwiseclone">object.MemberwiseClone()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.referenceequals">object.ReferenceEquals(object, object)</a>
+    </div>
+  </dd></dl>
+
+
+
+
+
+
+  <h2 class="section" id="properties">Properties
+</h2>
+
+
+  <a id="Polars_CSharp_DataType_ArrayShape_" data-uid="Polars.CSharp.DataType.ArrayShape*"></a>
+
+  <h3 id="Polars_CSharp_DataType_ArrayShape" data-uid="Polars.CSharp.DataType.ArrayShape">
+  ArrayShape
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L38"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>The shape of the array</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public uint[] ArrayShape { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.uint32">uint</a>[]</dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_ArrayWidth_" data-uid="Polars.CSharp.DataType.ArrayWidth*"></a>
+
+  <h3 id="Polars_CSharp_DataType_ArrayWidth" data-uid="Polars.CSharp.DataType.ArrayWidth">
+  ArrayWidth
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L34"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>If this is an Array type, returns the fixed width.
+Returns 0 if not an Array type.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public ulong ArrayWidth { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.uint64">ulong</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Binary_" data-uid="Polars.CSharp.DataType.Binary*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Binary" data-uid="Polars.CSharp.DataType.Binary">
+  Binary
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L329"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Binary { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Boolean_" data-uid="Polars.CSharp.DataType.Boolean*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Boolean" data-uid="Polars.CSharp.DataType.Boolean">
+  Boolean
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L311"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Boolean { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Categories_" data-uid="Polars.CSharp.DataType.Categories*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Categories" data-uid="Polars.CSharp.DataType.Categories">
+  Categories
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L123"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Return underlying Categories for categorical type, for other types returns null</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Categories? Categories { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Categories.html">Categories</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Date_" data-uid="Polars.CSharp.DataType.Date*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Date" data-uid="Polars.CSharp.DataType.Date">
+  Date
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L326"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Date { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_EnumCategories_" data-uid="Polars.CSharp.DataType.EnumCategories*"></a>
+
+  <h3 id="Polars_CSharp_DataType_EnumCategories" data-uid="Polars.CSharp.DataType.EnumCategories">
+  EnumCategories
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L142"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Return underlying FrozenCategories for enum type, for other types returns null</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public FrozenCategories? EnumCategories { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.FrozenCategories.html">FrozenCategories</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Float16_" data-uid="Polars.CSharp.DataType.Float16*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Float16" data-uid="Polars.CSharp.DataType.Float16">
+  Float16
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L322"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Float16 { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Float32_" data-uid="Polars.CSharp.DataType.Float32*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Float32" data-uid="Polars.CSharp.DataType.Float32">
+  Float32
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L323"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Float32 { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Float64_" data-uid="Polars.CSharp.DataType.Float64*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Float64" data-uid="Polars.CSharp.DataType.Float64">
+  Float64
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L324"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Float64 { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_InnerType_" data-uid="Polars.CSharp.DataType.InnerType*"></a>
+
+  <h3 id="Polars_CSharp_DataType_InnerType" data-uid="Polars.CSharp.DataType.InnerType">
+  InnerType
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L178"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Return the inner type of list/array. Non-List/Array input will return null.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DataType? InnerType { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Int128_" data-uid="Polars.CSharp.DataType.Int128*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Int128" data-uid="Polars.CSharp.DataType.Int128">
+  Int128
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L316"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Int128 { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Int16_" data-uid="Polars.CSharp.DataType.Int16*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Int16" data-uid="Polars.CSharp.DataType.Int16">
+  Int16
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L313"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Int16 { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Int32_" data-uid="Polars.CSharp.DataType.Int32*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Int32" data-uid="Polars.CSharp.DataType.Int32">
+  Int32
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L314"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Int32 { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Int64_" data-uid="Polars.CSharp.DataType.Int64*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Int64" data-uid="Polars.CSharp.DataType.Int64">
+  Int64
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L315"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Int64 { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Int8_" data-uid="Polars.CSharp.DataType.Int8*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Int8" data-uid="Polars.CSharp.DataType.Int8">
+  Int8
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L312"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Int8 { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_IsDecimal_" data-uid="Polars.CSharp.DataType.IsDecimal*"></a>
+
+  <h3 id="Polars_CSharp_DataType_IsDecimal" data-uid="Polars.CSharp.DataType.IsDecimal">
+  IsDecimal
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L272"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public bool IsDecimal { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_IsExtension_" data-uid="Polars.CSharp.DataType.IsExtension*"></a>
+
+  <h3 id="Polars_CSharp_DataType_IsExtension" data-uid="Polars.CSharp.DataType.IsExtension">
+  IsExtension
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L277"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public bool IsExtension { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_IsFloat_" data-uid="Polars.CSharp.DataType.IsFloat*"></a>
+
+  <h3 id="Polars_CSharp_DataType_IsFloat" data-uid="Polars.CSharp.DataType.IsFloat">
+  IsFloat
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L267"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public bool IsFloat { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_IsInteger_" data-uid="Polars.CSharp.DataType.IsInteger*"></a>
+
+  <h3 id="Polars_CSharp_DataType_IsInteger" data-uid="Polars.CSharp.DataType.IsInteger">
+  IsInteger
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L260"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public bool IsInteger { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_IsNested_" data-uid="Polars.CSharp.DataType.IsNested*"></a>
+
+  <h3 id="Polars_CSharp_DataType_IsNested" data-uid="Polars.CSharp.DataType.IsNested">
+  IsNested
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L282"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public bool IsNested { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_IsNumeric_" data-uid="Polars.CSharp.DataType.IsNumeric*"></a>
+
+  <h3 id="Polars_CSharp_DataType_IsNumeric" data-uid="Polars.CSharp.DataType.IsNumeric">
+  IsNumeric
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L252"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Returns true if the type is a numeric type.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public bool IsNumeric { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_IsSignedInteger_" data-uid="Polars.CSharp.DataType.IsSignedInteger*"></a>
+
+  <h3 id="Polars_CSharp_DataType_IsSignedInteger" data-uid="Polars.CSharp.DataType.IsSignedInteger">
+  IsSignedInteger
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L293"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public bool IsSignedInteger { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_IsTemporal_" data-uid="Polars.CSharp.DataType.IsTemporal*"></a>
+
+  <h3 id="Polars_CSharp_DataType_IsTemporal" data-uid="Polars.CSharp.DataType.IsTemporal">
+  IsTemporal
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L287"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public bool IsTemporal { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_IsUnsignedInteger_" data-uid="Polars.CSharp.DataType.IsUnsignedInteger*"></a>
+
+  <h3 id="Polars_CSharp_DataType_IsUnsignedInteger" data-uid="Polars.CSharp.DataType.IsUnsignedInteger">
+  IsUnsignedInteger
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L299"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public bool IsUnsignedInteger { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Kind_" data-uid="Polars.CSharp.DataType.Kind*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Kind" data-uid="Polars.CSharp.DataType.Kind">
+  Kind
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L20"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Gets the high-level kind of this data type.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DataTypeKind Kind { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataTypeKind.html">DataTypeKind</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Null_" data-uid="Polars.CSharp.DataType.Null*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Null" data-uid="Polars.CSharp.DataType.Null">
+  Null
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L328"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Null { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Precision_" data-uid="Polars.CSharp.DataType.Precision*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Precision" data-uid="Polars.CSharp.DataType.Precision">
+  Precision
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L22"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public int? Precision { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a>?</dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_SameAsInput_" data-uid="Polars.CSharp.DataType.SameAsInput*"></a>
+
+  <h3 id="Polars_CSharp_DataType_SameAsInput" data-uid="Polars.CSharp.DataType.SameAsInput">
+  SameAsInput
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L330"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType SameAsInput { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Scale_" data-uid="Polars.CSharp.DataType.Scale*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Scale" data-uid="Polars.CSharp.DataType.Scale">
+  Scale
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L23"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public int? Scale { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a>?</dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_String_" data-uid="Polars.CSharp.DataType.String*"></a>
+
+  <h3 id="Polars_CSharp_DataType_String" data-uid="Polars.CSharp.DataType.String">
+  String
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L325"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType String { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_StructFields_" data-uid="Polars.CSharp.DataType.StructFields*"></a>
+
+  <h3 id="Polars_CSharp_DataType_StructFields" data-uid="Polars.CSharp.DataType.StructFields">
+  StructFields
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L196"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Gets the fields of a Struct type.
+Returns null if this DataType is not a Struct.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public IReadOnlyList&lt;Field&gt;? StructFields { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.collections.generic.ireadonlylist-1">IReadOnlyList</a>&lt;<a class="xref" href="Polars.CSharp.Field.html">Field</a>&gt;</dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Time_" data-uid="Polars.CSharp.DataType.Time*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Time" data-uid="Polars.CSharp.DataType.Time">
+  Time
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L327"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Time { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_TimeZone_" data-uid="Polars.CSharp.DataType.TimeZone*"></a>
+
+  <h3 id="Polars_CSharp_DataType_TimeZone" data-uid="Polars.CSharp.DataType.TimeZone">
+  TimeZone
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L26"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public string? TimeZone { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_UInt128_" data-uid="Polars.CSharp.DataType.UInt128*"></a>
+
+  <h3 id="Polars_CSharp_DataType_UInt128" data-uid="Polars.CSharp.DataType.UInt128">
+  UInt128
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L321"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType UInt128 { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_UInt16_" data-uid="Polars.CSharp.DataType.UInt16*"></a>
+
+  <h3 id="Polars_CSharp_DataType_UInt16" data-uid="Polars.CSharp.DataType.UInt16">
+  UInt16
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L318"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType UInt16 { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_UInt32_" data-uid="Polars.CSharp.DataType.UInt32*"></a>
+
+  <h3 id="Polars_CSharp_DataType_UInt32" data-uid="Polars.CSharp.DataType.UInt32">
+  UInt32
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L319"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType UInt32 { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_UInt64_" data-uid="Polars.CSharp.DataType.UInt64*"></a>
+
+  <h3 id="Polars_CSharp_DataType_UInt64" data-uid="Polars.CSharp.DataType.UInt64">
+  UInt64
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L320"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType UInt64 { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_UInt8_" data-uid="Polars.CSharp.DataType.UInt8*"></a>
+
+  <h3 id="Polars_CSharp_DataType_UInt8" data-uid="Polars.CSharp.DataType.UInt8">
+  UInt8
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L317"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType UInt8 { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Unit_" data-uid="Polars.CSharp.DataType.Unit*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Unit" data-uid="Polars.CSharp.DataType.Unit">
+  Unit
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L25"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public TimeUnit? Unit { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.TimeUnit.html">TimeUnit</a>?</dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Unknown_" data-uid="Polars.CSharp.DataType.Unknown*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Unknown" data-uid="Polars.CSharp.DataType.Unknown">
+  Unknown
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L310"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Unknown { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <h2 class="section" id="methods">Methods
+</h2>
+
+
+  <a id="Polars_CSharp_DataType_Array_" data-uid="Polars.CSharp.DataType.Array*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Array_Polars_CSharp_DataType_System_UInt32___" data-uid="Polars.CSharp.DataType.Array(Polars.CSharp.DataType,System.UInt32[])">
+  Array(DataType, params uint[])
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L407"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Create a Fixed-Size List (Array) data type.</p>
+<p>Example: DataType.Array(DataType.Int32, 3),DataType.Array(typeof(int), 3) </p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Array(DataType inner, params uint[] shape)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>inner</code> <a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd><p>The data type of the elements.</p>
+</dd>
+    <dt><code>shape</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.uint32">uint</a>[]</dt>
+    <dd><p>The shape of the arrays.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Categorical_" data-uid="Polars.CSharp.DataType.Categorical*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Categorical_Polars_CSharp_Categories_" data-uid="Polars.CSharp.DataType.Categorical(Polars.CSharp.Categories)">
+  Categorical(Categories?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L346"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Create a Categorical type</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Categorical(Categories? categories = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>categories</code> <a class="xref" href="Polars.CSharp.Categories.html">Categories</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Categorical_" data-uid="Polars.CSharp.DataType.Categorical*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Categorical_System_String_" data-uid="Polars.CSharp.DataType.Categorical(System.String)">
+  Categorical(string)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L351"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Categorical(string categories)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>categories</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Datetime_" data-uid="Polars.CSharp.DataType.Datetime*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Datetime_Polars_CSharp_TimeUnit_System_String_" data-uid="Polars.CSharp.DataType.Datetime(Polars.CSharp.TimeUnit,System.String)">
+  Datetime(TimeUnit, string?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L384"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Create a datetime type with unit and timezone</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Datetime(TimeUnit unit = TimeUnit.Microseconds, string? timeZone = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>unit</code> <a class="xref" href="Polars.CSharp.TimeUnit.html">TimeUnit</a></dt>
+    <dd><p>precision (ns, us, ms)</p>
+</dd>
+    <dt><code>timeZone</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>timezone string (e.g. &quot;Asia/Shanghai&quot;)， null for no timezone (Naive)</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Decimal_" data-uid="Polars.CSharp.DataType.Decimal*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Decimal_System_Int32_System_Int32_" data-uid="Polars.CSharp.DataType.Decimal(System.Int32,System.Int32)">
+  Decimal(int, int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L341"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Create a Decimal type</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Decimal(int precision = 38, int scale = 9)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>precision</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+    <dt><code>scale</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Dispose_" data-uid="Polars.CSharp.DataType.Dispose*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Dispose" data-uid="Polars.CSharp.DataType.Dispose">
+  Dispose()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L161"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Dispose the underlying DataTypeHandle.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public void Dispose()</code></pre>
+  </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Duration_" data-uid="Polars.CSharp.DataType.Duration*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Duration_Polars_CSharp_TimeUnit_" data-uid="Polars.CSharp.DataType.Duration(Polars.CSharp.TimeUnit)">
+  Duration(TimeUnit)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L393"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Creates a Duration type. Default is Microseconds.
+Usage: DataType.Duration(TimeUnit.Nanoseconds)</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Duration(TimeUnit unit = TimeUnit.Microseconds)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>unit</code> <a class="xref" href="Polars.CSharp.TimeUnit.html">TimeUnit</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Enum_" data-uid="Polars.CSharp.DataType.Enum*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Enum_Polars_CSharp_Categories_" data-uid="Polars.CSharp.DataType.Enum(Polars.CSharp.Categories)">
+  Enum(Categories)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L372"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Enum(Categories categories)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>categories</code> <a class="xref" href="Polars.CSharp.Categories.html">Categories</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Enum_" data-uid="Polars.CSharp.DataType.Enum*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Enum_Polars_CSharp_FrozenCategories_" data-uid="Polars.CSharp.DataType.Enum(Polars.CSharp.FrozenCategories)">
+  Enum(FrozenCategories)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L361"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Create a Enum type</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Enum(FrozenCategories categories)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>categories</code> <a class="xref" href="Polars.CSharp.FrozenCategories.html">FrozenCategories</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Enum_" data-uid="Polars.CSharp.DataType.Enum*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Enum_Polars_CSharp_Series_" data-uid="Polars.CSharp.DataType.Enum(Polars.CSharp.Series)">
+  Enum(Series)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L362"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Enum(Series categories)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>categories</code> <a class="xref" href="Polars.CSharp.Series.html">Series</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Enum_" data-uid="Polars.CSharp.DataType.Enum*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Enum_System_String___" data-uid="Polars.CSharp.DataType.Enum(System.String[])">
+  Enum(string[])
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L367"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Enum(string[] categories)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>categories</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>[]</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Enum_" data-uid="Polars.CSharp.DataType.Enum*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Enum__1" data-uid="Polars.CSharp.DataType.Enum``1">
+  Enum&lt;T&gt;()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L373"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Enum&lt;T&gt;() where T : struct, Enum</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Type Parameters</h4>
+  <dl class="parameters">
+    <dt><code>T</code></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Equals_" data-uid="Polars.CSharp.DataType.Equals*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Equals_Polars_CSharp_DataType_" data-uid="Polars.CSharp.DataType.Equals(Polars.CSharp.DataType)">
+  Equals(DataType?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L226"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Indicates whether the current object is equal to another object of the same type.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public bool Equals(DataType? other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd><p>An object to compare with this object.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p><a href="https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/bool">true</a> if the current object is equal to the <code class="paramref">other</code> parameter; otherwise, <a href="https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/bool">false</a>.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Equals_" data-uid="Polars.CSharp.DataType.Equals*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Equals_System_Object_" data-uid="Polars.CSharp.DataType.Equals(System.Object)">
+  Equals(object?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L224"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Determines whether the specified object is equal to the current object.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public override bool Equals(object? obj)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>obj</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object">object</a></dt>
+    <dd><p>The object to compare with the current object.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p><a href="https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/bool">true</a> if the specified object  is equal to the current object; otherwise, <a href="https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/bool">false</a>.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Extension_" data-uid="Polars.CSharp.DataType.Extension*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Extension_System_String_Polars_CSharp_DataType_System_String_" data-uid="Polars.CSharp.DataType.Extension(System.String,Polars.CSharp.DataType,System.String)">
+  Extension(string, DataType, string?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L452"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Create an Extension data type</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Extension(string name, DataType inner, string? metadata = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>name</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The registered name of the extension type (e.g. &quot;geoarrow.wkb&quot;)</p>
+</dd>
+    <dt><code>inner</code> <a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd><p>The physical storage data type</p>
+</dd>
+    <dt><code>metadata</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>Optional metadata string</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_FromArrowType_" data-uid="Polars.CSharp.DataType.FromArrowType*"></a>
+
+  <h3 id="Polars_CSharp_DataType_FromArrowType_Apache_Arrow_Types_IArrowType_" data-uid="Polars.CSharp.DataType.FromArrowType(Apache.Arrow.Types.IArrowType)">
+  FromArrowType(IArrowType)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L482"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Generate DataType from ArrowType</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType FromArrowType(IArrowType arrowType)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>arrowType</code> <span class="xref">IArrowType</span></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <h4 class="section">Exceptions</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.notsupportedexception">NotSupportedException</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+  <a id="Polars_CSharp_DataType_FromNetType_" data-uid="Polars.CSharp.DataType.FromNetType*"></a>
+
+  <h3 id="Polars_CSharp_DataType_FromNetType__1" data-uid="Polars.CSharp.DataType.FromNetType``1">
+  FromNetType&lt;T&gt;()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L465"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType FromNetType&lt;T&gt;()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Type Parameters</h4>
+  <dl class="parameters">
+    <dt><code>T</code></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_GetArrowType_" data-uid="Polars.CSharp.DataType.GetArrowType*"></a>
+
+  <h3 id="Polars_CSharp_DataType_GetArrowType" data-uid="Polars.CSharp.DataType.GetArrowType">
+  GetArrowType()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L475"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Get Apache Arrow Type</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public IArrowType GetArrowType()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><span class="xref">IArrowType</span></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_GetHashCode_" data-uid="Polars.CSharp.DataType.GetHashCode*"></a>
+
+  <h3 id="Polars_CSharp_DataType_GetHashCode" data-uid="Polars.CSharp.DataType.GetHashCode">
+  GetHashCode()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L234"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Serves as the default hash function.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public override int GetHashCode()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd><p>A hash code for the current object.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_GetNetType_" data-uid="Polars.CSharp.DataType.GetNetType*"></a>
+
+  <h3 id="Polars_CSharp_DataType_GetNetType" data-uid="Polars.CSharp.DataType.GetNetType">
+  GetNetType()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L464"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Type GetNetType()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.type">Type</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_List_" data-uid="Polars.CSharp.DataType.List*"></a>
+
+  <h3 id="Polars_CSharp_DataType_List_Polars_CSharp_DataType_" data-uid="Polars.CSharp.DataType.List(Polars.CSharp.DataType)">
+  List(DataType)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L399"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Creates a List type.
+Usage: DataType.List(DataType.Int32)</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType List(DataType innerType)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>innerType</code> <a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Struct_" data-uid="Polars.CSharp.DataType.Struct*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Struct_Polars_CSharp_Field___" data-uid="Polars.CSharp.DataType.Struct(Polars.CSharp.Field[])">
+  Struct(params Field[])
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L432"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Create Struct composite type.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Struct(params Field[] fields)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>fields</code> <a class="xref" href="Polars.CSharp.Field.html">Field</a>[]</dt>
+    <dd><p>Definition of a single field within a Struct DataType.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Struct_" data-uid="Polars.CSharp.DataType.Struct*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Struct_System_Collections_Generic_IEnumerable_Polars_CSharp_Field__" data-uid="Polars.CSharp.DataType.Struct(System.Collections.Generic.IEnumerable{Polars.CSharp.Field})">
+  Struct(IEnumerable&lt;Field&gt;)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L419"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Create Struct composite type.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Struct(IEnumerable&lt;Field&gt; fields)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>fields</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.collections.generic.ienumerable-1">IEnumerable</a>&lt;<a class="xref" href="Polars.CSharp.Field.html">Field</a>&gt;</dt>
+    <dd><p>Definition of a single field within a Struct DataType.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Struct_" data-uid="Polars.CSharp.DataType.Struct*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Struct_System_Collections_Generic_IReadOnlyDictionary_System_String_Polars_CSharp_DataType__" data-uid="Polars.CSharp.DataType.Struct(System.Collections.Generic.IReadOnlyDictionary{System.String,Polars.CSharp.DataType})">
+  Struct(IReadOnlyDictionary&lt;string, DataType&gt;)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L435"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Create Struct composite type.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Struct(IReadOnlyDictionary&lt;string, DataType&gt; fields)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>fields</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.collections.generic.ireadonlydictionary-2">IReadOnlyDictionary</a>&lt;<a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>, <a class="xref" href="Polars.CSharp.DataType.html">DataType</a>&gt;</dt>
+    <dd><p>Definition of a single field within a Struct DataType.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_Struct_" data-uid="Polars.CSharp.DataType.Struct*"></a>
+
+  <h3 id="Polars_CSharp_DataType_Struct_System_String___Polars_CSharp_DataType___" data-uid="Polars.CSharp.DataType.Struct(System.String[],Polars.CSharp.DataType[])">
+  Struct(string[], DataType[])
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L438"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Create Struct composite type.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataType Struct(string[] names, DataType[] types)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>names</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>[]</dt>
+    <dd></dd>
+    <dt><code>types</code> <a class="xref" href="Polars.CSharp.DataType.html">DataType</a>[]</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_ToDataTypeExpr_" data-uid="Polars.CSharp.DataType.ToDataTypeExpr*"></a>
+
+  <h3 id="Polars_CSharp_DataType_ToDataTypeExpr" data-uid="Polars.CSharp.DataType.ToDataTypeExpr">
+  ToDataTypeExpr()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L461"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Convert this DataType to a DataTypeExpr literal.
+Equivalent to Python's polars.DataType.to_dtype_expr()</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DataTypeExpr ToDataTypeExpr()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataTypeExpr.html">DataTypeExpr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_ToString_" data-uid="Polars.CSharp.DataType.ToString*"></a>
+
+  <h3 id="Polars_CSharp_DataType_ToString" data-uid="Polars.CSharp.DataType.ToString">
+  ToString()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L170"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Output DataType string (e.g., &quot;datetime[ms, Asia/Shanghai]&quot;)</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public override string ToString()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <h2 class="section" id="operators">Operators
+</h2>
+
+
+  <a id="Polars_CSharp_DataType_op_Equality_" data-uid="Polars.CSharp.DataType.op_Equality*"></a>
+
+  <h3 id="Polars_CSharp_DataType_op_Equality_Polars_CSharp_DataType_Polars_CSharp_DataType_" data-uid="Polars.CSharp.DataType.op_Equality(Polars.CSharp.DataType,Polars.CSharp.DataType)">
+  operator ==(DataType?, DataType?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L237"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static bool operator ==(DataType? left, DataType? right)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>left</code> <a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+    <dt><code>right</code> <a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_op_Implicit_" data-uid="Polars.CSharp.DataType.op_Implicit*"></a>
+
+  <h3 id="Polars_CSharp_DataType_op_Implicit_System_Type__Polars_CSharp_DataType" data-uid="Polars.CSharp.DataType.op_Implicit(System.Type)~Polars.CSharp.DataType">
+  implicit operator DataType(Type)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L470"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Implicitly convert System.Type to Polars DataType.
+Example: DataType dt = typeof(int); // dt is now DataType.Int32</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static implicit operator DataType(Type type)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>type</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.type">Type</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DataType_op_Inequality_" data-uid="Polars.CSharp.DataType.op_Inequality*"></a>
+
+  <h3 id="Polars_CSharp_DataType_op_Inequality_Polars_CSharp_DataType_Polars_CSharp_DataType_" data-uid="Polars.CSharp.DataType.op_Inequality(Polars.CSharp.DataType,Polars.CSharp.DataType)">
+  operator !=(DataType?, DataType?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L243"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static bool operator !=(DataType? left, DataType? right)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>left</code> <a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+    <dt><code>right</code> <a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/DataType.cs/#L13" class="edit-link">Edit this page</a>
+        </div>
+
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

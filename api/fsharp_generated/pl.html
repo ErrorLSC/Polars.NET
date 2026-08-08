@@ -1,0 +1,6068 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>pl | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="pl | Polars.NET ">
+      
+      
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/api/fsharp_generated/pl.md/#L1">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.FSharp.pl">
+<h1 id="pl">pl</h1>
+
+<p>Namespace: <code>Polars.FSharp</code></p>
+<h2 id="abs">abs</h2>
+<p>Absolute value.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="agg">agg</h2>
+<p>Run any polars aggregation expression against the list’ elements.</p>
+<pre><code class="lang-fsharp">// Signature:
+aggs: Seq&lt;Expr&gt; -&gt; builder: GroupBy -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>aggs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>builder</code></td>
+<td style="text-align: left;"><code>GroupBy</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="agglazy">aggLazy</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+aggs: Seq&lt;Expr&gt; -&gt; builder: LazyGroupBy -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>aggs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>builder</code></td>
+<td style="text-align: left;"><code>LazyGroupBy</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="alias">alias</h2>
+<p>Alias an expression with a new name.</p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; expr: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>expr</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="aligndataframes">alignDataFrames</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+on: Seq&lt;Expr&gt; -&gt; how: JoinType -&gt; select: Option&lt;Seq&lt;Expr&gt;&gt; -&gt; descending: bool -&gt; frames: Seq&lt;DataFrame&gt; -&gt; DataFrame[]
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>on</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>how</code></td>
+<td style="text-align: left;"><code>JoinType</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>select</code></td>
+<td style="text-align: left;"><code>Option&lt;Seq&lt;Expr&gt;&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>descending</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>frames</code></td>
+<td style="text-align: left;"><code>Seq&lt;DataFrame&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="aligndataframesasync">alignDataFramesAsync</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+on: Seq&lt;Expr&gt; -&gt; how: JoinType -&gt; select: Option&lt;Seq&lt;Expr&gt;&gt; -&gt; descending: bool -&gt; frames: Seq&lt;DataFrame&gt; -&gt; FSharpAsync&lt;DataFrame[]&gt;
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>on</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>how</code></td>
+<td style="text-align: left;"><code>JoinType</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>select</code></td>
+<td style="text-align: left;"><code>Option&lt;Seq&lt;Expr&gt;&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>descending</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>frames</code></td>
+<td style="text-align: left;"><code>Seq&lt;DataFrame&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="alignlazyframes">alignLazyFrames</h2>
+<p>Align a sequence of frames using common values from one or more columns as a key.</p>
+<pre><code class="lang-fsharp">// Signature:
+on: Seq&lt;Expr&gt; -&gt; how: JoinType -&gt; select: Option&lt;Seq&lt;Expr&gt;&gt; -&gt; descending: bool -&gt; frames: Seq&lt;LazyFrame&gt; -&gt; LazyFrame[]
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>on</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">One or more columns whose unique values will be used to align the frames.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>how</code></td>
+<td style="text-align: left;"><code>JoinType</code></td>
+<td style="text-align: left;">Join strategy; defaults to outer join.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>select</code></td>
+<td style="text-align: left;"><code>Option&lt;Seq&lt;Expr&gt;&gt;</code></td>
+<td style="text-align: left;">Optional post-alignment column select.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>descending</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;">Sort the alignment column values in descending order.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>frames</code></td>
+<td style="text-align: left;"><code>Seq&lt;LazyFrame&gt;</code></td>
+<td style="text-align: left;">Sequence of DataFrames or LazyFrames.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="all">all</h2>
+<p>Select all columns. Equivalent to <code>pl.col(&quot;*&quot;)</code>.</p>
+<pre><code class="lang-fsharp">// Signature:
+ -&gt; Expr
+</code></pre>
+<hr>
+<h2 id="allhorizontal">allHorizontal</h2>
+<p>Compute the logical AND horizontally across columns.</p>
+<p>Kleene logic is used to deal with nulls: if the column contains any null values and no True values, the output is null.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;Expr&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">Column(s) to use in the aggregation.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="allof">allOf</h2>
+<p>Evaluate a bitwise AND operation on the specified columns. This function is syntactic sugar for col(names).all().</p>
+<pre><code class="lang-fsharp">// Signature:
+names: Seq&lt;string&gt; -&gt; ignoreNulls: bool -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>names</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">The names of the columns to aggregate.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ignoreNulls</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>A boolean aggregation expression.</p>
+<hr>
+<h2 id="any">any</h2>
+<p>Evaluate a bitwise OR operation.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;string&gt; -&gt; ignoreNulls: bool -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ignoreNulls</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;">If set to True (default), null values are ignored. If there are no non-null values, the output is False. If set to False, Kleene logic is used to deal with nulls: if the column contains any null values and no True values, the output is null.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="anyhorizontal">anyHorizontal</h2>
+<p>Compute the logical OR horizontally across columns.</p>
+<p>Kleene logic is used to deal with nulls: if the column contains any null values and no True values, the output is null.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;Expr&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">Column(s) to use in the aggregation. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="arccos">arccos</h2>
+<p>Compute the element-wise inverse cosine.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="arccosh">arccosh</h2>
+<p>Compute the element-wise inverse hyperbolic cosine.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="arcsin">arcsin</h2>
+<p>Compute the element-wise inverse sine.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="arcsinh">arcsinh</h2>
+<p>Compute the element-wise inverse hyperbolic sine.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="arctan">arctan</h2>
+<p>Compute the element-wise inverse tangent.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="arctan2">arctan2</h2>
+<p>Compute two argument arctan in radians. Returns the angle (in radians) in the plane between the positive x-axis and the ray from the origin to (x,y).</p>
+<pre><code class="lang-fsharp">// Signature:
+y: Expr -&gt; x: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>y</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>x</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="arctanh">arctanh</h2>
+<p>Compute the element-wise inverse hyperbolic tangent.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="argsortby">argSortBy</h2>
+<p>Return the row indices that would sort the column(s).</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;Expr&gt; -&gt; descending: Seq&lt;bool&gt; -&gt; nullsLast: Seq&lt;bool&gt; -&gt; multithreaded: bool -&gt; maintainOrder: bool -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>descending</code></td>
+<td style="text-align: left;"><code>Seq&lt;bool&gt;</code></td>
+<td style="text-align: left;">Sort in descending order. When sorting by multiple columns, can be specified per column by passing a sequence of booleans.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>nullsLast</code></td>
+<td style="text-align: left;"><code>Seq&lt;bool&gt;</code></td>
+<td style="text-align: left;">Place null values last.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>multithreaded</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;">Sort using multiple threads.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>maintainOrder</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;">Whether the order should be maintained if elements are equal.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="argwhere">argWhere</h2>
+<p>Return indices where condition evaluates True.</p>
+<pre><code class="lang-fsharp">// Signature:
+condition: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>condition</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Boolean expression/Series to evaluate</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="argwhereasseries">argWhereAsSeries</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+condition: Expr -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>condition</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="array">array</h2>
+<p>Select array columns. Optionally filter by inner data type and fixed width. Example: pl.cs.array (Some(pl.cs.numeric())) (Some 3L)</p>
+<pre><code class="lang-fsharp">// Signature:
+inner: DataType -&gt; shape: UInt32[] -&gt; DataType
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>inner</code></td>
+<td style="text-align: left;"><code>DataType</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>shape</code></td>
+<td style="text-align: left;"><code>UInt32[]</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="asexpr">asExpr</h2>
+<p>Convert Selector to Expr.</p>
+<pre><code class="lang-fsharp">// Signature:
+s: Selector -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>s</code></td>
+<td style="text-align: left;"><code>Selector</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="aslazy">asLazy</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+df: DataFrame -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>df</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="asstruct">asStruct</h2>
+<p>Create a Struct expression from a list of expressions.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;Expr&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="businessdaycount">businessDayCount</h2>
+<p>Count the number of business days between start and end (not including end).</p>
+<pre><code class="lang-fsharp">// Signature:
+start: Expr -&gt; endDay: Expr -&gt; weekMask: Seq&lt;bool&gt; -&gt; holidays: Option&lt;Series&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Start dates.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endDay</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>weekMask</code></td>
+<td style="text-align: left;"><code>Seq&lt;bool&gt;</code></td>
+<td style="text-align: left;">Which days of the week to count. The default is Monday to Friday. If you wanted to count only Monday to Thursday, you would pass (True, True, True, True, False, False, False).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>holidays</code></td>
+<td style="text-align: left;"><code>Option&lt;Series&gt;</code></td>
+<td style="text-align: left;">Holidays to exclude from the count.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="cast">cast</h2>
+<p>Cast an expression to a different data type.</p>
+<pre><code class="lang-fsharp">// Signature:
+dtype: DataType -&gt; e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>dtype</code></td>
+<td style="text-align: left;"><code>DataType</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="castwithnettype">castWithNetType</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="categorical">categorical</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+categories: Option&lt;Categories&gt; -&gt; DataType
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>categories</code></td>
+<td style="text-align: left;"><code>Option&lt;Categories&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="categories">categories</h2>
+<p>Represents a Polars categorical type with optional name, namespace, and physical representation.</p>
+<pre><code class="lang-fsharp">// Signature:
+name: Option&lt;string&gt; -&gt; nameSpace: Option&lt;string&gt; -&gt; physical: Option&lt;CategoricalPhysical&gt; -&gt; Categories
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>Option&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>nameSpace</code></td>
+<td style="text-align: left;"><code>Option&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>physical</code></td>
+<td style="text-align: left;"><code>Option&lt;CategoricalPhysical&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="cbrt">cbrt</h2>
+<p>Cube root.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="ceil">ceil</h2>
+<p>Ceiling (round up).</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="coalesce">coalesce</h2>
+<p>(Lazy) Evaluates the arguments in order and returns the first non-null value.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;a&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;a&gt;</code></td>
+<td style="text-align: left;">Expressions to evaluate. Strings, Literals, Series are automatically converted.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>A new expression.</p>
+<hr>
+<h2 id="coalesceasseries">coalesceAsSeries</h2>
+<p>(Eager) Evaluates the arguments eagerly and returns the first non-null value as a Series.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;a&gt; -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;a&gt;</code></td>
+<td style="text-align: left;">Expressions or Series to evaluate.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="col">col</h2>
+<p>Create an expression representing a column with the given name.</p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the column.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="collect">collect</h2>
+<p>Collect LazyFrame into DataFrame (Eager execution).</p>
+<pre><code class="lang-fsharp">// Signature:
+lf: LazyFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="collectall">collectAll</h2>
+<p>Collect multiple LazyFrames concurrently.</p>
+<pre><code class="lang-fsharp">// Signature:
+engine: Engine -&gt; frames: Seq&lt;LazyFrame&gt; -&gt; DataFrame[]
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>engine</code></td>
+<td style="text-align: left;"><code>Engine</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>frames</code></td>
+<td style="text-align: left;"><code>Seq&lt;LazyFrame&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="collectallasync">collectAllAsync</h2>
+<p>Collect multiple LazyFrames concurrently and asynchronously.</p>
+<pre><code class="lang-fsharp">// Signature:
+engine: Engine -&gt; frames: Seq&lt;LazyFrame&gt; -&gt; FSharpAsync&lt;DataFrame[]&gt;
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>engine</code></td>
+<td style="text-align: left;"><code>Engine</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>frames</code></td>
+<td style="text-align: left;"><code>Seq&lt;LazyFrame&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="collectasync">collectAsync</h2>
+<p>Asynchronously execute the LazyFrame query plan. Useful for keeping UI responsive during heavy calculations.</p>
+<pre><code class="lang-fsharp">// Signature:
+lf: LazyFrame -&gt; FSharpAsync&lt;DataFrame&gt;
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="collectschema">collectSchema</h2>
+<p>Get the schema of the LazyFrame.</p>
+<pre><code class="lang-fsharp">// Signature:
+lf: LazyFrame -&gt; PolarsSchema
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="collectwithengine">collectWithEngine</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+engine: Engine -&gt; lf: LazyFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>engine</code></td>
+<td style="text-align: left;"><code>Engine</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="cols">cols</h2>
+<p>Create an expression representing multiple columns (Wildcard).</p>
+<pre><code class="lang-fsharp">// Signature:
+names: Seq&lt;string&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>names</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Example</strong></p>
+<pre><code>pl.cols [&quot;A&quot;; &quot;B&quot;]
+</code></pre>
+<hr>
+<h2 id="combinedateandtime">combineDateAndTime</h2>
+<p>Combine a Date expression and a Time expression into a Datetime expression. Usage: pl.col(&quot;date&quot;) |&gt; pl.combineDateAndTime (pl.col(&quot;time&quot;))</p>
+<pre><code class="lang-fsharp">// Signature:
+time: Expr -&gt; date: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>time</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>date</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="combinedateandtimeunit">combineDateAndTimeUnit</h2>
+<p>Combine a Date expression and a Time expression with a specific TimeUnit. Usage: pl.col(&quot;date&quot;) |&gt; pl.combineDateAndTimeUnit (pl.col(&quot;time&quot;)) TimeUnit.Milliseconds</p>
+<pre><code class="lang-fsharp">// Signature:
+time: Expr -&gt; tu: TimeUnit -&gt; date: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>time</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tu</code></td>
+<td style="text-align: left;"><code>TimeUnit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>date</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="concat">concat</h2>
+<p>Vertically concat DataFrames (Standard concat).</p>
+<pre><code class="lang-fsharp">// Signature:
+dfs: Seq&lt;DataFrame&gt; -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>dfs</code></td>
+<td style="text-align: left;"><code>Seq&lt;DataFrame&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="concatarray">concatArray</h2>
+<p>Combine multiple expressions horizontally into an array element.</p>
+<pre><code class="lang-fsharp">// Signature:
+columns: Seq&lt;a&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columns</code></td>
+<td style="text-align: left;"><code>Seq&lt;a&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="concatdiagonal">concatDiagonal</h2>
+<p>Diagonally concat DataFrames</p>
+<pre><code class="lang-fsharp">// Signature:
+dfs: Seq&lt;DataFrame&gt; -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>dfs</code></td>
+<td style="text-align: left;"><code>Seq&lt;DataFrame&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="concatexpr">concatExpr</h2>
+<p>Concat multiple expressions into a single expression.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;a&gt; -&gt; rechunk: bool -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;a&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rechunk</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="concathorizontal">concatHorizontal</h2>
+<p>Horizontally concat DataFrames.</p>
+<pre><code class="lang-fsharp">// Signature:
+dfs: Seq&lt;DataFrame&gt; -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>dfs</code></td>
+<td style="text-align: left;"><code>Seq&lt;DataFrame&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="concathorizontalnocheck">concatHorizontalNoCheck</h2>
+<p>Horizontally concat DataFrames (Allow duplicates).</p>
+<pre><code class="lang-fsharp">// Signature:
+dfs: Seq&lt;DataFrame&gt; -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>dfs</code></td>
+<td style="text-align: left;"><code>Seq&lt;DataFrame&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="concatlazy">concatLazy</h2>
+<p>Concatenate multiple LazyFrames.</p>
+<pre><code class="lang-fsharp">// Signature:
+lfs: Seq&lt;LazyFrame&gt; -&gt; how: ConcatType -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lfs</code></td>
+<td style="text-align: left;"><code>Seq&lt;LazyFrame&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>how</code></td>
+<td style="text-align: left;"><code>ConcatType</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="concatlist">concatList</h2>
+<p>Combine multiple expressions horizontally into a List element. Supports Selectors (e.g. pl.concatList([pl.cs.numeric()])).</p>
+<pre><code class="lang-fsharp">// Signature:
+columns: Seq&lt;a&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columns</code></td>
+<td style="text-align: left;"><code>Seq&lt;a&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="concatstring">concatString</h2>
+<p>Horizontally concatenate columns into a single string column.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;a&gt; -&gt; separator: string -&gt; ignoreNulls: bool -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;a&gt;</code></td>
+<td style="text-align: left;">Columns to concatenate into a single string column.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>separator</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">String that will be used to separate the values of each column.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ignoreNulls</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;">Ignore null values. If set to False, null values will be propagated. if the row contains any null values, the output is null.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="corrpearson">corrPearson</h2>
+<p>Compute the Pearson’s correlation between two columns.</p>
+<pre><code class="lang-fsharp">// Signature:
+a: Expr -&gt; b: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>a</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>b</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="corrpearsonasseries">corrPearsonAsSeries</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+a: Expr -&gt; b: Expr -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>a</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>b</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="corrspearman">corrSpearman</h2>
+<p>Compute the Spearman rank correlation between two columns.</p>
+<pre><code class="lang-fsharp">// Signature:
+a: Expr -&gt; b: Expr -&gt; propagateNans: bool -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>a</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>b</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>propagateNans</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="corrspearmanasseries">corrSpearmanAsSeries</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+a: Expr -&gt; b: Expr -&gt; propagateNans: bool -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>a</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>b</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>propagateNans</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="cos">cos</h2>
+<p>Compute the element-wise cosine.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="cosh">cosh</h2>
+<p>Compute the element-wise hyperbolic cosine.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="cot">cot</h2>
+<p>Compute the element-wise value for the cotangent.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="count">count</h2>
+<p>Return the number of non-null values in the column.</p>
+<pre><code class="lang-fsharp">// Signature:
+names: Seq&lt;string&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>names</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="cov">cov</h2>
+<p>Compute the covariance between two columns/ expressions.</p>
+<pre><code class="lang-fsharp">// Signature:
+a: Expr -&gt; b: Expr -&gt; ddof: Byte -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>a</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Column name or Expression.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>b</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Column name or Expression.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ddof</code></td>
+<td style="text-align: left;"><code>Byte</code></td>
+<td style="text-align: left;">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="covasseries">covAsSeries</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+a: Expr -&gt; b: Expr -&gt; ddof: Byte -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>a</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>b</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ddof</code></td>
+<td style="text-align: left;"><code>Byte</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="cumcount">cumCount</h2>
+<p>Return the cumulative count of the non-null values in the column.This function is syntactic sugar for Col(column).CumCount().</p>
+<pre><code class="lang-fsharp">// Signature:
+column: string -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>column</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">Name of the columns to use.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="cumsum">cumSum</h2>
+<p>Cumulatively sum all values. Syntactic sugar for Col(names).CumSum().</p>
+<pre><code class="lang-fsharp">// Signature:
+names: Seq&lt;string&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>names</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="datatypeof">dataTypeOf</h2>
+<p>Gets the DataType of an expression. Equivalent to Python's polars.dtype_of()</p>
+<pre><code class="lang-fsharp">// Signature:
+expr: Expr -&gt; DataTypeExpr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>expr</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="dataframe">dataframe</h2>
+<p>An eager DataFrame holding data in memory.</p>
+<p>DataFrames are 2D tabular data structures with named columns of potentially different types.</p>
+<pre><code class="lang-fsharp">// Signature:
+series: Seq&lt;Series&gt; -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>series</code></td>
+<td style="text-align: left;"><code>Seq&lt;Series&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="daterange">dateRange</h2>
+<p>Generate a date range.</p>
+<pre><code class="lang-fsharp">// Signature:
+start: DateOnly -&gt; endRange: DateOnly -&gt; interval: Dur -&gt; closed: ClosedWindow -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>DateOnly</code></td>
+<td style="text-align: left;">Lower bound of the date range.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>DateOnly</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>interval</code></td>
+<td style="text-align: left;"><code>Dur</code></td>
+<td style="text-align: left;">Interval of the range periods, “1w2d” # 1 week, 2 days.Default is 1 day.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>closed</code></td>
+<td style="text-align: left;"><code>ClosedWindow</code></td>
+<td style="text-align: left;">Define which sides of the range are closed</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>Column of data type Date</p>
+<hr>
+<h2 id="daterangeasseries">dateRangeAsSeries</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; start: DateOnly -&gt; endRange: DateOnly -&gt; interval: Dur -&gt; closed: ClosedWindow -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>DateOnly</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>DateOnly</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>interval</code></td>
+<td style="text-align: left;"><code>Dur</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>closed</code></td>
+<td style="text-align: left;"><code>ClosedWindow</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="dateranges">dateRanges</h2>
+<p>Create a column of date ranges. DataType will be a list of dates</p>
+<pre><code class="lang-fsharp">// Signature:
+start: DateOnly -&gt; endRange: DateOnly -&gt; interval: Dur -&gt; closed: ClosedWindow -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>DateOnly</code></td>
+<td style="text-align: left;">Lower bound of the date range.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>DateOnly</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>interval</code></td>
+<td style="text-align: left;"><code>Dur</code></td>
+<td style="text-align: left;">Interval of the range periods, “1w2d” # 1 week, 2 days.Default is 1 day.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>closed</code></td>
+<td style="text-align: left;"><code>ClosedWindow</code></td>
+<td style="text-align: left;">Define which sides of the range are closed</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>Column of data type Date</p>
+<hr>
+<h2 id="daterangesasseries">dateRangesAsSeries</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; start: DateOnly -&gt; endRange: DateOnly -&gt; interval: Dur -&gt; closed: ClosedWindow -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>DateOnly</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>DateOnly</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>interval</code></td>
+<td style="text-align: left;"><code>Dur</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>closed</code></td>
+<td style="text-align: left;"><code>ClosedWindow</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="datetime">datetime</h2>
+<p>Datetime data type.</p>
+<pre><code class="lang-fsharp">// Signature:
+unit: TimeUnit -&gt; timeZone: Option&lt;string&gt; -&gt; DataType
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;"><code>TimeUnit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>timeZone</code></td>
+<td style="text-align: left;"><code>Option&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="datetimerange">datetimeRange</h2>
+<p>Generate a datetime range.</p>
+<pre><code class="lang-fsharp">// Signature:
+start: DateTime -&gt; endRange: DateTime -&gt; interval: Dur -&gt; closed: ClosedWindow -&gt; unit: TimeUnit -&gt; timeZone: Option&lt;string&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>DateTime</code></td>
+<td style="text-align: left;">Lower bound of the datetime range.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>DateTime</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>interval</code></td>
+<td style="text-align: left;"><code>Dur</code></td>
+<td style="text-align: left;">Interval of the range periods</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>closed</code></td>
+<td style="text-align: left;"><code>ClosedWindow</code></td>
+<td style="text-align: left;">Define which sides of the range are closed</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;"><code>TimeUnit</code></td>
+<td style="text-align: left;">Time unit of the resulting Datetime data type.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>timeZone</code></td>
+<td style="text-align: left;"><code>Option&lt;string&gt;</code></td>
+<td style="text-align: left;">Time zone of the resulting Datetime data type.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="datetimerangeasseries">datetimeRangeAsSeries</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; start: DateTime -&gt; endRange: DateTime -&gt; interval: Dur -&gt; closed: ClosedWindow -&gt; unit: TimeUnit -&gt; timeZone: Option&lt;string&gt; -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>DateTime</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>DateTime</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>interval</code></td>
+<td style="text-align: left;"><code>Dur</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>closed</code></td>
+<td style="text-align: left;"><code>ClosedWindow</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;"><code>TimeUnit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>timeZone</code></td>
+<td style="text-align: left;"><code>Option&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="datetimeranges">datetimeRanges</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+start: DateTime -&gt; endRange: DateTime -&gt; interval: Dur -&gt; closed: ClosedWindow -&gt; unit: TimeUnit -&gt; timeZone: Option&lt;string&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>DateTime</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>DateTime</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>interval</code></td>
+<td style="text-align: left;"><code>Dur</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>closed</code></td>
+<td style="text-align: left;"><code>ClosedWindow</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;"><code>TimeUnit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>timeZone</code></td>
+<td style="text-align: left;"><code>Option&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="datetimerangesasseries">datetimeRangesAsSeries</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; start: DateTime -&gt; endRange: DateTime -&gt; interval: Dur -&gt; closed: ClosedWindow -&gt; unit: TimeUnit -&gt; timeZone: Option&lt;string&gt; -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>DateTime</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>DateTime</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>interval</code></td>
+<td style="text-align: left;"><code>Dur</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>closed</code></td>
+<td style="text-align: left;"><code>ClosedWindow</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;"><code>TimeUnit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>timeZone</code></td>
+<td style="text-align: left;"><code>Option&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="decimal">decimal</h2>
+<p>Get value as Decimal Option.</p>
+<pre><code class="lang-fsharp">// Signature:
+precision: int -&gt; scale: int -&gt; DataType
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>precision</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>scale</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="drop">drop</h2>
+<p>Drop one or more fields from the struct.</p>
+<pre><code class="lang-fsharp">// Signature:
+columns: Seq&lt;string&gt; -&gt; df: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columns</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>df</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="droplazy">dropLazy</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+columns: Seq&lt;string&gt; -&gt; lf: LazyFrame -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columns</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="duration">duration</h2>
+<p>Duration (TimeSpan) data type.</p>
+<pre><code class="lang-fsharp">// Signature:
+unit: TimeUnit -&gt; DataType
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;"><code>TimeUnit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="enumtype">enumType</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+categories: Categories -&gt; DataType
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>categories</code></td>
+<td style="text-align: left;"><code>Categories</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="escaperegex">escapeRegex</h2>
+<p>Escapes string regex meta characters.</p>
+<pre><code class="lang-fsharp">// Signature:
+s: string -&gt; string
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>s</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The string to escape.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>A string with regex meta characters escaped.</p>
+<hr>
+<h2 id="exclude">exclude</h2>
+<p>Exclude columns from Selector.</p>
+<pre><code class="lang-fsharp">// Signature:
+names: Seq&lt;string&gt; -&gt; s: Selector -&gt; Selector
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>names</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>s</code></td>
+<td style="text-align: left;"><code>Selector</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="excludecols">excludeCols</h2>
+<p>Represent all columns except for the given columns. Syntactic sugar for pl.all().Exclude(columns).</p>
+<pre><code class="lang-fsharp">// Signature:
+columns: Seq&lt;string&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columns</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="excludedatatypes">excludeDataTypes</h2>
+<p>Represent all columns except for the given datatypes. Syntactic sugar for pl.all().Exclude(dtypes).</p>
+<pre><code class="lang-fsharp">// Signature:
+dtypes: Seq&lt;DataType&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>dtypes</code></td>
+<td style="text-align: left;"><code>Seq&lt;DataType&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="exp">exp</h2>
+<p>Exponential (e^x).</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="explain">explain</h2>
+<p>Explain the LazyFrame execution plan.</p>
+<pre><code class="lang-fsharp">// Signature:
+lf: LazyFrame -&gt; string
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="explainall">explainAll</h2>
+<p>Explain multiple LazyFrames as if passed to collect_all. Common Subplan Elimination is applied on the combined plan, meaning that diverging queries will run only once.</p>
+<pre><code class="lang-fsharp">// Signature:
+lazyFrames: Seq&lt;LazyFrame&gt; -&gt; string
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lazyFrames</code></td>
+<td style="text-align: left;"><code>Seq&lt;LazyFrame&gt;</code></td>
+<td style="text-align: left;">A list of LazyFrames to collect.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>Explained plan.</p>
+<hr>
+<h2 id="explainunoptimized">explainUnoptimized</h2>
+<p>Explain the unoptimized LazyFrame execution plan.</p>
+<pre><code class="lang-fsharp">// Signature:
+lf: LazyFrame -&gt; string
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="explode">explode</h2>
+<p>Explode list-like columns into multiple rows.</p>
+<pre><code class="lang-fsharp">// Signature:
+columns: Seq&lt;string&gt; -&gt; df: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columns</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>df</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="extensiontype">extensionType</h2>
+<p>Create an Extension data type</p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; inner: DataType -&gt; metadata: Option&lt;string&gt; -&gt; DataType
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The registered name of the extension type (e.g. &quot;geoarrow.wkb&quot;)</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>inner</code></td>
+<td style="text-align: left;"><code>DataType</code></td>
+<td style="text-align: left;">The physical storage data type</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>metadata</code></td>
+<td style="text-align: left;"><code>Option&lt;string&gt;</code></td>
+<td style="text-align: left;">Optional metadata string</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="field">field</h2>
+<p>Retrieve a field by its index.</p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; dtype: DataType -&gt; Field
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>dtype</code></td>
+<td style="text-align: left;"><code>DataType</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="fillnull">fillNull</h2>
+<p>Fill null values with a specific value.</p>
+<pre><code class="lang-fsharp">// Signature:
+fillValue: Expr -&gt; e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>fillValue</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="filter">filter</h2>
+<p>Filter rows based on a boolean expression.</p>
+<pre><code class="lang-fsharp">// Signature:
+expr: IColumnExpr -&gt; df: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>expr</code></td>
+<td style="text-align: left;"><code>IColumnExpr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>df</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="filterlazy">filterLazy</h2>
+<p>Filter rows based on a boolean expression.</p>
+<pre><code class="lang-fsharp">// Signature:
+expr: Expr -&gt; lf: LazyFrame -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>expr</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="firstcol">firstCol</h2>
+<p>Get the first column.</p>
+<pre><code class="lang-fsharp">// Signature:
+ -&gt; Selector
+</code></pre>
+<hr>
+<h2 id="firstvalue">firstValue</h2>
+<p>Get the first value of the group/series.</p>
+<pre><code class="lang-fsharp">// Signature:
+columns: Seq&lt;string&gt; -&gt; FSharpFunc&lt;unit, Expr&gt;
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columns</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>A new expression representing the first value.</p>
+<hr>
+<h2 id="floor">floor</h2>
+<p>Floor (round down).</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="floordiv">floorDiv</h2>
+<p>Floor division (integer result).</p>
+<pre><code class="lang-fsharp">// Signature:
+other: Expr -&gt; e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="fold">fold</h2>
+<p>Accumulate over multiple columns horizontally/row-wise.</p>
+<pre><code class="lang-fsharp">// Signature:
+f: FSharpFunc&lt;Expr, FSharpFunc&lt;Expr, Expr&gt;&gt; -&gt; acc: Expr -&gt; exprs: Seq&lt;Expr&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>f</code></td>
+<td style="text-align: left;"><code>FSharpFunc&lt;Expr, FSharpFunc&lt;Expr, Expr&gt;&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>acc</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="format">format</h2>
+<p>Format expressions as a string.</p>
+<pre><code class="lang-fsharp">// Signature:
+format: string -&gt; exprs: Seq&lt;a&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>format</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;a&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="fromepoch">fromEpoch</h2>
+<p>Parses an integer column (seconds, milliseconds, etc.) into a Datetime or Date expression.</p>
+<pre><code class="lang-fsharp">// Signature:
+column: Expr -&gt; timeUnit: EpochTimeUnit -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>column</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>timeUnit</code></td>
+<td style="text-align: left;"><code>EpochTimeUnit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="groupby">groupBy</h2>
+<p>Group by keys and apply aggregations.</p>
+<pre><code class="lang-fsharp">// Signature:
+keys: Seq&lt;Expr&gt; -&gt; df: DataFrame -&gt; GroupBy
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>keys</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>df</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="groupbylazy">groupByLazy</h2>
+<p>Group by keys.</p>
+<pre><code class="lang-fsharp">// Signature:
+keys: Seq&lt;Expr&gt; -&gt; lf: LazyFrame -&gt; LazyGroupBy
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>keys</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="having">having</h2>
+<p>Filter groups with a predicate after aggregation.</p>
+<pre><code class="lang-fsharp">// Signature:
+predicate: Expr -&gt; builder: GroupBy -&gt; GroupBy
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>predicate</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>builder</code></td>
+<td style="text-align: left;"><code>GroupBy</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="havinglazy">havingLazy</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+predicate: Expr -&gt; builder: LazyGroupBy -&gt; LazyGroupBy
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>predicate</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>builder</code></td>
+<td style="text-align: left;"><code>LazyGroupBy</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="head">head</h2>
+<p>Get the first n rows of the DataFrame.</p>
+<pre><code class="lang-fsharp">// Signature:
+n: int -&gt; df: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>df</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="headlazy">headLazy</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+n: int -&gt; lf: LazyFrame -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="hstack">hstack</h2>
+<p>Horizontally stack columns to the DataFrame.</p>
+<pre><code class="lang-fsharp">// Signature:
+columns: Seq&lt;Series&gt; -&gt; df: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columns</code></td>
+<td style="text-align: left;"><code>Seq&lt;Series&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>df</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="ifelse">ifElse</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+predicate: Expr -&gt; ifTrue: Expr -&gt; ifFalse: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>predicate</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ifTrue</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ifFalse</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="implode">implode</h2>
+<p>Aggregate all column values into a list. This function is syntactic sugar for pl.col(name).Implode().</p>
+<pre><code class="lang-fsharp">// Signature:
+column: string -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>column</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">Column name</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="intrange">intRange</h2>
+<p>Generate a range of integers as an Expression.</p>
+<pre><code class="lang-fsharp">// Signature:
+start: int64 -&gt; endRange: int64 -&gt; step: int64 -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">Start of the range (inclusive).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>step</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">Step size of the range.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>A Literal Expression containing the integer series.</p>
+<hr>
+<h2 id="intrangeasseries">intRangeAsSeries</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; start: int64 -&gt; endRange: int64 -&gt; step: int64 -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>step</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="intranges">intRanges</h2>
+<p>Generate a range of integers for each row of the input columns. Resulting column is of dtype List(dtype).</p>
+<pre><code class="lang-fsharp">// Signature:
+start: int64 -&gt; endRange: int64 -&gt; step: int64 -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>step</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="intrangesasseries">intRangesAsSeries</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; start: int64 -&gt; endRange: int64 -&gt; step: int64 -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>step</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="isduplicated">isDuplicated</h2>
+<p>Check if values are duplicated.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="isnotnull">isNotNull</h2>
+<p>Check for non-null values.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="isnull">isNull</h2>
+<p>Check for null values.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="isunique">isUnique</h2>
+<p>Check if values are unique.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="join">join</h2>
+<p>Perform a join between two DataFrames.</p>
+<pre><code class="lang-fsharp">// Signature:
+other: DataFrame -&gt; leftOn: Seq&lt;Expr&gt; -&gt; rightOn: Seq&lt;Expr&gt; -&gt; how: JoinType -&gt; left: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>leftOn</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rightOn</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>how</code></td>
+<td style="text-align: left;"><code>JoinType</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>left</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="joinlazy">joinLazy</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+other: LazyFrame -&gt; leftOn: Seq&lt;Expr&gt; -&gt; rightOn: Seq&lt;Expr&gt; -&gt; how: JoinType -&gt; lf: LazyFrame -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>leftOn</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rightOn</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>how</code></td>
+<td style="text-align: left;"><code>JoinType</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="joinon">joinOn</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+other: DataFrame -&gt; on: Seq&lt;Expr&gt; -&gt; how: JoinType -&gt; left: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>on</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>how</code></td>
+<td style="text-align: left;"><code>JoinType</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>left</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="joinonlazy">joinOnLazy</h2>
+<p>Perform a join between two LazyFrames.</p>
+<pre><code class="lang-fsharp">// Signature:
+other: LazyFrame -&gt; on: Seq&lt;Expr&gt; -&gt; how: JoinType -&gt; lf: LazyFrame -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>on</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>how</code></td>
+<td style="text-align: left;"><code>JoinType</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="lastcol">lastCol</h2>
+<p>Get the last column.</p>
+<pre><code class="lang-fsharp">// Signature:
+ -&gt; Selector
+</code></pre>
+<hr>
+<h2 id="lastvalue">lastValue</h2>
+<p>Get the last value of the group/series.</p>
+<pre><code class="lang-fsharp">// Signature:
+columns: Seq&lt;string&gt; -&gt; FSharpFunc&lt;unit, Expr&gt;
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columns</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>A new expression representing the first value.</p>
+<hr>
+<h2 id="len">len</h2>
+<p>Return the lines count of current context.</p>
+<pre><code class="lang-fsharp">// Signature:
+ -&gt; Expr
+</code></pre>
+<hr>
+<h2 id="linearspace">linearSpace</h2>
+<p>Generate a series of equally-spaced points.</p>
+<pre><code class="lang-fsharp">// Signature:
+start: Expr -&gt; endRange: Expr -&gt; numSamples: int -&gt; closed: ClosedWindow -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Lower bound of the linear space.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>numSamples</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">Number of samples to generate.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>closed</code></td>
+<td style="text-align: left;"><code>ClosedWindow</code></td>
+<td style="text-align: left;">Whether the intervals are closed or open.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="linearspaceasseries">linearSpaceAsSeries</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; start: Expr -&gt; endRange: Expr -&gt; numSamples: int -&gt; closed: ClosedWindow -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>numSamples</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>closed</code></td>
+<td style="text-align: left;"><code>ClosedWindow</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="linearspaces">linearSpaces</h2>
+<p>Create a column of linearly-spaced sequences for each row.</p>
+<pre><code class="lang-fsharp">// Signature:
+start: Expr -&gt; endRange: Expr -&gt; numSamples: int -&gt; closed: ClosedWindow -&gt; asArray: bool -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Lower bound.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>numSamples</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">Number of samples.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>closed</code></td>
+<td style="text-align: left;"><code>ClosedWindow</code></td>
+<td style="text-align: left;">Whether the intervals are closed or open.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>asArray</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;">If true, returns an Array dtype instead of List. Requires numSamples to be a constant.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="linearspacesasseries">linearSpacesAsSeries</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; start: Expr -&gt; endRange: Expr -&gt; numSamples: int -&gt; closed: ClosedWindow -&gt; asArray: bool -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>numSamples</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>closed</code></td>
+<td style="text-align: left;"><code>ClosedWindow</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>asArray</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="list">list</h2>
+<p>Select list columns. Optionally filter by the inner data type. Example: pl.cs.list(Some(pl.cs.numeric()))</p>
+<pre><code class="lang-fsharp">// Signature:
+inner: DataType -&gt; DataType
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>inner</code></td>
+<td style="text-align: left;"><code>DataType</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="lit">lit</h2>
+<p>Create a literal expression from a value.</p>
+<pre><code class="lang-fsharp">// Signature:
+value: T -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>value</code></td>
+<td style="text-align: left;"><code>T</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Example</strong></p>
+<pre><code>df.Filter(pl.col(&quot;Age&quot;) .&gt; pl.lit(18))
+</code></pre>
+<hr>
+<h2 id="litw">lit$W</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+op_Dollar: FSharpFunc&lt;LitMechanism, FSharpFunc&lt;T, Expr&gt;&gt; -&gt; value: T -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>op_Dollar</code></td>
+<td style="text-align: left;"><code>FSharpFunc&lt;LitMechanism, FSharpFunc&lt;T, Expr&gt;&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>value</code></td>
+<td style="text-align: left;"><code>T</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="litbinary">litBinary</h2>
+<p>Creates a scalar Binary Literal Expression from a byte array.</p>
+<pre><code class="lang-fsharp">// Signature:
+value: Byte[] -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>value</code></td>
+<td style="text-align: left;"><code>Byte[]</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="litnull">litNull</h2>
+<p>Create a literal expression for null value.</p>
+<pre><code class="lang-fsharp">// Signature:
+ -&gt; Expr
+</code></pre>
+<hr>
+<h2 id="litseries">litSeries</h2>
+<p>Create a literal expression from a Series.</p>
+<pre><code class="lang-fsharp">// Signature:
+series: Series -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>series</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="litstruct">litStruct</h2>
+<p>Create a Struct Expression from a single anonymous record or class instance.</p>
+<p>Example: <code>pl.litStruct {| A = 1; B = &quot;hi&quot; |}</code></p>
+<pre><code class="lang-fsharp">// Signature:
+value: T -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>value</code></td>
+<td style="text-align: left;"><code>T</code></td>
+<td style="text-align: left;">The object to pack into a struct.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="litstructs">litStructs</h2>
+<p>Create a Struct Expression from a sequence of objects.</p>
+<p>The properties of the objects become the fields of the struct.</p>
+<pre><code class="lang-fsharp">// Signature:
+values: Seq&lt;T&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>values</code></td>
+<td style="text-align: left;"><code>Seq&lt;T&gt;</code></td>
+<td style="text-align: left;">The sequence of objects to pack.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="max">max</h2>
+<p>Get the maximum value. Syntactic sugar for Col(names).Max().</p>
+<pre><code class="lang-fsharp">// Signature:
+names: Seq&lt;string&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>names</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">Name(s) of the columns to use in the aggregation.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="maxhorizontal">maxHorizontal</h2>
+<p>Get the maximum value horizontally across columns.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;Expr&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">Column(s) to use in the aggregation.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="mean">mean</h2>
+<p>Get the Mean value. Syntactic sugar for Col(names).Mean().</p>
+<pre><code class="lang-fsharp">// Signature:
+names: Seq&lt;string&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>names</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">Name(s) of the columns to use in the aggregation.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="meanhorizontal">meanHorizontal</h2>
+<p>Compute the mean of all values horizontally across columns.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;Expr&gt; -&gt; ignoreNulls: bool -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">Column(s) to use in the aggregation. Accepts expression input. Strings are parsed as column names, other non-expression inputs are parsed as literals.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ignoreNulls</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;">Ignore null values (default). If set to False, any null value in the input will lead to a null output.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="median">median</h2>
+<p>Get the median value.This function is syntactic sugar for Pl.Col(columns).Median().</p>
+<pre><code class="lang-fsharp">// Signature:
+names: Seq&lt;string&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>names</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">One or more column names.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="mod_">mod_</h2>
+<p>Modulo (remainder).</p>
+<pre><code class="lang-fsharp">// Signature:
+other: Expr -&gt; e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="nunique">nUnique</h2>
+<p>Count unique values.This function is syntactic sugar for pl.col(columns).NUnique().</p>
+<pre><code class="lang-fsharp">// Signature:
+names: Seq&lt;string&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>names</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="nth">nth</h2>
+<p>Get the nth column(s) of the context.</p>
+<pre><code class="lang-fsharp">// Signature:
+indices: Seq&lt;int64&gt; -&gt; Selector
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>indices</code></td>
+<td style="text-align: left;"><code>Seq&lt;int64&gt;</code></td>
+<td style="text-align: left;">One or more indices representing the columns to retrieve.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="ones">ones</h2>
+<p>Construct a column of length n filled with ones. This is syntactic sugar for the repeat function.</p>
+<pre><code class="lang-fsharp">// Signature:
+n: int -&gt; dtype: Option&lt;DataType&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">Length of the resulting column.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>dtype</code></td>
+<td style="text-align: left;"><code>Option&lt;DataType&gt;</code></td>
+<td style="text-align: left;">Data type of the resulting column. Defaults to Float64.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="onesasseries">onesAsSeries</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+n: int -&gt; dtype: Option&lt;DataType&gt; -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>dtype</code></td>
+<td style="text-align: left;"><code>Option&lt;DataType&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="orderbyascending">orderByAscending</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+columns: Seq&lt;IColumnExpr&gt; -&gt; df: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columns</code></td>
+<td style="text-align: left;"><code>Seq&lt;IColumnExpr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>df</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="orderbyascendinglazy">orderByAscendingLazy</h2>
+<p>Alias for sortLazy</p>
+<pre><code class="lang-fsharp">// Signature:
+expr: Seq&lt;Expr&gt; -&gt; lf: LazyFrame -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>expr</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="orderbydescending">orderByDescending</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+columns: Seq&lt;IColumnExpr&gt; -&gt; df: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columns</code></td>
+<td style="text-align: left;"><code>Seq&lt;IColumnExpr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>df</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="orderbydescendinglazy">orderByDescendingLazy</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+expr: Seq&lt;Expr&gt; -&gt; lf: LazyFrame -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>expr</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="otherwise">otherwise</h2>
+<p>Terminal operator that provides the default fallback value for a when-then-otherwise chain.</p>
+<pre><code class="lang-fsharp">// Signature:
+statement: Expr -&gt; thenBlock: FSharpThen -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>statement</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">The fallback expression.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>thenBlock</code></td>
+<td style="text-align: left;"><code>FSharpThen</code></td>
+<td style="text-align: left;">The FSharpThen block built by preceding when/then calls.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>The compiled ternary expression tree.</p>
+<hr>
+<h2 id="over">over</h2>
+<p>Define a window over which to perform an aggregation.</p>
+<pre><code class="lang-fsharp">// Signature:
+partitionBy: Seq&lt;Expr&gt; -&gt; e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>partitionBy</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="pow">pow</h2>
+<p>Power.</p>
+<pre><code class="lang-fsharp">// Signature:
+exponent: Expr -&gt; baseExpr: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exponent</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>baseExpr</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="quantile">quantile</h2>
+<p>Syntactic sugar for pl.Col(&quot;foo&quot;).Quantile(..).</p>
+<pre><code class="lang-fsharp">// Signature:
+column: string -&gt; quantile: float -&gt; interpolation: QuantileMethod -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>column</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">Column name.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>quantile</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;">Quantile between 0.0 and 1.0.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>interpolation</code></td>
+<td style="text-align: left;"><code>QuantileMethod</code></td>
+<td style="text-align: left;">Interpolation method.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="reduce">reduce</h2>
+<p>Reduce multiple columns horizontally/row-wise.</p>
+<pre><code class="lang-fsharp">// Signature:
+f: FSharpFunc&lt;Expr, FSharpFunc&lt;Expr, Expr&gt;&gt; -&gt; exprs: Seq&lt;Expr&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>f</code></td>
+<td style="text-align: left;"><code>FSharpFunc&lt;Expr, FSharpFunc&lt;Expr, Expr&gt;&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="registerextensionasstorage">registerExtensionAsStorage</h2>
+<p>Register the extension type to be passed through purely as physical storage.</p>
+<pre><code class="lang-fsharp">// Signature:
+extName: string -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>extName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The registered name.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="registerextensiontype">registerExtensionType</h2>
+<p>Register the extension type for the given extension name.</p>
+<pre><code class="lang-fsharp">// Signature:
+extName: string -&gt; factory: FSharpFunc&lt;Tuple&lt;DataType, Option&lt;string&gt;&gt;, DataType&gt; -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>extName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The registered name.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>factory</code></td>
+<td style="text-align: left;"><code>FSharpFunc&lt;Tuple&lt;DataType, Option&lt;string&gt;&gt;, DataType&gt;</code></td>
+<td style="text-align: left;">The factory function deserialize the extension type.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="repeat">repeat</h2>
+<p>Construct a column of length n filled with the given value.</p>
+<pre><code class="lang-fsharp">// Signature:
+value: Expr -&gt; n: int -&gt; dtype: Option&lt;DataType&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>value</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Value to repeat.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">Length of the resulting column.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>dtype</code></td>
+<td style="text-align: left;"><code>Option&lt;DataType&gt;</code></td>
+<td style="text-align: left;">Data type of the resulting column. If set to None (default), data type is inferred from the given value. Defaults to Int32 for integer values, unless Int64 is required to fit the given value. Defaults to Float64 for float values.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="repeatasseries">repeatAsSeries</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+value: Expr -&gt; n: int -&gt; dtype: Option&lt;DataType&gt; -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>value</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>dtype</code></td>
+<td style="text-align: left;"><code>Option&lt;DataType&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="reverse">reverse</h2>
+<p>Reverse the expr.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="rollingcorr">rollingCorr</h2>
+<p>Compute the rolling correlation between two columns/ expressions. The window at a given row includes the row itself and the window_size - 1 elements before it.</p>
+<pre><code class="lang-fsharp">// Signature:
+a: Expr -&gt; b: Expr -&gt; windowSize: UInt32 -&gt; minSamples: Option&lt;UInt32&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>a</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Column name or Expression.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>b</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Column name or Expression.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>windowSize</code></td>
+<td style="text-align: left;"><code>UInt32</code></td>
+<td style="text-align: left;">The length of the window.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>minSamples</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt32&gt;</code></td>
+<td style="text-align: left;">The number of values in the window that should be non-null before computing a result. If None, it will be set equal to window size.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="rollingcov">rollingCov</h2>
+<p>Compute the rolling covariance between two columns/ expressions. The window at a given row includes the row itself and the window_size - 1 elements before it.</p>
+<pre><code class="lang-fsharp">// Signature:
+a: Expr -&gt; b: Expr -&gt; windowSize: UInt32 -&gt; minSamples: Option&lt;UInt32&gt; -&gt; ddof: Byte -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>a</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Column name or Expression.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>b</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Column name or Expression.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>windowSize</code></td>
+<td style="text-align: left;"><code>UInt32</code></td>
+<td style="text-align: left;">The length of the window.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>minSamples</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt32&gt;</code></td>
+<td style="text-align: left;">The number of values in the window that should be non-null before computing a result. If None, it will be set equal to window size.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ddof</code></td>
+<td style="text-align: left;"><code>Byte</code></td>
+<td style="text-align: left;">Delta degrees of freedom. The divisor used in calculations is N - ddof, where N represents the number of elements.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="schema">schema</h2>
+<p>Get the schema of the LazyFrame without executing it. Uses Zero-Copy native introspection.</p>
+<pre><code class="lang-fsharp">// Signature:
+fields: Seq&lt;Field&gt; -&gt; PolarsSchema
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>fields</code></td>
+<td style="text-align: left;"><code>Seq&lt;Field&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="select">select</h2>
+<p>Select columns from the DataFrame.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;a&gt; -&gt; df: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;a&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>df</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="selectexprseager">selectExprsEager</h2>
+<p>Run polars expressions without a context. This is syntactic sugar for running df.select on an empty DataFrame.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;Expr&gt; -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="selectexprslazy">selectExprsLazy</h2>
+<p>Run polars expressions without a context. This is syntactic sugar for running lf.select on an empty LazyFrame.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;Expr&gt; -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="selectlazy">selectLazy</h2>
+<p>Select columns from LazyFrame.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;Expr&gt; -&gt; lf: LazyFrame -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="selfdatatype">selfDataType</h2>
+<p>Represents the intrinsic data type of the current element. Equivalent to Python's polars.self_dtype()</p>
+<pre><code class="lang-fsharp">// Signature:
+ -&gt; DataTypeExpr
+</code></pre>
+<hr>
+<h2 id="series">series</h2>
+<p>--- Series --- <summary> An eager Series holding a single column of data. </summary></p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; data: Seq&lt;T&gt; -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>data</code></td>
+<td style="text-align: left;"><code>Seq&lt;T&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="setenvvar">setEnvVar</h2>
+<p>--- Config ---</p>
+<pre><code class="lang-fsharp">// Signature:
+key: string -&gt; value: string -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>key</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>value</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="show">show</h2>
+<p>Print the DataFrame to Console (Table format).</p>
+<pre><code class="lang-fsharp">// Signature:
+df: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>df</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="showseries">showSeries</h2>
+<p>Print the Series to Console.</p>
+<pre><code class="lang-fsharp">// Signature:
+s: Series -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>s</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="sign">sign</h2>
+<p>Sign of the value (-1, 0, 1).</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="sin">sin</h2>
+<p>Compute the element-wise sine.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="sinh">sinh</h2>
+<p>Compute the element-wise hyperbolic sine.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="sortascending">sortAscending</h2>
+<p>Sort (Order By) the DataFrame.</p>
+<pre><code class="lang-fsharp">// Signature:
+columns: Seq&lt;IColumnExpr&gt; -&gt; df: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columns</code></td>
+<td style="text-align: left;"><code>Seq&lt;IColumnExpr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>df</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="sortascendinglazy">sortAscendingLazy</h2>
+<p>Sort (Order By) the LazyFrame.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;Expr&gt; -&gt; lf: LazyFrame -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="sortdescending">sortDescending</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+columns: Seq&lt;IColumnExpr&gt; -&gt; df: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columns</code></td>
+<td style="text-align: left;"><code>Seq&lt;IColumnExpr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>df</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="sortdescendinglazy">sortDescendingLazy</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;Expr&gt; -&gt; lf: LazyFrame -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="sqlcontext">sqlContext</h2>
+<p>Create a SQL context for executing SQL queries on LazyFrames.</p>
+<pre><code class="lang-fsharp">// Signature:
+ -&gt; SqlContext
+</code></pre>
+<hr>
+<h2 id="sqlexpr">sqlExpr</h2>
+<p>Create a Polars Expr from a SQL string.</p>
+<pre><code class="lang-fsharp">// Signature:
+sql: string -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>sql</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The SQL expression string.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>A Polars Expr representing the SQL logic.</p>
+<hr>
+<h2 id="sqlexprs">sqlExprs</h2>
+<p>Create an array of Polars Exprs from a collection of SQL strings.</p>
+<pre><code class="lang-fsharp">// Signature:
+sqls: Seq&lt;string&gt; -&gt; Expr[]
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>sqls</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">The collection of SQL expression strings.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>An array of Polars Expr objects.</p>
+<hr>
+<h2 id="sqrt">sqrt</h2>
+<p>Square root.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="std">std</h2>
+<p>Get the standard deviation. This function is syntactic sugar for pl.col(column).Std(ddof).</p>
+<pre><code class="lang-fsharp">// Signature:
+column: string -&gt; ddof: Byte -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>column</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">Column name.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ddof</code></td>
+<td style="text-align: left;"><code>Byte</code></td>
+<td style="text-align: left;">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="structseries">structSeries</h2>
+<p>Collect several expressions and combine them into a single Struct Series</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;Expr&gt; -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="structtype">structType</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+fields: Seq&lt;Field&gt; -&gt; DataType
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>fields</code></td>
+<td style="text-align: left;"><code>Seq&lt;Field&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="sum">sum</h2>
+<p>Get the Sum value. Syntactic sugar for Col(names).Sum().</p>
+<pre><code class="lang-fsharp">// Signature:
+names: Seq&lt;string&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>names</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">Name(s) of the columns to use in the aggregation.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="sumhorizontal">sumHorizontal</h2>
+<p>Sum all values horizontally across columns.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;Expr&gt; -&gt; ignoreNulls: bool -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">An iterable of expressions</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ignoreNulls</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;">Whether to ignore null values</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tail">tail</h2>
+<p>Get the last n rows of the DataFrame.</p>
+<pre><code class="lang-fsharp">// Signature:
+n: int -&gt; df: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>df</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="taillazy">tailLazy</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+n: int -&gt; lf: LazyFrame -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tan">tan</h2>
+<p>Compute the element-wise tangent.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tanh">tanh</h2>
+<p>Compute the element-wise hyperbolic tangent.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="then">then'</h2>
+<p>Connects a statement to the preceding when' condition.</p>
+<pre><code class="lang-fsharp">// Signature:
+statement: Expr -&gt; whenBlock: FSharpWhen -&gt; FSharpThen
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>statement</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">The expression to evaluate if the condition is true.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>whenBlock</code></td>
+<td style="text-align: left;"><code>FSharpWhen</code></td>
+<td style="text-align: left;">The FSharpWhen block built by pl.when'.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>A new FSharpThen collector block.</p>
+<hr>
+<h2 id="threadpoolsize">threadPoolSize</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+ -&gt; int
+</code></pre>
+<hr>
+<h2 id="timerange">timeRange</h2>
+<p>Generate a time range.</p>
+<pre><code class="lang-fsharp">// Signature:
+start: TimeOnly -&gt; endRange: TimeOnly -&gt; interval: Dur -&gt; closed: ClosedWindow -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>TimeOnly</code></td>
+<td style="text-align: left;">Lower bound of the time range. If omitted, defaults to TimeOnly.MinValue</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>TimeOnly</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>interval</code></td>
+<td style="text-align: left;"><code>Dur</code></td>
+<td style="text-align: left;">Interval of the range periods</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>closed</code></td>
+<td style="text-align: left;"><code>ClosedWindow</code></td>
+<td style="text-align: left;">Define which sides of the range are closed.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="timerangeasseries">timeRangeAsSeries</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; start: TimeOnly -&gt; endRange: TimeOnly -&gt; interval: Dur -&gt; closed: ClosedWindow -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>TimeOnly</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>TimeOnly</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>interval</code></td>
+<td style="text-align: left;"><code>Dur</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>closed</code></td>
+<td style="text-align: left;"><code>ClosedWindow</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="timeranges">timeRanges</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+start: TimeOnly -&gt; endRange: TimeOnly -&gt; interval: Dur -&gt; closed: ClosedWindow -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>TimeOnly</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>TimeOnly</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>interval</code></td>
+<td style="text-align: left;"><code>Dur</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>closed</code></td>
+<td style="text-align: left;"><code>ClosedWindow</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="timerangesasseries">timeRangesAsSeries</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; start: TimeOnly -&gt; endRange: TimeOnly -&gt; interval: Dur -&gt; closed: ClosedWindow -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>start</code></td>
+<td style="text-align: left;"><code>TimeOnly</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>endRange</code></td>
+<td style="text-align: left;"><code>TimeOnly</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>interval</code></td>
+<td style="text-align: left;"><code>Dur</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>closed</code></td>
+<td style="text-align: left;"><code>ClosedWindow</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="truediv">truediv</h2>
+<p>True division.</p>
+<pre><code class="lang-fsharp">// Signature:
+other: Expr -&gt; e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="trygetextensiontype">tryGetExtensionType</h2>
+<p>Get the extension type registration info for the given extension name.</p>
+<pre><code class="lang-fsharp">// Signature:
+extName: string -&gt; Option&lt;ExtensionRegistration&gt;
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>extName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The registered name.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="unique">unique</h2>
+<p>Get unique values.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="unnestcolumns">unnestColumns</h2>
+<p>Decompose multiple struct columns.</p>
+<pre><code class="lang-fsharp">// Signature:
+columns: Seq&lt;string&gt; -&gt; df: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columns</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>df</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="unnestcolumnslazy">unnestColumnsLazy</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+columns: Seq&lt;string&gt; -&gt; lf: LazyFrame -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columns</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="unregisterextensiontype">unregisterExtensionType</h2>
+<p>Unregister the extension type for the given extension name.</p>
+<pre><code class="lang-fsharp">// Signature:
+extName: string -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>extName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The registered name.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="var">var</h2>
+<p>Get the variance. This function is syntactic sugar for Pl.Col(column).Var(ddof).</p>
+<pre><code class="lang-fsharp">// Signature:
+column: string -&gt; ddof: Byte -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>column</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">Column name.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ddof</code></td>
+<td style="text-align: left;"><code>Byte</code></td>
+<td style="text-align: left;">“Delta Degrees of Freedom”: the divisor used in the calculation is N - ddof, where N represents the number of elements. By default ddof is 1.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="vstack">vstack</h2>
+<p>Vertically stack another DataFrame to this one.</p>
+<pre><code class="lang-fsharp">// Signature:
+other: DataFrame -&gt; df: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>df</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="when">when'</h2>
+<p>Starts a conditional when-then-otherwise expression branch logic natively in F#.</p>
+<pre><code class="lang-fsharp">// Signature:
+condition: Expr -&gt; FSharpWhen
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>condition</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">The initial filter condition expression.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>An intermediate FSharpWhen state object.</p>
+<hr>
+<h2 id="withcolumn">withColumn</h2>
+<p>Add or replace a single column in the DataFrame.</p>
+<pre><code class="lang-fsharp">// Signature:
+expr: Expr -&gt; df: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>expr</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>df</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="withcolumnlazy">withColumnLazy</h2>
+<p>Add or replace columns in the LazyFrame.</p>
+<pre><code class="lang-fsharp">// Signature:
+expr: Expr -&gt; lf: LazyFrame -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>expr</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="withcolumns">withColumns</h2>
+<p>Add or replace multiple columns in the DataFrame.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;Expr&gt; -&gt; df: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>df</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="withcolumnslazy">withColumnsLazy</h2>
+<p>Add or replace multiple columns in the LazyFrame.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;Expr&gt; -&gt; lf: LazyFrame -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="zeros">zeros</h2>
+<p>Construct a column of length n filled with zeros. This is syntactic sugar for the repeat function.</p>
+<pre><code class="lang-fsharp">// Signature:
+n: int -&gt; dtype: Option&lt;DataType&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">Length of the resulting column.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>dtype</code></td>
+<td style="text-align: left;"><code>Option&lt;DataType&gt;</code></td>
+<td style="text-align: left;">Data type of the resulting column. Defaults to Float64.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="zerosasseries">zerosAsSeries</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+n: int -&gt; dtype: Option&lt;DataType&gt; -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>dtype</code></td>
+<td style="text-align: left;"><code>Option&lt;DataType&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/api/fsharp_generated/pl.md/#L1" class="edit-link">Edit this page</a>
+        </div>
+
+        <div class="next-article d-print-none border-top" id="nextArticle"></div>
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

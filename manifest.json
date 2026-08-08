@@ -1,0 +1,2318 @@
+{
+  "source_base_path": "/home/qinglei/Projects/Polars.NET/docs",
+  "xrefmap": "xrefmap.yml",
+  "files": [
+    {
+      "type": "Resource",
+      "output": {
+        "resource": {
+          "relative_path": "index.json"
+        }
+      }
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.AdbcIngestMode.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.AdbcIngestMode.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.AdbcIngestMode",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.AdbcIngestMode.yml\" sourcestartlinenumber=\"1\">Specifies the behavior when bulk ingesting a DataFrame into an ADBC database table.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.Alignment.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.Alignment.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.Alignment",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.AmbiguousArg.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.AmbiguousArg.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.AmbiguousArg",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.AmbiguousStrategy.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.AmbiguousStrategy.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.AmbiguousStrategy",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.ArrayOps.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.ArrayOps.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.ArrayOps",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.ArrayOps.yml\" sourcestartlinenumber=\"1\">Offers methods for accessing fields within array columns.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.AsOfTolerance.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.AsOfTolerance.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.AsOfTolerance",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.AsOfTolerance.yml\" sourcestartlinenumber=\"1\">Smart tolerance type for AsOf joins.\nImplicitly converts from string (&quot;2h&quot;), TimeSpan, int, long, or double.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.AsofStrategy.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.AsofStrategy.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.AsofStrategy",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.AvroCompression.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.AvroCompression.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.AvroCompression",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.BaseExtension.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.BaseExtension.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.BaseExtension",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.BinaryOps.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.BinaryOps.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.BinaryOps",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.BinaryOps.yml\" sourcestartlinenumber=\"1\">Operations on binary columns. Access via <xref href=\"Polars.CSharp.Expr.Bin\" data-throw-if-not-resolved=\"false\"></xref>.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.BytesOrExpr.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.BytesOrExpr.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.BytesOrExpr",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.BytesOrExpr.yml\" sourcestartlinenumber=\"1\">Represents either a byte array literal or a Polars Expression.\nUsed extensively in the Binary namespace to simulate Into[Expr}.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.CatalogTableType.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.CatalogTableType.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.CatalogTableType",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.CategoricalOps.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.CategoricalOps.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.CategoricalOps",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.CategoricalOps.yml\" sourcestartlinenumber=\"1\">Operations on Catgorical columns. Access via <xref href=\"Polars.CSharp.Expr.Cat\" data-throw-if-not-resolved=\"false\"></xref>.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.CategoricalPhysical.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.CategoricalPhysical.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.CategoricalPhysical",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.Categories.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.Categories.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.Categories",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.ChainedWhen.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.ChainedWhen.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.ChainedWhen",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.ClosedInterval.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.ClosedInterval.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.ClosedInterval",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.CloudOptions.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.CloudOptions.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.CloudOptions",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.CloudOptions.yml\" sourcestartlinenumber=\"1\">Configuration options for Cloud IO (S3, Azure, GCP, etc).</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.CloudProvider.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.CloudProvider.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.CloudProvider",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.CloudProvider.yml\" sourcestartlinenumber=\"1\">Supported cloud providers for IO operations.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.ConcatType.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.ConcatType.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.ConcatType",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.ConcatType.yml\" sourcestartlinenumber=\"1\">Concat Type Enum</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.CorrelationMethod.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.CorrelationMethod.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.CorrelationMethod",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.CsvEncoding.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.CsvEncoding.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.CsvEncoding",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.DataFrame.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.DataFrame.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.DataFrame",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.DataFrame.yml\" sourcestartlinenumber=\"1\">DataFrame represents a 2-dimensional labeled data structure similar to a table or spreadsheet.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.DataFrameMergeBuilder.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.DataFrameMergeBuilder.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.DataFrameMergeBuilder",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.DataType.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.DataType.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.DataType",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.DataType.yml\" sourcestartlinenumber=\"1\">Represents a Polars data type.\nWraps the underlying Rust DataType Handle and provides high-level metadata.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.DataTypeExpr.ArrayNameSpace.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.DataTypeExpr.ArrayNameSpace.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.DataTypeExpr.ArrayNameSpace",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.DataTypeExpr.ListNameSpace.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.DataTypeExpr.ListNameSpace.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.DataTypeExpr.ListNameSpace",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.DataTypeExpr.StructNameSpace.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.DataTypeExpr.StructNameSpace.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.DataTypeExpr.StructNameSpace",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.DataTypeExpr.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.DataTypeExpr.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.DataTypeExpr",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.DataTypeExpr.yml\" sourcestartlinenumber=\"1\">A lazily instantiated DataType that can be used in an Expr.\nThis expression is made to represent a DataType that can be used to reference a datatype in a lazy context.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.DataTypeKind.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.DataTypeKind.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.DataTypeKind",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.DataTypeKind.yml\" sourcestartlinenumber=\"1\">Enum of DataTypeKind</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.Delta.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.Delta.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.Delta",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.Delta.yml\" sourcestartlinenumber=\"1\">Methods for DeltaLake</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.DeltaMergeBuilder.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.DeltaMergeBuilder.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.DeltaMergeBuilder",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.DeltaMergeBuilder.yml\" sourcestartlinenumber=\"1\">A builder for constructing ordered Delta Lake Merge operations.\nThis ensures that matched and not-matched conditions are evaluated exactly\nin the order they are chained by the user, adhering to standard SQL MERGE semantics.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.DeltaSaveMode.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.DeltaSaveMode.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.DeltaSaveMode",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.DeltaSaveMode.yml\" sourcestartlinenumber=\"1\">mode for saving delta lake table</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.DeltaTableFeatures.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.DeltaTableFeatures.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.DeltaTableFeatures",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.DeltaTableFeatures.yml\" sourcestartlinenumber=\"1\">Common Delta Lake Table Features.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.DeltaTableProperties.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.DeltaTableProperties.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.DeltaTableProperties",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.DeltaTableProperties.yml\" sourcestartlinenumber=\"1\">Common configuration keys for Delta Tables.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.DtOps.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.DtOps.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.DtOps",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.DtOps.yml\" sourcestartlinenumber=\"1\">Contains methods for temporal (Date/Time) operations.\nAccess this via <xref href=\"Polars.CSharp.Expr.Dt\" data-throw-if-not-resolved=\"false\"></xref>.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.DurationOrExpr.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.DurationOrExpr.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.DurationOrExpr",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.Endianness.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.Endianness.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.Endianness",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.Engine.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.Engine.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.Engine",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.Engine.yml\" sourcestartlinenumber=\"1\">Execution engine for LazyFrame.Collect()</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.EpochTimeUnit.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.EpochTimeUnit.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.EpochTimeUnit",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.Expr.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.Expr.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.Expr",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.Expr.yml\" sourcestartlinenumber=\"1\">A Polars Expr</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.ExtensionFactory.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.ExtensionFactory.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.ExtensionFactory",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.ExtensionInfo.AsClass.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.ExtensionInfo.AsClass.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.ExtensionInfo.AsClass",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.ExtensionInfo.AsStorage.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.ExtensionInfo.AsStorage.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.ExtensionInfo.AsStorage",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.ExtensionInfo.NotFound.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.ExtensionInfo.NotFound.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.ExtensionInfo.NotFound",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.ExtensionInfo.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.ExtensionInfo.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.ExtensionInfo",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.ExtensionOps.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.ExtensionOps.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.ExtensionOps",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.ExtensionOps.yml\" sourcestartlinenumber=\"1\">Operations on extension datatype columns. Access via <xref href=\"Polars.CSharp.Expr.Ext\" data-throw-if-not-resolved=\"false\"></xref>.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.ExternalCompression.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.ExternalCompression.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.ExternalCompression",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.ExtraColumnsPolicy.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.ExtraColumnsPolicy.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.ExtraColumnsPolicy",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.Field.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.Field.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.Field",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.Field.yml\" sourcestartlinenumber=\"1\">Definition of a single field within a Struct DataType.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.FillNullStrategy.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.FillNullStrategy.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.FillNullStrategy",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.FloatFormat.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.FloatFormat.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.FloatFormat",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.FrozenCategories.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.FrozenCategories.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.FrozenCategories",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.GroupByBuilder.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.GroupByBuilder.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.GroupByBuilder",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.GroupByBuilder.yml\" sourcestartlinenumber=\"1\">Unified builder for DataFrame GroupBy operations (Standard, Dynamic, Rolling)</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.IntOrExpr.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.IntOrExpr.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.IntOrExpr",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.InterpolationMethod.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.InterpolationMethod.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.InterpolationMethod",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.IntoDataTypeExpr.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.IntoDataTypeExpr.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.IntoDataTypeExpr",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.IntoDataTypeExpr.yml\" sourcestartlinenumber=\"1\">A union type representing a Polars data type or type expression.\nCan be implicitly converted from a .NET Type, a Polars DataType, or a dynamic DataTypeExpr.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.IntoDateExpr.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.IntoDateExpr.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.IntoDateExpr",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.IntoDuration.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.IntoDuration.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.IntoDuration",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.IntoDuration.yml\" sourcestartlinenumber=\"1\">A union type representing a time interval.\nCan be implicitly converted from a Polars duration string (e.g., &quot;1mo&quot;, &quot;1w&quot;) or a .NET TimeSpan.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.IntoExpr.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.IntoExpr.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.IntoExpr",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.IntoExpr.yml\" sourcestartlinenumber=\"1\">A type that can be implicitly converted into a Polars Expression.String will be parsed as literal value.\nMatches the 'IntoExpr' concept in Rust and Python Polars.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.IntoExprColumn.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.IntoExprColumn.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.IntoExprColumn",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.IntoExprColumn.yml\" sourcestartlinenumber=\"1\">A type that can be implicitly converted into a Polars Expression.String will be parsed as column name.\nMatches the 'IntoExprColumn' concept in Rust and Python Polars.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.IntoIndexLazyFrame.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.IntoIndexLazyFrame.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.IntoIndexLazyFrame",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.IntoIndexLazyFrame.yml\" sourcestartlinenumber=\"1\">A unified parameter wrapper that channels various .NET index types into a Polars LazyFrame\nfor the <code>Gather</code> operation without triggering eager evaluation.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.IntoPivotHint.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.IntoPivotHint.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.IntoPivotHint",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.IntoSchema.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.IntoSchema.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.IntoSchema",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.IntoSchema.yml\" sourcestartlinenumber=\"1\">A union type representing a PolarsSchema.\nCan be implicitly converted from a PolarsSchema, DataFrame, or LazyFrame.\nSchema Dictionary and Tuple are also accepted.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.IntoSelector.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.IntoSelector.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.IntoSelector",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.IntoSelector.yml\" sourcestartlinenumber=\"1\">A type that can be implicitly converted into a Polars Selector.\nIdeal for methods like Unique(), Drop(), etc. that expect column subsets.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.IpcCompression.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.IpcCompression.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.IpcCompression",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.JoinCoalesce.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.JoinCoalesce.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.JoinCoalesce",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.JoinMaintainOrder.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.JoinMaintainOrder.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.JoinMaintainOrder",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.JoinSide.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.JoinSide.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.JoinSide",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.JoinSide.yml\" sourcestartlinenumber=\"1\">Specifies the strategy for the hash join build side.</p>\n<p>\nIn a hash join, one dataframe is loaded into memory (the \"build side\") to construct a hash table, \nwhile the other is streamed (the \"probe side\") to find matches.\n</p>\n<p>\nGenerally, the smaller dataframe should be the build side for optimal performance and memory usage.\n</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.JoinType.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.JoinType.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.JoinType",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.JoinType.yml\" sourcestartlinenumber=\"1\">Enums of RightTypes</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.JoinValidation.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.JoinValidation.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.JoinValidation",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.JsonFormat.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.JsonFormat.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.JsonFormat",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.Label.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.Label.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.Label",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.Label.yml\" sourcestartlinenumber=\"1\">Defines which boundary of the window to use for the label.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.LazyFrame.ScopedLazyFrame.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.LazyFrame.ScopedLazyFrame.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.LazyFrame.ScopedLazyFrame",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.LazyFrame.ScopedLazyFrame.yml\" sourcestartlinenumber=\"1\">A LazyFrame with resource scope which needs to be disposed.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.LazyFrame.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.LazyFrame.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.LazyFrame",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.LazyFrame.yml\" sourcestartlinenumber=\"1\">Represents a lazily evaluated DataFrame.\nUntil the query is executed, operations are just recorded in a query plan.\nOnce executed, the data is materialized in memory.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.LazyFrameMergeBuilder.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.LazyFrameMergeBuilder.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.LazyFrameMergeBuilder",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.LazyGroupBy.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.LazyGroupBy.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.LazyGroupBy",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.LazyGroupBy.yml\" sourcestartlinenumber=\"1\">A unified builder for Standard, Dynamic, and Rolling GroupBy operations.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.ListOps.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.ListOps.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.ListOps",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.ListOps.yml\" sourcestartlinenumber=\"1\">Operations on List columns. Access via <xref href=\"Polars.CSharp.Expr.List\" data-throw-if-not-resolved=\"false\"></xref>.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.MatchSchemaConfig.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.MatchSchemaConfig.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.MatchSchemaConfig",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.MatchSchemaConfig.yml\" sourcestartlinenumber=\"1\">Configuration for schema matching policies during a MatchToSchema operation.\nProvides fine-grained control over how missing columns, struct fields, and type castings are handled.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.MergeActionType.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.MergeActionType.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.MergeActionType",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.MergeActionType.yml\" sourcestartlinenumber=\"1\">Defines the type of action to perform during a Merge operation.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.MergeBuilderBase-1.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.MergeBuilderBase-1.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.MergeBuilderBase<TBuilder>",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.MergeBuilderBase-1.yml\" sourcestartlinenumber=\"1\">A builder for Polars Merge</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.MergeContext.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.MergeContext.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.MergeContext",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.MergeContext.yml\" sourcestartlinenumber=\"1\">Provides a context for referencing Source and Target columns safely during a Merge operation.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.MergeSetterBuilder.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.MergeSetterBuilder.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.MergeSetterBuilder",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.MetaOps.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.MetaOps.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.MetaOps",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.MissingColumnAction.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.MissingColumnAction.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.MissingColumnAction",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.MissingColumnAction.yml\" sourcestartlinenumber=\"1\">Represents the action to take when a column from the target schema is missing in the current frame.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.MissingColumnsPolicy.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.MissingColumnsPolicy.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.MissingColumnsPolicy",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.NameOps.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.NameOps.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.NameOps",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.NameOps.yml\" sourcestartlinenumber=\"1\">Offers methods for renaming columns.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.NonExistent.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.NonExistent.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.NonExistent",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.NullBehavior.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.NullBehavior.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.NullBehavior",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.ParallelStrategy.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.ParallelStrategy.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.ParallelStrategy",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.ParquetCompression.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.ParquetCompression.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.ParquetCompression",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.PivotAgg.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.PivotAgg.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.PivotAgg",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.PivotAgg.yml\" sourcestartlinenumber=\"1\">Specifies the aggregation function for pivot operations.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.PivotColumnNaming.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.PivotColumnNaming.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.PivotColumnNaming",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.Polars.Selectors.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.Polars.Selectors.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.Polars.Selectors",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.Polars.Selectors.yml\" sourcestartlinenumber=\"1\">String matching selectors namespace.\nUsage: Cs.StartsWith(&quot;A&quot;) or Pl.Cs.StartWith(&quot;A&quot;)</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.Polars.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.Polars.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.Polars",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.Polars.yml\" sourcestartlinenumber=\"1\">Polars Static Helpers</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.PolarsConfig.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.PolarsConfig.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.PolarsConfig",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.PolarsConfig.yml\" sourcestartlinenumber=\"1\">Config for Polars.NET</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.PolarsConfigScope.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.PolarsConfigScope.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.PolarsConfigScope",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.PolarsConfigScope.yml\" sourcestartlinenumber=\"1\">Represents a lightweight scope that manages the lifecycle of local configuration changes.\nStores a backup snapshot of the system state upon creation and restores it when disposed,\npreventing side effects from leaking outside the scope.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.PolarsSchema.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.PolarsSchema.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.PolarsSchema",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.PolarsSchema.yml\" sourcestartlinenumber=\"1\">Represents a Polars Schema (Name -&gt; DataType mapping).</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.QuantileMethod.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.QuantileMethod.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.QuantileMethod",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.QuoteStyle.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.QuoteStyle.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.QuoteStyle",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.RankMethod.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.RankMethod.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.RankMethod",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.Roll.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.Roll.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.Roll",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.Roll.yml\" sourcestartlinenumber=\"1\">Strategy to handle dates that land on non-business days (weekends or holidays).</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.RollingRankMethod.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.RollingRankMethod.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.RollingRankMethod",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.RoundMode.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.RoundMode.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.RoundMode",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.SearchSortedSide.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.SearchSortedSide.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.SearchSortedSide",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.Selector.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.Selector.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.Selector",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.Selector.yml\" sourcestartlinenumber=\"1\">Represents a column selector strategy (e.g., All, Exclude).\nconvertable to Expr.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.Series.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.Series.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.Series",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.Series.yml\" sourcestartlinenumber=\"1\">Represents a single column of data (1-dimensional array).</p>\n<p>\nA Series is backed by Apache Arrow arrays and supports eager execution.\nOperations on Series are generally performed immediately.\n</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.SeriesArrayOps.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.SeriesArrayOps.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.SeriesArrayOps",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.SeriesArrayOps.yml\" sourcestartlinenumber=\"1\">Wrapper for Array (Fixed-Size List) operations on a Series.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.SeriesBinaryOps.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.SeriesBinaryOps.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.SeriesBinaryOps",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.SeriesBinaryOps.yml\" sourcestartlinenumber=\"1\">Wrapper for Binary operations on a Series.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.SeriesCategoricalOps.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.SeriesCategoricalOps.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.SeriesCategoricalOps",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.SeriesCategoricalOps.yml\" sourcestartlinenumber=\"1\">Operations on Categorical series. Access via <xref href=\"Polars.CSharp.Series.Cat\" data-throw-if-not-resolved=\"false\"></xref>.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.SeriesDtOps.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.SeriesDtOps.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.SeriesDtOps",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.SeriesDtOps.yml\" sourcestartlinenumber=\"1\">Date Ops Namespace</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.SeriesExtensionOps.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.SeriesExtensionOps.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.SeriesExtensionOps",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.SeriesExtensionOps.yml\" sourcestartlinenumber=\"1\">Wrapper for extensio datatype operations on a Series.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.SeriesListOps.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.SeriesListOps.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.SeriesListOps",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.SeriesListOps.yml\" sourcestartlinenumber=\"1\">Series List Ops Namespace</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.SeriesStrOps.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.SeriesStrOps.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.SeriesStrOps",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.SeriesStrOps.yml\" sourcestartlinenumber=\"1\">Series String Ops</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.SeriesStructOps.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.SeriesStructOps.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.SeriesStructOps",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.SeriesStructOps.yml\" sourcestartlinenumber=\"1\">Series Struct Ops Namespace</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.SizeUnit.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.SizeUnit.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.SizeUnit",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.SortStateFlags.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.SortStateFlags.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.SortStateFlags",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.SqlContext.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.SqlContext.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.SqlContext",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.SqlContext.yml\" sourcestartlinenumber=\"1\">A context for executing SQL queries against DataFrames and LazyFrames.</p>\n<p>\nPolars supports a subset of ANSI SQL. The query is converted into a logical plan \nand optimized/executed by the Polars engine.\n</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.StartBy.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.StartBy.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.StartBy",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.StartBy.yml\" sourcestartlinenumber=\"1\">Defines the strategy for determining the start of the window.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.StringOps.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.StringOps.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.StringOps",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.StringOps.yml\" sourcestartlinenumber=\"1\">Offers multiple methods for checking, parsing, and transforming string columns.\nAccess this via <xref href=\"Polars.CSharp.Expr.Str\" data-throw-if-not-resolved=\"false\"></xref>.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.StringOrExpr.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.StringOrExpr.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.StringOrExpr",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.StructOps.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.StructOps.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.StructOps",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.StructOps.yml\" sourcestartlinenumber=\"1\">Operations on Struct columns. Access via <xref href=\"Polars.CSharp.Expr.Struct\" data-throw-if-not-resolved=\"false\"></xref>.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.SyncOnClose.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.SyncOnClose.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.SyncOnClose",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.SyncOnClose.yml\" sourcestartlinenumber=\"1\">Controls the file synchronization behavior when closing the file.</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.TableFormatting.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.TableFormatting.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.TableFormatting",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.Then.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.Then.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.Then",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.TimeUnit.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.TimeUnit.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.TimeUnit",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.TimeUnit.yml\" sourcestartlinenumber=\"1\">TimeUnit Enums</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.TransferEncoding.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.TransferEncoding.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.TransferEncoding",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.UniqueKeepStrategy.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.UniqueKeepStrategy.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.UniqueKeepStrategy",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.UnityCatalog.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.UnityCatalog.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.UnityCatalog",
+      "Summary": "<p sourcefile=\"api/csharp/Polars.CSharp.UnityCatalog.yml\" sourcestartlinenumber=\"1\">Databricks Unity Catalog Client</p>\n"
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.UnityCatalogExtensions.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.UnityCatalogExtensions.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.UnityCatalogExtensions",
+      "Summary": ""
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.UnknownExtension.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.UnknownExtension.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.UnknownExtension",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.UnstackDirection.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.UnstackDirection.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.UnstackDirection",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.UpcastOrForbid.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.UpcastOrForbid.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.UpcastOrForbid",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.When.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.When.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.When",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.WindowMappingStrategy.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.WindowMappingStrategy.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp.WindowMappingStrategy",
+      "Summary": null
+    },
+    {
+      "type": "ManagedReference",
+      "source_relative_path": "api/csharp/Polars.CSharp.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/Polars.CSharp.html"
+        }
+      },
+      "version": "",
+      "Uid": null,
+      "IsMRef": true,
+      "Title": "Polars.CSharp",
+      "Summary": null
+    },
+    {
+      "type": "Toc",
+      "source_relative_path": "api/csharp/toc.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/csharp/toc.html"
+        },
+        ".json": {
+          "relative_path": "api/csharp/toc.json"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp/Config.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp/Config.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp/DataFrame.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp/DataFrame.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp/DataFrameDeltaExtensions.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp/DataFrameDeltaExtensions.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp/Delta.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp/Delta.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp/Expr.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp/Expr.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp/LazyFrame.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp/LazyFrame.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp/LazyFrameDeltaExtensions.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp/LazyFrameDeltaExtensions.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp/Merge.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp/Merge.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp/Selector.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp/Selector.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp/Series.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp/Series.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp/Set.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp/Set.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp/UnityCatalog.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp/UnityCatalog.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp/pl.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp/pl.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Toc",
+      "source_relative_path": "api/fsharp/toc.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp/toc.html"
+        },
+        ".json": {
+          "relative_path": "api/fsharp/toc.json"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp_generated/Config.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp_generated/Config.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp_generated/DataFrame.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp_generated/DataFrame.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp_generated/DataFrameDeltaExtensions.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp_generated/DataFrameDeltaExtensions.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp_generated/Delta.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp_generated/Delta.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp_generated/Expr.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp_generated/Expr.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp_generated/LazyFrame.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp_generated/LazyFrame.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp_generated/LazyFrameDeltaExtensions.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp_generated/LazyFrameDeltaExtensions.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp_generated/Merge.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp_generated/Merge.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp_generated/Selector.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp_generated/Selector.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp_generated/Series.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp_generated/Series.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp_generated/Set.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp_generated/Set.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp_generated/UnityCatalog.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp_generated/UnityCatalog.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/fsharp_generated/pl.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp_generated/pl.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Toc",
+      "source_relative_path": "api/fsharp_generated/toc.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/fsharp_generated/toc.html"
+        },
+        ".json": {
+          "relative_path": "api/fsharp_generated/toc.json"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "api/index.md",
+      "output": {
+        ".html": {
+          "relative_path": "api/index.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Toc",
+      "source_relative_path": "api/toc.yml",
+      "output": {
+        ".html": {
+          "relative_path": "api/toc.html"
+        },
+        ".json": {
+          "relative_path": "api/toc.json"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "articles/intro.md",
+      "output": {
+        ".html": {
+          "relative_path": "articles/intro.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "articles/quickstart.md",
+      "output": {
+        ".html": {
+          "relative_path": "articles/quickstart.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Resource",
+      "source_relative_path": "images/icon.png",
+      "output": {
+        "resource": {
+          "relative_path": "images/icon.png"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Resource",
+      "source_relative_path": "images/logo.svg",
+      "output": {
+        "resource": {
+          "relative_path": "images/logo.svg"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Conceptual",
+      "source_relative_path": "index.md",
+      "output": {
+        ".html": {
+          "relative_path": "index.html"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Resource",
+      "source_relative_path": "styles/main.css",
+      "output": {
+        "resource": {
+          "relative_path": "styles/main.css"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Toc",
+      "source_relative_path": "toc.yml",
+      "output": {
+        ".html": {
+          "relative_path": "toc.html"
+        },
+        ".json": {
+          "relative_path": "toc.json"
+        }
+      },
+      "version": ""
+    }
+  ],
+  "groups": [
+    {
+      "xrefmap": "xrefmap.yml"
+    }
+  ]
+}

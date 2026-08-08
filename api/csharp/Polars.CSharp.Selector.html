@@ -1,0 +1,4742 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Class Selector | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Class Selector | Polars.NET ">
+      
+      <meta name="description" content="Represents a column selector strategy (e.g., All, Exclude). convertable to Expr.">
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="../toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/new/main/apiSpec/new?filename=Polars_CSharp_Selector.md&amp;value=---%0Auid%3A%20Polars.CSharp.Selector%0Asummary%3A%20&#39;*You%20can%20override%20summary%20for%20the%20API%20here%20using%20*MARKDOWN*%20syntax&#39;%0A---%0A%0A*Please%20type%20below%20more%20information%20about%20this%20API%3A*%0A%0A">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="ManagedReference">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.CSharp.Selector">
+
+
+
+  <h1 id="Polars_CSharp_Selector" data-uid="Polars.CSharp.Selector" class="text-break">
+Class Selector  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L10"><i class="bi bi-code-slash"></i></a>
+  </h1>
+
+  <div class="facts text-secondary">
+    <dl><dt>Namespace</dt><dd><a class="xref" href="Polars.html">Polars</a>.<a class="xref" href="Polars.CSharp.html">CSharp</a></dd></dl>
+  <dl><dt>Assembly</dt><dd>Polars.CSharp.dll</dd></dl>
+  </div>
+
+  <div class="markdown summary"><p>Represents a column selector strategy (e.g., All, Exclude).
+convertable to Expr.</p>
+</div>
+  <div class="markdown conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public class Selector : IDisposable</code></pre>
+  </div>
+
+
+
+
+  <dl class="typelist inheritance">
+    <dt>Inheritance</dt>
+    <dd>
+      <div><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object">object</a></div>
+      <div><span class="xref">Selector</span></div>
+    </dd>
+  </dl>
+
+  <dl class="typelist implements">
+    <dt>Implements</dt>
+    <dd>
+      <div><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.idisposable">IDisposable</a></div>
+    </dd>
+  </dl>
+
+
+  <dl class="typelist inheritedMembers">
+    <dt>Inherited Members</dt>
+    <dd>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.equals#system-object-equals(system-object-system-object)">object.Equals(object, object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.gettype">object.GetType()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.memberwiseclone">object.MemberwiseClone()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.referenceequals">object.ReferenceEquals(object, object)</a>
+    </div>
+  </dd></dl>
+
+
+
+
+
+
+  <h2 class="section" id="properties">Properties
+</h2>
+
+
+  <a id="Polars_CSharp_Selector_Handle_" data-uid="Polars.CSharp.Selector.Handle*"></a>
+
+  <h3 id="Polars_CSharp_Selector_Handle" data-uid="Polars.CSharp.Selector.Handle">
+  Handle
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L15"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>The safety handle of Selector</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public SelectorHandle Handle { get; }</code></pre>
+  </div>
+
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><span class="xref">SelectorHandle</span></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <h2 class="section" id="methods">Methods
+</h2>
+
+
+  <a id="Polars_CSharp_Selector_Clone_" data-uid="Polars.CSharp.Selector.Clone*"></a>
+
+  <h3 id="Polars_CSharp_Selector_Clone" data-uid="Polars.CSharp.Selector.Clone">
+  Clone()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L24"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Selector Clone()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_Dispose_" data-uid="Polars.CSharp.Selector.Dispose*"></a>
+
+  <h3 id="Polars_CSharp_Selector_Dispose" data-uid="Polars.CSharp.Selector.Dispose">
+  Dispose()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L229"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Dispose unused Selector Handle</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public void Dispose()</code></pre>
+  </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_Equals_" data-uid="Polars.CSharp.Selector.Equals*"></a>
+
+  <h3 id="Polars_CSharp_Selector_Equals_System_Object_" data-uid="Polars.CSharp.Selector.Equals(System.Object)">
+  Equals(object?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L219"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Determines whether the specified object is equal to the current object.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public override bool Equals(object? obj)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>obj</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object">object</a></dt>
+    <dd><p>The object to compare with the current object.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p><a href="https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/bool">true</a> if the specified object  is equal to the current object; otherwise, <a href="https://learn.microsoft.com/dotnet/csharp/language-reference/builtin-types/bool">false</a>.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_Exclude_" data-uid="Polars.CSharp.Selector.Exclude*"></a>
+
+  <h3 id="Polars_CSharp_Selector_Exclude_System_ReadOnlySpan_Polars_CSharp_DataType__" data-uid="Polars.CSharp.Selector.Exclude(System.ReadOnlySpan{Polars.CSharp.DataType})">
+  Exclude(params ReadOnlySpan&lt;DataType&gt;)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L175"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Exclude columns matching any of the specified Data Types.
+Usage: cs.All().Exclude(PlDataType.String, PlDataType.Boolean)</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Selector Exclude(params ReadOnlySpan&lt;DataType&gt; dtypes)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>dtypes</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.readonlyspan-1">ReadOnlySpan</a>&lt;<a class="xref" href="Polars.CSharp.DataType.html">DataType</a>&gt;</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_Exclude_" data-uid="Polars.CSharp.Selector.Exclude*"></a>
+
+  <h3 id="Polars_CSharp_Selector_Exclude_System_ReadOnlySpan_Polars_CSharp_Selector__" data-uid="Polars.CSharp.Selector.Exclude(System.ReadOnlySpan{Polars.CSharp.Selector})">
+  Exclude(params ReadOnlySpan&lt;Selector&gt;)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L158"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Exclude columns matching any of the specified Selectors.
+Usage: cs.Numeric().Exclude(cs.First(), cs.Last())</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Selector Exclude(params ReadOnlySpan&lt;Selector&gt; selectors)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>selectors</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.readonlyspan-1">ReadOnlySpan</a>&lt;<a class="xref" href="Polars.CSharp.Selector.html">Selector</a>&gt;</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_Exclude_" data-uid="Polars.CSharp.Selector.Exclude*"></a>
+
+  <h3 id="Polars_CSharp_Selector_Exclude_System_String___" data-uid="Polars.CSharp.Selector.Exclude(System.String[])">
+  Exclude(params string[])
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L149"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Exclude columns by name.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Selector Exclude(params string[] names)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>names</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>[]</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_GetHashCode_" data-uid="Polars.CSharp.Selector.GetHashCode*"></a>
+
+  <h3 id="Polars_CSharp_Selector_GetHashCode" data-uid="Polars.CSharp.Selector.GetHashCode">
+  GetHashCode()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L225"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Serves as the default hash function.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public override int GetHashCode()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd><p>A hash code for the current object.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_ToExpr_" data-uid="Polars.CSharp.Selector.ToExpr*"></a>
+
+  <h3 id="Polars_CSharp_Selector_ToExpr" data-uid="Polars.CSharp.Selector.ToExpr">
+  ToExpr()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L191"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Convert the selector to an Expression.
+This allows using selectors inside Select(), WithColumns(), etc.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr ToExpr()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_ToString_" data-uid="Polars.CSharp.Selector.ToString*"></a>
+
+  <h3 id="Polars_CSharp_Selector_ToString" data-uid="Polars.CSharp.Selector.ToString">
+  ToString()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L220"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Returns a string that represents the current object.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public override string ToString()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>A string that represents the current object.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <h2 class="section" id="operators">Operators
+</h2>
+
+
+  <a id="Polars_CSharp_Selector_op_Addition_" data-uid="Polars.CSharp.Selector.op_Addition*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Addition_Polars_CSharp_Selector_System_Double_" data-uid="Polars.CSharp.Selector.op_Addition(Polars.CSharp.Selector,System.Double)">
+  operator +(Selector, double)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L54"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator +(Selector s, double other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Addition_" data-uid="Polars.CSharp.Selector.op_Addition*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Addition_Polars_CSharp_Selector_System_Int32_" data-uid="Polars.CSharp.Selector.op_Addition(Polars.CSharp.Selector,System.Int32)">
+  operator +(Selector, int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L28"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator +(Selector s, int other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Addition_" data-uid="Polars.CSharp.Selector.op_Addition*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Addition_Polars_CSharp_Selector_System_Int64_" data-uid="Polars.CSharp.Selector.op_Addition(Polars.CSharp.Selector,System.Int64)">
+  operator +(Selector, long)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L41"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator +(Selector s, long other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Addition_" data-uid="Polars.CSharp.Selector.op_Addition*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Addition_Polars_CSharp_Selector_System_Single_" data-uid="Polars.CSharp.Selector.op_Addition(Polars.CSharp.Selector,System.Single)">
+  operator +(Selector, float)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L66"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator +(Selector s, float other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Addition_" data-uid="Polars.CSharp.Selector.op_Addition*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Addition_Polars_CSharp_Selector_System_String_" data-uid="Polars.CSharp.Selector.op_Addition(Polars.CSharp.Selector,System.String)">
+  operator +(Selector, string)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L78"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator +(Selector s, string v)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>v</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Addition_" data-uid="Polars.CSharp.Selector.op_Addition*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Addition_System_Double_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Addition(System.Double,Polars.CSharp.Selector)">
+  operator +(double, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L115"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator +(double other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Addition_" data-uid="Polars.CSharp.Selector.op_Addition*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Addition_System_Int32_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Addition(System.Int32,Polars.CSharp.Selector)">
+  operator +(int, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L89"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator +(int other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Addition_" data-uid="Polars.CSharp.Selector.op_Addition*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Addition_System_Int64_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Addition(System.Int64,Polars.CSharp.Selector)">
+  operator +(long, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L102"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator +(long other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Addition_" data-uid="Polars.CSharp.Selector.op_Addition*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Addition_System_Single_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Addition(System.Single,Polars.CSharp.Selector)">
+  operator +(float, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L127"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator +(float other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Addition_" data-uid="Polars.CSharp.Selector.op_Addition*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Addition_System_String_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Addition(System.String,Polars.CSharp.Selector)">
+  operator +(string, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L138"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator +(string other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_BitwiseAnd_" data-uid="Polars.CSharp.Selector.op_BitwiseAnd*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_BitwiseAnd_Polars_CSharp_Selector_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_BitwiseAnd(Polars.CSharp.Selector,Polars.CSharp.Selector)">
+  operator &amp;(Selector, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L197"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector operator &amp;(Selector left, Selector right)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>left</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>right</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_BitwiseAnd_" data-uid="Polars.CSharp.Selector.op_BitwiseAnd*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_BitwiseAnd_Polars_CSharp_Selector_System_Boolean_" data-uid="Polars.CSharp.Selector.op_BitwiseAnd(Polars.CSharp.Selector,System.Boolean)">
+  operator &amp;(Selector, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L83"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &amp;(Selector s, bool v)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>v</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_BitwiseAnd_" data-uid="Polars.CSharp.Selector.op_BitwiseAnd*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_BitwiseAnd_System_Boolean_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_BitwiseAnd(System.Boolean,Polars.CSharp.Selector)">
+  operator &amp;(bool, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L142"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &amp;(bool v, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>v</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_BitwiseOr_" data-uid="Polars.CSharp.Selector.op_BitwiseOr*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_BitwiseOr_Polars_CSharp_Selector_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_BitwiseOr(Polars.CSharp.Selector,Polars.CSharp.Selector)">
+  operator |(Selector, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L200"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector operator |(Selector left, Selector right)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>left</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>right</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_BitwiseOr_" data-uid="Polars.CSharp.Selector.op_BitwiseOr*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_BitwiseOr_Polars_CSharp_Selector_System_Boolean_" data-uid="Polars.CSharp.Selector.op_BitwiseOr(Polars.CSharp.Selector,System.Boolean)">
+  operator |(Selector, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L84"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator |(Selector s, bool v)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>v</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_BitwiseOr_" data-uid="Polars.CSharp.Selector.op_BitwiseOr*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_BitwiseOr_System_Boolean_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_BitwiseOr(System.Boolean,Polars.CSharp.Selector)">
+  operator |(bool, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L143"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator |(bool v, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>v</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Division_" data-uid="Polars.CSharp.Selector.op_Division*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Division_Polars_CSharp_Selector_System_Double_" data-uid="Polars.CSharp.Selector.op_Division(Polars.CSharp.Selector,System.Double)">
+  operator /(Selector, double)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L56"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator /(Selector s, double other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Division_" data-uid="Polars.CSharp.Selector.op_Division*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Division_Polars_CSharp_Selector_System_Int32_" data-uid="Polars.CSharp.Selector.op_Division(Polars.CSharp.Selector,System.Int32)">
+  operator /(Selector, int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L30"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator /(Selector s, int other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Division_" data-uid="Polars.CSharp.Selector.op_Division*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Division_Polars_CSharp_Selector_System_Int64_" data-uid="Polars.CSharp.Selector.op_Division(Polars.CSharp.Selector,System.Int64)">
+  operator /(Selector, long)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L43"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator /(Selector s, long other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Division_" data-uid="Polars.CSharp.Selector.op_Division*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Division_Polars_CSharp_Selector_System_Single_" data-uid="Polars.CSharp.Selector.op_Division(Polars.CSharp.Selector,System.Single)">
+  operator /(Selector, float)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L68"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator /(Selector s, float other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Division_" data-uid="Polars.CSharp.Selector.op_Division*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Division_System_Double_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Division(System.Double,Polars.CSharp.Selector)">
+  operator /(double, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L117"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator /(double other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Division_" data-uid="Polars.CSharp.Selector.op_Division*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Division_System_Int32_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Division(System.Int32,Polars.CSharp.Selector)">
+  operator /(int, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L91"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator /(int other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Division_" data-uid="Polars.CSharp.Selector.op_Division*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Division_System_Int64_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Division(System.Int64,Polars.CSharp.Selector)">
+  operator /(long, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L104"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator /(long other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Division_" data-uid="Polars.CSharp.Selector.op_Division*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Division_System_Single_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Division(System.Single,Polars.CSharp.Selector)">
+  operator /(float, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L129"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator /(float other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Equality_" data-uid="Polars.CSharp.Selector.op_Equality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Equality_Polars_CSharp_Selector_System_Double_" data-uid="Polars.CSharp.Selector.op_Equality(Polars.CSharp.Selector,System.Double)">
+  operator ==(Selector, double)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L62"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator ==(Selector s, double other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Equality_" data-uid="Polars.CSharp.Selector.op_Equality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Equality_Polars_CSharp_Selector_System_Int32_" data-uid="Polars.CSharp.Selector.op_Equality(Polars.CSharp.Selector,System.Int32)">
+  operator ==(Selector, int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L36"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator ==(Selector s, int other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Equality_" data-uid="Polars.CSharp.Selector.op_Equality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Equality_Polars_CSharp_Selector_System_Int64_" data-uid="Polars.CSharp.Selector.op_Equality(Polars.CSharp.Selector,System.Int64)">
+  operator ==(Selector, long)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L49"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator ==(Selector s, long other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Equality_" data-uid="Polars.CSharp.Selector.op_Equality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Equality_Polars_CSharp_Selector_System_Single_" data-uid="Polars.CSharp.Selector.op_Equality(Polars.CSharp.Selector,System.Single)">
+  operator ==(Selector, float)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L74"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator ==(Selector s, float other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Equality_" data-uid="Polars.CSharp.Selector.op_Equality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Equality_Polars_CSharp_Selector_System_String_" data-uid="Polars.CSharp.Selector.op_Equality(Polars.CSharp.Selector,System.String)">
+  operator ==(Selector, string)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L79"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator ==(Selector s, string v)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>v</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Equality_" data-uid="Polars.CSharp.Selector.op_Equality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Equality_System_Double_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Equality(System.Double,Polars.CSharp.Selector)">
+  operator ==(double, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L123"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator ==(double other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Equality_" data-uid="Polars.CSharp.Selector.op_Equality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Equality_System_Int32_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Equality(System.Int32,Polars.CSharp.Selector)">
+  operator ==(int, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L97"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator ==(int other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Equality_" data-uid="Polars.CSharp.Selector.op_Equality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Equality_System_Int64_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Equality(System.Int64,Polars.CSharp.Selector)">
+  operator ==(long, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L110"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator ==(long other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Equality_" data-uid="Polars.CSharp.Selector.op_Equality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Equality_System_Single_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Equality(System.Single,Polars.CSharp.Selector)">
+  operator ==(float, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L135"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator ==(float other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Equality_" data-uid="Polars.CSharp.Selector.op_Equality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Equality_System_String_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Equality(System.String,Polars.CSharp.Selector)">
+  operator ==(string, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L139"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator ==(string other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_ExclusiveOr_" data-uid="Polars.CSharp.Selector.op_ExclusiveOr*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_ExclusiveOr_Polars_CSharp_Selector_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_ExclusiveOr(Polars.CSharp.Selector,Polars.CSharp.Selector)">
+  operator ^(Selector, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L208"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector operator ^(Selector left, Selector right)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>left</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>right</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_ExclusiveOr_" data-uid="Polars.CSharp.Selector.op_ExclusiveOr*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_ExclusiveOr_Polars_CSharp_Selector_System_Boolean_" data-uid="Polars.CSharp.Selector.op_ExclusiveOr(Polars.CSharp.Selector,System.Boolean)">
+  operator ^(Selector, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L85"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator ^(Selector s, bool v)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>v</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_ExclusiveOr_" data-uid="Polars.CSharp.Selector.op_ExclusiveOr*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_ExclusiveOr_Polars_CSharp_Selector_System_Int32_" data-uid="Polars.CSharp.Selector.op_ExclusiveOr(Polars.CSharp.Selector,System.Int32)">
+  operator ^(Selector, int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L38"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator ^(Selector s, int v)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>v</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_ExclusiveOr_" data-uid="Polars.CSharp.Selector.op_ExclusiveOr*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_ExclusiveOr_Polars_CSharp_Selector_System_Int64_" data-uid="Polars.CSharp.Selector.op_ExclusiveOr(Polars.CSharp.Selector,System.Int64)">
+  operator ^(Selector, long)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L51"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator ^(Selector s, long v)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>v</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_ExclusiveOr_" data-uid="Polars.CSharp.Selector.op_ExclusiveOr*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_ExclusiveOr_System_Boolean_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_ExclusiveOr(System.Boolean,Polars.CSharp.Selector)">
+  operator ^(bool, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L144"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator ^(bool v, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>v</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_ExclusiveOr_" data-uid="Polars.CSharp.Selector.op_ExclusiveOr*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_ExclusiveOr_System_Int32_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_ExclusiveOr(System.Int32,Polars.CSharp.Selector)">
+  operator ^(int, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L99"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator ^(int v, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>v</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_ExclusiveOr_" data-uid="Polars.CSharp.Selector.op_ExclusiveOr*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_ExclusiveOr_System_Int64_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_ExclusiveOr(System.Int64,Polars.CSharp.Selector)">
+  operator ^(long, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L112"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator ^(long v, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>v</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_GreaterThan_" data-uid="Polars.CSharp.Selector.op_GreaterThan*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_GreaterThan_Polars_CSharp_Selector_System_Double_" data-uid="Polars.CSharp.Selector.op_GreaterThan(Polars.CSharp.Selector,System.Double)">
+  operator &gt;(Selector, double)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L58"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &gt;(Selector s, double other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_GreaterThan_" data-uid="Polars.CSharp.Selector.op_GreaterThan*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_GreaterThan_Polars_CSharp_Selector_System_Int32_" data-uid="Polars.CSharp.Selector.op_GreaterThan(Polars.CSharp.Selector,System.Int32)">
+  operator &gt;(Selector, int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L32"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &gt;(Selector s, int other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_GreaterThan_" data-uid="Polars.CSharp.Selector.op_GreaterThan*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_GreaterThan_Polars_CSharp_Selector_System_Int64_" data-uid="Polars.CSharp.Selector.op_GreaterThan(Polars.CSharp.Selector,System.Int64)">
+  operator &gt;(Selector, long)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L45"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &gt;(Selector s, long other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_GreaterThan_" data-uid="Polars.CSharp.Selector.op_GreaterThan*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_GreaterThan_Polars_CSharp_Selector_System_Single_" data-uid="Polars.CSharp.Selector.op_GreaterThan(Polars.CSharp.Selector,System.Single)">
+  operator &gt;(Selector, float)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L70"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &gt;(Selector s, float other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_GreaterThan_" data-uid="Polars.CSharp.Selector.op_GreaterThan*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_GreaterThan_System_Double_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_GreaterThan(System.Double,Polars.CSharp.Selector)">
+  operator &gt;(double, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L119"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &gt;(double other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_GreaterThan_" data-uid="Polars.CSharp.Selector.op_GreaterThan*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_GreaterThan_System_Int32_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_GreaterThan(System.Int32,Polars.CSharp.Selector)">
+  operator &gt;(int, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L93"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &gt;(int other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_GreaterThan_" data-uid="Polars.CSharp.Selector.op_GreaterThan*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_GreaterThan_System_Int64_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_GreaterThan(System.Int64,Polars.CSharp.Selector)">
+  operator &gt;(long, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L106"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &gt;(long other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_GreaterThan_" data-uid="Polars.CSharp.Selector.op_GreaterThan*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_GreaterThan_System_Single_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_GreaterThan(System.Single,Polars.CSharp.Selector)">
+  operator &gt;(float, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L131"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &gt;(float other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_GreaterThanOrEqual_" data-uid="Polars.CSharp.Selector.op_GreaterThanOrEqual*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_GreaterThanOrEqual_Polars_CSharp_Selector_System_Double_" data-uid="Polars.CSharp.Selector.op_GreaterThanOrEqual(Polars.CSharp.Selector,System.Double)">
+  operator &gt;=(Selector, double)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L60"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &gt;=(Selector s, double other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_GreaterThanOrEqual_" data-uid="Polars.CSharp.Selector.op_GreaterThanOrEqual*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_GreaterThanOrEqual_Polars_CSharp_Selector_System_Int32_" data-uid="Polars.CSharp.Selector.op_GreaterThanOrEqual(Polars.CSharp.Selector,System.Int32)">
+  operator &gt;=(Selector, int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L34"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &gt;=(Selector s, int other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_GreaterThanOrEqual_" data-uid="Polars.CSharp.Selector.op_GreaterThanOrEqual*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_GreaterThanOrEqual_Polars_CSharp_Selector_System_Int64_" data-uid="Polars.CSharp.Selector.op_GreaterThanOrEqual(Polars.CSharp.Selector,System.Int64)">
+  operator &gt;=(Selector, long)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L47"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &gt;=(Selector s, long other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_GreaterThanOrEqual_" data-uid="Polars.CSharp.Selector.op_GreaterThanOrEqual*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_GreaterThanOrEqual_Polars_CSharp_Selector_System_Single_" data-uid="Polars.CSharp.Selector.op_GreaterThanOrEqual(Polars.CSharp.Selector,System.Single)">
+  operator &gt;=(Selector, float)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L72"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &gt;=(Selector s, float other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_GreaterThanOrEqual_" data-uid="Polars.CSharp.Selector.op_GreaterThanOrEqual*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_GreaterThanOrEqual_System_Double_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_GreaterThanOrEqual(System.Double,Polars.CSharp.Selector)">
+  operator &gt;=(double, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L121"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &gt;=(double other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_GreaterThanOrEqual_" data-uid="Polars.CSharp.Selector.op_GreaterThanOrEqual*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_GreaterThanOrEqual_System_Int32_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_GreaterThanOrEqual(System.Int32,Polars.CSharp.Selector)">
+  operator &gt;=(int, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L95"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &gt;=(int other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_GreaterThanOrEqual_" data-uid="Polars.CSharp.Selector.op_GreaterThanOrEqual*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_GreaterThanOrEqual_System_Int64_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_GreaterThanOrEqual(System.Int64,Polars.CSharp.Selector)">
+  operator &gt;=(long, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L108"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &gt;=(long other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_GreaterThanOrEqual_" data-uid="Polars.CSharp.Selector.op_GreaterThanOrEqual*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_GreaterThanOrEqual_System_Single_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_GreaterThanOrEqual(System.Single,Polars.CSharp.Selector)">
+  operator &gt;=(float, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L133"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &gt;=(float other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Implicit_" data-uid="Polars.CSharp.Selector.op_Implicit*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Implicit_Polars_CSharp_Selector__Polars_CSharp_Expr" data-uid="Polars.CSharp.Selector.op_Implicit(Polars.CSharp.Selector)~Polars.CSharp.Expr">
+  implicit operator Expr(Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L218"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Implicitly convert Selector to Expr.
+This is the magic that allows df.Select(Polars.All())</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static implicit operator Expr(Selector selector)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>selector</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Inequality_" data-uid="Polars.CSharp.Selector.op_Inequality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Inequality_Polars_CSharp_Selector_System_Double_" data-uid="Polars.CSharp.Selector.op_Inequality(Polars.CSharp.Selector,System.Double)">
+  operator !=(Selector, double)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L63"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator !=(Selector s, double other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Inequality_" data-uid="Polars.CSharp.Selector.op_Inequality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Inequality_Polars_CSharp_Selector_System_Int32_" data-uid="Polars.CSharp.Selector.op_Inequality(Polars.CSharp.Selector,System.Int32)">
+  operator !=(Selector, int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L37"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator !=(Selector s, int other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Inequality_" data-uid="Polars.CSharp.Selector.op_Inequality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Inequality_Polars_CSharp_Selector_System_Int64_" data-uid="Polars.CSharp.Selector.op_Inequality(Polars.CSharp.Selector,System.Int64)">
+  operator !=(Selector, long)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L50"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator !=(Selector s, long other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Inequality_" data-uid="Polars.CSharp.Selector.op_Inequality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Inequality_Polars_CSharp_Selector_System_Single_" data-uid="Polars.CSharp.Selector.op_Inequality(Polars.CSharp.Selector,System.Single)">
+  operator !=(Selector, float)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L75"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator !=(Selector s, float other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Inequality_" data-uid="Polars.CSharp.Selector.op_Inequality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Inequality_Polars_CSharp_Selector_System_String_" data-uid="Polars.CSharp.Selector.op_Inequality(Polars.CSharp.Selector,System.String)">
+  operator !=(Selector, string)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L80"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator !=(Selector s, string v)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>v</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Inequality_" data-uid="Polars.CSharp.Selector.op_Inequality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Inequality_System_Double_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Inequality(System.Double,Polars.CSharp.Selector)">
+  operator !=(double, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L124"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator !=(double other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Inequality_" data-uid="Polars.CSharp.Selector.op_Inequality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Inequality_System_Int32_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Inequality(System.Int32,Polars.CSharp.Selector)">
+  operator !=(int, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L98"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator !=(int other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Inequality_" data-uid="Polars.CSharp.Selector.op_Inequality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Inequality_System_Int64_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Inequality(System.Int64,Polars.CSharp.Selector)">
+  operator !=(long, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L111"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator !=(long other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Inequality_" data-uid="Polars.CSharp.Selector.op_Inequality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Inequality_System_Single_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Inequality(System.Single,Polars.CSharp.Selector)">
+  operator !=(float, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L136"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator !=(float other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Inequality_" data-uid="Polars.CSharp.Selector.op_Inequality*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Inequality_System_String_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Inequality(System.String,Polars.CSharp.Selector)">
+  operator !=(string, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L140"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator !=(string other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_LessThan_" data-uid="Polars.CSharp.Selector.op_LessThan*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_LessThan_Polars_CSharp_Selector_System_Double_" data-uid="Polars.CSharp.Selector.op_LessThan(Polars.CSharp.Selector,System.Double)">
+  operator &lt;(Selector, double)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L59"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &lt;(Selector s, double other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_LessThan_" data-uid="Polars.CSharp.Selector.op_LessThan*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_LessThan_Polars_CSharp_Selector_System_Int32_" data-uid="Polars.CSharp.Selector.op_LessThan(Polars.CSharp.Selector,System.Int32)">
+  operator &lt;(Selector, int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L33"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &lt;(Selector s, int other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_LessThan_" data-uid="Polars.CSharp.Selector.op_LessThan*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_LessThan_Polars_CSharp_Selector_System_Int64_" data-uid="Polars.CSharp.Selector.op_LessThan(Polars.CSharp.Selector,System.Int64)">
+  operator &lt;(Selector, long)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L46"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &lt;(Selector s, long other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_LessThan_" data-uid="Polars.CSharp.Selector.op_LessThan*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_LessThan_Polars_CSharp_Selector_System_Single_" data-uid="Polars.CSharp.Selector.op_LessThan(Polars.CSharp.Selector,System.Single)">
+  operator &lt;(Selector, float)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L71"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &lt;(Selector s, float other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_LessThan_" data-uid="Polars.CSharp.Selector.op_LessThan*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_LessThan_System_Double_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_LessThan(System.Double,Polars.CSharp.Selector)">
+  operator &lt;(double, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L120"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &lt;(double other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_LessThan_" data-uid="Polars.CSharp.Selector.op_LessThan*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_LessThan_System_Int32_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_LessThan(System.Int32,Polars.CSharp.Selector)">
+  operator &lt;(int, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L94"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &lt;(int other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_LessThan_" data-uid="Polars.CSharp.Selector.op_LessThan*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_LessThan_System_Int64_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_LessThan(System.Int64,Polars.CSharp.Selector)">
+  operator &lt;(long, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L107"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &lt;(long other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_LessThan_" data-uid="Polars.CSharp.Selector.op_LessThan*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_LessThan_System_Single_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_LessThan(System.Single,Polars.CSharp.Selector)">
+  operator &lt;(float, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L132"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &lt;(float other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_LessThanOrEqual_" data-uid="Polars.CSharp.Selector.op_LessThanOrEqual*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_LessThanOrEqual_Polars_CSharp_Selector_System_Double_" data-uid="Polars.CSharp.Selector.op_LessThanOrEqual(Polars.CSharp.Selector,System.Double)">
+  operator &lt;=(Selector, double)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L61"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &lt;=(Selector s, double other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_LessThanOrEqual_" data-uid="Polars.CSharp.Selector.op_LessThanOrEqual*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_LessThanOrEqual_Polars_CSharp_Selector_System_Int32_" data-uid="Polars.CSharp.Selector.op_LessThanOrEqual(Polars.CSharp.Selector,System.Int32)">
+  operator &lt;=(Selector, int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L35"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &lt;=(Selector s, int other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_LessThanOrEqual_" data-uid="Polars.CSharp.Selector.op_LessThanOrEqual*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_LessThanOrEqual_Polars_CSharp_Selector_System_Int64_" data-uid="Polars.CSharp.Selector.op_LessThanOrEqual(Polars.CSharp.Selector,System.Int64)">
+  operator &lt;=(Selector, long)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L48"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &lt;=(Selector s, long other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_LessThanOrEqual_" data-uid="Polars.CSharp.Selector.op_LessThanOrEqual*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_LessThanOrEqual_Polars_CSharp_Selector_System_Single_" data-uid="Polars.CSharp.Selector.op_LessThanOrEqual(Polars.CSharp.Selector,System.Single)">
+  operator &lt;=(Selector, float)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L73"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &lt;=(Selector s, float other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_LessThanOrEqual_" data-uid="Polars.CSharp.Selector.op_LessThanOrEqual*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_LessThanOrEqual_System_Double_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_LessThanOrEqual(System.Double,Polars.CSharp.Selector)">
+  operator &lt;=(double, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L122"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &lt;=(double other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_LessThanOrEqual_" data-uid="Polars.CSharp.Selector.op_LessThanOrEqual*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_LessThanOrEqual_System_Int32_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_LessThanOrEqual(System.Int32,Polars.CSharp.Selector)">
+  operator &lt;=(int, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L96"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &lt;=(int other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_LessThanOrEqual_" data-uid="Polars.CSharp.Selector.op_LessThanOrEqual*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_LessThanOrEqual_System_Int64_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_LessThanOrEqual(System.Int64,Polars.CSharp.Selector)">
+  operator &lt;=(long, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L109"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &lt;=(long other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_LessThanOrEqual_" data-uid="Polars.CSharp.Selector.op_LessThanOrEqual*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_LessThanOrEqual_System_Single_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_LessThanOrEqual(System.Single,Polars.CSharp.Selector)">
+  operator &lt;=(float, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L134"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator &lt;=(float other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_LogicalNot_" data-uid="Polars.CSharp.Selector.op_LogicalNot*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_LogicalNot_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_LogicalNot(Polars.CSharp.Selector)">
+  operator !(Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L205"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector operator !(Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Modulus_" data-uid="Polars.CSharp.Selector.op_Modulus*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Modulus_Polars_CSharp_Selector_System_Double_" data-uid="Polars.CSharp.Selector.op_Modulus(Polars.CSharp.Selector,System.Double)">
+  operator %(Selector, double)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L57"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator %(Selector s, double other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Modulus_" data-uid="Polars.CSharp.Selector.op_Modulus*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Modulus_Polars_CSharp_Selector_System_Int32_" data-uid="Polars.CSharp.Selector.op_Modulus(Polars.CSharp.Selector,System.Int32)">
+  operator %(Selector, int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L31"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator %(Selector s, int other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Modulus_" data-uid="Polars.CSharp.Selector.op_Modulus*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Modulus_Polars_CSharp_Selector_System_Int64_" data-uid="Polars.CSharp.Selector.op_Modulus(Polars.CSharp.Selector,System.Int64)">
+  operator %(Selector, long)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L44"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator %(Selector s, long other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Modulus_" data-uid="Polars.CSharp.Selector.op_Modulus*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Modulus_Polars_CSharp_Selector_System_Single_" data-uid="Polars.CSharp.Selector.op_Modulus(Polars.CSharp.Selector,System.Single)">
+  operator %(Selector, float)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L69"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator %(Selector s, float other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Modulus_" data-uid="Polars.CSharp.Selector.op_Modulus*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Modulus_System_Double_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Modulus(System.Double,Polars.CSharp.Selector)">
+  operator %(double, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L118"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator %(double other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Modulus_" data-uid="Polars.CSharp.Selector.op_Modulus*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Modulus_System_Int32_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Modulus(System.Int32,Polars.CSharp.Selector)">
+  operator %(int, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L92"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator %(int other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Modulus_" data-uid="Polars.CSharp.Selector.op_Modulus*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Modulus_System_Int64_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Modulus(System.Int64,Polars.CSharp.Selector)">
+  operator %(long, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L105"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator %(long other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Modulus_" data-uid="Polars.CSharp.Selector.op_Modulus*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Modulus_System_Single_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Modulus(System.Single,Polars.CSharp.Selector)">
+  operator %(float, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L130"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator %(float other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Multiply_" data-uid="Polars.CSharp.Selector.op_Multiply*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Multiply_Polars_CSharp_Selector_System_Double_" data-uid="Polars.CSharp.Selector.op_Multiply(Polars.CSharp.Selector,System.Double)">
+  operator *(Selector, double)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L53"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator *(Selector s, double other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Multiply_" data-uid="Polars.CSharp.Selector.op_Multiply*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Multiply_Polars_CSharp_Selector_System_Int32_" data-uid="Polars.CSharp.Selector.op_Multiply(Polars.CSharp.Selector,System.Int32)">
+  operator *(Selector, int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L27"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator *(Selector s, int other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Multiply_" data-uid="Polars.CSharp.Selector.op_Multiply*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Multiply_Polars_CSharp_Selector_System_Int64_" data-uid="Polars.CSharp.Selector.op_Multiply(Polars.CSharp.Selector,System.Int64)">
+  operator *(Selector, long)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L40"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator *(Selector s, long other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Multiply_" data-uid="Polars.CSharp.Selector.op_Multiply*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Multiply_Polars_CSharp_Selector_System_Single_" data-uid="Polars.CSharp.Selector.op_Multiply(Polars.CSharp.Selector,System.Single)">
+  operator *(Selector, float)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L65"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator *(Selector s, float other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Multiply_" data-uid="Polars.CSharp.Selector.op_Multiply*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Multiply_System_Double_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Multiply(System.Double,Polars.CSharp.Selector)">
+  operator *(double, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L114"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator *(double other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Multiply_" data-uid="Polars.CSharp.Selector.op_Multiply*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Multiply_System_Int32_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Multiply(System.Int32,Polars.CSharp.Selector)">
+  operator *(int, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L88"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator *(int other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Multiply_" data-uid="Polars.CSharp.Selector.op_Multiply*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Multiply_System_Int64_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Multiply(System.Int64,Polars.CSharp.Selector)">
+  operator *(long, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L101"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator *(long other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Multiply_" data-uid="Polars.CSharp.Selector.op_Multiply*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Multiply_System_Single_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Multiply(System.Single,Polars.CSharp.Selector)">
+  operator *(float, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L126"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator *(float other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_OnesComplement_" data-uid="Polars.CSharp.Selector.op_OnesComplement*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_OnesComplement_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_OnesComplement(Polars.CSharp.Selector)">
+  operator ~(Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L203"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector operator ~(Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Subtraction_" data-uid="Polars.CSharp.Selector.op_Subtraction*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Subtraction_Polars_CSharp_Selector_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Subtraction(Polars.CSharp.Selector,Polars.CSharp.Selector)">
+  operator -(Selector, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L211"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Selector operator -(Selector left, Selector right)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>left</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>right</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Subtraction_" data-uid="Polars.CSharp.Selector.op_Subtraction*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Subtraction_Polars_CSharp_Selector_System_Double_" data-uid="Polars.CSharp.Selector.op_Subtraction(Polars.CSharp.Selector,System.Double)">
+  operator -(Selector, double)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L55"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator -(Selector s, double other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Subtraction_" data-uid="Polars.CSharp.Selector.op_Subtraction*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Subtraction_Polars_CSharp_Selector_System_Int32_" data-uid="Polars.CSharp.Selector.op_Subtraction(Polars.CSharp.Selector,System.Int32)">
+  operator -(Selector, int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L29"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator -(Selector s, int other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Subtraction_" data-uid="Polars.CSharp.Selector.op_Subtraction*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Subtraction_Polars_CSharp_Selector_System_Int64_" data-uid="Polars.CSharp.Selector.op_Subtraction(Polars.CSharp.Selector,System.Int64)">
+  operator -(Selector, long)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L42"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator -(Selector s, long other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Subtraction_" data-uid="Polars.CSharp.Selector.op_Subtraction*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Subtraction_Polars_CSharp_Selector_System_Single_" data-uid="Polars.CSharp.Selector.op_Subtraction(Polars.CSharp.Selector,System.Single)">
+  operator -(Selector, float)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L67"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator -(Selector s, float other)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Subtraction_" data-uid="Polars.CSharp.Selector.op_Subtraction*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Subtraction_System_Double_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Subtraction(System.Double,Polars.CSharp.Selector)">
+  operator -(double, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L116"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator -(double other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.double">double</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Subtraction_" data-uid="Polars.CSharp.Selector.op_Subtraction*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Subtraction_System_Int32_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Subtraction(System.Int32,Polars.CSharp.Selector)">
+  operator -(int, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L90"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator -(int other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Subtraction_" data-uid="Polars.CSharp.Selector.op_Subtraction*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Subtraction_System_Int64_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Subtraction(System.Int64,Polars.CSharp.Selector)">
+  operator -(long, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L103"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator -(long other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Selector_op_Subtraction_" data-uid="Polars.CSharp.Selector.op_Subtraction*"></a>
+
+  <h3 id="Polars_CSharp_Selector_op_Subtraction_System_Single_Polars_CSharp_Selector_" data-uid="Polars.CSharp.Selector.op_Subtraction(System.Single,Polars.CSharp.Selector)">
+  operator -(float, Selector)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L128"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"></div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static Expr operator -(float other, Selector s)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>other</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.single">float</a></dt>
+    <dd></dd>
+    <dt><code>s</code> <a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/Selector.cs/#L10" class="edit-link">Edit this page</a>
+        </div>
+
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

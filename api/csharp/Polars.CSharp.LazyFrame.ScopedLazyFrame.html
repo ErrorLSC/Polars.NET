@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Class LazyFrame.ScopedLazyFrame | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Class LazyFrame.ScopedLazyFrame | Polars.NET ">
+      
+      <meta name="description" content="A LazyFrame with resource scope which needs to be disposed.">
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="../toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/new/main/apiSpec/new?filename=Polars_CSharp_LazyFrame_ScopedLazyFrame.md&amp;value=---%0Auid%3A%20Polars.CSharp.LazyFrame.ScopedLazyFrame%0Asummary%3A%20&#39;*You%20can%20override%20summary%20for%20the%20API%20here%20using%20*MARKDOWN*%20syntax&#39;%0A---%0A%0A*Please%20type%20below%20more%20information%20about%20this%20API%3A*%0A%0A">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="ManagedReference">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.CSharp.LazyFrame.ScopedLazyFrame">
+
+
+
+  <h1 id="Polars_CSharp_LazyFrame_ScopedLazyFrame" data-uid="Polars.CSharp.LazyFrame.ScopedLazyFrame" class="text-break">
+Class LazyFrame.ScopedLazyFrame  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Database/ADO.NET/Scan.cs/#L118"><i class="bi bi-code-slash"></i></a>
+  </h1>
+
+  <div class="facts text-secondary">
+    <dl><dt>Namespace</dt><dd><a class="xref" href="Polars.html">Polars</a>.<a class="xref" href="Polars.CSharp.html">CSharp</a></dd></dl>
+  <dl><dt>Assembly</dt><dd>Polars.CSharp.dll</dd></dl>
+  </div>
+
+  <div class="markdown summary"><p>A LazyFrame with resource scope which needs to be disposed.</p>
+</div>
+  <div class="markdown conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public class LazyFrame.ScopedLazyFrame : LazyFrame, IPolarsLazyFrame, IDisposable</code></pre>
+  </div>
+
+
+
+
+  <dl class="typelist inheritance">
+    <dt>Inheritance</dt>
+    <dd>
+      <div><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object">object</a></div>
+      <div><a class="xref" href="Polars.CSharp.LazyFrame.html">LazyFrame</a></div>
+      <div><span class="xref">LazyFrame.ScopedLazyFrame</span></div>
+    </dd>
+  </dl>
+
+  <dl class="typelist implements">
+    <dt>Implements</dt>
+    <dd>
+      <div><span class="xref">IPolarsLazyFrame</span></div>
+      <div><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.idisposable">IDisposable</a></div>
+    </dd>
+  </dl>
+
+
+  <dl class="typelist inheritedMembers">
+    <dt>Inherited Members</dt>
+    <dd>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_ScanEnumerable__1_System_Collections_Generic_IEnumerable___0__Apache_Arrow_Schema_System_Int32_System_Boolean_">LazyFrame.ScanEnumerable&lt;T&gt;(IEnumerable&lt;T&gt;, Schema, int, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_ScanRecordBatches_System_Collections_Generic_IEnumerable_Apache_Arrow_RecordBatch__Apache_Arrow_Schema_">LazyFrame.ScanRecordBatches(IEnumerable&lt;RecordBatch&gt;, Schema)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_SinkBatches_System_Action_Apache_Arrow_RecordBatch__">LazyFrame.SinkBatches(Action&lt;RecordBatch&gt;)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_ScanCsv_System_String_System_Nullable_Polars_CSharp_IntoSchema__System_Nullable_Polars_CSharp_IntoSchema__System_Boolean_System_Char_System_Nullable_System_Char__System_Char_System_Boolean_System_Boolean_System_Boolean_System_Boolean_System_Boolean_System_Boolean_System_Boolean_System_UInt64_System_UInt64_System_UInt64_System_Nullable_System_UInt64__System_Nullable_System_UInt64__System_Nullable_System_UInt64__System_Nullable_System_UInt64__System_Nullable_System_UInt64__System_String_System_UInt64_System_String_Polars_CSharp_CsvEncoding_System_String___System_Boolean_System_String_System_Boolean_System_Boolean_Polars_CSharp_CloudOptions_">LazyFrame.ScanCsv(string, IntoSchema?, IntoSchema?, bool, char, char?, char, bool, bool, bool, bool, bool, bool, bool, ulong, ulong, ulong, ulong?, ulong?, ulong?, ulong?, ulong?, string, ulong, string, CsvEncoding, string[], bool, string, bool, bool, CloudOptions)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_ScanCsv_System_Byte___System_Nullable_Polars_CSharp_IntoSchema__System_Nullable_Polars_CSharp_IntoSchema__System_Boolean_System_Char_System_Nullable_System_Char__System_Char_System_Boolean_System_Boolean_System_Boolean_System_Boolean_System_Boolean_System_Boolean_System_Boolean_System_UInt64_System_UInt64_System_UInt64_System_Nullable_System_UInt64__System_Nullable_System_UInt64__System_Nullable_System_UInt64__System_Nullable_System_UInt64__System_Nullable_System_UInt64__System_String_System_UInt64_System_String_Polars_CSharp_CsvEncoding_System_String___System_Boolean_System_String_System_Boolean_System_Boolean_">LazyFrame.ScanCsv(byte[], IntoSchema?, IntoSchema?, bool, char, char?, char, bool, bool, bool, bool, bool, bool, bool, ulong, ulong, ulong, ulong?, ulong?, ulong?, ulong?, ulong?, string, ulong, string, CsvEncoding, string[], bool, string, bool, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_SinkCsv_System_String_System_Boolean_System_Boolean_System_Char_System_Char_Polars_CSharp_QuoteStyle_System_String_System_String_System_Nullable_System_Boolean__System_Nullable_System_Int32__System_Boolean_System_String_System_String_System_String_System_Boolean_Polars_CSharp_ExternalCompression_System_Int32_System_Boolean_Polars_CSharp_SyncOnClose_System_Boolean_System_Int32_Polars_CSharp_CloudOptions_">LazyFrame.SinkCsv(string, bool, bool, char, char, QuoteStyle, string, string, bool?, int?, bool, string, string, string, bool, ExternalCompression, int, bool, SyncOnClose, bool, int, CloudOptions)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_SinkCsvPartitioned_System_String_Polars_CSharp_IntoSelector_System_Boolean_System_Boolean_System_Int32_System_Int64_System_Boolean_System_Boolean_System_Char_System_Char_Polars_CSharp_QuoteStyle_System_String_System_String_System_Nullable_System_Boolean__System_Nullable_System_Int32__System_Boolean_System_String_System_String_System_String_System_Boolean_Polars_CSharp_ExternalCompression_System_Int32_System_Boolean_Polars_CSharp_SyncOnClose_System_Boolean_System_Int32_Polars_CSharp_CloudOptions_">LazyFrame.SinkCsvPartitioned(string, IntoSelector, bool, bool, int, long, bool, bool, char, char, QuoteStyle, string, string, bool?, int?, bool, string, string, string, bool, ExternalCompression, int, bool, SyncOnClose, bool, int, CloudOptions)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_SinkCsvMemory_System_Boolean_System_Boolean_System_Int32_System_Boolean_Polars_CSharp_ExternalCompression_System_Int32_System_String_System_String_System_String_System_Int32_System_Int32_System_Boolean_System_Byte_System_Byte_System_String_System_String_Polars_CSharp_QuoteStyle_System_Boolean_">LazyFrame.SinkCsvMemory(bool, bool, int, bool, ExternalCompression, int, string, string, string, int, int, bool, byte, byte, string, string, QuoteStyle, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_ScanDatabase_System_Data_IDataReader_System_Int32_">LazyFrame.ScanDatabase(IDataReader, int)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_ScanDatabase_System_Func_System_Data_IDataReader__System_Int32_">LazyFrame.ScanDatabase(Func&lt;IDataReader&gt;, int)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_ScanDatabaseBuffered_System_Data_IDataReader_System_Int32_">LazyFrame.ScanDatabaseBuffered(IDataReader, int)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_SinkTo_System_Action_System_Data_IDataReader__System_Int32_System_Collections_Generic_Dictionary_System_String_System_Type__">LazyFrame.SinkTo(Action&lt;IDataReader&gt;, int, Dictionary&lt;string, Type&gt;)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_ScanDelta_System_String_System_Nullable_System_UInt64__System_String_System_Nullable_System_UInt64__Polars_CSharp_ParallelStrategy_System_Boolean_System_Boolean_System_Boolean_System_Boolean_System_Boolean_System_String_System_UInt32_System_String_System_Nullable_Polars_CSharp_IntoSchema__System_Boolean_System_Nullable_Polars_CSharp_IntoSchema__System_Boolean_Polars_CSharp_CloudOptions_">LazyFrame.ScanDelta(string, ulong?, string, ulong?, ParallelStrategy, bool, bool, bool, bool, bool, string, uint, string, IntoSchema?, bool, IntoSchema?, bool, CloudOptions)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_SinkDelta_System_String_System_Nullable_Polars_CSharp_IntoSelector__Polars_CSharp_DeltaSaveMode_System_Boolean_System_Boolean_System_Boolean_System_Int32_System_Int64_Polars_CSharp_ParquetCompression_System_Int32_System_Boolean_System_UInt32_System_UInt32_System_Int32_System_Boolean_Polars_CSharp_SyncOnClose_System_Boolean_Polars_CSharp_CloudOptions_">LazyFrame.SinkDelta(string, IntoSelector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_MergeDelta_System_String_System_String___Polars_CSharp_Expr_Polars_CSharp_Expr_Polars_CSharp_Expr_Polars_CSharp_Expr_System_Boolean_Polars_CSharp_CloudOptions_">LazyFrame.MergeDelta(string, string[], Expr, Expr, Expr, Expr, bool, CloudOptions)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_MergeDeltaOrdered_System_String_System_String___System_Boolean_Polars_CSharp_CloudOptions_">LazyFrame.MergeDeltaOrdered(string, string[], bool, CloudOptions)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_ScanIpc_System_String_System_Nullable_Polars_CSharp_IntoSchema__System_Nullable_System_UInt64__System_Boolean_System_Boolean_System_Boolean_System_String_System_UInt32_System_String_System_Boolean_System_Nullable_Polars_CSharp_IntoSchema__System_Boolean_Polars_CSharp_CloudOptions_">LazyFrame.ScanIpc(string, IntoSchema?, ulong?, bool, bool, bool, string, uint, string, bool, IntoSchema?, bool, CloudOptions)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_ScanIpc_System_Byte___System_Nullable_Polars_CSharp_IntoSchema__System_Nullable_System_UInt64__System_Boolean_System_Boolean_System_String_System_UInt32_System_String_System_Boolean_System_Nullable_Polars_CSharp_IntoSchema__System_Boolean_">LazyFrame.ScanIpc(byte[], IntoSchema?, ulong?, bool, bool, string, uint, string, bool, IntoSchema?, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_ScanIpc_System_IO_Stream_System_Nullable_Polars_CSharp_IntoSchema__System_Nullable_System_UInt64__System_Boolean_System_Boolean_System_String_System_UInt32_System_String_System_Boolean_System_Nullable_Polars_CSharp_IntoSchema__System_Boolean_">LazyFrame.ScanIpc(Stream, IntoSchema?, ulong?, bool, bool, string, uint, string, bool, IntoSchema?, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_SinkIpc_System_String_Polars_CSharp_IpcCompression_System_Int32_System_Int32_System_Boolean_System_Boolean_Polars_CSharp_SyncOnClose_System_Boolean_Polars_CSharp_CloudOptions_">LazyFrame.SinkIpc(string, IpcCompression, int, int, bool, bool, SyncOnClose, bool, CloudOptions)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_SinkIpcPartitioned_System_String_Polars_CSharp_IntoSelector_System_Boolean_System_Boolean_System_Int32_System_Int64_Polars_CSharp_IpcCompression_System_Int32_System_Int32_System_Boolean_System_Boolean_Polars_CSharp_SyncOnClose_System_Boolean_Polars_CSharp_CloudOptions_">LazyFrame.SinkIpcPartitioned(string, IntoSelector, bool, bool, int, long, IpcCompression, int, int, bool, bool, SyncOnClose, bool, CloudOptions)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_SinkIpcMemory_Polars_CSharp_IpcCompression_System_Int32_System_Int32_System_Boolean_System_Boolean_">LazyFrame.SinkIpcMemory(IpcCompression, int, int, bool, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_ScanNdjson_System_String_System_Nullable_Polars_CSharp_IntoSchema__System_Nullable_System_UInt64__System_Nullable_System_UInt64__System_Nullable_System_UInt64__System_Boolean_System_Boolean_System_Boolean_System_String_System_UInt32_System_String_Polars_CSharp_CloudOptions_">LazyFrame.ScanNdjson(string, IntoSchema?, ulong?, ulong?, ulong?, bool, bool, bool, string, uint, string, CloudOptions)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_ScanNdjson_System_Byte___System_Nullable_Polars_CSharp_IntoSchema__System_Nullable_System_UInt64__System_Nullable_System_UInt64__System_Nullable_System_UInt64__System_Boolean_System_Boolean_System_Boolean_System_String_System_UInt32_">LazyFrame.ScanNdjson(byte[], IntoSchema?, ulong?, ulong?, ulong?, bool, bool, bool, string, uint)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_ScanNdjson_System_IO_Stream_System_Nullable_Polars_CSharp_IntoSchema__System_Nullable_System_UInt64__System_Nullable_System_UInt64__System_Nullable_System_UInt64__System_Boolean_System_Boolean_System_Boolean_System_String_System_UInt32_">LazyFrame.ScanNdjson(Stream, IntoSchema?, ulong?, ulong?, ulong?, bool, bool, bool, string, uint)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_SinkJson_System_String_Polars_CSharp_ExternalCompression_System_Int32_System_Boolean_System_Boolean_Polars_CSharp_SyncOnClose_System_Boolean_Polars_CSharp_CloudOptions_">LazyFrame.SinkJson(string, ExternalCompression, int, bool, bool, SyncOnClose, bool, CloudOptions)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_SinkJsonPartitioned_System_String_Polars_CSharp_IntoSelector_System_Boolean_System_Boolean_System_Int32_System_Int64_Polars_CSharp_ExternalCompression_System_Int32_System_Boolean_System_Boolean_Polars_CSharp_SyncOnClose_System_Boolean_Polars_CSharp_CloudOptions_">LazyFrame.SinkJsonPartitioned(string, IntoSelector, bool, bool, int, long, ExternalCompression, int, bool, bool, SyncOnClose, bool, CloudOptions)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_SinkNdJson_System_String_Polars_CSharp_ExternalCompression_System_Int32_System_Boolean_System_Boolean_Polars_CSharp_SyncOnClose_System_Boolean_Polars_CSharp_CloudOptions_">LazyFrame.SinkNdJson(string, ExternalCompression, int, bool, bool, SyncOnClose, bool, CloudOptions)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_SinkJsonMemory_Polars_CSharp_ExternalCompression_System_Int32_System_Boolean_System_Boolean_">LazyFrame.SinkJsonMemory(ExternalCompression, int, bool, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_ScanParquet_System_String_System_Nullable_System_UInt64__Polars_CSharp_ParallelStrategy_System_Boolean_System_Boolean_System_Boolean_System_Boolean_System_Boolean_System_Boolean_System_String_System_UInt32_System_String_System_Nullable_Polars_CSharp_IntoSchema__System_Boolean_System_Nullable_Polars_CSharp_IntoSchema__System_Boolean_Polars_CSharp_CloudOptions_">LazyFrame.ScanParquet(string, ulong?, ParallelStrategy, bool, bool, bool, bool, bool, bool, string, uint, string, IntoSchema?, bool, IntoSchema?, bool, CloudOptions)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_ScanParquet_System_Byte___System_Nullable_System_UInt64__Polars_CSharp_ParallelStrategy_System_Boolean_System_Boolean_System_Boolean_System_Boolean_System_Boolean_System_String_System_UInt32_System_String_System_Nullable_Polars_CSharp_IntoSchema__System_Boolean_System_Nullable_Polars_CSharp_IntoSchema__System_Boolean_">LazyFrame.ScanParquet(byte[], ulong?, ParallelStrategy, bool, bool, bool, bool, bool, string, uint, string, IntoSchema?, bool, IntoSchema?, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_SinkParquet_System_String_Polars_CSharp_ParquetCompression_System_Int32_System_Boolean_System_Int32_System_Int32_System_Int32_System_Boolean_Polars_CSharp_SyncOnClose_System_Boolean_Polars_CSharp_CloudOptions_">LazyFrame.SinkParquet(string, ParquetCompression, int, bool, int, int, int, bool, SyncOnClose, bool, CloudOptions)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_SinkParquetPartitioned_System_String_Polars_CSharp_IntoSelector_System_Boolean_System_Boolean_System_Int32_System_Int64_Polars_CSharp_ParquetCompression_System_Int32_System_Boolean_System_Int32_System_Int32_System_Int32_System_Boolean_Polars_CSharp_SyncOnClose_System_Boolean_Polars_CSharp_CloudOptions_">LazyFrame.SinkParquetPartitioned(string, IntoSelector, bool, bool, int, long, ParquetCompression, int, bool, int, int, int, bool, SyncOnClose, bool, CloudOptions)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_SinkParquetMemory_Polars_CSharp_ParquetCompression_System_Int32_System_Boolean_System_Int32_System_Int32_System_Int32_System_Boolean_">LazyFrame.SinkParquetMemory(ParquetCompression, int, bool, int, int, int, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Explain_System_Boolean_">LazyFrame.Explain(bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Describe">LazyFrame.Describe()</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_ToString">LazyFrame.ToString()</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Show">LazyFrame.Show()</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Schema">LazyFrame.Schema</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_CollectSchema">LazyFrame.CollectSchema()</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_PrintSchema">LazyFrame.PrintSchema()</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Columns">LazyFrame.Columns</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_ColumnNames">LazyFrame.ColumnNames</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_DataTypes">LazyFrame.DataTypes</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Clone">LazyFrame.Clone()</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Rename_System_String___System_String___System_Boolean_">LazyFrame.Rename(string[], string[], bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Slice_System_Int64_System_Nullable_System_UInt32__">LazyFrame.Slice(long, uint?)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Clear_System_Int64_">LazyFrame.Clear(long)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Limit_System_UInt32_">LazyFrame.Limit(uint)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Tail_System_UInt32_">LazyFrame.Tail(uint)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Last">LazyFrame.Last()</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_First">LazyFrame.First()</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Head_System_UInt32_">LazyFrame.Head(uint)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Interpolate">LazyFrame.Interpolate()</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Collect_Polars_CSharp_Engine_System_Boolean_">LazyFrame.Collect(Engine, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_CollectAsync_Polars_CSharp_Engine_System_Boolean_System_Threading_CancellationToken_">LazyFrame.CollectAsync(Engine, bool, CancellationToken)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Count">LazyFrame.Count()</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Sum">LazyFrame.Sum()</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Max">LazyFrame.Max()</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Min">LazyFrame.Min()</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Mean">LazyFrame.Mean()</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Median">LazyFrame.Median()</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_NullCount">LazyFrame.NullCount()</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Std_System_Byte_">LazyFrame.Std(byte)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Var_System_Byte_">LazyFrame.Var(byte)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Quantile_System_Double_Polars_CSharp_QuantileMethod_">LazyFrame.Quantile(double, QuantileMethod)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Cast_Polars_CSharp_IntoDataTypeExpr_System_Boolean_System_Boolean_">LazyFrame.Cast(IntoDataTypeExpr, bool, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Cast_Polars_CSharp_IntoSelector_Polars_CSharp_IntoDataTypeExpr_System_Boolean_System_Boolean_">LazyFrame.Cast(IntoSelector, IntoDataTypeExpr, bool, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Cast_System_ValueTuple_Polars_CSharp_IntoSelector_Polars_CSharp_IntoDataTypeExpr____">LazyFrame.Cast(params (IntoSelector Selector, IntoDataTypeExpr Dtype)[])</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Cast_Polars_CSharp_IntoSchema_System_Boolean_System_Boolean_">LazyFrame.Cast(IntoSchema, bool, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Concat_System_Collections_Generic_IEnumerable_Polars_CSharp_LazyFrame__Polars_CSharp_ConcatType_System_Boolean_System_Boolean_">LazyFrame.Concat(IEnumerable&lt;LazyFrame&gt;, ConcatType, bool, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Drop_Polars_CSharp_IntoSelector___">LazyFrame.Drop(params IntoSelector[])</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Drop_System_Collections_Generic_IEnumerable_System_String__">LazyFrame.Drop(IEnumerable&lt;string&gt;)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_DropNulls">LazyFrame.DropNulls()</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_DropNulls_Polars_CSharp_IntoSelector___">LazyFrame.DropNulls(params IntoSelector[])</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_DropNulls_System_Collections_Generic_IEnumerable_System_String__">LazyFrame.DropNulls(IEnumerable&lt;string&gt;)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_DropNans_Polars_CSharp_IntoSelector___">LazyFrame.DropNans(params IntoSelector[])</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_DropNans_System_Collections_Generic_IEnumerable_System_String__">LazyFrame.DropNans(IEnumerable&lt;string&gt;)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_DropNans">LazyFrame.DropNans()</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_FillNull_Polars_CSharp_Expr_">LazyFrame.FillNull(Expr)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_FillNull_System_Object_">LazyFrame.FillNull(object)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_FillNan_Polars_CSharp_Expr_">LazyFrame.FillNan(Expr)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Filter_Polars_CSharp_Expr_">LazyFrame.Filter(Expr)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Filter_Polars_CSharp_Series_">LazyFrame.Filter(Series)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Filter_System_Collections_Generic_IEnumerable_System_Boolean__">LazyFrame.Filter(IEnumerable&lt;bool&gt;)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Gather_Polars_CSharp_IntoIndexLazyFrame_System_Boolean_">LazyFrame.Gather(IntoIndexLazyFrame, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_GatherEvery_System_Int32_System_Int32_">LazyFrame.GatherEvery(int, int)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_GroupBy_System_Collections_Generic_IEnumerable_Polars_CSharp_IntoExprColumn__System_Boolean_">LazyFrame.GroupBy(IEnumerable&lt;IntoExprColumn&gt;, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_GroupBy_Polars_CSharp_IntoExprColumn_System_Boolean_">LazyFrame.GroupBy(IntoExprColumn, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_GroupByDynamic_Polars_CSharp_IntoSelector_Polars_CSharp_IntoDuration_System_Nullable_Polars_CSharp_IntoDuration__System_Nullable_Polars_CSharp_IntoDuration__System_Collections_Generic_IEnumerable_Polars_CSharp_IntoExprColumn__Polars_CSharp_Label_System_Boolean_Polars_CSharp_ClosedInterval_Polars_CSharp_StartBy_">LazyFrame.GroupByDynamic(IntoSelector, IntoDuration, IntoDuration?, IntoDuration?, IEnumerable&lt;IntoExprColumn&gt;, Label, bool, ClosedInterval, StartBy)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Rolling_Polars_CSharp_IntoSelector_Polars_CSharp_IntoDuration_System_Nullable_Polars_CSharp_IntoDuration__System_Collections_Generic_IEnumerable_Polars_CSharp_IntoExprColumn__Polars_CSharp_ClosedInterval_">LazyFrame.Rolling(IntoSelector, IntoDuration, IntoDuration?, IEnumerable&lt;IntoExprColumn&gt;, ClosedInterval)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Join_Polars_CSharp_LazyFrame_Polars_CSharp_IntoExprColumn_Polars_CSharp_JoinType_System_String_Polars_CSharp_JoinValidation_Polars_CSharp_JoinCoalesce_Polars_CSharp_JoinMaintainOrder_Polars_CSharp_JoinSide_System_Boolean_System_Nullable_System_Int64__System_UInt64_">LazyFrame.Join(LazyFrame, IntoExprColumn, JoinType, string, JoinValidation, JoinCoalesce, JoinMaintainOrder, JoinSide, bool, long?, ulong)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Join_Polars_CSharp_LazyFrame_Polars_CSharp_IntoExprColumn_Polars_CSharp_IntoExprColumn_Polars_CSharp_JoinType_System_String_Polars_CSharp_JoinValidation_Polars_CSharp_JoinCoalesce_Polars_CSharp_JoinMaintainOrder_Polars_CSharp_JoinSide_System_Boolean_System_Nullable_System_Int64__System_UInt64_">LazyFrame.Join(LazyFrame, IntoExprColumn, IntoExprColumn, JoinType, string, JoinValidation, JoinCoalesce, JoinMaintainOrder, JoinSide, bool, long?, ulong)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Join_Polars_CSharp_LazyFrame_System_Collections_Generic_IEnumerable_System_String__Polars_CSharp_JoinType_System_String_Polars_CSharp_JoinValidation_Polars_CSharp_JoinCoalesce_Polars_CSharp_JoinMaintainOrder_Polars_CSharp_JoinSide_System_Boolean_System_Nullable_System_Int64__System_UInt64_">LazyFrame.Join(LazyFrame, IEnumerable&lt;string&gt;, JoinType, string, JoinValidation, JoinCoalesce, JoinMaintainOrder, JoinSide, bool, long?, ulong)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Join_Polars_CSharp_LazyFrame_System_Collections_Generic_IEnumerable_Polars_CSharp_IntoExprColumn__System_Collections_Generic_IEnumerable_Polars_CSharp_IntoExprColumn__Polars_CSharp_JoinType_System_String_Polars_CSharp_JoinValidation_Polars_CSharp_JoinCoalesce_Polars_CSharp_JoinMaintainOrder_Polars_CSharp_JoinSide_System_Boolean_System_Nullable_System_Int64__System_UInt64_">LazyFrame.Join(LazyFrame, IEnumerable&lt;IntoExprColumn&gt;, IEnumerable&lt;IntoExprColumn&gt;, JoinType, string, JoinValidation, JoinCoalesce, JoinMaintainOrder, JoinSide, bool, long?, ulong)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Join_Polars_CSharp_LazyFrame_System_Collections_Generic_IEnumerable_Polars_CSharp_IntoExprColumn__Polars_CSharp_JoinType_System_String_Polars_CSharp_JoinValidation_Polars_CSharp_JoinCoalesce_Polars_CSharp_JoinMaintainOrder_Polars_CSharp_JoinSide_System_Boolean_System_Nullable_System_Int64__System_UInt64_">LazyFrame.Join(LazyFrame, IEnumerable&lt;IntoExprColumn&gt;, JoinType, string, JoinValidation, JoinCoalesce, JoinMaintainOrder, JoinSide, bool, long?, ulong)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Join_Polars_CSharp_LazyFrame_System_Collections_Generic_IEnumerable_Polars_CSharp_Expr__System_Collections_Generic_IEnumerable_Polars_CSharp_Expr__Polars_CSharp_JoinType_System_String_Polars_CSharp_JoinValidation_Polars_CSharp_JoinCoalesce_Polars_CSharp_JoinMaintainOrder_Polars_CSharp_JoinSide_System_Boolean_System_Nullable_System_Int64__System_UInt64_">LazyFrame.Join(LazyFrame, IEnumerable&lt;Expr&gt;, IEnumerable&lt;Expr&gt;, JoinType, string, JoinValidation, JoinCoalesce, JoinMaintainOrder, JoinSide, bool, long?, ulong)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Join_Polars_CSharp_LazyFrame_System_Collections_Generic_IEnumerable_Polars_CSharp_Expr__Polars_CSharp_JoinType_System_String_Polars_CSharp_JoinValidation_Polars_CSharp_JoinCoalesce_Polars_CSharp_JoinMaintainOrder_Polars_CSharp_JoinSide_System_Boolean_System_Nullable_System_Int64__System_UInt64_">LazyFrame.Join(LazyFrame, IEnumerable&lt;Expr&gt;, JoinType, string, JoinValidation, JoinCoalesce, JoinMaintainOrder, JoinSide, bool, long?, ulong)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_JoinAsOf_Polars_CSharp_LazyFrame_Polars_CSharp_IntoExprColumn_System_Nullable_Polars_CSharp_AsOfTolerance__System_Collections_Generic_IEnumerable_System_String__Polars_CSharp_AsofStrategy_System_Boolean_System_Boolean_System_String_Polars_CSharp_JoinValidation_Polars_CSharp_JoinCoalesce_Polars_CSharp_JoinMaintainOrder_Polars_CSharp_JoinSide_System_Boolean_System_Nullable_System_Int64__System_UInt64_">LazyFrame.JoinAsOf(LazyFrame, IntoExprColumn, AsOfTolerance?, IEnumerable&lt;string&gt;, AsofStrategy, bool, bool, string, JoinValidation, JoinCoalesce, JoinMaintainOrder, JoinSide, bool, long?, ulong)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_JoinAsOf_Polars_CSharp_LazyFrame_Polars_CSharp_IntoExprColumn_Polars_CSharp_IntoExprColumn_System_Nullable_Polars_CSharp_AsOfTolerance__System_Collections_Generic_IEnumerable_System_String__System_Collections_Generic_IEnumerable_System_String__Polars_CSharp_AsofStrategy_System_Boolean_System_Boolean_System_String_Polars_CSharp_JoinValidation_Polars_CSharp_JoinCoalesce_Polars_CSharp_JoinMaintainOrder_Polars_CSharp_JoinSide_System_Boolean_System_Nullable_System_Int64__System_UInt64_">LazyFrame.JoinAsOf(LazyFrame, IntoExprColumn, IntoExprColumn, AsOfTolerance?, IEnumerable&lt;string&gt;, IEnumerable&lt;string&gt;, AsofStrategy, bool, bool, string, JoinValidation, JoinCoalesce, JoinMaintainOrder, JoinSide, bool, long?, ulong)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_JoinWhere_Polars_CSharp_LazyFrame_System_Collections_Generic_IEnumerable_Polars_CSharp_IntoExprColumn__Polars_CSharp_JoinType_System_String_Polars_CSharp_JoinValidation_Polars_CSharp_JoinCoalesce_Polars_CSharp_JoinMaintainOrder_System_Boolean_">LazyFrame.JoinWhere(LazyFrame, IEnumerable&lt;IntoExprColumn&gt;, JoinType, string, JoinValidation, JoinCoalesce, JoinMaintainOrder, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_JoinWhere_Polars_CSharp_LazyFrame_Polars_CSharp_IntoExprColumn_Polars_CSharp_JoinType_System_String_Polars_CSharp_JoinValidation_Polars_CSharp_JoinCoalesce_Polars_CSharp_JoinMaintainOrder_System_Boolean_">LazyFrame.JoinWhere(LazyFrame, IntoExprColumn, JoinType, string, JoinValidation, JoinCoalesce, JoinMaintainOrder, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_JoinWhere_Polars_CSharp_LazyFrame_Polars_CSharp_IntoExprColumn___">LazyFrame.JoinWhere(LazyFrame, params IntoExprColumn[])</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_MergeSorted_Polars_CSharp_LazyFrame_System_String_System_Boolean_">LazyFrame.MergeSorted(LazyFrame, string, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_MergeSorted_Polars_CSharp_LazyFrame_System_String___System_Boolean_">LazyFrame.MergeSorted(LazyFrame, string[], bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_MatchToSchema_Polars_CSharp_PolarsSchema_Polars_CSharp_ExtraColumnsPolicy_Polars_CSharp_MatchSchemaConfig_System_Collections_Generic_IReadOnlyDictionary_System_String_Polars_CSharp_MatchSchemaConfig__">LazyFrame.MatchToSchema(PolarsSchema, ExtraColumnsPolicy, MatchSchemaConfig, IReadOnlyDictionary&lt;string, MatchSchemaConfig&gt;)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Merge_Polars_CSharp_LazyFrame_System_String___">LazyFrame.Merge(LazyFrame, params string[])</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Merge_Polars_CSharp_LazyFrame_Polars_CSharp_IntoSelector_">LazyFrame.Merge(LazyFrame, IntoSelector)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Unnest_Polars_CSharp_IntoSelector_System_String_">LazyFrame.Unnest(IntoSelector, string)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Unnest_System_Collections_Generic_IEnumerable_System_String__System_String_">LazyFrame.Unnest(IEnumerable&lt;string&gt;, string)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Unnest_System_String___">LazyFrame.Unnest(params string[])</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Explode_Polars_CSharp_IntoSelector_System_Boolean_System_Boolean_">LazyFrame.Explode(IntoSelector, bool, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Explode_System_Collections_Generic_IEnumerable_System_String__System_Boolean_System_Boolean_">LazyFrame.Explode(IEnumerable&lt;string&gt;, bool, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Explode_System_String___">LazyFrame.Explode(params string[])</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Pipe__1_System_Func_Polars_CSharp_LazyFrame___0__">LazyFrame.Pipe&lt;T&gt;(Func&lt;LazyFrame, T&gt;)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_PipeWithSchema_System_Func_Polars_CSharp_LazyFrame_Polars_CSharp_PolarsSchema_Polars_CSharp_LazyFrame__">LazyFrame.PipeWithSchema(Func&lt;LazyFrame, PolarsSchema, LazyFrame&gt;)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Pivot_Polars_CSharp_IntoSelector_Polars_CSharp_IntoPivotHint_System_Nullable_Polars_CSharp_IntoSelector__System_Nullable_Polars_CSharp_IntoSelector__Polars_CSharp_Expr_Polars_CSharp_PivotAgg_System_Boolean_System_String_Polars_CSharp_PivotColumnNaming_">LazyFrame.Pivot(IntoSelector, IntoPivotHint, IntoSelector?, IntoSelector?, Expr, PivotAgg, bool, string, PivotColumnNaming)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Pivot_System_Collections_Generic_IEnumerable_System_String__Polars_CSharp_IntoPivotHint_System_Collections_Generic_IEnumerable_System_String__System_Collections_Generic_IEnumerable_System_String__Polars_CSharp_Expr_Polars_CSharp_PivotAgg_System_Boolean_System_String_Polars_CSharp_PivotColumnNaming_">LazyFrame.Pivot(IEnumerable&lt;string&gt;, IntoPivotHint, IEnumerable&lt;string&gt;, IEnumerable&lt;string&gt;, Expr, PivotAgg, bool, string, PivotColumnNaming)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Unpivot_Polars_CSharp_IntoSelector_System_Nullable_Polars_CSharp_IntoSelector__System_String_System_String_">LazyFrame.Unpivot(IntoSelector, IntoSelector?, string, string)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Unpivot_System_Collections_Generic_IEnumerable_System_String__System_Collections_Generic_IEnumerable_System_String__System_String_System_String_">LazyFrame.Unpivot(IEnumerable&lt;string&gt;, IEnumerable&lt;string&gt;, string, string)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Melt_Polars_CSharp_IntoSelector_System_Nullable_Polars_CSharp_IntoSelector__System_String_System_String_">LazyFrame.Melt(IntoSelector, IntoSelector?, string, string)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Melt_System_Collections_Generic_IEnumerable_System_String__System_Collections_Generic_IEnumerable_System_String__System_String_System_String_">LazyFrame.Melt(IEnumerable&lt;string&gt;, IEnumerable&lt;string&gt;, string, string)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Remove_Polars_CSharp_Expr_">LazyFrame.Remove(Expr)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Remove_Polars_CSharp_Series_">LazyFrame.Remove(Series)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Remove_System_Collections_Generic_IEnumerable_System_Boolean__">LazyFrame.Remove(IEnumerable&lt;bool&gt;)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Reverse">LazyFrame.Reverse()</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Select_Polars_CSharp_IntoExprColumn___">LazyFrame.Select(params IntoExprColumn[])</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Select_System_Collections_Generic_IEnumerable_Polars_CSharp_IntoExprColumn__">LazyFrame.Select(params IEnumerable&lt;IntoExprColumn&gt;)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Select_System_Collections_Generic_IEnumerable_System_String__">LazyFrame.Select(IEnumerable&lt;string&gt;)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Select_System_String___">LazyFrame.Select(params string[])</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Select_System_Collections_Generic_IEnumerable_Polars_CSharp_Expr__">LazyFrame.Select(IEnumerable&lt;Expr&gt;)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_SetSorted_Polars_CSharp_IntoSelector_System_Boolean_System_Boolean_">LazyFrame.SetSorted(IntoSelector, bool, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Sort_Polars_CSharp_IntoSelector_System_Boolean_System_Boolean_System_Boolean_">LazyFrame.Sort(IntoSelector, bool, bool, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Sort_System_Collections_Generic_IEnumerable_Polars_CSharp_IntoSelector__System_Boolean___System_Boolean___System_Boolean_">LazyFrame.Sort(IEnumerable&lt;IntoSelector&gt;, bool[], bool[], bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Sort_System_ValueTuple_Polars_CSharp_IntoSelector_System_Boolean____">LazyFrame.Sort(params (IntoSelector By, bool Descending)[])</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_TopK_System_Int32_Polars_CSharp_IntoExprColumn_System_Boolean_">LazyFrame.TopK(int, IntoExprColumn, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_TopK_System_Int32_System_Collections_Generic_IEnumerable_System_String__System_Boolean_">LazyFrame.TopK(int, IEnumerable&lt;string&gt;, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_TopK_System_Int32_System_ValueTuple_Polars_CSharp_IntoExprColumn_System_Boolean____">LazyFrame.TopK(int, params (IntoExprColumn By, bool Reverse)[])</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_TopK_System_Int32_System_Collections_Generic_IEnumerable_Polars_CSharp_Expr__System_Boolean___">LazyFrame.TopK(int, IEnumerable&lt;Expr&gt;, bool[])</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_BottomK_System_Int32_Polars_CSharp_IntoExprColumn_System_Boolean_">LazyFrame.BottomK(int, IntoExprColumn, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_BottomK_System_Int32_System_Collections_Generic_IEnumerable_System_String__System_Boolean_">LazyFrame.BottomK(int, IEnumerable&lt;string&gt;, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_BottomK_System_Int32_System_ValueTuple_Polars_CSharp_IntoExprColumn_System_Boolean____">LazyFrame.BottomK(int, params (IntoExprColumn By, bool Reverse)[])</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_BottomK_System_Int32_System_Collections_Generic_IEnumerable_Polars_CSharp_Expr__System_Boolean___">LazyFrame.BottomK(int, IEnumerable&lt;Expr&gt;, bool[])</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Unique_Polars_CSharp_Selector_Polars_CSharp_UniqueKeepStrategy_System_Boolean_">LazyFrame.Unique(Selector, UniqueKeepStrategy, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Unique_System_Collections_Generic_IEnumerable_System_String__Polars_CSharp_UniqueKeepStrategy_System_Boolean_">LazyFrame.Unique(IEnumerable&lt;string&gt;, UniqueKeepStrategy, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Unique_Polars_CSharp_IntoSelector_Polars_CSharp_UniqueKeepStrategy_System_Boolean_">LazyFrame.Unique(IntoSelector, UniqueKeepStrategy, bool)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_Update_Polars_CSharp_LazyFrame_System_Collections_Generic_IEnumerable_System_String__Polars_CSharp_JoinType_System_Collections_Generic_IEnumerable_System_String__System_Collections_Generic_IEnumerable_System_String__System_Boolean_Polars_CSharp_JoinMaintainOrder_">LazyFrame.Update(LazyFrame, IEnumerable&lt;string&gt;, JoinType, IEnumerable&lt;string&gt;, IEnumerable&lt;string&gt;, bool, JoinMaintainOrder)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_WithColumns_Polars_CSharp_IntoExprColumn___">LazyFrame.WithColumns(params IntoExprColumn[])</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_WithColumns_System_Collections_Generic_IEnumerable_Polars_CSharp_Expr__">LazyFrame.WithColumns(IEnumerable&lt;Expr&gt;)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_WithColumns_System_Collections_Generic_IEnumerable_Polars_CSharp_IntoExprColumn__">LazyFrame.WithColumns(IEnumerable&lt;IntoExprColumn&gt;)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_WithColumns_System_Collections_Generic_IEnumerable_System_String__">LazyFrame.WithColumns(IEnumerable&lt;string&gt;)</a>
+    </div>
+    <div>
+      <a class="xref" href="Polars.CSharp.LazyFrame.html#Polars_CSharp_LazyFrame_WithRowIndex_System_String_System_Nullable_System_Int32__">LazyFrame.WithRowIndex(string, int?)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.equals#system-object-equals(system-object)">object.Equals(object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.equals#system-object-equals(system-object-system-object)">object.Equals(object, object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.gethashcode">object.GetHashCode()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.gettype">object.GetType()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.memberwiseclone">object.MemberwiseClone()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.referenceequals">object.ReferenceEquals(object, object)</a>
+    </div>
+  </dd></dl>
+
+  <dl class="typelist extensionMethods">
+    <dt>Extension Methods</dt>
+    <dd>
+  <div>
+      <a class="xref" href="Polars.CSharp.UnityCatalogExtensions.html#Polars_CSharp_UnityCatalogExtensions_MergeCatalogRecords_Polars_CSharp_LazyFrame_Polars_CSharp_UnityCatalog_System_String_System_String_System_String_System_String___System_Boolean_Polars_CSharp_CloudOptions_">UnityCatalogExtensions.MergeCatalogRecords(LazyFrame, UnityCatalog, string, string, string, string[], bool, CloudOptions?)</a>
+  </div>
+  <div>
+      <a class="xref" href="Polars.CSharp.UnityCatalogExtensions.html#Polars_CSharp_UnityCatalogExtensions_SinkCatalogTable_Polars_CSharp_LazyFrame_Polars_CSharp_UnityCatalog_System_String_System_String_System_String_System_Nullable_Polars_CSharp_IntoSelector__Polars_CSharp_DeltaSaveMode_System_Boolean_System_Boolean_System_Boolean_System_Int32_System_Int64_Polars_CSharp_ParquetCompression_System_Int32_System_Boolean_System_UInt32_System_UInt32_System_Int32_System_Boolean_Polars_CSharp_SyncOnClose_System_Boolean_Polars_CSharp_CloudOptions_">UnityCatalogExtensions.SinkCatalogTable(LazyFrame, UnityCatalog, string, string, string, IntoSelector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)</a>
+  </div>
+  </dd></dl>
+
+
+
+
+
+  <h2 class="section" id="methods">Methods
+</h2>
+
+
+  <a id="Polars_CSharp_LazyFrame_ScopedLazyFrame_Dispose_" data-uid="Polars.CSharp.LazyFrame.ScopedLazyFrame.Dispose*"></a>
+
+  <h3 id="Polars_CSharp_LazyFrame_ScopedLazyFrame_Dispose" data-uid="Polars.CSharp.LazyFrame.ScopedLazyFrame.Dispose">
+  Dispose()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Database/ADO.NET/Scan.cs/#L130"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Dispose temp file and lazyframe</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public void Dispose()</code></pre>
+  </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Database/ADO.NET/Scan.cs/#L118" class="edit-link">Edit this page</a>
+        </div>
+
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

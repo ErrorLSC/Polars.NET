@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Polars.NET - Blazingly Fast DataFrames for .NET | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Polars.NET - Blazingly Fast DataFrames for .NET | Polars.NET ">
+      
+      
+      <link rel="icon" href="images/logo.svg">
+      <link rel="stylesheet" href="public/docfx.min.css">
+      <link rel="stylesheet" href="public/main.css">
+      <meta name="docfx:navrel" content="toc.html">
+      <meta name="docfx:tocrel" content="toc.html">
+      
+      <meta name="docfx:rel" content="">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/index.md/#L1">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="home" data-yaml-mime="">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="index.html">
+            <img id="logo" class="svg" src="logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+
+      <div class="content">
+        <div class="actionbar">
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="">
+<h1 id="polarsnet">Polars.NET</h1>
+
+<p><strong>Polars.NET</strong> brings the <a href="https://pola.rs/">Polars</a> data processing engine to the .NET ecosystem.</p>
+<hr>
+<h2 id="1-quickstart">1. QuickStart</h2>
+<pre><code class="lang-csharp">using Polars.CSharp;
+using static Polars.CSharp.Polars; // For Col(), Lit() helpers
+
+// 1. Create a DataFrame
+var data = new[] {
+    new { Name = &quot;Alice&quot;, Age = 25, Dept = &quot;IT&quot; },
+    new { Name = &quot;Bob&quot;, Age = 30, Dept = &quot;HR&quot; },
+    new { Name = &quot;Charlie&quot;, Age = 35, Dept = &quot;IT&quot; }
+};
+var df = DataFrame.From(data);
+
+// 2. Filter &amp; Aggregate
+var res = df.
+    Lazy()
+    .Filter(Col(&quot;Age&quot;) &gt; 28)
+    .GroupBy(&quot;Dept&quot;)
+    .Agg(
+        Col(&quot;Age&quot;).Mean().Alias(&quot;AvgAge&quot;),
+        Col(&quot;Name&quot;).Count().Alias(&quot;Count&quot;)
+    )
+    .Sort(&quot;AvgAge&quot;);
+
+// 3. Output
+res.CollectStreaming().Show();
+///shape: (2, 3)
+/// ┌──────┬────────┬───────┐
+/// │ Dept ┆ AvgAge ┆ Count │
+/// │ ---  ┆ ---    ┆ ---   │
+/// │ str  ┆ f64    ┆ u32   │
+/// ╞══════╪════════╪═══════╡
+/// │ HR   ┆ 30.0   ┆ 1     │
+/// │ IT   ┆ 35.0   ┆ 1     │
+/// └──────┴────────┴───────┘
+</code></pre>
+<h2 id="2f-support">2.F# Support</h2>
+<pre><code class="lang-fsharp">let windowDf = 
+    df
+    |&gt; pl.select [
+        pl.col &quot;Date&quot;
+        pl.col &quot;City&quot;
+        pl.col &quot;Temperature&quot;
+        
+        // Over(Date): Calculate mean value by group
+        (pl.col(&quot;Temperature&quot;).Mean().Over(pl.col &quot;Date&quot;))
+            .Alias &quot;Daily_Avg&quot;
+            
+        (pl.col &quot;Temperature&quot; - pl.col(&quot;Temperature&quot;).Mean().Over(pl.col &quot;Date&quot;))
+            .Alias &quot;Diff&quot;
+    ]
+    |&gt; pl.sort (pl.col &quot;Date&quot;, false)
+
+windowDf.Show()
+/// result
+/// shape: (3, 5)
+/// ┌────────────┬────────────┬─────────────┬───────────┬───────┐
+/// │ Date       ┆ City       ┆ Temperature ┆ Daily_Avg ┆ Diff  │
+/// │ ---        ┆ ---        ┆ ---         ┆ ---       ┆ ---   │
+/// │ date       ┆ str        ┆ f64         ┆ f64       ┆ f64   │
+/// ╞════════════╪════════════╪═════════════╪═══════════╪═══════╡
+/// │ 2023-01-01 ┆ London     ┆ 10.5        ┆ 9.75      ┆ 0.75  │
+/// │ 2023-01-01 ┆ Manchester ┆ 9.0         ┆ 9.75      ┆ -0.75 │
+/// │ 2023-01-02 ┆ London     ┆ 12.1        ┆ 12.1      ┆ 0.0   │
+/// └────────────┴────────────┴─────────────┴───────────┴───────┘
+</code></pre>
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/index.md/#L1" class="edit-link">Edit this page</a>
+        </div>
+
+        <div class="next-article d-print-none border-top" id="nextArticle"></div>
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

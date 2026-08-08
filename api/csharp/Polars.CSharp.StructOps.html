@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Struct StructOps | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Struct StructOps | Polars.NET ">
+      
+      <meta name="description" content="Operations on Struct columns. Access via .">
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="../toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/new/main/apiSpec/new?filename=Polars_CSharp_StructOps.md&amp;value=---%0Auid%3A%20Polars.CSharp.StructOps%0Asummary%3A%20&#39;*You%20can%20override%20summary%20for%20the%20API%20here%20using%20*MARKDOWN*%20syntax&#39;%0A---%0A%0A*Please%20type%20below%20more%20information%20about%20this%20API%3A*%0A%0A">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="ManagedReference">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.CSharp.StructOps">
+
+
+
+  <h1 id="Polars_CSharp_StructOps" data-uid="Polars.CSharp.StructOps" class="text-break">
+Struct StructOps  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StructOps.cs/#L11"><i class="bi bi-code-slash"></i></a>
+  </h1>
+
+  <div class="facts text-secondary">
+    <dl><dt>Namespace</dt><dd><a class="xref" href="Polars.html">Polars</a>.<a class="xref" href="Polars.CSharp.html">CSharp</a></dd></dl>
+  <dl><dt>Assembly</dt><dd>Polars.CSharp.dll</dd></dl>
+  </div>
+
+  <div class="markdown summary"><p>Operations on Struct columns. Access via <a class="xref" href="Polars.CSharp.Expr.html#Polars_CSharp_Expr_Struct">Struct</a>.</p>
+</div>
+  <div class="markdown conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public readonly struct StructOps</code></pre>
+  </div>
+
+
+
+
+
+
+
+  <dl class="typelist inheritedMembers">
+    <dt>Inherited Members</dt>
+    <dd>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.valuetype.equals">ValueType.Equals(object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.valuetype.gethashcode">ValueType.GetHashCode()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.valuetype.tostring">ValueType.ToString()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.equals#system-object-equals(system-object-system-object)">object.Equals(object, object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.gettype">object.GetType()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.referenceequals">object.ReferenceEquals(object, object)</a>
+    </div>
+  </dd></dl>
+
+
+
+
+
+
+  <h2 class="section" id="properties">Properties
+</h2>
+
+
+  <a id="Polars_CSharp_StructOps_Item_" data-uid="Polars.CSharp.StructOps.Item*"></a>
+
+  <h3 id="Polars_CSharp_StructOps_Item_System_Int64_" data-uid="Polars.CSharp.StructOps.Item(System.Int64)">
+  this[long]
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StructOps.cs/#L106"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Retrieve a field by its index.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr this[long index] { get; }</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>index</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StructOps_Item_" data-uid="Polars.CSharp.StructOps.Item*"></a>
+
+  <h3 id="Polars_CSharp_StructOps_Item_System_String_" data-uid="Polars.CSharp.StructOps.Item(System.String)">
+  this[string]
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StructOps.cs/#L110"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Retrieve one of the fields of this Struct as a new expr.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr this[string name] { get; }</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>name</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StructOps_Item_" data-uid="Polars.CSharp.StructOps.Item*"></a>
+
+  <h3 id="Polars_CSharp_StructOps_Item_System_String___" data-uid="Polars.CSharp.StructOps.Item(System.String[])">
+  this[string[]]
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StructOps.cs/#L112"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Retrieve a field from the struct by name.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr this[string[] name] { get; }</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>name</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>[]</dt>
+    <dd><p>The name of the field.</p>
+</dd>
+  </dl>
+
+
+
+
+  <h4 class="section">Property Value</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+  <h4 class="section" id="Polars_CSharp_StructOps_Item_System_String____examples">Examples</h4>
+  <pre><code class="lang-csharp">var df = DataFrame.FromColumns(new
+{
+    id = new[] { 1, 2 },
+    product = new[] 
+    { 
+        new { Name = "Laptop", Specs = new { Ram = 16, SSD = 512 } },
+        new { Name = "Mouse",  Specs = new { Ram = 0,  SSD = 0   } }
+    }
+});
+
+df.Select(
+    Pl.Col("id"),
+    Pl.Col("product").Struct.Field("Name").Alias("prod_name"),
+    // Nested Access
+    Pl.Col("product").Struct.Field("Specs").Struct.Field("Ram").Alias("ram_gb")
+).Show();
+/* Output:
+shape: (2, 3)
+┌─────┬───────────┬────────┐
+│ id  ┆ prod_name ┆ ram_gb │
+│ --- ┆ ---       ┆ ---    │
+│ i32 ┆ str       ┆ i32    │
+╞═════╪═══════════╪════════╡
+│ 1   ┆ Laptop    ┆ 16     │
+│ 2   ┆ Mouse     ┆ 0      │
+└─────┴───────────┴────────┘
+*/</code></pre>
+
+
+
+
+
+
+  <h2 class="section" id="methods">Methods
+</h2>
+
+
+  <a id="Polars_CSharp_StructOps_Drop_" data-uid="Polars.CSharp.StructOps.Drop*"></a>
+
+  <h3 id="Polars_CSharp_StructOps_Drop_System_Collections_Generic_IEnumerable_System_String__System_Boolean_" data-uid="Polars.CSharp.StructOps.Drop(System.Collections.Generic.IEnumerable{System.String},System.Boolean)">
+  Drop(IEnumerable&lt;string&gt;, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StructOps.cs/#L77"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Drop one or more fields from the struct.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Drop(IEnumerable&lt;string&gt; names, bool strict = true)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>names</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.collections.generic.ienumerable-1">IEnumerable</a>&lt;<a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>&gt;</dt>
+    <dd><p>Names of the fields to drop.</p>
+</dd>
+    <dt><code>strict</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If True, raise an error if any of the specified fields do not exist in the struct.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StructOps_Field_" data-uid="Polars.CSharp.StructOps.Field*"></a>
+
+  <h3 id="Polars_CSharp_StructOps_Field_System_Int64_" data-uid="Polars.CSharp.StructOps.Field(System.Int64)">
+  Field(long)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StructOps.cs/#L56"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Retrieve a field by its index.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Field(long index)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>index</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StructOps_Field_" data-uid="Polars.CSharp.StructOps.Field*"></a>
+
+  <h3 id="Polars_CSharp_StructOps_Field_System_String___" data-uid="Polars.CSharp.StructOps.Field(System.String[])">
+  Field(params string[])
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StructOps.cs/#L51"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Retrieve a field from the struct by name.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Field(params string[] name)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>name</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>[]</dt>
+    <dd><p>The name of the field.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+  <h4 class="section" id="Polars_CSharp_StructOps_Field_System_String____examples">Examples</h4>
+  <pre><code class="lang-csharp">var df = DataFrame.FromColumns(new
+{
+    id = new[] { 1, 2 },
+    product = new[] 
+    { 
+        new { Name = "Laptop", Specs = new { Ram = 16, SSD = 512 } },
+        new { Name = "Mouse",  Specs = new { Ram = 0,  SSD = 0   } }
+    }
+});
+
+df.Select(
+    Pl.Col("id"),
+    Pl.Col("product").Struct.Field("Name").Alias("prod_name"),
+    // Nested Access
+    Pl.Col("product").Struct.Field("Specs").Struct.Field("Ram").Alias("ram_gb")
+).Show();
+/* Output:
+shape: (2, 3)
+┌─────┬───────────┬────────┐
+│ id  ┆ prod_name ┆ ram_gb │
+│ --- ┆ ---       ┆ ---    │
+│ i32 ┆ str       ┆ i32    │
+╞═════╪═══════════╪════════╡
+│ 1   ┆ Laptop    ┆ 16     │
+│ 2   ┆ Mouse     ┆ 0      │
+└─────┴───────────┴────────┘
+*/</code></pre>
+
+
+
+
+
+
+  <a id="Polars_CSharp_StructOps_JsonEncode_" data-uid="Polars.CSharp.StructOps.JsonEncode*"></a>
+
+  <h3 id="Polars_CSharp_StructOps_JsonEncode" data-uid="Polars.CSharp.StructOps.JsonEncode">
+  JsonEncode()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StructOps.cs/#L83"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Convert the struct column into a JSON string column.
+Useful for debugging or exporting to systems that support JSON strings.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr JsonEncode()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StructOps_RenameFields_" data-uid="Polars.CSharp.StructOps.RenameFields*"></a>
+
+  <h3 id="Polars_CSharp_StructOps_RenameFields_System_String___" data-uid="Polars.CSharp.StructOps.RenameFields(System.String[])">
+  RenameFields(params string[])
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StructOps.cs/#L70"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Rename the fields of the struct.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr RenameFields(params string[] names)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>names</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>[]</dt>
+    <dd><p>The new names for the fields.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+  <h4 class="section" id="Polars_CSharp_StructOps_RenameFields_System_String____examples">Examples</h4>
+  <pre><code class="lang-csharp">df.Select(
+    Pl.Col("product").Struct.RenameFields(["NewName", "NewSpecs"])
+);</code></pre>
+
+
+
+
+
+
+  <a id="Polars_CSharp_StructOps_Unnest_" data-uid="Polars.CSharp.StructOps.Unnest*"></a>
+
+  <h3 id="Polars_CSharp_StructOps_Unnest" data-uid="Polars.CSharp.StructOps.Unnest">
+  Unnest()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StructOps.cs/#L87"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Expand the struct into its individual fields.Alias for Expr.Struct.field(&quot;*&quot;).</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr Unnest()</code></pre>
+  </div>
+
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_StructOps_WithFields_" data-uid="Polars.CSharp.StructOps.WithFields*"></a>
+
+  <h3 id="Polars_CSharp_StructOps_WithFields_Polars_CSharp_IntoExprColumn___" data-uid="Polars.CSharp.StructOps.WithFields(Polars.CSharp.IntoExprColumn[])">
+  WithFields(params IntoExprColumn[])
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StructOps.cs/#L89"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Add or overwrite fields of this struct.This is similar to with_columns on DataFrame.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Expr WithFields(params IntoExprColumn[] fields)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>fields</code> <a class="xref" href="Polars.CSharp.IntoExprColumn.html">IntoExprColumn</a>[]</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Expr/StructOps.cs/#L11" class="edit-link">Edit this page</a>
+        </div>
+
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

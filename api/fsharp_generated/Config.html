@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Config | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Config | Polars.NET ">
+      
+      
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/api/fsharp_generated/Config.md/#L1">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.FSharp.Config">
+<h1 id="config">Config</h1>
+
+<p>Namespace: <code>Polars.FSharp</code></p>
+<h2 id="asciitables">asciiTables</h2>
+<p>Use ASCII characters to display table outlines. Set False to revert to the standard UTF8_FULL_CONDENSED formatting style.</p>
+<pre><code class="lang-fsharp">// Signature:
+active: Active -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>active</code></td>
+<td style="text-align: left;"><code>Active</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="decimalseparator">decimalSeparator</h2>
+<p>Set the decimal separator character.</p>
+<pre><code class="lang-fsharp">// Signature:
+separator: CharSet -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>separator</code></td>
+<td style="text-align: left;"><code>CharSet</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="deltamaxretries">deltaMaxRetries</h2>
+<p>Set the maximum Retires for Delta Table operations.</p>
+<pre><code class="lang-fsharp">// Signature:
+retries: NumSet -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>retries</code></td>
+<td style="text-align: left;"><code>NumSet</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="engineaffinity">engineAffinity</h2>
+<p>Set which engine to use by default.</p>
+<pre><code class="lang-fsharp">// Signature:
+engine: Engine -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>engine</code></td>
+<td style="text-align: left;"><code>Engine</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="floatprecision">floatPrecision</h2>
+<p>Control the number of decimal places displayed for floating point values.</p>
+<pre><code class="lang-fsharp">// Signature:
+precision: NumSet -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>precision</code></td>
+<td style="text-align: left;"><code>NumSet</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="formatfloat">formatFloat</h2>
+<p>Control how floating point values are displayed.</p>
+<pre><code class="lang-fsharp">// Signature:
+format: FloatFormat -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>format</code></td>
+<td style="text-align: left;"><code>FloatFormat</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="formatstringlength">formatStringLength</h2>
+<p>Set the number of characters used to display string values.</p>
+<pre><code class="lang-fsharp">// Signature:
+n: NumSet -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>NumSet</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="formattablecelllistlength">formatTableCellListLength</h2>
+<p>Set the number of elements to display for List values.</p>
+<pre><code class="lang-fsharp">// Signature:
+n: NumSet -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>NumSet</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="getor">getOr</h2>
+<p>Retrieves the current configuration value for the specified key, or returns a default value if the key is not found.</p>
+<pre><code class="lang-fsharp">// Signature:
+defaultValue: string -&gt; key: string -&gt; string
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>defaultValue</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>key</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="load">load</h2>
+<p>Load (and set) previously saved Config options from a JSON string.Only already set parameter will be recorded.</p>
+<pre><code class="lang-fsharp">// Signature:
+cfgJson: string -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>cfgJson</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="loadfromfile">loadFromFile</h2>
+<p>Load (and set) previously saved Config options from file.</p>
+<pre><code class="lang-fsharp">// Signature:
+path: string -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>path</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="restoredefaults">restoreDefaults</h2>
+<p>Reset all polars Config settings to their default state.</p>
+<pre><code class="lang-fsharp">// Signature:
+ -&gt; Void
+</code></pre>
+<hr>
+<h2 id="save">save</h2>
+<p>Save the current set of Config options as a JSON string.</p>
+<pre><code class="lang-fsharp">// Signature:
+scope: ConfigScope -&gt; string
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>scope</code></td>
+<td style="text-align: left;"><code>ConfigScope</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="savetofile">saveToFile</h2>
+<p>Save the current set of Config options as a JSON file.</p>
+<pre><code class="lang-fsharp">// Signature:
+path: string -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>path</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="set">set</h2>
+<p>Inject Environment var to Rust</p>
+<pre><code class="lang-fsharp">// Signature:
+key: string -&gt; value: string -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>key</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>value</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="setmany">setMany</h2>
+<p>Inject Environment vars to Rust from a sequence of tuples</p>
+<pre><code class="lang-fsharp">// Signature:
+variables: Seq&lt;Tuple&lt;string, string&gt;&gt; -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>variables</code></td>
+<td style="text-align: left;"><code>Seq&lt;Tuple&lt;string, string&gt;&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="setmap">setMap</h2>
+<p>Inject Environment vars to Rust from KeyValuePair sequence</p>
+<pre><code class="lang-fsharp">// Signature:
+variables: FSharpMap&lt;string, string&gt; -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>variables</code></td>
+<td style="text-align: left;"><code>FSharpMap&lt;string, string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="status">status</h2>
+<p>Show the current state of all Config variables in the environment as a dict.</p>
+<pre><code class="lang-fsharp">// Signature:
+scope: ConfigScope -&gt; Dictionary&lt;string, string&gt;
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>scope</code></td>
+<td style="text-align: left;"><code>ConfigScope</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="streamingchunksize">streamingChunkSize</h2>
+<p>Overwrite chunk size used in streaming engine.</p>
+<pre><code class="lang-fsharp">// Signature:
+size: ChunkSet -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>size</code></td>
+<td style="text-align: left;"><code>ChunkSet</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tablecellalignment">tableCellAlignment</h2>
+<p>Set table cell alignment.</p>
+<pre><code class="lang-fsharp">// Signature:
+format: Alignment -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>format</code></td>
+<td style="text-align: left;"><code>Alignment</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tablecellnumericalignment">tableCellNumericAlignment</h2>
+<p>Set table cell alignment for numeric columns.</p>
+<pre><code class="lang-fsharp">// Signature:
+format: Alignment -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>format</code></td>
+<td style="text-align: left;"><code>Alignment</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tablecols">tableCols</h2>
+<p>Set the number of columns that are visible when displaying tables.</p>
+<pre><code class="lang-fsharp">// Signature:
+n: NumSet -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>NumSet</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tablecolumndatatypeinline">tableColumnDataTypeInline</h2>
+<p>Display the data type next to the column name (to the right, in parentheses).</p>
+<pre><code class="lang-fsharp">// Signature:
+active: Active -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>active</code></td>
+<td style="text-align: left;"><code>Active</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tabledataframeshapebelow">tableDataFrameShapeBelow</h2>
+<p>Print the DataFrame shape information below the data when displaying tables.</p>
+<pre><code class="lang-fsharp">// Signature:
+active: Active -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>active</code></td>
+<td style="text-align: left;"><code>Active</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tableformatting">tableFormatting</h2>
+<p>Sets the text/ASCII formatting style for outputting DataFrames.</p>
+<pre><code class="lang-fsharp">// Signature:
+format: TableFormatting -&gt; roundedCorners: Active -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>format</code></td>
+<td style="text-align: left;"><code>TableFormatting</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>roundedCorners</code></td>
+<td style="text-align: left;"><code>Active</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tablehidecolumndatatypes">tableHideColumnDataTypes</h2>
+<p>Hide table column data types (i64, f64, str etc.).</p>
+<pre><code class="lang-fsharp">// Signature:
+active: Active -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>active</code></td>
+<td style="text-align: left;"><code>Active</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tablehidecolumnnames">tableHideColumnNames</h2>
+<p>Hide table column names.</p>
+<pre><code class="lang-fsharp">// Signature:
+active: Active -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>active</code></td>
+<td style="text-align: left;"><code>Active</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tablehidedataframeshape">tableHideDataFrameShape</h2>
+<p>Hide the DataFrame shape information when displaying tables.</p>
+<pre><code class="lang-fsharp">// Signature:
+active: Active -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>active</code></td>
+<td style="text-align: left;"><code>Active</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tablehidedatatypeseparator">tableHideDataTypeSeparator</h2>
+<p>Hide the ‘—’ separator displayed between the column names and column types.</p>
+<pre><code class="lang-fsharp">// Signature:
+active: Active -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>active</code></td>
+<td style="text-align: left;"><code>Active</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tablerows">tableRows</h2>
+<p>Set the max number of rows used to draw the table (both Dataframe and Series).</p>
+<pre><code class="lang-fsharp">// Signature:
+n: NumSet -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>NumSet</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tablewidthchars">tableWidthChars</h2>
+<p>Set the maximum width of a table in characters.</p>
+<pre><code class="lang-fsharp">// Signature:
+width: NumSet -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>width</code></td>
+<td style="text-align: left;"><code>NumSet</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="thousandsseparator">thousandsSeparator</h2>
+<p>Configures the thousands separator with a specific single character.</p>
+<pre><code class="lang-fsharp">// Signature:
+separator: CharSet -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>separator</code></td>
+<td style="text-align: left;"><code>CharSet</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="trimdecimalzeros">trimDecimalZeros</h2>
+<p>Strip trailing zeros from Decimal data type values.</p>
+<pre><code class="lang-fsharp">// Signature:
+active: Active -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>active</code></td>
+<td style="text-align: left;"><code>Active</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tryget">tryGet</h2>
+<p>Safely retrieves the current configuration value for the specified key. Matches keys in a case-insensitive manner. </p>
+<pre><code class="lang-fsharp">// Signature:
+key: string -&gt; Option&lt;string&gt;
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>key</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="verbose">verbose</h2>
+<p>Configures whether Polars should run in verbose mode, printing query profiles and optimization decisions.</p>
+<pre><code class="lang-fsharp">// Signature:
+active: Active -&gt; unitVar0: unit -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>active</code></td>
+<td style="text-align: left;"><code>Active</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>unitVar0</code></td>
+<td style="text-align: left;"><code>unit</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="withconfig">withConfig</h2>
+<p>Executes a function within a temporary configuration scope. Captures the current configuration snapshot, applies the provided configuration adjustments, runs the operation, and guarantees restoration of the previous state when finished.</p>
+<pre><code class="lang-fsharp">// Signature:
+actions: List&lt;FSharpFunc&lt;unit, unit&gt;&gt; -&gt; f: FSharpFunc&lt;unit, T&gt; -&gt; T
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>actions</code></td>
+<td style="text-align: left;"><code>List&lt;FSharpFunc&lt;unit, unit&gt;&gt;</code></td>
+<td style="text-align: left;">A sequence of configuration modification actions (unit -&gt; unit).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>f</code></td>
+<td style="text-align: left;"><code>FSharpFunc&lt;unit, T&gt;</code></td>
+<td style="text-align: left;">The operation to execute within this configuration scope.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/api/fsharp_generated/Config.md/#L1" class="edit-link">Edit this page</a>
+        </div>
+
+        <div class="next-article d-print-none border-top" id="nextArticle"></div>
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

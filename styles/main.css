@@ -1,0 +1,12 @@
+/* styles/main.css */
+
+.navbar-brand img, 
+.navbar-brand > img {
+    height: 40px !important;  
+    width: auto !important;   
+    max-width: 100%;         
+}
+
+img.svg {
+    height: 40px !important;
+}

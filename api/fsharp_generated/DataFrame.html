@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>DataFrame | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="DataFrame | Polars.NET ">
+      
+      
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/api/fsharp_generated/DataFrame.md/#L1">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.FSharp.DataFrame">
+<h1 id="dataframe">DataFrame</h1>
+
+<p>Namespace: <code>Polars.FSharp</code></p>
+<h2 id="clone">Clone</h2>
+<p>Clone this DataTypeExpr.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; DataFrame
+</code></pre>
+<hr>
+<h2 id="column">Column</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) name: string -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="column-1">Column</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) index: int -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>index</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="dispose">Dispose</h2>
+<p>Dispose handle</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Void
+</code></pre>
+<hr>
+<h2 id="equals">Equals</h2>
+<p>Object.Equals override to bridge with global .NET runtime style checks.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) other: DataFrame -&gt; nullEqual: Option&lt;bool&gt; -&gt; bool
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>nullEqual</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="equals-1">Equals</h2>
+<p>Object.Equals override to bridge with global .NET runtime style checks.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) obj: obj -&gt; bool
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>obj</code></td>
+<td style="text-align: left;"><code>obj</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="exportbatches">ExportBatches</h2>
+<p>Export the DataFrame as a stream of Arrow RecordBatches (Zero-Copy). Calls 'onBatch' for each chunk in the DataFrame. Useful for custom eager sinks (e.g. WriteDatabase).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) onBatch: Action&lt;RecordBatch&gt; -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>onBatch</code></td>
+<td style="text-align: left;"><code>Action&lt;RecordBatch&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="extend">Extend</h2>
+<p>Extend another DataFrame to this one. Checks that the schema matches. NChunks wont't change.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) other: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="fold">Fold</h2>
+<p>Fold over all columns with a custom starting accumulator.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) operation: Func&lt;Series, Series, Series&gt; -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>operation</code></td>
+<td style="text-align: left;"><code>Func&lt;Series, Series, Series&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="fold-1">Fold</h2>
+<p>Fold over all columns with a custom starting accumulator.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) initial: Series -&gt; operation: Func&lt;Series, Series, Series&gt; -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>initial</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>operation</code></td>
+<td style="text-align: left;"><code>Func&lt;Series, Series, Series&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="fromarrow">FromArrow</h2>
+<p>Create a DataFrame directly from an Apache Arrow RecordBatch.</p>
+<pre><code class="lang-fsharp">// Signature:
+batch: RecordBatch -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>batch</code></td>
+<td style="text-align: left;"><code>RecordBatch</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="fromarrowstream">FromArrowStream</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+stream: IArrowArrayStream -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>stream</code></td>
+<td style="text-align: left;"><code>IArrowArrayStream</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="getcolumns">GetColumns</h2>
+<p>Returns all columns as a Series array.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Series[]
+</code></pre>
+<hr>
+<h2 id="gethashcode">GetHashCode</h2>
+<p>Prevent DataFrames from being hashed directly as they are massive column-oriented matrices.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; int
+</code></pre>
+<hr>
+<h2 id="hstack">HStack</h2>
+<p>Horizontally stack columns to the DataFrame. Returns a new DataFrame with the new columns appended.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) columns: Seq&lt;Series&gt; -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columns</code></td>
+<td style="text-align: left;"><code>Seq&lt;Series&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="hashrows">HashRows</h2>
+<p>Hash and combine the rows in this DataFrame.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) seed: Option&lt;UInt64&gt; -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>seed</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt64&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="head">Head</h2>
+<p>Get the first n rows.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) rows: Option&lt;int&gt; -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>rows</code></td>
+<td style="text-align: left;"><code>Option&lt;int&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="item">Item</h2>
+<p>[Indexer] Access cell value by Row Index and Column Index. Syntax: df.[rowIndex, colIndex]</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) columnName: string -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columnName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="item-1">Item</h2>
+<p>[Indexer] Access cell value by Row Index and Column Index. Syntax: df.[rowIndex, colIndex]</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) columnIndex: int -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columnIndex</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="item-2">Item</h2>
+<p>[Indexer] Access cell value by Row Index and Column Index. Syntax: df.[rowIndex, colIndex]</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) rowIndex: int -&gt; columnName: string -&gt; obj
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>rowIndex</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>columnName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="item-3">Item</h2>
+<p>[Indexer] Access cell value by Row Index and Column Index. Syntax: df.[rowIndex, colIndex]</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) rowIndex: int -&gt; columnIndex: int -&gt; obj
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>rowIndex</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>columnIndex</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="lazy">Lazy</h2>
+<p>Convert dataframe to lazyframe</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; LazyFrame
+</code></pre>
+<hr>
+<h2 id="nchunks">NChunks</h2>
+<p>Get the number of chunks used by the first Column of this DataFrame.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; int64
+</code></pre>
+<hr>
+<h2 id="nchunksall">NChunksAll</h2>
+<p>Get an array containing the number of chunks for all columns in this DataFrame.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; int64[]
+</code></pre>
+<hr>
+<h2 id="pipe">Pipe</h2>
+<p>Offers a structured way to apply a sequence of user-defined functions (UDFs).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) func: FSharpFunc&lt;DataFrame, T&gt; -&gt; T
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>func</code></td>
+<td style="text-align: left;"><code>FSharpFunc&lt;DataFrame, T&gt;</code></td>
+<td style="text-align: left;">A function that receives the current expression and returns a value of type . Typically this function wraps several Polars API calls that operate on the given expression.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>The result of applying <code>func</code> to this DataFrame.</p>
+<hr>
+<h2 id="printschema">PrintSchema</h2>
+<p>Print schema in a readable format.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Void
+</code></pre>
+<hr>
+<h2 id="readadbc">ReadAdbc</h2>
+<p>Executes a SQL query directly against an ADBC connection and reads the result into a zero-copy Polars DataFrame. Pure syntactic sugar: automatically manages the creation and disposal of the underlying AdbcStatement.</p>
+<pre><code class="lang-fsharp">// Signature:
+statement: AdbcStatement -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>statement</code></td>
+<td style="text-align: left;"><code>AdbcStatement</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="readadbc-1">ReadAdbc</h2>
+<p>Executes a SQL query directly against an ADBC connection and reads the result into a zero-copy Polars DataFrame. Pure syntactic sugar: automatically manages the creation and disposal of the underlying AdbcStatement.</p>
+<pre><code class="lang-fsharp">// Signature:
+connection: AdbcConnection -&gt; sqlQuery: string -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>connection</code></td>
+<td style="text-align: left;"><code>AdbcConnection</code></td>
+<td style="text-align: left;">The active ADBC connection (e.g., DuckDB, SQLite).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>sqlQuery</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The SQL query string to execute.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="rechunk">Rechunk</h2>
+<p>Rechunk the data in this DataFrame to a contiguous allocation. This will make sure all subsequent operations have optimal and predictable performance.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; DataFrame
+</code></pre>
+<hr>
+<h2 id="rename">Rename</h2>
+<p>Rename columns using a dictionary mapping old names to new names.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) oldName: string -&gt; newName: string -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>oldName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>newName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="rename-1">Rename</h2>
+<p>Rename columns using a dictionary mapping old names to new names.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) oldNames: Seq&lt;string&gt; -&gt; newNames: Seq&lt;string&gt; -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>oldNames</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>newNames</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="rename-2">Rename</h2>
+<p>Rename columns using a dictionary mapping old names to new names.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) mapping: IReadOnlyDictionary&lt;string, string&gt; -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>mapping</code></td>
+<td style="text-align: left;"><code>IReadOnlyDictionary&lt;string, string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="select">Select</h2>
+<p>Select a single column using an expression. Usage: df.Select(pl.col(&quot;A&quot;))</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) exprs: Seq&lt;Expr&gt; -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="select-1">Select</h2>
+<p>Select a single column using an expression. Usage: df.Select(pl.col(&quot;A&quot;))</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) selector: Selector -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>selector</code></td>
+<td style="text-align: left;"><code>Selector</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="select-2">Select</h2>
+<p>Select a single column using an expression. Usage: df.Select(pl.col(&quot;A&quot;))</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) columns: Seq&lt;b&gt; -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columns</code></td>
+<td style="text-align: left;"><code>Seq&lt;b&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="select-3">Select</h2>
+<p>Select a single column using an expression. Usage: df.Select(pl.col(&quot;A&quot;))</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) expr: Expr -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>expr</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="show">Show</h2>
+<p>Print the DataFrame to Console (Stdout).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Void
+</code></pre>
+<hr>
+<h2 id="tail">Tail</h2>
+<p>Get the last n rows.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) n: Option&lt;int&gt; -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>Option&lt;int&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="toarrow">ToArrow</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; RecordBatch
+</code></pre>
+<hr>
+<h2 id="toarrowstream">ToArrowStream</h2>
+<p>Export DataFrame to Arrow C Data Interface Stream with Column Pruning (Array friendly).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) seed: Option&lt;UInt64&gt; -&gt; IArrowArrayStream
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>seed</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt64&gt;</code></td>
+<td style="text-align: left;">Optional seed for Native Global Shuffle.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="toarrowstream-1">ToArrowStream</h2>
+<p>Export DataFrame to Arrow C Data Interface Stream with Column Pruning (Array friendly).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) columnIndices: ReadOnlySpan&lt;int&gt; -&gt; seed: Option&lt;UInt64&gt; -&gt; IArrowArrayStream
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columnIndices</code></td>
+<td style="text-align: left;"><code>ReadOnlySpan&lt;int&gt;</code></td>
+<td style="text-align: left;">Column indices array to prune the export (Projection Pushdown).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>seed</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt64&gt;</code></td>
+<td style="text-align: left;">Optional seed for Native Global Shuffle.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="toarrowstream-2">ToArrowStream</h2>
+<p>Export DataFrame to Arrow C Data Interface Stream with Column Pruning (Array friendly).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) columnIndices: int[] -&gt; seed: Option&lt;UInt64&gt; -&gt; IArrowArrayStream
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columnIndices</code></td>
+<td style="text-align: left;"><code>int[]</code></td>
+<td style="text-align: left;">Column indices array to prune the export (Projection Pushdown).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>seed</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt64&gt;</code></td>
+<td style="text-align: left;">Optional seed for Native Global Shuffle.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tostring">ToString</h2>
+<p>Returns the native Polars string representation of the DataFrame. Includes shape, header, and truncated data.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; string
+</code></pre>
+<hr>
+<h2 id="vstack">VStack</h2>
+<p>Vertically stack another DataFrame to this one. Checks that the schema matches.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) other: DataFrame -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="writetoadbc">WriteToAdbc</h2>
+<p>Zero-copy bulk ingest of the current DataFrame into an ADBC database (e.g., DuckDB, SQLite).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) statement: AdbcStatement -&gt; UpdateResult
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>statement</code></td>
+<td style="text-align: left;"><code>AdbcStatement</code></td>
+<td style="text-align: left;">An AdbcStatement configured with ingest options (e.g., target table).</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>The UpdateResult containing the number of rows affected.</p>
+<hr>
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/api/fsharp_generated/DataFrame.md/#L1" class="edit-link">Edit this page</a>
+        </div>
+
+        <div class="next-article d-print-none border-top" id="nextArticle"></div>
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

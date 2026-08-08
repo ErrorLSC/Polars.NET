@@ -1,0 +1,2921 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Expr | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Expr | Polars.NET ">
+      
+      
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="../toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/api/fsharp/Expr.md/#L1">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.FSharp.Expr">
+<h1 id="expr">Expr</h1>
+
+<p>Namespace: <code>Polars.FSharp</code></p>
+<h2 id="alias">Alias</h2>
+<p>Rename the output column.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) name: string -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="append">Append</h2>
+<p>Append expressions. This is done by adding the chunks of other to this Series.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) other: Expr -&gt; execUpcast: Option&lt;bool&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Expression to append.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>execUpcast</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Cast both Series to the same supertype.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="argsort">ArgSort</h2>
+<p>Get the index values that would sort this expression.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) descending: Option&lt;bool&gt; -&gt; nullsLast: Option&lt;bool&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>descending</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If true, sort in descending order. Default is false.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>nullsLast</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If true, place null values last. Default is false.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="argtrue">ArgTrue</h2>
+<p>Return indices where expression evaluates True.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Expr
+</code></pre>
+<p><strong>Returns</strong></p>
+<p>Expression of data type UInt32.</p>
+<hr>
+<h2 id="argunique">ArgUnique</h2>
+<p>Get the index of the unique values.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Expr
+</code></pre>
+<hr>
+<h2 id="asstruct">AsStruct</h2>
+<p>Create a Struct expression from a list of expressions.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;Expr&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="backwardfill">BackwardFill</h2>
+<p>Fill null values with a specific strategy (Backward).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) limit: Option&lt;int&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>limit</code></td>
+<td style="text-align: left;"><code>Option&lt;int&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="bitleftshift">BitLeftShift</h2>
+<p>Bitwise left shift (&lt;&lt;).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) n: int -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="bitrightshift">BitRightShift</h2>
+<p>Bitwise right shift (&gt;&gt;).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) n: int -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="bottomk">BottomK</h2>
+<p>Get the k smallest elements. Result is sorted ascending.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) k: int -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>k</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="bottomkby">BottomKBy</h2>
+<p>Get the bottom k elements determined by the values in the 'by' columns.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) k: int -&gt; by: Seq&lt;e&gt; -&gt; reverse: Option&lt;Seq&lt;bool&gt;&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>k</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>by</code></td>
+<td style="text-align: left;"><code>Seq&lt;e&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>reverse</code></td>
+<td style="text-align: left;"><code>Option&lt;Seq&lt;bool&gt;&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="bottomkby-1">BottomKBy</h2>
+<p>Get the bottom k elements determined by the values in the 'by' columns.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) k: int -&gt; by: b -&gt; reverse: bool -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>k</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>by</code></td>
+<td style="text-align: left;"><code>b</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>reverse</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="bottomkby-2">BottomKBy</h2>
+<p>Get the bottom k elements determined by the values in the 'by' columns.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) k: int -&gt; by: a -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>k</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>by</code></td>
+<td style="text-align: left;"><code>a</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="ceil">Ceil</h2>
+<p>Round up to the nearest integer.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Expr
+</code></pre>
+<hr>
+<h2 id="clip">Clip</h2>
+<p>Set values outside the given boundaries to the boundary value.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) lowerBound: Option&lt;Expr&gt; -&gt; upperBound: Option&lt;Expr&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lowerBound</code></td>
+<td style="text-align: left;"><code>Option&lt;Expr&gt;</code></td>
+<td style="text-align: left;">Lower bound. Accepts expression input.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>upperBound</code></td>
+<td style="text-align: left;"><code>Option&lt;Expr&gt;</code></td>
+<td style="text-align: left;">Upper bound. Accepts expression input.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="clone">Clone</h2>
+<p>Clone this DataTypeExpr.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Expr
+</code></pre>
+<hr>
+<h2 id="coalesce">Coalesce</h2>
+<p>Returns the first non-null value between this expression and other expressions. Syntactic sugar for <code>Pl.Coalesce(this, others)</code>.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) others: Seq&lt;Expr&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>others</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">Fallback expressions, column names, or literals.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>A new coalesced expression.</p>
+<hr>
+<h2 id="concatexpr">ConcatExpr</h2>
+<p>Concat multiple expressions into a single expression.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;Expr&gt; -&gt; rechunk: Option&lt;bool&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rechunk</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="concatstring">ConcatString</h2>
+<p>Concat multiple string expressions into a single string expression.</p>
+<pre><code class="lang-fsharp">// Signature:
+exprs: Seq&lt;Expr&gt; -&gt; separator: Option&lt;string&gt; -&gt; ignoreNulls: Option&lt;bool&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>separator</code></td>
+<td style="text-align: left;"><code>Option&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ignoreNulls</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="cut">Cut</h2>
+<p>Bin continuous values into discrete categories.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) breaks: Seq&lt;float&gt; -&gt; labels: Option&lt;Seq&lt;string&gt;&gt; -&gt; leftClosed: Option&lt;bool&gt; -&gt; includeBreaks: Option&lt;bool&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>breaks</code></td>
+<td style="text-align: left;"><code>Seq&lt;float&gt;</code></td>
+<td style="text-align: left;">List of unique cut points.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>labels</code></td>
+<td style="text-align: left;"><code>Option&lt;Seq&lt;string&gt;&gt;</code></td>
+<td style="text-align: left;">Names of the categories. The number of labels must be equal to the number of cut points plus one.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>leftClosed</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Set the intervals to be left-closed instead of right-closed.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>includeBreaks</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Include a column with the right endpoint of the bin each observation falls in. This will change the data type of the output from an Enum to a Struct.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>Expression/Series of data type Enum if include_breaks is set to False (default), otherwise an expression of data type Struct.</p>
+<hr>
+<h2 id="dropnans">DropNans</h2>
+<p>Drop nan values.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Expr
+</code></pre>
+<hr>
+<h2 id="dropnulls">DropNulls</h2>
+<p>Drop all null values in the list. The original order of the remaining elements is preserved.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Expr
+</code></pre>
+<hr>
+<h2 id="eqmissing">EqMissing</h2>
+<p>Check if this expression is equal to another, treating nulls as valid values. (e.g., Null == Null is True, 5 == Null is False)</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) other: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="equals">Equals</h2>
+<p>Overrides the standard object equality check.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) obj: obj -&gt; bool
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>obj</code></td>
+<td style="text-align: left;"><code>obj</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="exclude">Exclude</h2>
+<p>Exclude columns matching any of the specified Data Types.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) names: Seq&lt;string&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>names</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="exclude-1">Exclude</h2>
+<p>Exclude columns matching any of the specified Data Types.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) dtypes: Seq&lt;DataType&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>dtypes</code></td>
+<td style="text-align: left;"><code>Seq&lt;DataType&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="explode">Explode</h2>
+<p>Advanced <summary> Explode a list column into multiple rows. </summary></p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) emptyAsNull: Option&lt;bool&gt; -&gt; keepNulls: Option&lt;bool&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>emptyAsNull</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>keepNulls</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="extendconstant">ExtendConstant</h2>
+<p>Extremely fast method for extending the Series with ‘n’ copies of a value.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) value: Expr -&gt; n: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>value</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">A constant literal value or a unit expression with which to extend the expression result Series; can pass None to extend with nulls.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">The number of additional values that will be added.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="fillnan">FillNan</h2>
+<p>Fill NaN values with values from another Series.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) fillValue: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>fillValue</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="fillnull">FillNull</h2>
+<p>Fill nulls using an expression (mostly for internal use or complex literals).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) value: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>value</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="fillnull-1">FillNull</h2>
+<p>Fill nulls using an expression (mostly for internal use or complex literals).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) strategy: FillNullStrategy -&gt; limit: Option&lt;int&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>strategy</code></td>
+<td style="text-align: left;"><code>FillNullStrategy</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>limit</code></td>
+<td style="text-align: left;"><code>Option&lt;int&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="filter">Filter</h2>
+<p>Filter a single column. <br> Mostly useful in <code>group_by</code> context or when you want to filter an expression based on another expression within a <code>Select</code> context.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) predicate: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>predicate</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Boolean expression used to filter the current expression.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>A new expression with filtered values.</p>
+<hr>
+<h2 id="floor">Floor</h2>
+<p>Round down to the nearest integer.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Expr
+</code></pre>
+<hr>
+<h2 id="floordiv">FloorDiv</h2>
+<p>Integer division (floor division).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) other: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="formatstring">FormatString</h2>
+<p>Format multiple string expressions into a single formated string expression.</p>
+<pre><code class="lang-fsharp">// Signature:
+format: string -&gt; exprs: Seq&lt;Expr&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>format</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="forwardfill">ForwardFill</h2>
+<p>Fill null values with a specific strategy (Forward).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) limit: Option&lt;int&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>limit</code></td>
+<td style="text-align: left;"><code>Option&lt;int&gt;</code></td>
+<td style="text-align: left;">Max number of consecutive nulls to fill. (Default null = infinite)</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="gather">Gather</h2>
+<p>Gather values by an index expression.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) indices: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>indices</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="gatherevery">GatherEvery</h2>
+<p>Take every nth value starting from an offset.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) n: UInt64 -&gt; offset: Option&lt;UInt64&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>UInt64</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>offset</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt64&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="get">Get</h2>
+<p>Get a single value by index. Returns a scalar.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) index: Expr -&gt; nullOnOutOfBounds: Option&lt;bool&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>index</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">The index number.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>nullOnOutOfBounds</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If true, returns Null when the index is out of bounds instead of raising an error.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="get-1">Get</h2>
+<p>Get a single value by index. Returns a scalar.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) index: UInt64 -&gt; nullOnOutOfBounds: Option&lt;bool&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>index</code></td>
+<td style="text-align: left;"><code>UInt64</code></td>
+<td style="text-align: left;">The index number.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>nullOnOutOfBounds</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If true, returns Null when the index is out of bounds instead of raising an error.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="gethashcode">GetHashCode</h2>
+<p>Get hashcode based on the dependencies (root column names) of the expression.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; int
+</code></pre>
+<hr>
+<h2 id="inspect">Inspect</h2>
+<p>Print the value that this expression evaluates to and pass on the value.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) format: Option&lt;string&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>format</code></td>
+<td style="text-align: left;"><code>Option&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="interpolate">Interpolate</h2>
+<p>Interpolate intermediate values. The interpolation method can be configured.</p>
+<p>Nulls at the beginning and end of the series remain null.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) method: Option&lt;InterpolationMethod&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>method</code></td>
+<td style="text-align: left;"><code>Option&lt;InterpolationMethod&gt;</code></td>
+<td style="text-align: left;">Interpolation method (Linear or Nearest).</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="interpolateby">InterpolateBy</h2>
+<p>Interpolate intermediate values based on the values of another column.</p>
+<p>This is useful when the data is not equally spaced, for example when interpolating based on a timestamp column.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) by: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>by</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">The column to use for interpolation (e.g. a timestamp column).</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>A new expression with interpolated values.</p>
+<hr>
+<h2 id="item">Item</h2>
+<p>Indexer: get DataType by field name.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) allowEmpty: Option&lt;bool&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>allowEmpty</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="lowerbound">LowerBound</h2>
+<p>Calculate the lower bound. Returns a unit Series with the lowest value possible for the dtype of this expression.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Expr
+</code></pre>
+<hr>
+<h2 id="map">Map</h2>
+<p>Apply a custom C#/F# function (UDF) to the expression. The function receives an Apache Arrow Array and returns an Arrow Array.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) func: Func&lt;IArrowArray, IArrowArray&gt; -&gt; outputType: DataType -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>func</code></td>
+<td style="text-align: left;"><code>Func&lt;IArrowArray, IArrowArray&gt;</code></td>
+<td style="text-align: left;">Function mapping IArrowArray -&gt; IArrowArray.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>outputType</code></td>
+<td style="text-align: left;"><code>DataType</code></td>
+<td style="text-align: left;">The expected output DataType (optional).</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="map-1">Map</h2>
+<p>Apply a custom C#/F# function (UDF) to the expression. The function receives an Apache Arrow Array and returns an Arrow Array.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) func: Func&lt;IArrowArray, IArrowArray&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>func</code></td>
+<td style="text-align: left;"><code>Func&lt;IArrowArray, IArrowArray&gt;</code></td>
+<td style="text-align: left;">Function mapping IArrowArray -&gt; IArrowArray.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="mod">Mod</h2>
+<p>Modulo operator (remainder).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) other: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="neqmissing">NeqMissing</h2>
+<p>Check if this expression is NOT equal to another, treating nulls as valid values. (e.g., Null != Null is False, 5 != Null is True)</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) other: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="over">Over</h2>
+<p>Apply a window function over specific partition columns.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) partitionBy: Option&lt;Seq&lt;Expr&gt;&gt; -&gt; orderBy: Option&lt;Seq&lt;Expr&gt;&gt; -&gt; descending: Option&lt;bool&gt; -&gt; nullsLast: Option&lt;bool&gt; -&gt; multithreaded: Option&lt;bool&gt; -&gt; maintainOrder: Option&lt;bool&gt; -&gt; mapping: Option&lt;WindowMappingStrategy&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>partitionBy</code></td>
+<td style="text-align: left;"><code>Option&lt;Seq&lt;Expr&gt;&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>orderBy</code></td>
+<td style="text-align: left;"><code>Option&lt;Seq&lt;Expr&gt;&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>descending</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>nullsLast</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>multithreaded</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>maintainOrder</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mapping</code></td>
+<td style="text-align: left;"><code>Option&lt;WindowMappingStrategy&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Example</strong></p>
+<pre><code>Calculate sum of &quot;Value&quot; per &quot;Group&quot; pl.col(&quot;Value&quot;).Sum().Over(pl.col(&quot;Group&quot;))
+</code></pre>
+<hr>
+<h2 id="over-1">Over</h2>
+<p>Apply a window function over specific partition columns.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) partitionCol: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>partitionCol</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Example</strong></p>
+<pre><code>Calculate sum of &quot;Value&quot; per &quot;Group&quot; pl.col(&quot;Value&quot;).Sum().Over(pl.col(&quot;Group&quot;))
+</code></pre>
+<hr>
+<h2 id="pctchange">PctChange</h2>
+<p>Computes percentage change between values. Percentage change (as fraction) between current element and most-recent non-null element at least n period(s) before the current element. Computes the change from the previous row by default.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) n: Option&lt;int&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>Option&lt;int&gt;</code></td>
+<td style="text-align: left;">periods to shift for forming percent change.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="peakmax">PeakMax</h2>
+<p>Get a boolean mask of the local maximum peaks.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Expr
+</code></pre>
+<hr>
+<h2 id="peakmin">PeakMin</h2>
+<p>Get a boolean mask of the local minimum peaks.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Expr
+</code></pre>
+<hr>
+<h2 id="pipe">Pipe</h2>
+<p>Apply a user-defined function to this expression, returning the result of the function. This allows encapsulating a sequence of Polars expression operations into a reusable function.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) func: FSharpFunc&lt;Expr, T&gt; -&gt; T
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>func</code></td>
+<td style="text-align: left;"><code>FSharpFunc&lt;Expr, T&gt;</code></td>
+<td style="text-align: left;">A function that receives the current expression and returns a value of type . Typically this function wraps several Polars API calls that operate on the given expression.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>The result of applying <code>func</code> to this expression.</p>
+<hr>
+<h2 id="pow">Pow</h2>
+<p>Power with Series exponent.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) exponent: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exponent</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="pow-1">Pow</h2>
+<p>Power with Series exponent.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) exponent: float -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exponent</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="pow-2">Pow</h2>
+<p>Power with Series exponent.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) exponent: int -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exponent</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="qcut">QCut</h2>
+<p>Bin continuous values into discrete categories based on their quantiles.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) quantiles: Seq&lt;float&gt; -&gt; labels: Option&lt;Seq&lt;string&gt;&gt; -&gt; leftClosed: Option&lt;bool&gt; -&gt; allowDuplicates: Option&lt;bool&gt; -&gt; includeBreaks: Option&lt;bool&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>quantiles</code></td>
+<td style="text-align: left;"><code>Seq&lt;float&gt;</code></td>
+<td style="text-align: left;">Either a list of quantile probabilities between 0 and 1 or a positive integer determining the number of bins with uniform probability.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>labels</code></td>
+<td style="text-align: left;"><code>Option&lt;Seq&lt;string&gt;&gt;</code></td>
+<td style="text-align: left;">Names of the categories. The number of labels must be equal to the number of categories.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>leftClosed</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Set the intervals to be left-closed instead of right-closed.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>allowDuplicates</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If set to True, duplicates in the resulting quantiles are dropped, rather than raising a DuplicateError. This can happen even with unique probabilities, depending on the data.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>includeBreaks</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Include a column with the right endpoint of the bin each observation falls in. This will change the data type of the output from a Categorical to a Struct.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>Expression/Series of data type Categorical if include_breaks is set to False (default), otherwise an expression of data type Struct.</p>
+<hr>
+<h2 id="qcut-1">QCut</h2>
+<p>Bin continuous values into discrete categories based on their quantiles.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) quantiles: int -&gt; labels: Option&lt;Seq&lt;string&gt;&gt; -&gt; leftClosed: Option&lt;bool&gt; -&gt; allowDuplicates: Option&lt;bool&gt; -&gt; includeBreaks: Option&lt;bool&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>quantiles</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">Either a list of quantile probabilities between 0 and 1 or a positive integer determining the number of bins with uniform probability.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>labels</code></td>
+<td style="text-align: left;"><code>Option&lt;Seq&lt;string&gt;&gt;</code></td>
+<td style="text-align: left;">Names of the categories. The number of labels must be equal to the number of categories.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>leftClosed</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Set the intervals to be left-closed instead of right-closed.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>allowDuplicates</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If set to True, duplicates in the resulting quantiles are dropped, rather than raising a DuplicateError. This can happen even with unique probabilities, depending on the data.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>includeBreaks</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Include a column with the right endpoint of the bin each observation falls in. This will change the data type of the output from a Categorical to a Struct.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>Expression/Series of data type Categorical if include_breaks is set to False (default), otherwise an expression of data type Struct.</p>
+<hr>
+<h2 id="rank">Rank</h2>
+<p>Assign ranks to data, dealing with ties appropriately.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) method: Option&lt;RankMethod&gt; -&gt; descending: Option&lt;bool&gt; -&gt; seed: Option&lt;UInt64&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>method</code></td>
+<td style="text-align: left;"><code>Option&lt;RankMethod&gt;</code></td>
+<td style="text-align: left;">The method used to assign ranks to tied elements. See <code>Average</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>descending</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Rank in descending order.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>seed</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt64&gt;</code></td>
+<td style="text-align: left;">If method=&quot;random&quot;, use this as seed.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="rechunk">Rechunk</h2>
+<p>Create a single chunk of memory for this Series.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Expr
+</code></pre>
+<hr>
+<h2 id="reinterpret">Reinterpret</h2>
+<p>Reinterpret the underlying bits as a signed/unsigned integer or float.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) signed: Option&lt;bool&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>signed</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="reinterpret-1">Reinterpret</h2>
+<p>Reinterpret the underlying bits as a signed/unsigned integer or float.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) dtype: DataType -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>dtype</code></td>
+<td style="text-align: left;"><code>DataType</code></td>
+<td style="text-align: left;">DataType to reinterpret to.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="rem">Rem</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) other: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="repeatby">RepeatBy</h2>
+<p>Repeat the elements in this Series as specified in the given expression. The repeated elements are expanded into a List.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) by: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>by</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Numeric column that determines how often the values will be repeated. The column will be coerced to UInt32. Give this dtype to make the coercion a no-op.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>Expression/Series of data type List, where the inner data type is equal to the original data type.</p>
+<hr>
+<h2 id="replace">Replace</h2>
+<p>Replace the given values by different values of the same data type.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) old: Expr -&gt; newExpr: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>old</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Value or sequence of values to replace. Accepts expression input.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>newExpr</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Value or sequence of values to replace by. Accepts expression input.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="replacestrict">ReplaceStrict</h2>
+<p>Replace all values by different values.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) old: Expr -&gt; newExpr: Expr -&gt; defaultExpr: Option&lt;Expr&gt; -&gt; returnDataType: Option&lt;DataTypeExpr&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>old</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Value or sequence of values to replace. Accepts expression input. Sequences are parsed as Series, other non-expression inputs are parsed as literals.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>newExpr</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Value or sequence of values to replace by. Accepts expression input. Sequences are parsed as Series, other non-expression inputs are parsed as literals. Length must match the length of old or have length 1.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>defaultExpr</code></td>
+<td style="text-align: left;"><code>Option&lt;Expr&gt;</code></td>
+<td style="text-align: left;">Set values that were not replaced to this value. If no default is specified, (default), an error is raised if any values were not replaced. Accepts expression input. Non-expression inputs are parsed as literals.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>returnDataType</code></td>
+<td style="text-align: left;"><code>Option&lt;DataTypeExpr&gt;</code></td>
+<td style="text-align: left;">The data type of the resulting expression. If set to null (default), the data type is determined automatically based on the other inputs.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="reshape">Reshape</h2>
+<p>Reshape the column into a multi-dimensional array.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) dimensions: Seq&lt;int64&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>dimensions</code></td>
+<td style="text-align: left;"><code>Seq&lt;int64&gt;</code></td>
+<td style="text-align: left;">Tuple of the dimension sizes. If a -1 is used, that dimension is inferred.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="reverse">Reverse</h2>
+<p>Reverse the selection.</p>
+<p>This is useful in a GroupBy context to reverse the order of the group.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Expr
+</code></pre>
+<p><strong>Returns</strong></p>
+<p>A new expression with the order reversed.</p>
+<hr>
+<h2 id="rle">Rle</h2>
+<p>Compress the column data using run-length encoding. Run-length encoding (RLE) encodes data by storing each run of identical values as a single value and its length.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Expr
+</code></pre>
+<p><strong>Returns</strong></p>
+<p>Expression/Series of data type Struct with fields len of data type UInt32 and value of the original data type.</p>
+<hr>
+<h2 id="rleid">RleId</h2>
+<p>Get a distinct integer ID for each run of identical values. The ID starts at 0 and increases by one each time the value of the column changes.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Expr
+</code></pre>
+<p><strong>Returns</strong></p>
+<p>Expression/Series of data type UInt32.</p>
+<hr>
+<h2 id="round">Round</h2>
+<p>Round underlying floating point data by decimals digits.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) decimals: Option&lt;UInt32&gt; -&gt; mode: Option&lt;RoundMode&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>decimals</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt32&gt;</code></td>
+<td style="text-align: left;">Number of decimals to round by.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mode</code></td>
+<td style="text-align: left;"><code>Option&lt;RoundMode&gt;</code></td>
+<td style="text-align: left;">The rounding strategy used. A “rounded value” is a value with at most decimals decimal places (e.g. integers when decimals=0, multiples of 0.1 when decimals=1, 0.01 when decimals=2, and so on). Strategies that start with half_ round all values to the nearest rounded value, only using the strategy to break ties when a value falls exactly between two rounded values (e.g. 0.5 when decimals=0, 0.05 when decimals=1). Other rounding strategies specify explicitly which rounded value is chosen and always apply (not just for tiebreaks).</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="roundsigfigs">RoundSigFigs</h2>
+<p>Round to a number of significant figures.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) digits: int -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>digits</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">Number of significant figures to round to.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="samplefrac">SampleFrac</h2>
+<p>Sample from this expression.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) fraction: Expr -&gt; withReplacement: Option&lt;bool&gt; -&gt; shuffle: Option&lt;bool&gt; -&gt; seed: Option&lt;UInt64&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>fraction</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Fraction of items to return.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>withReplacement</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Allow values to be sampled more than once.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>shuffle</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Shuffle the order of sampled data points.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>seed</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt64&gt;</code></td>
+<td style="text-align: left;">Seed for the random number generator. If set to None (default), a random seed is generated for each sample operation.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="samplen">SampleN</h2>
+<p>Sample from this expression.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) n: Option&lt;Expr&gt; -&gt; withReplacement: Option&lt;bool&gt; -&gt; shuffle: Option&lt;bool&gt; -&gt; seed: Option&lt;UInt64&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>Option&lt;Expr&gt;</code></td>
+<td style="text-align: left;">Number of items to return. Default to 1</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>withReplacement</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Allow values to be sampled more than once.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>shuffle</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Shuffle the order of sampled data points.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>seed</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt64&gt;</code></td>
+<td style="text-align: left;">Seed for the random number generator. If set to None (default), a random seed is generated for each sample operation.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="setsorted">SetSorted</h2>
+<p>Indicate that the expression is sorted. This is a hint to the optimizer and does not actually sort the data.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) descending: Option&lt;bool&gt; -&gt; nullsLast: Option&lt;bool&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>descending</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Whether the column is sorted in descending order.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>nullsLast</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Whether null values appear last. (Placeholder for Polars 0.54+)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>A new expression with the sorted flag set.</p>
+<hr>
+<h2 id="shift">Shift</h2>
+<p>Shift values by the given number of indices. Positive values shift downstream, negative values shift upstream.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) n: int64 -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="shift-1">Shift</h2>
+<p>Shift values by the given number of indices. Positive values shift downstream, negative values shift upstream.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Expr
+</code></pre>
+<hr>
+<h2 id="shuffle">Shuffle</h2>
+<p>Shuffle the contents of this expression.Note this is shuffled independently of any other column or Expression. If you want each row to stay the same use df.sample(shuffle=True)</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) seed: Option&lt;UInt64&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>seed</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt64&gt;</code></td>
+<td style="text-align: left;">Seed for the random number generator. If set to None (default), a random seed is generated each time the shuffle is called.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="sign">Sign</h2>
+<p>Compute the element-wise sign (-1, 0, 1).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Expr
+</code></pre>
+<hr>
+<h2 id="slice">Slice</h2>
+<p>Slice the binary values.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) offset: int64 -&gt; length: Option&lt;UInt64&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>offset</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">Start index. Negative indexing is supported.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>length</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt64&gt;</code></td>
+<td style="text-align: left;">Length of the slice. If set to None (default), the slice is taken to the end of the value.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>Expression/Series of data type Binary.</p>
+<hr>
+<h2 id="sort">Sort</h2>
+<p>Sort the expression.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) descending: Option&lt;bool&gt; -&gt; nullsLast: Option&lt;bool&gt; -&gt; multithreaded: Option&lt;bool&gt; -&gt; maintainOrder: Option&lt;bool&gt; -&gt; limit: Option&lt;UInt32&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>descending</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If true, sort in descending order. Default is false.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>nullsLast</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Whether to place null values last. Default is false.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>multithreaded</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If true, sort in multiple threads. Default is true.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>maintainOrder</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If true, maintain the order of equal elements. Default is false.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>limit</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt32&gt;</code></td>
+<td style="text-align: left;">Limit the sort output (for optimization purposes).</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="sortby">SortBy</h2>
+<p>Sort this column by the ordering of other columns using uniform sorting options.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) by: Seq&lt;Expr&gt; -&gt; descending: Option&lt;Seq&lt;bool&gt;&gt; -&gt; nullsLast: Option&lt;Seq&lt;bool&gt;&gt; -&gt; multithreaded: Option&lt;bool&gt; -&gt; maintainOrder: Option&lt;bool&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>by</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">Column(s) to sort by.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>descending</code></td>
+<td style="text-align: left;"><code>Option&lt;Seq&lt;bool&gt;&gt;</code></td>
+<td style="text-align: left;">Sort in descending order for all columns.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>nullsLast</code></td>
+<td style="text-align: left;"><code>Option&lt;Seq&lt;bool&gt;&gt;</code></td>
+<td style="text-align: left;">Place null values last for all columns.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>multithreaded</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Sort using multiple threads.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>maintainOrder</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Whether the order should be maintained if elements are equal.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="sortby-1">SortBy</h2>
+<p>Sort this column by the ordering of other columns using uniform sorting options.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) by: Seq&lt;Expr&gt; -&gt; descending: Option&lt;bool&gt; -&gt; nullsLast: Option&lt;bool&gt; -&gt; multithreaded: Option&lt;g&gt; -&gt; maintainOrder: Option&lt;h&gt; -&gt; i
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>by</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">Column(s) to sort by.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>descending</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Sort in descending order for all columns.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>nullsLast</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Place null values last for all columns.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>multithreaded</code></td>
+<td style="text-align: left;"><code>Option&lt;g&gt;</code></td>
+<td style="text-align: left;">Sort using multiple threads.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>maintainOrder</code></td>
+<td style="text-align: left;"><code>Option&lt;h&gt;</code></td>
+<td style="text-align: left;">Whether the order should be maintained if elements are equal.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="sqlexpr">SqlExpr</h2>
+<p>Create a Polars Expr from a SQL string.</p>
+<pre><code class="lang-fsharp">// Signature:
+sql: string -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>sql</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The SQL expression string.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>A Polars Expr representing the SQL logic.</p>
+<hr>
+<h2 id="sqlexprs">SqlExprs</h2>
+<p>Create an array of Polars Exprs from a collection of SQL strings.</p>
+<pre><code class="lang-fsharp">// Signature:
+sqls: Seq&lt;string&gt; -&gt; Expr[]
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>sqls</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">The collection of SQL expression strings.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>An array of Polars Expr objects.</p>
+<hr>
+<h2 id="take">Take</h2>
+<p>LINQ-like alias for Gather.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) indices: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>indices</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tophysical">ToPhysical</h2>
+<p>Cast to physical representation of the logical dtype.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Expr
+</code></pre>
+<hr>
+<h2 id="toselector">ToSelector</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Selector
+</code></pre>
+<hr>
+<h2 id="tostring">ToString</h2>
+<p>Returns the native Polars string representation of the LazyFrame. Includes shape, header, and truncated data.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; string
+</code></pre>
+<hr>
+<h2 id="topk">TopK</h2>
+<p>Get the k largest elements. Result is sorted descending.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) k: int -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>k</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="topkby">TopKBy</h2>
+<p>Get the top k elements determined by the values in the 'by' columns.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) k: int -&gt; by: Seq&lt;f&gt; -&gt; reverse: Option&lt;Seq&lt;bool&gt;&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>k</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">Number of elements to return.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>by</code></td>
+<td style="text-align: left;"><code>Seq&lt;f&gt;</code></td>
+<td style="text-align: left;">Columns to sort by.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>reverse</code></td>
+<td style="text-align: left;"><code>Option&lt;Seq&lt;bool&gt;&gt;</code></td>
+<td style="text-align: left;">Reverse the sort order for each by column. Default false.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="topkby-1">TopKBy</h2>
+<p>Get the top k elements determined by the values in the 'by' columns.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) k: int -&gt; by: d -&gt; reverse: bool -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>k</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">Number of elements to return.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>by</code></td>
+<td style="text-align: left;"><code>d</code></td>
+<td style="text-align: left;">Columns to sort by.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>reverse</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;">Reverse the sort order for each by column. Default false.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="topkby-2">TopKBy</h2>
+<p>Get the top k elements determined by the values in the 'by' columns.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) k: int -&gt; by: c -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>k</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">Number of elements to return.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>by</code></td>
+<td style="text-align: left;"><code>c</code></td>
+<td style="text-align: left;">Columns to sort by.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="truediv">Truediv</h2>
+<p>Divide this expression by another. Result is always a float (True Division).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) other: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="truncate">Truncate</h2>
+<p>Truncate numeric data toward zero to decimals number of decimal places.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) decimals: Option&lt;UInt32&gt; -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>decimals</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt32&gt;</code></td>
+<td style="text-align: left;">Number of decimal places to truncate to.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="upperbound">UpperBound</h2>
+<p>Calculate the upper bound. Returns a unit Series with the highest value possible for the dtype of this expression.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Expr
+</code></pre>
+<hr>
+<h2 id="op_addition">op_Addition</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Expr -&gt; rhs: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_bangbang">op_BangBang</h2>
+<p>Logical NOT.</p>
+<pre><code class="lang-fsharp">// Signature:
+e: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>e</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_division">op_Division</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Expr -&gt; rhs: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotampamp">op_DotAmpAmp</h2>
+<p>Logical AND.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Expr -&gt; rhs: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotbangequals">op_DotBangEquals</h2>
+<p>Not equal comparison.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Expr -&gt; rhs: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotbarbar">op_DotBarBar</h2>
+<p>Logical OR.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Expr -&gt; rhs: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotequalsequals">op_DotEqualsEquals</h2>
+<p>Equal comparison.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Expr -&gt; rhs: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotgreater">op_DotGreater</h2>
+<p>Greater than comparison.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Expr -&gt; rhs: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotgreaterequals">op_DotGreaterEquals</h2>
+<p>Greater than or equal comparison.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Expr -&gt; rhs: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dothat">op_DotHat</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Expr -&gt; rhs: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotless">op_DotLess</h2>
+<p>Less than comparison.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Expr -&gt; rhs: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotlessequals">op_DotLessEquals</h2>
+<p>Less than or equal comparison.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Expr -&gt; rhs: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotmultiplymultiply">op_DotMultiplyMultiply</h2>
+<p>Power / Exponentiation.</p>
+<pre><code class="lang-fsharp">// Signature:
+baseExpr: Expr -&gt; exponent: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>baseExpr</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>exponent</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_leftshift">op_LeftShift</h2>
+<p>Bitwise left shift operator (expr &lt;&lt;&lt; n).</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Expr -&gt; rhs: int -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_modulus">op_Modulus</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Expr -&gt; rhs: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_multiply">op_Multiply</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Expr -&gt; rhs: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_rightshift">op_RightShift</h2>
+<p>Bitwise right shift operator (expr &gt;&gt;&gt; n).</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Expr -&gt; rhs: int -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_subtraction">op_Subtraction</h2>
+<p>subtraction operator: s1 - s2 (Difference)</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Expr -&gt; rhs: Expr -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<div class="NOTE">
+<h5>Note</h5>
+<p>Some Polars versions support this as a shorthand for Exclude or Difference</p>
+</div>
+<hr>
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/api/fsharp/Expr.md/#L1" class="edit-link">Edit this page</a>
+        </div>
+
+        <div class="next-article d-print-none border-top" id="nextArticle"></div>
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

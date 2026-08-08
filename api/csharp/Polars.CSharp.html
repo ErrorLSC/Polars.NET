@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Namespace Polars.CSharp | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Namespace Polars.CSharp | Polars.NET ">
+      
+      
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="../toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="ManagedReference">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.CSharp">
+
+  <h1 id="Polars_CSharp" data-uid="Polars.CSharp" class="text-break">Namespace Polars.CSharp</h1>
+  <div class="markdown level0 summary"></div>
+  <div class="markdown level0 conceptual"></div>
+  <div class="markdown level0 remarks"></div>
+
+    <h3 id="classes">
+Classes
+</h3>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.BaseExtension.html">BaseExtension</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.Categories.html">Categories</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.ChainedWhen.html">ChainedWhen</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.CloudOptions.html">CloudOptions</a></dt>
+      <dd><p>Configuration options for Cloud IO (S3, Azure, GCP, etc).</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.DataFrame.html">DataFrame</a></dt>
+      <dd><p>DataFrame represents a 2-dimensional labeled data structure similar to a table or spreadsheet.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.DataFrameMergeBuilder.html">DataFrameMergeBuilder</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.DataType.html">DataType</a></dt>
+      <dd><p>Represents a Polars data type.
+Wraps the underlying Rust DataType Handle and provides high-level metadata.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.DataTypeExpr.html">DataTypeExpr</a></dt>
+      <dd><p>A lazily instantiated DataType that can be used in an Expr.
+This expression is made to represent a DataType that can be used to reference a datatype in a lazy context.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.Delta.html">Delta</a></dt>
+      <dd><p>Methods for DeltaLake</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.DeltaMergeBuilder.html">DeltaMergeBuilder</a></dt>
+      <dd><p>A builder for constructing ordered Delta Lake Merge operations.
+This ensures that matched and not-matched conditions are evaluated exactly
+in the order they are chained by the user, adhering to standard SQL MERGE semantics.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.DeltaTableFeatures.html">DeltaTableFeatures</a></dt>
+      <dd><p>Common Delta Lake Table Features.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.DeltaTableProperties.html">DeltaTableProperties</a></dt>
+      <dd><p>Common configuration keys for Delta Tables.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+      <dd><p>A Polars Expr</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.ExtensionInfo.html">ExtensionInfo</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.ExtensionInfo.AsClass.html">ExtensionInfo.AsClass</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.ExtensionInfo.AsStorage.html">ExtensionInfo.AsStorage</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.ExtensionInfo.NotFound.html">ExtensionInfo.NotFound</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.FrozenCategories.html">FrozenCategories</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.GroupByBuilder.html">GroupByBuilder</a></dt>
+      <dd><p>Unified builder for DataFrame GroupBy operations (Standard, Dynamic, Rolling)</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.LazyFrame.html">LazyFrame</a></dt>
+      <dd><p>Represents a lazily evaluated DataFrame.
+Until the query is executed, operations are just recorded in a query plan.
+Once executed, the data is materialized in memory.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.LazyFrame.ScopedLazyFrame.html">LazyFrame.ScopedLazyFrame</a></dt>
+      <dd><p>A LazyFrame with resource scope which needs to be disposed.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.LazyFrameMergeBuilder.html">LazyFrameMergeBuilder</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.LazyGroupBy.html">LazyGroupBy</a></dt>
+      <dd><p>A unified builder for Standard, Dynamic, and Rolling GroupBy operations.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.MatchSchemaConfig.html">MatchSchemaConfig</a></dt>
+      <dd><p>Configuration for schema matching policies during a MatchToSchema operation.
+Provides fine-grained control over how missing columns, struct fields, and type castings are handled.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.MergeBuilderBase-1.html">MergeBuilderBase&lt;TBuilder&gt;</a></dt>
+      <dd><p>A builder for Polars Merge</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.MergeContext.html">MergeContext</a></dt>
+      <dd><p>Provides a context for referencing Source and Target columns safely during a Merge operation.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.MergeSetterBuilder.html">MergeSetterBuilder</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.MissingColumnAction.html">MissingColumnAction</a></dt>
+      <dd><p>Represents the action to take when a column from the target schema is missing in the current frame.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.PolarsConfig.html">PolarsConfig</a></dt>
+      <dd><p>Config for Polars.NET</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.PolarsConfigScope.html">PolarsConfigScope</a></dt>
+      <dd><p>Represents a lightweight scope that manages the lifecycle of local configuration changes.
+Stores a backup snapshot of the system state upon creation and restores it when disposed,
+preventing side effects from leaking outside the scope.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.PolarsSchema.html">PolarsSchema</a></dt>
+      <dd><p>Represents a Polars Schema (Name -&gt; DataType mapping).</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.Selector.html">Selector</a></dt>
+      <dd><p>Represents a column selector strategy (e.g., All, Exclude).
+convertable to Expr.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.Series.html">Series</a></dt>
+      <dd><p>Represents a single column of data (1-dimensional array).</p>
+<p>
+A Series is backed by Apache Arrow arrays and supports eager execution.
+Operations on Series are generally performed immediately.
+</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.SqlContext.html">SqlContext</a></dt>
+      <dd><p>A context for executing SQL queries against DataFrames and LazyFrames.</p>
+<p>
+Polars supports a subset of ANSI SQL. The query is converted into a logical plan 
+and optimized/executed by the Polars engine.
+</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.Then.html">Then</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.UnityCatalog.html">UnityCatalog</a></dt>
+      <dd><p>Databricks Unity Catalog Client</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.UnityCatalogExtensions.html">UnityCatalogExtensions</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.UnknownExtension.html">UnknownExtension</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.When.html">When</a></dt>
+      <dd></dd>
+    </dl>
+    <h3 id="structs">
+Structs
+</h3>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.AmbiguousArg.html">AmbiguousArg</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.ArrayOps.html">ArrayOps</a></dt>
+      <dd><p>Offers methods for accessing fields within array columns.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.AsOfTolerance.html">AsOfTolerance</a></dt>
+      <dd><p>Smart tolerance type for AsOf joins.
+Implicitly converts from string (&quot;2h&quot;), TimeSpan, int, long, or double.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.BinaryOps.html">BinaryOps</a></dt>
+      <dd><p>Operations on binary columns. Access via <a class="xref" href="Polars.CSharp.Expr.html#Polars_CSharp_Expr_Bin">Bin</a>.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.BytesOrExpr.html">BytesOrExpr</a></dt>
+      <dd><p>Represents either a byte array literal or a Polars Expression.
+Used extensively in the Binary namespace to simulate Into[Expr}.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.CategoricalOps.html">CategoricalOps</a></dt>
+      <dd><p>Operations on Catgorical columns. Access via <a class="xref" href="Polars.CSharp.Expr.html#Polars_CSharp_Expr_Cat">Cat</a>.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.DataTypeExpr.ArrayNameSpace.html">DataTypeExpr.ArrayNameSpace</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.DataTypeExpr.ListNameSpace.html">DataTypeExpr.ListNameSpace</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.DataTypeExpr.StructNameSpace.html">DataTypeExpr.StructNameSpace</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.DtOps.html">DtOps</a></dt>
+      <dd><p>Contains methods for temporal (Date/Time) operations.
+Access this via <a class="xref" href="Polars.CSharp.Expr.html#Polars_CSharp_Expr_Dt">Dt</a>.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.DurationOrExpr.html">DurationOrExpr</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.ExtensionOps.html">ExtensionOps</a></dt>
+      <dd><p>Operations on extension datatype columns. Access via <a class="xref" href="Polars.CSharp.Expr.html#Polars_CSharp_Expr_Ext">Ext</a>.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.Field.html">Field</a></dt>
+      <dd><p>Definition of a single field within a Struct DataType.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.IntOrExpr.html">IntOrExpr</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.IntoDataTypeExpr.html">IntoDataTypeExpr</a></dt>
+      <dd><p>A union type representing a Polars data type or type expression.
+Can be implicitly converted from a .NET Type, a Polars DataType, or a dynamic DataTypeExpr.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.IntoDateExpr.html">IntoDateExpr</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.IntoDuration.html">IntoDuration</a></dt>
+      <dd><p>A union type representing a time interval.
+Can be implicitly converted from a Polars duration string (e.g., &quot;1mo&quot;, &quot;1w&quot;) or a .NET TimeSpan.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.IntoExpr.html">IntoExpr</a></dt>
+      <dd><p>A type that can be implicitly converted into a Polars Expression.String will be parsed as literal value.
+Matches the 'IntoExpr' concept in Rust and Python Polars.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.IntoExprColumn.html">IntoExprColumn</a></dt>
+      <dd><p>A type that can be implicitly converted into a Polars Expression.String will be parsed as column name.
+Matches the 'IntoExprColumn' concept in Rust and Python Polars.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.IntoIndexLazyFrame.html">IntoIndexLazyFrame</a></dt>
+      <dd><p>A unified parameter wrapper that channels various .NET index types into a Polars LazyFrame
+for the <code>Gather</code> operation without triggering eager evaluation.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.IntoPivotHint.html">IntoPivotHint</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.IntoSchema.html">IntoSchema</a></dt>
+      <dd><p>A union type representing a PolarsSchema.
+Can be implicitly converted from a PolarsSchema, DataFrame, or LazyFrame.
+Schema Dictionary and Tuple are also accepted.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.IntoSelector.html">IntoSelector</a></dt>
+      <dd><p>A type that can be implicitly converted into a Polars Selector.
+Ideal for methods like Unique(), Drop(), etc. that expect column subsets.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.ListOps.html">ListOps</a></dt>
+      <dd><p>Operations on List columns. Access via <a class="xref" href="Polars.CSharp.Expr.html#Polars_CSharp_Expr_List">List</a>.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.MetaOps.html">MetaOps</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.NameOps.html">NameOps</a></dt>
+      <dd><p>Offers methods for renaming columns.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.Polars.html">Polars</a></dt>
+      <dd><p>Polars Static Helpers</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.Polars.Selectors.html">Polars.Selectors</a></dt>
+      <dd><p>String matching selectors namespace.
+Usage: Cs.StartsWith(&quot;A&quot;) or Pl.Cs.StartWith(&quot;A&quot;)</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.SeriesArrayOps.html">SeriesArrayOps</a></dt>
+      <dd><p>Wrapper for Array (Fixed-Size List) operations on a Series.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.SeriesBinaryOps.html">SeriesBinaryOps</a></dt>
+      <dd><p>Wrapper for Binary operations on a Series.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.SeriesCategoricalOps.html">SeriesCategoricalOps</a></dt>
+      <dd><p>Operations on Categorical series. Access via <a class="xref" href="Polars.CSharp.Series.html#Polars_CSharp_Series_Cat">Cat</a>.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.SeriesDtOps.html">SeriesDtOps</a></dt>
+      <dd><p>Date Ops Namespace</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.SeriesExtensionOps.html">SeriesExtensionOps</a></dt>
+      <dd><p>Wrapper for extensio datatype operations on a Series.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.SeriesListOps.html">SeriesListOps</a></dt>
+      <dd><p>Series List Ops Namespace</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.SeriesStrOps.html">SeriesStrOps</a></dt>
+      <dd><p>Series String Ops</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.SeriesStructOps.html">SeriesStructOps</a></dt>
+      <dd><p>Series Struct Ops Namespace</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.StringOps.html">StringOps</a></dt>
+      <dd><p>Offers multiple methods for checking, parsing, and transforming string columns.
+Access this via <a class="xref" href="Polars.CSharp.Expr.html#Polars_CSharp_Expr_Str">Str</a>.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.StringOrExpr.html">StringOrExpr</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.StructOps.html">StructOps</a></dt>
+      <dd><p>Operations on Struct columns. Access via <a class="xref" href="Polars.CSharp.Expr.html#Polars_CSharp_Expr_Struct">Struct</a>.</p>
+</dd>
+    </dl>
+    <h3 id="enums">
+Enums
+</h3>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.AdbcIngestMode.html">AdbcIngestMode</a></dt>
+      <dd><p>Specifies the behavior when bulk ingesting a DataFrame into an ADBC database table.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.Alignment.html">Alignment</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.AmbiguousStrategy.html">AmbiguousStrategy</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.AsofStrategy.html">AsofStrategy</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.AvroCompression.html">AvroCompression</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.CatalogTableType.html">CatalogTableType</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.CategoricalPhysical.html">CategoricalPhysical</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.ClosedInterval.html">ClosedInterval</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.CloudProvider.html">CloudProvider</a></dt>
+      <dd><p>Supported cloud providers for IO operations.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.ConcatType.html">ConcatType</a></dt>
+      <dd><p>Concat Type Enum</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.CorrelationMethod.html">CorrelationMethod</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.CsvEncoding.html">CsvEncoding</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.DataTypeKind.html">DataTypeKind</a></dt>
+      <dd><p>Enum of DataTypeKind</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.DeltaSaveMode.html">DeltaSaveMode</a></dt>
+      <dd><p>mode for saving delta lake table</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.Endianness.html">Endianness</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.Engine.html">Engine</a></dt>
+      <dd><p>Execution engine for LazyFrame.Collect()</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.EpochTimeUnit.html">EpochTimeUnit</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.ExternalCompression.html">ExternalCompression</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.ExtraColumnsPolicy.html">ExtraColumnsPolicy</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.FillNullStrategy.html">FillNullStrategy</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.FloatFormat.html">FloatFormat</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.InterpolationMethod.html">InterpolationMethod</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.IpcCompression.html">IpcCompression</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.JoinCoalesce.html">JoinCoalesce</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.JoinMaintainOrder.html">JoinMaintainOrder</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.JoinSide.html">JoinSide</a></dt>
+      <dd><p>Specifies the strategy for the hash join build side.</p>
+<p>
+In a hash join, one dataframe is loaded into memory (the "build side") to construct a hash table, 
+while the other is streamed (the "probe side") to find matches.
+</p>
+<p>
+Generally, the smaller dataframe should be the build side for optimal performance and memory usage.
+</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.JoinType.html">JoinType</a></dt>
+      <dd><p>Enums of RightTypes</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.JoinValidation.html">JoinValidation</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.JsonFormat.html">JsonFormat</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.Label.html">Label</a></dt>
+      <dd><p>Defines which boundary of the window to use for the label.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.MergeActionType.html">MergeActionType</a></dt>
+      <dd><p>Defines the type of action to perform during a Merge operation.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.MissingColumnsPolicy.html">MissingColumnsPolicy</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.NonExistent.html">NonExistent</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.NullBehavior.html">NullBehavior</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.ParallelStrategy.html">ParallelStrategy</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.ParquetCompression.html">ParquetCompression</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.PivotAgg.html">PivotAgg</a></dt>
+      <dd><p>Specifies the aggregation function for pivot operations.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.PivotColumnNaming.html">PivotColumnNaming</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.QuantileMethod.html">QuantileMethod</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.QuoteStyle.html">QuoteStyle</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.RankMethod.html">RankMethod</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.Roll.html">Roll</a></dt>
+      <dd><p>Strategy to handle dates that land on non-business days (weekends or holidays).</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.RollingRankMethod.html">RollingRankMethod</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.RoundMode.html">RoundMode</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.SearchSortedSide.html">SearchSortedSide</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.SizeUnit.html">SizeUnit</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.SortStateFlags.html">SortStateFlags</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.StartBy.html">StartBy</a></dt>
+      <dd><p>Defines the strategy for determining the start of the window.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.SyncOnClose.html">SyncOnClose</a></dt>
+      <dd><p>Controls the file synchronization behavior when closing the file.</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.TableFormatting.html">TableFormatting</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.TimeUnit.html">TimeUnit</a></dt>
+      <dd><p>TimeUnit Enums</p>
+</dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.TransferEncoding.html">TransferEncoding</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.UniqueKeepStrategy.html">UniqueKeepStrategy</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.UnstackDirection.html">UnstackDirection</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.UpcastOrForbid.html">UpcastOrForbid</a></dt>
+      <dd></dd>
+    </dl>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.WindowMappingStrategy.html">WindowMappingStrategy</a></dt>
+      <dd></dd>
+    </dl>
+    <h3 id="delegates">
+Delegates
+</h3>
+    <dl class="jumplist">
+      <dt><a class="xref" href="Polars.CSharp.ExtensionFactory.html">ExtensionFactory</a></dt>
+      <dd></dd>
+    </dl>
+
+
+</article>
+
+        <div class="contribution d-print-none">
+        </div>
+
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

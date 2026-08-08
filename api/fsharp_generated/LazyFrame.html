@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>LazyFrame | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="LazyFrame | Polars.NET ">
+      
+      
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/api/fsharp_generated/LazyFrame.md/#L1">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.FSharp.LazyFrame">
+<h1 id="lazyframe">LazyFrame</h1>
+
+<p>Namespace: <code>Polars.FSharp</code></p>
+<h2 id="clone">Clone</h2>
+<p>Clone this DataTypeExpr.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; LazyFrame
+</code></pre>
+<hr>
+<h2 id="collect">Collect</h2>
+<p>Execute the plan and return a DataFrame.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) engine: Option&lt;Engine&gt; -&gt; streaming: Option&lt;bool&gt; -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>engine</code></td>
+<td style="text-align: left;"><code>Option&lt;Engine&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>streaming</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="collectasync">CollectAsync</h2>
+<p>Asynchronously execute the LazyFrame query plan. Useful for keeping UI responsive during heavy calculations.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) engine: Option&lt;Engine&gt; -&gt; useStreaming: Option&lt;bool&gt; -&gt; cancellationToken: Option&lt;CancellationToken&gt; -&gt; Task&lt;DataFrame&gt;
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>engine</code></td>
+<td style="text-align: left;"><code>Option&lt;Engine&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>useStreaming</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cancellationToken</code></td>
+<td style="text-align: left;"><code>Option&lt;CancellationToken&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="collectschema">CollectSchema</h2>
+<p>Get the schema of the LazyFrame.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; PolarsSchema
+</code></pre>
+<hr>
+<h2 id="dispose">Dispose</h2>
+<p>Dispose handle</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Void
+</code></pre>
+<hr>
+<h2 id="explain">Explain</h2>
+<p>Print the query plan.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) optimized: Option&lt;bool&gt; -&gt; string
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>optimized</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="pipe">Pipe</h2>
+<p>Offers a structured way to apply a sequence of user-defined functions (UDFs).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) func: FSharpFunc&lt;LazyFrame, T&gt; -&gt; T
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>func</code></td>
+<td style="text-align: left;"><code>FSharpFunc&lt;LazyFrame, T&gt;</code></td>
+<td style="text-align: left;">A function that receives the current expression and returns a value of type . Typically this function wraps several Polars API calls that operate on the given expression.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>The result of applying <code>function</code> to this LazyFrame.</p>
+<hr>
+<h2 id="pipewithschema">PipeWithSchema</h2>
+<p>Allows to alter the lazy frame during the plan stage with the resolved schema.</p>
+<p>In contrast to pipe, this method does not execute function immediately but only during the plan stage. This allows to use the resolved schema of the input to dynamically alter the lazy frame. This also means that any exceptions raised by function will only be emitted during the plan stage.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) func: FSharpFunc&lt;LazyFrame, FSharpFunc&lt;PolarsSchema, LazyFrame&gt;&gt; -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>func</code></td>
+<td style="text-align: left;"><code>FSharpFunc&lt;LazyFrame, FSharpFunc&lt;PolarsSchema, LazyFrame&gt;&gt;</code></td>
+<td style="text-align: left;">Callable; will receive the frame as the first parameter and the resolved schema as the second parameter.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="printschema">PrintSchema</h2>
+<p>Print schema in a readable format.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Void
+</code></pre>
+<hr>
+<h2 id="rename">Rename</h2>
+<p>Rename the lazyframe columns Example: lf.Rename [&quot;colA&quot;, &quot;col1&quot;; &quot;colB&quot;, &quot;col2&quot;]</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) mapping: List&lt;Tuple&lt;string, string&gt;&gt; -&gt; strict: Option&lt;bool&gt; -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>mapping</code></td>
+<td style="text-align: left;"><code>List&lt;Tuple&lt;string, string&gt;&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>strict</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If <code>true</code>, an error is raised if any column in <code>existing</code> is not found in the schema. If <code>false</code>, columns that are not found are silently ignored. Default is <code>true</code>.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="select">Select</h2>
+<p>Select a single column using an expression. Usage: df.Select(pl.col(&quot;A&quot;))</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) expr: Expr -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>expr</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="select-1">Select</h2>
+<p>Select a single column using an expression. Usage: df.Select(pl.col(&quot;A&quot;))</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) selector: Selector -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>selector</code></td>
+<td style="text-align: left;"><code>Selector</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="select-2">Select</h2>
+<p>Select a single column using an expression. Usage: df.Select(pl.col(&quot;A&quot;))</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) exprs: Seq&lt;Expr&gt; -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>exprs</code></td>
+<td style="text-align: left;"><code>Seq&lt;Expr&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="select-3">Select</h2>
+<p>Select a single column using an expression. Usage: df.Select(pl.col(&quot;A&quot;))</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) columns: Seq&lt;a&gt; -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columns</code></td>
+<td style="text-align: left;"><code>Seq&lt;a&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="show">Show</h2>
+<p>Print the LazyFrame to Console (Stdout).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Void
+</code></pre>
+<hr>
+<h2 id="sinkbatches">SinkBatches</h2>
+<p>Stream the query result in batches. This executes the query and calls 'onBatch' for each RecordBatch produced.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) onBatch: Action&lt;RecordBatch&gt; -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>onBatch</code></td>
+<td style="text-align: left;"><code>Action&lt;RecordBatch&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tostring">ToString</h2>
+<p>Returns the native Polars string representation of the LazyFrame. Includes shape, header, and truncated data.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; string
+</code></pre>
+<hr>
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/api/fsharp_generated/LazyFrame.md/#L1" class="edit-link">Edit this page</a>
+        </div>
+
+        <div class="next-article d-print-none border-top" id="nextArticle"></div>
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

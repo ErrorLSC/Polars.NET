@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>UnityCatalog | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="UnityCatalog | Polars.NET ">
+      
+      
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/api/fsharp_generated/UnityCatalog.md/#L1">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.FSharp.UnityCatalog">
+<h1 id="unitycatalog">UnityCatalog</h1>
+
+<p>Namespace: <code>Polars.FSharp</code></p>
+<h2 id="createcatalogtable">CreateCatalogTable</h2>
+<p>Creates a new table registration within the Unity Catalog.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) catalogName: string -&gt; schemaName: string -&gt; tableName: string -&gt; polarsSchema: PolarsSchema -&gt; tableType: Option&lt;CatalogTableType&gt; -&gt; storageLocation: Option&lt;string&gt; -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>catalogName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the catalog where the table will be created.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>schemaName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the schema (database) within the catalog.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tableName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the table to be created.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>polarsSchema</code></td>
+<td style="text-align: left;"><code>PolarsSchema</code></td>
+<td style="text-align: left;">The structural definition of the table columns and data types via <code>PolarsSchema</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tableType</code></td>
+<td style="text-align: left;"><code>Option&lt;CatalogTableType&gt;</code></td>
+<td style="text-align: left;">The management type of the table. <code>Managed</code>: Unity Catalog manages both metadata and physical data. <code>External</code>: Unity Catalog manages metadata, but data resides at a specific <code>storageLocation</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>storageLocation</code></td>
+<td style="text-align: left;"><code>Option&lt;string&gt;</code></td>
+<td style="text-align: left;">The physical URI for the table data (e.g., s3://my-bucket/path/). Required if <code>tableType</code> is set to External; typically null for Managed tables.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="deletecatalogrecords">DeleteCatalogRecords</h2>
+<p>Deletes records from a Unity Catalog table that match the specified predicate. This operation is ACID-compliant and leverages the underlying Delta Lake protocol. If Deletion Vectors (DVs) are enabled on the table, it performs a metadata-only delete; otherwise, it performs a physical rewrite of the affected data files.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) catalogName: string -&gt; schemaName: string -&gt; tableName: string -&gt; predicate: Expr -&gt; cloudOptions: Option&lt;CloudOptions&gt; -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>catalogName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the catalog containing the table.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>schemaName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the schema (database) containing the table.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tableName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the table from which records will be removed.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>predicate</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">A boolean <code>Expr</code> defining the condition for rows to be deleted.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cloudOptions</code></td>
+<td style="text-align: left;"><code>Option&lt;CloudOptions&gt;</code></td>
+<td style="text-align: left;">Cloud-specific configurations including storage credentials and retry policies for concurrent conflicts.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="deletecatalogtable">DeleteCatalogTable</h2>
+<p>Deletes (drops) a table from the Unity Catalog. For Managed tables, this typically removes both the metadata and the underlying physical data. For External tables, only the metadata registration is removed, leaving the physical data intact in your cloud storage.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) catalogName: string -&gt; schemaName: string -&gt; tableName: string -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>catalogName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the catalog containing the table.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>schemaName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the schema (database) containing the table.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tableName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the table to be deleted.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="deltahistory">DeltaHistory</h2>
+<p>Retrieves the commit history (audit trail) for a Unity Catalog Delta table as a <code>DataFrame</code>. This includes metadata about who performed what operation, when it occurred, and what parameters were used.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) catalogName: string -&gt; schemaName: string -&gt; tableName: string -&gt; limit: Option&lt;int&gt; -&gt; cloudOptions: Option&lt;CloudOptions&gt; -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>catalogName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the catalog (e.g., &quot;main&quot;).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>schemaName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the schema/database (e.g., &quot;default&quot;).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tableName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the table to audit.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>limit</code></td>
+<td style="text-align: left;"><code>Option&lt;int&gt;</code></td>
+<td style="text-align: left;">The maximum number of history commits to retrieve. If 0, retrieves all available history.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cloudOptions</code></td>
+<td style="text-align: left;"><code>Option&lt;CloudOptions&gt;</code></td>
+<td style="text-align: left;">Cloud-specific configurations and credentials resolved via Unity Catalog.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>A <code>DataFrame</code> containing the flattened and formatted history of the table.</p>
+<div class="NOTE">
+<h5>Note</h5>
+<p>Data Processing: The raw JSON history from the Delta log is automatically processed:  Timestamps are cast to UTC <code>Datetime</code>. Complex fields like <code>operationMetrics</code> and <code>operationParameters</code> are unnested into flat columns. Columns are reordered to place essential information (version, timestamp, operation) at the beginning.</p>
+<p>Note on Versioning: For standard DML operations, the version column might be null in the raw log; rows are sorted by version or timestamp in descending order (latest first) by default.</p>
+</div>
+<hr>
+<h2 id="deltarestore">DeltaRestore</h2>
+<p>Restores a Unity Catalog Delta table to a previous state based on a version number or a timestamp. This operation is atomic and ACID-compliant.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) catalogName: string -&gt; schemaName: string -&gt; tableName: string -&gt; version: Option&lt;UInt64&gt; -&gt; timestamp: Option&lt;DateTime&gt; -&gt; ignoreMissingFiles: Option&lt;bool&gt; -&gt; protocolDowngradeAllowed: Option&lt;bool&gt; -&gt; cloudOptions: Option&lt;CloudOptions&gt; -&gt; UInt64
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>catalogName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the catalog (e.g., &quot;main&quot;).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>schemaName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the schema/database (e.g., &quot;default&quot;).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tableName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the table to restore.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>version</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt64&gt;</code></td>
+<td style="text-align: left;">The specific Delta table version to restore to. Mutually exclusive with <code>timestamp</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>timestamp</code></td>
+<td style="text-align: left;"><code>Option&lt;DateTime&gt;</code></td>
+<td style="text-align: left;">The specific <code>DateTime</code> to restore the table state to. Mutually exclusive with <code>version</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ignoreMissingFiles</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If true, allows the restore to proceed even if some underlying data files are missing from storage. Use with caution as this may result in a partial restoration.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>protocolDowngradeAllowed</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If true, allows the table to be restored to a version that requires a lower protocol reader/writer version than the current one.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cloudOptions</code></td>
+<td style="text-align: left;"><code>Option&lt;CloudOptions&gt;</code></td>
+<td style="text-align: left;">Cloud-specific configurations and credentials resolved via Unity Catalog.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>The new version number of the table after the restore operation is committed.</p>
+<div class="NOTE">
+<h5>Note</h5>
+<p>How it works: Instead of physically deleting newer data, Restore creates a new commit in the transaction log that reverts the table's metadata and file references to the target state.</p>
+<p>Safety: This operation will fail if any required data files have been physically removed (e.g., by a <code>Vacuum</code> operation) unless <code>ignoreMissingFiles</code> is set to true.</p>
+</div>
+<hr>
+<h2 id="deltavacuum">DeltaVacuum</h2>
+<p>Physically deletes data files that are no longer referenced by the Delta table and are older than the specified retention threshold. This operation helps reduce storage costs and ensures compliance by removing historical data that is no longer needed.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) catalogName: string -&gt; schemaName: string -&gt; tableName: string -&gt; retentionHours: Option&lt;int&gt; -&gt; enforceRetention: Option&lt;bool&gt; -&gt; dryRun: Option&lt;bool&gt; -&gt; vacuumModeFull: Option&lt;bool&gt; -&gt; cloudOptions: Option&lt;CloudOptions&gt; -&gt; int64
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>catalogName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the catalog (e.g., &quot;main&quot;).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>schemaName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the schema/database (e.g., &quot;default&quot;).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tableName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the table to vacuum.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>retentionHours</code></td>
+<td style="text-align: left;"><code>Option&lt;int&gt;</code></td>
+<td style="text-align: left;">The number of hours to retain historical files. Files modified within this window will not be deleted. If null, the table's default retention setting is used.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>enforceRetention</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If true, the operation will fail if <code>retentionHours</code> is less than the table's minimum retention (usually 168h). Set to false only for emergency cleanup, at the risk of corrupting active readers.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>dryRun</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If true, the method returns the number of files that <em>would</em> be deleted without actually removing them.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>vacuumModeFull</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If true, performs a full scan of the object store to find unreferenced files. If false (Lite mode), uses the Delta log to identify files to be removed.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cloudOptions</code></td>
+<td style="text-align: left;"><code>Option&lt;CloudOptions&gt;</code></td>
+<td style="text-align: left;">Cloud-specific configurations and credentials resolved via Unity Catalog.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>The total number of physical files deleted from storage (or identified for deletion if <code>dryRun</code> is true).</p>
+<div class="NOTE">
+<h5>Note</h5>
+<p><b>Warning:</b> This is a destructive operation. Once files are vacuumed, you can no longer &quot;Time Travel&quot; to versions that relied on those files.</p>
+<p><b>Retention Period:</b> By default, Delta Lake prevents deleting files younger than 168 hours (7 days) to protect active readers and concurrent transactions.</p>
+</div>
+<hr>
+<h2 id="dispose">Dispose</h2>
+<p>Dispose handle</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) disposing: bool -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>disposing</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="mergecatalogrecords">MergeCatalogRecords</h2>
+<p>Initializes a MERGE (Upsert) operation against a Unity Catalog table using an in-memory <code>DataFrame</code>. The <code>sourceData</code> is automatically converted to a <code>LazyFrame</code> to leverage Polars' query optimization.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) catalogName: string -&gt; schemaName: string -&gt; tableName: string -&gt; sourceData: LazyFrame -&gt; mergeKeys: string[] -&gt; canEvolve: Option&lt;bool&gt; -&gt; cloudOptions: Option&lt;CloudOptions&gt; -&gt; DeltaMergeBuilder
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>catalogName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>schemaName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tableName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>sourceData</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mergeKeys</code></td>
+<td style="text-align: left;"><code>string[]</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>canEvolve</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cloudOptions</code></td>
+<td style="text-align: left;"><code>Option&lt;CloudOptions&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<div class="NOTE">
+<h5>Note</h5>
+<p>This is a builder pattern. No data is modified until <code>.Execute()</code> is called on the resulting <code>DeltaMergeBuilder</code>.</p>
+</div>
+<hr>
+<h2 id="mergecatalogrecords-1">MergeCatalogRecords</h2>
+<p>Initializes a MERGE (Upsert) operation against a Unity Catalog table using an in-memory <code>DataFrame</code>. The <code>sourceData</code> is automatically converted to a <code>LazyFrame</code> to leverage Polars' query optimization.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) catalogName: string -&gt; schemaName: string -&gt; tableName: string -&gt; sourceData: DataFrame -&gt; mergeKeys: string[] -&gt; canEvolve: Option&lt;bool&gt; -&gt; cloudOptions: Option&lt;CloudOptions&gt; -&gt; DeltaMergeBuilder
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>catalogName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>schemaName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tableName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>sourceData</code></td>
+<td style="text-align: left;"><code>DataFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mergeKeys</code></td>
+<td style="text-align: left;"><code>string[]</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>canEvolve</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cloudOptions</code></td>
+<td style="text-align: left;"><code>Option&lt;CloudOptions&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<div class="NOTE">
+<h5>Note</h5>
+<p>This is a builder pattern. No data is modified until <code>.Execute()</code> is called on the resulting <code>DeltaMergeBuilder</code>.</p>
+</div>
+<hr>
+<h2 id="optimizecatalogtable">OptimizeCatalogTable</h2>
+<p>Optimizes the storage layout of a Unity Catalog Delta table by compacting small files and optionally applying Z-Order clustering. This operation significantly improves read performance by reducing file-open overhead and enabling efficient data skipping.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) catalogName: string -&gt; schemaName: string -&gt; tableName: string -&gt; targetSizeMb: Option&lt;int64&gt; -&gt; partitionFilters: Option&lt;FSharpMap&lt;string, string&gt;&gt; -&gt; zOrderColumns: Option&lt;Seq&lt;string&gt;&gt; -&gt; cloudOptions: Option&lt;CloudOptions&gt; -&gt; int64
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>catalogName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the catalog (e.g., &quot;main&quot;).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>schemaName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the schema/database (e.g., &quot;default&quot;).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tableName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the table to optimize.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>targetSizeMb</code></td>
+<td style="text-align: left;"><code>Option&lt;int64&gt;</code></td>
+<td style="text-align: left;">The target size for the compacted Parquet files in Megabytes. Default is 128 MB.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>partitionFilters</code></td>
+<td style="text-align: left;"><code>Option&lt;FSharpMap&lt;string, string&gt;&gt;</code></td>
+<td style="text-align: left;">Optional filters to limit the optimization to specific partitions. If null, the entire table is processed.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>zOrderColumns</code></td>
+<td style="text-align: left;"><code>Option&lt;Seq&lt;string&gt;&gt;</code></td>
+<td style="text-align: left;">An optional collection of column names to use for Z-Order clustering.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cloudOptions</code></td>
+<td style="text-align: left;"><code>Option&lt;CloudOptions&gt;</code></td>
+<td style="text-align: left;">Cloud-specific configurations, including storage credentials and retry logic.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>The total number of files that were successfully compacted/optimized during the operation.</p>
+<div class="NOTE">
+<h5>Note</h5>
+<p><b>Compaction:</b> Groups small Parquet files into larger ones based on the target size.</p>
+<p><b>Z-Ordering:</b> If <code>zOrderColumns</code> are provided, the data is rearranged into multidimensional clusters.</p>
+<p><b>Deletion Vector (DV) Materialization:</b> If the table uses DVs, this operation physically removes any soft-deleted rows.</p>
+</div>
+<hr>
+<h2 id="scancatalogtable">ScanCatalogTable</h2>
+<p>Scans a table managed by Unity Catalog into a <code>LazyFrame</code>. This method performs a two-step resolution: 1. It fetches the physical storage location and dynamic credentials from Unity Catalog. 2. It initializes a Polars scan on the underlying Delta files using the resolved credentials.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) catalogName: string -&gt; schemaName: string -&gt; tableName: string -&gt; version: Option&lt;UInt64&gt; -&gt; datetime: Option&lt;string&gt; -&gt; nRows: Option&lt;UInt64&gt; -&gt; parallelStrategy: Option&lt;ParallelStrategy&gt; -&gt; lowMemory: Option&lt;bool&gt; -&gt; useStatistics: Option&lt;bool&gt; -&gt; glob: Option&lt;bool&gt; -&gt; rechunk: Option&lt;bool&gt; -&gt; cache: Option&lt;bool&gt; -&gt; rowIndexName: Option&lt;string&gt; -&gt; rowIndexOffset: Option&lt;UInt32&gt; -&gt; includePathColumn: Option&lt;string&gt; -&gt; schema: Option&lt;PolarsSchema&gt; -&gt; hivePartitioning: Option&lt;bool&gt; -&gt; hivePartitionSchema: Option&lt;PolarsSchema&gt; -&gt; tryParseHiveDates: Option&lt;bool&gt; -&gt; cloudOptions: Option&lt;CloudOptions&gt; -&gt; LazyFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>catalogName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>schemaName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tableName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>version</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt64&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>datetime</code></td>
+<td style="text-align: left;"><code>Option&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>nRows</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt64&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>parallelStrategy</code></td>
+<td style="text-align: left;"><code>Option&lt;ParallelStrategy&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>lowMemory</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>useStatistics</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>glob</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rechunk</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cache</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rowIndexName</code></td>
+<td style="text-align: left;"><code>Option&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rowIndexOffset</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt32&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>includePathColumn</code></td>
+<td style="text-align: left;"><code>Option&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>schema</code></td>
+<td style="text-align: left;"><code>Option&lt;PolarsSchema&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>hivePartitioning</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>hivePartitionSchema</code></td>
+<td style="text-align: left;"><code>Option&lt;PolarsSchema&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tryParseHiveDates</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cloudOptions</code></td>
+<td style="text-align: left;"><code>Option&lt;CloudOptions&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="sinkcatalogtable">SinkCatalogTable</h2>
+<p>Sink the LazyFrame to a Unity Catalog managed Delta Lake table with partition discovery.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) catalogName: string -&gt; schemaName: string -&gt; tableName: string -&gt; lf: LazyFrame -&gt; partitionBy: Option&lt;Selector&gt; -&gt; mode: Option&lt;DeltaSaveMode&gt; -&gt; canEvolve: Option&lt;bool&gt; -&gt; includeKeys: Option&lt;bool&gt; -&gt; keysPreGrouped: Option&lt;bool&gt; -&gt; maxRowsPerFile: Option&lt;int&gt; -&gt; approxBytesPerFile: Option&lt;int64&gt; -&gt; compression: Option&lt;ParquetCompression&gt; -&gt; compressionLevel: Option&lt;int&gt; -&gt; statistics: Option&lt;bool&gt; -&gt; rowGroupSize: Option&lt;UInt32&gt; -&gt; dataPageSize: Option&lt;UInt32&gt; -&gt; compatLevel: Option&lt;int&gt; -&gt; maintainOrder: Option&lt;bool&gt; -&gt; syncOnClose: Option&lt;SyncOnClose&gt; -&gt; mkdir: Option&lt;bool&gt; -&gt; cloudOptions: Option&lt;CloudOptions&gt; -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>catalogName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>schemaName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>tableName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>lf</code></td>
+<td style="text-align: left;"><code>LazyFrame</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>partitionBy</code></td>
+<td style="text-align: left;"><code>Option&lt;Selector&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mode</code></td>
+<td style="text-align: left;"><code>Option&lt;DeltaSaveMode&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>canEvolve</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>includeKeys</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>keysPreGrouped</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>maxRowsPerFile</code></td>
+<td style="text-align: left;"><code>Option&lt;int&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>approxBytesPerFile</code></td>
+<td style="text-align: left;"><code>Option&lt;int64&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>compression</code></td>
+<td style="text-align: left;"><code>Option&lt;ParquetCompression&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>compressionLevel</code></td>
+<td style="text-align: left;"><code>Option&lt;int&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>statistics</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rowGroupSize</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt32&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>dataPageSize</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt32&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>compatLevel</code></td>
+<td style="text-align: left;"><code>Option&lt;int&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>maintainOrder</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>syncOnClose</code></td>
+<td style="text-align: left;"><code>Option&lt;SyncOnClose&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>mkdir</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cloudOptions</code></td>
+<td style="text-align: left;"><code>Option&lt;CloudOptions&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/api/fsharp_generated/UnityCatalog.md/#L1" class="edit-link">Edit this page</a>
+        </div>
+
+        <div class="next-article d-print-none border-top" id="nextArticle"></div>
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

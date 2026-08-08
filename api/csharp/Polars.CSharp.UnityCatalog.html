@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Class UnityCatalog | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Class UnityCatalog | Polars.NET ">
+      
+      <meta name="description" content="Databricks Unity Catalog Client">
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="../toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/new/main/apiSpec/new?filename=Polars_CSharp_UnityCatalog.md&amp;value=---%0Auid%3A%20Polars.CSharp.UnityCatalog%0Asummary%3A%20&#39;*You%20can%20override%20summary%20for%20the%20API%20here%20using%20*MARKDOWN*%20syntax&#39;%0A---%0A%0A*Please%20type%20below%20more%20information%20about%20this%20API%3A*%0A%0A">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="ManagedReference">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.CSharp.UnityCatalog">
+
+
+
+  <h1 id="Polars_CSharp_UnityCatalog" data-uid="Polars.CSharp.UnityCatalog" class="text-break">
+Class UnityCatalog  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Catalog.cs/#L16"><i class="bi bi-code-slash"></i></a>
+  </h1>
+
+  <div class="facts text-secondary">
+    <dl><dt>Namespace</dt><dd><a class="xref" href="Polars.html">Polars</a>.<a class="xref" href="Polars.CSharp.html">CSharp</a></dd></dl>
+  <dl><dt>Assembly</dt><dd>Polars.CSharp.dll</dd></dl>
+  </div>
+
+  <div class="markdown summary"><p>Databricks Unity Catalog Client</p>
+</div>
+  <div class="markdown conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public class UnityCatalog : IDisposable</code></pre>
+  </div>
+
+
+
+
+  <dl class="typelist inheritance">
+    <dt>Inheritance</dt>
+    <dd>
+      <div><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object">object</a></div>
+      <div><span class="xref">UnityCatalog</span></div>
+    </dd>
+  </dl>
+
+  <dl class="typelist implements">
+    <dt>Implements</dt>
+    <dd>
+      <div><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.idisposable">IDisposable</a></div>
+    </dd>
+  </dl>
+
+
+  <dl class="typelist inheritedMembers">
+    <dt>Inherited Members</dt>
+    <dd>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.equals#system-object-equals(system-object)">object.Equals(object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.equals#system-object-equals(system-object-system-object)">object.Equals(object, object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.gethashcode">object.GetHashCode()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.gettype">object.GetType()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.memberwiseclone">object.MemberwiseClone()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.referenceequals">object.ReferenceEquals(object, object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.tostring">object.ToString()</a>
+    </div>
+  </dd></dl>
+
+
+
+
+  <h2 id="Polars_CSharp_UnityCatalog_remarks">Remarks</h2>
+  <div class="markdown level0 remarks"><p>Init Unity Catalog connection</p>
+</div>
+
+
+  <h2 class="section" id="constructors">Constructors
+</h2>
+
+
+  <a id="Polars_CSharp_UnityCatalog__ctor_" data-uid="Polars.CSharp.UnityCatalog.#ctor*"></a>
+
+  <h3 id="Polars_CSharp_UnityCatalog__ctor_System_String_System_String_" data-uid="Polars.CSharp.UnityCatalog.#ctor(System.String,System.String)">
+  UnityCatalog(string, string)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Catalog.cs/#L16"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Databricks Unity Catalog Client</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public UnityCatalog(string workspaceUrl, string bearerToken)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>workspaceUrl</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>Databricks workspaceUrl(Example: <a href="https://adb-123.azuredatabricks.net">https://adb-123.azuredatabricks.net</a>)</p>
+</dd>
+    <dt><code>bearerToken</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>Personal Access Token (PAT) or OAuth Token</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <h4 class="section" id="Polars_CSharp_UnityCatalog__ctor_System_String_System_String__remarks">Remarks</h4>
+  <div class="markdown level1 remarks"><p>Init Unity Catalog connection</p>
+</div>
+
+
+
+
+  <h2 class="section" id="methods">Methods
+</h2>
+
+
+  <a id="Polars_CSharp_UnityCatalog_CreateCatalogTable_" data-uid="Polars.CSharp.UnityCatalog.CreateCatalogTable*"></a>
+
+  <h3 id="Polars_CSharp_UnityCatalog_CreateCatalogTable_System_String_System_String_System_String_Polars_CSharp_IntoSchema_Polars_CSharp_CatalogTableType_System_String_" data-uid="Polars.CSharp.UnityCatalog.CreateCatalogTable(System.String,System.String,System.String,Polars.CSharp.IntoSchema,Polars.CSharp.CatalogTableType,System.String)">
+  CreateCatalogTable(string, string, string, IntoSchema, CatalogTableType, string?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Catalog.cs/#L188"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Creates a new table registration within the Unity Catalog.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public void CreateCatalogTable(string catalogName, string schemaName, string tableName, IntoSchema IntoSchema, CatalogTableType tableType = CatalogTableType.Managed, string? storageLocation = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>catalogName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the catalog where the table will be created.</p>
+</dd>
+    <dt><code>schemaName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the schema (database) within the catalog.</p>
+</dd>
+    <dt><code>tableName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the table to be created.</p>
+</dd>
+    <dt><code>IntoSchema</code> <a class="xref" href="Polars.CSharp.IntoSchema.html">IntoSchema</a></dt>
+    <dd><p>The structural definition of the table columns and data types via <a class="xref" href="Polars.CSharp.IntoSchema.html">IntoSchema</a>.</p>
+</dd>
+    <dt><code>tableType</code> <a class="xref" href="Polars.CSharp.CatalogTableType.html">CatalogTableType</a></dt>
+    <dd><p>The management type of the table.
+<a class="xref" href="Polars.CSharp.CatalogTableType.html#Polars_CSharp_CatalogTableType_Managed">Managed</a>: Unity Catalog manages both metadata and physical data.
+<a class="xref" href="Polars.CSharp.CatalogTableType.html#Polars_CSharp_CatalogTableType_External">External</a>: Unity Catalog manages metadata, but data resides at a specific <code class="paramref">storageLocation</code>.</p>
+</dd>
+    <dt><code>storageLocation</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The physical URI for the table data (e.g., s3://my-bucket/path/).
+Required if <code class="paramref">tableType</code> is set to External; typically null for Managed tables.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_UnityCatalog_DeleteCatalogRecords_" data-uid="Polars.CSharp.UnityCatalog.DeleteCatalogRecords*"></a>
+
+  <h3 id="Polars_CSharp_UnityCatalog_DeleteCatalogRecords_System_String_System_String_System_String_Polars_CSharp_Expr_Polars_CSharp_CloudOptions_" data-uid="Polars.CSharp.UnityCatalog.DeleteCatalogRecords(System.String,System.String,System.String,Polars.CSharp.Expr,Polars.CSharp.CloudOptions)">
+  DeleteCatalogRecords(string, string, string, Expr, CloudOptions?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Catalog.cs/#L233"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Deletes records from a Unity Catalog table that match the specified predicate.
+This operation is ACID-compliant and leverages the underlying Delta Lake protocol.
+If Deletion Vectors (DVs) are enabled on the table, it performs a metadata-only delete;
+otherwise, it performs a physical rewrite of the affected data files.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public void DeleteCatalogRecords(string catalogName, string schemaName, string tableName, Expr predicate, CloudOptions? cloudOptions = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>catalogName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the catalog containing the table.</p>
+</dd>
+    <dt><code>schemaName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the schema (database) containing the table.</p>
+</dd>
+    <dt><code>tableName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the table from which records will be removed.</p>
+</dd>
+    <dt><code>predicate</code> <a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>A boolean <a class="xref" href="Polars.CSharp.Expr.html">Expr</a> defining the condition for rows to be deleted.</p>
+</dd>
+    <dt><code>cloudOptions</code> <a class="xref" href="Polars.CSharp.CloudOptions.html">CloudOptions</a></dt>
+    <dd><p>Cloud-specific configurations including storage credentials and retry policies for concurrent conflicts.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_UnityCatalog_DeleteCatalogTable_" data-uid="Polars.CSharp.UnityCatalog.DeleteCatalogTable*"></a>
+
+  <h3 id="Polars_CSharp_UnityCatalog_DeleteCatalogTable_System_String_System_String_System_String_" data-uid="Polars.CSharp.UnityCatalog.DeleteCatalogTable(System.String,System.String,System.String)">
+  DeleteCatalogTable(string, string, string)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Catalog.cs/#L212"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Deletes (drops) a table from the Unity Catalog.
+For Managed tables, this typically removes both the metadata and the underlying physical data.
+For External tables, only the metadata registration is removed, leaving the physical data intact in your cloud storage.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public void DeleteCatalogTable(string catalogName, string schemaName, string tableName)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>catalogName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the catalog containing the table.</p>
+</dd>
+    <dt><code>schemaName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the schema (database) containing the table.</p>
+</dd>
+    <dt><code>tableName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the table to be deleted.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_UnityCatalog_DeltaHistory_" data-uid="Polars.CSharp.UnityCatalog.DeltaHistory*"></a>
+
+  <h3 id="Polars_CSharp_UnityCatalog_DeltaHistory_System_String_System_String_System_String_System_Int32_Polars_CSharp_CloudOptions_" data-uid="Polars.CSharp.UnityCatalog.DeltaHistory(System.String,System.String,System.String,System.Int32,Polars.CSharp.CloudOptions)">
+  DeltaHistory(string, string, string, int, CloudOptions?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Catalog.cs/#L578"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Retrieves the commit history (audit trail) for a Unity Catalog Delta table as a <a class="xref" href="Polars.CSharp.DataFrame.html">DataFrame</a>.
+This includes metadata about who performed what operation, when it occurred, and what parameters were used.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DataFrame DeltaHistory(string catalogName, string schemaName, string tableName, int limit = 0, CloudOptions? cloudOptions = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>catalogName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the catalog (e.g., &quot;main&quot;).</p>
+</dd>
+    <dt><code>schemaName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the schema/database (e.g., &quot;default&quot;).</p>
+</dd>
+    <dt><code>tableName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the table to audit.</p>
+</dd>
+    <dt><code>limit</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd><p>The maximum number of history commits to retrieve. If 0, retrieves all available history.</p>
+</dd>
+    <dt><code>cloudOptions</code> <a class="xref" href="Polars.CSharp.CloudOptions.html">CloudOptions</a></dt>
+    <dd><p>Cloud-specific configurations and credentials resolved via Unity Catalog.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataFrame.html">DataFrame</a></dt>
+    <dd><p>A <a class="xref" href="Polars.CSharp.DataFrame.html">DataFrame</a> containing the flattened and formatted history of the table.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+  <h4 class="section" id="Polars_CSharp_UnityCatalog_DeltaHistory_System_String_System_String_System_String_System_Int32_Polars_CSharp_CloudOptions__remarks">Remarks</h4>
+  <div class="markdown level1 remarks"><p>
+<b>Data Processing:</b> The raw JSON history from the Delta log is automatically processed:
+<ul><li>Timestamps are cast to UTC <a class="xref" href="Polars.CSharp.DataType.html#Polars_CSharp_DataType_Datetime_Polars_CSharp_TimeUnit_System_String_">Datetime(TimeUnit, string?)</a>.</li><li>Complex fields like <code>operationMetrics</code> and <code>operationParameters</code> are unnested into flat columns.</li><li>Columns are reordered to place essential information (version, timestamp, operation) at the beginning.</li></ul>
+
+<p>
+<b>Note on Versioning:</b> For standard DML operations, the version column might be null in the raw log; 
+rows are sorted by version or timestamp in descending order (latest first) by default.
+</p>
+</div>
+
+
+
+
+  <a id="Polars_CSharp_UnityCatalog_DeltaRestore_" data-uid="Polars.CSharp.UnityCatalog.DeltaRestore*"></a>
+
+  <h3 id="Polars_CSharp_UnityCatalog_DeltaRestore_System_String_System_String_System_String_System_Nullable_System_UInt64__System_Nullable_System_DateTime__System_Boolean_System_Boolean_Polars_CSharp_CloudOptions_" data-uid="Polars.CSharp.UnityCatalog.DeltaRestore(System.String,System.String,System.String,System.Nullable{System.UInt64},System.Nullable{System.DateTime},System.Boolean,System.Boolean,Polars.CSharp.CloudOptions)">
+  DeltaRestore(string, string, string, ulong?, DateTime?, bool, bool, CloudOptions?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Catalog.cs/#L508"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Restores a Unity Catalog Delta table to a previous state based on a version number or a timestamp.
+This operation is atomic and ACID-compliant.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public ulong DeltaRestore(string catalogName, string schemaName, string tableName, ulong? version = null, DateTime? timestamp = null, bool ignoreMissingFiles = false, bool protocolDowngradeAllowed = false, CloudOptions? cloudOptions = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>catalogName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the catalog (e.g., &quot;main&quot;).</p>
+</dd>
+    <dt><code>schemaName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the schema/database (e.g., &quot;default&quot;).</p>
+</dd>
+    <dt><code>tableName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the table to restore.</p>
+</dd>
+    <dt><code>version</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.uint64">ulong</a>?</dt>
+    <dd><p>The specific Delta table version to restore to.
+Mutually exclusive with <code class="paramref">timestamp</code>.</p>
+</dd>
+    <dt><code>timestamp</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.datetime">DateTime</a>?</dt>
+    <dd><p>The specific <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.datetime">DateTime</a> to restore the table state to.
+Mutually exclusive with <code class="paramref">version</code>.</p>
+</dd>
+    <dt><code>ignoreMissingFiles</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If true, allows the restore to proceed even if some underlying data files are missing from storage.
+Use with caution as this may result in a partial restoration.</p>
+</dd>
+    <dt><code>protocolDowngradeAllowed</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If true, allows the table to be restored to a version that requires a lower protocol reader/writer version
+than the current one.</p>
+</dd>
+    <dt><code>cloudOptions</code> <a class="xref" href="Polars.CSharp.CloudOptions.html">CloudOptions</a></dt>
+    <dd><p>Cloud-specific configurations and credentials resolved via Unity Catalog.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.uint64">ulong</a></dt>
+    <dd><p>The new version number of the table after the restore operation is committed.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+  <h4 class="section" id="Polars_CSharp_UnityCatalog_DeltaRestore_System_String_System_String_System_String_System_Nullable_System_UInt64__System_Nullable_System_DateTime__System_Boolean_System_Boolean_Polars_CSharp_CloudOptions__remarks">Remarks</h4>
+  <div class="markdown level1 remarks"><p>
+<b>How it works:</b> Instead of physically deleting newer data, Restore creates a new commit in the transaction log 
+that reverts the table's metadata and file references to the target state. 
+</p>
+<p>
+<b>Safety:</b> This operation will fail if any required data files have been physically removed (e.g., by a <code>Vacuum</code> operation) 
+unless <code class="paramref">ignoreMissingFiles</code> is set to true.
+</p>
+</div>
+
+  <h4 class="section">Exceptions</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.argumentexception">ArgumentException</a></dt>
+    <dd><p>Thrown when both <code class="paramref">version</code> and <code class="paramref">timestamp</code> are provided,
+or when neither is provided.</p>
+</dd>
+  </dl>
+
+
+
+  <a id="Polars_CSharp_UnityCatalog_DeltaVacuum_" data-uid="Polars.CSharp.UnityCatalog.DeltaVacuum*"></a>
+
+  <h3 id="Polars_CSharp_UnityCatalog_DeltaVacuum_System_String_System_String_System_String_System_Nullable_System_Int32__System_Boolean_System_Boolean_System_Boolean_Polars_CSharp_CloudOptions_" data-uid="Polars.CSharp.UnityCatalog.DeltaVacuum(System.String,System.String,System.String,System.Nullable{System.Int32},System.Boolean,System.Boolean,System.Boolean,Polars.CSharp.CloudOptions)">
+  DeltaVacuum(string, string, string, int?, bool, bool, bool, CloudOptions?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Catalog.cs/#L442"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Physically deletes data files that are no longer referenced by the Delta table and are older than the specified retention threshold.
+This operation helps reduce storage costs and ensures compliance by removing historical data that is no longer needed.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public long DeltaVacuum(string catalogName, string schemaName, string tableName, int? retentionHours = null, bool enforceRetention = true, bool dryRun = false, bool vacuumModeFull = false, CloudOptions? cloudOptions = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>catalogName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the catalog (e.g., &quot;main&quot;).</p>
+</dd>
+    <dt><code>schemaName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the schema/database (e.g., &quot;default&quot;).</p>
+</dd>
+    <dt><code>tableName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the table to vacuum.</p>
+</dd>
+    <dt><code>retentionHours</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a>?</dt>
+    <dd><p>The number of hours to retain historical files. Files modified within this window will not be deleted.
+If null, the table's default retention setting is used.</p>
+</dd>
+    <dt><code>enforceRetention</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If true, the operation will fail if <code class="paramref">retentionHours</code> is less than the table's minimum retention
+(usually 168h). Set to false only for emergency cleanup, at the risk of corrupting active readers.</p>
+</dd>
+    <dt><code>dryRun</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If true, the method returns the number of files that <em>would</em> be deleted without actually removing them.</p>
+</dd>
+    <dt><code>vacuumModeFull</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If true, performs a full scan of the object store to find unreferenced files.
+If false (Lite mode), uses the Delta log to identify files to be removed.</p>
+</dd>
+    <dt><code>cloudOptions</code> <a class="xref" href="Polars.CSharp.CloudOptions.html">CloudOptions</a></dt>
+    <dd><p>Cloud-specific configurations and credentials resolved via Unity Catalog.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd><p>The total number of physical files deleted from storage (or identified for deletion if <code class="paramref">dryRun</code> is true).</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+  <h4 class="section" id="Polars_CSharp_UnityCatalog_DeltaVacuum_System_String_System_String_System_String_System_Nullable_System_Int32__System_Boolean_System_Boolean_System_Boolean_Polars_CSharp_CloudOptions__remarks">Remarks</h4>
+  <div class="markdown level1 remarks"><p>
+<b>Warning:</b> This is a destructive operation. Once files are vacuumed, you can no longer "Time Travel" to versions 
+that relied on those files.
+</p>
+<p>
+<b>Retention Period:</b> By default, Delta Lake prevents deleting files younger than 168 hours (7 days) to protect 
+active readers and concurrent transactions.
+</p>
+</div>
+
+  <h4 class="section">Exceptions</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.argumentexception">ArgumentException</a></dt>
+    <dd><p>Thrown when <code class="paramref">retentionHours</code> is a negative value.</p>
+</dd>
+  </dl>
+
+
+
+  <a id="Polars_CSharp_UnityCatalog_Dispose_" data-uid="Polars.CSharp.UnityCatalog.Dispose*"></a>
+
+  <h3 id="Polars_CSharp_UnityCatalog_Dispose" data-uid="Polars.CSharp.UnityCatalog.Dispose">
+  Dispose()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Catalog.cs/#L656"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Dispose handle</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public void Dispose()</code></pre>
+  </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_UnityCatalog_Dispose_" data-uid="Polars.CSharp.UnityCatalog.Dispose*"></a>
+
+  <h3 id="Polars_CSharp_UnityCatalog_Dispose_System_Boolean_" data-uid="Polars.CSharp.UnityCatalog.Dispose(System.Boolean)">
+  Dispose(bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Catalog.cs/#L640"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Dispose handle</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">protected virtual void Dispose(bool disposing)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>disposing</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_UnityCatalog_MergeCatalogRecords_" data-uid="Polars.CSharp.UnityCatalog.MergeCatalogRecords*"></a>
+
+  <h3 id="Polars_CSharp_UnityCatalog_MergeCatalogRecords_System_String_System_String_System_String_Polars_CSharp_DataFrame_System_String___System_Boolean_Polars_CSharp_CloudOptions_" data-uid="Polars.CSharp.UnityCatalog.MergeCatalogRecords(System.String,System.String,System.String,Polars.CSharp.DataFrame,System.String[],System.Boolean,Polars.CSharp.CloudOptions)">
+  MergeCatalogRecords(string, string, string, DataFrame, string[], bool, CloudOptions?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Catalog.cs/#L311"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Initializes a MERGE (Upsert) operation against a Unity Catalog table using an in-memory <a class="xref" href="Polars.CSharp.DataFrame.html">DataFrame</a>.
+The <code class="paramref">sourceData</code> is automatically converted to a <a class="xref" href="Polars.CSharp.LazyFrame.html">LazyFrame</a> to leverage Polars' query optimization.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DeltaMergeBuilder MergeCatalogRecords(string catalogName, string schemaName, string tableName, DataFrame sourceData, string[] mergeKeys, bool canEvolve = false, CloudOptions? cloudOptions = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>catalogName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The Unity Catalog name (e.g., &quot;main&quot;).</p>
+</dd>
+    <dt><code>schemaName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The schema/database name within the catalog.</p>
+</dd>
+    <dt><code>tableName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The target Delta table name registered in the catalog.</p>
+</dd>
+    <dt><code>sourceData</code> <a class="xref" href="Polars.CSharp.DataFrame.html">DataFrame</a></dt>
+    <dd><p>A <a class="xref" href="Polars.CSharp.DataFrame.html">DataFrame</a> containing the data to be merged.</p>
+</dd>
+    <dt><code>mergeKeys</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>[]</dt>
+    <dd><p>An array of column names used as join keys to match source rows with target rows.</p>
+</dd>
+    <dt><code>canEvolve</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If true, enables Schema Evolution to handle new columns in the source data.</p>
+</dd>
+    <dt><code>cloudOptions</code> <a class="xref" href="Polars.CSharp.CloudOptions.html">CloudOptions</a></dt>
+    <dd><p>Cloud-specific configurations and credentials.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DeltaMergeBuilder.html">DeltaMergeBuilder</a></dt>
+    <dd><p>A <a class="xref" href="Polars.CSharp.DeltaMergeBuilder.html">DeltaMergeBuilder</a> used to configure &quot;WhenMatched&quot; and &quot;WhenNotMatched&quot; clauses.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+  <h4 class="section" id="Polars_CSharp_UnityCatalog_MergeCatalogRecords_System_String_System_String_System_String_Polars_CSharp_DataFrame_System_String___System_Boolean_Polars_CSharp_CloudOptions__remarks">Remarks</h4>
+  <div class="markdown level1 remarks"><p>This is a builder pattern. No data is modified until <code>.Execute()</code> is called on the resulting <a class="xref" href="Polars.CSharp.DeltaMergeBuilder.html">DeltaMergeBuilder</a>.</p>
+</div>
+
+
+
+
+  <a id="Polars_CSharp_UnityCatalog_MergeCatalogRecords_" data-uid="Polars.CSharp.UnityCatalog.MergeCatalogRecords*"></a>
+
+  <h3 id="Polars_CSharp_UnityCatalog_MergeCatalogRecords_System_String_System_String_System_String_Polars_CSharp_LazyFrame_System_String___System_Boolean_Polars_CSharp_CloudOptions_" data-uid="Polars.CSharp.UnityCatalog.MergeCatalogRecords(System.String,System.String,System.String,Polars.CSharp.LazyFrame,System.String[],System.Boolean,Polars.CSharp.CloudOptions)">
+  MergeCatalogRecords(string, string, string, LazyFrame, string[], bool, CloudOptions?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Catalog.cs/#L276"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Initializes a MERGE (Upsert) operation against a Unity Catalog table using a <a class="xref" href="Polars.CSharp.LazyFrame.html">LazyFrame</a> as the data source.
+This method provides an ACID-compliant way to perform atomic updates, inserts, or deletes by joining the source data with the target table.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DeltaMergeBuilder MergeCatalogRecords(string catalogName, string schemaName, string tableName, LazyFrame sourceData, string[] mergeKeys, bool canEvolve = false, CloudOptions? cloudOptions = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>catalogName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The Unity Catalog name (e.g., &quot;main&quot;).</p>
+</dd>
+    <dt><code>schemaName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The schema/database name within the catalog.</p>
+</dd>
+    <dt><code>tableName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The target Delta table name registered in the catalog.</p>
+</dd>
+    <dt><code>sourceData</code> <a class="xref" href="Polars.CSharp.LazyFrame.html">LazyFrame</a></dt>
+    <dd><p>A <a class="xref" href="Polars.CSharp.LazyFrame.html">LazyFrame</a> containing the data to be merged into the target table.</p>
+</dd>
+    <dt><code>mergeKeys</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>[]</dt>
+    <dd><p>An array of column names used as join keys to match source rows with target rows.</p>
+</dd>
+    <dt><code>canEvolve</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If true, enables Schema Evolution, allowing the target table's schema to be updated if the source contains new columns.</p>
+</dd>
+    <dt><code>cloudOptions</code> <a class="xref" href="Polars.CSharp.CloudOptions.html">CloudOptions</a></dt>
+    <dd><p>Cloud-specific configurations (S3/Azure/GCS) including dynamic credentials resolved via Unity Catalog.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DeltaMergeBuilder.html">DeltaMergeBuilder</a></dt>
+    <dd><p>A <a class="xref" href="Polars.CSharp.DeltaMergeBuilder.html">DeltaMergeBuilder</a> used to configure &quot;WhenMatched&quot; and &quot;WhenNotMatched&quot; clauses.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+  <h4 class="section" id="Polars_CSharp_UnityCatalog_MergeCatalogRecords_System_String_System_String_System_String_Polars_CSharp_LazyFrame_System_String___System_Boolean_Polars_CSharp_CloudOptions__remarks">Remarks</h4>
+  <div class="markdown level1 remarks"><p>This is a builder pattern. No data is modified until <code>.Execute()</code> is called on the resulting <a class="xref" href="Polars.CSharp.DeltaMergeBuilder.html">DeltaMergeBuilder</a>.
+The operation performs a join between the source and target based on the <code class="paramref">mergeKeys</code>.</p>
+</div>
+
+
+
+
+  <a id="Polars_CSharp_UnityCatalog_OptimizeCatalogTable_" data-uid="Polars.CSharp.UnityCatalog.OptimizeCatalogTable*"></a>
+
+  <h3 id="Polars_CSharp_UnityCatalog_OptimizeCatalogTable_System_String_System_String_System_String_System_Int64_System_Collections_Generic_Dictionary_System_String_System_String__System_Collections_Generic_IEnumerable_System_String__Polars_CSharp_CloudOptions_" data-uid="Polars.CSharp.UnityCatalog.OptimizeCatalogTable(System.String,System.String,System.String,System.Int64,System.Collections.Generic.Dictionary{System.String,System.String},System.Collections.Generic.IEnumerable{System.String},Polars.CSharp.CloudOptions)">
+  OptimizeCatalogTable(string, string, string, long, Dictionary&lt;string, string&gt;?, IEnumerable&lt;string&gt;?, CloudOptions?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Catalog.cs/#L360"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Optimizes the storage layout of a Unity Catalog Delta table by compacting small files and optionally applying Z-Order clustering.
+This operation significantly improves read performance by reducing file-open overhead and enabling efficient data skipping.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public long OptimizeCatalogTable(string catalogName, string schemaName, string tableName, long targetSizeMb = 128, Dictionary&lt;string, string&gt;? partitionFilters = null, IEnumerable&lt;string&gt;? zOrderColumns = null, CloudOptions? cloudOptions = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>catalogName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the catalog (e.g., &quot;main&quot;).</p>
+</dd>
+    <dt><code>schemaName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the schema/database (e.g., &quot;default&quot;).</p>
+</dd>
+    <dt><code>tableName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the table to optimize.</p>
+</dd>
+    <dt><code>targetSizeMb</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd><p>The target size for the compacted Parquet files in Megabytes. Default is 128 MB.</p>
+</dd>
+    <dt><code>partitionFilters</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.collections.generic.dictionary-2">Dictionary</a>&lt;<a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>, <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>&gt;</dt>
+    <dd><p>Optional filters to limit the optimization to specific partitions (e.g., <code>{&quot;date&quot;: &quot;2024-01-01&quot;}</code>).
+If null, the entire table is processed.</p>
+</dd>
+    <dt><code>zOrderColumns</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.collections.generic.ienumerable-1">IEnumerable</a>&lt;<a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>&gt;</dt>
+    <dd><p>An optional collection of column names to use for Z-Order clustering.</p>
+</dd>
+    <dt><code>cloudOptions</code> <a class="xref" href="Polars.CSharp.CloudOptions.html">CloudOptions</a></dt>
+    <dd><p>Cloud-specific configurations, including storage credentials and retry logic for concurrent commits.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd><p>The total number of files that were successfully compacted/optimized during the operation.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+  <h4 class="section" id="Polars_CSharp_UnityCatalog_OptimizeCatalogTable_System_String_System_String_System_String_System_Int64_System_Collections_Generic_Dictionary_System_String_System_String__System_Collections_Generic_IEnumerable_System_String__Polars_CSharp_CloudOptions__remarks">Remarks</h4>
+  <div class="markdown level1 remarks"><p>
+<b>Compaction:</b> Groups small Parquet files into larger ones based on the <code class="paramref">targetSizeMb</code>.
+</p>
+<p>
+<b>Z-Ordering:</b> If <code class="paramref">zOrderColumns</code> are provided, the data is rearranged into multidimensional clusters. 
+This co-locates related information, allowing the engine to skip entire files during queries that filter on these columns.
+</p>
+<p>
+<b>Deletion Vector (DV) Materialization:</b> If the table uses DVs, this operation physically removes any soft-deleted rows 
+tracked by the vectors. The newly written files will be "clean," and their associated deletion vectors will be removed.
+</p>
+</div>
+
+  <h4 class="section">Exceptions</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.argumentexception">ArgumentException</a></dt>
+    <dd><p>Thrown when <code class="paramref">targetSizeMb</code> is less than or equal to 0.</p>
+</dd>
+  </dl>
+
+
+
+  <a id="Polars_CSharp_UnityCatalog_ScanCatalogTable_" data-uid="Polars.CSharp.UnityCatalog.ScanCatalogTable*"></a>
+
+  <h3 id="Polars_CSharp_UnityCatalog_ScanCatalogTable_System_String_System_String_System_String_System_Nullable_System_UInt64__System_String_System_Nullable_System_UInt64__Polars_CSharp_ParallelStrategy_System_Boolean_System_Boolean_System_Boolean_System_Boolean_System_Boolean_System_String_System_UInt32_System_String_System_Nullable_Polars_CSharp_IntoSchema__System_Boolean_System_Nullable_Polars_CSharp_IntoSchema__System_Boolean_Polars_CSharp_CloudOptions_" data-uid="Polars.CSharp.UnityCatalog.ScanCatalogTable(System.String,System.String,System.String,System.Nullable{System.UInt64},System.String,System.Nullable{System.UInt64},Polars.CSharp.ParallelStrategy,System.Boolean,System.Boolean,System.Boolean,System.Boolean,System.Boolean,System.String,System.UInt32,System.String,System.Nullable{Polars.CSharp.IntoSchema},System.Boolean,System.Nullable{Polars.CSharp.IntoSchema},System.Boolean,Polars.CSharp.CloudOptions)">
+  ScanCatalogTable(string, string, string, ulong?, string?, ulong?, ParallelStrategy, bool, bool, bool, bool, bool, string?, uint, string?, IntoSchema?, bool, IntoSchema?, bool, CloudOptions?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Catalog.cs/#L33"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Scans a table managed by Unity Catalog into a <a class="xref" href="Polars.CSharp.LazyFrame.html">LazyFrame</a>.
+This method performs a two-step resolution:</p>
+<ol>
+<li>It fetches the physical storage location and dynamic credentials from Unity Catalog.</li>
+<li>It initializes a Polars scan on the underlying Delta files using the resolved credentials.</li>
+</ol>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public LazyFrame ScanCatalogTable(string catalogName, string schemaName, string tableName, ulong? version = null, string? datetime = null, ulong? nRows = null, ParallelStrategy parallel = ParallelStrategy.Auto, bool lowMemory = false, bool useStatistics = true, bool glob = true, bool rechunk = false, bool cache = true, string? rowIndexName = null, uint rowIndexOffset = 0, string? includePathColumn = null, IntoSchema? schema = null, bool hivePartitioning = true, IntoSchema? hivePartitionSchema = null, bool tryParseHiveDates = true, CloudOptions? cloudOptions = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>catalogName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the catalog (e.g., &quot;main&quot;).</p>
+</dd>
+    <dt><code>schemaName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the schema/database (e.g., &quot;default&quot;).</p>
+</dd>
+    <dt><code>tableName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the table to scan.</p>
+</dd>
+    <dt><code>version</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.uint64">ulong</a>?</dt>
+    <dd><p>The version of the table to read (e.g., 0, 1). Mutually exclusive with <code class="paramref">datetime</code>.</p>
+</dd>
+    <dt><code>datetime</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The timestamp to read (ISO-8601 string, e.g., &quot;2026-02-09T12:00:00Z&quot;). Mutually exclusive with <code class="paramref">version</code>.</p>
+</dd>
+    <dt><code>nRows</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.uint64">ulong</a>?</dt>
+    <dd><p>Limit number of rows to read (optimization).</p>
+</dd>
+    <dt><code>parallel</code> <a class="xref" href="Polars.CSharp.ParallelStrategy.html">ParallelStrategy</a></dt>
+    <dd><p>Parallel strategy.</p>
+</dd>
+    <dt><code>lowMemory</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Reduce memory usage at the expense of performance.</p>
+</dd>
+    <dt><code>useStatistics</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Use parquet statistics to optimize the query plan.</p>
+</dd>
+    <dt><code>glob</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Expand glob patterns (default: true).</p>
+</dd>
+    <dt><code>rechunk</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Rechunk the memory to contiguous chunks when reading. (default: false)</p>
+</dd>
+    <dt><code>cache</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Cache the result after reading. (default: true)</p>
+</dd>
+    <dt><code>rowIndexName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>If provided, adds a column with the row number.</p>
+</dd>
+    <dt><code>rowIndexOffset</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.uint32">uint</a></dt>
+    <dd><p>Offset for the row index.</p>
+</dd>
+    <dt><code>includePathColumn</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>If provided, adds a column with the source file path.</p>
+</dd>
+    <dt><code>schema</code> <a class="xref" href="Polars.CSharp.IntoSchema.html">IntoSchema</a>?</dt>
+    <dd><p>Manually specify the schema of the file(s).
+Useful if the file footer is missing or to avoid I/O overhead of reading the schema.</p>
+</dd>
+    <dt><code>hivePartitioning</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Enable Hive partitioning inference (default: false).</p>
+</dd>
+    <dt><code>hivePartitionSchema</code> <a class="xref" href="Polars.CSharp.IntoSchema.html">IntoSchema</a>?</dt>
+    <dd><p>Manually specify the schema for Hive partitioning columns.
+Use this to ensure specific types for partition keys (e.g. string instead of int).</p>
+</dd>
+    <dt><code>tryParseHiveDates</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Whether to try parsing dates in Hive partitioning paths (default: false).</p>
+</dd>
+    <dt><code>cloudOptions</code> <a class="xref" href="Polars.CSharp.CloudOptions.html">CloudOptions</a></dt>
+    <dd><p>Options for cloud storage authentication (AWS S3, Azure, GCP, etc).</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.LazyFrame.html">LazyFrame</a></dt>
+    <dd><p>A new LazyFrame.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <h4 class="section">Exceptions</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.argumentexception">ArgumentException</a></dt>
+    <dd><p>Thrown when both <code class="paramref">version</code> and <code class="paramref">datetime</code> are provided.</p>
+</dd>
+  </dl>
+
+
+
+  <a id="Polars_CSharp_UnityCatalog_SinkCatalogTable_" data-uid="Polars.CSharp.UnityCatalog.SinkCatalogTable*"></a>
+
+  <h3 id="Polars_CSharp_UnityCatalog_SinkCatalogTable_System_String_System_String_System_String_Polars_CSharp_LazyFrame_System_Nullable_Polars_CSharp_IntoSelector__Polars_CSharp_DeltaSaveMode_System_Boolean_System_Boolean_System_Boolean_System_Int32_System_Int64_Polars_CSharp_ParquetCompression_System_Int32_System_Boolean_System_UInt32_System_UInt32_System_Int32_System_Boolean_Polars_CSharp_SyncOnClose_System_Boolean_Polars_CSharp_CloudOptions_" data-uid="Polars.CSharp.UnityCatalog.SinkCatalogTable(System.String,System.String,System.String,Polars.CSharp.LazyFrame,System.Nullable{Polars.CSharp.IntoSelector},Polars.CSharp.DeltaSaveMode,System.Boolean,System.Boolean,System.Boolean,System.Int32,System.Int64,Polars.CSharp.ParquetCompression,System.Int32,System.Boolean,System.UInt32,System.UInt32,System.Int32,System.Boolean,Polars.CSharp.SyncOnClose,System.Boolean,Polars.CSharp.CloudOptions)">
+  SinkCatalogTable(string, string, string, LazyFrame, IntoSelector?, DeltaSaveMode, bool, bool, bool, int, long, ParquetCompression, int, bool, uint, uint, int, bool, SyncOnClose, bool, CloudOptions?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Catalog.cs/#L106"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Sink the LazyFrame to a Unity Catalog managed Delta Lake table with partition discovery.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public void SinkCatalogTable(string catalogName, string schemaName, string tableName, LazyFrame lf, IntoSelector? partitionBy = null, DeltaSaveMode mode = DeltaSaveMode.Append, bool canEvolve = false, bool includeKeys = true, bool keysPreGrouped = false, int maxRowsPerFile = 0, long approxBytesPerFile = 0, ParquetCompression compression = ParquetCompression.Snappy, int compressionLevel = -1, bool statistics = true, uint rowGroupSize = 0, uint dataPageSize = 0, int compatLevel = -1, bool maintainOrder = true, SyncOnClose syncOnClose = SyncOnClose.None, bool mkdir = false, CloudOptions? cloudOptions = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>catalogName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the catalog (e.g., &quot;main&quot;).</p>
+</dd>
+    <dt><code>schemaName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the schema/database (e.g., &quot;default&quot;).</p>
+</dd>
+    <dt><code>tableName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the table to sink.</p>
+</dd>
+    <dt><code>lf</code> <a class="xref" href="Polars.CSharp.LazyFrame.html">LazyFrame</a></dt>
+    <dd><p>The LazyFrame ready to be sinked.</p>
+</dd>
+    <dt><code>partitionBy</code> <a class="xref" href="Polars.CSharp.IntoSelector.html">IntoSelector</a>?</dt>
+    <dd><p>The selector(s) to partition the data by.
+Directories will be created in the format &quot;col=value&quot;.</p>
+</dd>
+    <dt><code>mode</code> <a class="xref" href="Polars.CSharp.DeltaSaveMode.html">DeltaSaveMode</a></dt>
+    <dd><p>Save mode (Append, Overwrite, ErrorIfExists, Ignore). Default is Append.</p>
+</dd>
+    <dt><code>canEvolve</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Define whether schema evolution is allowed, default: false</p>
+</dd>
+    <dt><code>includeKeys</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Whether to include the partition keys in the Parquet files themselves.
+Default is true (recommended for Delta Lake compatibility).</p>
+</dd>
+    <dt><code>keysPreGrouped</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Assert that the keys are already pre-grouped. This can speed up the operation if true.</p>
+</dd>
+    <dt><code>maxRowsPerFile</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd><p>Maximum number of rows per file. 0 means no limit.</p>
+</dd>
+    <dt><code>approxBytesPerFile</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd><p>Approximate size in bytes per file. 0 means no limit.</p>
+</dd>
+    <dt><code>compression</code> <a class="xref" href="Polars.CSharp.ParquetCompression.html">ParquetCompression</a></dt>
+    <dd><p>Compression codec to use (Snappy, Zstd, etc.).</p>
+</dd>
+    <dt><code>compressionLevel</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd><p>Compression level (depends on the codec).</p>
+</dd>
+    <dt><code>statistics</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Write statistics to the Parquet file.
+Delta Lake uses these stats for data skipping, so 'true' is highly recommended.</p>
+</dd>
+    <dt><code>rowGroupSize</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.uint32">uint</a></dt>
+    <dd><p>Target row group size (in rows).</p>
+</dd>
+    <dt><code>dataPageSize</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.uint32">uint</a></dt>
+    <dd><p>Target data page size (in bytes).</p>
+</dd>
+    <dt><code>compatLevel</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd><p>IPC format compatibility.</p>
+</dd>
+    <dt><code>maintainOrder</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Maintain the order of the data.</p>
+</dd>
+    <dt><code>syncOnClose</code> <a class="xref" href="Polars.CSharp.SyncOnClose.html">SyncOnClose</a></dt>
+    <dd><p>Whether to sync the file to disk on close.</p>
+</dd>
+    <dt><code>mkdir</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Create parent directories if they don't exist.</p>
+</dd>
+    <dt><code>cloudOptions</code> <a class="xref" href="Polars.CSharp.CloudOptions.html">CloudOptions</a></dt>
+    <dd><p>Options for cloud storage authentication and configuration.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Catalog.cs/#L16" class="edit-link">Edit this page</a>
+        </div>
+
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Class DeltaMergeBuilder | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Class DeltaMergeBuilder | Polars.NET ">
+      
+      <meta name="description" content="A builder for constructing ordered Delta Lake Merge operations. This ensures that matched and not-matched conditions are evaluated exactly in the order they are chained by the user, adhering to standard SQL MERGE semantics.">
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="../toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/new/main/apiSpec/new?filename=Polars_CSharp_DeltaMergeBuilder.md&amp;value=---%0Auid%3A%20Polars.CSharp.DeltaMergeBuilder%0Asummary%3A%20&#39;*You%20can%20override%20summary%20for%20the%20API%20here%20using%20*MARKDOWN*%20syntax&#39;%0A---%0A%0A*Please%20type%20below%20more%20information%20about%20this%20API%3A*%0A%0A">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="ManagedReference">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.CSharp.DeltaMergeBuilder">
+
+
+
+  <h1 id="Polars_CSharp_DeltaMergeBuilder" data-uid="Polars.CSharp.DeltaMergeBuilder" class="text-break">
+Class DeltaMergeBuilder  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L551"><i class="bi bi-code-slash"></i></a>
+  </h1>
+
+  <div class="facts text-secondary">
+    <dl><dt>Namespace</dt><dd><a class="xref" href="Polars.html">Polars</a>.<a class="xref" href="Polars.CSharp.html">CSharp</a></dd></dl>
+  <dl><dt>Assembly</dt><dd>Polars.CSharp.dll</dd></dl>
+  </div>
+
+  <div class="markdown summary"><p>A builder for constructing ordered Delta Lake Merge operations.
+This ensures that matched and not-matched conditions are evaluated exactly
+in the order they are chained by the user, adhering to standard SQL MERGE semantics.</p>
+</div>
+  <div class="markdown conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public class DeltaMergeBuilder</code></pre>
+  </div>
+
+
+
+
+  <dl class="typelist inheritance">
+    <dt>Inheritance</dt>
+    <dd>
+      <div><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object">object</a></div>
+      <div><span class="xref">DeltaMergeBuilder</span></div>
+    </dd>
+  </dl>
+
+
+
+  <dl class="typelist inheritedMembers">
+    <dt>Inherited Members</dt>
+    <dd>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.equals#system-object-equals(system-object)">object.Equals(object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.equals#system-object-equals(system-object-system-object)">object.Equals(object, object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.gethashcode">object.GetHashCode()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.gettype">object.GetType()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.memberwiseclone">object.MemberwiseClone()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.referenceequals">object.ReferenceEquals(object, object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.tostring">object.ToString()</a>
+    </div>
+  </dd></dl>
+
+
+
+
+
+
+  <h2 class="section" id="methods">Methods
+</h2>
+
+
+  <a id="Polars_CSharp_DeltaMergeBuilder_Execute_" data-uid="Polars.CSharp.DeltaMergeBuilder.Execute*"></a>
+
+  <h3 id="Polars_CSharp_DeltaMergeBuilder_Execute" data-uid="Polars.CSharp.DeltaMergeBuilder.Execute">
+  Execute()
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L690"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Executes the constructed merge operation against the Delta Table.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public void Execute()</code></pre>
+  </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DeltaMergeBuilder_WhenMatchedDelete_" data-uid="Polars.CSharp.DeltaMergeBuilder.WhenMatchedDelete*"></a>
+
+  <h3 id="Polars_CSharp_DeltaMergeBuilder_WhenMatchedDelete_Polars_CSharp_Expr_" data-uid="Polars.CSharp.DeltaMergeBuilder.WhenMatchedDelete(Polars.CSharp.Expr)">
+  WhenMatchedDelete(Expr?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L627"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Delete the matched target row.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DeltaMergeBuilder WhenMatchedDelete(Expr? condition = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>condition</code> <a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>Optional condition for the delete to occur. If null, deletes all matched rows.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DeltaMergeBuilder.html">DeltaMergeBuilder</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DeltaMergeBuilder_WhenMatchedDelete_" data-uid="Polars.CSharp.DeltaMergeBuilder.WhenMatchedDelete*"></a>
+
+  <h3 id="Polars_CSharp_DeltaMergeBuilder_WhenMatchedDelete_System_Func_Polars_CSharp_MergeContext_Polars_CSharp_Expr__" data-uid="Polars.CSharp.DeltaMergeBuilder.WhenMatchedDelete(System.Func{Polars.CSharp.MergeContext,Polars.CSharp.Expr})">
+  WhenMatchedDelete(Func&lt;MergeContext, Expr&gt;)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L664"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Delete the matched target row using a safe context builder.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DeltaMergeBuilder WhenMatchedDelete(Func&lt;MergeContext, Expr&gt; conditionBuilder)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>conditionBuilder</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.func-2">Func</a>&lt;<a class="xref" href="Polars.CSharp.MergeContext.html">MergeContext</a>, <a class="xref" href="Polars.CSharp.Expr.html">Expr</a>&gt;</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DeltaMergeBuilder.html">DeltaMergeBuilder</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DeltaMergeBuilder_WhenMatchedUpdate_" data-uid="Polars.CSharp.DeltaMergeBuilder.WhenMatchedUpdate*"></a>
+
+  <h3 id="Polars_CSharp_DeltaMergeBuilder_WhenMatchedUpdate_Polars_CSharp_Expr_" data-uid="Polars.CSharp.DeltaMergeBuilder.WhenMatchedUpdate(Polars.CSharp.Expr)">
+  WhenMatchedUpdate(Expr?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L616"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Update the matched target row with source data.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DeltaMergeBuilder WhenMatchedUpdate(Expr? condition = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>condition</code> <a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>Optional condition for the update to occur. If null, updates all matched rows.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DeltaMergeBuilder.html">DeltaMergeBuilder</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DeltaMergeBuilder_WhenMatchedUpdate_" data-uid="Polars.CSharp.DeltaMergeBuilder.WhenMatchedUpdate*"></a>
+
+  <h3 id="Polars_CSharp_DeltaMergeBuilder_WhenMatchedUpdate_System_Func_Polars_CSharp_MergeContext_Polars_CSharp_Expr__" data-uid="Polars.CSharp.DeltaMergeBuilder.WhenMatchedUpdate(System.Func{Polars.CSharp.MergeContext,Polars.CSharp.Expr})">
+  WhenMatchedUpdate(Func&lt;MergeContext, Expr&gt;)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L655"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Update the matched target row with source data using a safe context builder.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DeltaMergeBuilder WhenMatchedUpdate(Func&lt;MergeContext, Expr&gt; conditionBuilder)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>conditionBuilder</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.func-2">Func</a>&lt;<a class="xref" href="Polars.CSharp.MergeContext.html">MergeContext</a>, <a class="xref" href="Polars.CSharp.Expr.html">Expr</a>&gt;</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DeltaMergeBuilder.html">DeltaMergeBuilder</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DeltaMergeBuilder_WhenNotMatchedBySourceDelete_" data-uid="Polars.CSharp.DeltaMergeBuilder.WhenNotMatchedBySourceDelete*"></a>
+
+  <h3 id="Polars_CSharp_DeltaMergeBuilder_WhenNotMatchedBySourceDelete_Polars_CSharp_Expr_" data-uid="Polars.CSharp.DeltaMergeBuilder.WhenNotMatchedBySourceDelete(Polars.CSharp.Expr)">
+  WhenNotMatchedBySourceDelete(Expr?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L647"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Delete the target row when it does not exist in the source data.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DeltaMergeBuilder WhenNotMatchedBySourceDelete(Expr? condition = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>condition</code> <a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>Optional condition for the target delete to occur. If null, deletes all unmatched target rows.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DeltaMergeBuilder.html">DeltaMergeBuilder</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DeltaMergeBuilder_WhenNotMatchedBySourceDelete_" data-uid="Polars.CSharp.DeltaMergeBuilder.WhenNotMatchedBySourceDelete*"></a>
+
+  <h3 id="Polars_CSharp_DeltaMergeBuilder_WhenNotMatchedBySourceDelete_System_Func_Polars_CSharp_MergeContext_Polars_CSharp_Expr__" data-uid="Polars.CSharp.DeltaMergeBuilder.WhenNotMatchedBySourceDelete(System.Func{Polars.CSharp.MergeContext,Polars.CSharp.Expr})">
+  WhenNotMatchedBySourceDelete(Func&lt;MergeContext, Expr&gt;)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L682"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Delete the target row when it does not exist in the source data using a safe context builder.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DeltaMergeBuilder WhenNotMatchedBySourceDelete(Func&lt;MergeContext, Expr&gt; conditionBuilder)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>conditionBuilder</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.func-2">Func</a>&lt;<a class="xref" href="Polars.CSharp.MergeContext.html">MergeContext</a>, <a class="xref" href="Polars.CSharp.Expr.html">Expr</a>&gt;</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DeltaMergeBuilder.html">DeltaMergeBuilder</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DeltaMergeBuilder_WhenNotMatchedInsert_" data-uid="Polars.CSharp.DeltaMergeBuilder.WhenNotMatchedInsert*"></a>
+
+  <h3 id="Polars_CSharp_DeltaMergeBuilder_WhenNotMatchedInsert_Polars_CSharp_Expr_" data-uid="Polars.CSharp.DeltaMergeBuilder.WhenNotMatchedInsert(Polars.CSharp.Expr)">
+  WhenNotMatchedInsert(Expr?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L637"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Insert a new row from the source data when it does not match any target row.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DeltaMergeBuilder WhenNotMatchedInsert(Expr? condition = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>condition</code> <a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>Optional condition for the insert to occur. If null, inserts all unmatched source rows.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DeltaMergeBuilder.html">DeltaMergeBuilder</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_DeltaMergeBuilder_WhenNotMatchedInsert_" data-uid="Polars.CSharp.DeltaMergeBuilder.WhenNotMatchedInsert*"></a>
+
+  <h3 id="Polars_CSharp_DeltaMergeBuilder_WhenNotMatchedInsert_System_Func_Polars_CSharp_MergeContext_Polars_CSharp_Expr__" data-uid="Polars.CSharp.DeltaMergeBuilder.WhenNotMatchedInsert(System.Func{Polars.CSharp.MergeContext,Polars.CSharp.Expr})">
+  WhenNotMatchedInsert(Func&lt;MergeContext, Expr&gt;)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L673"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Insert a new row from the source data using a safe context builder.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public DeltaMergeBuilder WhenNotMatchedInsert(Func&lt;MergeContext, Expr&gt; conditionBuilder)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>conditionBuilder</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.func-2">Func</a>&lt;<a class="xref" href="Polars.CSharp.MergeContext.html">MergeContext</a>, <a class="xref" href="Polars.CSharp.Expr.html">Expr</a>&gt;</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DeltaMergeBuilder.html">DeltaMergeBuilder</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L551" class="edit-link">Edit this page</a>
+        </div>
+
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

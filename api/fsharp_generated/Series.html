@@ -1,0 +1,1847 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Series | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Series | Polars.NET ">
+      
+      
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/api/fsharp_generated/Series.md/#L1">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.FSharp.Series">
+<h1 id="series">Series</h1>
+
+<p>Namespace: <code>Polars.FSharp</code></p>
+<h2 id="asseq">AsSeq</h2>
+<p>Convert Series to a typed sequence of Options. Uses high-performance Arrow reader (Zero-Copy). Supports: Primitives, String, DateTime, DateOnly, TimeOnly, List, Struct.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Seq&lt;Option&lt;T&gt;&gt;
+</code></pre>
+<hr>
+<h2 id="bitleftshift">BitLeftShift</h2>
+<p>Bitwise left shift.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) n: int -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="bitrightshift">BitRightShift</h2>
+<p>Bitwise right shift.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) n: int -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>n</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="clone">Clone</h2>
+<p>Clone this DataTypeExpr.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Series
+</code></pre>
+<hr>
+<h2 id="dispose">Dispose</h2>
+<p>Dispose handle</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Void
+</code></pre>
+<hr>
+<h2 id="equals">Equals</h2>
+<p>Overrides the standard object equality check.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) obj: obj -&gt; bool
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>obj</code></td>
+<td style="text-align: left;"><code>obj</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="from">From</h2>
+<p>Alias for create matching C# naming convention.</p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; data: Seq&lt;T&gt; -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>data</code></td>
+<td style="text-align: left;"><code>Seq&lt;T&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="fromarrow">FromArrow</h2>
+<p>Create a DataFrame directly from an Apache Arrow RecordBatch.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) name: string -&gt; arrowArray: IArrowArray -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>arrowArray</code></td>
+<td style="text-align: left;"><code>IArrowArray</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="gethashcode">GetHashCode</h2>
+<p>Get hashcode based on the dependencies (root column names) of the expression.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; int
+</code></pre>
+<hr>
+<h2 id="getlist">GetList</h2>
+<p>Get a value as an F# List ('T list). Automatically handles conversion from .NET List (ResizeArray).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) index: int64 -&gt; List&lt;Elem&gt;
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>index</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="getvalue">GetValue</h2>
+<p>Get an item at the specified index. Supports primitives (int, float, bool, string) via fast native path, and complex types (Struct, List, DateTime) via Arrow infrastructure.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) index: int64 -&gt; T
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>index</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="getvalueoption">GetValueOption</h2>
+<p>Get an item as an F# Option. Ideal for safe handling of nulls in Polars series.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) index: int64 -&gt; Option&lt;T&gt;
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>index</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="isempty">IsEmpty</h2>
+<p>True if the Series is empty.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) ignoreNulls: Option&lt;bool&gt; -&gt; bool
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>ignoreNulls</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="isnullat">IsNullAt</h2>
+<p>Check whether indexed value is null。</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) index: int64 -&gt; bool
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>index</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="isnullat-1">IsNullAt</h2>
+<p>Check whether indexed value is null。</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) index: int -&gt; bool
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>index</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="issorted">IsSorted</h2>
+<p>Checks if the Series is sorted according to the given rules. If the metadata flag matches, returns O(1). Otherwise, scans the data O(N).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) descending: Option&lt;bool&gt; -&gt; nullsLast: Option&lt;bool&gt; -&gt; bool
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>descending</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>nullsLast</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="item">Item</h2>
+<p>[Indexer] Access value at specific index as boxed object. Syntax: series.[index]</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) index: int -&gt; ValueOption&lt;obj&gt;
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>index</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="len">Len</h2>
+<p>Return the number of rows in the context.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; int64
+</code></pre>
+<hr>
+<h2 id="mod">Mod</h2>
+<p>Modulo (scalar).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) other: Series -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="mod-1">Mod</h2>
+<p>Modulo (scalar).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) other: int -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="rechunk">Rechunk</h2>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Series
+</code></pre>
+<p><strong>Returns</strong></p>
+<p>A new Series instance backed by contiguous memory.</p>
+<div class="NOTE">
+<h5>Note</h5>
+<p>Polars Operations like Appending or Filtering can create fragmented memory chunks. Calling Rechunk() merges these chunks into a single contiguous Arrow array. This is CRITICAL before zero-copy extracting native pointers for Tensors or FFI.</p>
+</div>
+<hr>
+<h2 id="rem">Rem</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) other: Series -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="rem-1">Rem</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) other: int -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>other</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="rename">Rename</h2>
+<p>Rename the Series in-place. Returns self.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) name: string -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="setsorted">SetSorted</h2>
+<p>Indicate that the expression is sorted. This is a hint to the optimizer and does not actually sort the data.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) descending: Option&lt;bool&gt; -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>descending</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Whether the column is sorted in descending order.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>A new expression with the sorted flag set.</p>
+<hr>
+<h2 id="show">Show</h2>
+<p>Print the Series to Console.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Void
+</code></pre>
+<hr>
+<h2 id="shrinktofit">ShrinkToFit</h2>
+<p>Shrink Series memory usage.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Series
+</code></pre>
+<p><strong>Returns</strong></p>
+<p>A new Series</p>
+<hr>
+<h2 id="shrinktofitinplace">ShrinkToFitInplace</h2>
+<p>Shrink Series memory usage.This won't return a new Series</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Void
+</code></pre>
+<hr>
+<h2 id="toarray">ToArray</h2>
+<p>Convert a List column into an Array column with the same inner data type.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; T[]
+</code></pre>
+<hr>
+<h2 id="toarrow">ToArrow</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; IArrowArray
+</code></pre>
+<hr>
+<h2 id="toframe">ToFrame</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; DataFrame
+</code></pre>
+<hr>
+<h2 id="tolist">ToList</h2>
+<p>Get values as a list (forces evaluation).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; List&lt;Option&lt;T&gt;&gt;
+</code></pre>
+<hr>
+<h2 id="tostring">ToString</h2>
+<p>Returns the string representation of the Series (ASCII table).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; string
+</code></pre>
+<hr>
+<h2 id="trygetvalue">TryGetValue</h2>
+<p>Gets the value at the specified index as a ValueOption ('T voption).</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) index: int64 -&gt; ValueOption&lt;T&gt;
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>index</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">The 64-bit row index location.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>ValueSome value if valid, or ValueNone if null.</p>
+<hr>
+<h2 id="create">create</h2>
+<p>Create a Series from any sequence (List, Seq, etc.). Intelligently routes F# specific types (option/voption) to CreateSpan, while routing standard .NET types to the zero-allocation CreateGenericType.</p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; data: ReadOnlySpan&lt;T&gt; -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>data</code></td>
+<td style="text-align: left;"><code>ReadOnlySpan&lt;T&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="create-1">create</h2>
+<p>Create a Series from any sequence (List, Seq, etc.). Intelligently routes F# specific types (option/voption) to CreateSpan, while routing standard .NET types to the zero-allocation CreateGenericType.</p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; data: Span&lt;T&gt; -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>data</code></td>
+<td style="text-align: left;"><code>Span&lt;T&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="create-2">create</h2>
+<p>Create a Series from any sequence (List, Seq, etc.). Intelligently routes F# specific types (option/voption) to CreateSpan, while routing standard .NET types to the zero-allocation CreateGenericType.</p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; data: Seq&lt;T&gt; -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>data</code></td>
+<td style="text-align: left;"><code>Seq&lt;T&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="ofarray2d">ofArray2D</h2>
+<p>Create a FixedSizeList Series from a 2D Array (Matrix). Shape: [Rows, Width] -&gt; Array[Width] Supported Types: Primitives, Decimal, Int128</p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; data: T[] -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>data</code></td>
+<td style="text-align: left;"><code>T[]</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="ofoptionseq">ofOptionSeq</h2>
+<p>Create a Series from a sequence of Options (F# style nullables). Automatically handles all supported types (int, float, string, datetime, etc.)</p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; data: Seq&lt;Option&lt;T&gt;&gt; -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>data</code></td>
+<td style="text-align: left;"><code>Seq&lt;Option&lt;T&gt;&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="ofseq">ofSeq</h2>
+<p>High-performance creation from any sequence. Supports nested lists, structs, and F# Options.</p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; data: Seq&lt;T&gt; -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>data</code></td>
+<td style="text-align: left;"><code>Seq&lt;T&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="ofvoptionseq">ofVOptionSeq</h2>
+<p>Create a Series from a sequence of ValueOptions (Struct nullables). Automatically handles all supported types.</p>
+<pre><code class="lang-fsharp">// Signature:
+name: string -&gt; data: Seq&lt;ValueOption&lt;T&gt;&gt; -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>name</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>data</code></td>
+<td style="text-align: left;"><code>Seq&lt;ValueOption&lt;T&gt;&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_addition">op_Addition</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: Series -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_addition-1">op_Addition</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: int -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_addition-2">op_Addition</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: float -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_bangequals">op_BangEquals</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: Series -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_division">op_Division</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: Series -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_division-1">op_Division</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: int -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_division-2">op_Division</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: float -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotbangequals">op_DotBangEquals</h2>
+<p>Not equal comparison.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: int -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotbangequals-1">op_DotBangEquals</h2>
+<p>Not equal comparison.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: string -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotequals">op_DotEquals</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: Series -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotequals-1">op_DotEquals</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: int -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotequals-2">op_DotEquals</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: float -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotequals-3">op_DotEquals</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: string -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotgreater">op_DotGreater</h2>
+<p>Greater than comparison.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: Series -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotgreater-1">op_DotGreater</h2>
+<p>Greater than comparison.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: int -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotgreater-2">op_DotGreater</h2>
+<p>Greater than comparison.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: float -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotgreaterequals">op_DotGreaterEquals</h2>
+<p>Greater than or equal comparison.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: Series -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotgreaterequals-1">op_DotGreaterEquals</h2>
+<p>Greater than or equal comparison.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: int -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotless">op_DotLess</h2>
+<p>Less than comparison.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: Series -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotless-1">op_DotLess</h2>
+<p>Less than comparison.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: int -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotless-2">op_DotLess</h2>
+<p>Less than comparison.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: float -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotlessequals">op_DotLessEquals</h2>
+<p>Less than or equal comparison.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: Series -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_dotlessequals-1">op_DotLessEquals</h2>
+<p>Less than or equal comparison.</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: float -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_leftshift">op_LeftShift</h2>
+<p>Bitwise left shift operator (expr &lt;&lt;&lt; n).</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: int -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_modulus">op_Modulus</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: Series -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_modulus-1">op_Modulus</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: int -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_multiply">op_Multiply</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: Series -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_multiply-1">op_Multiply</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: int -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_multiply-2">op_Multiply</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: int64 -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>int64</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_multiply-3">op_Multiply</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: float -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_rightshift">op_RightShift</h2>
+<p>Bitwise right shift operator (expr &gt;&gt;&gt; n).</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: int -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_subtraction">op_Subtraction</h2>
+<p>subtraction operator: s1 - s2 (Difference)</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: Series -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<div class="NOTE">
+<h5>Note</h5>
+<p>Some Polars versions support this as a shorthand for Exclude or Difference</p>
+</div>
+<hr>
+<h2 id="op_subtraction-1">op_Subtraction</h2>
+<p>subtraction operator: s1 - s2 (Difference)</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: int -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>int</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<div class="NOTE">
+<h5>Note</h5>
+<p>Some Polars versions support this as a shorthand for Exclude or Difference</p>
+</div>
+<hr>
+<h2 id="op_subtraction-2">op_Subtraction</h2>
+<p>subtraction operator: s1 - s2 (Difference)</p>
+<pre><code class="lang-fsharp">// Signature:
+lhs: Series -&gt; rhs: float -&gt; Series
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>lhs</code></td>
+<td style="text-align: left;"><code>Series</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>rhs</code></td>
+<td style="text-align: left;"><code>float</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<div class="NOTE">
+<h5>Note</h5>
+<p>Some Polars versions support this as a shorthand for Exclude or Difference</p>
+</div>
+<hr>
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/api/fsharp_generated/Series.md/#L1" class="edit-link">Edit this page</a>
+        </div>
+
+        <div class="next-article d-print-none border-top" id="nextArticle"></div>
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

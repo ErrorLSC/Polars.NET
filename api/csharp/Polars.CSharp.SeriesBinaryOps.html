@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Struct SeriesBinaryOps | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Struct SeriesBinaryOps | Polars.NET ">
+      
+      <meta name="description" content="Wrapper for Binary operations on a Series.">
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="../toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/new/main/apiSpec/new?filename=Polars_CSharp_SeriesBinaryOps.md&amp;value=---%0Auid%3A%20Polars.CSharp.SeriesBinaryOps%0Asummary%3A%20&#39;*You%20can%20override%20summary%20for%20the%20API%20here%20using%20*MARKDOWN*%20syntax&#39;%0A---%0A%0A*Please%20type%20below%20more%20information%20about%20this%20API%3A*%0A%0A">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="ManagedReference">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.CSharp.SeriesBinaryOps">
+
+
+
+  <h1 id="Polars_CSharp_SeriesBinaryOps" data-uid="Polars.CSharp.SeriesBinaryOps" class="text-break">
+Struct SeriesBinaryOps  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Series/BinaryOps.cs/#L7"><i class="bi bi-code-slash"></i></a>
+  </h1>
+
+  <div class="facts text-secondary">
+    <dl><dt>Namespace</dt><dd><a class="xref" href="Polars.html">Polars</a>.<a class="xref" href="Polars.CSharp.html">CSharp</a></dd></dl>
+  <dl><dt>Assembly</dt><dd>Polars.CSharp.dll</dd></dl>
+  </div>
+
+  <div class="markdown summary"><p>Wrapper for Binary operations on a Series.</p>
+</div>
+  <div class="markdown conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public readonly struct SeriesBinaryOps</code></pre>
+  </div>
+
+
+
+
+
+
+
+  <dl class="typelist inheritedMembers">
+    <dt>Inherited Members</dt>
+    <dd>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.valuetype.equals">ValueType.Equals(object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.valuetype.gethashcode">ValueType.GetHashCode()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.valuetype.tostring">ValueType.ToString()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.equals#system-object-equals(system-object-system-object)">object.Equals(object, object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.gettype">object.GetType()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.referenceequals">object.ReferenceEquals(object, object)</a>
+    </div>
+  </dd></dl>
+
+
+
+
+
+
+  <h2 class="section" id="methods">Methods
+</h2>
+
+
+  <a id="Polars_CSharp_SeriesBinaryOps_Contains_" data-uid="Polars.CSharp.SeriesBinaryOps.Contains*"></a>
+
+  <h3 id="Polars_CSharp_SeriesBinaryOps_Contains_Polars_CSharp_BytesOrExpr_" data-uid="Polars.CSharp.SeriesBinaryOps.Contains(Polars.CSharp.BytesOrExpr)">
+  Contains(BytesOrExpr)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Series/BinaryOps.cs/#L16"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Check if binaries in Series contain a binary substring.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Series Contains(BytesOrExpr literal)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>literal</code> <a class="xref" href="Polars.CSharp.BytesOrExpr.html">BytesOrExpr</a></dt>
+    <dd><p>The binary substring to look for</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Series.html">Series</a></dt>
+    <dd><p>Expression/Series of data type Boolean.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_SeriesBinaryOps_Decode_" data-uid="Polars.CSharp.SeriesBinaryOps.Decode*"></a>
+
+  <h3 id="Polars_CSharp_SeriesBinaryOps_Decode_Polars_CSharp_TransferEncoding_System_Boolean_" data-uid="Polars.CSharp.SeriesBinaryOps.Decode(Polars.CSharp.TransferEncoding,System.Boolean)">
+  Decode(TransferEncoding, bool)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Series/BinaryOps.cs/#L28"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Decode values using the provided encoding.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Series Decode(TransferEncoding encoding, bool strict = true)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>encoding</code> <a class="xref" href="Polars.CSharp.TransferEncoding.html">TransferEncoding</a></dt>
+    <dd><p>The encoding to use.</p>
+</dd>
+    <dt><code>strict</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Raise an error if the underlying value cannot be decoded, otherwise mask out with a null value.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Series.html">Series</a></dt>
+    <dd><p>Expression/Series of data type Binary.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <h4 class="section">Exceptions</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.argumentoutofrangeexception">ArgumentOutOfRangeException</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+  <a id="Polars_CSharp_SeriesBinaryOps_Encode_" data-uid="Polars.CSharp.SeriesBinaryOps.Encode*"></a>
+
+  <h3 id="Polars_CSharp_SeriesBinaryOps_Encode_Polars_CSharp_TransferEncoding_" data-uid="Polars.CSharp.SeriesBinaryOps.Encode(Polars.CSharp.TransferEncoding)">
+  Encode(TransferEncoding)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Series/BinaryOps.cs/#L26"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Encode a value using the provided encoding.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Series Encode(TransferEncoding encoding)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>encoding</code> <a class="xref" href="Polars.CSharp.TransferEncoding.html">TransferEncoding</a></dt>
+    <dd><p>The encoding to use.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Series.html">Series</a></dt>
+    <dd><p>Expression/Series of data type Binary.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <h4 class="section">Exceptions</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.argumentoutofrangeexception">ArgumentOutOfRangeException</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+  <a id="Polars_CSharp_SeriesBinaryOps_EndsWith_" data-uid="Polars.CSharp.SeriesBinaryOps.EndsWith*"></a>
+
+  <h3 id="Polars_CSharp_SeriesBinaryOps_EndsWith_Polars_CSharp_BytesOrExpr_" data-uid="Polars.CSharp.SeriesBinaryOps.EndsWith(Polars.CSharp.BytesOrExpr)">
+  EndsWith(BytesOrExpr)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Series/BinaryOps.cs/#L20"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Check if values end with a binary substring.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Series EndsWith(BytesOrExpr suffix)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>suffix</code> <a class="xref" href="Polars.CSharp.BytesOrExpr.html">BytesOrExpr</a></dt>
+    <dd><p>Suffix substring.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Series.html">Series</a></dt>
+    <dd><p>Expression/Series of data type Boolean.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_SeriesBinaryOps_Head_" data-uid="Polars.CSharp.SeriesBinaryOps.Head*"></a>
+
+  <h3 id="Polars_CSharp_SeriesBinaryOps_Head_System_Int32_" data-uid="Polars.CSharp.SeriesBinaryOps.Head(System.Int32)">
+  Head(int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Series/BinaryOps.cs/#L22"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Take the first n bytes of the binary values.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Series Head(int n = 5)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>n</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd><p>Length of the slice (integer or expression). Negative indexing is supported</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Series.html">Series</a></dt>
+    <dd><p>Expression/Series of data type Binary</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_SeriesBinaryOps_Reinterpret_" data-uid="Polars.CSharp.SeriesBinaryOps.Reinterpret*"></a>
+
+  <h3 id="Polars_CSharp_SeriesBinaryOps_Reinterpret_Polars_CSharp_IntoDataTypeExpr_Polars_CSharp_Endianness_" data-uid="Polars.CSharp.SeriesBinaryOps.Reinterpret(Polars.CSharp.IntoDataTypeExpr,Polars.CSharp.Endianness)">
+  Reinterpret(IntoDataTypeExpr, Endianness)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Series/BinaryOps.cs/#L30"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Interpret bytes as another type.Supported types are numerical or temporal dtypes, or an Array of these dtypes.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Series Reinterpret(IntoDataTypeExpr dtype, Endianness endianness = Endianness.Little)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>dtype</code> <a class="xref" href="Polars.CSharp.IntoDataTypeExpr.html">IntoDataTypeExpr</a></dt>
+    <dd><p>Which type to interpret binary column into.</p>
+</dd>
+    <dt><code>endianness</code> <a class="xref" href="Polars.CSharp.Endianness.html">Endianness</a></dt>
+    <dd><p>Which endianness to use when interpreting bytes, by default “little”.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Series.html">Series</a></dt>
+    <dd><p>Expression/Series of data type dtype. Note that rows of the binary array where the length does not match the size in bytes of the output array (number of items * byte size of item) will become NULL.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_SeriesBinaryOps_Size_" data-uid="Polars.CSharp.SeriesBinaryOps.Size*"></a>
+
+  <h3 id="Polars_CSharp_SeriesBinaryOps_Size_Polars_CSharp_SizeUnit_" data-uid="Polars.CSharp.SeriesBinaryOps.Size(Polars.CSharp.SizeUnit)">
+  Size(SizeUnit)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Series/BinaryOps.cs/#L14"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Computes the size of the binary data in the specified unit.
+The default unit is Bytes. Scaling to other units will result in a Float64 expression.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Series Size(SizeUnit unit = SizeUnit.Bytes)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>unit</code> <a class="xref" href="Polars.CSharp.SizeUnit.html">SizeUnit</a></dt>
+    <dd><p>The unit to scale the binary size to.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Series.html">Series</a></dt>
+    <dd><p>A new Polars Expression representing the scaled size.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_SeriesBinaryOps_Slice_" data-uid="Polars.CSharp.SeriesBinaryOps.Slice*"></a>
+
+  <h3 id="Polars_CSharp_SeriesBinaryOps_Slice_System_Int32_System_Nullable_System_Int32__" data-uid="Polars.CSharp.SeriesBinaryOps.Slice(System.Int32,System.Nullable{System.Int32})">
+  Slice(int, int?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Series/BinaryOps.cs/#L33"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Interpret bytes as another type.Supported types are numerical or temporal dtypes, or an Array of these dtypes.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Series Slice(int offset, int? length = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>offset</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd></dd>
+    <dt><code>length</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a>?</dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Series.html">Series</a></dt>
+    <dd><p>Expression/Series of data type dtype. Note that rows of the binary array where the length does not match the size in bytes of the output array (number of items * byte size of item) will become NULL.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_SeriesBinaryOps_StartsWith_" data-uid="Polars.CSharp.SeriesBinaryOps.StartsWith*"></a>
+
+  <h3 id="Polars_CSharp_SeriesBinaryOps_StartsWith_Polars_CSharp_BytesOrExpr_" data-uid="Polars.CSharp.SeriesBinaryOps.StartsWith(Polars.CSharp.BytesOrExpr)">
+  StartsWith(BytesOrExpr)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Series/BinaryOps.cs/#L18"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Check if values start with a binary substring.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Series StartsWith(BytesOrExpr prefix)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>prefix</code> <a class="xref" href="Polars.CSharp.BytesOrExpr.html">BytesOrExpr</a></dt>
+    <dd><p>Prefix substring.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Series.html">Series</a></dt>
+    <dd><p>Expression/Series of data type Boolean.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_SeriesBinaryOps_Tail_" data-uid="Polars.CSharp.SeriesBinaryOps.Tail*"></a>
+
+  <h3 id="Polars_CSharp_SeriesBinaryOps_Tail_System_Int32_" data-uid="Polars.CSharp.SeriesBinaryOps.Tail(System.Int32)">
+  Tail(int)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Series/BinaryOps.cs/#L24"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Take the last n bytes of the binary values.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public Series Tail(int n = 5)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>n</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd><p>Length of the slice (integer or expression). Negative indexing is supported</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Series.html">Series</a></dt>
+    <dd><p>Expression/Series of data type Binary</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/Series/BinaryOps.cs/#L7" class="edit-link">Edit this page</a>
+        </div>
+
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

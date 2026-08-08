@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Delta | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Delta | Polars.NET ">
+      
+      
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="../toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/api/fsharp/Delta.md/#L1">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.FSharp.Delta">
+<h1 id="delta">Delta</h1>
+
+<p>Namespace: <code>Polars.FSharp</code></p>
+<h2 id="addfeature">AddFeature</h2>
+<p>Enables a specific feature on the Delta Table.</p>
+<p>WARNING: Enabling features may upgrade the Delta Protocol version (e.g., to Reader v3 / Writer v7). Older readers may not be able to read the table after this operation.</p>
+<pre><code class="lang-fsharp">// Signature:
+path: string -&gt; featureName: string -&gt; allowProtocolIncrease: Option&lt;bool&gt; -&gt; cloudOptions: Option&lt;CloudOptions&gt; -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>path</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The root URI of the Delta table.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>featureName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The name of the feature to enable (use <code>DeltaTableFeatures</code> constants).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>allowProtocolIncrease</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If true, allows the operation to upgrade the table's Protocol Version if the feature requires it. If false, and the current protocol is too low, the operation will fail.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cloudOptions</code></td>
+<td style="text-align: left;"><code>Option&lt;CloudOptions&gt;</code></td>
+<td style="text-align: left;">Cloud storage credentials.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="delete">Delete</h2>
+<p>Deletes rows from a Delta Lake table that match a given predicate.</p>
+<p>By default, this operation performs a Copy-on-Write (CoW), meaning any underlying data files containing matching rows are entirely rewritten.</p>
+<p>Note: If Deletion Vectors are enabled on the table, this operation automatically shifts to a Merge-on-Read (MoR) approach. Instead of expensive file rewrites, deleted rows are swiftly marked in a separate deletion vector file, which drastically improves deletion performance.</p>
+<pre><code class="lang-fsharp">// Signature:
+path: string -&gt; predicate: Expr -&gt; cloudOptions: Option&lt;CloudOptions&gt; -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>path</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">Path to the Delta table.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>predicate</code></td>
+<td style="text-align: left;"><code>Expr</code></td>
+<td style="text-align: left;">Filter expression to identify rows to delete.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cloudOptions</code></td>
+<td style="text-align: left;"><code>Option&lt;CloudOptions&gt;</code></td>
+<td style="text-align: left;">Cloud storage configuration.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="history">History</h2>
+<p>Returns provenance information, including the operation, user, timestamp, etc., for each write to a table.</p>
+<pre><code class="lang-fsharp">// Signature:
+path: string -&gt; limit: Option&lt;int&gt; -&gt; cloudOptions: Option&lt;CloudOptions&gt; -&gt; DataFrame
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>path</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The root URI of the Delta table.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>limit</code></td>
+<td style="text-align: left;"><code>Option&lt;int&gt;</code></td>
+<td style="text-align: left;">The number of latest commits to retrieve. Set to 0 (default) to retrieve all history.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cloudOptions</code></td>
+<td style="text-align: left;"><code>Option&lt;CloudOptions&gt;</code></td>
+<td style="text-align: left;">Cloud storage credentials.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>A DataFrame containing the commit history.</p>
+<hr>
+<h2 id="optimize">Optimize</h2>
+<p>Optimizes the layout of the Delta table by compacting small files (bin-packing) and optionally applying Z-Order clustering.</p>
+<p>This operation significantly improves read performance by reducing the number of files and co-locating related data.</p>
+<p>Note: If Deletion Vectors (DV) are enabled on the table, any soft-deleted rows tracked by the vectors will be physically removed (materialized) from the newly compacted Parquet files, effectively clearing the deletion vectors for the optimized partitions.</p>
+<pre><code class="lang-fsharp">// Signature:
+path: string -&gt; targetSizeMb: Option&lt;int64&gt; -&gt; partitionFilters: Option&lt;Seq&lt;Tuple&lt;string, string&gt;&gt;&gt; -&gt; zOrderColumns: Option&lt;Seq&lt;string&gt;&gt; -&gt; cloudOptions: Option&lt;CloudOptions&gt; -&gt; int64
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>path</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The root URI of the Delta table.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>targetSizeMb</code></td>
+<td style="text-align: left;"><code>Option&lt;int64&gt;</code></td>
+<td style="text-align: left;">The target file size in Megabytes for the compacted files (default: 128 MB).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>partitionFilters</code></td>
+<td style="text-align: left;"><code>Option&lt;Seq&lt;Tuple&lt;string, string&gt;&gt;&gt;</code></td>
+<td style="text-align: left;">Optional sequence of partition key-value pairs to restrict optimization to specific partitions. <br><br>Example: <code>[ (&quot;date&quot;, &quot;2024-01-01&quot;) ]</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>zOrderColumns</code></td>
+<td style="text-align: left;"><code>Option&lt;Seq&lt;string&gt;&gt;</code></td>
+<td style="text-align: left;">Optional sequence of column names to apply Z-Order clustering. <br><br>Z-Ordering co-locates data based on these columns, significantly speeding up queries that filter on them.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cloudOptions</code></td>
+<td style="text-align: left;"><code>Option&lt;CloudOptions&gt;</code></td>
+<td style="text-align: left;">Cloud storage credentials and configuration.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>The number of new data files created during the optimization process.</p>
+<hr>
+<h2 id="restore">Restore</h2>
+<p>Restores the Delta table to a previous state defined by a specific version or timestamp.</p>
+<p>Note: This operation creates a new commit (version) that reflects the state of the table at the target point.</p>
+<pre><code class="lang-fsharp">// Signature:
+path: string -&gt; version: Option&lt;UInt64&gt; -&gt; timestamp: Option&lt;DateTime&gt; -&gt; ignoreMissingFiles: Option&lt;bool&gt; -&gt; protocolDowngradeAllowed: Option&lt;bool&gt; -&gt; cloudOptions: Option&lt;CloudOptions&gt; -&gt; UInt64
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>path</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The root URI of the Delta table.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>version</code></td>
+<td style="text-align: left;"><code>Option&lt;UInt64&gt;</code></td>
+<td style="text-align: left;">The specific version number to restore to. Set to null if restoring by timestamp.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>timestamp</code></td>
+<td style="text-align: left;"><code>Option&lt;DateTime&gt;</code></td>
+<td style="text-align: left;">The timestamp to restore to. Set to null if restoring by version.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>ignoreMissingFiles</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If true, the restore operation will ignore missing files (e.g., those deleted by Vacuum). If false, it will fail if any required files are missing.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>protocolDowngradeAllowed</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Whether to allow downgrading the Delta Protocol version during restore (rarely needed).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cloudOptions</code></td>
+<td style="text-align: left;"><code>Option&lt;CloudOptions&gt;</code></td>
+<td style="text-align: left;">Cloud storage credentials.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>The new version number of the table after the restore operation.</p>
+<hr>
+<h2 id="settableproperties">SetTableProperties</h2>
+<p>Sets or updates properties on the Delta Table.</p>
+<pre><code class="lang-fsharp">// Signature:
+path: string -&gt; properties: Seq&lt;Tuple&lt;string, string&gt;&gt; -&gt; raiseIfNotExists: Option&lt;bool&gt; -&gt; cloudOptions: Option&lt;CloudOptions&gt; -&gt; Void
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>path</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The root URI of the Delta table.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>properties</code></td>
+<td style="text-align: left;"><code>Seq&lt;Tuple&lt;string, string&gt;&gt;</code></td>
+<td style="text-align: left;">A sequence of key-value pairs to set.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>raiseIfNotExists</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If true, the operation fails if you try to update a property that doesn't strictly exist (rarely used, default false).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cloudOptions</code></td>
+<td style="text-align: left;"><code>Option&lt;CloudOptions&gt;</code></td>
+<td style="text-align: left;">Cloud storage credentials.</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="source">Source</h2>
+<p>Represents a column from the incoming Source LazyFrame. (Internally maps to &quot;{name}_src_tmp&quot;)</p>
+<pre><code class="lang-fsharp">// Signature:
+columnName: string -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columnName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="target">Target</h2>
+<p>Represents a column from the existing Target Delta Table. (Alias for standard Col(), adds semantic clarity)</p>
+<pre><code class="lang-fsharp">// Signature:
+columnName: string -&gt; Expr
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>columnName</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="vacuum">Vacuum</h2>
+<p>Recursively delete files and directories in the table that are no longer needed by the table for maintaining the transaction history.</p>
+<pre><code class="lang-fsharp">// Signature:
+path: string -&gt; retentionHours: Option&lt;int&gt; -&gt; enforceRetention: Option&lt;bool&gt; -&gt; dryRun: Option&lt;bool&gt; -&gt; vacuumModeFull: Option&lt;bool&gt; -&gt; cloudOptions: Option&lt;CloudOptions&gt; -&gt; int64
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>path</code></td>
+<td style="text-align: left;"><code>string</code></td>
+<td style="text-align: left;">The root URI of the Delta table (e.g., &quot;s3://bucket/table&quot;).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>retentionHours</code></td>
+<td style="text-align: left;"><code>Option&lt;int&gt;</code></td>
+<td style="text-align: left;">The retention threshold in hours. Files removed before this threshold will be deleted. Set to -1 to use the default retention period configured in the table (usually 168 hours / 7 days).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>enforceRetention</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If true, prevents the vacuum command from deleting files that have not yet reached the retention threshold. Setting this to false allows forcing deletion of recent files (use with caution).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>dryRun</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">If true, simply returns the number of files that would be deleted, without actually deleting them.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>vacuumModeFull</code></td>
+<td style="text-align: left;"><code>Option&lt;bool&gt;</code></td>
+<td style="text-align: left;">Specifies the vacuum mode: <br><br>false (Lite): Only removes files that are explicitly referenced as removed in the transaction log. Faster.<br><br><br><br>true (Full): Scans the entire storage directory to find and remove any files not referenced in the transaction log (including orphan files from failed writes). Slower but more thorough.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>cloudOptions</code></td>
+<td style="text-align: left;"><code>Option&lt;CloudOptions&gt;</code></td>
+<td style="text-align: left;">Cloud storage credentials and configuration (e.g. AWS Keys, Azure Secrets).</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns</strong></p>
+<p>The number of files deleted (or selected for deletion in dry-run mode).</p>
+<hr>
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/api/fsharp/Delta.md/#L1" class="edit-link">Edit this page</a>
+        </div>
+
+        <div class="next-article d-print-none border-top" id="nextArticle"></div>
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Introduction to Polars.NET | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Introduction to Polars.NET | Polars.NET ">
+      
+      
+      <link rel="icon" href="../images/logo.svg">
+      <link rel="stylesheet" href="../public/docfx.min.css">
+      <link rel="stylesheet" href="../public/main.css">
+      <meta name="docfx:navrel" content="../toc.html">
+      <meta name="docfx:tocrel" content="../toc.html">
+      
+      <meta name="docfx:rel" content="../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/articles/intro.md/#L1">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../index.html">
+            <img id="logo" class="svg" src="../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+
+      <div class="content">
+        <div class="actionbar">
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="">
+<h1 id="introduction-to-polarsnet">Introduction to Polars.NET</h1>
+
+<p>Welcome to Polars.NET. This guide provides practical advice and patterns to help you get the most out of the library.</p>
+<h2 id="core-concepts">Core Concepts</h2>
+<p>Understanding these two modes is crucial for performance:</p>
+<h3 id="1-lazy-vs-eager">1. Lazy vs. Eager</h3>
+<ul>
+<li><strong>Eager (<code>DataFrame</code>)</strong>: Execution happens immediately. Data is loaded into memory. This is similar to <code>List&lt;T&gt;</code> or <code>DataTable</code>. Use this for debugging or small datasets.</li>
+<li><strong>Lazy (<code>LazyFrame</code>)</strong>: No execution happens until you call <code>Collect()</code>. Polars builds a &quot;Query Plan&quot;, optimizes it (predicate pushdown, projection pushdown), and then executes.</li>
+</ul>
+<blockquote>
+<p><strong>Rule of Thumb:</strong> Always start with <strong>Lazy</strong> (<code>LazyFrame</code>). Only convert to <strong>Eager</strong> (<code>DataFrame</code>) when you need to inspect the final results or materialize data for the UI.</p>
+</blockquote>
+<h3 id="2-expressions-expr">2. Expressions (<code>Expr</code>)</h3>
+<p>In Polars.NET, you don't manipulate data directly in loops. You construct <code>Expr</code> objects that tell the engine <em>what</em> to do.</p>
+<pre><code class="lang-csharp">// Avoid: Traditional C# loops (Slow, data copying)
+foreach(var row in df.Rows()) { ... }
+
+// Do: Use Expressions (Fast, SIMD, Parallel)
+df.Select(
+    Col(&quot;A&quot;).Sum(),
+    Col(&quot;B&quot;).Filter(Col(&quot;A&quot;) &gt; 10).Mean()
+);
+</code></pre>
+<h2 id="3practical-advice-best-practices">3.Practical Advice (Best Practices)</h2>
+<h3 id="1-prefer-scan-over-read">1. Prefer Scan over Read</h3>
+<p>When dealing with files (CSV, Parquet, IPC), use the Scan methods provided by LazyFrame.</p>
+<p>ReadCsv: Loads the entire file into RAM. Prone to Out-Of-Memory (OOM) on large files.</p>
+<p>ScanCsv: Returns a LazyFrame. It only reads the headers initially. When you filter or select columns later, the reader will only read the necessary bytes from the disk.</p>
+<h3 id="2-handle-big-data-with-streaming">2. Handle &quot;Big Data&quot; with Streaming</h3>
+<p>If your dataset is larger than your available RAM, standard execution might fail. Polars.NET supports an out-of-core streaming engine.</p>
+<pre><code class="lang-cs">// This enables the streaming engine to process data in chunks
+// keeping memory usage low and stable.
+var result = lazyFrame.Collect(useStreaming:true);
+</code></pre>
+<h3 id="3-native-expressions--udfs">3. Native Expressions &gt; UDFs</h3>
+<p>While Polars.NET supports high-performance C# User Defined Functions (UDFs), they are opaque to the optimizer.</p>
+<p>Native: Col(&quot;A&quot;) + Col(&quot;B&quot;) -&gt; Runs in Rust, uses SIMD, multi-threaded.</p>
+<p>UDF: Col(&quot;A&quot;).Map(x =&gt; x + 1) -&gt; Calls back into C#, no SIMD, strictly row-wise or chunk-wise.</p>
+<p>Advice: Only use Map if the logic cannot be expressed using the built-in Expr functions (e.g., calling an external API or a complex .NET library).</p>
+<h3 id="4-memory-management-using">4. Memory Management (using)</h3>
+<p>Polars.NET objects (DataFrame, Series, LazyFrame) wrap native Rust memory handles. While we implement Finalizers, relying on GC for large data objects can cause memory pressure.</p>
+<p>For critical hot paths or huge datasets, use the using statement to deterministic release native memory:</p>
+<pre><code class="lang-csharp">using var df = DataFrame.ReadCsv(&quot;data.csv&quot;);
+using var filtered = df.Filter(Col(&quot;id&quot;) &gt; 100);
+// Native memory is freed immediately here
+</code></pre>
+<h3 id="5-c-vs-f">5. C# vs F#</h3>
+<p>Polars.NET offers two distinct APIs tailored for each language's strengths:</p>
+<ul>
+<li><p>C#: Uses a fluent, method-chaining style similar to LINQ.</p>
+<ul>
+<li>Best for: Production engineering, web services, building typed wrappers.</li>
+</ul>
+</li>
+<li><p>F#: Uses a functional, pipeline-operator (|&gt;) style.</p>
+<ul>
+<li>Best for: Data exploration, scripting, notebooks, and complex transformations.</li>
+</ul>
+</li>
+</ul>
+<h3 id="6-performance-pitfalls">6. Performance Pitfalls</h3>
+<ol>
+<li><p>Iterating Rows: Avoid converting a DataFrame to IEnumerable<t> or iterating rows manually unless absolutely necessary. This breaks the zero-copy advantage and incurs heavy marshalling costs.</t></p>
+</li>
+<li><p>Premature Collection: Don't call .Collect() in the middle of a transformation chain. Keep the chain lazy as long as possible to let the optimizer do its job.</p>
+</li>
+<li><p>Strings are expensive: Operations on String columns are generally slower than numeric types. If you have categorical data (e.g., &quot;US&quot;, &quot;CN&quot;, &quot;JP&quot;), cast them to Categorical type for faster grouping and sorting.</p>
+</li>
+</ol>
+<pre><code class="lang-cs">// Cast string column to Categorical for performance 
+df.WithColumns(Col(&quot;Country&quot;).Cast(DataType.Categorical));
+</code></pre>
+<h3 id="7-getting-help">7. Getting Help</h3>
+<p>API Reference: <a href="/api/index.html">Link to API Docs</a></p>
+<p>Polars Rust Documentation: Since this is a wrapper with C ABI layer, the core logic is relatively same to the main Polars project. Concepts from the official Polars guide often apply here.</p>
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/articles/intro.md/#L1" class="edit-link">Edit this page</a>
+        </div>
+
+        <div class="next-article d-print-none border-top" id="nextArticle"></div>
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

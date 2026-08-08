@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Selector | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Selector | Polars.NET ">
+      
+      
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="../toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/api/fsharp/Selector.md/#L1">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.FSharp.Selector">
+<h1 id="selector">Selector</h1>
+
+<p>Namespace: <code>Polars.FSharp</code></p>
+<h2 id="clone">Clone</h2>
+<p>Clone this DataTypeExpr.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Selector
+</code></pre>
+<hr>
+<h2 id="exclude">Exclude</h2>
+<p>Exclude columns matching any of the specified Data Types.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) names: Seq&lt;string&gt; -&gt; Selector
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>names</code></td>
+<td style="text-align: left;"><code>Seq&lt;string&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="exclude-1">Exclude</h2>
+<p>Exclude columns matching any of the specified Data Types.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) selectors: Seq&lt;Selector&gt; -&gt; Selector
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>selectors</code></td>
+<td style="text-align: left;"><code>Seq&lt;Selector&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="exclude-2">Exclude</h2>
+<p>Exclude columns matching any of the specified Data Types.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance) dtypes: Seq&lt;DataType&gt; -&gt; Selector
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>dtypes</code></td>
+<td style="text-align: left;"><code>Seq&lt;DataType&gt;</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="float">Float</h2>
+<p>Get value as Double Option. Handles Float32/Float64.</p>
+<pre><code class="lang-fsharp">// Signature:
+ -&gt; Selector
+</code></pre>
+<hr>
+<h2 id="toexpr">ToExpr</h2>
+<p>Convert the Selector to an Expression. Selectors are essentially dynamic Expressions that expand to column names.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; Expr
+</code></pre>
+<hr>
+<h2 id="tostring">ToString</h2>
+<p>Returns the native Polars string representation of the LazyFrame. Includes shape, header, and truncated data.</p>
+<pre><code class="lang-fsharp">// Signature:
+(instance)  -&gt; string
+</code></pre>
+<hr>
+<h2 id="op_bitwiseand">op_BitwiseAnd</h2>
+<p>AND operator: s1 &amp;&amp;&amp; s2 (Intersection)</p>
+<pre><code class="lang-fsharp">// Signature:
+l: Selector -&gt; r: Selector -&gt; Selector
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>l</code></td>
+<td style="text-align: left;"><code>Selector</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>r</code></td>
+<td style="text-align: left;"><code>Selector</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Example</strong></p>
+<p>pl.cs.numeric() &amp;&amp;&amp; pl.cs.matches(&quot;Val&quot;)</p>
+<hr>
+<h2 id="op_bitwiseor">op_BitwiseOr</h2>
+<p>OR operator: s1 ||| s2 (Union)</p>
+<pre><code class="lang-fsharp">// Signature:
+l: Selector -&gt; r: Selector -&gt; Selector
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>l</code></td>
+<td style="text-align: left;"><code>Selector</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>r</code></td>
+<td style="text-align: left;"><code>Selector</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Example</strong></p>
+<p>pl.cs.startsWith(&quot;A&quot;) ||| pl.cs.endsWith(&quot;Z&quot;)</p>
+<hr>
+<h2 id="op_hathat">op_HatHat</h2>
+<p><em>No documentation found.</em></p>
+<pre><code class="lang-fsharp">// Signature:
+l: Selector -&gt; r: Selector -&gt; Selector
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>l</code></td>
+<td style="text-align: left;"><code>Selector</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>r</code></td>
+<td style="text-align: left;"><code>Selector</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="op_logicalnot">op_LogicalNot</h2>
+<p>NOT operator: ~selector</p>
+<pre><code class="lang-fsharp">// Signature:
+s: Selector -&gt; Selector
+</code></pre>
+<p><strong>Parameters</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>s</code></td>
+<td style="text-align: left;"><code>Selector</code></td>
+<td style="text-align: left;">-</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Example</strong></p>
+<pre><code class="lang-pl.cs.numeric()">
+---
+## op_Subtraction
+
+subtraction operator: s1 - s2 (Difference)
+
+```fsharp
+// Signature:
+l: Selector -&gt; r: Selector -&gt; Selector
+```
+
+**Parameters**
+
+| Name | Type | Description |
+| :--- | :--- | :--- |
+| `l` | `Selector` | - |
+| `r` | `Selector` | - |
+
+&gt; [!NOTE]
+&gt; Some Polars versions support this as a shorthand for Exclude or Difference
+
+---
+</code></pre>
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/docs/api/fsharp/Selector.md/#L1" class="edit-link">Edit this page</a>
+        </div>
+
+        <div class="next-article d-print-none border-top" id="nextArticle"></div>
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

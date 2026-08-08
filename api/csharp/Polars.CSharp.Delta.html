@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+      <title>Class Delta | Polars.NET </title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="title" content="Class Delta | Polars.NET ">
+      
+      <meta name="description" content="Methods for DeltaLake">
+      <link rel="icon" href="../../images/logo.svg">
+      <link rel="stylesheet" href="../../public/docfx.min.css">
+      <link rel="stylesheet" href="../../public/main.css">
+      <meta name="docfx:navrel" content="../../toc.html">
+      <meta name="docfx:tocrel" content="../toc.html">
+      
+      <meta name="docfx:rel" content="../../">
+      
+      
+      <meta name="docfx:docurl" content="https://github.com/ErrorLSC/Polars.NET/new/main/apiSpec/new?filename=Polars_CSharp_Delta.md&amp;value=---%0Auid%3A%20Polars.CSharp.Delta%0Asummary%3A%20&#39;*You%20can%20override%20summary%20for%20the%20API%20here%20using%20*MARKDOWN*%20syntax&#39;%0A---%0A%0A*Please%20type%20below%20more%20information%20about%20this%20API%3A*%0A%0A">
+      <meta name="loc:inThisArticle" content="In this article">
+      <meta name="loc:searchResultsCount" content="{count} results for &quot;{query}&quot;">
+      <meta name="loc:searchNoResults" content="No results for &quot;{query}&quot;">
+      <meta name="loc:tocFilter" content="Filter by title">
+      <meta name="loc:nextArticle" content="Next">
+      <meta name="loc:prevArticle" content="Previous">
+      <meta name="loc:themeLight" content="Light">
+      <meta name="loc:themeDark" content="Dark">
+      <meta name="loc:themeAuto" content="Auto">
+      <meta name="loc:changeTheme" content="Change theme">
+      <meta name="loc:copy" content="Copy">
+      <meta name="loc:downloadPdf" content="Download PDF">
+
+      <script type="module" src="./../../public/docfx.min.js"></script>
+
+      <script>
+        const theme = localStorage.getItem('theme') || 'auto'
+        document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme)
+      </script>
+
+  </head>
+
+  <body class="tex2jax_ignore" data-layout="" data-yaml-mime="ManagedReference">
+    <header class="bg-body border-bottom">
+      <nav id="autocollapse" class="navbar navbar-expand-md" role="navigation">
+        <div class="container-xxl flex-nowrap">
+          <a class="navbar-brand" href="../../index.html">
+            <img id="logo" class="svg" src="../../logo.svg" alt="Polars.NET">
+            Polars.NET
+          </a>
+          <button class="btn btn-lg d-md-none border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navpanel" aria-controls="navpanel" aria-expanded="false" aria-label="Toggle navigation">
+            <i class="bi bi-three-dots"></i>
+          </button>
+          <div class="collapse navbar-collapse" id="navpanel">
+            <div id="navbar">
+              <form class="search" role="search" id="search">
+                <i class="bi bi-search"></i>
+                <input class="form-control" id="search-query" type="search" disabled placeholder="Search" autocomplete="off" aria-label="Search">
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main class="container-xxl">
+      <div class="toc-offcanvas">
+        <div class="offcanvas-md offcanvas-start" tabindex="-1" id="tocOffcanvas" aria-labelledby="tocOffcanvasLabel">
+          <div class="offcanvas-header">
+            <h5 class="offcanvas-title" id="tocOffcanvasLabel">Table of Contents</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#tocOffcanvas" aria-label="Close"></button>
+          </div>
+          <div class="offcanvas-body">
+            <nav class="toc" id="toc"></nav>
+          </div>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="actionbar">
+          <button class="btn btn-lg border-0 d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#tocOffcanvas" aria-controls="tocOffcanvas" aria-expanded="false" aria-label="Show table of contents">
+            <i class="bi bi-list"></i>
+          </button>
+
+          <nav id="breadcrumb"></nav>
+        </div>
+
+        <article data-uid="Polars.CSharp.Delta">
+
+
+
+  <h1 id="Polars_CSharp_Delta" data-uid="Polars.CSharp.Delta" class="text-break">
+Class Delta  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L96"><i class="bi bi-code-slash"></i></a>
+  </h1>
+
+  <div class="facts text-secondary">
+    <dl><dt>Namespace</dt><dd><a class="xref" href="Polars.html">Polars</a>.<a class="xref" href="Polars.CSharp.html">CSharp</a></dd></dl>
+  <dl><dt>Assembly</dt><dd>Polars.CSharp.dll</dd></dl>
+  </div>
+
+  <div class="markdown summary"><p>Methods for DeltaLake</p>
+</div>
+  <div class="markdown conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static class Delta</code></pre>
+  </div>
+
+
+
+
+  <dl class="typelist inheritance">
+    <dt>Inheritance</dt>
+    <dd>
+      <div><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object">object</a></div>
+      <div><span class="xref">Delta</span></div>
+    </dd>
+  </dl>
+
+
+
+  <dl class="typelist inheritedMembers">
+    <dt>Inherited Members</dt>
+    <dd>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.equals#system-object-equals(system-object)">object.Equals(object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.equals#system-object-equals(system-object-system-object)">object.Equals(object, object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.gethashcode">object.GetHashCode()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.gettype">object.GetType()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.memberwiseclone">object.MemberwiseClone()</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.referenceequals">object.ReferenceEquals(object, object)</a>
+    </div>
+    <div>
+      <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.object.tostring">object.ToString()</a>
+    </div>
+  </dd></dl>
+
+
+
+
+
+
+  <h2 class="section" id="methods">Methods
+</h2>
+
+
+  <a id="Polars_CSharp_Delta_AddFeature_" data-uid="Polars.CSharp.Delta.AddFeature*"></a>
+
+  <h3 id="Polars_CSharp_Delta_AddFeature_System_String_System_String_System_Boolean_Polars_CSharp_CloudOptions_" data-uid="Polars.CSharp.Delta.AddFeature(System.String,System.String,System.Boolean,Polars.CSharp.CloudOptions)">
+  AddFeature(string, string, bool, CloudOptions?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L410"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Enables a specific feature on the Delta Table.</p>
+<p>
+WARNING: Enabling features may upgrade the Delta Protocol version (e.g., to Reader v3 / Writer v7).
+Older readers may not be able to read the table after this operation.
+</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static void AddFeature(string path, string featureName, bool allowProtocolIncrease = true, CloudOptions? cloudOptions = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>path</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The root URI of the Delta table.</p>
+</dd>
+    <dt><code>featureName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The name of the feature to enable (use <a class="xref" href="Polars.CSharp.DeltaTableFeatures.html">DeltaTableFeatures</a> constants).</p>
+</dd>
+    <dt><code>allowProtocolIncrease</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If true, allows the operation to upgrade the table's Protocol Version if the feature requires it.
+If false, and the current protocol is too low, the operation will fail.</p>
+</dd>
+    <dt><code>cloudOptions</code> <a class="xref" href="Polars.CSharp.CloudOptions.html">CloudOptions</a></dt>
+    <dd><p>Cloud storage credentials.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Delta_Delete_" data-uid="Polars.CSharp.Delta.Delete*"></a>
+
+  <h3 id="Polars_CSharp_Delta_Delete_System_String_Polars_CSharp_Expr_Polars_CSharp_CloudOptions_" data-uid="Polars.CSharp.Delta.Delete(System.String,Polars.CSharp.Expr,Polars.CSharp.CloudOptions)">
+  Delete(string, Expr, CloudOptions?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L126"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Deletes rows from a Delta Lake table that match a given predicate.</p>
+<p>
+By default, this operation performs a Copy-on-Write (CoW), meaning any underlying data files containing matching rows are entirely rewritten.
+</p>
+<p>
+Note: If Deletion Vectors are enabled on the table, this operation automatically shifts to a Merge-on-Read (MoR) approach. 
+Instead of expensive file rewrites, deleted rows are swiftly marked in a separate deletion vector file, which drastically improves deletion performance.
+</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static void Delete(string path, Expr predicate, CloudOptions? cloudOptions = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>path</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>Path to the Delta table.</p>
+</dd>
+    <dt><code>predicate</code> <a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd><p>Filter expression to identify rows to delete.</p>
+</dd>
+    <dt><code>cloudOptions</code> <a class="xref" href="Polars.CSharp.CloudOptions.html">CloudOptions</a></dt>
+    <dd><p>Cloud storage configuration.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Delta_History_" data-uid="Polars.CSharp.Delta.History*"></a>
+
+  <h3 id="Polars_CSharp_Delta_History_System_String_System_Int32_Polars_CSharp_CloudOptions_" data-uid="Polars.CSharp.Delta.History(System.String,System.Int32,Polars.CSharp.CloudOptions)">
+  History(string, int, CloudOptions?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L266"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Returns provenance information, including the operation, user, timestamp, etc., for each write to a table.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static DataFrame History(string path, int limit = 0, CloudOptions? cloudOptions = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>path</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The root URI of the Delta table.</p>
+</dd>
+    <dt><code>limit</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a></dt>
+    <dd><p>The number of latest commits to retrieve. Set to 0 (default) to retrieve all history.</p>
+</dd>
+    <dt><code>cloudOptions</code> <a class="xref" href="Polars.CSharp.CloudOptions.html">CloudOptions</a></dt>
+    <dd><p>Cloud storage credentials.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.DataFrame.html">DataFrame</a></dt>
+    <dd><p>A DataFrame containing the commit history.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Delta_Optimize_" data-uid="Polars.CSharp.Delta.Optimize*"></a>
+
+  <h3 id="Polars_CSharp_Delta_Optimize_System_String_System_Int64_System_Collections_Generic_Dictionary_System_String_System_String__System_Collections_Generic_IEnumerable_System_String__Polars_CSharp_CloudOptions_" data-uid="Polars.CSharp.Delta.Optimize(System.String,System.Int64,System.Collections.Generic.Dictionary{System.String,System.String},System.Collections.Generic.IEnumerable{System.String},Polars.CSharp.CloudOptions)">
+  Optimize(string, long, Dictionary&lt;string, string&gt;?, IEnumerable&lt;string&gt;?, CloudOptions?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L343"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Optimizes the layout of the Delta table by compacting small files (bin-packing) and optionally applying Z-Order clustering.</p>
+<p>
+This operation significantly improves read performance by reducing the number of files and co-locating related data.
+</p>
+<p>
+Note: If Deletion Vectors (DV) are enabled on the table, any soft-deleted rows tracked by the vectors 
+will be physically removed (materialized) from the newly compacted Parquet files, effectively clearing 
+the deletion vectors for the optimized partitions.
+</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static long Optimize(string path, long targetSizeMb = 128, Dictionary&lt;string, string&gt;? partitionFilters = null, IEnumerable&lt;string&gt;? zOrderColumns = null, CloudOptions? cloudOptions = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>path</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The root URI of the Delta table.</p>
+</dd>
+    <dt><code>targetSizeMb</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd><p>The target file size in Megabytes for the compacted files (default: 128 MB).</p>
+</dd>
+    <dt><code>partitionFilters</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.collections.generic.dictionary-2">Dictionary</a>&lt;<a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>, <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>&gt;</dt>
+    <dd><p>Optional dictionary of partition key-value pairs to restrict optimization to specific partitions.</p>
+<p>Example: <code>new Dictionary&lt;string, string&gt; { { "date", "2024-01-01" } }</code></p>
+</dd>
+    <dt><code>zOrderColumns</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.collections.generic.ienumerable-1">IEnumerable</a>&lt;<a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>&gt;</dt>
+    <dd><p>Optional list of column names to apply Z-Order clustering.</p>
+<p>Z-Ordering co-locates data based on these columns, significantly speeding up queries that filter on them.</p>
+</dd>
+    <dt><code>cloudOptions</code> <a class="xref" href="Polars.CSharp.CloudOptions.html">CloudOptions</a></dt>
+    <dd><p>Cloud storage credentials and configuration.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd><p>The number of new data files created during the optimization process.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <h4 class="section">Exceptions</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.argumentexception">ArgumentException</a></dt>
+    <dd><p>Thrown if the path is empty or target size is invalid.</p>
+</dd>
+  </dl>
+
+
+
+  <a id="Polars_CSharp_Delta_ReadChangeDataFeed_" data-uid="Polars.CSharp.Delta.ReadChangeDataFeed*"></a>
+
+  <h3 id="Polars_CSharp_Delta_ReadChangeDataFeed_System_String_System_DateTime_System_Nullable_System_DateTime__Polars_CSharp_CloudOptions_" data-uid="Polars.CSharp.Delta.ReadChangeDataFeed(System.String,System.DateTime,System.Nullable{System.DateTime},Polars.CSharp.CloudOptions)">
+  ReadChangeDataFeed(string, DateTime, DateTime?, CloudOptions?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L509"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Reads the Change Data Feed (CDC) stream for a Delta table between the specified datetimes.
+The table must have 'delta.enableChangeDataFeed' set to 'true'.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static LazyFrame ReadChangeDataFeed(string path, DateTime startTimestamp, DateTime? endTimestamp = null, CloudOptions? cloudOptions = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>path</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The URI or local path of the Delta table.</p>
+</dd>
+    <dt><code>startTimestamp</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.datetime">DateTime</a></dt>
+    <dd><p>The starting datetime (inclusive).</p>
+</dd>
+    <dt><code>endTimestamp</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.datetime">DateTime</a>?</dt>
+    <dd><p>Optional. The ending datetime (inclusive). Defaults to DateTime.UtcNow if null.</p>
+</dd>
+    <dt><code>cloudOptions</code> <a class="xref" href="Polars.CSharp.CloudOptions.html">CloudOptions</a></dt>
+    <dd><p>Optional cloud storage credentials and retry policies.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.LazyFrame.html">LazyFrame</a></dt>
+    <dd><p>A LazyFrame containing the change data stream filtered by the exact milliseconds.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Delta_ReadChangeDataFeed_" data-uid="Polars.CSharp.Delta.ReadChangeDataFeed*"></a>
+
+  <h3 id="Polars_CSharp_Delta_ReadChangeDataFeed_System_String_System_Int64_System_Int64_Polars_CSharp_CloudOptions_" data-uid="Polars.CSharp.Delta.ReadChangeDataFeed(System.String,System.Int64,System.Int64,Polars.CSharp.CloudOptions)">
+  ReadChangeDataFeed(string, long, long, CloudOptions?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L470"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Reads the Change Data Feed (CDC) stream for a Delta table between the specified versions.
+The table must have 'delta.enableChangeDataFeed' set to 'true'.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static LazyFrame ReadChangeDataFeed(string path, long startVersion, long endVersion, CloudOptions? cloudOptions = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>path</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The URI or local path of the Delta table.</p>
+</dd>
+    <dt><code>startVersion</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd><p>The starting version (inclusive).</p>
+</dd>
+    <dt><code>endVersion</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd><p>The ending version (inclusive).</p>
+</dd>
+    <dt><code>cloudOptions</code> <a class="xref" href="Polars.CSharp.CloudOptions.html">CloudOptions</a></dt>
+    <dd><p>Optional cloud storage credentials and retry policies.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.LazyFrame.html">LazyFrame</a></dt>
+    <dd><p>A LazyFrame containing the change data stream.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Delta_Restore_" data-uid="Polars.CSharp.Delta.Restore*"></a>
+
+  <h3 id="Polars_CSharp_Delta_Restore_System_String_System_Nullable_System_UInt64__System_Nullable_System_DateTime__System_Boolean_System_Boolean_Polars_CSharp_CloudOptions_" data-uid="Polars.CSharp.Delta.Restore(System.String,System.Nullable{System.UInt64},System.Nullable{System.DateTime},System.Boolean,System.Boolean,Polars.CSharp.CloudOptions)">
+  Restore(string, ulong?, DateTime?, bool, bool, CloudOptions?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L207"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Restores the Delta table to a previous state defined by a specific version or timestamp.</p>
+<p>Note: This operation creates a new commit (version) that reflects the state of the table at the target point.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static ulong Restore(string path, ulong? version = null, DateTime? timestamp = null, bool ignoreMissingFiles = false, bool protocolDowngradeAllowed = false, CloudOptions? cloudOptions = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>path</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The root URI of the Delta table.</p>
+</dd>
+    <dt><code>version</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.uint64">ulong</a>?</dt>
+    <dd><p>The specific version number to restore to. Set to null if restoring by timestamp.</p>
+</dd>
+    <dt><code>timestamp</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.datetime">DateTime</a>?</dt>
+    <dd><p>The timestamp to restore to. Set to null if restoring by version.</p>
+</dd>
+    <dt><code>ignoreMissingFiles</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If true, the restore operation will ignore missing files (e.g., those deleted by Vacuum).
+If false, it will fail if any required files are missing.</p>
+</dd>
+    <dt><code>protocolDowngradeAllowed</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Whether to allow downgrading the Delta Protocol version during restore (rarely needed).</p>
+</dd>
+    <dt><code>cloudOptions</code> <a class="xref" href="Polars.CSharp.CloudOptions.html">CloudOptions</a></dt>
+    <dd><p>Cloud storage credentials.</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.uint64">ulong</a></dt>
+    <dd><p>The new version number of the table after the restore operation.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+  <h4 class="section">Exceptions</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.argumentexception">ArgumentException</a></dt>
+    <dd><p>Thrown if neither or both version and timestamp are provided.</p>
+</dd>
+  </dl>
+
+
+
+  <a id="Polars_CSharp_Delta_SetTableProperties_" data-uid="Polars.CSharp.Delta.SetTableProperties*"></a>
+
+  <h3 id="Polars_CSharp_Delta_SetTableProperties_System_String_System_Collections_Generic_Dictionary_System_String_System_String__System_Boolean_Polars_CSharp_CloudOptions_" data-uid="Polars.CSharp.Delta.SetTableProperties(System.String,System.Collections.Generic.Dictionary{System.String,System.String},System.Boolean,Polars.CSharp.CloudOptions)">
+  SetTableProperties(string, Dictionary&lt;string, string&gt;, bool, CloudOptions?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L435"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Sets or updates properties on the Delta Table.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static void SetTableProperties(string path, Dictionary&lt;string, string&gt; properties, bool raiseIfNotExists = false, CloudOptions? cloudOptions = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>path</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The root URI of the Delta table.</p>
+</dd>
+    <dt><code>properties</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.collections.generic.dictionary-2">Dictionary</a>&lt;<a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>, <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a>&gt;</dt>
+    <dd><p>A dictionary of key-value pairs to set.</p>
+</dd>
+    <dt><code>raiseIfNotExists</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If true, the operation fails if you try to update a property that doesn't strictly exist (rarely used, default false).</p>
+</dd>
+    <dt><code>cloudOptions</code> <a class="xref" href="Polars.CSharp.CloudOptions.html">CloudOptions</a></dt>
+    <dd><p>Cloud storage credentials.</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Delta_Source_" data-uid="Polars.CSharp.Delta.Source*"></a>
+
+  <h3 id="Polars_CSharp_Delta_Source_System_String_" data-uid="Polars.CSharp.Delta.Source(System.String)">
+  Source(string)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L102"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Represents a column from the incoming Source LazyFrame.
+(Internally maps to &quot;{name}_src_tmp&quot;)</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">[Obsolete(&quot;Please use the Lambda context (m =&gt; m.Source(...)) instead.&quot;)]
+public static Expr Source(string columnName)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>columnName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Delta_Target_" data-uid="Polars.CSharp.Delta.Target*"></a>
+
+  <h3 id="Polars_CSharp_Delta_Target_System_String_" data-uid="Polars.CSharp.Delta.Target(System.String)">
+  Target(string)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L110"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Represents a column from the existing Target Delta Table.
+(Alias for standard Col(), adds semantic clarity)</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">[Obsolete(&quot;Please use the Lambda context (m =&gt; m.Target(...)) instead.&quot;)]
+public static Expr Target(string columnName)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>columnName</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd></dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="Polars.CSharp.Expr.html">Expr</a></dt>
+    <dd></dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+  <a id="Polars_CSharp_Delta_Vacuum_" data-uid="Polars.CSharp.Delta.Vacuum*"></a>
+
+  <h3 id="Polars_CSharp_Delta_Vacuum_System_String_System_Nullable_System_Int32__System_Boolean_System_Boolean_System_Boolean_Polars_CSharp_CloudOptions_" data-uid="Polars.CSharp.Delta.Vacuum(System.String,System.Nullable{System.Int32},System.Boolean,System.Boolean,System.Boolean,Polars.CSharp.CloudOptions)">
+  Vacuum(string, int?, bool, bool, bool, CloudOptions?)
+  <a class="header-action link-secondary" title="View source" href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L170"><i class="bi bi-code-slash"></i></a>
+  </h3>
+
+  <div class="markdown level1 summary"><p>Recursively delete files and directories in the table that are no longer needed by the table for maintaining the transaction history.</p>
+</div>
+  <div class="markdown level1 conceptual"></div>
+
+  <div class="codewrapper">
+    <pre><code class="lang-csharp hljs">public static long Vacuum(string path, int? retentionHours = null, bool enforceRetention = true, bool dryRun = false, bool vacuumModeFull = false, CloudOptions? cloudOptions = null)</code></pre>
+  </div>
+
+  <h4 class="section">Parameters</h4>
+  <dl class="parameters">
+    <dt><code>path</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.string">string</a></dt>
+    <dd><p>The root URI of the Delta table (e.g., &quot;s3://bucket/table&quot;).</p>
+</dd>
+    <dt><code>retentionHours</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int32">int</a>?</dt>
+    <dd><p>The retention threshold in hours. Files removed before this threshold will be deleted.
+Set to -1 to use the default retention period configured in the table (usually 168 hours / 7 days).</p>
+</dd>
+    <dt><code>enforceRetention</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If true, prevents the vacuum command from deleting files that have not yet reached the retention threshold.
+Setting this to false allows forcing deletion of recent files (use with caution).</p>
+</dd>
+    <dt><code>dryRun</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>If true, simply returns the number of files that would be deleted, without actually deleting them.</p>
+</dd>
+    <dt><code>vacuumModeFull</code> <a class="xref" href="https://learn.microsoft.com/dotnet/api/system.boolean">bool</a></dt>
+    <dd><p>Specifies the vacuum mode:</p>
+<p>false (Lite): Only removes files that are explicitly referenced as removed in the transaction log. Faster.</p>
+<p>true (Full): Scans the entire storage directory to find and remove any files not referenced in the transaction log (including orphan files from failed writes). Slower but more thorough.</p>
+</dd>
+    <dt><code>cloudOptions</code> <a class="xref" href="Polars.CSharp.CloudOptions.html">CloudOptions</a></dt>
+    <dd><p>Cloud storage credentials and configuration (e.g. AWS Keys, Azure Secrets).</p>
+</dd>
+  </dl>
+
+  <h4 class="section">Returns</h4>
+  <dl class="parameters">
+    <dt><a class="xref" href="https://learn.microsoft.com/dotnet/api/system.int64">long</a></dt>
+    <dd><p>The number of files deleted (or selected for deletion in dry-run mode).</p>
+</dd>
+  </dl>
+
+
+
+
+
+
+
+
+
+
+
+
+</article>
+
+        <div class="contribution d-print-none">
+          <a href="https://github.com/ErrorLSC/Polars.NET/blob/main/Polars.CSharp/IO/Delta/Delta.cs/#L96" class="edit-link">Edit this page</a>
+        </div>
+
+
+      </div>
+
+      <div class="affix">
+        <nav id="affix"></nav>
+      </div>
+    </main>
+
+    <div class="container-xxl search-results" id="search-results"></div>
+
+    <footer class="border-top text-secondary">
+      <div class="container-xxl">
+        <div class="flex-fill">
+          Copyright © 2026 Polars.NET, Qinglei
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
