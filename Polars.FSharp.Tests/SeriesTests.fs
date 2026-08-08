@@ -235,7 +235,7 @@ type ``Series Tests`` () =
         let s = Series.create("dates", ["2023-01-01"; "2023-12-31"])
         
         // Parse String to Date
-        let sDate = s.Str.ToDate("%Y-%m-%d")
+        let sDate = s.Str.ToDate "%Y-%m-%d"
         
         Assert.Equal(DateOnly(2023, 1, 1), sDate.GetValue<DateOnly> 0)
         Assert.Equal(DateOnly(2023, 12, 31), sDate.GetValue<DateOnly> 1)
@@ -280,7 +280,7 @@ type ``Series Tests`` () =
         let s2 = Series.create("B", [10; 20])
 
         // Concat: A + B -> [[1, 10], [2, 20]]
-        let sRes = s1.List.Concat(s2)
+        let sRes = s1.List.Concat s2
         
         // Row 0: [1, 10]
         let l0 = sRes.GetList<int>(0)

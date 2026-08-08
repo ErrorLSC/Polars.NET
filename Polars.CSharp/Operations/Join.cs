@@ -544,6 +544,10 @@ public partial class LazyFrame : IDisposable, IPolarsLazyFrame
     /// <param name="maintainOrder">If True, the output is guaranteed to have left-biased ordering for equal keys: 
     /// rows from the left frame appear before rows from the right frame when their keys are equal.</param>
     public LazyFrame MergeSorted(LazyFrame other, string key,bool maintainOrder=false)
+        => new(PolarsWrapper.MergeSorted(CloneHandle(),other.CloneHandle(),[key],maintainOrder));
+
+    /// <inheritdoc cref="MergeSorted(LazyFrame,string,bool)"/>
+    public LazyFrame MergeSorted(LazyFrame other, string[] key,bool maintainOrder=false)
         => new(PolarsWrapper.MergeSorted(CloneHandle(),other.CloneHandle(),key,maintainOrder));
 
 }
@@ -1004,6 +1008,13 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     }
     /// <inheritdoc cref="LazyFrame.MergeSorted(LazyFrame, string, bool)"/>
     public DataFrame MergeSorted(DataFrame other, string key,bool maintainOrder=false)
+    {
+        using var right = other.Lazy();  
+        using var left = Lazy();
+        return left.MergeSorted(right,key,maintainOrder).Collect();
+    }
+    /// <inheritdoc cref="LazyFrame.MergeSorted(LazyFrame, string[], bool)"/>
+    public DataFrame MergeSorted(DataFrame other, string[] key,bool maintainOrder=false)
     {
         using var right = other.Lazy();  
         using var left = Lazy();

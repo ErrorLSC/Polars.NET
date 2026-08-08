@@ -323,14 +323,15 @@ pub extern "C" fn pl_dataframe_sample_n_literal(
     df_ptr: *mut DataFrameContext, 
     n: usize, 
     replacement: bool, 
-    shuffle: bool, 
+    shuffle: *const bool, 
     seed: *const u64
 ) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*df_ptr };
         let s = if seed.is_null() { None } else { Some(unsafe { *seed }) };
+        let shfl = if shuffle.is_null() { None } else { Some(unsafe { *shuffle }) };
         
-        let new_df = ctx.df.sample_n_literal(n, replacement, shuffle, s)?;
+        let new_df = ctx.df.sample_n_literal(n, replacement, shfl, s)?;
         
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
     })
@@ -341,15 +342,16 @@ pub extern "C" fn pl_dataframe_sample_n(
     df_ptr: *mut DataFrameContext, 
     n_ptr: *const SeriesContext, 
     replacement: bool, 
-    shuffle: bool, 
+    shuffle: *const bool, 
     seed: *const u64
 ) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*df_ptr };
         let n = unsafe {&*n_ptr};
         let s = if seed.is_null() { None } else { Some(unsafe { *seed }) };
+        let shfl = if shuffle.is_null() { None } else { Some(unsafe { *shuffle }) };
         
-        let new_df = ctx.df.sample_n(&n.series, replacement, shuffle, s)?;
+        let new_df = ctx.df.sample_n(&n.series, replacement, shfl, s)?;
         
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
     })
@@ -360,15 +362,16 @@ pub extern "C" fn pl_dataframe_sample_frac(
     df_ptr: *mut DataFrameContext, 
     frac_ptr: *const SeriesContext, 
     replacement: bool, 
-    shuffle: bool, 
+    shuffle:*const bool, 
     seed: *const u64
 ) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*df_ptr };
         let frac = unsafe {&*frac_ptr};
+        let shfl = if shuffle.is_null() { None } else { Some(unsafe { *shuffle }) };
         let s = if seed.is_null() { None } else { Some(unsafe { *seed }) };
         
-        let new_df = ctx.df.sample_frac(&frac.series, replacement, shuffle, s)?;
+        let new_df = ctx.df.sample_frac(&frac.series, replacement, shfl, s)?;
         
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
     })
@@ -430,7 +433,7 @@ pub extern "C" fn pl_dataframe_pivot(
         
         // 2. Values Check
         let schema = ctx.df.schema();
-        let ignored = PlHashSet::new();
+        let ignored = PlIndexSet::new();
         let values_names_set = values_ctx.inner.into_columns(&schema, &ignored)?;
         let values_names: Vec<&str> = values_names_set.iter().map(|s| s.as_str()).collect();
 
@@ -1092,5 +1095,67 @@ pub extern "C" fn pl_dataframe_to_dummies(
         };
 
         Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_dataframe_is_sorted(
+    df_ptr: *mut DataFrameContext,
+    by_ptrs: *const *const c_char,
+    by_len: usize,
+    descending_ptr: *const bool,
+    descending_len: usize,
+    nulls_last_ptr: *const bool,
+    nulls_last_len: usize,
+    out_is_sorted: *mut bool,
+) -> i32 {
+    ffi_try_c_int!({
+        let ctx = unsafe { &*df_ptr };
+
+        // Validate and parse 'by' column names
+        if by_ptrs.is_null() || by_len == 0 {
+            return Err(PolarsError::ComputeError(
+                "by must specify at least one column".into(),
+            ));
+        }
+
+        let by_slice = unsafe { std::slice::from_raw_parts(by_ptrs, by_len) };
+        let mut by_names = Vec::with_capacity(by_len);
+        for &p in by_slice {
+            let s = ptr_to_str(p).map_err(|e| {
+                PolarsError::ComputeError(
+                    format!("Invalid UTF-8 sequence in column name: {e}").into(),
+                )
+            })?;
+            by_names.push(PlSmallStr::from_str(s));
+        }
+
+        // Validate and parse 'descending' options
+        if descending_ptr.is_null() || descending_len != by_len {
+            return Err(PolarsError::ComputeError(
+                "descending length must match by length".into(),
+            ));
+        }
+        let descending = unsafe { std::slice::from_raw_parts(descending_ptr, descending_len) };
+
+        // Validate and parse 'nulls_last' options
+        if nulls_last_ptr.is_null() || nulls_last_len != by_len {
+            return Err(PolarsError::ComputeError(
+                "nulls_last length must match by length".into(),
+            ));
+        }
+        let nulls_last = unsafe { std::slice::from_raw_parts(nulls_last_ptr, nulls_last_len) };
+
+        // Call DataFrame's is_sorted trait method
+        let is_sorted_res = ctx.df.is_sorted(&by_names, descending, nulls_last)?;
+
+        // Write back result pointer
+        if !out_is_sorted.is_null() {
+            unsafe {
+                *out_is_sorted = is_sorted_res;
+            }
+        }
+
+        Ok(0)
     })
 }

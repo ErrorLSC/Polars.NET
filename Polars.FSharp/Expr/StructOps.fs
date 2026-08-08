@@ -19,6 +19,14 @@ type [<Struct>] StructOps(handle: ExprHandle) =
     member _.RenameFields([<ParamArray>]names: string array) =
         new Expr(PolarsWrapper.StructRenameFields(handle, names));
     /// <summary>
+    /// Drop one or more fields from the struct.
+    /// </summary>
+    /// <param name="names">Names of the fields to drop.</param>
+    /// <param name="strict">If True, raise an error if any of the specified fields do not exist in the struct.</param>
+    member _.Drop(names: string seq,?strict) =
+        let st = defaultArg strict true
+        new Expr(PolarsWrapper.StructDrop(handle, names |> Seq.toArray ,st));
+    /// <summary>
     /// Convert the struct column into a JSON string column.
     /// Useful for debugging or exporting to systems that support JSON strings.
     /// </summary>

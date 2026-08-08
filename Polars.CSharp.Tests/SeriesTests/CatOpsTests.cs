@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices.Marshalling;
 using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp.Tests;
@@ -35,5 +36,26 @@ public class SeriesCategoricalOpsTests
 
         using Series endsWith = s.Cat.EndsWith("熊");
         Assert.Equal([false, false, true, false, null], endsWith.ToArray<bool?>());
+    }
+    [Fact]
+    [Trait("Series", "Categorical")]
+    public void Test_Series_Cat_To_Physical()
+    {
+        string[] data = [
+            "apple",
+            "banana",
+            "波拉熊", 
+            "apple",   
+            null
+        ];
+
+        using Series sStr = Pl.CreateSeries("cat_data", data);
+        using Series s = sStr.Cast(DataType.Categorical("name"));
+
+        using var resPhyical = s.Cat.Physical();
+        Assert.Equal([0u,1u,2u,0u,null],resPhyical.ToArray<uint?>());
+
+        Assert.Equal(s,resPhyical.Cat.To(DataType.Categorical("name")));
+
     }
 }

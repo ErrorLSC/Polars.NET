@@ -213,6 +213,11 @@ module SeriesComputationOps =
         member this.EwmVar(alpha:float,?adjust:bool,?bias:bool,?minPeriods:int,?ignoreNulls:bool) =
             this.ApplyExpr(Expr.Col(this.Name).EwmVar(alpha=alpha,?adjust=adjust,?bias=bias,?minPeriods=minPeriods,?ignoreNulls=ignoreNulls))
         /// <summary>
+        /// Compute exponentially-weighted moving sum.
+        /// </summary>
+        member this.EwmSum(alpha:float,?adjust:bool,?bias:bool,?minPeriods:int,?ignoreNulls:bool) =
+            this.ApplyExpr(Expr.Col(this.Name).EwmSum(alpha=alpha,?adjust=adjust,?bias=bias,?minPeriods=minPeriods,?ignoreNulls=ignoreNulls))
+        /// <summary>
         /// Compute exponentially-weighted moving average based on a temporal or index column.
         /// </summary>
         /// <param name="by">
@@ -236,6 +241,11 @@ module SeriesComputationOps =
         /// <returns>A new expression representing the time/index-based EWM mean.</returns>
         member this.EwmMeanBy(by:Expr,halfLife:string) =
             this.ApplyExpr(Expr.Col(this.Name).EwmMeanBy(by=by,halfLife=halfLife))
+        /// <summary>
+        /// Compute exponentially-weighted moving sum based on a temporal or index column.
+        /// </summary>
+        member this.EwmSumBy(by:Expr,halfLife:string) =
+            this.ApplyExpr(Expr.Col(this.Name).EwmSumBy(by=by,halfLife=halfLife))
         member this.BitwiseCountOnes() = this.ApplyExpr(Expr.Col(this.Name).BitwiseCountOnes())
         member this.BitwiseCountZeros() = this.ApplyExpr(Expr.Col(this.Name).BitwiseCountZeros())
         member this.BitwiseLeadingOnes() = this.ApplyExpr(Expr.Col(this.Name).BitwiseLeadingOnes())

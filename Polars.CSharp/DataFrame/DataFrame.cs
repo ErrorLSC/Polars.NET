@@ -313,7 +313,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     /// <param name="withReplacement">Allow values to be sampled more than once.</param>
     /// <param name="shuffle">If set to True, the order of the sampled rows will be shuffled. If set to False (default), the order of the returned rows will be neither stable nor fully random.</param>
     /// <param name="seed">Seed for the random number generator. If set to None (default), a random seed is generated for each time the sample is called.</param>
-    public DataFrame Sample(ulong n=1, bool withReplacement = false, bool shuffle = false, ulong? seed = null)
+    public DataFrame Sample(ulong n=1, bool withReplacement = false, bool? shuffle = null, ulong? seed = null)
         => new(PolarsWrapper.SampleNLiteral(Handle, n, withReplacement, shuffle, seed));
 
     /// <summary>
@@ -324,7 +324,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
     /// <param name="shuffle">If set to True, the order of the sampled rows will be shuffled. If set to False (default), the order of the returned rows will be neither stable nor fully random.</param>
     /// <param name="seed">Seed for the random number generator. If set to None (default), a random seed is generated for each time the sample is called.</param>
     /// <returns></returns>
-    public DataFrame Sample(double fraction,bool withReplacement = false, bool shuffle = false, ulong? seed = null)
+    public DataFrame Sample(double fraction,bool withReplacement = false, bool? shuffle = null, ulong? seed = null)
     {
         using Series frac = Pl.CreateSeries("",[fraction]);
         return new(PolarsWrapper.SampleFrac(Handle,frac.Handle , withReplacement, shuffle, seed));

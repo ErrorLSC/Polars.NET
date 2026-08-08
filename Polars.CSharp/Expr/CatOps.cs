@@ -36,4 +36,17 @@ public readonly struct CategoricalOps
     /// </summary>
     /// <param name="suffix">Suffix substring.</param>
     public Expr EndsWith(string suffix) => new(PolarsWrapper.CatEndsWith(_expr.CloneHandle(),suffix));
+    /// <summary>
+    /// Get the physical values of a categorical or enum data type.
+    /// </summary>
+    public Expr Physical() => new(PolarsWrapper.CatPhysical(_expr.CloneHandle()));
+    /// <summary>
+    /// Convert to a categorical or enum dtype.
+    /// The input must be of the physical type of the categorical or enum dtype.
+    /// </summary>
+    /// <param name="dtype">The target categorical or enum dtype.</param>
+    /// <param name="strict">Whether to panic when encountering an illegal category.</param>
+    public Expr To(IntoDataTypeExpr dtype,bool strict=true)
+        => new(PolarsWrapper.CatTo(_expr.CloneHandle(),dtype.Consume().Handle,strict));
+    
 }

@@ -582,7 +582,7 @@ public readonly partial struct PolarsWrapper
     public static LazyFrameHandle MergeSorted(
         LazyFrameHandle lf,
         LazyFrameHandle other,
-        string key,
+        string[] key,
         bool maintainOrder)
     {
         var h = NativeBindings.pl_lazyframe_merge_sorted(lf,other,key,maintainOrder);

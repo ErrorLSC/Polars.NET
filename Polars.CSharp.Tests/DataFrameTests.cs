@@ -3008,4 +3008,63 @@ public class DataFrameTests
         Assert.Equal(1.2 + 5.6, floatDoubleResult.GetValue<double>(0), 3);
         Assert.Equal(3.4 + 7.8, floatDoubleResult.GetValue<double>(1), 3);
     }
+    [Fact]
+    [Trait("DataFrame", "IsSorted")]
+    public void Test_DataFrame_IsSorted_Basic()
+    {
+        using DataFrame dfSorted = [
+            Series.From("a", [1, 2, 3, 4]),
+            Series.From("b", ["a", "b", "c", "d"]),
+        ];
+
+        using DataFrame dfUnsorted = [
+            Series.From("a", [1, 3, 2, 4]),
+            Series.From("b", ["a", "c", "b", "d"]),
+        ];
+
+        // Single column overload
+        Assert.True(dfSorted.IsSorted("a"));
+        Assert.False(dfSorted.IsSorted("a", descending: true));
+        Assert.False(dfUnsorted.IsSorted("a"));
+
+        // Multi-column check
+        Assert.True(dfSorted.IsSorted(["a", "b"]));
+        Assert.False(dfSorted.IsSorted(["a", "b"], descending: [true, true]));
+    }
+
+    [Fact]
+    [Trait("DataFrame", "IsSorted")]
+    public void Test_DataFrame_IsSorted_WithNulls()
+    {
+        // Nulls placed first vs last
+        using DataFrame dfNullsFirst = [
+            Series.From("a", [(int?)null, 1, 2, 3]),
+        ];
+
+        using DataFrame dfNullsLast = [
+            Series.From("a", [1, 2, 3, (int?)null]),
+        ];
+
+        // Default nullsLast is false (nulls expected first)
+        Assert.True(dfNullsFirst.IsSorted("a", descending: false, nullsLast: false));
+        Assert.False(dfNullsFirst.IsSorted("a", descending: false, nullsLast: true));
+
+        // nullsLast = true (nulls expected last)
+        Assert.True(dfNullsLast.IsSorted("a", descending: false, nullsLast: true));
+        Assert.False(dfNullsLast.IsSorted("a", descending: false, nullsLast: false));
+    }
+
+    [Fact]
+    [Trait("DataFrame", "IsSorted")]
+    public void Test_DataFrame_IsSorted_MultiColumn_Mixed()
+    {
+        // Sorted by 'a' ASC, then 'b' DESC
+        using DataFrame dfMixed = [
+            Series.From("a", [1, 1, 2, 2]),
+            Series.From("b", [10, 5, 20, 10]),
+        ];
+
+        Assert.True(dfMixed.IsSorted(["a", "b"], descending: [false, true]));
+        Assert.False(dfMixed.IsSorted(["a", "b"], descending: [false, false]));
+    }
 }

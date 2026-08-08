@@ -79,4 +79,16 @@ module ExprBoolean =
             let rel = defaultArg relTol 1e-09
             let nan = defaultArg nansEqual false
             new Expr(PolarsWrapper.ExprIsClose(this.CloneHandle(),other.CloneHandle(),abs,rel,nan))
-
+        /// <summary>
+        /// Checks if an expression is sorted.
+        /// <para>If descending and/or nulls_last are None, it will check True and False
+        /// for the unspecified option(s), and return True if the expression is sorted
+        /// under any combination of those settings.</para>
+        /// </summary>
+        /// <param name="descending">Checks if the expression is sorted in descending order.Defaults to False.</param>
+        /// <param name="nullsLast">Consider null values as being ordered last when checking sortedness.Defaults to False.</param>
+        /// <returns>Expression of Boolean</returns>
+        member this.IsSorted(?descending,?nullsLast) =
+            let des = defaultArg descending false
+            let nul = defaultArg nullsLast false
+            new Expr(PolarsWrapper.ExprIsSorted(this.CloneHandle(),des,nul))

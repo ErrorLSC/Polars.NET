@@ -244,6 +244,15 @@ module ExprComputaion =
             let min = defaultArg minPeriods 1
             new Expr(PolarsWrapper.EwmVar(this.CloneHandle(),alpha,adj,b,min,ig))
         /// <summary>
+        /// Compute exponentially-weighted moving sum.
+        /// </summary>
+        member this.EwmSum(alpha: float,?adjust: bool,?bias:bool,?minPeriods:int, ?ignoreNulls:bool) = 
+            let adj = defaultArg adjust true
+            let b = defaultArg bias true
+            let ig = defaultArg ignoreNulls false
+            let min = defaultArg minPeriods 1
+            new Expr(PolarsWrapper.EwmSum(this.CloneHandle(),alpha,adj,b,min,ig))
+        /// <summary>
         /// Compute exponentially-weighted moving average based on a temporal or index column.
         /// </summary>
         /// <param name="by">
@@ -268,9 +277,14 @@ module ExprComputaion =
         member this.EwmMeanBy(by:Expr,halfLife:string) =
             new Expr(PolarsWrapper.EwmMeanBy(this.CloneHandle(),by.CloneHandle(),halfLife))
         /// <summary>
+        /// Compute exponentially-weighted moving sum based on a temporal or index column.
+        /// </summary>
+        member this.EwmSumBy(by:Expr,halfLife:string) =
+            new Expr(PolarsWrapper.EwmSumBy(this.CloneHandle(),by.CloneHandle(),halfLife))
+        /// <summary>
         /// Get unique values of this expression.
         /// </summary>
-        member this.Unique(?maintainOrder) =
+        member this.Unique ?maintainOrder =
             let mo = defaultArg maintainOrder false
             if mo = false then 
                 new Expr(PolarsWrapper.ExprUnique(this.CloneHandle()))

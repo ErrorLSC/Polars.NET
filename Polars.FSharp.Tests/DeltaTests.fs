@@ -98,8 +98,7 @@ let ``Scenario 2: Delta Lake Time Travel (History & Restore)`` () =
         // ==========================================
         // Restore to Version 1
         // ==========================================
-        let newVersion = Delta.Restore(testPath, version = 1UL)
-        
+        let _ = Delta.Restore(testPath, version = 1UL)
 
         let restoredDf = LazyFrame.ScanDelta(testPath).Collect()
         

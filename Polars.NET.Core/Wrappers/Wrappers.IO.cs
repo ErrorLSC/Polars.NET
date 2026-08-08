@@ -26,6 +26,7 @@ public readonly partial struct PolarsWrapper
         ulong skipLines,
         ulong? nRows,
         ulong? inferSchemaLength,
+        ulong? inferSchemaFiles,
         ulong? nThreads,
         ulong? chunkSize,
         string? rowIndexName,
@@ -55,6 +56,9 @@ public readonly partial struct PolarsWrapper
             ulong inferVal = inferSchemaLength.GetValueOrDefault();
             IntPtr pInfer = inferSchemaLength.HasValue ? (IntPtr)(&inferVal) : IntPtr.Zero;
 
+            ulong inferFileVal = inferSchemaFiles.GetValueOrDefault();
+            IntPtr pInferFile = inferSchemaFiles.HasValue ? (IntPtr)(&inferFileVal) : IntPtr.Zero;
+
             ulong nThreadsVal = nThreads.GetValueOrDefault();
             IntPtr pNThreads = nThreads.HasValue ? (IntPtr)(&nThreadsVal) : IntPtr.Zero;
 
@@ -75,7 +79,7 @@ public readonly partial struct PolarsWrapper
                 
                 // --- Sizes & Threads ---
                 (nuint)skipRows, (nuint)skipRowsAfterHeader, (nuint)skipLines,
-                pNRows, pInfer, pNThreads, csize,
+                pNRows, pInfer, pInferFile,pNThreads, csize,
                 
                 // --- Row Index & Path ---
                 rowIndexName, (nuint)rowIndexOffset, includeFilePaths,
@@ -123,6 +127,7 @@ public readonly partial struct PolarsWrapper
         ulong skipLines,
         ulong? nRows,
         ulong? inferSchemaLength,
+        ulong? inferSchemaFiles,
         ulong? nThreads,
         ulong? chunkSize,
         string? rowIndexName,
@@ -146,6 +151,9 @@ public readonly partial struct PolarsWrapper
             ulong inferVal = inferSchemaLength.GetValueOrDefault();
             IntPtr pInfer = inferSchemaLength.HasValue ? (IntPtr)(&inferVal) : IntPtr.Zero;
 
+            ulong inferFileVal = inferSchemaFiles.GetValueOrDefault();
+            IntPtr pInferFile = inferSchemaFiles.HasValue ? (IntPtr)(&inferFileVal) : IntPtr.Zero;
+
             ulong nThreadsVal = nThreads.GetValueOrDefault();
             IntPtr pNThreads = nThreads.HasValue ? (IntPtr)(&nThreadsVal) : IntPtr.Zero;
 
@@ -167,7 +175,7 @@ public readonly partial struct PolarsWrapper
                     
                     // --- Sizes & Threads ---
                     (nuint)skipRows, (nuint)skipRowsAfterHeader, (nuint)skipLines,
-                    pNRows, pInfer, pNThreads, csize,
+                    pNRows, pInfer,pInferFile, pNThreads, csize,
                     
                     // --- Row Index & Path ---
                     rowIndexName, (nuint)rowIndexOffset, includeFilePaths,

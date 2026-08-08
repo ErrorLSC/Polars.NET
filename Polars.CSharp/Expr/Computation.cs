@@ -237,6 +237,13 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     public Expr EwmVar(double alpha, bool adjust = true, bool bias = true, int minPeriods = 1, bool ignoreNulls = false)
         => new(PolarsWrapper.EwmVar(CloneHandle(), alpha, adjust, bias, minPeriods, ignoreNulls));
     /// <summary>
+    /// Compute exponentially-weighted moving sum.
+    /// </summary>
+    /// <inheritdoc cref="EwmMean"/>
+    /// <returns>A new expression representing the EWM variance.</returns>
+    public Expr EwmSum(double alpha, bool adjust = true, bool bias = true, int minPeriods = 1, bool ignoreNulls = false)
+        => new(PolarsWrapper.EwmSum(CloneHandle(), alpha, adjust, bias, minPeriods, ignoreNulls));
+    /// <summary>
     /// Compute exponentially-weighted moving average based on a temporal or index column.
     /// </summary>
     /// <param name="by">
@@ -260,6 +267,17 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <returns>A new expression representing the time/index-based EWM mean.</returns>
     public Expr EwmMeanBy(Expr by, string halfLife)
         => new(PolarsWrapper.EwmMeanBy(
+            CloneHandle(),
+            by.CloneHandle(),
+            halfLife
+        ));
+    /// <summary>
+    /// Compute time-based exponentially-weighted moving sum.
+    /// </summary>
+    /// <param name="by">Column to use as reference for the time decay.</param>
+    /// <param name="halfLife">Half-life of the exponential decay.</param>
+    public Expr EwmSumBy(Expr by, string halfLife)
+        => new(PolarsWrapper.EwmSumBy(
             CloneHandle(),
             by.CloneHandle(),
             halfLife

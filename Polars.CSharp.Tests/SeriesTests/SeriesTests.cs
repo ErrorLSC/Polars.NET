@@ -661,6 +661,7 @@ public class SeriesTests
         Assert.Equal([6, 5, 2], arrRev);
     }
     [Fact]
+    [Trait("Series","EWM")]
     public void Test_Series_Ewm_Methods()
     {
         // ---------------------------------------------------
@@ -688,8 +689,21 @@ public class SeriesTests
         Assert.NotNull(ewmVar[0]);
         Assert.True((double?)ewmVar[1] >= 0);
     }
+    [Fact]
+    [Trait("Series","EWM")]
+    public void Test_Series_Ewm_Sum()
+    {
+        var s = new Series("val", [10.0, 20.0, 40.0]);
+        
+        var ewm = s.EwmSum(alpha: 0.5, adjust: false);
+        
+        Assert.Equal(10.0, ewm[0]);
+        Assert.Equal(25.0, ewm[1]);
+        Assert.Equal(52.5, ewm[2]);
+    }
 
     [Fact]
+    [Trait("Series","EWM")]
     public void Test_Series_EwmMeanBy_Time()
     {
         var times = new[] 
@@ -720,6 +734,38 @@ public class SeriesTests
         var arrStable = resStable["ewm"].ToArray<double>();
         Assert.True(arrStable[1] < 19.0);
         Assert.True(arrStable[1] > 10.0);
+    }
+    [Fact]
+    [Trait("Series","EWM")]
+    public void Test_Series_EwmSumBy_Time()
+    {
+        var times = new[] 
+        { 
+            new DateTime(2023, 1, 1), 
+            new DateTime(2023, 1, 11)
+        };
+        var values = new[] { 10.0, 20.0 };
+
+        using var df = DataFrame.FromColumns(new
+        {
+            tm = times,
+            val = values
+        });
+
+        // Case 1: HalfLife = "1d"
+        var resDecay = df.Select(
+            Pl.Col("val").EwmSumBy(Pl.Col("tm"), halfLife: "1d").Alias("ewm")
+        );
+        
+        var arrDecay = resDecay["ewm"].ToArray<double>();
+        Assert.Equal(20.0, arrDecay[1], precision: 1); 
+        // Case 2: HalfLife = "100d" 
+        var resStable = df.Select(
+            Pl.Col("val").EwmSumBy(Pl.Col("tm"), halfLife: "100d").Alias("ewm")
+        );
+        var arrStable = resStable["ewm"].ToArray<double>();
+        Assert.True(arrStable[1] < 30.0);
+        Assert.True(arrStable[1] > 25.0);
     }
     [Fact]
     public void Test_RollingMeanBy_TimeWindow_And_ClosedBoundary()

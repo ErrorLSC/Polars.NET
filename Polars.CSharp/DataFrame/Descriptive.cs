@@ -27,6 +27,29 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IPolarsDataFram
     /// </summary>
     public Series IsUnique() => new(PolarsWrapper.DataFrameIsUnique(Handle));
     /// <summary>
+    /// Check whether the DataFrame is sorted by the given columns.
+    /// </summary>
+    /// <param name="by">Column name(s) to check.</param>
+    /// <param name="descending">Sort in descending order. When sorting by multiple columns, can be specified per column by passing a sequence of booleans.</param>
+    /// <param name="nullsLast">Place null values last. When sorting by multiple columns, can be specified per column by passing a sequence of booleans.</param>
+    public bool IsSorted(
+        IEnumerable<string> by,
+        IEnumerable<bool>? descending = null,
+        IEnumerable<bool>? nullsLast = null)
+    {
+        string[] byArray = by as string[] ?? [.. by];
+        bool[]? descArray = descending as bool[] ?? (descending is not null ? [.. descending] : null);
+        bool[]? nullsLastArray = nullsLast as bool[] ?? (nullsLast is not null ? [.. nullsLast] : null);
+
+        return PolarsWrapper.IsSorted(Handle, byArray, descArray!, nullsLastArray!);
+    }
+    /// <summary>
+    /// Overload for checking if DataFrame is sorted by a single column.
+    /// </summary>
+    public bool IsSorted(string by, bool descending = false, bool nullsLast = false)
+        => IsSorted([by], [descending], [nullsLast]);
+    
+    /// <summary>
     /// Return an estimation of the total (heap) allocated size of the Series/DataFrame.
     /// Estimated size is given in the specified unit (bytes by default).
     /// </summary>

@@ -165,7 +165,7 @@ type ``String Logic Tests`` () =
 
         let s = Series.create("raw", [
             "  abc  "           // 0
-            "https://pl.rs" // 1
+            "https://pl.rs"     // 1
             "data.csv"          // 2
             "__key__"           // 3
             "20250101"          // 4
@@ -842,8 +842,8 @@ type ``String Logic Tests`` () =
         use resultDf = df.Select [| reduceExpr |]
         let col = resultDf.Column "reduced_str"
 
-        Assert.Equal("A-B-C", col.GetValue<string>(0))
-        Assert.Equal("X-Y-Z", col.GetValue<string>(1))
+        Assert.Equal("A-B-C", col.GetValue<string> 0)
+        Assert.Equal("X-Y-Z", col.GetValue<string> 1)
 
 
     [<Fact>]

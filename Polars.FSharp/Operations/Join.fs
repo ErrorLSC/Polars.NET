@@ -274,7 +274,22 @@ module JoinOps =
                 pre,ho,suf,va,coa,ma,nul
             )
             new LazyFrame(h)
-        member this.MergeSorted(other:LazyFrame,key,?maintainOrder) =
+        /// <summary>
+        /// Take two sorted DataFrames and merge them by the sorted key.
+        /// The output of this operation will also be sorted. 
+        /// It is the callers responsibility that the frames are sorted in ascending order by the key, 
+        /// with null keys at the end, otherwise the order of the output will not make sense.
+        /// The schemas of both LazyFrames must be equal.
+        /// </summary>
+        /// <param name="other">Other DataFrame that must be merged</param>
+        /// <param name="key">Key that is sorted.</param>
+        /// <param name="maintainOrder">If True, the output is guaranteed to have left-biased ordering for equal keys: 
+        /// rows from the left frame appear before rows from the right frame when their keys are equal.</param>
+        member this.MergeSorted(other:LazyFrame,key:string,?maintainOrder) =
+            let ma = defaultArg maintainOrder false
+            let h = PolarsWrapper.MergeSorted(this.CloneHandle(),other.CloneHandle(),[|key|],ma)
+            new LazyFrame(h)
+        member this.MergeSorted(other:LazyFrame,key:string array,?maintainOrder) =
             let ma = defaultArg maintainOrder false
             let h = PolarsWrapper.MergeSorted(this.CloneHandle(),other.CloneHandle(),key,ma)
             new LazyFrame(h)
@@ -428,7 +443,9 @@ module JoinOps =
         member this.JoinWhere(other:DataFrame,predicates:seq<Expr>,?how,?suffix,?validation,?coalesce,?maintainOrder,?nullsEqual):DataFrame =
             this.Lazy().JoinWhere(other.Lazy(),predicates,?how=how,?suffix=suffix,?validation=validation,?coalesce=coalesce,
             ?maintainOrder=maintainOrder,?nullsEqual=nullsEqual).Collect()
-        member this.MergeSorted(other:DataFrame,key,?maintainOrder):DataFrame=
+        member this.MergeSorted(other:DataFrame,key:string,?maintainOrder):DataFrame=
+            this.Lazy().MergeSorted(other.Lazy(),key,?maintainOrder=maintainOrder).Collect()
+        member this.MergeSorted(other:DataFrame,key:string array,?maintainOrder):DataFrame=
             this.Lazy().MergeSorted(other.Lazy(),key,?maintainOrder=maintainOrder).Collect()
     
         

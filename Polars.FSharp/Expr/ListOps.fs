@@ -118,7 +118,7 @@ type [<Struct>] ListOps(handle: ExprHandle) =
             | Some n -> n.CloneHandle()
             | None -> PolarsWrapper.Lit 1
         let wr = defaultArg withReplacement false
-        let sh = defaultArg shuffle false
+        let sh = Option.toNullable shuffle
         let sd = seed |> Option.toNullable
         new Expr(PolarsWrapper.ListSampleN(handle,num,wr,sh,sd))
     /// <summary>
@@ -131,7 +131,7 @@ type [<Struct>] ListOps(handle: ExprHandle) =
     /// If set to None (default), a random seed is generated for each sample operation.</param>
     member _.SampleFrac(fraction:Expr,?withReplacement:bool,?shuffle:bool,?seed:uint64) =
         let wr = defaultArg withReplacement false
-        let sh = defaultArg shuffle false
+        let sh = Option.toNullable shuffle
         let sd = seed |> Option.toNullable
         new Expr(PolarsWrapper.ListSampleFraction(handle,fraction.CloneHandle(),wr,sh,sd))
     /// <summary>

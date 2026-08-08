@@ -20,4 +20,12 @@ internal partial class NativeBindings
         long offset,
         [MarshalAs(UnmanagedType.U1)] bool hasLength,
         nuint length);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_cat_physical(ExprHandle expr);
+    [LibraryImport(LibName)]
+    public static partial ExprHandle pl_expr_cat_to(
+        ExprHandle expr,
+        DataTypeExprHandle dtypeExpr,
+        [MarshalAs(UnmanagedType.U1)]bool strict);
+
 }

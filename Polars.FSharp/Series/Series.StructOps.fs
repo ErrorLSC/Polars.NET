@@ -20,6 +20,13 @@ type SeriesStructNameSpace(parent: Series) =
     /// <summary> Rename the fields of the struct. </summary>
     member _.RenameFields([<ParamArray>] names:string array) =
         apply (fun e -> e.Struct.RenameFields names)
+    /// <summary>
+    /// Drop one or more fields from the struct.
+    /// </summary>
+    /// <param name="names">Names of the fields to drop.</param>
+    /// <param name="strict">If True, raise an error if any of the specified fields do not exist in the struct.</param>
+    member _.Drop(names,?strict) =
+        apply (fun e -> e.Struct.Drop (names, ?strict=strict))
 
     /// <summary> Convert struct to JSON string. </summary>
     member _.JsonEncode() = 

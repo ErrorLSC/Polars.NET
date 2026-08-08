@@ -1,7 +1,7 @@
 use std::io::{Write, Seek, SeekFrom, Cursor};
 use std::sync::{Arc, Mutex};
 
-use polars::prelude::file::WriteableTrait;
+use polars::prelude::file::WritableTrait;
 
 #[repr(C)]
 pub struct FfiBuffer {
@@ -56,7 +56,7 @@ impl Seek for SharedMemoryWriter {
     }
 }
 
-impl WriteableTrait for SharedMemoryWriter {
+impl WritableTrait for SharedMemoryWriter {
     fn close(&mut self) -> std::io::Result<()> {
         Ok(())
     }

@@ -39,9 +39,10 @@ unsafe internal partial class NativeBindings
         nuint skip_rows,
         nuint skip_rows_after_header,
         nuint skip_lines,
-        IntPtr n_rows_ptr,
-        IntPtr infer_schema_len_ptr,
-        IntPtr n_threads_ptr,
+        nint n_rows_ptr,
+        nint infer_schema_len_ptr,
+        nint infer_schema_files,
+        nint n_threads_ptr,
         nuint chunk_size,
 
         // --- 3. Row Index & Path ---
@@ -77,7 +78,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LazyFrameHandle pl_scan_csv_mem(
         byte* bufferPtr,        // Buffer Pointer
-        UIntPtr bufferLen,      // Buffer Length
+        nuint bufferLen,      // Buffer Length
         
         // --- 1. Core Configs ---
         [MarshalAs(UnmanagedType.U1)] bool has_header,
@@ -96,9 +97,10 @@ unsafe internal partial class NativeBindings
         nuint skip_rows,
         nuint skip_rows_after_header,
         nuint skip_lines,
-        IntPtr n_rows_ptr,
-        IntPtr infer_schema_len_ptr,
-        IntPtr n_threads_ptr,
+        nint n_rows_ptr,
+        nint infer_schema_len_ptr,
+        nint infer_schema_files,
+        nint n_threads_ptr,
         nuint chunk_size,
 
         // --- 3. Row Index & Path ---

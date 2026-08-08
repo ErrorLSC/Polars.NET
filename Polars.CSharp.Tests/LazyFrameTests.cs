@@ -977,6 +977,51 @@ David,40,80000";
     }
     [Fact]
     [Trait("LazyFrame", "MergeSorted")]
+    public void Test_LazyFrame_MergeSorted_MultiColumn_ShouldMaintainOrder()
+    {
+        // Left frame: sorted by (category, id) -> ("A", 1), ("B", 1), ("C", 1)
+        using var dfLeft = DataFrame.FromColumns(new
+        {
+            category = new[] { "A", "B", "C" },
+            id = new[] { 1, 1, 1 },
+            val = new[] { 100, 200, 300 }
+        });
+        using var lfLeft = dfLeft.Lazy();
+
+        // Right frame: sorted by (category, id) -> ("A", 2), ("B", 2), ("C", 2)
+        using var dfRight = DataFrame.FromColumns(new
+        {
+            category = new[] { "A", "B", "C" },
+            id = new[] { 2, 2, 2 },
+            val = new[] { 150, 250, 350 }
+        });
+        using var lfRight = dfRight.Lazy();
+
+        // Perform merge_sorted over multiple key columns
+        using var mergedLf = lfLeft.MergeSorted(lfRight, ["category", "id"], maintainOrder: true);
+        using var resDf = mergedLf.Collect();
+
+        Assert.Equal(6, resDf.Height);
+        Assert.Equal(3, resDf.Width);
+
+        var catSeries = resDf["category"];
+        var idSeries = resDf["id"];
+        var valSeries = resDf["val"];
+
+        // Category "A"
+        Assert.Equal("A", catSeries[0]); Assert.Equal(1, idSeries[0]); Assert.Equal(100, valSeries[0]);
+        Assert.Equal("A", catSeries[1]); Assert.Equal(2, idSeries[1]); Assert.Equal(150, valSeries[1]);
+
+        // Category "B"
+        Assert.Equal("B", catSeries[2]); Assert.Equal(1, idSeries[2]); Assert.Equal(200, valSeries[2]);
+        Assert.Equal("B", catSeries[3]); Assert.Equal(2, idSeries[3]); Assert.Equal(250, valSeries[3]);
+
+        // Category "C"
+        Assert.Equal("C", catSeries[4]); Assert.Equal(1, idSeries[4]); Assert.Equal(300, valSeries[4]);
+        Assert.Equal("C", catSeries[5]); Assert.Equal(2, idSeries[5]); Assert.Equal(350, valSeries[5]);
+    }
+    [Fact]
+    [Trait("LazyFrame", "MergeSorted")]
     public void Test_LazyFrame_MergeSorted_ShouldMaintainOrder()
     {
         // Sorted by ID

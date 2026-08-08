@@ -305,10 +305,10 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// Cast to physical representation of the logical dtype.
     /// </summary>
     public Series ToPhysical() => new(PolarsWrapper.SeriesToPhysical(Handle));
-    /// <inheritdoc cref="Expr.Sample(ulong, bool, bool, ulong?)"/>
+    /// <inheritdoc cref="Expr.Sample(ulong, bool, bool?, ulong?)"/>
     public Series Sample(ulong n=1,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
         => ApplyExpr(Pl.Col(Name).Sample(n,withReplacement,shuffle,seed));
-    /// <inheritdoc cref="Expr.Sample(double, bool, bool, ulong?)"/>
+    /// <inheritdoc cref="Expr.Sample(double, bool, bool?, ulong?)"/>
     public Series Sample(double fraction,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
         => ApplyExpr(Pl.Col(Name).Sample(fraction,withReplacement,shuffle,seed));
     /// <inheritdoc cref="Expr.Reinterpret(bool)"/> 

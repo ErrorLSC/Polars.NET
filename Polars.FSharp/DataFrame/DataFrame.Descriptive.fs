@@ -17,6 +17,26 @@ module DataFrameDescriptive =
         /// </summary>
         member this.IsEmpty : bool = this.Height = 0L
         /// <summary>
+        /// Check whether the DataFrame is sorted by the given columns.
+        /// </summary>
+        /// <param name="by">Column name(s) to check.</param>
+        /// <param name="descending">Sort in descending order. When sorting by multiple columns, can be specified per column by passing a sequence of booleans.</param>
+        /// <param name="nullsLast">Place null values last. When sorting by multiple columns, can be specified per column by passing a sequence of booleans.</param>
+        member this.IsSorted(by: seq<string>, ?descending: seq<bool>, ?nullsLast: seq<bool>) : bool =
+            let byArray = by |> Seq.toArray
+            let descArray = descending |> Option.map Seq.toArray |> Option.toObj
+            let nullsLastArray = nullsLast |> Option.map Seq.toArray |> Option.toObj
+
+            PolarsWrapper.IsSorted(this.Handle, byArray, descArray, nullsLastArray)
+
+        /// <summary>
+        /// Single column overload for checking sort status.
+        /// </summary>
+        member this.IsSorted(by: string, ?descending: bool, ?nullsLast: bool) : bool =
+            let desc = defaultArg descending false
+            let nulls = defaultArg nullsLast false
+            this.IsSorted([| by |], [| desc |], [| nulls |])
+        /// <summary>
         /// Return an estimation of the total (heap) allocated size of the DataFrame.
         /// Estimated size is given in the specified unit (bytes by default).
         /// </summary>

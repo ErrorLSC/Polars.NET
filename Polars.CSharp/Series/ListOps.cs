@@ -87,7 +87,7 @@ public readonly struct SeriesListOps
         => SampleN(1,withReplacement,shuffle,seed);
     /// <inheritdoc cref="SeriesListOps.SampleN(IntoExprColumn,bool,bool,ulong?)"/>
     /// <param name="fraction">Fraction of items to return. </param>
-    public Series SampleFrac(IntoExprColumn fraction,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
+    public Series SampleFrac(IntoExprColumn fraction,bool withReplacement=false,bool? shuffle=null,ulong? seed=null)
         =>Apply(e=>e.List.SampleFrac(fraction,withReplacement,shuffle,seed));
     /// <summary>
     /// Compute the SET UNION between the elements in this list and the elements of other.

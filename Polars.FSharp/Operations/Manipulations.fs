@@ -807,7 +807,7 @@ module ManipulateOps =
         /// </summary>
         member this.Sample(n: int, ?withReplacement: bool, ?shuffle: bool, ?seed: uint64) : DataFrame =
             let replace = defaultArg withReplacement false
-            let shuff = defaultArg shuffle true
+            let shuff = Option.toNullable shuffle
             let s = Option.toNullable seed
             
             new DataFrame(PolarsWrapper.SampleNLiteral(this.Handle, uint64 n, replace, shuff, s))
@@ -818,7 +818,7 @@ module ManipulateOps =
         member this.Sample(frac: double, ?withReplacement: bool, ?shuffle: bool, ?seed: uint64) : DataFrame =
             let replace = defaultArg withReplacement false
             let sf = Series.create("",[frac]).Handle
-            let shuff = defaultArg shuffle true
+            let shuff = Option.toNullable shuffle
             let s = Option.toNullable seed
             
             new DataFrame(PolarsWrapper.SampleFrac(this.Handle, sf, replace, shuff, s))

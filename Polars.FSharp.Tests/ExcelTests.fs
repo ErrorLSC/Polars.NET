@@ -63,7 +63,7 @@ type FSharpExcelTests() =
             testSchemaRead()
 
         finally
-            if File.Exists(tempFile) then File.Delete(tempFile)
+            if File.Exists tempFile then File.Delete tempFile
     [<Fact>]
     member _.``IO: Excel Roundtrip (Precision & Formats)`` () =
         let tempFile = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + ".xlsx")

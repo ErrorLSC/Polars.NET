@@ -1438,7 +1438,7 @@ type ``Complex Query Tests`` () =
             pl.series "Value" ["A";"B";"C"]
         ]
         let source = pl.dataframe [
-            pl.series "Id" [Nullable(1); Nullable<int>(); Nullable(3)]   // 中间为 null
+            pl.series "Id" [Some 1; None; Some 3]   
             pl.series "Value" ["A1";"B1";"C1"]
         ]
 

@@ -44,12 +44,12 @@ type IOTests() =
         Assert.Equal(3L, df.Height)
         
         // Assert Row Index exists and correct
-        let idxCol = df.Column("idx")
-        Assert.Equal(100u, idxCol.GetValue<uint32>(0))
-        Assert.Equal(101u, idxCol.GetValue<uint32>(1))
+        let idxCol = df.Column "idx"
+        Assert.Equal(100u, idxCol.GetValue<uint32> 0)
+        Assert.Equal(101u, idxCol.GetValue<uint32> 1)
         
         // Assert Data
-        Assert.Equal(1, df.Column("id").GetValue<int>(0))
+        Assert.Equal(1, df.Column("id").GetValue<int> 0)
 
     [<Fact>]
     member _.``ScanParquet (Memory): Bytes and Schema Overwrite``() =

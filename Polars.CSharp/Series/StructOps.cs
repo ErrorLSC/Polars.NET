@@ -12,7 +12,7 @@ public readonly struct SeriesStructOps
     internal SeriesStructOps(Series series) { _series = series; }
 
     private Series Apply(Func<Expr, Expr> op) 
-        => _series.ApplyExpr(op(Polars.Col(_series.Name)));
+        => _series.ApplyExpr(op(Pl.Col(_series.Name)));
 
     /// <summary>
     /// Retrieve a field from the struct by name.
@@ -29,6 +29,8 @@ public readonly struct SeriesStructOps
     /// Rename the fields of the struct.
     /// </summary>
     public Series RenameFields(params string[] names) => Apply(e => e.Struct.RenameFields(names));
+    /// <inheritdoc cref="StructOps.Drop(IEnumerable{string}, bool)"/>
+    public Series Drop(IEnumerable<string> names,bool strict=true) => Apply(e => e.Struct.Drop(names,strict));
 
     /// <summary>
     /// Convert struct to JSON string.

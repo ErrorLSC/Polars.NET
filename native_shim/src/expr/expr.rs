@@ -457,6 +457,7 @@ gen_unary_op_arg_bool!(pl_expr_mode, mode);
 gen_ewm_op!(pl_expr_ewm_mean, ewm_mean);
 gen_ewm_op!(pl_expr_ewm_std, ewm_std);
 gen_ewm_op!(pl_expr_ewm_var, ewm_var);
+gen_ewm_op!(pl_expr_ewm_sum, ewm_sum);
 
 // --- Group 5: Namespace Ops ---
 
@@ -856,6 +857,26 @@ pub extern "C" fn pl_expr_ewm_mean_by(
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_ewm_sum_by(
+    expr_ptr: *mut ExprContext,
+    by_ptr: *mut ExprContext,       // The 'times' expression
+    half_life_ptr: *const c_char    // Duration string, e.g. "1d", "12h"
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let by = unsafe { Box::from_raw(by_ptr) };
+        
+        let half_life_str = ptr_to_str(half_life_ptr).unwrap();
+        
+        let half_life = Duration::parse(half_life_str);
+
+        let new_expr = ctx.inner.ewm_sum_by(by.inner, half_life);
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
 // ==========================================
 // Bitwise Operations (Shift)
 // ==========================================
@@ -1244,7 +1265,7 @@ pub extern "C" fn pl_expr_sample_n(
     expr_ptr: *mut ExprContext,
     n_ptr: *mut ExprContext,
     with_replacement: bool,
-    shuffle: bool,
+    shuffle: *const bool,
     has_seed: bool,
     seed: u64,
 ) -> *mut ExprContext {
@@ -1252,11 +1273,12 @@ pub extern "C" fn pl_expr_sample_n(
         let ctx = unsafe { Box::from_raw(expr_ptr) };
         let n_ctx = unsafe { Box::from_raw(n_ptr) };
         let seed_opt = if has_seed { Some(seed) } else { None };
+        let shfl = if shuffle.is_null() { None } else { Some(unsafe { *shuffle }) };
         
         let new_expr = ctx.inner.sample_n(
             n_ctx.inner,
             with_replacement,
-            shuffle,
+            shfl,
             seed_opt,
         );
         
@@ -1269,7 +1291,7 @@ pub extern "C" fn pl_expr_sample_frac(
     expr_ptr: *mut ExprContext,
     frac_ptr: *mut ExprContext,
     with_replacement: bool,
-    shuffle: bool,
+    shuffle: *const bool,
     has_seed: bool,
     seed: u64,
 ) -> *mut ExprContext {
@@ -1277,11 +1299,12 @@ pub extern "C" fn pl_expr_sample_frac(
         let ctx = unsafe { Box::from_raw(expr_ptr) };
         let frac_ctx = unsafe { Box::from_raw(frac_ptr) };
         let seed_opt = if has_seed { Some(seed) } else { None };
+        let shfl = if shuffle.is_null() { None } else { Some(unsafe { *shuffle }) };
         
         let new_expr = ctx.inner.sample_frac(
             frac_ctx.inner,
             with_replacement,
-            shuffle,
+            shfl,
             seed_opt,
         );
         
@@ -1289,6 +1312,25 @@ pub extern "C" fn pl_expr_sample_frac(
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_expr_is_sorted(
+    expr_ptr: *mut ExprContext,
+    descending: *const bool,
+    nulls_last: *const bool
+) -> *mut ExprContext {
+    ffi_try!({
+        let ctx = unsafe { Box::from_raw(expr_ptr) };
+        let desc = if descending.is_null() { None } else { Some(unsafe { *descending }) };
+        let nuls = if nulls_last.is_null() { None } else { Some(unsafe { *nulls_last }) };
+        
+        let new_expr = ctx.inner.is_sorted(
+            desc,
+            nuls,
+        );
+        
+        Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
+    })
+}
 
 // ==========================================
 // Meta Data

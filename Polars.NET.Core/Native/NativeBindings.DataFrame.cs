@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 using Apache.Arrow;
 
 [assembly: DisableRuntimeMarshalling]
@@ -81,11 +82,11 @@ unsafe internal partial class NativeBindings
     );
 
     [LibraryImport(LibName)]
-    public static partial DataFrameHandle pl_dataframe_sample_n_literal(DataFrameHandle df, nuint n, [MarshalAs(UnmanagedType.U1)] bool replacement, [MarshalAs(UnmanagedType.U1)] bool shuffle, ulong* seed);
+    public static partial DataFrameHandle pl_dataframe_sample_n_literal(DataFrameHandle df, nuint n, [MarshalAs(UnmanagedType.U1)] bool replacement, bool* shuffle, ulong* seed);
     [LibraryImport(LibName)]
-    public static partial DataFrameHandle pl_dataframe_sample_n(DataFrameHandle df, SeriesHandle n, [MarshalAs(UnmanagedType.U1)] bool replacement, [MarshalAs(UnmanagedType.U1)] bool shuffle, ulong* seed);
+    public static partial DataFrameHandle pl_dataframe_sample_n(DataFrameHandle df, SeriesHandle n, [MarshalAs(UnmanagedType.U1)] bool replacement, bool* shuffle, ulong* seed);
     [LibraryImport(LibName)]
-    public static partial DataFrameHandle pl_dataframe_sample_frac(DataFrameHandle df, SeriesHandle frac, [MarshalAs(UnmanagedType.U1)] bool replacement, [MarshalAs(UnmanagedType.U1)] bool shuffle, ulong* seed);
+    public static partial DataFrameHandle pl_dataframe_sample_frac(DataFrameHandle df, SeriesHandle frac, [MarshalAs(UnmanagedType.U1)] bool replacement, bool* shuffle, ulong* seed);
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial DataFrameHandle pl_dataframe_unnest(
         DataFrameHandle df,
@@ -162,6 +163,18 @@ unsafe internal partial class NativeBindings
     public static partial SeriesHandle pl_dataframe_is_duplicated(DataFrameHandle handle);
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_dataframe_is_unique(DataFrameHandle handle);
+    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    public static partial int pl_dataframe_is_sorted(
+        DataFrameHandle handle,
+        string[] by,
+        nuint byLen,
+        ReadOnlySpan<byte> descending,
+        nuint desLen,
+        ReadOnlySpan<byte> nullsLast,
+        nuint nulLen,
+        [MarshalAs(UnmanagedType.U1)] out bool isSorted
+    );
+
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial IntPtr pl_dataframe_partition_by(
         DataFrameHandle df,

@@ -273,6 +273,6 @@ unsafe internal partial class NativeBindings
     public static partial LazyFrameHandle pl_lazyframe_merge_sorted(
         LazyFrameHandle lf,
         LazyFrameHandle other,
-        string key,
+        string[] key,
         [MarshalAs(UnmanagedType.U1)] bool maintainOrder);
 }

@@ -22,4 +22,8 @@ public readonly struct SeriesCategoricalOps
     public Series StartsWith(string prefix) => Apply(e=>e.Cat.StartsWith(prefix));
     /// <inheritdoc cref="CategoricalOps.EndsWith"/>
     public Series EndsWith(string suffix) => Apply(e=>e.Cat.EndsWith(suffix));
+    /// <inheritdoc cref="CategoricalOps.Physical"/>
+    public Series Physical() => Apply(e=>e.Cat.Physical());
+    /// <inheritdoc cref="CategoricalOps.To"/>
+    public Series To(IntoDataTypeExpr dtype,bool strict=true) => Apply(e=>e.Cat.To(dtype,strict)); 
 }

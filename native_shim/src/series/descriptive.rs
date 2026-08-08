@@ -124,7 +124,7 @@ pub extern "C" fn pl_series_null_count(s_ptr: *mut SeriesContext,out_count: *mut
 pub extern "C" fn pl_series_is_sorted(
     series_ptr: *mut SeriesContext,
     descending: bool,
-    nulls_last: bool, // for polars 0.54
+    nulls_last: bool, 
     out_result: *mut bool,
 ) -> c_int {
     ffi_try_c_int!({

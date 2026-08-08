@@ -493,7 +493,7 @@ type Series(handle: SeriesHandle) =
         if idx < 0L || idx >= this.Length then
             raise (IndexOutOfRangeException(sprintf "Index %d is out of bounds for Series length %d." idx this.Length))
 
-        if this.IsNullAt(idx) then 
+        if this.IsNullAt idx then 
             ValueNone
         else
             let inline wrapSome (dummy: 'T) = ValueSome (box (this.GetValue<'T>(idx)))
@@ -528,7 +528,7 @@ type Series(handle: SeriesHandle) =
             | DataTypeKind.List _ 
             | DataTypeKind.Struct _ 
             | DataTypeKind.Array _ -> 
-                match this.GetValue<obj>(idx) with
+                match this.GetValue<obj> idx with
                 | null -> ValueNone
                 | validComplex -> ValueSome validComplex
 

@@ -64,7 +64,7 @@ pub extern "C" fn pl_sink_delta(
 
         let partition_cols = if !partition_by_ptr.is_null() {
             let selector_ctx = unsafe { &*partition_by_ptr };
-            let ignored = PlHashSet::new();
+            let ignored = PlIndexSet::new();
             selector_ctx.inner.into_columns(&schema, &ignored)?
                 .iter()
                 .map(|s| s.to_string())

@@ -71,6 +71,31 @@ pub unsafe extern "C" fn pl_expr_struct_rename_fields(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_expr_struct_drop(
+    expr: *mut Expr,
+    names_ptr: *mut *mut c_char,
+    len: usize,
+    strict: bool
+) -> *mut Expr {
+    let e = unsafe { Box::from_raw(expr) };
+    
+    // Convert C String vector to Vec<String>
+    let names: Vec<String> = if names_ptr.is_null() || len == 0 {
+        Vec::new()
+    } else {
+        let slice = unsafe { std::slice::from_raw_parts(names_ptr, len) };
+        slice.iter()
+            .map(|&p| unsafe { 
+                std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned() 
+            })
+            .collect()
+    };
+
+    let new_expr = e.struct_().drop(names,strict);
+    Box::into_raw(Box::new(new_expr))
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn pl_expr_struct_json_encode(
     expr: *mut Expr
 ) -> *mut Expr {

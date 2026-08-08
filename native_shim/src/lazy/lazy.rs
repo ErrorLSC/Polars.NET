@@ -1020,18 +1020,26 @@ pub extern "C" fn pl_lazyframe_join_where(
 pub extern "C" fn pl_lazyframe_merge_sorted(
     lf_ptr: *mut LazyFrameContext,
     other_ptr: *mut LazyFrameContext,
-    key_ptr: *const std::os::raw::c_char,
+    keys_ptr: *const *const std::os::raw::c_char,
+    keys_len: usize,
     maintain_order: bool
 ) -> *mut LazyFrameContext {
     ffi_try!({
         let lf_ctx = unsafe { Box::from_raw(lf_ptr) };
         let other_ctx = unsafe { Box::from_raw(other_ptr) };
 
-        let key_str = ptr_to_str(key_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+        let mut keys = Vec::with_capacity(keys_len);
+        if !keys_ptr.is_null() && keys_len > 0 {
+            let slice = unsafe { std::slice::from_raw_parts(keys_ptr, keys_len) };
+            for &ptr in slice {
+                let s = ptr_to_str(ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?;
+                keys.push(s);
+            }
+        }
 
         let new_lf = lf_ctx.inner.merge_sorted(
             other_ctx.inner, 
-            key_str,
+            keys,
             maintain_order
         )?;
 

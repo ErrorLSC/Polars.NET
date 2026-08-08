@@ -82,4 +82,15 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <returns>Expression/Series of data type Boolean.</returns>
     public Expr IsClose(IntoExprColumn other,double absTol=0.0,double relTol=1e-09,bool nansEqual=false)
         => new(PolarsWrapper.ExprIsClose(CloneHandle(),other.Consume().Handle,absTol,relTol,nansEqual));
+    /// <summary>
+    /// Checks if an expression is sorted.
+    /// <para>If descending and/or nulls_last are None, it will check True and False
+    /// for the unspecified option(s), and return True if the expression is sorted
+    /// under any combination of those settings.</para>
+    /// </summary>
+    /// <param name="descending">Checks if the expression is sorted in descending order.Defaults to False.</param>
+    /// <param name="nullsLast">Consider null values as being ordered last when checking sortedness.Defaults to False.</param>
+    /// <returns>Expression of Boolean</returns>
+    public Expr IsSorted(bool? descending=false,bool? nullsLast=false)
+        => new(PolarsWrapper.ExprIsSorted(CloneHandle(),descending,nullsLast));
 }

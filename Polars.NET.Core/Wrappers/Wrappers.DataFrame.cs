@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Polars.NET.Core.Native;
 
 namespace Polars.NET.Core;
@@ -112,30 +113,118 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(NativeBindings.pl_dataframe_rename_many(df, oldNames, newNames, (nuint)oldNames.Length));
     }
 
-    public static unsafe DataFrameHandle SampleN(DataFrameHandle df, SeriesHandle n, bool replacement, bool shuffle, ulong? seed)
+    public static unsafe DataFrameHandle SampleN(
+        DataFrameHandle df, 
+        SeriesHandle n, 
+        bool replacement, 
+        bool? shuffle, 
+        ulong? seed)
     {
-        ulong sVal = seed ?? 0;
-        ulong* sPtr = seed.HasValue ? &sVal : null;
-        return ErrorHelper.Check(NativeBindings.pl_dataframe_sample_n(df, n, replacement, shuffle, sPtr));
+        bool shuffleVal = shuffle ?? false;
+        ulong seedVal = seed ?? 0;
+
+        bool* shufflePtr = shuffle.HasValue ? &shuffleVal : null;
+        ulong* seedPtr = seed.HasValue ? &seedVal : null;
+
+        return ErrorHelper.Check(NativeBindings.pl_dataframe_sample_n(
+            df, 
+            n, 
+            replacement, 
+            shufflePtr, 
+            seedPtr
+        ));
     }
-    public static unsafe DataFrameHandle SampleNLiteral(DataFrameHandle df, ulong n, bool replacement, bool shuffle, ulong? seed)
+    public static unsafe DataFrameHandle SampleNLiteral(DataFrameHandle df, ulong n, bool replacement, bool? shuffle, ulong? seed)
     {
-        ulong sVal = seed ?? 0;
-        ulong* sPtr = seed.HasValue ? &sVal : null;
-        return ErrorHelper.Check(NativeBindings.pl_dataframe_sample_n_literal(df, (nuint)n, replacement, shuffle, sPtr));
+        bool shuffleVal = shuffle ?? false;
+        ulong seedVal = seed ?? 0;
+
+        bool* shufflePtr = shuffle.HasValue ? &shuffleVal : null;
+        ulong* seedPtr = seed.HasValue ? &seedVal : null;
+        return ErrorHelper.Check(NativeBindings.pl_dataframe_sample_n_literal(df, (nuint)n, replacement, shufflePtr, seedPtr));
     }
 
-    public static unsafe DataFrameHandle SampleFrac(DataFrameHandle df, SeriesHandle frac, bool replacement, bool shuffle, ulong? seed)
+    public static unsafe DataFrameHandle SampleFrac(DataFrameHandle df, SeriesHandle frac, bool replacement, bool? shuffle, ulong? seed)
     {
-        ulong sVal = seed ?? 0;
-        ulong* sPtr = seed.HasValue ? &sVal : null;
-        return ErrorHelper.Check(NativeBindings.pl_dataframe_sample_frac(df, frac, replacement, shuffle, sPtr));
+        bool shuffleVal = shuffle ?? false;
+        ulong seedVal = seed ?? 0;
+
+        bool* shufflePtr = shuffle.HasValue ? &shuffleVal : null;
+        ulong* seedPtr = seed.HasValue ? &seedVal : null;
+        return ErrorHelper.Check(NativeBindings.pl_dataframe_sample_frac(df, frac, replacement, shufflePtr, seedPtr));
     }
     public static DataFrameHandle Unnest(DataFrameHandle df, string[] columns,string? separator)
         => ErrorHelper.Check(NativeBindings.pl_dataframe_unnest(df, columns, (UIntPtr)columns.Length,separator));
     public static DataFrameHandle Explode(DataFrameHandle df, string[] columns,bool emptyAsNull,bool keepNulls)
         => ErrorHelper.Check(NativeBindings.pl_dataframe_explode(df, columns, (UIntPtr)columns.Length,emptyAsNull,keepNulls));
-    
+    public static bool IsSorted(
+        DataFrameHandle handle,
+        string[] by,
+        bool[]? descending,
+        bool[]? nullsLast)
+    {
+        if (by.Length == 0)
+        {
+            throw new ArgumentException("At least one column name must be specified in 'by'.", nameof(by));
+        }
+
+        int count = by.Length;
+
+        // Normalize 'descending'
+        bool[] descList = descending ?? [];
+        if (descList.Length == 0)
+        {
+            descList = new bool[count];
+        }
+        else if (descList.Length == 1 && count > 1)
+        {
+            bool val = descList[0];
+            descList = new bool[count];
+            Array.Fill(descList, val);
+        }
+
+        // Normalize 'nullsLast'
+        bool[] nullsLastList = nullsLast ?? [];
+        if (nullsLastList.Length == 0)
+        {
+            nullsLastList = new bool[count];
+        }
+        else if (nullsLastList.Length == 1 && count > 1)
+        {
+            bool val = nullsLastList[0];
+            nullsLastList = new bool[count];
+            Array.Fill(nullsLastList, val);
+        }
+
+        if (descList.Length != count)
+        {
+            throw new ArgumentException("Length of 'descending' must match length of 'by'.", nameof(descending));
+        }
+        if (nullsLastList.Length != count)
+        {
+            throw new ArgumentException("Length of 'nullsLast' must match length of 'by'.", nameof(nullsLast));
+        }
+
+        // Convert bool arrays to ReadOnlySpan<byte> (1 for true, 0 for false)
+        ReadOnlySpan<byte> descSpan = descList.Select(b => (byte)(b ? 1 : 0)).ToArray();
+        ReadOnlySpan<byte> nullsLastSpan = nullsLastList.Select(b => (byte)(b ? 1 : 0)).ToArray();
+
+        int status = NativeBindings.pl_dataframe_is_sorted(
+            handle,
+            by,
+            (nuint)by.Length,
+            descSpan,
+            (nuint)descSpan.Length,
+            nullsLastSpan,
+            (nuint)nullsLastSpan.Length,
+            out bool isSorted
+        );
+
+        ErrorHelper.CheckStatus(status);
+
+        return isSorted;
+    }
+        
     // Pivot (Eager)
     public static DataFrameHandle Pivot(
         DataFrameHandle df, 

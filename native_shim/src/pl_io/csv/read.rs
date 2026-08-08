@@ -21,7 +21,7 @@ pub extern "C" fn pl_scan_csv(
 
     // --- 2. Sizes & Threads ---
     skip_rows: usize, skip_rows_after_header: usize, skip_lines: usize,
-    n_rows_ptr: *const usize, infer_schema_len_ptr: *const usize, 
+    n_rows_ptr: *const usize, infer_schema_len_ptr: *const usize,infer_schema_files: usize, 
     n_threads_ptr: *const usize, chunk_size: usize,
 
     // --- 3. Row Index & Path ---
@@ -60,7 +60,7 @@ pub extern "C" fn pl_scan_csv(
                 reader, has_header, separator, quote_char, eol_char,
                 ignore_errors, try_parse_dates, low_memory, cache, glob, rechunk, raise_if_empty,
                 skip_rows, skip_rows_after_header, skip_lines,
-                n_rows_ptr, infer_schema_len_ptr, n_threads_ptr, chunk_size,
+                n_rows_ptr, infer_schema_len_ptr, infer_schema_files,n_threads_ptr, chunk_size,
                 row_index_name, row_index_offset, include_file_paths,
                 schema_ptr,dtype_override_ptr, encoding,
                 null_values_ptr, null_values_len, missing_is_null,
@@ -87,7 +87,7 @@ pub extern "C" fn pl_scan_csv_mem(
 
     // --- 2. Sizes & Threads ---
     skip_rows: usize, skip_rows_after_header: usize, skip_lines: usize,
-    n_rows_ptr: *const usize, infer_schema_len_ptr: *const usize, 
+    n_rows_ptr: *const usize, infer_schema_len_ptr: *const usize, infer_schema_files:usize,
     n_threads_ptr: *const usize, chunk_size: usize,
 
     // --- 3. Row Index & Path ---
@@ -113,7 +113,7 @@ pub extern "C" fn pl_scan_csv_mem(
                 reader, has_header, separator, quote_char, eol_char,
                 ignore_errors, try_parse_dates, low_memory, cache, glob, rechunk, raise_if_empty,
                 skip_rows, skip_rows_after_header, skip_lines,
-                n_rows_ptr, infer_schema_len_ptr, n_threads_ptr, chunk_size,
+                n_rows_ptr, infer_schema_len_ptr,infer_schema_files, n_threads_ptr, chunk_size,
                 row_index_name, row_index_offset, include_file_paths,
                 schema_ptr,dtype_override_ptr, encoding,
                 null_values_ptr, null_values_len, missing_is_null,

@@ -1,15 +1,13 @@
-use polars::prelude::file::Writeable;
+use polars::prelude::file::Writable;
 use polars::prelude::file_provider::HivePathProvider;
 use polars::prelude::*;
 use polars_io::cloud::CloudOptions;
-// use polars_plan::dsl::sink::{SinkedPathsCallback, SinkedPathsCallbackArgs};
 use std::ffi::{CStr};
 use std::os::raw::c_char;
 use std::sync::Mutex;
 use crate::pl_io::ffi_buffer::SharedMemoryWriter;
 use crate::types::SelectorContext;
 use crate::utils::{map_sync_on_close,ptr_to_str};
-// use crate::utils::{FreeHandleCallback, FreeStringCallback, GcHandleGuard, MapStringCallback};
 
 fn ms_to_duration(ms: u64) -> Option<std::time::Duration> {
     if ms == 0 {
@@ -80,43 +78,6 @@ pub(crate) unsafe fn build_cloud_options(
 
     Some(opts)
 }
-
-// pub(crate) fn build_sinked_paths_callback(
-//     callback: MapStringCallback,
-//     free_string_cb: FreeStringCallback,
-//     gc_handle_ptr: *mut c_void,
-//     free_handle_cb: FreeHandleCallback,
-// ) -> SinkedPathsCallback {
-//     let handle_guard = GcHandleGuard {
-//         handle_ptr: gc_handle_ptr,
-//         free_cb: free_handle_cb,
-//     };
-
-//     let inner_plan_callback = PlanCallback::Rust(SpecialEq::new(Arc::new(
-//         move |args: SinkedPathsCallbackArgs| -> PolarsResult<()> {
-//             let _keep_alive = &handle_guard;
-
-//             let paths_joined = args.path_info_list
-//                 .iter()
-//                 .map(|info| info.path.as_str())
-//                 .collect::<Vec<&str>>()
-//                 .join(";");
-
-//             let c_paths = std::ffi::CString::new(paths_joined)
-//                 .map_err(|_| PolarsError::ComputeError("Invalid UTF-8 path list".into()))?;
-
-//             let result_ptr = callback(c_paths.as_ptr());
-            
-//             if !result_ptr.is_null() {
-//                 free_string_cb(result_ptr);
-//             }
-
-//             Ok(())
-//         }
-//     )));
-
-//     SinkedPathsCallback::Callback(inner_plan_callback)
-// }
 
 #[inline]
 pub(crate) unsafe fn build_unified_sink_args(
@@ -195,7 +156,8 @@ pub(crate) unsafe fn build_partitioned_destination(
         // A. Keyed Strategy (Hive Style: key=value/...)
         let selector_ctx = unsafe {Box::from_raw(partition_by_ptr)};
         
-        let ignored = PlHashSet::new();
+        // Use PlIndexSet instead of PlHashSet for Polars 0.55+
+        let ignored = PlIndexSet::new();
         // Use schema to analyze column name
         let names_set = selector_ctx.inner.into_columns(schema, &ignored)?;
         
@@ -236,8 +198,8 @@ pub(crate) unsafe fn build_partitioned_destination(
 
 pub(crate) fn build_memory_sink_destination() -> (SharedMemoryWriter, SinkDestination) {
     let mem_writer = SharedMemoryWriter::new();
-    let writeable = Writeable::Dyn(Box::new(mem_writer.clone()));
-    let dyn_target = SpecialEq::new(Arc::new(Mutex::new(Some(writeable))));
+    let writable = Writable::Dyn(Box::new(mem_writer.clone()));
+    let dyn_target = SpecialEq::new(Arc::new(Mutex::new(Some(writable))));
     
     let target = SinkTarget::Dyn(dyn_target);
     let destination = SinkDestination::File { target };

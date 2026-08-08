@@ -154,13 +154,13 @@ pub extern "C" fn pl_config_get_resolve_metadata_level(out_level: *mut u8) -> c_
     })
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_config_get_ooc_spill_policy(out_policy: *mut u8) -> c_int {
-    ffi_try_c_int!({
-        unsafe{ *out_policy = config().ooc_spill_policy() as u8;}
-        Ok(0)
-    })
-}
+// #[unsafe(no_mangle)]
+// pub extern "C" fn pl_config_get_ooc_spill_policy(out_policy: *mut u8) -> c_int {
+//     ffi_try_c_int!({
+//         unsafe{ *out_policy = config().ooc_spill_policy() as u8;}
+//         Ok(0)
+//     })
+// }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_config_get_ooc_spill_format(out_format: *mut u8) -> c_int {

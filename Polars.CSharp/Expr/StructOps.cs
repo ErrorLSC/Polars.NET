@@ -70,6 +70,13 @@ public readonly struct StructOps
     public Expr RenameFields(params string[] names)
         => new(PolarsWrapper.StructRenameFields(_expr.CloneHandle(), names));
     /// <summary>
+    /// Drop one or more fields from the struct.
+    /// </summary>
+    /// <param name="names">Names of the fields to drop.</param>
+    /// <param name="strict">If True, raise an error if any of the specified fields do not exist in the struct.</param>
+    public Expr Drop(IEnumerable<string> names,bool strict=true)
+        => new(PolarsWrapper.StructDrop(_expr.CloneHandle(), [.. names], strict));
+    /// <summary>
     /// Convert the struct column into a JSON string column.
     /// Useful for debugging or exporting to systems that support JSON strings.
     /// </summary>

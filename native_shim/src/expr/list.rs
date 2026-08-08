@@ -202,7 +202,7 @@ pub extern "C" fn pl_expr_list_sample(
     n_or_frac_ptr: *mut ExprContext,
     is_fraction: bool,
     with_replacement: bool,
-    shuffle: bool,
+    shuffle: *const bool,
     has_seed: bool,
     seed: u64,
 ) -> *mut ExprContext {
@@ -211,15 +211,16 @@ pub extern "C" fn pl_expr_list_sample(
         let n_or_frac = unsafe { Box::from_raw(n_or_frac_ptr) };
         
         let seed_opt = if has_seed { Some(seed) } else { None };
+        let shfl = if shuffle.is_null() { None } else { Some(unsafe { *shuffle }) };
 
         let new_expr = if is_fraction {
             ctx.inner
                 .list()
-                .sample_fraction(n_or_frac.inner, with_replacement, shuffle, seed_opt)
+                .sample_fraction(n_or_frac.inner, with_replacement, shfl, seed_opt)
         } else {
             ctx.inner
                 .list()
-                .sample_n(n_or_frac.inner, with_replacement, shuffle, seed_opt)
+                .sample_n(n_or_frac.inner, with_replacement, shfl, seed_opt)
         };
 
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))

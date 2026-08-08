@@ -377,9 +377,22 @@ public readonly partial struct PolarsWrapper
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public static ExprHandle EwmSum(ExprHandle e, double alpha,bool adjust, bool bias,int minPeriods,bool ignoreNulls)
+    {
+        var h = NativeBindings.pl_expr_ewm_sum(e,alpha,adjust,bias,(UIntPtr)minPeriods,ignoreNulls);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     public static ExprHandle EwmMeanBy(ExprHandle e, ExprHandle by,string halfLife)
     {
         var h = NativeBindings.pl_expr_ewm_mean_by(e,by,halfLife);
+        e.TransferOwnership();
+        by.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle EwmSumBy(ExprHandle e, ExprHandle by,string halfLife)
+    {
+        var h = NativeBindings.pl_expr_ewm_sum_by(e,by,halfLife);
         e.TransferOwnership();
         by.TransferOwnership();
         return ErrorHelper.Check(h);
@@ -579,18 +592,22 @@ public readonly partial struct PolarsWrapper
         expr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle ExprSampleN(ExprHandle expr,ExprHandle n,bool withReplacement,bool shuffle,ulong? seed)
+    public unsafe static ExprHandle ExprSampleN(ExprHandle expr,ExprHandle n,bool withReplacement,bool? shuffle,ulong? seed)
     {
         ulong seedValue = seed ?? 0UL;
-        var h = NativeBindings.pl_expr_sample_n(expr,n,withReplacement,shuffle,seed.HasValue,seedValue);
+        bool shuffleVal = shuffle ?? false;
+        bool* shufflePtr = shuffle.HasValue ? &shuffleVal : null;
+        var h = NativeBindings.pl_expr_sample_n(expr,n,withReplacement,shufflePtr,seed.HasValue,seedValue);
         expr.TransferOwnership();
         n.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle ExprSampleFrac(ExprHandle expr,ExprHandle frac,bool withReplacement,bool shuffle,ulong? seed)
+    public unsafe static ExprHandle ExprSampleFrac(ExprHandle expr,ExprHandle frac,bool withReplacement,bool? shuffle,ulong? seed)
     {
         ulong seedValue = seed ?? 0UL;
-        var h = NativeBindings.pl_expr_sample_frac(expr,frac,withReplacement,shuffle,seed.HasValue,seedValue);
+        bool shuffleVal = shuffle ?? false;
+        bool* shufflePtr = shuffle.HasValue ? &shuffleVal : null;
+        var h = NativeBindings.pl_expr_sample_frac(expr,frac,withReplacement,shufflePtr,seed.HasValue,seedValue);
         expr.TransferOwnership();
         frac.TransferOwnership();
         return ErrorHelper.Check(h);
@@ -716,6 +733,18 @@ public readonly partial struct PolarsWrapper
         upper.TransferOwnership();
         return ErrorHelper.Check(h);
     }
+    public unsafe static ExprHandle ExprIsSorted(ExprHandle expr, bool? descending, bool? nullsLast)
+    {
+        bool descendingVal = descending ?? false;
+        bool* desPtr = descending.HasValue ? &descendingVal : null;
+
+        bool nullsLastVal = nullsLast ?? false;
+        bool* nullsPtr = nullsLast.HasValue ? &nullsLastVal : null;
+
+        var h = NativeBindings.pl_expr_is_sorted(expr,desPtr,nullsPtr);
+        expr.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
     public static ExprHandle ExprReshape(ExprHandle expr, ReadOnlySpan<long> dimensions)
     {
         var h = NativeBindings.pl_expr_reshape(expr, dimensions, (nuint)dimensions.Length);
@@ -815,22 +844,25 @@ public readonly partial struct PolarsWrapper
         listExpr.TransferOwnership();
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle ListSampleN(
+    public unsafe static ExprHandle ListSampleN(
         ExprHandle listExpr,
         ExprHandle n,
         bool withReplacement,
-        bool shuffle,
+        bool? shuffle,
         ulong? seed)
     {
         bool hasSeed = seed.HasValue;
         ulong seedValue = seed.GetValueOrDefault();
+
+        bool shuffleVal = shuffle ?? false;
+        bool* shufflePtr = shuffle.HasValue ? &shuffleVal : null;
 
         var h = NativeBindings.pl_expr_list_sample(
             listExpr,
             n,
             false, 
             withReplacement,
-            shuffle,
+            shufflePtr,
             hasSeed,
             seedValue
         );
@@ -840,22 +872,24 @@ public readonly partial struct PolarsWrapper
 
         return ErrorHelper.Check(h);
     }
-    public static ExprHandle ListSampleFraction(
+    public unsafe static ExprHandle ListSampleFraction(
         ExprHandle listExpr,
         ExprHandle fraction,
         bool withReplacement,
-        bool shuffle,
+        bool? shuffle,
         ulong? seed)
     {
         bool hasSeed = seed.HasValue;
         ulong seedValue = seed.GetValueOrDefault();
-
+        
+        bool shuffleVal = shuffle ?? false;
+        bool* shufflePtr = shuffle.HasValue ? &shuffleVal : null;
         var h = NativeBindings.pl_expr_list_sample(
             listExpr,
             fraction,
             true, 
             withReplacement,
-            shuffle,
+            shufflePtr,
             hasSeed,
             seedValue
         );
@@ -1041,6 +1075,12 @@ public readonly partial struct PolarsWrapper
     public static ExprHandle StructRenameFields(ExprHandle e, string[] names)
     {
         var h = NativeBindings.pl_expr_struct_rename_fields(e, names, (UIntPtr)names.Length);
+        e.TransferOwnership();
+        return ErrorHelper.Check(h);
+    }
+    public static ExprHandle StructDrop(ExprHandle e, string[] names,bool strict)
+    {
+        var h = NativeBindings.pl_expr_struct_drop(e, names, (nuint)names.Length,strict);
         e.TransferOwnership();
         return ErrorHelper.Check(h);
     }

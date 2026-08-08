@@ -51,6 +51,7 @@ pub(crate) unsafe fn apply_scan_csv_options(
     skip_lines: usize,
     n_rows_ptr: *const usize,
     infer_schema_len_ptr: *const usize,
+    infer_schema_files: usize,
     n_threads_ptr: *const usize,
     chunk_size: usize,
 
@@ -101,6 +102,10 @@ pub(crate) unsafe fn apply_scan_csv_options(
         reader = reader.with_chunk_size(chunk_size);
     }
 
+    if let Some(non_zero_files) = std::num::NonZeroUsize::new(infer_schema_files) {
+        reader = reader.with_infer_schema_files(non_zero_files);
+    }
+    
     if !n_rows_ptr.is_null() {
         reader = reader.with_n_rows(Some(unsafe { *n_rows_ptr }));
     }

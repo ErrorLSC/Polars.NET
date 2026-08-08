@@ -205,7 +205,21 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] bool bias,
         UIntPtr min_periods,
         [MarshalAs(UnmanagedType.U1)] bool ignore_nulls);
-    [LibraryImport(LibName,StringMarshalling=StringMarshalling.Utf8)] public static partial ExprHandle pl_expr_ewm_mean_by(
+    [LibraryImport(LibName)] public static partial ExprHandle pl_expr_ewm_sum(
+        ExprHandle expr,
+        double alpha,
+        [MarshalAs(UnmanagedType.U1)] bool adjust,
+        [MarshalAs(UnmanagedType.U1)] bool bias,
+        UIntPtr min_periods,
+        [MarshalAs(UnmanagedType.U1)] bool ignore_nulls);
+    [LibraryImport(LibName,StringMarshalling=StringMarshalling.Utf8)] 
+    public static partial ExprHandle pl_expr_ewm_mean_by(
+        ExprHandle expr,
+        ExprHandle by,
+        string half_life
+    );
+    [LibraryImport(LibName,StringMarshalling=StringMarshalling.Utf8)] 
+    public static partial ExprHandle pl_expr_ewm_sum_by(
         ExprHandle expr,
         ExprHandle by,
         string half_life
@@ -273,7 +287,7 @@ unsafe internal partial class NativeBindings
         ExprHandle e, 
         ExprHandle n,
         [MarshalAs(UnmanagedType.U1)] bool withReplacement,
-        [MarshalAs(UnmanagedType.U1)] bool shuffle,
+        bool* shuffle,
         [MarshalAs(UnmanagedType.U1)] bool hasSeed,
         ulong seed);
 
@@ -282,7 +296,7 @@ unsafe internal partial class NativeBindings
         ExprHandle e,
         ExprHandle frac,
         [MarshalAs(UnmanagedType.U1)] bool withReplacement,
-        [MarshalAs(UnmanagedType.U1)] bool shuffle,
+        bool* shuffle,
         [MarshalAs(UnmanagedType.U1)] bool hasSeed,
         ulong seed);
     [LibraryImport(LibName)]
@@ -319,6 +333,8 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_filter(ExprHandle expr, ExprHandle predicate);
     [LibraryImport(LibName)] 
     public static partial ExprHandle pl_expr_is_in(ExprHandle expr, ExprHandle other, [MarshalAs(UnmanagedType.U1)] bool nulls_equal);
+    [LibraryImport(LibName)] 
+    public static partial ExprHandle pl_expr_is_sorted(ExprHandle expr,bool* descending, bool* nulls_last);
 
     [LibraryImport(LibName)]
     public static partial ExprHandle pl_expr_alias(ExprHandle expr, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
@@ -428,7 +444,7 @@ unsafe internal partial class NativeBindings
         ExprHandle nFrac,
         [MarshalAs(UnmanagedType.U1)] bool isFraction,
         [MarshalAs(UnmanagedType.U1)] bool withReplacement,
-        [MarshalAs(UnmanagedType.U1)] bool shuffle,
+        bool* shuffle,
         [MarshalAs(UnmanagedType.U1)] bool hasSeed,
         ulong seed
     );   
@@ -578,6 +594,14 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.LPStr, SizeParamIndex = 2)] 
         string[] names, 
         UIntPtr len
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial ExprHandle pl_expr_struct_drop(
+        ExprHandle e, 
+        [MarshalAs(UnmanagedType.LPArray, ArraySubType = UnmanagedType.LPStr, SizeParamIndex = 2)] 
+        string[] names, 
+        nuint len,
+        [MarshalAs(UnmanagedType.U1)] bool strict
     );
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_struct_json_encode(ExprHandle e);
     [LibraryImport(LibName)]

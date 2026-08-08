@@ -33,6 +33,7 @@ module CsvRead =
             ?skipLines: uint64,
             ?nRows: uint64,
             ?inferSchemaLength: uint64,
+            ?inferSchemaFiles: uint64,
             ?nThreads: uint64,
             ?chunkSize: uint64,
             ?rowIndexName: string,
@@ -65,6 +66,7 @@ module CsvRead =
             let pSkipL = defaultArg skipLines 0UL
             let pNRows = Option.toNullable nRows
             let pInferLen = inferSchemaLength |> Option.toNullable
+            let pInferFiles = defaultArg inferSchemaFiles 18446744073709551615UL
             let pNTh = Option.toNullable nThreads
             let pChunkSz = Option.toNullable chunkSize
             let pRowIdxName = Option.toObj rowIndexName
@@ -100,6 +102,7 @@ module CsvRead =
                 pSkipL,
                 pNRows,
                 pInferLen,
+                pInferFiles,
                 pNTh,
                 pChunkSz,
                 pRowIdxName,
@@ -142,6 +145,7 @@ module CsvRead =
             ?skipLines: uint64,
             ?nRows: uint64,
             ?inferSchemaLength: uint64,
+            ?inferSchemaFiles: uint64,
             ?nThreads: uint64,
             ?chunkSize: uint64,
             ?rowIndexName: string,
@@ -173,6 +177,7 @@ module CsvRead =
             let pSkipL = defaultArg skipLines 0UL
             let pNRows = Option.toNullable nRows
             let pInferLen = inferSchemaLength |> Option.toNullable
+            let pInferFiles = defaultArg inferSchemaFiles 18446744073709551615UL
             let pNTh = Option.toNullable nThreads
             let pChunkSz = Option.toNullable chunkSize
             let pRowIdxName = Option.toObj rowIndexName
@@ -205,6 +210,7 @@ module CsvRead =
                 pSkipL,
                 pNRows,
                 pInferLen,
+                pInferFiles,
                 pNTh,
                 pChunkSz,
                 pRowIdxName,
@@ -248,6 +254,7 @@ module CsvRead =
             ?skipLines: uint64,
             ?nRows: uint64,
             ?inferSchemaLength: uint64,
+            ?inferSchemaFiles: uint64,
             ?nThreads: uint64,
             ?chunkSize: uint64,
             ?rowIndexName: string,
@@ -261,8 +268,8 @@ module CsvRead =
             ?truncateRaggedLines: bool
         ) : LazyFrame =
             
-            use ms = new System.IO.MemoryStream()
-            stream.CopyTo(ms)
+            use ms = new MemoryStream()
+            stream.CopyTo ms
             let bytes = ms.ToArray()
 
             LazyFrame.ScanCsv(
@@ -284,6 +291,7 @@ module CsvRead =
                 ?skipLines = skipLines,
                 ?nRows = nRows,
                 ?inferSchemaLength = inferSchemaLength,
+                ?inferSchemaFiles = inferSchemaFiles,
                 ?nThreads = nThreads,
                 ?chunkSize = chunkSize,
                 ?rowIndexName = rowIndexName,
@@ -319,6 +327,7 @@ module CsvRead =
             ?skipRows: uint64,
             ?nRows: uint64,
             ?inferSchemaLength: uint64,
+            ?inferSchemaFiles: uint64,
             ?schema: PolarsSchema,
             ?dtypeOverride:PolarsSchema,
             ?encoding: CsvEncoding,
@@ -346,6 +355,7 @@ module CsvRead =
                 ?skipRows = skipRows,
                 ?nRows = nRows,
                 ?inferSchemaLength = inferSchemaLength,
+                ?inferSchemaFiles = inferSchemaFiles,
                 ?rowIndexName = rowIndexName,
                 ?rowIndexOffset = rowIndexOffset,
                 ?encoding = encoding,
@@ -387,6 +397,7 @@ module CsvRead =
             ?skipRows: uint64,
             ?nRows: uint64,
             ?inferSchemaLength: uint64,
+            ?inferSchemaFiles: uint64,
             ?schema: PolarsSchema,
             ?dtypeOverride:PolarsSchema,
             ?encoding: CsvEncoding,
@@ -413,6 +424,7 @@ module CsvRead =
                 ?skipRows = skipRows,
                 ?nRows = nRows,
                 ?inferSchemaLength = inferSchemaLength,
+                ?inferSchemaFiles = inferSchemaFiles,
                 ?rowIndexName = rowIndexName,
                 ?rowIndexOffset = rowIndexOffset,
                 ?encoding = encoding,
@@ -453,6 +465,7 @@ module CsvRead =
             ?skipRows: uint64,
             ?nRows: uint64,
             ?inferSchemaLength: uint64,
+            ?inferSchemaFiles: uint64,
             ?schema: PolarsSchema,
             ?encoding: CsvEncoding,
             ?nullValues: seq<string>,
@@ -481,6 +494,7 @@ module CsvRead =
                 ?skipRows = skipRows,
                 ?nRows = nRows,
                 ?inferSchemaLength = inferSchemaLength,
+                ?inferSchemaFiles=inferSchemaFiles,
                 ?schema = schema,
                 ?encoding = encoding,
                 ?nullValues = nullValues,
@@ -508,6 +522,7 @@ module CsvRead =
                 ?skipRows: uint64,
                 ?nRows: uint64,
                 ?inferSchemaLength: uint64,
+                ?inferSchemaFiles: uint64,
                 ?schema: PolarsSchema,
                 ?encoding: CsvEncoding,
                 ?nullValues: seq<string>,
@@ -534,6 +549,7 @@ module CsvRead =
                     ?skipRows = skipRows,
                     ?nRows = nRows,
                     ?inferSchemaLength = inferSchemaLength,
+                    ?inferSchemaFiles = inferSchemaFiles,
                     ?encoding = encoding,
                     ?nullValues = nullValues,
                     ?missingIsNull = missingIsNull,

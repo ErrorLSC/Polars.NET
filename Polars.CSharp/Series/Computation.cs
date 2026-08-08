@@ -177,6 +177,10 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <returns>A new <see cref="Series"/> with the EWM variance.</returns>
     public Series EwmVar(double alpha, bool adjust = true, bool bias = true, int minPeriods = 1, bool ignoreNulls = false)
         => ApplyExpr(Pl.Col(Name).EwmVar(alpha, adjust, bias, minPeriods, ignoreNulls));
+    /// <inheritdoc cref="Expr.EwmSum(double, bool, bool, int, bool)"/>
+    /// <returns>A new <see cref="Series"/> with the EWM sum.</returns>
+    public Series EwmSum(double alpha, bool adjust = true, bool bias = true, int minPeriods = 1, bool ignoreNulls = false)
+        => ApplyExpr(Pl.Col(Name).EwmSum(alpha, adjust, bias, minPeriods, ignoreNulls));
     
     // -------------------------------------------------------------------------
     // EWM By (Time/Index based)
@@ -186,6 +190,10 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <returns>A new <see cref="Series"/> with the time/index-based EWM mean.</returns>
     public Series EwmMeanBy(Expr by, string halfLife)
         => ApplyExpr(Pl.Col(Name).EwmMeanBy(by, halfLife));
+    /// <inheritdoc cref="Expr.EwmSumBy(Expr, string)"/>
+    /// <returns>A new <see cref="Series"/> with the time/index-based EWM sum.</returns>
+    public Series EwmSumBy(Expr by, string halfLife)
+        => ApplyExpr(Pl.Col(Name).EwmSumBy(by, halfLife));
     // -------------------------------------------------------------------------
     // BitWise
     // -------------------------------------------------------------------------

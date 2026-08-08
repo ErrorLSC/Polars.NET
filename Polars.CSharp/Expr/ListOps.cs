@@ -115,8 +115,8 @@ public readonly struct ListOps
     }
     /// <inheritdoc cref="SeriesListOps.SampleN(IntoExprColumn, bool, bool, ulong?)"/>
     public Expr SampleN(bool withReplacement=false,bool shuffle=false,ulong? seed=null) => SampleN(1,withReplacement,shuffle,seed);
-    /// <inheritdoc cref="SeriesListOps.SampleFrac(IntoExprColumn, bool, bool, ulong?)"/>
-    public Expr SampleFrac(IntoExprColumn fraction,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
+    /// <inheritdoc cref="SeriesListOps.SampleFrac(IntoExprColumn, bool, bool?, ulong?)"/>
+    public Expr SampleFrac(IntoExprColumn fraction,bool withReplacement=false,bool? shuffle=null,ulong? seed=null)
         => new(PolarsWrapper.ListSampleFraction(_expr.CloneHandle(),fraction.Consume().Handle,withReplacement,shuffle,seed));
     /// <inheritdoc cref="SeriesListOps.SetUnion"/>
     public Expr SetUnion(IntoExprColumn other) => new(PolarsWrapper.ListSetUnion(_expr.CloneHandle(),other.Consume().Handle));

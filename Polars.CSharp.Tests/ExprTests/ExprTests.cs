@@ -3699,4 +3699,39 @@ TooShort,1990-05-20,1.60";
         var cleaned = res[0].ToArray<int>();
         Assert.Equal([4, 2, 2, 5], cleaned);
     }
+    [Fact]
+    [Trait("Expr", "IsSorted")]
+    public void Test_Expr_IsSorted()
+    {
+        using DataFrame df = [
+            Series.From("asc_nums", [1, 2, 3, 4]),
+            Series.From("desc_nums", [5, 4, 3, 2]),
+            Series.From("unsorted_nums", [1, 3, 2, 5]),
+            Series.From("nulls_first", [(int?)null, 1, 2, 3]),
+            Series.From("nulls_last", [1, 2, 3, (int?)null]),
+        ];
+        // Basic ascending & descending checks
+        using DataFrame resBasic = df.Select(
+            Pl.Col("asc_nums").IsSorted().Alias("asc_is_asc"),
+            Pl.Col("asc_nums").IsSorted(descending: true).Alias("asc_is_desc"),
+            Pl.Col("desc_nums").IsSorted(descending: true).Alias("desc_is_desc"),
+            Pl.Col("unsorted_nums").IsSorted().Alias("unsorted_is_asc")
+        );
+
+        Assert.True(resBasic["asc_is_asc"].GetValue<bool>(0));
+        Assert.False(resBasic["asc_is_desc"].GetValue<bool>(0));
+        Assert.True(resBasic["desc_is_desc"].GetValue<bool>(0));
+        Assert.False(resBasic["unsorted_is_asc"].GetValue<bool>(0));
+
+        // Nulls placement checks (nulls_first vs nulls_last)
+        using DataFrame resNulls = df.Select(
+            Pl.Col("nulls_first").IsSorted(descending: false, nullsLast: false).Alias("null_first_is_sorted"),
+            Pl.Col("nulls_first").IsSorted(descending: false, nullsLast: true).Alias("null_first_as_null_last"),
+            Pl.Col("nulls_last").IsSorted(descending: false, nullsLast: true).Alias("null_last_is_sorted")
+        );
+
+        Assert.True(resNulls["null_first_is_sorted"].GetValue<bool>(0));
+        Assert.False(resNulls["null_first_as_null_last"].GetValue<bool>(0));
+        Assert.True(resNulls["null_last_is_sorted"].GetValue<bool>(0));
+    }
 }   

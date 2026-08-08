@@ -227,11 +227,11 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <param name="withReplacement">Allow values to be sampled more than once.</param>
     /// <param name="shuffle">Shuffle the order of sampled data points.</param>
     /// <param name="seed">Seed for the random number generator. If set to None (default), a random seed is generated for each sample operation.</param>
-    public Expr Sample(ulong n=1,bool withReplacement=false,bool shuffle=false,ulong? seed=null) 
+    public Expr Sample(ulong n=1,bool withReplacement=false,bool? shuffle=null,ulong? seed=null) 
         => new(PolarsWrapper.ExprSampleN(CloneHandle(),Pl.Lit(n).Handle,withReplacement,shuffle,seed));
-    /// <inheritdoc cref="Expr.Sample(ulong, bool, bool, ulong?)"/>
+    /// <inheritdoc cref="Expr.Sample(ulong, bool, bool?, ulong?)"/>
     /// <param name="fraction">Fraction of items to return.</param>
-    public Expr Sample(double fraction,bool withReplacement=false,bool shuffle=false,ulong? seed=null) 
+    public Expr Sample(double fraction,bool withReplacement=false,bool? shuffle=null,ulong? seed=null) 
         => new(PolarsWrapper.ExprSampleFrac(CloneHandle(),Pl.Lit(fraction).Handle,withReplacement,shuffle,seed));
 
     // ==========================================
