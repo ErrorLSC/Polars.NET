@@ -238,8 +238,8 @@ type ``Complex Query Tests`` () =
             df.Unpivot(
                 index = ["year"], 
                 on = ["Q1"; "Q2"], 
-                variableName = Some "quarter", 
-                valueName = Some "revenue"
+                variableName = "quarter", 
+                valueName = "revenue"
             ).Sort [pl.col "year";pl.col "quarter"] 
 
         Assert.Equal(4L, longDf.Height)
@@ -398,7 +398,7 @@ type ``Complex Query Tests`` () =
                 // 1.1: 10
                 // 1.2: (10+20)/2 = 15
                 // 1.3: (20+30)/2 = 25
-                (pl.col "price").RollingMean(Dur.String "2i").Alias "ma_2"
+                (pl.col "price").RollingMean(Dur.Index 2).Alias "ma_2"
             )
             |> pl.collect
 
@@ -422,7 +422,7 @@ type ``Complex Query Tests`` () =
                 // 10:30: [09:30, 10:30) -> 10 + 20 = 30
                 // 12:00: [11:00, 12:00) -> 30
                 (pl.col "val")
-                    .RollingSumBy(Dur.String "1h", pl.col "time", closed= ClosedWindow.Right) // closed="left" means [ )
+                    .RollingSumBy(Dur.TimeSpan (TimeSpan(1,0,0)), pl.col "time", closed= ClosedWindow.Right) // closed="left" means [ )
                     .Alias "sum_1h"
             )
             |> pl.collect

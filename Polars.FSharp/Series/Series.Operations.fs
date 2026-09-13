@@ -11,8 +11,8 @@ module SeriesOperationExtensions =
         /// <param name="offset">Start index.</param>
         /// <param name="length">Length of the slice.</param>
         member this.Slice(offset: int64, ?length: uint64) : Series =
-            let absoluteOffset = 
-                if offset < 0L then this.Length + offset 
+            let absoluteOffset =
+                if offset < 0L then this.Length + offset
                 else offset
 
             if absoluteOffset < 0L || absoluteOffset >= this.Length then
@@ -29,7 +29,7 @@ module SeriesOperationExtensions =
         member this.GetSlice(start: int64 option, finish: int64 option) : Series =
             let offset = defaultArg start 0L
 
-            let length = 
+            let length =
                 match finish with
                 | None -> None
                 | Some endIdx ->
@@ -37,7 +37,7 @@ module SeriesOperationExtensions =
                     // Polars/C# slices expect total elements count (length)
                     let resolvedEnd = if endIdx < 0L then this.Length + endIdx else endIdx
                     let resolvedStart = if offset < 0L then this.Length + offset else offset
-                    
+
                     if resolvedEnd < resolvedStart then Some 0UL
                     else Some (uint64 (resolvedEnd - resolvedStart + 1L))
             this.Slice(offset, ?length = length)
@@ -46,7 +46,7 @@ module SeriesOperationExtensions =
         /// The resulting series will consist of multiple chunks.
         /// </summary>
         /// <param name="other">Series to append.</param>
-        member this.Append(other:Series) = 
+        member this.Append(other:Series) =
             PolarsWrapper.SeriesAppend(this.Handle,other.Handle)
         /// <summary>
         /// Extend the memory backed by this Series with the values from another.
@@ -54,12 +54,12 @@ module SeriesOperationExtensions =
         /// If this does not cause a reallocation, the resulting data structure will not have any extra chunks and thus will yield faster queries.
         /// </summary>
         /// <param name="other">Series to extend the series with.</param>
-        member this.Extend(other:Series) = 
+        member this.Extend(other:Series) =
             PolarsWrapper.SeriesExtend(this.Handle,other.Handle)
             this
         member this.ExtendConstant(value,n) = this.ApplyExpr(Expr.Col(this.Name).ExtendConstant(value,n))
         member this.Reverse() = this.ApplyExpr(Expr.Col(this.Name).Reverse())
-        member this.Clip(?lowerBound: Expr, ?upperBound: Expr) = 
+        member this.Clip(?lowerBound: Expr, ?upperBound: Expr) =
             this.ApplyExpr(Expr.Col(this.Name).Clip(?lowerBound=lowerBound,?upperBound=upperBound))
         /// <summary>
         /// Cast to physical representation of the logical dtype.
@@ -78,13 +78,13 @@ module SeriesOperationExtensions =
         /// </summary>
         /// <param name="n"></param>
         member this.Clear(?n: uint32) : Series =
-            if this.IsEmpty() then 
+            if this.IsEmpty() then
                 this.Clone()
             else
                 match defaultArg n 0u with
-                | 0u -> 
+                | 0u ->
                     new Series(PolarsWrapper.SeriesClear(this.Handle))
-                | count -> 
+                | count ->
                     let cleared = new Series(PolarsWrapper.SeriesClear(this.Handle))
                     cleared.ExtendConstant(Expr.LitNull(),new Expr(PolarsWrapper.Lit count))
         /// <summary>
@@ -120,7 +120,7 @@ module SeriesOperationExtensions =
         /// <param name="mask">Boolean Series.</param>
         /// <param name="other">Series of same type.</param>
         /// <returns>Series</returns>
-        member this.ZipWith(mask:Series,other:Series) = 
+        member this.ZipWith(mask:Series,other:Series) =
             new Series(PolarsWrapper.SeriesZipWith(this.Handle,mask.Handle,other.Handle))
         /// <summary>
         /// Get dummy/indicator variables.
@@ -132,7 +132,7 @@ module SeriesOperationExtensions =
             let sep = defaultArg separator "_"
             let drp = defaultArg dropFirst false
             let drn = defaultArg dropNulls false
-            new DataFrame(PolarsWrapper.SeriesToDummies(this.Handle,sep,drp,drn)) 
+            new DataFrame(PolarsWrapper.SeriesToDummies(this.Handle,sep,drp,drn))
         /// <summary>
         /// Create a new Series filled with values from the given index.
         /// </summary>
@@ -143,25 +143,25 @@ module SeriesOperationExtensions =
             let ensureInt64 (s: Series) =
                 if s.DataType.IsInteger && s.DataType <> DataType.Int64 then
                     s.Cast<int64>()
-                else 
+                else
                     s
 
             match unit with
-            | EpochTimeUnit.Day -> 
+            | EpochTimeUnit.Day ->
                 this.Cast DataType.Date
 
-            | EpochTimeUnit.Second -> 
+            | EpochTimeUnit.Second ->
                 let s64 = ensureInt64 this
                 (s64 * 1_000_000L).Cast(DataType.Datetime TimeUnit.Microseconds)
 
-            | EpochTimeUnit.Milliseconds -> 
+            | EpochTimeUnit.Milliseconds ->
                 let s64 = ensureInt64 this
                 (s64 * 1_000L).Cast(DataType.Datetime TimeUnit.Microseconds)
 
-            | EpochTimeUnit.Microseconds -> 
+            | EpochTimeUnit.Microseconds ->
                 this.Cast(DataType.Datetime TimeUnit.Microseconds)
 
-            | EpochTimeUnit.Nanoseconds -> 
+            | EpochTimeUnit.Nanoseconds ->
                 this.Cast(DataType.Datetime TimeUnit.Nanoseconds)
 
         // ==========================================
@@ -193,7 +193,7 @@ module SeriesOperationExtensions =
         /// <summary>
         /// LINQ-like alias for Gather.
         /// </summary>
-        member this.Take(indices: Expr) = 
+        member this.Take(indices: Expr) =
             this.ApplyExpr(Expr.Col(this.Name).Take indices)
         /// <summary>
         /// Take elements by physical integer indices.
@@ -209,7 +209,7 @@ module SeriesOperationExtensions =
                 | :? ArgumentOutOfRangeException -> reraise() // Pass through if Core already raised it
                 | ex when ex.Message.Contains("OutOfBounds") || ex.Message.Contains("out of bounds") ->
                     raise (ArgumentOutOfRangeException(
-                        nameof indices, 
+                        nameof indices,
                         "Index out of bounds. Please ensure no negative indices are used and all values are within the Series length."))
         /// <summary>
         /// Take every nth value starting from an offset.
@@ -240,24 +240,24 @@ module SeriesOperationExtensions =
         // --- 1. Fill with Scalar (ApplyExpr) ---
 
         /// <summary> Fill null values with a literal integer. </summary>
-        member this.FillNull(fillValue: int) = 
+        member this.FillNull(fillValue: int) =
             this.ApplyExpr(Expr.Col(this.Name).FillNull(new Expr(PolarsWrapper.Lit fillValue)))
         /// <summary> Fill null values with a literal double. </summary>
-        member this.FillNull(fillValue: double) = 
+        member this.FillNull(fillValue: double) =
             this.ApplyExpr(Expr.Col(this.Name).FillNull(new Expr(PolarsWrapper.Lit fillValue)))
         /// <summary> Fill null values with a literal string. </summary>
-        member this.FillNull(fillValue: string) = 
+        member this.FillNull(fillValue: string) =
             this.ApplyExpr(Expr.Col(this.Name).FillNull(new Expr(PolarsWrapper.Lit fillValue)))
         /// <summary>
         /// Interpolate intermediate values. The interpolation method can be configured.
         /// <para>Nulls at the beginning and end of the series remain null.</para>
         /// </summary>
         /// <param name="method">Interpolation method (Linear or Nearest).</param>
-        member this.Interpolate(?method:InterpolationMethod) = 
+        member this.Interpolate(?method:InterpolationMethod) =
             this.ApplyExpr(Expr.Col(this.Name).Interpolate(?method=method))
-        member this.InterpolateBy(by:Series) = 
+        member this.InterpolateBy(by:Series) =
             this.ApplyBinaryExpr(by, fun l r -> l.InterpolateBy r)
-        member this.InterpolateBy(by:Expr) = 
+        member this.InterpolateBy(by:Expr) =
             this.ApplyExpr(Expr.Col(this.Name).InterpolateBy(by))
         /// <summary> Fill floating point NaN values with a literal value. </summary>
         member this.FillNan(fillValue: double) =
@@ -277,9 +277,9 @@ module SeriesOperationExtensions =
         /// </summary>
         member this.FillNan(fillValue: Series) =
             this.ApplyBinaryExpr(fillValue, fun l r -> l.FillNan r)
-        
+
         // --- 3. Fill with Expr (Advanced) ---
-        
+
         /// <summary>
         /// Fill nulls using an expression (mostly for internal use or complex literals).
         /// </summary>
@@ -303,7 +303,7 @@ module SeriesOperationExtensions =
         /// <summary>
         /// Check if values are between lower and upper bounds.
         /// </summary>
-        member this.IsBetween(lower:Expr, upper:Expr) = 
+        member this.IsBetween(lower:Expr, upper:Expr) =
             this.ApplyExpr(Expr.Col(this.Name).IsBetween(lower,upper))
 
         /// <summary>
@@ -313,18 +313,51 @@ module SeriesOperationExtensions =
         /// </summary>
         /// <param name="predicate">Boolean expression used to filter the current expression.</param>
         /// <returns>A new series with filtered values.</returns>
-        member this.Filter(predicate:Expr) = 
+        member this.Filter(predicate:Expr) =
             this.ApplyExpr(Expr.Col(this.Name).Filter predicate)
-        member this.Filter(predicate:Series) = 
+        /// <summary>
+        /// Filter a series using a boolean series.
+        /// </summary>
+        /// <param name="predicate">Boolean series used to filter the current series.</param>
+        /// <returns>A new series with filtered values.</returns>
+        member this.Filter(predicate:Series) =
             this.Filter(new Expr(PolarsWrapper.Lit predicate.Handle))
+        /// <summary>
+        /// Run length encoding of the series.
+        /// </summary>
+        /// <returns></returns>
         member this.Rle() = this.ApplyExpr(Expr.Col(this.Name).Rle())
+        /// <summary>
+        /// Run length encoding of the series.
+        /// </summary>
+        /// <returns></returns>
         member this.RleId() = this.ApplyExpr(Expr.Col(this.Name).RleId())
+        /// <summary>
+        /// Peak maximum value of the series.
+        /// </summary>
+        /// <returns></returns>
         member this.PeakMax() = this.ApplyExpr(Expr.Col(this.Name).PeakMax())
+        /// <summary>
+        /// Peak minimum value of the series.
+        /// </summary>
+        /// <returns></returns>
         member this.PeakMin() = this.ApplyExpr(Expr.Col(this.Name).PeakMin())
+        /// <summary>
+        /// Cut the series into bins based on the given breaks.
+        /// </summary>
+        /// <returns></returns>
         member this.Cut(breaks: seq<double>, ?labels: seq<string>, ?leftClosed: bool, ?includeBreaks: bool) =
             this.ApplyExpr(Expr.Col(this.Name).Cut(breaks,?labels=labels,?leftClosed=leftClosed,?includeBreaks=includeBreaks))
+        /// <summary>
+        /// Quantile cut the series into bins based on the given quantiles.
+        /// </summary>
+        /// <returns></returns>
         member this.QCut(quantiles: seq<double>, ?labels: seq<string>, ?leftClosed: bool,?allowDuplicates:bool, ?includeBreaks: bool) =
             this.ApplyExpr(Expr.Col(this.Name).QCut(quantiles,?labels=labels,?leftClosed=leftClosed,?allowDuplicates=allowDuplicates,?includeBreaks=includeBreaks))
+        /// <summary>
+        /// Quantile cut the series into bins based on the given quantiles.
+        /// </summary>
+        /// <returns></returns>
         member this.QCut(quantiles: int, ?labels: seq<string>, ?leftClosed: bool, ?allowDuplicates: bool, ?includeBreaks: bool) =
             this.ApplyExpr(Expr.Col(this.Name).QCut(quantiles,?labels=labels,?leftClosed=leftClosed,?allowDuplicates=allowDuplicates,?includeBreaks=includeBreaks))
         // ==========================================
@@ -347,7 +380,7 @@ module SeriesOperationExtensions =
         /// <param name="func">The compiled UDF.</param>
         member this.Map(func: Func<IArrowArray, IArrowArray>) =
             this.Map(func, DataType.SameAsInput)
-            
+
         // ==========================================
         // Optional: High-Level F# Overloads (Sugar)
         // ==========================================
@@ -378,19 +411,19 @@ module SeriesOperationExtensions =
         // ==========================================
 
         /// <summary> True division (float result). </summary>
-        member this.Truediv(other: Series) = 
+        member this.Truediv(other: Series) =
             this.ApplyBinaryExpr(other, fun l r -> l.Truediv r)
-        
+
         /// <summary> True division (scalar). </summary>
-        member this.Truediv(other: double) = 
+        member this.Truediv(other: double) =
             this.ApplyExpr(Expr.Col(this.Name).Truediv(new Expr(PolarsWrapper.Lit other)))
 
         /// <summary> Floor division (integer result). </summary>
-        member this.FloorDiv(other: Series) = 
+        member this.FloorDiv(other: Series) =
             this.ApplyBinaryExpr(other, fun l r -> l.FloorDiv(r))
 
         /// <summary> Floor division (scalar). </summary>
-        member this.FloorDiv(other: int) = 
+        member this.FloorDiv(other: int) =
             this.ApplyExpr(Expr.Col(this.Name).FloorDiv(new Expr(PolarsWrapper.Lit other)))
         // ==========================================
         // Shift, Diff & Fill
@@ -399,11 +432,11 @@ module SeriesOperationExtensions =
         /// <summary>
         /// Shift the values by a given period.
         /// </summary>
-        member this.Shift(n: int64) = 
+        member this.Shift(n: int64) =
             this.ApplyExpr(Expr.Col(this.Name).Shift n)
 
         member this.Shift(n: int) = this.Shift(int64 n)
-        
+
         /// <summary> Shift by 1. </summary>
         member this.Shift() = this.Shift(1L)
         /// <summary>
@@ -419,7 +452,7 @@ module SeriesOperationExtensions =
         /// <param name="limit">Max number of consecutive nulls to fill.</param>
         member this.BackwardFill(?limit: int) =
             this.ApplyExpr(Expr.Col(this.Name).BackwardFill(?limit=limit))
-    
+
         // ==========================================
         // TopK / BottomK
         // ==========================================
@@ -427,13 +460,13 @@ module SeriesOperationExtensions =
         /// Get the k largest elements.
         /// Result is sorted descending.
         /// </summary>
-        member this.TopK(k: int) = 
+        member this.TopK(k: int) =
             this.ApplyExpr(Expr.Col(this.Name).TopK k)
         /// <summary>
         /// Get the k smallest elements.
         /// Result is sorted ascending.
         /// </summary>
-        member this.BottomK(k: int) = 
+        member this.BottomK(k: int) =
             this.ApplyExpr(Expr.Col(this.Name).BottomK k)
 
         /// <summary>
@@ -469,40 +502,40 @@ module SeriesOperationExtensions =
 
 
         // --- Scalar Access ---
-        
+
         /// <summary> Get value as Int64 Option. Handles Int32/Int64 etc. </summary>
-        member this.Int(index: int) : int64 option = 
+        member this.Int(index: int) : int64 option =
             PolarsWrapper.SeriesGetInt(this.Handle, int64 index) |> Option.ofNullable
 
-        member this.Int128(index: int) : Int128 option = 
+        member this.Int128(index: int) : Int128 option =
             PolarsWrapper.SeriesGetInt128(this.Handle, int64 index) |> Option.ofNullable
 
         /// <summary> Get value as Double Option. Handles Float32/Float64. </summary>
-        member this.Float(index: int) : float option = 
+        member this.Float(index: int) : float option =
             PolarsWrapper.SeriesGetDouble(this.Handle, int64 index) |> Option.ofNullable
 
         /// <summary> Get value as String Option. </summary>
-        member this.String(index: int) : string option = 
+        member this.String(index: int) : string option =
             PolarsWrapper.SeriesGetString(this.Handle, int64 index) |> Option.ofObj
 
         /// <summary> Get value as Boolean Option. </summary>
-        member this.Bool(index: int) : bool option = 
+        member this.Bool(index: int) : bool option =
             PolarsWrapper.SeriesGetBool(this.Handle, int64 index) |> Option.ofNullable
 
         /// <summary> Get value as Decimal Option. </summary>
-        member this.Decimal(index: int) : decimal option = 
+        member this.Decimal(index: int) : decimal option =
             PolarsWrapper.SeriesGetDecimal(this.Handle, int64 index) |> Option.ofNullable
 
         // Temporal Type
-        member this.Date(index: int) : DateOnly option = 
+        member this.Date(index: int) : DateOnly option =
             PolarsWrapper.SeriesGetDate(this.Handle, int64 index) |> Option.ofNullable
 
-        member this.Time(index: int) : TimeOnly option = 
+        member this.Time(index: int) : TimeOnly option =
             PolarsWrapper.SeriesGetTime(this.Handle, int64 index) |> Option.ofNullable
-        member this.DateTime(index: int) : DateTime option = 
+        member this.DateTime(index: int) : DateTime option =
             let result = PolarsWrapper.SeriesGetDatetime(this.Handle, int64 index)
             if result.HasValue then
-                let struct (dt, _) = result.Value 
+                let struct (dt, _) = result.Value
                 Some dt
             else
                 None
@@ -510,11 +543,14 @@ module SeriesOperationExtensions =
         /// Gets the Datetime value and its TimeZone string at the specified index.
         /// Returns None if the value is null.
         /// </summary>
-        member this.DateTimeWithZone(index: int) : struct (DateTime * string) option = 
+        member this.DateTimeWithZone(index: int) : struct (DateTime * string) option =
             PolarsWrapper.SeriesGetDatetime(this.Handle, int64 index)
             |> Option.ofNullable
-
-        member this.Duration(index: int) : TimeSpan option = 
+        /// <summary>
+        /// Gets the Duration value at the specified index.
+        /// Returns None if the value is null.
+        /// </summary>
+        member this.Duration(index: int) : TimeSpan option =
             PolarsWrapper.SeriesGetDuration(this.Handle, int64 index) |> Option.ofNullable
         // ==========================================
         // Statistical Ops
@@ -528,13 +564,13 @@ module SeriesOperationExtensions =
         member this.Quantile(q: float, ?interpolation: QuantileMethod) =
             this.ApplyExpr(Expr.Col(this.Name).Quantile(q, ?interpolation=interpolation))
         /// <summary>
-        /// Computes percentage change between values. 
-        /// Percentage change (as fraction) between current element and most-recent non-null element at least n period(s) before the current element. 
+        /// Computes percentage change between values.
+        /// Percentage change (as fraction) between current element and most-recent non-null element at least n period(s) before the current element.
         /// Computes the change from the previous row by default.
         /// </summary>
         /// <param name="n">Periods to shift for forming percent change.Default:1</param>
         /// <returns>A new <see cref="Series"/> containing the Var (length 1).</returns>
-        member this.PctChange(?n: int) = 
+        member this.PctChange(?n: int) =
             let nd = defaultArg n 1
             this.ApplyExpr(Expr.Col(this.Name).PctChange nd)
         /// <summary>
@@ -546,7 +582,5 @@ module SeriesOperationExtensions =
         /// <param name="descending">Rank in descending order.</param>
         /// <param name="seed">If method="random", use this as seed.</param>
         /// <returns></returns>
-        member this.Rank(?method: RankMethod, ?descending: bool, ?seed: uint64) = 
+        member this.Rank(?method: RankMethod, ?descending: bool, ?seed: uint64) =
             this.ApplyExpr(Expr.Col(this.Name).Rank(?method=method, ?descending=descending, ?seed=seed))
-
-

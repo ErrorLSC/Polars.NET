@@ -39,15 +39,15 @@ type FSharpThen (conditions: Expr list, statements: Expr list) =
     /// </summary>
     member this.otherwise(statement: Expr) =
         if box statement = null then raise (ArgumentNullException(nameof(statement)))
-        
+
         // Unroll branches in reverse order to correctly nest the Ternary Expression tree
         let mutable currentExpr = statement
         let condArr = List.toArray conditions
         let stmtArr = List.toArray statements
-        
+
         for i = condArr.Length - 1 downto 0 do
             currentExpr <- Expr.Ternary(condArr.[i], stmtArr.[i], currentExpr)
-            
+
         currentExpr
 
 /// <summary>
@@ -65,7 +65,7 @@ and FSharpChainedWhen (parent: FSharpThen, condition: Expr) =
 /// </summary>
 module pl =
 
-    /// <summary>   
+    /// <summary>
     /// Create an expression representing a column with the given name.
     /// </summary>
     /// <param name="name">The name of the column.</param>
@@ -93,7 +93,7 @@ module pl =
     /// Alias for an element being evaluated in an eval or filter expression.
     /// </summary>
     let element = col ""
-    
+
     /// <summary>
     /// Create a literal expression from a value.
     /// </summary>
@@ -102,7 +102,7 @@ module pl =
     /// df.Filter(pl.col("Age") .> pl.lit(18))
     /// </code>
     /// </example>
-    let inline lit (value: ^T) : Expr = 
+    let inline lit (value: ^T) : Expr =
         ((^T or LitMechanism) : (static member ($) : LitMechanism * ^T -> Expr) (LitMechanism, value))
     /// <summary>
     /// Create a literal expression for null value.
@@ -111,8 +111,8 @@ module pl =
     /// <summary>
     /// Create a literal expression from a Series.
     /// </summary>
-    let litSeries (series: Series) = 
-        let h = PolarsWrapper.CloneSeries series.Handle 
+    let litSeries (series: Series) =
+        let h = PolarsWrapper.CloneSeries series.Handle
         new Expr(PolarsWrapper.Lit h)
     // -------------------------------------------------------------------------
     // Struct Literals
@@ -231,12 +231,12 @@ module pl =
     /// </summary>
     let count(names:seq<string>) =
         cols(names).Count()
-   /// <summary>
+    /// <summary>
     /// Cumulatively sum all values.
     /// Syntactic sugar for Col(names).CumSum().
     /// </summary>
     /// <param name="columns">Name(s) of the columns to use in the aggregation.</param>
-    let cumSum(names:seq<string>) =  
+    let cumSum(names:seq<string>) =
         cols(names).CumSum()
     /// <summary>
     /// Return the cumulative count of the non-null values in the column.This function is syntactic sugar for Col(column).CumCount().
@@ -268,7 +268,7 @@ module pl =
     /// </summary>
     /// <returns>A new expression representing the first value.</returns>
     let firstValue(columns:seq<string>) =
-        cols(columns).First 
+        cols(columns).First
     /// <summary>
     /// Get the last column.
     /// </summary>
@@ -279,7 +279,7 @@ module pl =
     /// </summary>
     /// <returns>A new expression representing the first value.</returns>
     let lastValue(columns:seq<string>) =
-        cols(columns).Last 
+        cols(columns).Last
     /// <summary>
     /// Get the standard deviation.
     /// This function is syntactic sugar for pl.col(column).Std(ddof).
@@ -333,7 +333,7 @@ module pl =
     /// <param name="windowSize">The length of the window.</param>
     /// <param name="minSamples">The number of values in the window that should be non-null before computing a result. If None, it will be set equal to window size.</param>
     let rollingCorr(a:Expr)(b:Expr)(windowSize:uint)(minSamples:uint option) =
-        let min = 
+        let min =
             match minSamples with
             | Some m -> m
             | None -> windowSize
@@ -348,7 +348,7 @@ module pl =
     /// <param name="minSamples">The number of values in the window that should be non-null before computing a result. If None, it will be set equal to window size.</param>
     /// <param name="ddof">Delta degrees of freedom. The divisor used in calculations is N - ddof, where N represents the number of elements.</param>
     let rollingCov(a:Expr)(b:Expr)(windowSize:uint)(minSamples:uint option)(ddof:byte) =
-        let min = 
+        let min =
             match minSamples with
             | Some m -> m
             | None -> windowSize
@@ -372,7 +372,7 @@ module pl =
     /// <param name="condition">Boolean expression/Series to evaluate</param>
     let argWhere(condition:Expr) =
         new Expr(PolarsWrapper.ArgWhere(condition.CloneHandle()))
-    let argWhereAsSeries(condition:Expr) = 
+    let argWhereAsSeries(condition:Expr) =
         Series.ofExpr(argWhere condition)
     // --- Range ---
     /// <summary>
@@ -453,9 +453,22 @@ module pl =
             | Some tz -> tz
             | None -> null
         new Expr(PolarsWrapper.DatetimeRange(st,ed,ine,null,closed.ToNative(),unit.ToNative(),tz))
+    /// <summary>
+    /// Converts a datetime range expression to a Series with the specified name.
+    /// </summary>
+    /// <param name="name">Name of the resulting Series.</param>
+    /// <param name="start">Start datetime of the range.</param>
+    /// <param name="endRange">End datetime of the range.</param>
+    /// <param name="interval">Interval between datetime values.</param>
+    /// <param name="closed">Closed window of the range.</param>
+    /// <param name="unit">Time unit of the resulting Datetime data type.</param>
+    /// <param name="timeZone">Time zone of the resulting Datetime data type.</param>
     let datetimeRangeAsSeries(name:string)(start:DateTime)(endRange:DateTime)(interval:Dur)(closed:ClosedWindow)(unit:TimeUnit)(timeZone:string option) =
         let expr = datetimeRange start endRange interval closed unit timeZone
         Series.ofExpr(expr).Rename(name)
+    /// <summary>
+    /// Creates a datetime range expression from the specified start, end, interval, closed window, unit, and time zone.
+    /// </summary>
     let datetimeRanges(start:DateTime)(endRange:DateTime)(interval:Dur)(closed:ClosedWindow)(unit:TimeUnit)(timeZone:string option) =
         let st = (lit start).Handle
         let ed = (lit endRange).Handle
@@ -465,6 +478,9 @@ module pl =
             | Some tz -> tz
             | None -> null
         new Expr(PolarsWrapper.DatetimeRanges(st,ed,ine,null,closed.ToNative(),unit.ToNative(),tz))
+    /// <summary>
+    /// Converts a datetime range expression to a Series with the specified name.
+    /// </summary>
     let datetimeRangesAsSeries(name:string)(start:DateTime)(endRange:DateTime)(interval:Dur)(closed:ClosedWindow)(unit:TimeUnit)(timeZone:string option) =
         let expr = datetimeRanges start endRange interval closed unit timeZone
         Series.ofExpr(expr).Rename(name)
@@ -480,14 +496,37 @@ module pl =
         let ed = (lit endRange).Handle
         let ine = Dur.consume interval
         new Expr(PolarsWrapper.TimeRange(st,ed,ine,closed.ToNative()))
+    /// <summary>
+    /// Converts a time range expression to a Series with the specified name.
+    /// </summary>
+    /// <param name="name">Name of the resulting Series.</param>
+    /// <param name="start">Start time of the range.</param>
+    /// <param name="endRange">End time of the range.</param>
+    /// <param name="interval">Interval between time values.</param>
+    /// <param name="closed">Closed window of the range.</param>
     let timeRangeAsSeries(name:string)(start:TimeOnly)(endRange:TimeOnly)(interval:Dur)(closed:ClosedWindow) =
         let expr = timeRange start endRange interval closed
         Series.ofExpr(expr).Rename(name)
+    /// <summary>
+    /// Creates a time range expression from the specified start, end, interval, and closed window.
+    /// </summary>
+    /// <param name="start">Start time of the range.</param>
+    /// <param name="endRange">End time of the range.</param>
+    /// <param name="interval">Interval between time values.</param>
+    /// <param name="closed">Closed window of the range.</param>
     let timeRanges(start:TimeOnly)(endRange:TimeOnly)(interval:Dur)(closed:ClosedWindow) =
         let st = (lit start).Handle
         let ed = (lit endRange).Handle
         let ine = Dur.consume interval
         new Expr(PolarsWrapper.TimeRanges(st,ed,ine,closed.ToNative()))
+    /// <summary>
+    /// Converts a time range expression to a Series with the specified name.
+    /// </summary>
+    /// <param name="name">Name of the resulting Series.</param>
+    /// <param name="start">Start time of the range.</param>
+    /// <param name="endRange">End time of the range.</param>
+    /// <param name="interval">Interval between time values.</param>
+    /// <param name="closed">Closed window of the range.</param>
     let timeRangesAsSeries(name:string)(start:TimeOnly)(endRange:TimeOnly)(interval:Dur)(closed:ClosedWindow) =
         let expr = timeRanges start endRange interval closed
         Series.ofExpr(expr).Rename(name)
@@ -503,6 +542,14 @@ module pl =
         let en = endRange.CloneHandle()
         let nu = (lit numSamples).Handle
         new Expr(PolarsWrapper.LinearSpace(st,en,nu,closed.ToNative()))
+    /// <summary>
+    /// Converts a linear space expression to a Series with the specified name.
+    /// </summary>
+    /// <param name="name">Name of the resulting Series.</param>
+    /// <param name="start">Lower bound of the linear space.</param>
+    /// <param name="endRange">Upper bound of the linear space.</param>
+    /// <param name="numSamples">Number of samples to generate.</param>
+    /// <param name="closed">Whether the intervals are closed or open.</param>
     let linearSpaceAsSeries(name:string)(start:Expr)(endRange:Expr)(numSamples:int)(closed:ClosedWindow) =
         let expr = linearSpace start endRange numSamples closed
         Series.ofExpr(expr).Rename(name)
@@ -519,31 +566,53 @@ module pl =
         let en = endRange.CloneHandle()
         let nu = (lit numSamples).Handle
         new Expr(PolarsWrapper.LinearSpaces(st,en,nu,closed.ToNative(),asArray))
+    /// <summary>
+    /// Converts a linear spaces expression to a Series with the specified name.
+    /// </summary>
+    /// <param name="name">Name of the resulting Series.</param>
+    /// <param name="start">Lower bound.</param>
+    /// <param name="endRange">Upper bound.</param>
+    /// <param name="numSamples">Number of samples.</param>
+    /// <param name="closed">Whether the intervals are closed or open.</param>
+    /// <param name="asArray">If true, returns an Array dtype instead of List. Requires numSamples to be a constant.</param>
     let linearSpacesAsSeries(name:string)(start:Expr)(endRange:Expr)(numSamples:int)(closed:ClosedWindow)(asArray:bool) =
         let expr = linearSpaces start endRange numSamples closed asArray
         Series.ofExpr(expr).Rename(name)
     // --- Expr Helpers ---
     /// <summary> Cast an expression to a different data type. </summary>
     let cast (dtype: DataType) (e: Expr) = e.Cast dtype
+    /// <summary> Cast an expression to a .NET data type. </summary>
     let castWithNetType<'T> (e: Expr) = e.Cast<'T>()
+    /// <summary> Create a Series from a sequence of values. </summary>
     let series<'T>(name:string)(data:seq<'T>) =
         Series.create(name,data)
+    /// <summary> Create a DataFrame from a sequence of Series. </summary>
     let dataframe(series:seq<Series>) = DataFrame.create(series)
     /// <summary> Boolean data type. </summary>
     let boolean = DataType.Boolean
+    /// <summary> 8-bit Integer data type. </summary>
     let int8 = DataType.Int8
+    /// <summary> 8-bit Unsigned Integer data type. </summary>
     let uint8 = DataType.UInt8
+    /// <summary> 16-bit Integer data type. </summary>
     let int16 = DataType.Int16
+    /// <summary> 16-bit Unsigned Integer data type. </summary>
     let uint16 = DataType.UInt16
     /// <summary> 32-bit Integer data type. </summary>
     let int32 = DataType.Int32
+    /// <summary> 32-bit Unsigned Integer data type. </summary>
     let uint32 = DataType.UInt32
+    /// <summary> 64-bit Unsigned Integer data type. </summary>
     let uint64 = DataType.UInt64
     /// <summary> 64-bit Integer data type. </summary>
     let int64 = DataType.Int64
+    /// <summary> 128-bit Integer data type. </summary>
     let int128 = DataType.Int128
+    /// <summary> Decimal data type. </summary>
     let decimal precision scale = DataType.Decimal(precision,scale)
+    /// <summary> 16-bit Floating point data type. </summary>
     let float16 = DataType.Float16
+    /// <summary> 32-bit Floating point data type. </summary>
     let float32 = DataType.Float32
     /// <summary> 64-bit Floating point data type. </summary>
     let float64 = DataType.Float64
@@ -554,14 +623,17 @@ module pl =
     /// <summary> Date data type (no time). </summary>
     let date = DataType.Date
     /// <summary> Datetime data type. </summary>
-    let datetime(unit:TimeUnit)(timeZone:string option) = 
-        DataType.Datetime(unit,?tz=timeZone) 
+    let datetime(unit:TimeUnit)(timeZone:string option) =
+        DataType.Datetime(unit,?tz=timeZone)
     /// <summary> Duration (TimeSpan) data type. </summary>
     let duration(unit:TimeUnit) = DataType.Duration unit
     /// <summary> Time data type (no date). </summary>
     let time = DataType.Time
+    /// <summary> List data type. </summary>
     let list(inner:DataType) = DataType.List inner
+    /// <summary> Array data type.(Also known as fixed length list) </summary>
     let array(inner:DataType)(shape:uint[]) = DataType.Array(inner,shape)
+    /// <summary> Struct data type. </summary>
     let structType(fields:seq<Field>) = DataType.Struct(fields)
     /// <summary>
     /// Create an Extension data type
@@ -588,7 +660,7 @@ module pl =
     /// Unregister the extension type for the given extension name.
     /// </summary>
     /// <param name="extName">The registered name.</param>
-    let unregisterExtensionType(extName:string) = 
+    let unregisterExtensionType(extName:string) =
         ExtensionRegistry.Unregister extName
     /// <summary>
     /// Get the extension type registration info for the given extension name.
@@ -596,15 +668,49 @@ module pl =
     /// <param name="extName">The registered name.</param>
     let tryGetExtensionType (extName: string) : ExtensionRegistration option =
         ExtensionRegistry.TryResolve extName
+    /// <summary>
+    /// Create a Struct Field with the given name and data type.
+    /// </summary>
+    /// <param name="name">The field name.</param>
+    /// <param name="dtype">The data type.</param>
     let field(name:string)(dtype:DataType) = {Field.Name=name;Field.DataType=dtype}
+    /// <summary>
+    /// Create a Categories object with the given name, name space, and physical type.
+    /// </summary>
+    /// <param name="name">The category name.</param>
+    /// <param name="nameSpace">The category name space.</param>
+    /// <param name="physical">The physical type.</param>
     let categories(name:string option)(nameSpace:string option)(physical:CategoricalPhysical option) =
         new Categories(?name=name,?nameSpace=nameSpace,?physical=physical)
+    /// <summary>
+    /// Create a Categorical data type with the given categories.
+    /// </summary>
+    /// <param name="categories">The categories.</param>
     let categorical(categories:Categories option) = DataType.Categorical(?categories=categories)
+    /// <summary>
+    /// Create an Enum data type with the given categories.
+    /// </summary>
+    /// <param name="categories">The categories.</param>
     let enumType(categories:Categories) = DataType.Enum(categories.Freeze())
+    /// <summary>
+    /// Create a Null data type.
+    /// </summary>
     let nullType = DataType.Null
+    /// <summary>
+    /// Create an Unknown data type.(Same as SameAsInputType)
+    /// </summary>
     let unknownType = DataType.Unknown
+    /// <summary>
+    /// Create a SameAsInputType data type.
+    /// </summary>
     let sameAsInputType = unknownType
+    /// <summary>
+    /// Create a schema from a sequence of fields.
+    /// </summary>
     let schema(fields:seq<Field>) = new PolarsSchema(fields)
+    /// <summary>
+    /// Create an empty schema.
+    /// </summary>
     let emptySchema = new PolarsSchema()
     /// <summary>
     /// Gets the DataType of an expression.
@@ -622,9 +728,9 @@ module pl =
     /// <param name="exprs">Expressions to evaluate. Strings, Literals, Series are automatically converted.</param>
     /// <returns>A new expression.</returns>
     let coalesce(exprs:seq<#IColumnExpr>) =
-        let exprHandles = 
+        let exprHandles =
             exprs
-            |> Seq.collect (fun x -> x.ToExprs()) 
+            |> Seq.collect (fun x -> x.ToExprs())
             |> Seq.map (fun e -> e.CloneHandle())
             |> Seq.toArray
 
@@ -662,7 +768,7 @@ module pl =
             | Some ho -> litSeries ho
             | None -> Series.create("__Date__",[||]).Cast<DateOnly>().Implode() |> litSeries
         new Expr(PolarsWrapper.DtBusinessDayCount(st,ed,wm,dateExpr.Handle))
-        
+
     /// <summary> Create a Polars Expr from a SQL string. </summary>
     /// <param name="sql">The SQL expression string.</param>
     /// <returns>A Polars Expr representing the SQL logic.</returns>
@@ -675,7 +781,7 @@ module pl =
     /// <summary> Alias an expression with a new name. </summary>
     let alias (name: string) (expr: Expr) = expr.Alias name
     /// <summary> Collect LazyFrame into DataFrame (Eager execution). </summary>
-    let collect (lf: LazyFrame) : DataFrame = 
+    let collect (lf: LazyFrame) : DataFrame =
         lf.Collect()
     let collectWithEngine (engine:Engine) (lf:LazyFrame) = lf.Collect(engine)
     /// <summary>
@@ -685,10 +791,10 @@ module pl =
         let lfs = frames |> Seq.toArray
         if lfs.Length = 0 then
             [||]
-        else 
+        else
             let handles = frames |> Seq.map (fun l -> l.Handle) |> Seq.toArray
             let dfhandles = PolarsWrapper.LazyCollectAll(handles,engine.ToNative())
-            dfhandles |> Array.map (fun e-> new DataFrame(e)) 
+            dfhandles |> Array.map (fun e-> new DataFrame(e))
     /// <summary>
     /// Collect multiple LazyFrames concurrently and asynchronously.
     /// </summary>
@@ -698,7 +804,7 @@ module pl =
             if lfs.Length = 0 then return [||]
             else
                 let handles = lfs |> Array.map (fun lf -> lf.Handle)
-                let! dfHandles = 
+                let! dfHandles =
                     PolarsWrapper.LazyCollectAllAsync(handles, engine.ToNative())
                     |> Async.AwaitTask
                 return dfHandles |> Array.map (fun h -> new DataFrame(h))
@@ -781,21 +887,27 @@ module pl =
                     aligned)
 
             alignedFrames
+    /// <summary>
+    /// Align a sequence of DataFrames on a common schema.
+    /// </summary>
     let alignDataFrames
         (on: seq<Expr>)
         (how: JoinType)
         (select: seq<Expr> option)
-        (descending: bool) 
+        (descending: bool)
         (frames: seq<DataFrame>) =
-        frames 
-        |> Seq.map (fun df -> df.Lazy()) 
-        |> alignLazyFrames on how select descending 
+        frames
+        |> Seq.map (fun df -> df.Lazy())
+        |> alignLazyFrames on how select descending
         |> collectAll Engine.Auto
+    /// <summary>
+    /// Align a sequence of DataFrames on a common schema asynchronously.
+    /// </summary>
     let alignDataFramesAsync
         (on: seq<Expr>)
         (how: JoinType)
         (select: seq<Expr> option)
-        (descending: bool) 
+        (descending: bool)
         (frames: seq<DataFrame>) =
         frames
         |> Seq.map (fun df -> df.Lazy())
@@ -809,8 +921,8 @@ module pl =
     /// <returns>Explained plan.</returns>
     let explainAll(lazyFrames:seq<LazyFrame>) =
         PolarsWrapper.LazyExplainAll(
-            lazyFrames 
-            |> Seq.map (fun e->e.CloneHandle()) 
+            lazyFrames
+            |> Seq.map (fun e->e.CloneHandle())
             |> Seq.toArray
         )
     /// <summary>
@@ -851,7 +963,7 @@ module pl =
     /// Get the nth column(s) of the context.
     /// </summary>
     /// <param name="indices">One or more indices representing the columns to retrieve.</param>
-    let nth (indices:seq<int64>)= 
+    let nth (indices:seq<int64>)=
         let indSpan = ReadOnlySpan<int64> (indices |> Seq.toArray)
         Selector.ByIndex(indSpan,false)
     /// <summary>
@@ -868,7 +980,7 @@ module pl =
     /// </summary>
     /// <param name="value">Value to repeat.</param>
     /// <param name="n">Length of the resulting column.</param>
-    /// <param name="dtype">Data type of the resulting column. If set to None (default), data type is inferred from the given value. 
+    /// <param name="dtype">Data type of the resulting column. If set to None (default), data type is inferred from the given value.
     /// Defaults to Int32 for integer values, unless Int64 is required to fit the given value. Defaults to Float64 for float values.</param>
     let repeat(value:Expr)(n:int)(dtype:DataType option) =
         let va = value.CloneHandle()
@@ -932,7 +1044,7 @@ module pl =
 
     /// <summary> Filter rows based on a boolean expression. </summary>
     let filter (expr: IColumnExpr) (df: DataFrame) : DataFrame =
-        df.Filter (expr.ToExprs().[0]) 
+        df.Filter (expr.ToExprs().[0])
     /// <summary> Select columns from the DataFrame. </summary>
     let select (exprs: seq<#IColumnExpr>) (df: DataFrame) : DataFrame =
         df.Select exprs
@@ -980,9 +1092,9 @@ module pl =
     /// Supports Selectors (e.g. pl.concatList([pl.cs.numeric()])).
     /// </summary>
     let concatList (columns: seq<#IColumnExpr>) =
-        let exprHandles = 
+        let exprHandles =
             columns
-            |> Seq.collect (fun x -> x.ToExprs()) 
+            |> Seq.collect (fun x -> x.ToExprs())
             |> Seq.map (fun e -> e.CloneHandle())
             |> Seq.toArray
 
@@ -991,9 +1103,9 @@ module pl =
     /// Combine multiple expressions horizontally into an array element.
     /// </summary>
     let concatArray (columns: seq<#IColumnExpr>) =
-        let exprHandles = 
+        let exprHandles =
             columns
-            |> Seq.collect (fun x -> x.ToExprs()) 
+            |> Seq.collect (fun x -> x.ToExprs())
             |> Seq.map (fun e -> e.CloneHandle())
             |> Seq.toArray
 
@@ -1008,7 +1120,7 @@ module pl =
     let concatString (exprs: seq<#IColumnExpr>)(separator:string)(ignoreNulls:bool) =
         let handles =
             exprs
-            |> Seq.collect (fun x -> x.ToExprs()) 
+            |> Seq.collect (fun x -> x.ToExprs())
             |> Seq.map (fun e -> e.CloneHandle())
             |> Seq.toArray
         new Expr(PolarsWrapper.ConcatString(handles,separator,ignoreNulls))
@@ -1018,7 +1130,7 @@ module pl =
     let concatExpr(exprs:seq<#IColumnExpr>)(rechunk:bool) =
         let handles =
             exprs
-            |> Seq.collect (fun x -> x.ToExprs()) 
+            |> Seq.collect (fun x -> x.ToExprs())
             |> Seq.map (fun e -> e.CloneHandle())
             |> Seq.toArray
         new Expr(PolarsWrapper.ConcatExprs(handles,rechunk))
@@ -1028,19 +1140,19 @@ module pl =
     let format (format:string)(exprs:seq<#IColumnExpr>) =
         let handles =
             exprs
-            |> Seq.collect (fun x -> x.ToExprs()) 
+            |> Seq.collect (fun x -> x.ToExprs())
             |> Seq.map (fun e -> e.CloneHandle())
             |> Seq.toArray
         new Expr(PolarsWrapper.FormatString(format,handles))
     /// <summary> Get the first n rows of the DataFrame. </summary>
     let head (n: int) (df: DataFrame) : DataFrame =
         df.Head n
-    let headLazy(n:int) (lf:LazyFrame) = 
+    let headLazy(n:int) (lf:LazyFrame) =
         lf.Head(uint n)
     /// <summary> Get the last n rows of the DataFrame. </summary>
     let tail (n: int) (df: DataFrame) : DataFrame =
         df.Tail n
-    let tailLazy(n:int) (lf:LazyFrame) = 
+    let tailLazy(n:int) (lf:LazyFrame) =
         lf.Tail(uint n)
     /// <summary> Explode list-like columns into multiple rows. </summary>
     let explode (columns: seq<string>) (df: DataFrame) : DataFrame =
@@ -1112,7 +1224,7 @@ module pl =
     let inline arcsin (e: Expr) = e.ArcSin()
     let inline arccos (e: Expr) = e.ArcCos()
     let inline arctan (e: Expr) = e.ArcTan()
-    
+
     // Hyperbolic
     let inline sinh (e: Expr) = e.Sinh()
     let inline cosh (e: Expr) = e.Cosh()
@@ -1125,7 +1237,7 @@ module pl =
     /// Returns the angle (in radians) in the plane between the positive x-axis and the ray from the origin to (x,y).
     /// </summary>
     let arctan2(y:Expr) (x:Expr) = new Expr(PolarsWrapper.ArcTan2(y.CloneHandle(),x.CloneHandle()))
-    
+
     // --- Lazy API ---
     let asLazy(df:DataFrame) = df.Lazy()
     /// <summary> Explain the LazyFrame execution plan. </summary>
@@ -1138,7 +1250,7 @@ module pl =
     let filterLazy (expr: Expr) (lf: LazyFrame) : LazyFrame =
         lf.Filter expr
     /// <summary> Select columns from LazyFrame. </summary>
-    let selectLazy (exprs: seq<Expr>) (lf: LazyFrame) : LazyFrame =
+    let selectLazy (exprs: seq<#IColumnExpr>) (lf: LazyFrame) : LazyFrame =
         lf.Select exprs
     /// <summary> Sort (Order By) the LazyFrame. </summary>
     let sortAscendingLazy (exprs: seq<Expr>)(lf: LazyFrame) : LazyFrame =
@@ -1171,36 +1283,39 @@ module pl =
     let over (partitionBy: Expr seq) (e: Expr) = e.Over partitionBy
     /// <summary> Create a SQL context for executing SQL queries on LazyFrames. </summary>
     let sqlContext () = new SqlContext()
+    /// <summary>
+    /// Create an if-else expression.
+    /// </summary>
     let ifElse (predicate: Expr) (ifTrue: Expr) (ifFalse: Expr) : Expr =
         let p = predicate.CloneHandle()
         let t = ifTrue.CloneHandle()
         let f = ifFalse.CloneHandle()
-        
+
         new Expr(PolarsWrapper.IfElse(p, t, f))
 
 
     // --- Async Execution ---
 
-    /// <summary> 
-    /// Asynchronously execute the LazyFrame query plan. 
+    /// <summary>
+    /// Asynchronously execute the LazyFrame query plan.
     /// Useful for keeping UI responsive during heavy calculations.
     /// </summary>
     let collectAsync (lf: LazyFrame) : Async<DataFrame> =
         async {
             let lfClone = lf.CloneHandle()
-            
-            let! dfHandle = 
-                Task.Run(fun () -> PolarsWrapper.LazyCollect(lfClone,PlEngine.Auto,true)) 
+
+            let! dfHandle =
+                Task.Run(fun () -> PolarsWrapper.LazyCollect(lfClone,PlEngine.Auto,true))
                 |> Async.AwaitTask
-                
+
             return new DataFrame(dfHandle)
         }
     /// --- Config ---
-    let setEnvVar (key:string) (value:string) = 
+    let setEnvVar (key:string) (value:string) =
         Config.set key value
-    let threadPoolSize() = 
-        CoreConfig.ThreadPoolSize 
-        |> Option.ofNullable 
+    let threadPoolSize() =
+        CoreConfig.ThreadPoolSize
+        |> Option.ofNullable
         |> Option.map int
         |> Option.defaultWith (fun () -> Environment.ProcessorCount)
     /// <summary> Accumulate over multiple columns horizontally/row-wise. </summary>
@@ -1269,13 +1384,13 @@ module pl =
         /// </summary>
         let inline byIndex(indices:ReadOnlySpan<int64>) = new Selector(PolarsWrapper.SelectorByIndex(indices, false))
         /// <summary>
-        /// Select columns by their index. 
+        /// Select columns by their index.
         /// Usage: cs.byIndex(0L, 2L, 4L)
         /// </summary>
         let inline byIndexStrict(indices:ReadOnlySpan<int64>) = new Selector(PolarsWrapper.SelectorByIndex(indices, true))
-        
+
         /// <summary> Select all columns. </summary>
-        let inline all () = 
+        let inline all () =
             new Selector(PolarsWrapper.SelectorAll())
         /// <summary>
         /// Select all columns EXCEPT the specified Selectors.
@@ -1286,14 +1401,14 @@ module pl =
         /// Select all columns EXCEPT the specified Data Types.
         /// </summary>
         let excludeDataType(dtypes:seq<DataType>) = all().Exclude dtypes
-        
+
         /// <summary> Select columns by DataType. </summary>
-        let inline byType (dt: DataType) = 
+        let inline byType (dt: DataType) =
             let code = dt.Code
             let kind = enum<PlDataType> code
-            
+
             new Selector(PolarsWrapper.SelectorByDtype kind)
-        /// <summary> 
+        /// <summary>
         /// Select columns by Generic Type.
         /// Usage: pl.cs.byType<int option>() or pl.cs.byType<DateTime>()
         /// </summary>
@@ -1302,19 +1417,19 @@ module pl =
             byType dtype
 
         /// <summary> Select columns starting with a pattern. </summary>
-        let inline startsWith (pattern: string) = 
+        let inline startsWith (pattern: string) =
             new Selector(PolarsWrapper.SelectorStartsWith pattern)
-        
+
         /// <summary> Select columns ending with a pattern. </summary>
-        let inline endsWith (pattern: string) = 
+        let inline endsWith (pattern: string) =
             new Selector(PolarsWrapper.SelectorEndsWith pattern)
-        
+
         /// <summary> Select columns containing a pattern. </summary>
-        let inline contains (pattern: string) = 
+        let inline contains (pattern: string) =
             new Selector(PolarsWrapper.SelectorContains pattern)
-        
+
         /// <summary> Select columns matching a regex pattern. </summary>
-        let inline matches (regex: string) = 
+        let inline matches (regex: string) =
             new Selector(PolarsWrapper.SelectorMatch regex)
 
         /// <summary>
@@ -1327,34 +1442,46 @@ module pl =
         /// </summary>
         let last() = byIndex ([|-1L|].AsSpan())
         /// <summary> Select numeric columns (Int, Float, Decimal). </summary>
-        let inline numeric() = 
+        let inline numeric() =
             new Selector(PolarsWrapper.SelectorNumeric())
         /// <summary> Select string columns.</summary>
-        let inline string() = byType DataType.String 
-
+        let inline string() = byType DataType.String
+        /// <summary> Select date columns.</summary>
         let inline date() = new Selector(PolarsWrapper.SelectorByDtype(PlDataType.Date));
+        /// <summary> Select boolean columns.</summary>
         let inline boolean() = new Selector(PolarsWrapper.SelectorByDtype(PlDataType.Boolean));
+        /// <summary> Select binary columns.</summary>
         let inline binary() = byType DataType.Binary
+        /// <summary> Select empty columns.</summary>
         let inline empty() = new Selector(PolarsWrapper.SelectorEmpty());
+        /// <summary> Select integer columns.</summary>
         let inline integer() = new Selector(PolarsWrapper.SelectorInteger());
+        /// <summary> Select unsigned integer columns.</summary>
         let inline unsignedInteger() = new Selector(PolarsWrapper.SelectorUnsignedInteger());
+        /// <summary> Select signed integer columns.</summary>
         let inline signedInteger() = new Selector(PolarsWrapper.SelectorSignedInteger());
+        /// <summary> Select float columns.</summary>
         let inline float() = Selector.Float();
+        /// <summary> Select decimal columns.</summary>
         let inline decimal() = new Selector(PolarsWrapper.SelectorDecimal());
+        /// <summary> Select enum columns.</summary>
         let inline enum() = new Selector(PolarsWrapper.SelectorEnum());
+        /// <summary> Select nested columns.</summary>
         let inline nested() = new Selector(PolarsWrapper.SelectorNested());
+        /// <summary> Select struct columns.</summary>
         let inline structType() = new Selector(PolarsWrapper.SelectorStruct());
+        /// <summary> Select temporal columns.</summary>
         let inline temporal() = new Selector(PolarsWrapper.SelectorTemporal());
         /// <summary>
         /// Select list columns. Optionally filter by the inner data type.
         /// Example: pl.cs.list(Some(pl.cs.numeric()))
         /// </summary>
         let list (inner: Selector option) =
-            let innerHandle = 
+            let innerHandle =
                 match inner with
                 | Some s -> s.CloneHandle()
                 | None -> null
-                
+
             new Selector(PolarsWrapper.SelectorList innerHandle)
         /// <summary>
         /// Select all list columns.
@@ -1367,7 +1494,7 @@ module pl =
 
         let private datetimeInternal (timeUnit: TimeUnit option) (tzString: string option) =
             let tu = getNativeTimeUnit timeUnit
-            let tz = 
+            let tz =
                 match tzString with
                 | Some t -> t
                 | None -> null
@@ -1377,7 +1504,7 @@ module pl =
         /// Example: pl.cs.array (Some(pl.cs.numeric())) (Some 3L)
         /// </summary>
         let array (inner: Selector option) (width: int64 option) =
-            let innerHandle = 
+            let innerHandle =
                 match inner with
                 | Some s -> s.CloneHandle()
                 | None -> null
@@ -1411,7 +1538,7 @@ module pl =
         let datetimeExact (timeZone: string) (timeUnit: TimeUnit) =
             if System.String.IsNullOrEmpty timeZone then
                 invalidArg "timeZone" "timeZone cannot be null or empty"
-                
+
             datetimeInternal (Some timeUnit) (Some timeZone)
         /// <summary>
         /// Select all duration columns. Optionally match a specific TimeUnit.
@@ -1424,7 +1551,7 @@ module pl =
         let alpha (asciiOnly: bool) (ignoreSpaces: bool ) =
             let mutable charClass = if asciiOnly then "a-zA-Z" else @"\p{L}"
             if ignoreSpaces then charClass <- charClass + " "
-            
+
             matches (sprintf "^[%s]+$" charClass)
 
         /// <summary>
@@ -1452,12 +1579,12 @@ module pl =
             if opts.IgnoreSpaces then charClass.Add " "
 
             let pattern = sprintf "^[%s]+$" (String.concat "" charClass)
-            matches pattern 
+            matches pattern
         /// <summary>
         /// Select all columns with alphanumeric names.
         /// </summary>
         let alphanumeric (asciiOnly: bool ) (ignoreSpaces: bool) =
-            
+
             let mutable charClass = if asciiOnly then "a-zA-Z0-9" else @"\p{L}\p{N}"
             if ignoreSpaces then charClass <- charClass + " "
 
@@ -1477,9 +1604,18 @@ module pl =
 
 [<AutoOpen>]
 module PolarsAutoOpen =
+    /// <summary>
+    /// Select a column by name.
+    /// </summary>
     let inline col name = pl.col name
+    /// <summary>
+    /// Create a literal value expression.
+    /// </summary>
     let inline lit value = pl.lit value
-    let inline alias column = pl.alias column    
+    /// <summary>
+    /// Create an alias expression.
+    /// </summary>
+    let inline alias column = pl.alias column
     /// <summary>
     /// Upcast operator: Converts Expr or Selector to IColumnExpr interface.
     /// Helps mixing types in a list.

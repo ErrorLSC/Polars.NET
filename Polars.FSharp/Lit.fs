@@ -61,3 +61,6 @@ type LitMechanism = LitMechanism with
     static member ($) (LitMechanism, v: int option list)    = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
     static member ($) (LitMechanism, v: float option list)  = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
     static member ($) (LitMechanism, v: string option list) = new Expr(PolarsWrapper.Lit(Series.create("", v).Handle))
+
+    // --- Series ---
+    // static member ($) (LitMechanism, v: Series) = new Expr(PolarsWrapper.Lit (PolarsWrapper.CloneSeries v.Handle ))

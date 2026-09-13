@@ -7,6 +7,7 @@ open Polars.NET.Core
 type Dur =
     | String of string
     | TimeSpan of TimeSpan
+    | Index of int
 
 [<RequireQualifiedAccess>]
 module Dur =
@@ -19,6 +20,8 @@ module Dur =
             s
         | Dur.TimeSpan ts ->
             ts.ToPolarsDuration()
+        | Dur.Index i ->
+            sprintf $"{i}i"
 
 type [<Struct>] DtOps(handle: ExprHandle) =
     /// <summary>
@@ -112,7 +115,7 @@ type [<Struct>] DtOps(handle: ExprHandle) =
     /// </summary>
     /// <param name="fractional">Whether to include the fractional component of the day.</param>
     /// <returns>Expression/Series of data type Int64 or Float64 if fractional is set.</returns>
-    member _.TotalDays(?fractional) = 
+    member _.TotalDays ?fractional = 
         let frac = defaultArg fractional false
         new Expr(PolarsWrapper.DtTotalDays(handle,frac))
     /// <summary>
@@ -120,7 +123,7 @@ type [<Struct>] DtOps(handle: ExprHandle) =
     /// </summary>
     /// <param name="fractional">Whether to include the fractional component of the hour.</param>
     /// <returns>Expression/Series of data type Int64 or Float64 if fractional is set.</returns>  
-    member _.TotalHours(?fractional) = 
+    member _.TotalHours ?fractional = 
         let frac = defaultArg fractional false
         new Expr(PolarsWrapper.DtTotalHours(handle,frac))
     /// <summary>
@@ -128,7 +131,7 @@ type [<Struct>] DtOps(handle: ExprHandle) =
     /// </summary>
     /// <param name="fractional">Whether to include the fractional component of the minute.</param>
     /// <returns>Expression/Series of data type Int64 or Float64 if fractional is set.</returns>    
-    member _.TotalMinutes(?fractional) = 
+    member _.TotalMinutes ?fractional = 
         let frac = defaultArg fractional false
         new Expr(PolarsWrapper.DtTotalMinutes(handle,frac))
     /// <summary>
@@ -136,7 +139,7 @@ type [<Struct>] DtOps(handle: ExprHandle) =
     /// </summary>
     /// <param name="fractional">Whether to include the fractional component of the second.</param>
     /// <returns>Expression/Series of data type Int64 or Float64 if fractional is set.</returns> 
-    member _.TotalSeconds(?fractional) = 
+    member _.TotalSeconds ?fractional = 
         let frac = defaultArg fractional false
         new Expr(PolarsWrapper.DtTotalSeconds(handle,frac))
     /// <summary>
@@ -144,7 +147,7 @@ type [<Struct>] DtOps(handle: ExprHandle) =
     /// </summary>
     /// <param name="fractional">Whether to include the fractional component of the millisecond.</param>
     /// <returns>Expression/Series of data type Int64 or Float64 if fractional is set.</returns>   
-    member _.TotalMilliseconds(?fractional) = 
+    member _.TotalMilliseconds ?fractional = 
         let frac = defaultArg fractional false
         new Expr(PolarsWrapper.DtTotalMilliseconds(handle,frac))
     /// <summary>
@@ -152,7 +155,7 @@ type [<Struct>] DtOps(handle: ExprHandle) =
     /// </summary>
     /// <param name="fractional">Whether to include the fractional component of the microsecond.</param>
     /// <returns>Expression/Series of data type Int64 or Float64 if fractional is set.</returns>  
-    member _.TotalMicroseconds(?fractional) = 
+    member _.TotalMicroseconds ?fractional = 
         let frac = defaultArg fractional false
         new Expr(PolarsWrapper.DtTotalMicroseconds(handle,frac))
     /// <summary>
@@ -160,7 +163,7 @@ type [<Struct>] DtOps(handle: ExprHandle) =
     /// </summary>
     /// <param name="fractional">Whether to include return the result as a Float64. Because the smallest TimeUnit is 'ns', the fractional component will always be zero.</param>
     /// <returns>Expression/Series of data type Int64 or Float64 if fractional is set.</returns>   
-    member _.TotalNanoseconds(?fractional) = 
+    member _.TotalNanoseconds ?fractional = 
         let frac = defaultArg fractional false
         new Expr(PolarsWrapper.DtTotalNanoseconds(handle,frac))
     /// <summary> Format datetime to string using the given format string (strftime). </summary>
@@ -198,7 +201,7 @@ type [<Struct>] DtOps(handle: ExprHandle) =
     /// <summary>
     /// Convert to integer timestamp.
     /// </summary>
-    member _.Timestamp(?timeUnit) =
+    member _.Timestamp ?timeUnit =
         let unit = defaultArg timeUnit TimeUnit.Microseconds 
         new Expr(PolarsWrapper.DtTimestamp(handle, unit.ToNative()))
     /// <summary>
@@ -315,12 +318,12 @@ type [<Struct>] DtOps(handle: ExprHandle) =
     /// </param>
     /// <returns>A new expression/Series representing the epoch time.</returns>
     /// <exception cref="ArgumentException">Thrown when an unsupported TimeUnit is provided.</exception>
-    member this.Epoch(?timeUnit) =
+    member this.Epoch ?timeUnit =
         let tu = defaultArg timeUnit EpochTimeUnit.Microseconds
         match tu with
-        | EpochTimeUnit.Nanoseconds -> this.Timestamp(TimeUnit.Nanoseconds)
-        | EpochTimeUnit.Microseconds -> this.Timestamp(TimeUnit.Microseconds)
-        | EpochTimeUnit.Milliseconds -> this.Timestamp(TimeUnit.Milliseconds)
+        | EpochTimeUnit.Nanoseconds -> this.Timestamp TimeUnit.Nanoseconds
+        | EpochTimeUnit.Microseconds -> this.Timestamp TimeUnit.Microseconds
+        | EpochTimeUnit.Milliseconds -> this.Timestamp TimeUnit.Milliseconds
         | EpochTimeUnit.Second -> this.Timestamp(TimeUnit.Milliseconds).FloorDiv(new Expr(PolarsWrapper.Lit 1000L))
         | EpochTimeUnit.Day -> 
             let h1 = PolarsWrapper.ExprCast(handle,DataType.Date.ToDataTypeExpr().Handle,true,false)

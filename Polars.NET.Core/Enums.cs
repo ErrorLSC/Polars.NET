@@ -38,7 +38,7 @@ public enum PlJoinType : byte
 {
     Inner = 0,
     Left = 1,
-    Outer = 2, 
+    Outer = 2,
     Cross = 3,
     Semi = 4,
     Anti = 5,
@@ -106,8 +106,6 @@ public enum PlLabel: byte
     DataPoint = 2
 }
 
-
-
 public enum PlEngine : byte
 {
     Auto = 0,
@@ -132,13 +130,13 @@ public enum PlTableFormatting: byte
     AsciiFull,
     AsciiFullCondensed,
     AsciiNoBorders,
-    AsciiBordersOnly, 
-    AsciiBordersOnlyCondensed, 
-    AsciiHorizontalOnly, 
+    AsciiBordersOnly,
+    AsciiBordersOnlyCondensed,
+    AsciiHorizontalOnly,
     AsciiMarkdown,
     Markdown,
-    Utf8Full, 
-    Utf8FullCondensed, 
+    Utf8Full,
+    Utf8FullCondensed,
     Utf8NoBorders,
     Utf8BordersOnly,
     Utf8HorizontalOnly,
@@ -151,16 +149,16 @@ public enum PlResolveMode:byte
     Full = 2
 }
 
-public enum PlOOCSpillPolicy: byte 
+public enum PlOOCSpillPolicy: byte
 {
     NoSpill = 0,
     Spill = 1
 }
 
-public enum PlOOCSpillFormat: byte 
+public enum PlOOCSpillFormat: byte
 {
     Ipc = 0
-    
+
 }
 public enum PlStartBy : byte
 {
@@ -197,12 +195,12 @@ public enum PlRoll :byte
     /// Raise an error if the result is not a business day.
     /// </summary>
     Raise = 0,
-    
+
     /// <summary>
     /// Roll forward to the next business day.
     /// </summary>
     Forward = 1,
-    
+
     /// <summary>
     /// Roll backward to the previous business day.
     /// </summary>
@@ -284,31 +282,31 @@ public enum PlJoinSide : byte
     /// Let Polars decide the best join strategy (Optimizer's choice).
     /// </summary>
     None = 0,
-    
+
     /// <summary>
     /// Prefer using the left side as the build side (hash table).
     /// Optimizer may override this if the right side is significantly smaller.
     /// </summary>
     PreferLeft = 1,
-    
+
     /// <summary>
     /// Force using the left side as the build side.
     /// </summary>
     ForceLeft = 2,
-    
+
     /// <summary>
     /// Prefer using the right side as the build side (hash table).
     /// Optimizer may override this if the left side is significantly smaller.
     /// </summary>
     PreferRight = 3,
-    
+
     /// <summary>
     /// Force using the right side as the build side.
     /// </summary>
     ForceRight = 4
 }
 
-public enum PlAsofStrategy: byte  
+public enum PlAsofStrategy: byte
 {
     // Default
     Backward =0,
@@ -328,7 +326,7 @@ public enum PlParallelStrategy: byte
 public enum PlCsvEncoding: byte
 {
     UTF8=0,
-    LossyUTF8=1    
+    LossyUTF8=1
 }
 
 public enum PlJsonFormat: byte
@@ -426,13 +424,14 @@ public enum PlCatalogTableType : byte
 
 public enum PlSearchSortedSide : byte { Any = 0, Left = 1, Right = 2 }
 
-public enum PlClosedInterval: byte
+public enum PlClosedInterval : byte
 {
     Left = 0,
     Right = 1,
-    Both =2,
-    None =3
+    Both = 2,
+    None = 3
 }
+
 public enum PlMissingColumnsPolicyType : byte { Insert = 0, Raise = 1, InsertWith = 2 }
 public enum PlMissingColumnsPolicy : byte { Raise = 0, Insert = 1 }
 public enum PlUpcastOrForbid : byte { Forbid = 0, Upcast = 1 }
@@ -457,5 +456,5 @@ public enum PlCategoricalPhysical: byte
 {
     U32 = 0,
     U16 = 1,
-    U8 = 2 
+    U8 = 2
 }

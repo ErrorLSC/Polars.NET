@@ -126,7 +126,7 @@ module PivotOps =
                 ?columnNaming = columnNaming
             )
     type DataFrame with
-           /// <summary>
+        /// <summary>
         /// Pivot the DataFrame from long to wide format.
         /// </summary>
         /// <param name="index">Selector for the index column(s) (the rows).</param>
@@ -242,7 +242,7 @@ module UnpivotOps =
         /// Unpivot (Melt) the LazyFrame using Selectors.
         /// Primary overload backed by native binding.
         /// </summary>
-        member this.Unpivot(index: Selector, on: Selector, variableName: string option, valueName: string option) : LazyFrame =
+        member this.Unpivot(index: Selector, on: Selector, ?variableName: string , ?valueName: string ) : LazyFrame =
             let lfClone = this.CloneHandle()
             
             let hIndex = index.CloneHandle()
@@ -256,7 +256,7 @@ module UnpivotOps =
         /// Unpivot (Melt) overload for simple string lists.
         /// Auto-converts to Selectors.
         /// </summary>
-        member this.Unpivot(index: seq<string>, on: seq<string>, variableName: string option, valueName: string option) =
+        member this.Unpivot(index: seq<string>, on: seq<string>, ?variableName: string , ?valueName: string ) =
             // 1. Convert Index strings to Selector
             let idxArr = Seq.toArray index
             let sIndex = new Selector(PolarsWrapper.SelectorCols idxArr)
@@ -266,10 +266,9 @@ module UnpivotOps =
             let sOn = new Selector(PolarsWrapper.SelectorCols onArr)
 
             // 3. Route to main logic
-            this.Unpivot(sIndex, sOn, variableName, valueName)
-
+            this.Unpivot(sIndex, sOn, ?variableName=variableName, ?valueName=valueName)
         member this.Unpivot(index: string list, on: string list) =
-            this.Unpivot(index, on, None, None)
+            this.Unpivot(index, on)
 
         // ==========================================
         // Aliases (Melt)
@@ -281,7 +280,7 @@ module UnpivotOps =
         member this.Melt(index: seq<string>, on: seq<string>, variableName, valueName) = 
             this.Unpivot(index, on, variableName, valueName)
 
-        member this.Melt(index: string list, on: string list) =
+        member this.Melt(index: string seq, on: string seq) =
             this.Unpivot(index, on)
 
     type DataFrame with
@@ -293,14 +292,14 @@ module UnpivotOps =
         /// <param name="on">Selector for Value variables (columns to melt)</param>
         /// <param name="variableName">Name for the variable column (default: "variable")</param>
         /// <param name="valueName">Name for the value column (default: "value")</param>
-        member this.Unpivot (index: Selector,on: Selector,variableName: string option,valueName: string option) : DataFrame =
-            this.Lazy().Unpivot(index,on,variableName,valueName).Collect()
+        member this.Unpivot (index: Selector,on: Selector,?variableName: string,?valueName: string) : DataFrame =
+            this.Lazy().Unpivot(index,on,?variableName=variableName,?valueName=valueName).Collect()
 
         /// <summary> 
         /// Unpivot (Melt) overload for simple string lists.
         /// Auto-converts string lists to Column Selectors.
         /// </summary>
-        member this.Unpivot (index: seq<string>,on: seq<string>,variableName: string option,valueName: string option) =
+        member this.Unpivot (index: seq<string>,on: seq<string>,?variableName: string,?valueName: string ) =
             // 1. Index Selector
             let idxArr = Seq.toArray index
             let sIndex = new Selector(PolarsWrapper.SelectorCols idxArr)
@@ -309,9 +308,9 @@ module UnpivotOps =
             let onArr = Seq.toArray on
             let sOn = new Selector(PolarsWrapper.SelectorCols onArr)
 
-            this.Unpivot(sIndex,sOn,variableName,valueName)
+            this.Unpivot(sIndex,sOn,?variableName=variableName,?valueName=valueName)
         member this.Unpivot (index: seq<string>,on: seq<string>) =
-            this.Unpivot(index,on,None,None)
+            this.Unpivot(index,on)
         /// <summary> Alias for Unpivot. </summary>
         member this.Melt(index: Selector, on: Selector, variableName, valueName) = 
             this.Unpivot(index, on, variableName, valueName)

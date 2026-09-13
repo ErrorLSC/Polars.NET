@@ -44,7 +44,7 @@ module DataFrameUnstackExtension =
                         cols |> Array.mapi (fun i colName ->
                             let colType = schema.[colName]
                             let fillExpr = fillExprs.[i].Cast colType
-                            let nFillExpr = lit nFill
+                            let nFillExpr = pl.lit nFill
                             (pl.col colName).ExtendConstant(fillExpr, nFillExpr).Alias colName)
                     let newWork = work.Select extendExprs
                     work.Dispose()
