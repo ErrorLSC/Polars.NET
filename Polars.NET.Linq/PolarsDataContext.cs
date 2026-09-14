@@ -20,7 +20,7 @@ internal class PolarsSqlInterceptor : CommandInterceptor
         {
             command.CommandText = SqlSanitizer.Clean(command.CommandText);
         }
-        
+
         return command;
     }
 }
@@ -31,13 +31,13 @@ internal class PolarsSqlInterceptor : CommandInterceptor
 /// </summary>
 /// <remarks>
 /// <para>
-/// By inheriting from <see cref="DataConnection"/>, this class enables <c>linq2db</c> to 
-/// treat Polars as a relational database. It manages table registrations, schema mappings, 
+/// By inheriting from <see cref="DataConnection"/>, this class enables <c>linq2db</c> to
+/// treat Polars as a relational database. It manages table registrations, schema mappings,
 /// and the routing of generated SQL queries to the underlying Rust core.
 /// </para>
 /// <para>
-/// This context should be used within a <c>using</c> block to ensure that resources 
-/// associated with the underlying <see cref="IPolarsSqlContext"/> and ADO.NET abstractions 
+/// This context should be used within a <c>using</c> block to ensure that resources
+/// associated with the underlying <see cref="IPolarsSqlContext"/> and ADO.NET abstractions
 /// are properly released.
 /// </para>
 /// </remarks>
@@ -50,23 +50,23 @@ public class PolarsDataContext : DataConnection, IDisposable
         static TableMetadataCache()
         {
             var tableAttr = typeof(T).GetCustomAttribute<TableAttribute>();
-            
-            TableName = !string.IsNullOrWhiteSpace(tableAttr?.Name) 
-                ? tableAttr.Name 
+
+            TableName = !string.IsNullOrWhiteSpace(tableAttr?.Name)
+                ? tableAttr.Name
                 : typeof(T).Name;
         }
     }
     private readonly IPolarsSqlContext _polarsContext;
-    private readonly bool _ownsContext; 
+    private readonly bool _ownsContext;
     /// <summary>
     /// Initializes a new instance of the <see cref="PolarsDataContext"/> class.
     /// </summary>
     /// <param name="polarsContext">The underlying Polars SQL context where dataframes are registered.</param>
     /// <param name="ownsContext">
-    /// If <see langword="true"/>, the <see cref="PolarsDataContext"/> will dispose of the 
+    /// If <see langword="true"/>, the <see cref="PolarsDataContext"/> will dispose of the
     /// Polars SQL context when it is disposed.
     /// </param>
-    public PolarsDataContext(IPolarsSqlContext polarsContext, bool ownsContext = false) 
+    public PolarsDataContext(IPolarsSqlContext polarsContext, bool ownsContext = false)
         : base(CreateOptions(polarsContext))
     {
         InlineParameters = true;
@@ -79,14 +79,14 @@ public class PolarsDataContext : DataConnection, IDisposable
         var dataProvider = LinqToDB.DataProvider.PostgreSQL.PostgreSQLTools.GetDataProvider(
             LinqToDB.DataProvider.PostgreSQL.PostgreSQLVersion.v15);
         var mockConn = new PolarsDbConnection(polarsContext);
-        
+
         return new DataOptions()
             .UseConnection(dataProvider, mockConn)
             .WithOptions<SqlOptions>(o => o with { GenerateFinalAliases = true });
     }
 
     private void BuildSchemaMapping<T>(string tableName, IPolarsSchema schema) where T : class
-    {      
+    {
         try
         {
             var mappingBuilder = new FluentMappingBuilder(this.MappingSchema);
@@ -95,16 +95,16 @@ public class PolarsDataContext : DataConnection, IDisposable
 
             foreach (var prop in properties)
             {
-                var matchedColumn = schema.Keys.FirstOrDefault(k => 
+                var matchedColumn = schema.Keys.FirstOrDefault(k =>
                     string.Equals(k, prop.Name, StringComparison.OrdinalIgnoreCase));
 
                 if (matchedColumn != null)
                 {
                     var polarsDataType = schema[matchedColumn];
                     var expectedNetType = ArrowTypeResolver.GetNetTypeFromArrowType(polarsDataType.GetArrowType());
-                    
+
                     var actualNetType = prop.PropertyType;
-                    
+
                     // Unwrap C# Nullable<T>
                     var nullableUnderlying = Nullable.GetUnderlyingType(actualNetType);
                     if (nullableUnderlying != null)
@@ -145,39 +145,39 @@ public class PolarsDataContext : DataConnection, IDisposable
     // ====================================================================
     /// <summary>
     /// Registers a <see cref="IPolarsLazyFrame"/> as a queryable table within the current context.
-    /// This method automatically orchestrates the mapping between the .NET type <typeparamref name="T"/> 
+    /// This method automatically orchestrates the mapping between the .NET type <typeparamref name="T"/>
     /// and the underlying Polars schema.
     /// </summary>
     /// <typeparam name="T">The class or record type that represents the table structure.</typeparam>
     /// <param name="tableName">The identifier of the table to be used in LINQ and SQL expressions.</param>
     /// <param name="lf">The <see cref="IPolarsLazyFrame"/> containing the data source and its computation plan.</param>
     /// <param name="providedSchema">
-    /// Optional. A specific schema to override the default. If <see langword="null"/>, the schema is 
+    /// Optional. A specific schema to override the default. If <see langword="null"/>, the schema is
     /// automatically inferred from the provided <paramref name="lf"/>.
     /// </param>
     /// <returns>An <see cref="ITable{T}"/> instance ready for fluent LINQ querying.</returns>
     /// <summary>
     /// Core registration method. If tableName is null or empty, a unique random name is generated.
     /// </summary>
-    public ITable<T> RegisterTable<T>(IPolarsLazyFrame lf,string? tableName=null,  IPolarsSchema? providedSchema = null) 
+    public ITable<T> RegisterTable<T>(IPolarsLazyFrame lf,string? tableName=null,  IPolarsSchema? providedSchema = null)
         where T : class
     {
-        var actualTableName = string.IsNullOrWhiteSpace(tableName) 
-            ? $"tmp_{Guid.NewGuid():N}" 
+        var actualTableName = string.IsNullOrWhiteSpace(tableName)
+            ? $"tmp_{Guid.NewGuid():N}"
             : tableName;
 
-        var schema = providedSchema ?? lf.Schema; 
-        
-        BuildSchemaMapping<T>(actualTableName, schema); 
-        _polarsContext.Register(actualTableName, lf);   
-        
+        var schema = providedSchema ?? lf.Schema;
+
+        BuildSchemaMapping<T>(actualTableName, schema);
+        _polarsContext.Register(actualTableName, lf);
+
         return this.GetTable<T>().TableName(actualTableName);
     }
     /// <summary>
     /// Registers a <see cref="IPolarsLazyFrame"/> using a dummy collection to infer the generic type <typeparamref name="T"/>.
     /// </summary>
     /// <remarks>
-    /// This overload is particularly useful in F# when working with anonymous records, 
+    /// This overload is particularly useful in F# when working with anonymous records,
     /// as it allows the compiler to resolve the complex generic type without manual specification.
     /// </remarks>
     /// <typeparam name="T">The class or record type (usually inferred from <paramref name="dummy"/>).</typeparam>
@@ -186,7 +186,7 @@ public class PolarsDataContext : DataConnection, IDisposable
     /// <param name="dummy">A collection (usually the source data) used solely for type inference.</param>
     /// <returns>An <see cref="ITable{T}"/> for LINQ querying.</returns>
     public ITable<T> RegisterTable<T>(IPolarsLazyFrame lf, IEnumerable<T> dummy,string? tableName=null)
-        where T : class 
+        where T : class
         => RegisterTable<T>(lf,tableName);
     /// <summary>
     /// Registers a Polars LazyFrame as a queryable table in the current DataContext.
@@ -205,25 +205,25 @@ public class PolarsDataContext : DataConnection, IDisposable
     /// <summary>
     /// Core registration method. If tableName is null or empty, a unique random name is generated.
     /// </summary>
-    public ITable<T> RegisterTable<T>(IPolarsDataFrame df,string? tableName=null,  IPolarsSchema? providedSchema = null) 
+    public ITable<T> RegisterTable<T>(IPolarsDataFrame df,string? tableName=null,  IPolarsSchema? providedSchema = null)
         where T : class
     {
-        var actualTableName = string.IsNullOrWhiteSpace(tableName) 
-            ? $"tmp_{Guid.NewGuid():N}" 
+        var actualTableName = string.IsNullOrWhiteSpace(tableName)
+            ? $"tmp_{Guid.NewGuid():N}"
             : tableName;
 
-        var schema = providedSchema ?? df.Schema; 
-        
-        BuildSchemaMapping<T>(actualTableName, schema); 
-        _polarsContext.Register(actualTableName, df);   
-        
+        var schema = providedSchema ?? df.Schema;
+
+        BuildSchemaMapping<T>(actualTableName, schema);
+        _polarsContext.Register(actualTableName, df);
+
         return this.GetTable<T>().TableName(actualTableName);
     }
     /// <summary>
     /// Registers an eager <see cref="IPolarsDataFrame"/> using a dummy collection to simplify generic type inference.
     /// </summary>
     /// <remarks>
-    /// This is the preferred overload for F# anonymous records, enabling the compiler to automatically 
+    /// This is the preferred overload for F# anonymous records, enabling the compiler to automatically
     /// determine the structure of <typeparamref name="T"/> without explicit type annotations.
     /// </remarks>
     /// <typeparam name="T">The class or record type (inferred from <paramref name="dummyDataForInference"/>).</typeparam>
@@ -244,7 +244,7 @@ public class PolarsDataContext : DataConnection, IDisposable
     public IQueryable<T> RegisterTable<T>(IPolarsDataFrame dataFrame)
      where T : class
         => RegisterTable<T>(dataFrame, TableMetadataCache<T>.TableName);
-    
+
     // ====================================================================
     // Series Register
     // ====================================================================
@@ -270,21 +270,21 @@ public class PolarsDataContext : DataConnection, IDisposable
         ValidateSeriesArrowType<T>(s);
 
         var originalSeriesName = s.Name;
-        
-        var tableName = string.IsNullOrEmpty(originalSeriesName) 
-            ? $"series_{Guid.NewGuid():N}" 
+
+        var tableName = string.IsNullOrEmpty(originalSeriesName)
+            ? $"series_{Guid.NewGuid():N}"
             : originalSeriesName;
 
         IPolarsDataFrame df;
-        
+
         // ==========================================
         // Zero Side-Effect
         // ==========================================
         try
         {
-            s.Rename("value"); 
+            s.Rename("value");
 
-            df = s.ToFrame(); 
+            df = s.ToFrame();
         }
         finally
         {
@@ -295,7 +295,7 @@ public class PolarsDataContext : DataConnection, IDisposable
 
         return this.GetTable<SeriesWrapper<T>>()
                     .TableName(tableName)
-                    .Select(row => row.Value); 
+                    .Select(row => row.Value);
     }
 
 
@@ -304,10 +304,10 @@ public class PolarsDataContext : DataConnection, IDisposable
     // ====================================================================
     private static void ValidateSeriesArrowType<T>(IPolarsSeries s)
     {
-        var arrowType = s.DataType.GetArrowType(); 
+        var arrowType = s.DataType.GetArrowType();
 
         Type expectedNetType = ArrowTypeResolver.GetNetTypeFromArrowType(arrowType);
-        
+
         Type userType = Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T);
 
         if (userType != expectedNetType && expectedNetType != typeof(object))
@@ -325,8 +325,8 @@ public class PolarsDataContext : DataConnection, IDisposable
     // ====================================================================
     // Dispose
     // ====================================================================
-    
-    private bool _disposed; 
+
+    private bool _disposed;
     /// <summary>
     /// Dispose unmanaged resource
     /// </summary>
@@ -343,12 +343,12 @@ public class PolarsDataContext : DataConnection, IDisposable
         {
             _polarsContext?.Dispose();
         }
-        
+
         base.Dispose();
-        
+
         _disposed = true;
 
-        GC.SuppressFinalize(this); 
+        GC.SuppressFinalize(this);
     }
 }
 

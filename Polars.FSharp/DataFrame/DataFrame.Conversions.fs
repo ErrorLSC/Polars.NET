@@ -1,37 +1,37 @@
 namespace Polars.FSharp
 
 type private ColumnExtractors =
-    
+
     static member Build<'CoreType> (col: Series, isOption: bool, fallbackObj: obj, colName: string, fieldName: string) : (int -> obj) =
         fun r ->
             let optVal = col.GetValueOption<'CoreType>(int64 r)
             match optVal with
             | Some v ->
-                if isOption then box optVal 
-                else box v                 
+                if isOption then box optVal
+                else box v
             | None ->
-                if isOption then null       
-                elif not (isNull fallbackObj) then fallbackObj 
+                if isOption then null
+                elif not (isNull fallbackObj) then fallbackObj
                 else failwithf "Strict mode error: Column '%s' contains null, but Record field '%s' does not accept Option." colName fieldName
 
 [<AutoOpen>]
 module DataFrameConversions =
     open Microsoft.FSharp.Reflection
     open System.Reflection
-    
+
     type DataFrame with
         /// <summary>
         /// Convert the DataFrame to a dictionary of column name to Series.
         /// </summary>
         member this.ToMap() : Map<string, Series> =
-            this 
+            this
             |> Seq.map (fun series -> series.Name, series)
             |> Map.ofSeq
         /// <summary>
         /// Convert a DataFrame to a Series of type Struct.
         /// </summary>
         /// <param name="name">Name for the struct Series.</param>
-        member this.ToStruct(?name:string) =   
+        member this.ToStruct(?name:string):Series =
             let n = defaultArg name ""
             use df: DataFrame = this.Select(Expr.AsStruct [|Expr.All()|])
             let series = df[0]
@@ -48,29 +48,29 @@ module DataFrameConversions =
                 let fields = FSharpType.GetRecordFields(recordType, true)
                 let ctor = FSharpValue.PreComputeRecordConstructor(recordType, true)
 
-                let helperMethod = 
+                let helperMethod =
                     typeof<ColumnExtractors>.GetMethod("Build", BindingFlags.Static ||| BindingFlags.Public ||| BindingFlags.NonPublic)
 
-                let extractors = 
-                    fields |> Array.map (fun f -> 
-                        let col = this.Column(f.Name) 
+                let extractors =
+                    fields |> Array.map (fun f ->
+                        let col = this.Column(f.Name)
                         let pType = f.PropertyType
-                        
+
                         let isOption = pType.IsGenericType && pType.GetGenericTypeDefinition() = typedefof<option<_>>
-                        
+
                         let coreType = if isOption then pType.GetGenericArguments().[0] else pType
 
                         let isList   = coreType.IsGenericType && coreType.GetGenericTypeDefinition() = typedefof<list<_>>
                         let isArray  = coreType.IsArray
 
-                        let emptyListObj = 
-                            if isList then 
+                        let emptyListObj =
+                            if isList then
                                 let emptyCase = FSharpType.GetUnionCases(coreType) |> Array.find (fun c -> c.Name = "Empty")
                                 FSharpValue.MakeUnion(emptyCase, [||])
                             else null
 
-                        let emptyArrayObj = 
-                            if isArray then 
+                        let emptyArrayObj =
+                            if isArray then
                                 System.Array.CreateInstance(coreType.GetElementType(), 0) :> obj
                             else null
 
@@ -85,8 +85,8 @@ module DataFrameConversions =
 
                 seq {
                     for r = 0 to rowCount - 1 do
-                        let args = 
+                        let args =
                             extractors |> Array.map (fun extract -> extract r)
-                        
+
                         yield ctor args :?> 'T
                 }

@@ -1041,10 +1041,9 @@ module pl =
     /// <summary> Add or replace multiple columns in the DataFrame. </summary>
     let withColumns (exprs: seq<Expr>) (df: DataFrame) : DataFrame =
         df.WithColumns exprs
-
     /// <summary> Filter rows based on a boolean expression. </summary>
-    let filter (expr: IColumnExpr) (df: DataFrame) : DataFrame =
-        df.Filter (expr.ToExprs().[0])
+    let filter (expr: Expr) (df: DataFrame) : DataFrame =
+        df.Filter expr
     /// <summary> Select columns from the DataFrame. </summary>
     let select (exprs: seq<#IColumnExpr>) (df: DataFrame) : DataFrame =
         df.Select exprs
@@ -1054,7 +1053,7 @@ module pl =
     let sortDescending (columns:seq<IColumnExpr>)(df: DataFrame) : DataFrame =
         df.Sort(columns,descending=true)
     let orderByAscending (columns: seq<IColumnExpr>) (df: DataFrame) = sortAscending columns df
-    let orderByDescending (columns: seq<IColumnExpr>) (df: DataFrame) = sortAscending columns df
+    let orderByDescending (columns: seq<IColumnExpr>) (df: DataFrame) = sortDescending columns df
     /// <summary> Group by keys and apply aggregations. </summary>
     let groupBy (keys: seq<Expr>)(df: DataFrame) : GroupBy =
         df.GroupBy(keys)

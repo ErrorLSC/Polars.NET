@@ -104,9 +104,9 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,
     /// <param name="dtype">Column data type.</param>
     /// <returns>The schema instance (Fluent API).</returns>
     public PolarsSchema Add(string name, DataType dtype)
-    {   
+    {
         PolarsWrapper.SchemaAddField(Handle, name, dtype.Handle);
-        _fields = null; 
+        _fields = null;
         return this;
     }
 
@@ -164,7 +164,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,
     public IEnumerator<Field> GetEnumerator() => GetFields().GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
-      
+
     // ==========================================
     // ColumnNames / Length / dtype
     // ==========================================
@@ -179,7 +179,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,
 
     IPolarsDataType IReadOnlyDictionary<string, IPolarsDataType>.this[string key]
     {
-        get => this[key]; 
+        get => this[key];
     }
     IEnumerable<IPolarsDataType> IReadOnlyDictionary<string, IPolarsDataType>.Values
         => Values.Select(dt => (IPolarsDataType)dt);
@@ -200,7 +200,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,
         foreach (var field in GetFields())
             yield return new KeyValuePair<string, IPolarsDataType>(field.Name, field.DataType);
     }
-    
+
     /// <summary>
     /// Create an empty (n=0) or n-row null-filled (n>0) copy of the DataFrame.
     /// Returns a n-row null-filled DataFrame with an identical schema. n can be greater than the current number of rows in the DataFrame.
@@ -228,18 +228,18 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,
 
         var sb = new StringBuilder();
         sb.Append("Schema: {");
-        
+
         ulong len = PolarsWrapper.GetSchemaLen(Handle);
         for (ulong i = 0; i < len; i++)
         {
             PolarsWrapper.GetSchemaFieldAt(Handle, i, out string name, out DataTypeHandle dtHandle);
 
-            using var dt = DataType.CreateFromHandle(dtHandle); 
+            using var dt = DataType.CreateFromHandle(dtHandle);
             sb.Append($"{name}: {dt.Kind}");
 
             if (i < len - 1) sb.Append(", ");
         }
-        
+
         sb.Append('}');
         return sb.ToString();
     }
@@ -253,7 +253,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,
         foreach (var (columnName, polarsType) in this)
         {
             IArrowType arrowType = polarsType.GetArrowType();
-            
+
             Dictionary<string, string>? metadata = null;
 
             if (polarsType is BaseExtension ext)
@@ -270,7 +270,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,
             }
 
             var field = new Apache.Arrow.Field(columnName, arrowType, nullable: true, metadata);
-            
+
             builder.Field(field);
         }
 
@@ -290,7 +290,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,
             if (field.Metadata != null && field.Metadata.TryGetValue("ARROW:extension:name", out var extName))
             {
                 field.Metadata.TryGetValue("ARROW:extension:metadata", out var extMetadata);
-                
+
                 var storageType = DataType.FromArrowType(field.DataType);
 
                 if (ExtensionRegistry.TryGetResolution(extName, out var factory, out var asStorage))
@@ -314,7 +314,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,
                 polarsType = DataType.FromArrowType(field.DataType);
             }
 
-            polarsSchema.Add(field.Name, polarsType); 
+            polarsSchema.Add(field.Name, polarsType);
         }
 
         return polarsSchema;
@@ -323,7 +323,7 @@ public class PolarsSchema : IDisposable,IPolarsSchema, IEquatable<PolarsSchema>,
     // ==========================================
     // Equality Members
     // ==========================================
-    
+
     public override bool Equals(object? obj)
         => Equals(obj as PolarsSchema);
 

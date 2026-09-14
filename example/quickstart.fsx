@@ -2,8 +2,8 @@
 // Polars.NET F# Quick Start Script
 // ==========================================
 
-#r "nuget: Polars.FSharp, 0.6.0"
-#r "nuget: Polars.NET.Native.linux-x64, 0.6.0"
+#r "nuget: Polars.FSharp, 0.7.0"
+#r "nuget: Polars.NET.Native.linux-x64, 0.7.0"
 
 open System
 open Polars.FSharp
@@ -24,11 +24,11 @@ let printHeaderWithString (title: string) (data: string) =
 // 1. Create DataFrame by F# Records
 // ==========================================
 
-type WeatherData = { 
+type WeatherData = {
     Date: string
     City: string
     Temperature: float
-    Rain: bool 
+    Rain: bool
 }
 
 let data = [
@@ -39,7 +39,7 @@ let data = [
     { Date="2023-01-03"; City="London";     Temperature=13.5; Rain=false }
 ]
 
-let df = 
+let df =
     DataFrame.ofRecords data
     |> pl.withColumn (pl.col("Date").Str.ToDate "%Y-%m-%d")
     |> printHeader "Creating DataFrame from Records (Idiomatic F#)"
@@ -48,7 +48,7 @@ let df =
 // 2. Filter
 // ==========================================
 
-df 
+df
 |> pl.filter (pl.col "City" .== pl.lit "London")
 |> printHeader "Filtering: London Only"
 
@@ -70,7 +70,7 @@ df
     pl.col("Rain").Sum().Alias "Rainy_Days" // bool sum -> count of true
     pl.len().Alias "Total_Records"
 ]
-|> printHeader "Aggregation: Stats per City" 
+|> printHeader "Aggregation: Stats per City"
 
 // ==========================================
 // 4. Window Functions
@@ -81,11 +81,11 @@ df
     pl.col "Date"
     pl.col "City"
     pl.col "Temperature"
-    
+
     // Over(Date): Calculate mean value by group
     pl.col("Temperature").Mean().Over(pl.col "Date")
         |> pl.alias "Daily_Avg"
-        
+
     pl.col "Temperature" - pl.col("Temperature").Mean().Over(pl.col "Date")
         |> pl.alias "Diff"
 ]
@@ -97,14 +97,14 @@ df
 // ==========================================
 
 // pl.asLazy won't execuate eagerly, only execution plan will be built
-let lf = 
+let lf =
     df
     |> pl.asLazy
     |> pl.filterLazy(pl.col "Temperature" .> pl.lit 10.0)
     |> pl.groupByLazy [pl.col "City"]
-    |> pl.aggLazy [pl.col("Temperature").Mean() |> pl.alias "Lazy_Avg_Temp"] 
-        
-// Print Exection Optimized Plan 
+    |> pl.aggLazy [pl.col("Temperature").Mean() |> pl.alias "Lazy_Avg_Temp"]
+
+// Print Exection Optimized Plan
 printHeaderWithString "Lazy Execution & Query Plan" (lf |> pl.explain)
 
 // Execuate after Collect
@@ -113,20 +113,20 @@ lf |> pl.collect |> printHeader "Lazy Execution Result"
 // ==========================================
 // 6. SQL MERGE
 // ==========================================
-let plan = 
+let plan =
     [
         pl.series "Id"    [1; 2; 3]
         pl.series "Value" ["A"; "B"; "C"]
-    ] 
+    ]
     |> pl.dataframe |> pl.asLazy
-    |> Merge.initiate 
+    |> Merge.initiate
         (
             [
                 pl.series "Id"    [2; 3; 4]
                 pl.series "Value" ["B_new"; "C_new"; "D"]
             ]
             |> pl.dataframe |> pl.asLazy
-        ) 
+        )
         ["Id"]
     |> Merge.whenMatchedUpdateSet (Set.build [
         Set.col "Value" (fun ctx -> ctx.SourceCol "Value")

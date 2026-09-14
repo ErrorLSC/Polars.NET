@@ -1,12 +1,12 @@
+use crate::types::*;
+use crate::utils::{parse_keep_strategy, ptr_to_str};
 use polars::frame::PivotColumnNaming;
+use polars::functions::{concat_df_diagonal, concat_df_horizontal};
 use polars::prelude::*;
 use polars_arrow::Either;
 use polars_core::utils::concat_df;
 use std::ffi::{CStr, c_int};
 use std::{ffi::CString, os::raw::c_char};
-use crate::types::*;
-use polars::functions::{concat_df_horizontal,concat_df_diagonal};
-use crate::utils::{parse_keep_strategy, ptr_to_str};
 
 // ==========================================
 // Memory Safety
@@ -16,7 +16,9 @@ use crate::utils::{parse_keep_strategy, ptr_to_str};
 pub extern "C" fn pl_dataframe_free(ptr: *mut DataFrameContext) {
     ffi_try_void!({
         if !ptr.is_null() {
-        unsafe { let _ = Box::from_raw(ptr); }
+            unsafe {
+                let _ = Box::from_raw(ptr);
+            }
         }
         Ok(())
     })
@@ -59,13 +61,13 @@ pub extern "C" fn pl_dataframe_take(
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_from_schema(
     schema_ptr: *mut SchemaContext,
-    length: usize
+    length: usize,
 ) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*schema_ptr };
-        
+
         let df = DataFrame::full_null(&ctx.schema, length);
-        
+
         Ok(Box::into_raw(Box::new(DataFrameContext { df })))
     })
 }
@@ -86,13 +88,10 @@ pub extern "C" fn pl_dataframe_shrink_to_fit(df_ptr: *mut DataFrameContext) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_dataframe_height(
-    ptr: *mut DataFrameContext,
-    out_height: *mut usize 
-) -> bool {
-    ffi_bool_try!({ 
-        if ptr.is_null() { 
-            polars_bail!(ComputeError: "DataFrame pointer is null"); 
+pub extern "C" fn pl_dataframe_height(ptr: *mut DataFrameContext, out_height: *mut usize) -> bool {
+    ffi_bool_try!({
+        if ptr.is_null() {
+            polars_bail!(ComputeError: "DataFrame pointer is null");
         }
         let ctx = unsafe { &*ptr };
         unsafe { *out_height = ctx.df.height() };
@@ -101,13 +100,10 @@ pub extern "C" fn pl_dataframe_height(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_dataframe_width(
-    ptr: *mut DataFrameContext,
-    out_width: *mut usize 
-) -> bool {
-    ffi_bool_try!({ 
-        if ptr.is_null() { 
-            polars_bail!(ComputeError: "DataFrame pointer is null"); 
+pub extern "C" fn pl_dataframe_width(ptr: *mut DataFrameContext, out_width: *mut usize) -> bool {
+    ffi_bool_try!({
+        if ptr.is_null() {
+            polars_bail!(ComputeError: "DataFrame pointer is null");
         }
         let ctx = unsafe { &*ptr };
         unsafe { *out_width = ctx.df.width() };
@@ -118,24 +114,24 @@ pub extern "C" fn pl_dataframe_width(
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_estimated_size(
     ptr: *mut DataFrameContext,
-    out_size: *mut usize
+    out_size: *mut usize,
 ) -> bool {
     ffi_bool_try!({
         if ptr.is_null() {
             polars_bail!(ComputeError: "DataFrame pointer is null");
         }
         let ctx = unsafe { &*ptr };
-        
+
         unsafe { *out_size = ctx.df.estimated_size() };
-        
+
         Ok(())
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_get_column_name(
-    df_ptr: *mut DataFrameContext, 
-    index: usize
+    df_ptr: *mut DataFrameContext,
+    index: usize,
 ) -> *mut c_char {
     ffi_try!({
         if df_ptr.is_null() {
@@ -143,7 +139,7 @@ pub extern "C" fn pl_dataframe_get_column_name(
         }
         let ctx = unsafe { &*df_ptr };
         let cols = ctx.df.get_column_names();
-    
+
         if index >= cols.len() {
             polars_bail!(OutOfBounds: "Column index {} is out of bounds for DataFrame of width {}", index, cols.len());
         }
@@ -157,19 +153,17 @@ pub extern "C" fn pl_dataframe_get_column_name(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_dataframe_get_schema(
-    df_ptr: *mut DataFrameContext,
-) -> *mut SchemaContext {
+pub extern "C" fn pl_dataframe_get_schema(df_ptr: *mut DataFrameContext) -> *mut SchemaContext {
     ffi_try!({
         if df_ptr.is_null() {
             polars_bail!(ComputeError: "DataFrame pointer is null");
         }
-        
+
         let ctx = unsafe { &*df_ptr };
         let schema = ctx.df.schema();
-        
-        let schema_ctx = Box::new(SchemaContext { 
-            schema: schema.to_owned()
+
+        let schema_ctx = Box::new(SchemaContext {
+            schema: schema.to_owned(),
         });
 
         Ok(Box::into_raw(schema_ctx))
@@ -191,11 +185,11 @@ pub extern "C" fn pl_dataframe_drop_many(
         let mut names_set = PlHashSet::with_capacity(names_len);
         for &n_ptr in names_slice {
             let col_name = unsafe { CStr::from_ptr(n_ptr).to_string_lossy() };
-            names_set.insert(PlSmallStr::from_str(&col_name)); 
+            names_set.insert(PlSmallStr::from_str(&col_name));
         }
 
         let new_df = ctx.df.drop_many_amortized(&names_set);
-        
+
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
     })
 }
@@ -206,12 +200,13 @@ pub extern "C" fn pl_dataframe_drop_in_place(
     name: *const c_char,
 ) -> *mut SeriesContext {
     ffi_try!({
-        let ctx = unsafe { &mut *df_ptr }; 
+        let ctx = unsafe { &mut *df_ptr };
         let col_name = unsafe { CStr::from_ptr(name).to_string_lossy() };
 
         let col = ctx.df.drop_in_place(&col_name)?;
 
-        let series = col.as_series()
+        let series = col
+            .as_series()
             .cloned()
             .expect("Failed to cast Column to Series");
 
@@ -220,7 +215,11 @@ pub extern "C" fn pl_dataframe_drop_in_place(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_dataframe_rename(df_ptr: *mut DataFrameContext, old: *const c_char, new: *const c_char) -> *mut DataFrameContext {
+pub extern "C" fn pl_dataframe_rename(
+    df_ptr: *mut DataFrameContext,
+    old: *const c_char,
+    new: *const c_char,
+) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*df_ptr };
         let old_name = unsafe { CStr::from_ptr(old).to_string_lossy() };
@@ -251,15 +250,13 @@ pub extern "C" fn pl_dataframe_rename_many(
         for i in 0..count {
             let old_str = unsafe { CStr::from_ptr(old_ptrs[i]).to_string_lossy().into_owned() };
             let new_str = unsafe { CStr::from_ptr(new_ptrs[i]).to_string_lossy().into_owned() };
-            
+
             renames.push((old_str, PlSmallStr::from_str(&new_str)));
         }
 
         let mut new_df = ctx.df.clone();
 
-        new_df.rename_many(
-            renames.iter().map(|(old, new)| (old.as_str(), new.clone()))
-        )?;
+        new_df.rename_many(renames.iter().map(|(old, new)| (old.as_str(), new.clone())))?;
 
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
     })
@@ -271,10 +268,10 @@ pub extern "C" fn pl_df_unique(
     subset: *const *const c_char, // String array ptr
     subset_len: usize,            // Array length
     keep_strategy: u8,
-    maintain_order: bool,            
+    maintain_order: bool,
     slice_offset: i64,
     slice_len: usize,
-    slice_valid: u8,              // 1 = use slice, 0 = ignore slice
+    slice_valid: u8, // 1 = use slice, 0 = ignore slice
 ) -> *mut DataFrame {
     let df = unsafe { &*df };
 
@@ -320,59 +317,83 @@ pub extern "C" fn pl_df_unique(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_sample_n_literal(
-    df_ptr: *mut DataFrameContext, 
-    n: usize, 
-    replacement: bool, 
-    shuffle: *const bool, 
-    seed: *const u64
+    df_ptr: *mut DataFrameContext,
+    n: usize,
+    replacement: bool,
+    shuffle: *const bool,
+    seed: *const u64,
 ) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*df_ptr };
-        let s = if seed.is_null() { None } else { Some(unsafe { *seed }) };
-        let shfl = if shuffle.is_null() { None } else { Some(unsafe { *shuffle }) };
-        
+        let s = if seed.is_null() {
+            None
+        } else {
+            Some(unsafe { *seed })
+        };
+        let shfl = if shuffle.is_null() {
+            None
+        } else {
+            Some(unsafe { *shuffle })
+        };
+
         let new_df = ctx.df.sample_n_literal(n, replacement, shfl, s)?;
-        
+
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_sample_n(
-    df_ptr: *mut DataFrameContext, 
-    n_ptr: *const SeriesContext, 
-    replacement: bool, 
-    shuffle: *const bool, 
-    seed: *const u64
+    df_ptr: *mut DataFrameContext,
+    n_ptr: *const SeriesContext,
+    replacement: bool,
+    shuffle: *const bool,
+    seed: *const u64,
 ) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*df_ptr };
-        let n = unsafe {&*n_ptr};
-        let s = if seed.is_null() { None } else { Some(unsafe { *seed }) };
-        let shfl = if shuffle.is_null() { None } else { Some(unsafe { *shuffle }) };
-        
+        let n = unsafe { &*n_ptr };
+        let s = if seed.is_null() {
+            None
+        } else {
+            Some(unsafe { *seed })
+        };
+        let shfl = if shuffle.is_null() {
+            None
+        } else {
+            Some(unsafe { *shuffle })
+        };
+
         let new_df = ctx.df.sample_n(&n.series, replacement, shfl, s)?;
-        
+
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_sample_frac(
-    df_ptr: *mut DataFrameContext, 
-    frac_ptr: *const SeriesContext, 
-    replacement: bool, 
-    shuffle:*const bool, 
-    seed: *const u64
+    df_ptr: *mut DataFrameContext,
+    frac_ptr: *const SeriesContext,
+    replacement: bool,
+    shuffle: *const bool,
+    seed: *const u64,
 ) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*df_ptr };
-        let frac = unsafe {&*frac_ptr};
-        let shfl = if shuffle.is_null() { None } else { Some(unsafe { *shuffle }) };
-        let s = if seed.is_null() { None } else { Some(unsafe { *seed }) };
-        
+        let frac = unsafe { &*frac_ptr };
+        let shfl = if shuffle.is_null() {
+            None
+        } else {
+            Some(unsafe { *shuffle })
+        };
+        let s = if seed.is_null() {
+            None
+        } else {
+            Some(unsafe { *seed })
+        };
+
         let new_df = ctx.df.sample_frac(&frac.series, replacement, shfl, s)?;
-        
+
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
     })
 }
@@ -381,9 +402,9 @@ pub extern "C" fn pl_dataframe_sample_frac(
 pub extern "C" fn pl_dataframe_clone(ptr: *mut DataFrameContext) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*ptr };
-        
+
         let new_df = ctx.df.clone();
-        
+
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
     })
 }
@@ -417,20 +438,20 @@ pub extern "C" fn pl_dataframe_pivot(
     index_ptr: *mut SelectorContext,
     values_ptr: *mut SelectorContext,
     agg_expr_ptr: *mut ExprContext,
-    agg_code: u8,        
-    maintain_order: bool, 
-    sort_columns: bool,   
+    agg_code: u8,
+    maintain_order: bool,
+    sort_columns: bool,
     separator_ptr: *const c_char,
-    column_naming : u8
+    column_naming: u8,
 ) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*df_ptr };
-        
+
         // 1. Unpack Selectors
         let on_ctx = unsafe { Box::from_raw(on_ptr) };
         let index_ctx = unsafe { Box::from_raw(index_ptr) };
         let values_ctx = unsafe { Box::from_raw(values_ptr) };
-        
+
         // 2. Values Check
         let schema = ctx.df.schema();
         let ignored = PlIndexSet::new();
@@ -439,7 +460,9 @@ pub extern "C" fn pl_dataframe_pivot(
 
         // Ensure we have values to pivot on
         if agg_expr_ptr.is_null() && values_names.is_empty() {
-             return Err(PolarsError::ComputeError("Pivot requires at least one value column.".into()));
+            return Err(PolarsError::ComputeError(
+                "Pivot requires at least one value column.".into(),
+            ));
         }
 
         // 3. Build Agg Expr
@@ -471,9 +494,12 @@ pub extern "C" fn pl_dataframe_pivot(
 
         // 4. Separator
         let separator = if separator_ptr.is_null() {
-            PlSmallStr::EMPTY 
+            PlSmallStr::EMPTY
         } else {
-            PlSmallStr::from_str(ptr_to_str(separator_ptr).map_err(|e| PolarsError::ComputeError(e.to_string().into()))?)
+            PlSmallStr::from_str(
+                ptr_to_str(separator_ptr)
+                    .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?,
+            )
         };
 
         // 5. Prepare Headers (on_columns)
@@ -481,22 +507,23 @@ pub extern "C" fn pl_dataframe_pivot(
         let on_names: Vec<&str> = on_names_set.iter().map(|s| s.as_str()).collect();
         let on_df = ctx.df.select(&on_names)?;
         let mut on_columns = on_df.unique_stable(None, UniqueKeepStrategy::Any, None)?;
-        
+
         if sort_columns {
             on_columns = on_columns.sort(on_names, SortMultipleOptions::default())?;
         }
 
-        let column_naming_input = 
-            match column_naming { 
-                0 => PivotColumnNaming::Auto,
-                1 => PivotColumnNaming::Combine,
-                _ => PivotColumnNaming::Auto
-            };
+        let column_naming_input = match column_naming {
+            0 => PivotColumnNaming::Auto,
+            1 => PivotColumnNaming::Combine,
+            _ => PivotColumnNaming::Auto,
+        };
 
         // 6. Execute Pivot
         // [FIX]: We pass the REAL values selector (not empty).
         // Since agg_expr uses col("") (implicit ref), Polars will accept both.
-        let new_df = ctx.df.clone()
+        let new_df = ctx
+            .df
+            .clone()
             .lazy()
             .pivot(
                 on_ctx.inner,
@@ -506,7 +533,7 @@ pub extern "C" fn pl_dataframe_pivot(
                 agg_expr,
                 maintain_order,
                 separator,
-                column_naming_input
+                column_naming_input,
             )
             .collect()?;
 
@@ -522,12 +549,14 @@ pub extern "C" fn pl_dataframe_concat(
     len: usize,
     how: u8, // 0=Vertical, 1=Horizontal, 2=Diagonal
     check_duplicates: bool,
-    strict: bool,           // Horizontal : if true，different height will return exception
-    unit_length_as_scalar: bool // Horizontal : choose whether broadcast length 1 scalar column 
+    strict: bool, // Horizontal : if true，different height will return exception
+    unit_length_as_scalar: bool, // Horizontal : choose whether broadcast length 1 scalar column
 ) -> *mut DataFrameContext {
     ffi_try!({
         if len == 0 {
-            return Ok(Box::into_raw(Box::new(DataFrameContext { df: DataFrame::default() })));
+            return Ok(Box::into_raw(Box::new(DataFrameContext {
+                df: DataFrame::default(),
+            })));
         }
 
         let slice = unsafe { std::slice::from_raw_parts(dfs_ptr, len) };
@@ -540,14 +569,11 @@ pub extern "C" fn pl_dataframe_concat(
 
         let out_df = match how {
             0 => concat_df(&dfs)?,
-            
-            1 => concat_df_horizontal(&dfs, 
-                check_duplicates, 
-                strict, 
-                unit_length_as_scalar)?,
-            
+
+            1 => concat_df_horizontal(&dfs, check_duplicates, strict, unit_length_as_scalar)?,
+
             2 => concat_df_diagonal(&dfs)?,
-            
+
             _ => return Err(PolarsError::ComputeError("Invalid concat strategy".into())),
         };
 
@@ -569,7 +595,7 @@ pub extern "C" fn pl_hstack(
 ) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*df_ptr };
-        
+
         let slice = unsafe { std::slice::from_raw_parts(cols_ptr, len) };
         let mut columns = Vec::with_capacity(len);
 
@@ -582,7 +608,7 @@ pub extern "C" fn pl_hstack(
         }
 
         let res_df = ctx.df.hstack(&columns)?;
-        
+
         Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))
     })
 }
@@ -619,7 +645,7 @@ pub extern "C" fn pl_dataframe_extend(
 
         let target_ctx = unsafe { &mut *df_ptr };
         let other_ctx = unsafe { &*other_ptr };
-        
+
         target_ctx.df.extend(&other_ctx.df)?;
 
         Ok(())
@@ -631,16 +657,16 @@ pub extern "C" fn pl_dataframe_extend(
 // ==========================================
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_unnest(
-    df: *mut DataFrame, 
-    cols: *const *const c_char, 
+    df: *mut DataFrame,
+    cols: *const *const c_char,
     len: usize,
-    separator: *const c_char
+    separator: *const c_char,
 ) -> *mut DataFrame {
     ffi_try!({
         let df = unsafe { &*df };
-        
+
         let cols_slice = unsafe { std::slice::from_raw_parts(cols, len) };
-        
+
         let names = cols_slice
             .iter()
             .map(|&ptr| unsafe { CStr::from_ptr(ptr).to_str().unwrap() });
@@ -667,16 +693,16 @@ pub extern "C" fn pl_dataframe_explode(
 ) -> *mut DataFrame {
     ffi_try!({
         let df = unsafe { &*df };
-        
+
         let cols_slice = unsafe { std::slice::from_raw_parts(cols, len) };
-        
+
         let names = cols_slice
             .iter()
             .map(|&ptr| unsafe { CStr::from_ptr(ptr).to_str().unwrap() });
 
         let options = ExplodeOptions {
             empty_as_null,
-            keep_nulls
+            keep_nulls,
         };
 
         let result_df = df.explode(names, options)?;
@@ -687,39 +713,38 @@ pub extern "C" fn pl_dataframe_explode(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_get_column(
-    ptr: *mut DataFrameContext, 
-    name: *const c_char
+    ptr: *mut DataFrameContext,
+    name: *const c_char,
 ) -> *mut SeriesContext {
-    ffi_try!({  
+    ffi_try!({
         let ctx = unsafe { &*ptr };
         let name_str = ptr_to_str(name).unwrap_or("");
-        
+
         match ctx.df.column(name_str) {
             Ok(column) => {
-
                 let s = column.as_materialized_series().clone();
-                
+
                 Ok(Box::into_raw(Box::new(SeriesContext { series: s })))
-            },
-            Err(_) => Ok(std::ptr::null_mut())
+            }
+            Err(_) => Ok(std::ptr::null_mut()),
         }
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_dataframe_get_column_at(
-    ptr: *mut DataFrameContext, 
-    index: usize
+    ptr: *mut DataFrameContext,
+    index: usize,
 ) -> *mut SeriesContext {
     ffi_try!({
         let ctx = unsafe { &*ptr };
-        
+
         match ctx.df.select_at_idx(index) {
             Some(column) => {
                 let s = column.as_materialized_series().clone();
                 Ok(Box::into_raw(Box::new(SeriesContext { series: s })))
-            },
-            None => Ok(std::ptr::null_mut())
+            }
+            None => Ok(std::ptr::null_mut()),
         }
     })
 }
@@ -730,8 +755,8 @@ pub extern "C" fn pl_series_to_frame(ptr: *mut SeriesContext) -> *mut DataFrameC
         let ctx = unsafe { &*ptr };
         let s = ctx.series.clone();
         let height = s.len();
-        let df = DataFrame::new(height,vec![s.into()]).unwrap_or_default();
-        
+        let df = DataFrame::new(height, vec![s.into()]).unwrap_or_default();
+
         Ok(Box::into_raw(Box::new(DataFrameContext { df })))
     })
 }
@@ -744,7 +769,9 @@ pub extern "C" fn pl_dataframe_new(
 ) -> *mut DataFrameContext {
     ffi_try!({
         if columns_ptr.is_null() || len == 0 {
-            return Ok(Box::into_raw(Box::new(DataFrameContext { df: DataFrame::default() })));
+            return Ok(Box::into_raw(Box::new(DataFrameContext {
+                df: DataFrame::default(),
+            })));
         }
 
         let slice = unsafe { std::slice::from_raw_parts(columns_ptr, len) };
@@ -757,7 +784,7 @@ pub extern "C" fn pl_dataframe_new(
             }
         }
 
-        let height = series_vec.first().map(|s:&Column| s.len()).unwrap_or(0);
+        let height = series_vec.first().map(|s: &Column| s.len()).unwrap_or(0);
 
         let df = DataFrame::new(height, series_vec)?;
 
@@ -769,7 +796,7 @@ pub extern "C" fn pl_dataframe_new(
 pub extern "C" fn pl_dataframe_lazy(df_ptr: *mut DataFrameContext) -> *mut LazyFrameContext {
     let ctx = unsafe { &*df_ptr };
     let inner = ctx.df.clone().lazy();
-    
+
     Box::into_raw(Box::new(LazyFrameContext { inner }))
 }
 
@@ -778,11 +805,11 @@ pub extern "C" fn pl_dataframe_to_string(df_ptr: *mut DataFrameContext) -> *mut 
     ffi_try!({
         let ctx = unsafe { &mut *df_ptr };
         let mut s = ctx.df.to_string();
-        
+
         if s.contains('\0') {
-            s = s.replace('\0', "␀"); 
+            s = s.replace('\0', "␀");
         }
-        
+
         let c_str = CString::new(s).expect("String sanitization failed");
         Ok(c_str.into_raw())
     })
@@ -796,18 +823,18 @@ pub extern "C" fn pl_dataframe_hash_rows(
 ) -> *mut SeriesContext {
     ffi_try!({
         let ctx = unsafe { &mut *df_ptr };
-        
+
         let hasher_builder = if has_seed {
             Some(PlSeedableRandomStateQuality::seed_from_u64(seed))
         } else {
             None
         };
-        
+
         let chunked_array = ctx.df.hash_rows(hasher_builder)?;
-        
+
         let mut series = chunked_array.into_series();
         series.rename("".into());
-        
+
         Ok(Box::into_raw(Box::new(SeriesContext { series: series })))
     })
 }
@@ -834,9 +861,9 @@ pub extern "C" fn pl_dataframe_is_unique(df_ptr: *mut DataFrameContext) -> *mut 
 pub extern "C" fn pl_dataframe_rechunk(df_ptr: *mut DataFrameContext) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*df_ptr };
-        
+
         let mut new_df = ctx.df.clone();
-        
+
         new_df.rechunk_mut_par();
 
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
@@ -844,12 +871,14 @@ pub extern "C" fn pl_dataframe_rechunk(df_ptr: *mut DataFrameContext) -> *mut Da
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_dataframe_align_chunks(df_ptr: *mut DataFrameContext) -> *mut DataFrameContext {
+pub extern "C" fn pl_dataframe_align_chunks(
+    df_ptr: *mut DataFrameContext,
+) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*df_ptr };
-        
+
         let mut new_df = ctx.df.clone();
-        
+
         new_df.align_chunks_par();
 
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
@@ -867,7 +896,7 @@ pub extern "C" fn pl_dataframe_partition_by(
 ) -> *mut *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*df_ptr };
-        
+
         let cols_slice = unsafe { std::slice::from_raw_parts(cols_ptr, cols_len) };
         let cols: Vec<String> = cols_slice
             .iter()
@@ -889,7 +918,7 @@ pub extern "C" fn pl_dataframe_partition_by(
 
         let ptr = out_ptrs.as_mut_ptr();
         std::mem::forget(out_ptrs);
-        
+
         Ok(ptr)
     })
 }
@@ -904,13 +933,13 @@ pub extern "C" fn pl_dataframe_equals(
     ffi_eval_out_try!(out_result, {
         let ctx = unsafe { &*df_ptr };
         let other_ctx = unsafe { &*other_ptr };
-        
+
         let is_eq = if null_equal {
             ctx.df.equals_missing(&other_ctx.df)
         } else {
             ctx.df.equals(&other_ctx.df)
         };
-        
+
         Ok(is_eq)
     })
 }
@@ -924,10 +953,10 @@ pub extern "C" fn pl_dataframe_replace_column_at(
     ffi_bool_try!({
         let ctx = unsafe { &mut *df_ptr };
         let s_ctx = unsafe { &*series_ptr };
-        
+
         let new_col = s_ctx.series.clone().into();
         ctx.df.replace_column(index, new_col)?;
-        
+
         Ok(())
     })
 }
@@ -941,12 +970,12 @@ pub extern "C" fn pl_dataframe_replace(
     ffi_bool_try!({
         let ctx = unsafe { &mut *df_ptr };
         let s_ctx = unsafe { &*series_ptr };
-        
+
         let col_name = unsafe { CStr::from_ptr(name_ptr).to_string_lossy() };
         let new_col = s_ctx.series.clone().into();
-        
+
         ctx.df.replace(&col_name, new_col)?;
-        
+
         Ok(())
     })
 }
@@ -955,26 +984,27 @@ pub extern "C" fn pl_dataframe_replace(
 pub unsafe extern "C" fn pl_dataframe_with_row_index(
     df_ptr: *mut DataFrameContext,
     name: *const c_char,
-    offset_val: i32, 
+    offset_val: i32,
 ) -> *mut DataFrameContext {
     ffi_try!({
-       
-        let ctx = unsafe { &mut *df_ptr  };
-        
+        let ctx = unsafe { &mut *df_ptr };
+
         let name_str = if name.is_null() {
             "index".to_string()
         } else {
-            unsafe { CStr::from_ptr(name) }.to_string_lossy().into_owned()
+            unsafe { CStr::from_ptr(name) }
+                .to_string_lossy()
+                .into_owned()
         };
-        
+
         let offset = if offset_val < 0 {
             None
         } else {
             Some(offset_val as u32)
         };
-        
+
         let new_df = ctx.df.with_row_index(name_str.into(), offset)?;
-        
+
         Ok(Box::into_raw(Box::new(DataFrameContext { df: new_df })))
     })
 }
@@ -983,9 +1013,9 @@ pub unsafe extern "C" fn pl_dataframe_with_row_index(
 pub extern "C" fn pl_dataframe_transpose(
     df_ptr: *mut DataFrameContext,
     keep_names_as_ptr: *const c_char,
-    
+
     name_col_ptr: *const c_char,
-    
+
     custom_names_ptr: *const *const c_char,
     custom_names_len: usize,
 ) -> *mut DataFrameContext {
@@ -1006,14 +1036,12 @@ pub extern "C" fn pl_dataframe_transpose(
                 .iter()
                 .map(|&p| ptr_to_str(p).unwrap_or("").to_string())
                 .collect();
-                
+
             Some(Either::Right(vec_names))
-            
         } else if !name_col_ptr.is_null() {
             let col_name = ptr_to_str(name_col_ptr).unwrap_or("").to_string();
-            
+
             Some(Either::Left(col_name))
-            
         } else {
             None
         };
@@ -1083,15 +1111,16 @@ pub extern "C" fn pl_dataframe_to_dummies(
             ctx.df.to_dummies(separator, drop_first, drop_nulls)?
         } else {
             let slice = unsafe { std::slice::from_raw_parts(columns_ptr, columns_len) };
-            
+
             let mut cols: Vec<&str> = Vec::with_capacity(columns_len);
             for &p in slice {
                 if let Ok(s) = ptr_to_str(p) {
                     cols.push(s);
                 }
             }
-            
-            ctx.df.columns_to_dummies(cols, separator, drop_first, drop_nulls)?
+
+            ctx.df
+                .columns_to_dummies(cols, separator, drop_first, drop_nulls)?
         };
 
         Ok(Box::into_raw(Box::new(DataFrameContext { df: res_df })))

@@ -66,7 +66,7 @@ public static class ArrowFfiBridge
 
             // 2. C Structs -> Rust DataFrame
             var handle = NativeBindings.pl_dataframe_from_arrow_record_batch(cArray, cSchema);
-            
+
             return ErrorHelper.Check(handle);
         }
         catch
@@ -90,7 +90,7 @@ public static class ArrowFfiBridge
         try
         {
             NativeBindings.pl_to_arrow(handle, array, schema);
-            
+
             ErrorHelper.CheckVoid();
 
             var managedSchema = CArrowSchemaImporter.ImportSchema(schema);
@@ -123,7 +123,7 @@ public static class ArrowFfiBridge
 
         // Unbox StructArray as RecordBatch
         var structType = (StructType)structArray.Data.DataType;
-        
+
         // Build Schema
         var schema = new Schema(structType.Fields, null); // null for metadata
 
@@ -144,8 +144,8 @@ public static class ArrowFfiBridge
             CArrowArrayExporter.ExportRecordBatch(batch, cArray);
 
             return NativeBindings.pl_arrow_to_series(
-                "data", 
-                cArray, 
+                "data",
+                cArray,
                 cSchema
             );
         }
@@ -159,7 +159,7 @@ public static class ArrowFfiBridge
     public static RecordBatch ToRecordBatch(StructArray structArray)
     {
         var structType = (StructType)structArray.Data.DataType;
-        var schema = new Apache.Arrow.Schema(structType.Fields, metadata: null);
+        var schema = new Schema(structType.Fields, metadata: null);
         return new RecordBatch(schema, structArray.Fields, structArray.Length);
     }
 
@@ -182,7 +182,7 @@ public static class ArrowStreamingExtensions
     /// <param name="source">Source DataFlow </param>
     /// <param name="batchSize"> the Size of each Batch </param>
     public static IEnumerable<RecordBatch> ToArrowBatches<T>(
-        this IEnumerable<T> source, 
+        this IEnumerable<T> source,
         int batchSize = 100_000)
     {
         // Prepare buffer
@@ -195,7 +195,7 @@ public static class ArrowStreamingExtensions
             if (buffer.Count >= batchSize)
             {
                 yield return BuildBatchFromBuffer(buffer);
-                
+
                 buffer.Clear();
             }
         }

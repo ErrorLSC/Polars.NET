@@ -4,7 +4,7 @@ open System
 open Polars.NET.Core
 
 [<AutoOpen>]
-module ManipulateOps = 
+module ManipulateOps =
     /// ========================
     /// WithColumns
     /// ========================
@@ -16,7 +16,7 @@ module ManipulateOps =
         member this.WithColumns (expr: Expr) : LazyFrame =
             let lfClone = this.CloneHandle()
             let exprClone = expr.CloneHandle()
-            let handles = [| exprClone |] 
+            let handles = [| exprClone |]
             let h = PolarsWrapper.LazyWithColumns(lfClone, handles)
             new LazyFrame(h)
         /// <summary>
@@ -32,11 +32,11 @@ module ManipulateOps =
         /// Add or replace columns using generic column expressions (Expr or Selectors).
         /// </summary>
         member this.WithColumns (columns:seq<#IColumnExpr>) =
-            let exprs = 
-                columns 
-                |> Seq.collect (fun x -> x.ToExprs()) 
+            let exprs =
+                columns
+                |> Seq.collect (fun x -> x.ToExprs())
                 |> Seq.toList
-            
+
             this.WithColumns exprs
 
     type DataFrame with
@@ -45,11 +45,11 @@ module ManipulateOps =
             this.Lazy().WithColumns(exprs).Collect()
         /// <summary> Add or replace columns using generic column expressions (Expr or Selectors). </summary>
         member this.WithColumns (columns:seq<#IColumnExpr>) =
-            let exprs = 
-                columns 
-                |> Seq.collect (fun x -> x.ToExprs()) 
+            let exprs =
+                columns
+                |> Seq.collect (fun x -> x.ToExprs())
                 |> Seq.toList
-            
+
             this.WithColumns exprs
         member this.WithColumns (expr: Expr) : DataFrame =
             this.WithColumns [expr]
@@ -65,7 +65,7 @@ module ManipulateOps =
 
             let castExprs =
                 dtypes
-                |> Seq.map (fun (colName, dtype) -> 
+                |> Seq.map (fun (colName, dtype) ->
                     Expr.Col(colName).Cast(dtype, strictArg)
                 )
 
@@ -76,9 +76,9 @@ module ManipulateOps =
         /// </summary>
         member this.Cast(dtype: DataType, ?strict: bool) =
             let strictArg = defaultArg strict true
-            
+
             let castAllExpr = Expr.Col("*").Cast(dtype, strictArg)
-            
+
             this.Select castAllExpr
         /// <summary>
         /// Cast columns matching an Expr/Selector to a specific DataType.
@@ -93,23 +93,41 @@ module ManipulateOps =
         /// </summary>
         member this.Cast(dtypes: seq<Expr * DataType>, ?strict: bool) =
             let strictArg = defaultArg strict true
-            
-            let castExprs = 
-                dtypes 
+
+            let castExprs =
+                dtypes
                 |> Seq.map (fun (expr, dt) -> expr.Cast(dt, strictArg))
-                
+
             this.WithColumns castExprs
 
     /// ========================
     /// Concat
     /// ========================
     type LazyFrame with
+        /// <summary>
+        /// Concatenate multiple LazyFrames.
+        /// </summary>
         static member Concat  (lfs: seq<LazyFrame>,?how: ConcatType,?rechunk,?useParallel) : LazyFrame =
             let handles = lfs |> Seq.map (fun lf -> lf.CloneHandle()) |> Seq.toArray
-            let ho = defaultArg how ConcatType.Vertical 
+            let ho = defaultArg how ConcatType.Vertical
             let re = defaultArg rechunk false
             let pa = defaultArg useParallel true
             new LazyFrame(PolarsWrapper.LazyConcat(handles, ho.ToNative(), re, pa))
+        /// <summary>
+        /// Concatenate multiple LazyFrames vertically.
+        /// </summary>
+        static member ConcatVertical (lfs: seq<LazyFrame>) : LazyFrame =
+            LazyFrame.Concat(lfs, ConcatType.Vertical)
+        /// <summary>
+        /// Concatenate multiple LazyFrames horizontally.
+        /// </summary>
+        static member ConcatHorizontal (lfs: seq<LazyFrame>) : LazyFrame =
+            LazyFrame.Concat(lfs, ConcatType.Horizontal)
+        /// <summary>
+        /// Concatenate multiple LazyFrames diagonally.
+        /// </summary>
+        static member ConcatDiagonal (lfs: seq<LazyFrame>) : LazyFrame =
+            LazyFrame.Concat(lfs, ConcatType.Diagonal)
     type DataFrame with
         /// <summary>
         /// General Concat method.
@@ -117,7 +135,7 @@ module ManipulateOps =
         /// </summary>
         static member internal Concat (dfs: seq<DataFrame>, how: ConcatType, ?checkDuplicates: bool,?strict: bool, ?unitLengthAsScalar: bool) : DataFrame =
             let handles = dfs |> Seq.map (fun df -> df.CloneHandle()) |> Seq.toArray
-            
+
             let check = defaultArg checkDuplicates true
             let st = defaultArg strict true
             let uni = defaultArg unitLengthAsScalar false
@@ -160,14 +178,14 @@ module ManipulateOps =
             let sel = new Selector(h)
             this.Explode sel
 
-        member this.Explode(column: string) = 
+        member this.Explode(column: string) =
             this.Explode [column]
         /// <summary>
         /// Decompose a struct column into multiple columns.
         /// </summary>
         member this.Unnest(selector: Selector,?separator: string) =
             let lfHandle = this.CloneHandle()
-            
+
             let selHandle = selector.CloneHandle()
 
             let sep = defaultArg separator null
@@ -190,24 +208,22 @@ module ManipulateOps =
         member this.Unnest(column: string, ?separator: string) =
             this.Unnest ([column], ?separator=separator)
     type DataFrame with
-        /// <summary> 
+        /// <summary>
         /// Explode list columns to rows using a Selector.
         /// </summary>
         member this.Explode(selector: Selector,?emptyAsNull:bool,?keepNulls:bool) : DataFrame =
             this.Lazy().Explode(selector,?emptyAsNull=emptyAsNull,?keepNulls=keepNulls).Collect()
-
-        /// <summary> 
+        /// <summary>
         /// Explode list columns to rows using column names.
         /// </summary>
-        member this.Explode(columns: seq<string>,?emptyAsNull:bool,?keepNulls:bool) =
+        member this.Explode(columns: seq<string>,?emptyAsNull:bool,?keepNulls:bool):DataFrame =
             let names = Seq.toArray columns
             let h = PolarsWrapper.SelectorCols names
             let sel = new Selector(h)
-            this.Explode(sel,?emptyAsNull=emptyAsNull,?keepNulls=keepNulls) 
-
+            this.Explode(sel,?emptyAsNull=emptyAsNull,?keepNulls=keepNulls)
         /// <summary>Explode a single column by name. </summary>
-        member this.Explode(column: string,?emptyAsNull:bool,?keepNulls:bool) =
-            this.Explode([column],?emptyAsNull=emptyAsNull,?keepNulls=keepNulls)                          
+        member this.Explode(column: string,?emptyAsNull:bool,?keepNulls:bool):DataFrame =
+            this.Explode([column],?emptyAsNull=emptyAsNull,?keepNulls=keepNulls)
         /// <summary> Decompose a struct column into multiple columns. </summary>
         member this.UnnestColumn(column: string, ?separator: string) : DataFrame =
             let cols = [| column |]
@@ -219,7 +235,7 @@ module ManipulateOps =
             let cArr = Seq.toArray columns
             let sep = defaultArg separator null
             let newHandle = PolarsWrapper.Unnest(this.Handle, cArr, sep)
-            new DataFrame(newHandle) 
+            new DataFrame(newHandle)
     /// ========================
     /// Slice
     /// ========================
@@ -254,7 +270,7 @@ module ManipulateOps =
         /// If length is omitted, it slices to the end of the DataFrame.
         /// </summary>
         member this.Slice(offset: int64, ?length: uint64) =
-            let absoluteOffset = 
+            let absoluteOffset =
                 if offset < 0L then this.Height + offset
                 else offset
 
@@ -268,22 +284,22 @@ module ManipulateOps =
         /// Note: F# slicing bounds are inclusive at the end.
         /// </summary>
         member this.GetSlice(start: int option, finish: int option) =
-            let height = this.Height 
+            let height = this.Height
 
-            let s = 
+            let s =
                 match start with
                 | Some v when v < 0 -> max 0L (height + int64 v)
                 | Some v -> min height (int64 v)
                 | None -> 0L
-                
-            let f = 
+
+            let f =
                 match finish with
                 | Some v when v < 0 -> max 0L (height + int64 v + 1L)
-                | Some v -> min height (int64 v + 1L) 
+                | Some v -> min height (int64 v + 1L)
                 | None -> height
-                
+
             let length = max 0L (f - s)
-            
+
             if length <= 0L then
                 this.Slice(0L, 0UL)
             else
@@ -294,10 +310,10 @@ module ManipulateOps =
         /// <param name="nRows">The number of rows per slice. Defaults to 10,000.</param>
         member this.IterSlices(?nRows: int32) =
             let rowsPerSlice = defaultArg nRows 10_000
-            
+
             if rowsPerSlice <= 0 then
                 raise (ArgumentOutOfRangeException("nRows", "Number of rows per slice must be greater than zero."))
-                
+
             let totalRows = this.Height
             let step = int64 rowsPerSlice
 
@@ -311,20 +327,26 @@ module ManipulateOps =
             ) 0L
     /// ========================
     /// Fill
-    /// ========================            
+    /// ========================
     type LazyFrame with
         /// <summary>
         /// Fill null values in all columns with a specified Expression.
         /// </summary>
-        member this.FillNull(fillValue:Expr) = 
+        member this.FillNull(fillValue:Expr) =
             this.WithColumns(Expr.All().FillNull(fillValue))
         /// <summary>
         /// Fill NaN values in floating point columns with a specified Expression.
         /// </summary>
-        member this.FillNan(fillValue:Expr) = 
+        member this.FillNan(fillValue:Expr) =
             this.WithColumns(Selector.Float().ToExpr().FillNan(fillValue))
     type DataFrame with
+        /// <summary>
+        /// Fill null values in all columns with a specified value.
+        /// </summary>
         member this.FillNull(fillValue) = this.Lazy().FillNull(fillValue).Collect()
+        /// <summary>
+        /// Fill NaN values in all floating point columns with a specified value.
+        /// </summary>
         member this.FillNan(fillValue) = this.Lazy().FillNan(fillValue).Collect()
     /// ========================
     /// Drop
@@ -342,16 +364,23 @@ module ManipulateOps =
         /// </summary>
         member this.Drop([<ParamArray>]columns: string array) =
             if isNull columns then nullArg (nameof columns)
-            
-            this.Drop(Selector.ByName columns)
 
+            this.Drop(Selector.ByName columns)
+        /// <summary>
+        /// Drop columns by specific Expressions.
+        /// </summary>
+        member this.Drop(columns: #IColumnExpr) =
+            this.Drop(columns.ToSelector())
         /// <summary>
         /// Drop columns by specific Expressions.
         /// </summary>
         member this.Drop(exprs: seq<Expr>) =
             if isNull exprs then nullArg (nameof exprs)
-            
+
             exprs |> Seq.fold (fun (lf: LazyFrame) expr -> lf.Drop(expr.ToSelector())) this
+        /// <summary>
+        /// Drop columns by specific Expressions.
+        /// </summary>
         member this.Drop([<ParamArray>]exprs: Expr array) =
             this.Drop(exprs :> seq<Expr>)
 
@@ -360,7 +389,7 @@ module ManipulateOps =
         /// </summary>
         member this.DropNulls(?subset: Selector) =
             let subsetHandle = subset |> Option.map (fun s -> s.CloneHandle()) |> Option.toObj
-                
+
             let h = PolarsWrapper.LazyFrameDropNulls(this.CloneHandle(), subsetHandle)
             new LazyFrame(h)
 
@@ -368,9 +397,9 @@ module ManipulateOps =
         /// Drop rows with Nulls in specific columns.
         /// </summary>
         member this.DropNulls([<ParamArray>] subset: string array) =
-            if isNull subset || subset.Length = 0 then 
+            if isNull subset || subset.Length = 0 then
                 this.DropNulls()
-            else 
+            else
                 this.DropNulls(Expr.Col(subset))
 
         /// <summary>
@@ -385,7 +414,7 @@ module ManipulateOps =
         /// </summary>
         member this.DropNans(?subset: Selector) =
             let subsetHandle = subset |> Option.map (fun s -> s.CloneHandle()) |> Option.toObj
-                
+
             let h = PolarsWrapper.LazyFrameDropNans(this.CloneHandle(), subsetHandle)
             new LazyFrame(h)
 
@@ -393,9 +422,9 @@ module ManipulateOps =
         /// Drop rows with NaN in specific columns.
         /// </summary>
         member this.DropNans([<ParamArray>] subset: string array) =
-            if isNull subset || subset.Length = 0 then 
+            if isNull subset || subset.Length = 0 then
                 this.DropNans()
-            else 
+            else
                 this.DropNans(Expr.Col subset)
 
         /// <summary>
@@ -424,7 +453,7 @@ module ManipulateOps =
 
             use lf = this.Lazy()
             use droppedLf:LazyFrame = lf.Drop exprs
-            
+
             droppedLf.Collect()
         member this.Drop([<ParamArray>]exprs: Expr array):DataFrame =
             this.Drop(exprs :> seq<Expr>)
@@ -434,10 +463,10 @@ module ManipulateOps =
         /// </summary>
         member this.DropInPlace(name: string) =
             if String.IsNullOrEmpty name then nullArg (nameof name)
-            
+
             let seriesHandle = PolarsWrapper.DropInPlace(this.Handle, name)
             new Series(seriesHandle)
-        
+
         /// <summary>
         /// Drop rows containing one or more Null values.
         /// </summary>
@@ -494,8 +523,8 @@ module ManipulateOps =
         /// </summary>
         member this.Unique
             (
-                ?subset: Selector, 
-                ?keep: UniqueKeepStrategy, 
+                ?subset: Selector,
+                ?keep: UniqueKeepStrategy,
                 ?maintainOrder: bool
             ) =
             let keepArg = defaultArg keep UniqueKeepStrategy.First
@@ -507,9 +536,9 @@ module ManipulateOps =
                 | None -> Unchecked.defaultof<SelectorHandle>
 
             let newHandle = PolarsWrapper.LazyUnique(
-                this.CloneHandle(), 
-                subsetHandle, 
-                keepArg.ToNative(), 
+                this.CloneHandle(),
+                subsetHandle,
+                keepArg.ToNative(),
                 maintainArg
             )
 
@@ -519,8 +548,8 @@ module ManipulateOps =
         /// </summary>
         member this.Unique
             (
-                columns: seq<string>, 
-                ?keep: UniqueKeepStrategy, 
+                columns: seq<string>,
+                ?keep: UniqueKeepStrategy,
                 ?maintainOrder: bool
             ) =
             let columnsArray =
@@ -537,7 +566,7 @@ module ManipulateOps =
         /// <summary>
         /// Return the number of unique rows, or the number of unique row-subsets.
         /// </summary>
-        member this.NUnique(?subset: seq<string>) = 
+        member this.NUnique(?subset: seq<string>) =
             use df: DataFrame = this.Unique(?subset = subset)
             df.Height
 
@@ -550,7 +579,7 @@ module ManipulateOps =
 
         /// <summary>
         /// Return the number of unique rows, or the number of unique row-subsets.
-        /// </summary> 
+        /// </summary>
         member this.Unique
             (
                 ?subset: seq<string>,
@@ -571,7 +600,7 @@ module ManipulateOps =
                 match offset, len with
                 | Some o, Some l ->
                     let safeLen = uint64 (Math.Max(0L, l))
-                    Nullable<struct (int64 * uint64)> struct (o, safeLen) 
+                    Nullable<struct (int64 * uint64)> struct (o, safeLen)
                 | _ ->
                     Nullable<struct (int64 * uint64)>()
 
@@ -584,7 +613,9 @@ module ManipulateOps =
             )
 
             new DataFrame(h)
-
+        /// <summary>
+        /// Return unique rows from the DataFrame with a condition.
+        /// </summary>
         member this.Unique
             (
                 subset: seq<Expr>,
@@ -597,7 +628,7 @@ module ManipulateOps =
 
             for expr in subset do
                 let name = expr.Meta.OutputName()
-                
+
                 if not (String.IsNullOrEmpty name) then
                     resolvedColumnNames.Add name
                 else
@@ -608,9 +639,9 @@ module ManipulateOps =
                         let msg = sprintf "Cannot parse this expression to column names: %s" ex.Message
                         raise (ArgumentException(msg, ex))
 
-            let finalSubset = 
-                resolvedColumnNames 
-                |> Seq.distinct 
+            let finalSubset =
+                resolvedColumnNames
+                |> Seq.distinct
                 |> Seq.toArray
 
             if finalSubset.Length = 0 then
@@ -635,16 +666,16 @@ module ManipulateOps =
         /// <param name="by">Columns to sort by.</param>
         /// <param name="reverse">Sort direction per column. Default is false (no reverse).</param>
         member this.TopK(k: int, by: seq<#IColumnExpr>, ?reverse: seq<bool>) =
-            let exprHandles = 
-                by 
-                |> Seq.collect (fun x -> x.ToExprs()) 
-                |> Seq.map (fun e -> e.CloneHandle()) 
+            let exprHandles =
+                by
+                |> Seq.collect (fun x -> x.ToExprs())
+                |> Seq.map (fun e -> e.CloneHandle())
                 |> Seq.toArray
-            
-            let descArr = 
+
+            let descArr =
                 match reverse with
                 | Some d -> d |> Seq.toArray
-                | None -> [| false |] 
+                | None -> [| false |]
 
             let lfHandle = this.CloneHandle()
 
@@ -655,13 +686,13 @@ module ManipulateOps =
         /// Get the bottom k rows based on the given columns.
         /// </summary>
         member this.BottomK(k: int, by: seq<#IColumnExpr>, ?reverse: seq<bool>) =
-            let exprHandles = 
-                by 
-                |> Seq.collect (fun x -> x.ToExprs()) 
-                |> Seq.map (fun e -> e.CloneHandle()) 
+            let exprHandles =
+                by
+                |> Seq.collect (fun x -> x.ToExprs())
+                |> Seq.map (fun e -> e.CloneHandle())
                 |> Seq.toArray
-            
-            let descArr = 
+
+            let descArr =
                 match reverse with
                 | Some d -> d |> Seq.toArray
                 | None -> [| false |]
@@ -673,7 +704,7 @@ module ManipulateOps =
         // [Overload] Sugar for single boolean reversing
         member this.TopK(k: int, by: seq<#IColumnExpr>, reverse: bool) =
             this.TopK(k, by, [| reverse |])
-        
+
         member this.BottomK(k: int, by: seq<#IColumnExpr>, reverse: bool) =
             this.BottomK(k, by, [| reverse |])
     /// ========================
@@ -694,7 +725,7 @@ module ManipulateOps =
     /// ========================
     type LazyFrame with
         /// <summary>
-        /// Mark one or multiple columns as sorted. 
+        /// Mark one or multiple columns as sorted.
         /// This is an optimizer hint and will not actually execute a sorting operation.
         /// </summary>
         /// <param name="columns">The columns to mark as sorted. Accepts strings, arrays, or Selectors (e.g. Cs.Temporal()).</param>
@@ -705,7 +736,7 @@ module ManipulateOps =
             let names = this.Select(columns).Schema.Names
             if names.Length = 0 then
                 this.Clone()
-            else 
+            else
                 let de = defaultArg descending false
                 let nul = defaultArg nullsLast false
                 let exprs = names |> List.map (fun e -> Expr.Col(e).SetSorted(de,nul))
@@ -724,7 +755,7 @@ module ManipulateOps =
         /// </summary>
         /// <param name="n">Number of (null-filled) rows to return in the cleared frame.</param>
         /// <returns>A new LazyFrame.</returns>
-        member this.Clear(?n:int64) = 
+        member this.Clear(?n:int64) =
             use schema = this.Schema
             schema.ToLazyFrame(?length=n)
     type DataFrame with
@@ -734,7 +765,7 @@ module ManipulateOps =
         /// </summary>
         /// <param name="n">Number of (null-filled) rows to return in the cleared frame.</param>
         /// <returns>A new DataFrame.</returns>
-        member this.Clear(?n: int64) = 
+        member this.Clear(?n: int64) =
             use schema = this.Schema
             schema.ToDataFrame(?length=n)
     /// ========================
@@ -751,32 +782,32 @@ module ManipulateOps =
         member this.Filter (expr: Expr) : LazyFrame =
             let lfClone = this.CloneHandle()
             let exprClone = expr.CloneHandle()
-            
+
             let h = PolarsWrapper.LazyFilter(lfClone, exprClone)
             new LazyFrame(h)
 
         member this.Filter (series: Series) : LazyFrame =
             if series.DataType <> DataType.Boolean then
                 invalidArg "series" "Series DataType should be Boolean"
-                
+
             let sh = PolarsWrapper.Lit(series.CloneHandle())
-            use expr = new Expr(sh) 
+            use expr = new Expr(sh)
             this.Filter expr
-        member this.Filter(mask:seq<bool>) = 
+        member this.Filter(mask:seq<bool>) =
             let ma = Series.create("___mask",mask)
             this.Filter(ma)
         /// <summary>
         /// Remove rows that match the predicate.
         /// This is the exact opposite of Filter. Rows where the predicate evaluates to False or Null are kept.
         /// </summary>
-        member this.Remove(predicate:Expr) = 
+        member this.Remove(predicate:Expr) =
             use invertedExpr = predicate.NeqMissing(new Expr(PolarsWrapper.Lit true))
             this.Filter(invertedExpr)
-        member this.Remove(predicate:Series) = 
+        member this.Remove(predicate:Series) =
             if predicate.DataType <> DataType.Boolean then
                 invalidArg "predicate" "Masking Series DataType should be Boolean"
             let sh = PolarsWrapper.Lit(predicate.CloneHandle())
-            use expr = new Expr(sh) 
+            use expr = new Expr(sh)
             this.Remove(expr)
         member this.Remove(mask:seq<bool>) =
             let ma = Series.create("___mask",mask)
@@ -784,19 +815,19 @@ module ManipulateOps =
 
     type DataFrame with
         /// <summary> Filter rows based on a boolean expression (predicate). </summary>
-        member this.Filter (expr: Expr) : DataFrame = 
+        member this.Filter (expr: Expr) : DataFrame =
             this.Lazy().Filter(expr).Collect()
         /// <summary> Filter rows based on a boolean Series. </summary>
-        member this.Filter (series: Series) : DataFrame = 
+        member this.Filter (series: Series) : DataFrame =
             this.Lazy().Filter(series).Collect()
-        member this.Filter(mask:seq<bool>) = 
+        member this.Filter(mask:seq<bool>) =
             let ma = Series.create("___mask",mask)
             this.Filter(ma)
         member this.Remove(predicate:Expr) =
             this.Lazy().Remove(predicate)
-        member this.Remove(predicate:Series) = 
+        member this.Remove(predicate:Series) =
             this.Lazy().Remove predicate
-        member this.Remove(mask:seq<bool>) = 
+        member this.Remove(mask:seq<bool>) =
             this.Lazy().Remove mask
 
     /// ========================
@@ -809,7 +840,7 @@ module ManipulateOps =
             let replace = defaultArg withReplacement false
             let shuff = Option.toNullable shuffle
             let s = Option.toNullable seed
-            
+
             new DataFrame(PolarsWrapper.SampleNLiteral(this.Handle, uint64 n, replace, shuff, s))
 
         /// <summary>
@@ -820,7 +851,7 @@ module ManipulateOps =
             let sf = Series.create("",[frac]).Handle
             let shuff = Option.toNullable shuffle
             let s = Option.toNullable seed
-            
+
             new DataFrame(PolarsWrapper.SampleFrac(this.Handle, sf, replace, shuff, s))
     /// ========================
     /// Shrink
@@ -833,7 +864,7 @@ module ManipulateOps =
         /// Shrink DataFrame memory usage.
         /// </summary>
         /// <returns>A new DataFrame</returns>
-        member this.ShrinkToFit() = 
+        member this.ShrinkToFit() =
             let newDf = this.Clone()
             PolarsWrapper.DataFrameShrinkToFit(newDf.Handle)
             newDf
@@ -856,7 +887,7 @@ module ManipulateOps =
             with
             | ex when ex.Message.Contains("OutOfBounds") || ex.Message.Contains("out of bounds") ->
                 raise (ArgumentOutOfRangeException(
-                    nameof(indices), 
+                    nameof(indices),
                     "Index out of bounds. This may be caused by index values exceeding the DataFrame's height, or by using negative indices which are not supported in Take."
                 ))
 
@@ -930,7 +961,7 @@ module ManipulateOps =
             let originalIndex = index
             let width = int this.Width
 
-            let targetIndex = 
+            let targetIndex =
                 if index < 0 then width + index
                 else index
 
@@ -939,13 +970,13 @@ module ManipulateOps =
                 raise (ArgumentOutOfRangeException("index", msg))
 
             // Convert existing column names to a list of Expr.Col
-            let currentCols = 
-                this.Columns 
-                |> Array.map Expr.Col 
+            let currentCols =
+                this.Columns
+                |> Array.map Expr.Col
                 |> Array.toList
 
             // Convert the incoming Series to a literal Expr[cite: 1]
-            let h = PolarsWrapper.CloneSeries column.Handle 
+            let h = PolarsWrapper.CloneSeries column.Handle
             let exprToInsert = new Expr(PolarsWrapper.Lit h)
 
             // Imperative mutation is avoided.
@@ -968,8 +999,8 @@ module ManipulateOps =
 
             let shouldKeepName = defaultArg keepName false
             let width = int this.Width
-            
-            let targetIndex = 
+
+            let targetIndex =
                 if index < 0 then width + index
                 else index
 
@@ -982,7 +1013,7 @@ module ManipulateOps =
                 PolarsWrapper.Replace(this.Handle, originalName, newColumn.Handle)
             else
                 PolarsWrapper.ReplaceColumnAt(this.Handle, targetIndex, newColumn.Handle)
-                
+
             this
         /// <summary>
         /// Replace a column by its name in-place.
@@ -1031,14 +1062,14 @@ module ManipulateOps =
                     let colsStr = if expandedTimeCols.Length > 0 then String.Join(", ", expandedTimeCols) else "None"
                     let msg = String.Format("The timeColumn selector must resolve to exactly one column, but it resolved to {0} columns: {1}", expandedTimeCols.Length, colsStr)
                     raise (ArgumentException(msg, nameof(timeColumn)))
-                
+
                 let resolvedTimeColumn = expandedTimeCols.[0]
 
                 // 2. Consume Duration DU to FFI string representation
                 let durationStr = Dur.consume every
 
                 // 3. Inline ExpandSelector logic for optional groupBy
-                let groupByCols = 
+                let groupByCols =
                     match groupBy with
                     | Some selector ->
                         use emptyDfForGroup = this.Clear()
@@ -1064,7 +1095,7 @@ module ManipulateOps =
             let shouldDropFirst = defaultArg dropFirst false
             let shouldDropNulls = defaultArg dropNulls false
 
-            let columnsArray = 
+            let columnsArray =
                 match columns with
                 | Some cols ->
                     let arr = Seq.toArray cols
@@ -1074,27 +1105,27 @@ module ManipulateOps =
                     arr
                 | None ->
                     use emptyDf = this.Clear()
-                    
-                    let stringCols = 
+
+                    let stringCols =
                         use sel = Selector.ByDtype DataType.String
                         use res = emptyDf.Select(sel.ToExpr())
                         res.Columns
-                        
-                    let catCols = 
+
+                    let catCols =
                         use sel = Selector.ByDtype(DataType.Categorical())
                         use res = emptyDf.Select(sel.ToExpr())
                         res.Columns
-                        
-                    let enumCols = 
+
+                    let enumCols =
                         use sel =  new Selector(PolarsWrapper.SelectorEnum())
                         use res = emptyDf.Select(sel.ToExpr())
                         res.Columns
 
                     // Merge all propped columns distinctly
-                    let mergedCols = 
-                        Array.concat [ stringCols; catCols; enumCols ] 
+                    let mergedCols =
+                        Array.concat [ stringCols; catCols; enumCols ]
                         |> Array.distinct
-                    
+
                     if mergedCols.Length = 0 then
                         let msg = "The DataFrame contains no string, categorical, or enum columns to convert."
                         raise (ArgumentException(msg))
@@ -1109,7 +1140,7 @@ module ManipulateOps =
         /// <summary>
         /// Add a column at index 0 that counts the rows.
         /// <para>
-        /// This can be useful to generate a unique index or to maintain order in operations 
+        /// This can be useful to generate a unique index or to maintain order in operations
         /// that would otherwise discard it.
         /// </para>
         /// </summary>
@@ -1118,9 +1149,9 @@ module ManipulateOps =
         /// <returns>A new LazyFrame with the row index column added.</returns>
         member this.WithRowIndex(?name:string,?offset:int) =
             let na = defaultArg name "index"
-            let off = 
+            let off =
                 match offset with
-                | Some o -> 
+                | Some o ->
                     if o < 0 then
                         raise (ArgumentException "`offset` input for `WithRowIndex` cannot be negative")
                     else o
@@ -1130,7 +1161,7 @@ module ManipulateOps =
         /// <summary>
         /// Add a column at index 0 that counts the rows.
         /// <para>
-        /// This can be useful to generate a unique index or to maintain order in operations 
+        /// This can be useful to generate a unique index or to maintain order in operations
         /// that would otherwise discard it.
         /// </para>
         /// </summary>
@@ -1139,12 +1170,11 @@ module ManipulateOps =
         /// <returns>A new DataFrame with the row index column added.</returns>
         member this.WithRowIndex(?name:string,?offset:int) =
             let na = defaultArg name "index"
-            let off = 
+            let off =
                 match offset with
-                | Some o -> 
+                | Some o ->
                     if o < 0 then
                         raise (ArgumentException "`offset` input for `WithRowIndex` cannot be negative")
                     else o
                 | None -> 0
             new DataFrame(PolarsWrapper.DataFrameWithRowIndex(this.Handle, na,off))
-     

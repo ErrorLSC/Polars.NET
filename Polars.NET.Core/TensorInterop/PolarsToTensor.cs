@@ -55,27 +55,27 @@ public static partial class ArrowTensorInterop
     public static Tensor<T> AsTensor<T>(this SeriesHandle handle) where T : unmanaged
     {
         var tensorSpan = handle.AsTensorSpan<T>();
-        
+
         int totalElements = (int)tensorSpan.FlattenedLength;
         T[] uninitArray = GC.AllocateUninitializedArray<T>(totalElements);
 
         var heapTensor = Tensor.Create(uninitArray, tensorSpan.Lengths);
 
         tensorSpan.CopyTo(heapTensor.AsTensorSpan());
-        
+
         return heapTensor;
     }
     public static Tensor<T> AsTensor<T>(this SeriesHandle handle, ReadOnlySpan<nint> shape) where T : unmanaged
     {
         var tensorSpan = handle.AsTensorSpan<T>(shape);
-        
+
         int totalElements = (int)tensorSpan.FlattenedLength;
         T[] uninitArray = GC.AllocateUninitializedArray<T>(totalElements);
 
         var heapTensor = Tensor.Create(uninitArray, shape);
 
         tensorSpan.CopyTo(heapTensor.AsTensorSpan());
-        
+
         return heapTensor;
     }
     public static unsafe (nint Pointer, long[] Shape) GetNativePointers<T>(this SeriesHandle handle) where T : unmanaged
@@ -133,7 +133,7 @@ public static partial class ArrowTensorInterop
 
     private static ReadOnlySpan<T> ExtractFlatPhysicalSpan<T>(IArrowArray array, out int topLevelRows) where T : unmanaged
     {
-        topLevelRows = array.Length; 
+        topLevelRows = array.Length;
 
         IArrowArray current = array;
         int logicalOffset = array.Data.Offset;

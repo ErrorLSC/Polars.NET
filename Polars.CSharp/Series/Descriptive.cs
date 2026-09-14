@@ -10,11 +10,11 @@ public partial class Series : IDisposable,IPolarsSeries
     public long[] ChunkLengths()
     {
         nuint[] nativeLengths = PolarsWrapper.SeriesChunkLengths(Handle);
-        
+
         long[] lengths = new long[nativeLengths.Length];
         for (int i = 0; i < nativeLengths.Length; i++)
         {
-            lengths[i] = (long)nativeLengths[i]; 
+            lengths[i] = (long)nativeLengths[i];
         }
 
         return lengths;
@@ -25,14 +25,14 @@ public partial class Series : IDisposable,IPolarsSeries
         using var df = ToFrame();
         return df.Describe();
     }
-    /// <inheritdoc cref="DataFrame.EstimatedSize"/> 
+    /// <inheritdoc cref="DataFrame.EstimatedSize"/>
     public double EstimatedSize(SizeUnit unit = SizeUnit.Bytes)
     {
         long bytes = PolarsWrapper.SeriesEstimatedSize(Handle);
 
         return unit switch
         {
-            SizeUnit.Bytes     => bytes, 
+            SizeUnit.Bytes     => bytes,
             SizeUnit.Kilobytes => bytes / 1024.0,
             SizeUnit.Megabytes => bytes / Math.Pow(1024, 2),
             SizeUnit.Gigabytes => bytes / Math.Pow(1024, 3),
@@ -48,7 +48,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// True if the Series is empty.
     /// </summary>
     public bool IsEmpty(bool ignoreNulls = false)
-        => ignoreNulls 
+        => ignoreNulls
             ? Length == NullCount
             : Length == 0;
     /// <summary>
@@ -162,10 +162,10 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <example>
     /// <code>
     /// var s = Series.From("fruit", ["apple", "apple", "banana"]);
-    /// 
+    ///
     /// // Default: sorted, absolute counts
     /// s.ValueCounts().Show();
-    /// 
+    ///
     /// // Normalized (percentage)
     /// s.ValueCounts(normalize: true, name: "prob").Show();
     /// // Result

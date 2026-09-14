@@ -1,5 +1,5 @@
-using Pl = Polars.CSharp.Polars;
 using Polars.NET.Core;
+using Pl = Polars.CSharp.Polars;
 
 namespace Polars.CSharp;
 
@@ -11,7 +11,7 @@ public readonly struct SeriesStructOps
     private readonly Series _series;
     internal SeriesStructOps(Series series) { _series = series; }
 
-    private Series Apply(Func<Expr, Expr> op) 
+    private Series Apply(Func<Expr, Expr> op)
         => _series.ApplyExpr(op(Pl.Col(_series.Name)));
 
     /// <summary>
@@ -45,8 +45,8 @@ public readonly struct SeriesStructOps
     /// <summary>
     /// Add or overwrite fields of this struct.This is similar to with_columns on DataFrame.
     /// </summary>
-    /// <param name="expr">Field(s) to add, specified as positional arguments. 
-    /// Accepts expression input. 
+    /// <param name="expr">Field(s) to add, specified as positional arguments.
+    /// Accepts expression input.
     /// Strings are parsed as column names, other non-expression inputs are parsed as literals.</param>
     public Series WithFields(params IntoExprColumn[] expr) => Apply(e => e.Struct.WithFields(expr));
 
@@ -59,11 +59,11 @@ public readonly struct SeriesStructOps
     public Series this[string name] => Field(name);
 
     /// <inheritdoc cref="Field(string[])"/>
-    public Series this[string[] names] 
+    public Series this[string[] names]
     {
         get
         {
-            return Apply(e => 
+            return Apply(e =>
             {
                 var exprs = names.Select(name => (IntoExprColumn)e.Struct.Field(name)).ToArray();
                 return Pl.Struct(exprs);
