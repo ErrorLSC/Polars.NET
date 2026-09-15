@@ -543,13 +543,25 @@ type Series(handle: SeriesHandle) =
     // ==========================================
     // Interop
     // ==========================================
+    /// <summary>
+    /// Converts the Series to a DataFrame.
+    /// </summary>
     member this.ToFrame() : DataFrame =
         let h = PolarsWrapper.SeriesToFrame handle
         new DataFrame(h)
+    /// <summary>
+    /// Converts the Series to an Arrow array.
+    /// </summary>
     member this.ToArrow() : Apache.Arrow.IArrowArray =
         PolarsWrapper.SeriesToArrow handle
+    /// <summary>
+    /// Converts an Arrow array to a Series.
+    /// </summary>
     member this.FromArrow(name:string,arrowArray:Apache.Arrow.IArrowArray) : Series =
         new Series(ArrowFfiBridge.ImportSeries(name,arrowArray))
+    /// <summary>
+    /// Converts the Series to a managed array.
+    /// </summary>
     member this.ToArray<'T>() =
         let col = this.ToArrow()
         ArrowReader.ReadColumn<'T> col

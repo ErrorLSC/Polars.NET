@@ -48,6 +48,7 @@ module SeriesOperationExtensions =
         /// <param name="other">Series to append.</param>
         member this.Append(other:Series) =
             PolarsWrapper.SeriesAppend(this.Handle,other.Handle)
+            this
         /// <summary>
         /// Extend the memory backed by this Series with the values from another.
         /// Different from append, which adds the chunks from other to the chunks of this series, extend appends the data from other to the underlying memory locations and thus may cause a reallocation (which is expensive).
@@ -305,10 +306,8 @@ module SeriesOperationExtensions =
         /// </summary>
         member this.IsBetween(lower:Expr, upper:Expr) =
             this.ApplyExpr(Expr.Col(this.Name).IsBetween(lower,upper))
-
         /// <summary>
         /// Filter a series.
-        /// <br/>
         /// Mostly useful in <c>group_by</c> context or when you want to filter an expression based on another expression within a <c>Select</c> context.
         /// </summary>
         /// <param name="predicate">Boolean expression used to filter the current expression.</param>
@@ -391,7 +390,6 @@ module SeriesOperationExtensions =
         member this.Map<'T, 'U>(f: 'T -> 'U, returnType: DataType) =
             let udf = Udf.map f
             this.Map(udf, returnType)
-
         /// <summary>
         /// Map values using an F# function that handles Options.
         /// Automatically wraps it using Udf.mapOption.
@@ -434,7 +432,9 @@ module SeriesOperationExtensions =
         /// </summary>
         member this.Shift(n: int64) =
             this.ApplyExpr(Expr.Col(this.Name).Shift n)
-
+        /// <summary>
+        /// Shift the values by a given period.
+        /// </summary>
         member this.Shift(n: int) = this.Shift(int64 n)
 
         /// <summary> Shift by 1. </summary>

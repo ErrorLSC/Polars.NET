@@ -1537,3 +1537,66 @@ type ``Complex Query Tests`` () =
         Assert.Equal(Some "C_new", result.String("Value", 2))
         Assert.Equal(Some 4L, result.Int("Id", 3))
         Assert.Equal(Some "D", result.String("Value", 3))
+
+    [<Fact>]
+    [<Trait("DataFrame", "Iterate")>]
+    member _.``DataFrame.iterate accumulates column mutations across multiple steps`` () =
+        // Initial DF: single row with value = 1.0
+        let initialDf =
+            pl.dataframe([
+                pl.series "value" [| 1.0 |]
+            ])
+
+        // Step function: multiplies value by 2.0 at each step
+        let stepFn _step df =
+            df
+            |> DataFrame.withColumn (pl.col "value" * pl.lit 2.0 |> pl.alias "value")
+
+        // Act: Apply 5 iterative steps (1.0 -> 2.0 -> 4.0 -> 8.0 -> 16.0 -> 32.0)
+        let finalDf =
+            initialDf
+            |> DataFrame.iterate 5 stepFn
+
+        // Assert
+        Assert.Equal(1L, finalDf.Height)
+        let valueSeries = finalDf.["value"]
+        Assert.Equal(32.0, valueSeries.GetValue<double>(0))
+
+    [<Fact>]
+    [<Trait("DataFrame", "Iterate")>]
+    member _.``DataFrame.iterate provides correct step indices`` () =
+        // Initial DF with an accumulator column
+        let initialDf =
+            pl.dataframe([
+                pl.series "total" [| 0 |]
+            ])
+
+        // Step function: adds the current 1-based step counter to total
+        let stepFn step df =
+            df
+            |> DataFrame.withColumn (pl.col "total" + pl.lit step |> pl.alias "total")
+
+        // Act: Iterate 4 steps: 0 + 1 + 2 + 3 + 4 = 10
+        let finalDf =
+            initialDf
+            |> DataFrame.iterate 4 stepFn
+
+        // Assert
+        let totalSeries = finalDf.["total"]
+        Assert.Equal(10, totalSeries.GetValue<int>(0))
+
+    [<Fact>]
+    [<Trait("DataFrame", "Iterate")>]
+    member _.``DataFrame.iterate with zero steps returns original DataFrame unchanged`` () =
+        let initialDf =
+            pl.dataframe([
+                pl.series "x" [| 42 |]
+            ])
+
+        let finalDf =
+            initialDf
+            |> DataFrame.iterate 0 (fun _ df ->
+                df |> DataFrame.withColumn (pl.lit 999 |> pl.alias "x")
+            )
+
+        Assert.Equal(42, finalDf.["x"].GetValue<int>(0))

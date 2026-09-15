@@ -15,8 +15,8 @@ module LazyFrame =
     /// <summary> Explain the unoptimized LazyFrame execution plan. </summary>
     let explainUnoptimized (lf: LazyFrame) = lf.Explain false
     /// Get the head of the LazyFrame.
-    let head (n: uint) (lazyFrame: LazyFrame) : LazyFrame =
-        lazyFrame.Head(n)
+    let head (n: int) (lazyFrame: LazyFrame) : LazyFrame =
+        lazyFrame.Head(uint n)
     /// Get the tail of the LazyFrame.
     let tail (n: uint) (lazyFrame: LazyFrame) : LazyFrame =
         lazyFrame.Tail(n)

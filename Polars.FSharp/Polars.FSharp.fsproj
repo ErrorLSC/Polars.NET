@@ -88,7 +88,6 @@
     <Compile Include="DataFrame/DataFrame.Conversions.fs" />
     <Compile Include="DataFrame/DataFrame.Descriptive.fs" />
     <Compile Include="DataFrame/DataFrame.Transpose.fs" />
-    <Compile Include="Ops.fs" />
     <Compile Include="Display.fs" />
     <Compile Include="Polars.fs" />
     <Compile Include="Extensions.fs" />
@@ -96,6 +95,7 @@
     <Compile Include="DataFrame/DataFrame.JsonNormalize.fs" />
     <Compile Include="DataFrame/DataFrame.Modules.fs" />
     <Compile Include="LazyFrame/LazyFrame.Modules.fs" />
+    <Compile Include="Series/Series.Modules.fs" />
     <Compile Include="Operations/Update.fs" />
     <Compile Include="Operations/Merge.fs" />
     <Compile Include="IO/Delta/Delta.fs" />

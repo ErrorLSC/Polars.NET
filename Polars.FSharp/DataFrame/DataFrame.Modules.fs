@@ -177,7 +177,7 @@ module DataFrame =
     /// <summary>
     /// Vertically concat DataFrames (Standard concat).
     /// </summary>
-    let concat (dfs: seq<DataFrame>) : DataFrame =
+    let concatVertical (dfs: seq<DataFrame>) : DataFrame =
         DataFrame.ConcatVertical dfs
     /// <summary>
     /// Horizontally concat DataFrames.
@@ -194,3 +194,12 @@ module DataFrame =
     /// </summary>
     let concatDiagonal (dfs: seq<DataFrame>) : DataFrame =
         DataFrame.ConcatDiagonal dfs
+    /// <summary>
+    /// Repeatedly applies an update function to a DataFrame for n steps,
+    /// returning the final materialized state.
+    /// </summary>
+    let iterate (steps: int) (stepFn: int -> DataFrame -> DataFrame) (initial: DataFrame) : DataFrame =
+        let mutable current = initial
+        for step = 1 to steps do
+            current <- stepFn step current
+        current

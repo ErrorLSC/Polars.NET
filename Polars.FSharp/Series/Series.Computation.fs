@@ -3,7 +3,7 @@ namespace Polars.FSharp
 open Polars.NET.Core
 
 [<AutoOpen>]
-module SeriesComputationOps = 
+module SeriesComputationOps =
     type Series with
         /// <summary> Absolute value. </summary>
         member this.Abs() = this.ApplyExpr(Expr.Col(this.Name).Abs())
@@ -13,19 +13,19 @@ module SeriesComputationOps =
         /// <summary> Cube root. </summary>
         member this.Cbrt() = this.ApplyExpr(Expr.Col(this.Name).Cbrt())
         /// <summary> Power with scalar exponent. </summary>
-        member this.Pow(exponent: double) = 
+        member this.Pow(exponent: double) =
             this.ApplyExpr(Expr.Col(this.Name).Pow exponent)
 
         /// <summary> Power with integer exponent. </summary>
-        member this.Pow(exponent: int) = 
+        member this.Pow(exponent: int) =
             this.ApplyExpr(Expr.Col(this.Name).Pow exponent)
         /// <summary> Power with Series exponent. </summary>
-        member this.Pow(exponent: Series) = 
+        member this.Pow(exponent: Series) =
             this.ApplyBinaryExpr(exponent, fun l r -> l.Pow r)
         /// <summary> Exponential (e^x). </summary>
         member this.Exp() = this.ApplyExpr(Expr.Col(this.Name).Exp())
         /// <summary> Logarithm with scalar base. </summary>
-        member this.Log(baseVal: double) = 
+        member this.Log(baseVal: double) =
             this.ApplyExpr(Expr.Col(this.Name).Log baseVal)
         /// <summary> Natural logarithm (ln). </summary>
         member this.Ln()= this.ApplyExpr(Expr.Col(this.Name).Ln())
@@ -41,8 +41,10 @@ module SeriesComputationOps =
             let s2 = defaultArg seed2 s0
             let s3 = defaultArg seed3 s0
             this.ApplyExpr(Expr.Col(this.Name).Hash(s0,s1,s2,s3))
-        member this.Dot(other: Series) = 
+        /// <summary> Compute the dot/inner product between two Series. </summary>
+        member this.Dot(other: Series) =
             this.ApplyBinaryExpr(other, fun l r -> l.Dot r)
+        /// <summary> Compute the dot/inner product between two Series. </summary>
         member this.Dot<'T>(other:Series) =
             this.ExtractScalar<'T>(fun () -> this.Dot(other))
         /// <summary> Round to given decimals. </summary>
@@ -50,7 +52,7 @@ module SeriesComputationOps =
             this.ApplyExpr(Expr.Col(this.Name).Round(decimals,?mode=mode))
         member this.RoundSigFigs(digits) =
             this.ApplyExpr(Expr.Col(this.Name).RoundSigFigs(digits))
-        member this.Truncate(?decimals) = 
+        member this.Truncate(?decimals) =
             this.ApplyExpr(Expr.Col(this.Name).Truncate(?decimals=decimals))
         /// <summary> Element-wise sign. </summary>
         member this.Sign() = this.ApplyExpr(Expr.Col(this.Name).Sign())
@@ -114,38 +116,38 @@ module SeriesComputationOps =
         /// </summary>
         /// <param name="reverse">Reverse the operation.</param>
         /// <returns></returns>
-        member this.CumSum(?reverse:bool) = 
+        member this.CumSum(?reverse:bool) =
             this.ApplyExpr(Expr.Col(this.Name).CumSum(?reverse=reverse))
         /// <summary>
         /// Get an array with the cumulative min computed at every element.
         /// </summary>
         /// <param name="reverse">Reverse the operation.</param>
         /// <returns></returns>
-        member this.CumMin(?reverse:bool) = 
+        member this.CumMin(?reverse:bool) =
             this.ApplyExpr(Expr.Col(this.Name).CumMin(?reverse=reverse))
         /// <summary>
         /// Get an array with the cumulative max computed at every element.
         /// </summary>
         /// <param name="reverse">Reverse the operation.</param>
         /// <returns></returns>
-        member this.CumMax(?reverse:bool) = 
+        member this.CumMax(?reverse:bool) =
             this.ApplyExpr(Expr.Col(this.Name).CumMax(?reverse=reverse))
         /// <summary>
         /// Get an array with the cumulative prod computed at every element.
         /// </summary>
         /// <param name="reverse">Reverse the operation.</param>
         /// <returns></returns>
-        member this.CumProd(?reverse:bool) = 
-            this.ApplyExpr(Expr.Col(this.Name).CumProd(?reverse=reverse))    
+        member this.CumProd(?reverse:bool) =
+            this.ApplyExpr(Expr.Col(this.Name).CumProd(?reverse=reverse))
         /// <summary>
         /// Get an array with the cumulative count computed at every element.
         /// </summary>
         /// <param name="reverse">Reverse the operation.</param>
         /// <returns></returns>
-        member this.CumCount(?reverse:bool) = 
-            this.ApplyExpr(Expr.Col(this.Name).CumCount(?reverse=reverse)) 
+        member this.CumCount(?reverse:bool) =
+            this.ApplyExpr(Expr.Col(this.Name).CumCount(?reverse=reverse))
         member this.CumulativeEval(expr:Expr,?minSamples) =
-            this.ApplyExpr(Expr.Col(this.Name).CumulativeEval(expr,?minSamples=minSamples)) 
+            this.ApplyExpr(Expr.Col(this.Name).CumulativeEval(expr,?minSamples=minSamples))
         // ==========================================
         // EWM Functions
         // ==========================================
@@ -153,15 +155,15 @@ module SeriesComputationOps =
         /// Compute exponentially-weighted moving average.
         /// </summary>
         /// <param name="alpha">
-        /// Specify smoothing factor alpha directly. 
+        /// Specify smoothing factor alpha directly.
         /// <para>Constraint: <c>0 &lt; alpha &lt;= 1</c></para>
         /// </param>
         /// <param name="adjust">
-        /// If <c>true</c>, divide by decaying adjustment factor in beginning periods to account for imbalance in relative weightings (viewing data as finite history). 
+        /// If <c>true</c>, divide by decaying adjustment factor in beginning periods to account for imbalance in relative weightings (viewing data as finite history).
         /// If <c>false</c>, assume infinite history.
         /// </param>
         /// <param name="bias">
-        /// If <c>true</c>, use a biased estimator (Standard deviation uses <c>N</c> in denominator). 
+        /// If <c>true</c>, use a biased estimator (Standard deviation uses <c>N</c> in denominator).
         /// If <c>false</c>, use an unbiased estimator (Standard deviation uses <c>N-1</c>).
         /// <para>Note: This is primarily relevant for Variance/StdDev. For Mean, it typically defaults to true.</para>
         /// </param>
@@ -174,15 +176,15 @@ module SeriesComputationOps =
         /// Compute exponentially-weighted moving standard deviation.
         /// </summary>
         /// <param name="alpha">
-        /// Specify smoothing factor alpha directly. 
+        /// Specify smoothing factor alpha directly.
         /// <para>Constraint: <c>0 &lt; alpha &lt;= 1</c></para>
         /// </param>
         /// <param name="adjust">
-        /// If <c>true</c>, divide by decaying adjustment factor in beginning periods to account for imbalance in relative weightings (viewing data as finite history). 
+        /// If <c>true</c>, divide by decaying adjustment factor in beginning periods to account for imbalance in relative weightings (viewing data as finite history).
         /// If <c>false</c>, assume infinite history.
         /// </param>
         /// <param name="bias">
-        /// If <c>true</c>, use a biased estimator (Standard deviation uses <c>N</c> in denominator). 
+        /// If <c>true</c>, use a biased estimator (Standard deviation uses <c>N</c> in denominator).
         /// If <c>false</c>, use an unbiased estimator (Standard deviation uses <c>N-1</c>).
         /// <para>Note: This is primarily relevant for Variance/StdDev. For Mean, it typically defaults to true.</para>
         /// </param>
@@ -195,15 +197,15 @@ module SeriesComputationOps =
         /// Compute exponentially-weighted moving variance.
         /// </summary>
         /// <param name="alpha">
-        /// Specify smoothing factor alpha directly. 
+        /// Specify smoothing factor alpha directly.
         /// <para>Constraint: <c>0 &lt; alpha &lt;= 1</c></para>
         /// </param>
         /// <param name="adjust">
-        /// If <c>true</c>, divide by decaying adjustment factor in beginning periods to account for imbalance in relative weightings (viewing data as finite history). 
+        /// If <c>true</c>, divide by decaying adjustment factor in beginning periods to account for imbalance in relative weightings (viewing data as finite history).
         /// If <c>false</c>, assume infinite history.
         /// </param>
         /// <param name="bias">
-        /// If <c>true</c>, use a biased estimator (Standard deviation uses <c>N</c> in denominator). 
+        /// If <c>true</c>, use a biased estimator (Standard deviation uses <c>N</c> in denominator).
         /// If <c>false</c>, use an unbiased estimator (Standard deviation uses <c>N-1</c>).
         /// <para>Note: This is primarily relevant for Variance/StdDev. For Mean, it typically defaults to true.</para>
         /// </param>
@@ -233,8 +235,8 @@ module SeriesComputationOps =
         ///     <item><term>Compound</term><description>Example: <c>"3d12h4m25s"</c>.</description></item>
         /// </list>
         /// <para>
-        /// <b>Warning:</b> <paramref name="halfLife"/> is treated as a constant duration. 
-        /// Calendar durations such as months (<c>mo</c>) or years (<c>y</c>) are <b>NOT</b> supported because they vary in length. 
+        /// <b>Warning:</b> <paramref name="halfLife"/> is treated as a constant duration.
+        /// Calendar durations such as months (<c>mo</c>) or years (<c>y</c>) are <b>NOT</b> supported because they vary in length.
         /// Please express such durations in hours (e.g. use <c>'730h'</c> instead of <c>'1mo'</c>).
         /// </para>
         /// </param>
@@ -252,15 +254,15 @@ module SeriesComputationOps =
         member this.BitwiseLeadingZeros() = this.ApplyExpr(Expr.Col(this.Name).BitwiseLeadingZeros())
         member this.BitwiseTrailingOnes() = this.ApplyExpr(Expr.Col(this.Name).BitwiseTrailingOnes())
         member this.BitwiseTrailingZeros() = this.ApplyExpr(Expr.Col(this.Name).BitwiseTrailingZeros())
-        
+
         /// <summary>
         /// Calculate the difference with a given period.
         /// </summary>
-        member this.Diff(n: int64) = 
+        member this.Diff(n: int64) =
             this.ApplyExpr(Expr.Col(this.Name).Diff n)
 
         member this.Diff(n: int) = this.Diff(int64 n)
-        
+
         /// <summary> Diff by 1. </summary>
         member this.Diff() = this.Diff(1L)
         /// <summary>
@@ -269,17 +271,17 @@ module SeriesComputationOps =
         /// <param name="maintainOrder">Maintain order of data. This requires more work.</param>
         member this.Unique(?maintainOrder) =
             let mo = defaultArg maintainOrder false
-            if mo = false then 
+            if mo = false then
                 new Series(PolarsWrapper.SeriesUnique(this.Handle))
             else
                 new Series(PolarsWrapper.SeriesUniqueStable(this.Handle))
         member this.Hist(?bins: Expr, ?binCount: int, ?includeCategory: bool, ?includeBreakPoint: bool) =
             let histExpr = Expr.Col(this.Name).Hist(?bins = bins, ?binCount = binCount, ?includeCategory = includeCategory, ?includeBreakPoint = includeBreakPoint)
-            
+
             use res = this.ApplyExpr(histExpr)
-            
+
             match includeCategory, includeBreakPoint with
-            | Some true, _ 
+            | Some true, _
             | _, Some true -> res.Unnest()
             | _ -> res.ToFrame()
         /// <summary>
@@ -301,14 +303,14 @@ module SeriesComputationOps =
         /// Get the Skew.
         /// </summary>
         /// <param name="bias">If False, the calculations are corrected for statistical bias.</param>
-        member this.Skew(?bias:bool) = 
+        member this.Skew(?bias:bool) =
             this.ExtractScalar<double>(fun () -> this.ApplyExpr(Expr.Col(this.Name).Skew(?bias=bias)))
         /// <summary>
         /// Get the Kurtosis.
         /// </summary>
         /// <param name="fisher">If True, Fisher’s definition is used (normal ==> 0.0). If False, Pearson’s definition is used (normal ==> 3.0).</param>
         /// <param name="bias">If False, the calculations are corrected for statistical bias.</param>
-        member this.Kurtosis(?fisher:bool,?bias:bool) = 
+        member this.Kurtosis(?fisher:bool,?bias:bool) =
             this.ExtractScalar<double>(fun () -> this.ApplyExpr(Expr.Col(this.Name).Kurtosis(?fisher=fisher,?bias=bias)))
         /// <summary>
         /// Get index values where Boolean Series evaluate True.

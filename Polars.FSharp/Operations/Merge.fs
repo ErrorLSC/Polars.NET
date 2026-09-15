@@ -64,7 +64,7 @@ module Merge =
             MaintainOrder = JoinMaintainOrder.Left
             TmpSuffix = sfx
             ActionCol = actionColName
-            Context   = createContext sfx target   
+            Context   = createContext sfx target
         }
 
     let private defaultCond : MergeContext -> Expr = fun _ -> pl.lit true
@@ -183,29 +183,29 @@ module Merge =
                 invalidArg "on" $"Key type mismatch for '{key}': source: {srcSchema.[key]}, target: {tgtSchema.[key]}."
         )
 
-        let nullCheckExpr = 
+        let nullCheckExpr =
             plan.On
             |> Array.map (fun k -> pl.col k |> pl.isNull)
             |> Array.reduce (fun e1 e2 -> e1 .|| e2)
-            |> alias plan.ActionCol
+            |> pl.alias plan.ActionCol
 
-        let nullCheck = 
+        let nullCheck =
             plan.Source
-                |> pl.selectLazy (plan.On |> Array.map pl.col |> Array.toSeq)
-                |> pl.withColumnsLazy [nullCheckExpr]
-                |> pl.filterLazy(pl.col plan.ActionCol)
-                |> pl.headLazy 1
-                |> pl.collect
+                |> LazyFrame.select (plan.On |> Array.map pl.col |> Array.toSeq)
+                |> LazyFrame.withColumns [nullCheckExpr]
+                |> LazyFrame.filter (pl.col plan.ActionCol)
+                |> LazyFrame.head 1
+                |> LazyFrame.collect
         if nullCheck.Height > 0 then
             raise (System.IO.InvalidDataException $"""Null values found in merge keys: {String.Join(", ", plan.On)}""")
 
-        let dupCheck = 
+        let dupCheck =
             plan.Source
-                |> pl.groupByLazy (plan.On |> Array.map pl.col |> Array.toSeq)
-                |> pl.aggLazy [pl.len() |> pl.alias "dup_count"]
-                |> pl.filterLazy(pl.col "dup_count" .> pl.lit 1)
-                |> pl.headLazy 1
-                |> pl.collect
+                |> LazyFrame.groupBy (plan.On |> Array.map pl.col |> Array.toSeq)
+                |> LazyFrame.agg [pl.len() |> pl.alias "dup_count"]
+                |> LazyFrame.filter (pl.col "dup_count" .> pl.lit 1)
+                |> LazyFrame.head 1
+                |> LazyFrame.collect
         if dupCheck.Height > 0 then
             raise (System.IO.InvalidDataException $"""Duplicate keys found in source for: {String.Join(", ", plan.On)}""")
     let private buildAst (plan: MergePlan) : LazyFrame =
@@ -215,14 +215,14 @@ module Merge =
         let srcValCol = sourceFlagName
 
         let defaultCond : MergeContext -> Expr = fun _ -> pl.lit true
-        let allActions = 
-            if plan.Actions.IsEmpty then 
+        let allActions =
+            if plan.Actions.IsEmpty then
                 [ MergeAction.MatchedUpdate(defaultCond, None);
                 MergeAction.NotMatchedInsert(defaultCond, None) ]
             else plan.Actions
 
-        let tgt = plan.Target |> pl.withColumnLazy (pl.lit true |> pl.alias tgtValCol)
-        let src = plan.Source |> pl.selectLazy([
+        let tgt = plan.Target |> LazyFrame.withColumn (pl.lit true |> pl.alias tgtValCol)
+        let src = plan.Source |> LazyFrame.select([
                         pl.all().Name.Suffix sfx
                         pl.lit true |> pl.alias srcValCol
                     ])
@@ -230,7 +230,7 @@ module Merge =
         let leftOn = plan.On |> Array.map pl.col
         let rightOn = plan.On |> Array.map (fun k -> pl.col (k + sfx))
 
-        let hasInsert = 
+        let hasInsert =
             allActions |> List.exists (function MergeAction.NotMatchedInsert _ -> true | _ -> false)
         let how = if hasInsert then JoinType.Outer else JoinType.Left
 
@@ -239,8 +239,8 @@ module Merge =
         let isTargetOnly = pl.col tgtValCol |> pl.isNotNull .&& (pl.col srcValCol |> pl.isNull)
 
         let actionsWithId = allActions |> List.mapi (fun i a -> i + 1, a)
-        
-        let baseActionExpr = 
+
+        let baseActionExpr =
             pl.ifElse isTargetOnly (pl.lit 0) (pl.ifElse isMatched (pl.lit 0) (pl.lit -1))
 
         let actionCol =
@@ -258,27 +258,27 @@ module Merge =
                     | MergeAction.NotMatchedBySourceDelete _ -> isTargetOnly .&& condExpr
                 pl.ifElse finalCond (pl.lit id) accExpr
             ) baseActionExpr
-        
+
         let tgtNames = plan.Target.Schema.Names
         let srcNames = plan.Source.Schema.Names
-        
-        let allColumns = 
+
+        let allColumns =
             tgtNames @ srcNames
             |> List.distinct
 
         let whenCondHelper condId thenExpr elseExpr =
             pl.ifElse (pl.col actionColName .== pl.lit condId) thenExpr elseExpr
 
-        let columnUpdateExprs = 
+        let columnUpdateExprs =
             allColumns |> List.map (fun colName ->
                 let tgtCol = if List.contains colName tgtNames then pl.col colName else pl.litNull()
                 let srcTmpCol = if List.contains colName srcNames then pl.col (colName + sfx) else pl.litNull()
                 let initial = tgtCol
-                let finalExpr = 
+                let finalExpr =
                     actionsWithId
                     |> List.fold (fun current (id, action) ->
                         match action with
-                        | MergeAction.MatchedUpdate(_, settersSpec) 
+                        | MergeAction.MatchedUpdate(_, settersSpec)
                         | MergeAction.NotMatchedInsert(_, settersSpec) ->
                             let settersMapOpt =
                                 settersSpec |> Option.map (fun spec ->
@@ -289,7 +289,7 @@ module Merge =
                             | Some settersMap ->
                                 match Map.tryFind colName settersMap with
                                 | Some userExpr -> whenCondHelper id userExpr current
-                                | None -> current   
+                                | None -> current
                             | None ->
                                 if List.contains colName srcNames then
                                     if plan.IncludeNulls then
@@ -301,23 +301,23 @@ module Merge =
                                 else current
                         | _ -> current
                     ) initial
-                finalExpr |> alias colName
+                finalExpr |> pl.alias colName
             )
 
-        let deleteIds = 
-            actionsWithId 
-            |> List.choose (fun (id, action) -> 
-                match action with 
-                | MergeAction.MatchedDelete _ | MergeAction.NotMatchedBySourceDelete _ -> Some id 
+        let deleteIds =
+            actionsWithId
+            |> List.choose (fun (id, action) ->
+                match action with
+                | MergeAction.MatchedDelete _ | MergeAction.NotMatchedBySourceDelete _ -> Some id
                 | _ -> None)
         let keepCond =
-            deleteIds 
+            deleteIds
             |> List.fold (fun cond id -> cond .&& (pl.col actionColName .!= pl.lit id)) (pl.col actionColName .!= pl.lit -1)
 
-        let dropExprs = 
+        let dropExprs =
             [ yield! srcNames |> List.map (fun n -> pl.col (n + sfx));
-            yield pl.col tgtValCol; yield pl.col srcValCol; yield pl.col actionColName ] 
-        
+            yield pl.col tgtValCol; yield pl.col srcValCol; yield pl.col actionColName ]
+
         let readyforDrop =
             tgt.Join(
                         other = src,
@@ -327,9 +327,9 @@ module Merge =
                         coalesce = JoinCoalesce.KeepColumns,
                         maintainOrder = plan.MaintainOrder
                     )
-            |> pl.withColumnsLazy [actionCol |> pl.alias actionColName]
-            |> pl.withColumnsLazy columnUpdateExprs 
-            |> pl.filterLazy keepCond
+            |> LazyFrame.withColumns [actionCol |> pl.alias actionColName]
+            |> LazyFrame.withColumns columnUpdateExprs
+            |> LazyFrame.filter keepCond
         readyforDrop.Drop dropExprs
 
     let private replaceSuffix (suffix: string) (s: string) =
@@ -389,10 +389,10 @@ module Merge =
             if not actions.IsEmpty then
                 let lines = [
                     yield title
-                    
+
                     for i, (name, cond, setters) in List.indexed actions do
                         let condStr = formatConditionInline suffix cond ctx
-                        
+
                         if isAlwaysTrueCond condStr then
                             yield $"  [{i+1}] {name}"
                         else
@@ -410,7 +410,7 @@ module Merge =
                                     yield "      SET: (All Source Columns)"
                             | None ->
                                 yield "      SET: (All Source Columns)"
-                    
+
                     yield ""
                 ]
 
@@ -467,7 +467,7 @@ module Merge =
     /// <returns>A LazyFrame representing the merged result (not yet materialized).</returns>
     let execute (plan: MergePlan) =
         validate plan
-        buildAst plan 
+        buildAst plan
     /// <summary>
     /// Executes the merge plan eagerly, materializing the result into a DataFrame.
     /// This is the terminal operation for a merge pipeline when a concrete result is needed.
@@ -476,7 +476,7 @@ module Merge =
     /// <param name="plan">The fully constructed MergePlan.</param>
     /// <returns>A materialized DataFrame containing the merged data.</returns>
     let executeEager (engine: Engine) (plan: MergePlan) : DataFrame =
-        execute plan |> pl.collectWithEngine engine
+        execute plan |> LazyFrame.collectWithEngine engine
 
 
 /// <summary>
@@ -543,8 +543,8 @@ module MergeOps =
         /// that resolves to the merge key columns.</param>
         /// <returns>A <c>MergePlan</c> that can be further configured and then executed.</returns>
         member this.Merge(source: LazyFrame, on: IColumnExpr) =
-            let onCols = this |> pl.cs.expandLf on 
-            this |> Merge.initiate source onCols 
+            let onCols = this |> pl.cs.expandLf on
+            this |> Merge.initiate source onCols
 
     type DataFrame with
         /// <summary>
@@ -556,6 +556,6 @@ module MergeOps =
         /// <param name="on">A column expression or selector that resolves to the merge key columns.</param>
         /// <returns>A <c>MergePlan</c> backed by LazyFrames, ready for further configuration and execution.</returns>
         member this.Merge(source: DataFrame, on: IColumnExpr) =
-            let onCols = this |> pl.cs.expandDf on 
-            let slf = source |> pl.asLazy 
-            this |> pl.asLazy |> Merge.initiate slf onCols 
+            let onCols = this |> pl.cs.expandDf on
+            let slf = source |> DataFrame.asLazy
+            this |> DataFrame.asLazy |> Merge.initiate slf onCols
