@@ -35,21 +35,24 @@ module Series =
         let returnType = DataType.FromNetType<'U>()
         series.MapValueOption<'T, 'U>(mapping, returnType)
 
-    /// <summary>
     /// Builds a new Series whose elements are the results of applying the given function
-    /// to each element of the Series and its 0-based index.
+    /// to each valid (non-null) element of the Series and its 0-based index.
+    /// Null values in the input Series are preserved as Null in the output.
     /// The return DataType is automatically inferred from 'U using ArrowTypeResolver.
     /// </summary>
     /// <param name="mapping">A function that transforms the 0-based index and current element into a new value.</param>
     /// <param name="series">The target Series.</param>
-    /// <returns>A new Series containing the transformed elements.</returns>
+    /// <returns>A new Series containing the transformed elements with nulls preserved.</returns>
     let mapi (mapping: int -> 'T -> 'U) (series: Series) : Series =
         let len = int series.Length
-        let result = Array.zeroCreate<'U> len
+        let result = Array.zeroCreate<'U option> len
 
         for i = 0 to len - 1 do
-            let item = series.GetValue<'T>(i)
-            result.[i] <- mapping i item
+            match series.TryGetValue<'T>(int64 i) with
+            | ValueSome item ->
+                result.[i] <- Some (mapping i item)
+            | ValueNone ->
+                result.[i] <- None
 
         pl.series (series.Name + "_mapi") result
 
@@ -66,11 +69,11 @@ module Series =
 
         for i = 0 to len - 1 do
             let opt =
-                if series.IsNullAt(i) then None
-                else Some (series.GetValue<'T>(i))
+                match series.TryGetValue<'T>(int64 i) with
+                | ValueSome v -> Some v
+                | ValueNone -> None
             result.[i] <- mapping i opt
 
-        // Let SeriesFactory construct the series with null bitmaps from F# options
         pl.series (series.Name + "_mapi") result
 
     /// <summary>
@@ -85,9 +88,7 @@ module Series =
         let result = Array.zeroCreate<'U voption> len
 
         for i = 0 to len - 1 do
-            let vopt =
-                if series.IsNullAt(i) then ValueNone
-                else ValueSome (series.GetValue<'T>(i))
+            let vopt = series.TryGetValue<'T>(int64 i)
             result.[i] <- mapping i vopt
 
         pl.series (series.Name + "_mapi") result
@@ -107,11 +108,14 @@ module Series =
         if len1 <> len2 then
             invalidArg (nameof series2) (sprintf "Series lengths differ: %d vs %d." len1 len2)
 
-        let result = Array.zeroCreate<'V> len1
+        let result = Array.zeroCreate<'V option> len1
         for i = 0 to len1 - 1 do
-            let v1 = series1.GetValue<'T>(i)
-            let v2 = series2.GetValue<'U>(i)
-            result.[i] <- mapping v1 v2
+            let idx = int64 i
+            match series1.TryGetValue<'T> idx, series2.TryGetValue<'U> idx with
+            | ValueSome v1, ValueSome v2 ->
+                result.[i] <- Some (mapping v1 v2)
+            | _ ->
+                result.[i] <- None
 
         pl.series (series1.Name + "_mapped2") result
 
@@ -131,11 +135,14 @@ module Series =
         if len1 <> len2 then
             invalidArg (nameof series2) (sprintf "Series lengths differ: %d vs %d." len1 len2)
 
-        let result = Array.zeroCreate<'V> len1
+        let result = Array.zeroCreate<'V option> len1
         for i = 0 to len1 - 1 do
-            let v1 = series1.GetValue<'T>(i)
-            let v2 = series2.GetValue<'U>(i)
-            result.[i] <- mapping i v1 v2
+            let idx = int64 i
+            match series1.TryGetValue<'T> idx, series2.TryGetValue<'U> idx with
+            | ValueSome v1, ValueSome v2 ->
+                result.[i] <- Some (mapping i v1 v2)
+            | _ ->
+                result.[i] <- None
 
         pl.series (series1.Name + "_mapped2") result
     /// <summary>
@@ -147,30 +154,53 @@ module Series =
     /// <param name="series">The target Series.</param>
     /// <returns>The accumulated state.</returns>
     let fold (folder: 'State -> 'T -> 'State) (state: 'State) (series: Series) : 'State =
-        let len = int series.Length
+        let len = series.Length
         let mutable acc = state
 
-        if typeof<'T> = typeof<int> then
+        if typeof<'T> = typeof<int> && len > 0L then
             let arrow = series.ToArrow() :?> PrimitiveArray<int>
             let span = arrow.Values
             let f = unbox<'State -> int -> 'State> folder
-            for i = 0 to span.Length - 1 do
-                acc <- f acc span.[i]
-        elif typeof<'T> = typeof<float> then
+            if arrow.NullCount = 0 then
+                for i = 0 to span.Length - 1 do
+                    acc <- f acc span.[i]
+            else
+                for i = 0 to span.Length - 1 do
+                    if arrow.IsValid(i) then
+                        acc <- f acc span.[i]
+
+        elif typeof<'T> = typeof<float> && len > 0L then
             let arrow = series.ToArrow() :?> PrimitiveArray<double>
             let span = arrow.Values
             let f = unbox<'State -> float -> 'State> folder
-            for i = 0 to span.Length - 1 do
-                acc <- f acc span.[i]
-        elif typeof<'T> = typeof<int64> then
+            if arrow.NullCount = 0 then
+                for i = 0 to span.Length - 1 do
+                    acc <- f acc span.[i]
+            else
+                for i = 0 to span.Length - 1 do
+                    if arrow.IsValid(i) then
+                        acc <- f acc span.[i]
+
+        elif typeof<'T> = typeof<int64> && len > 0L then
             let arrow = series.ToArrow() :?> PrimitiveArray<int64>
             let span = arrow.Values
             let f = unbox<'State -> int64 -> 'State> folder
-            for i = 0 to span.Length - 1 do
-                acc <- f acc span.[i]
+            if arrow.NullCount = 0 then
+                for i = 0 to span.Length - 1 do
+                    acc <- f acc span.[i]
+            else
+                for i = 0 to span.Length - 1 do
+                    if arrow.IsValid(i) then
+                        acc <- f acc span.[i]
+
         else
-            for i = 0 to len - 1 do
-                acc <- folder acc (series.GetValue<'T>(i))
+            for i = 0 to int len - 1 do
+                match series.TryGetValue<'T>(i) with
+                | ValueSome v ->
+                    acc <- folder acc v
+                | ValueNone ->
+                    ()
+
         acc
 
     /// <summary>
@@ -181,14 +211,28 @@ module Series =
     /// <param name="series">The target Series.</param>
     /// <returns>The reduced value.</returns>
     let inline reduce (reduction: 'T -> 'T -> 'T) (series: Series) : 'T =
-        let len = int series.Length
-        if len = 0 then
+        let len = series.Length
+        if len = 0L then
             invalidOp "Cannot reduce an empty Series."
 
-        let mutable acc = series.GetValue<'T>(0)
-        for i = 1 to len - 1 do
-            acc <- reduction acc (series.GetValue<'T>(i))
-        acc
+        let mutable acc = ValueNone
+        let mutable i = 0L
+
+        while acc.IsNone && i < len do
+            match series.TryGetValue<'T>(i) with
+            | ValueSome v -> acc <- ValueSome v
+            | ValueNone -> i <- i + 1L
+
+        match acc with
+        | ValueNone ->
+            invalidOp "Cannot reduce a Series containing only null values."
+        | ValueSome initial ->
+            let mutable current = initial
+            for idx in (i + 1L) .. (len - 1L) do
+                match series.TryGetValue<'T> idx with
+                | ValueSome v -> current <- reduction current v
+                | ValueNone -> ()
+            current
 
     /// <summary>
     /// Applies a function to each element and an accumulator, yielding a new Series of the accumulated values at each step.
@@ -198,13 +242,17 @@ module Series =
     /// <param name="series">The target Series.</param>
     /// <returns>A new Series containing intermediate accumulated results.</returns>
     let inline scan (folder: 'State -> 'T -> 'State) (state: 'State) (series: Series) : Series =
-        let len = int series.Length
-        let result = Array.zeroCreate<'State> len
+        let len = series.Length
+        let result = Array.zeroCreate<'State option> (int len)
         let mutable acc = state
 
-        for i = 0 to len - 1 do
-            acc <- folder acc (series.GetValue<'T>(i))
-            result.[i] <- acc
+        for i in 0L .. (len - 1L) do
+            match series.TryGetValue<'T> i with
+            | ValueSome v ->
+                acc <- folder acc v
+                result.[int i] <- Some acc
+            | ValueNone ->
+                result.[int i] <- None
 
         pl.series (series.Name + "_scanned") result
 
@@ -213,7 +261,7 @@ module Series =
     /// Emits None to terminate sequence generation early.
     /// </summary>
     let inline unfold (generator: 'State -> ('T * 'State) option) (initialState: 'State) (maxLen: int) (name: string) : Series =
-        let builder = System.Collections.Generic.List<'T>(maxLen)
+        let builder = ResizeArray<'T>(maxLen)
         let mutable state = initialState
         let mutable running = true
         while running && builder.Count < maxLen do
@@ -224,8 +272,7 @@ module Series =
             | None ->
                 running <- false
 
-        let arr = builder.ToArray()
-        pl.series name arr
+        builder |> pl.series name
 
     /// <summary>
     /// Filter a series.
@@ -276,11 +323,21 @@ module Series =
     /// <param name="other">The second Series.</param>
     /// <param name="self">The first Series.</param>
     /// <returns>An array containing element-wise tuples ('T * 'U).</returns>
-    let inline zip (other: Series) (self: Series) : ('T * 'U)[] =
-        let len = min (int self.Length) (int other.Length)
-        let result = Array.zeroCreate<'T * 'U> len
-        for i = 0 to len - 1 do
-            result.[i] <- self.GetValue<'T>(i), other.GetValue<'U>(i)
+    let inline zip (other: Series) (self: Series) : ('T option * 'U option)[] =
+        let len = min self.Length other.Length
+        let result = Array.zeroCreate<'T option * 'U option> (int len)
+
+        for i in 0L .. (len - 1L) do
+            let v1 =
+                match self.TryGetValue<'T> i with
+                | ValueSome v -> Some v
+                | ValueNone -> None
+            let v2 =
+                match other.TryGetValue<'U> i with
+                | ValueSome v -> Some v
+                | ValueNone -> None
+            result.[int i] <- (v1, v2)
+
         result
 
     /// <summary>
@@ -424,26 +481,32 @@ module Series =
     /// The return DataType is inferred automatically from 'U.
     /// </summary>
     let choose (chooser: 'T -> 'U option) (series: Series) : Series =
-        let len = int series.Length
-        let list = System.Collections.Generic.List<'U>(len)
-        for i = 0 to len - 1 do
-            match chooser (series.GetValue<'T>(i)) with
-            | Some v -> list.Add(v)
-            | None -> ()
+        let len = series.Length
+        let list = ResizeArray<'U>(int len)
+
+        for i in 0L .. (len - 1L) do
+            match series.TryGetValue<'T> i with
+            | ValueSome v ->
+                match chooser v with
+                | Some u -> list.Add u
+                | None -> ()
+            | ValueNone -> ()
+
         pl.series (series.Name + "_chosen") list
 
     /// <summary>
     /// Tests if any element of the Series satisfies the given predicate, short-circuiting on the first match.
     /// </summary>
     let exists (predicate: 'T -> bool) (series: Series) : bool =
-        let len = int series.Length
+        let len = series.Length
         let mutable found = false
-        let mutable i = 0
+        let mutable i = 0L
         while not found && i < len do
-            if predicate (series.GetValue<'T>(i)) then
+            match series.TryGetValue<'T> i with
+            | ValueSome v when predicate v ->
                 found <- true
-            else
-                i <- i + 1
+            | _ ->
+                i <- i + 1L
         found
 
     /// <summary>
@@ -456,14 +519,15 @@ module Series =
     /// Tests if all elements of the Series satisfy the given predicate, short-circuiting on the first failure.
     /// </summary>
     let forall (predicate: 'T -> bool) (series: Series) : bool =
-        let len = int series.Length
+        let len = series.Length
         let mutable satisfied = true
-        let mutable i = 0
+        let mutable i = 0L
         while satisfied && i < len do
-            if not (predicate (series.GetValue<'T>(i))) then
+            match series.TryGetValue<'T> i with
+            | ValueSome v when not (predicate v) ->
                 satisfied <- false
-            else
-                i <- i + 1
+            | _ ->
+                i <- i + 1L
         satisfied
     /// <summary>
     /// Tests if all elements satisfy the Polars boolean expression using native Rust engine execution.
@@ -472,19 +536,23 @@ module Series =
         // (predicate.Not().Any() == false) or length matching
         let filtered = series.Filter(predicate)
         filtered.Length = series.Length
+
     /// <summary>
     /// Applies a function to each pair of adjacent elements (x_i, x_{i+1}), yielding a Series of length (N - 1).
     /// </summary>
     let pairwiseMap (mapping: 'T -> 'T -> 'U) (series: Series) : Series =
-        let len = int series.Length
-        if len < 2 then
+        let len = series.Length
+        if len < 2L then
             pl.series (series.Name + "_pairwise") Array.empty<'U>
         else
-            let result = Array.zeroCreate<'U> (len - 1)
-            for i = 0 to len - 2 do
-                let c = series.GetValue<'T>(int64 i)
-                let n = series.GetValue<'T>(int64 i + 1L)
-                result.[i] <- mapping c n
+            let count = int (len - 1L)
+            let result = Array.zeroCreate<'U option> count
+            for i in 0L .. (len - 2L) do
+                match series.TryGetValue<'T> i, series.TryGetValue<'T> (i + 1L) with
+                | ValueSome c, ValueSome n ->
+                    result.[int i] <- Some (mapping c n)
+                | _ ->
+                    result.[int i] <- None
             pl.series (series.Name + "_pairwise") result
 
     /// <summary>

@@ -321,7 +321,57 @@ type ``UDF Tests`` () =
         Assert.Equal<string>("#1: 100", labels.GetValue<string>(0))
         Assert.Equal<string>("#2: 200", labels.GetValue<string>(1))
         Assert.Equal<string>("#3: 300", labels.GetValue<string>(2))
+    [<Fact>]
+    [<Trait("UDF", "Mapi")>]
+    member _.``Series.mapiOption correctly processes and emits null values`` () =
+        // Arrange: [Some 10; None; Some 30]
+        let s = pl.series "input" [| Some 10; None; Some 30 |]
 
+        // Act:
+        // Index 0: 10 + 0 = 10 -> "Item_0_10"
+        // Index 1: None -> None (Preserve null)
+        // Index 2: 30 + 2 = 32 -> "Item_2_32"
+        let mapped =
+            s |> Series.mapiOption (fun i opt ->
+                match opt with
+                | Some v -> Some (sprintf "Item_%d_%d" i (v + i))
+                | None -> None
+            )
+
+        // Assert
+        Assert.Equal(3L, mapped.Length)
+        Assert.False(mapped.IsNullAt 0L)
+        Assert.Equal<string>("Item_0_10", mapped.GetValue<string>(0L))
+
+        Assert.True(mapped.IsNullAt 1L)
+
+        Assert.False(mapped.IsNullAt 2L)
+        Assert.Equal<string>("Item_2_32", mapped.GetValue<string>(2L))
+
+    [<Fact>]
+    [<Trait("UDF", "Mapi")>]
+    member _.``Series.mapiValueOption correctly handles ValueOption with zero heap overhead`` () =
+        // Arrange: [Some 100.0; None; Some 300.0]
+        let s = pl.series "weights" [| ValueSome 100.0; ValueNone; ValueSome 300.0 |]
+
+        // Act: Fill missing with index default, scale existing by index
+        let result =
+            s |> Series.mapiValueOption (fun i vopt ->
+                match vopt with
+                | ValueSome v -> ValueSome (v * float (i + 1))
+                | ValueNone -> ValueSome (float (i * 999)) // Impute on the fly
+            )
+
+        // Assert
+        Assert.Equal(3L, result.Length)
+        Assert.False(result.IsNullAt 0L)
+        Assert.Equal(100.0, result.GetValue<double>(0L))  // 100.0 * 1
+
+        Assert.False(result.IsNullAt 1L)
+        Assert.Equal(999.0, result.GetValue<double>(1L))  // Imputed: 1 * 999
+
+        Assert.False(result.IsNullAt 2L)
+        Assert.Equal(900.0, result.GetValue<double>(2L))  // 300.0 * 3
     [<Fact>]
     [<Trait("UDF", "Map2")>]
     member _.``Series.map2 element-wise combines two Series matching Array.map2 behavior`` () =

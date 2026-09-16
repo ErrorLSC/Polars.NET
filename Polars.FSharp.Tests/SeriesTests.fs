@@ -1005,10 +1005,25 @@ type ``Series Tests`` () =
 
         // Assert
         Assert.Equal(3, pairs.Length)
-        Assert.Equal(("Alice", 85), pairs.[0])
-        Assert.Equal(("Bob", 92), pairs.[1])
-        Assert.Equal(("Charlie", 78), pairs.[2])
+        Assert.Equal((Some "Alice", Some 85), pairs.[0])
+        Assert.Equal((Some "Bob", Some 92), pairs.[1])
+        Assert.Equal((Some "Charlie", Some 78), pairs.[2])
 
+    [<Fact>]
+    [<Trait("Series", "Zip")>]
+    member _.``Series.zip handles null values correctly`` () =
+        // Arrange
+        let names = pl.series "names" [| Some "Alice"; None; Some "Charlie" |]
+        let scores = pl.series "scores" [| Some 85; Some 92; None |]
+
+        // Act
+        let pairs = names |> Series.zip scores
+
+        // Assert
+        Assert.Equal(3, pairs.Length)
+        Assert.Equal((Some "Alice", Some 85), pairs.[0])
+        Assert.Equal((None, Some 92), pairs.[1])
+        Assert.Equal((Some "Charlie", None), pairs.[2])
     [<Fact>]
     [<Trait("Series", "Choose")>]
     member _.``Series.choose filters and maps elements simultaneously`` () =
