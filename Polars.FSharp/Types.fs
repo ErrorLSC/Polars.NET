@@ -358,108 +358,119 @@ type Series(handle: SeriesHandle) =
     // ==========================================
     // Unified Accessor (Fast Path + Universal Path)
     // ==========================================
+
     /// <summary>
     /// Get an item at the specified index.
     /// Supports primitives (int, float, bool, string) via fast native path,
     /// and complex types (Struct, List, DateTime) via Arrow infrastructure.
     /// </summary>
-    member this.GetValue<'T>(index: int64) : 'T =
-        let len = this.Length
-        if index < 0L || index >= len then
-            raise (IndexOutOfRangeException(sprintf "Index %d is out of bounds for Series length %d." index len))
+    member internal this.ReadScalarInternal<'T>(index: int64) : 'T =
+        let t = typeof<'T>
 
-        // Consistent Null Check
-        if this.IsNullAt index then
-            Unchecked.defaultof<'T>
+        // --- Integer Family ---
+        if t = typeof<int> || t = typeof<int option> || t = typeof<Nullable<int>> then
+            let v = int (PolarsWrapper.SeriesGetInt(this.Handle, index).Value)
+            if t = typeof<int option> then box (Some v) |> unbox<'T>
+            else box v |> unbox<'T>
+
+        else if t = typeof<int64> || t = typeof<int64 option> || t = typeof<Nullable<int64>> then
+            let v = PolarsWrapper.SeriesGetInt(this.Handle, index).Value
+            if t = typeof<int64 option> then box (Some v) |> unbox<'T>
+            else box v |> unbox<'T>
+
+        else if t = typeof<Int128> || t = typeof<Int128 option> || t = typeof<Nullable<Int128>> then
+            let v = PolarsWrapper.SeriesGetInt128(this.Handle, index).Value
+            if t = typeof<Int128 option> then box (Some v) |> unbox<'T>
+            else box v |> unbox<'T>
+
+        // --- Float Family ---
+        else if t = typeof<double> || t = typeof<double option> || t = typeof<Nullable<double>> then
+            let v = PolarsWrapper.SeriesGetDouble(this.Handle, index).Value
+            if t = typeof<double option> then box (Some v) |> unbox<'T>
+            else box v |> unbox<'T>
+
+        else if t = typeof<float32> || t = typeof<float32 option> || t = typeof<Nullable<float32>> then
+            let v = float32 (PolarsWrapper.SeriesGetDouble(this.Handle, index).Value)
+            if t = typeof<float32 option> then box (Some v) |> unbox<'T>
+            else box v |> unbox<'T>
+
+        else if t = typeof<Half> || t = typeof<Half> || t = typeof<Nullable<Half>> then
+            let v = PolarsWrapper.SeriesGetDouble(this.Handle, index).Value
+            if t = typeof<Half option> then box (Some v) |> unbox<'T>
+            else box v |> unbox<'T>
+
+        // --- Boolean ---
+        else if t = typeof<bool> || t = typeof<bool option> || t = typeof<Nullable<bool>> then
+            let v = PolarsWrapper.SeriesGetBool(this.Handle, index).Value
+            if t = typeof<bool option> then box (Some v) |> unbox<'T>
+            else box v |> unbox<'T>
+
+        // --- String ---
+        else if t = typeof<string> || t = typeof<string option> then
+            let v = PolarsWrapper.SeriesGetString(this.Handle, index)
+            if t = typeof<string option> then box (Some v) |> unbox<'T>
+            else box v |> unbox<'T>
+
+        // --- Decimal ---
+        else if t = typeof<decimal> || t = typeof<decimal option> || t = typeof<Nullable<decimal>> then
+            let v = PolarsWrapper.SeriesGetDecimal(this.Handle, index).Value
+            if t = typeof<decimal option> then box (Some v) |> unbox<'T>
+            else box v |> unbox<'T>
+
+        // --- Temporal ---
+        else if t = typeof<DateOnly> || t = typeof<DateOnly option> || t = typeof<Nullable<DateOnly>> then
+            let v = PolarsWrapper.SeriesGetDate(this.Handle, index).Value
+            if t = typeof<DateOnly option> then box (Some v) |> unbox<'T>
+            else box v |> unbox<'T>
+
+        else if t = typeof<TimeOnly> || t = typeof<TimeOnly option> || t = typeof<Nullable<TimeOnly>> then
+            let v = PolarsWrapper.SeriesGetTime(this.Handle, index).Value
+            if t = typeof<TimeOnly option> then box (Some v) |> unbox<'T>
+            else box v |> unbox<'T>
+
+        else if t = typeof<TimeSpan> || t = typeof<TimeSpan option> || t = typeof<Nullable<TimeSpan>> then
+            let v = PolarsWrapper.SeriesGetDuration(this.Handle, index).Value
+            if t = typeof<TimeSpan option> then box (Some v) |> unbox<'T>
+            else box v |> unbox<'T>
+
+        else if t = typeof<DateTime> || t = typeof<DateTime option> || t = typeof<Nullable<DateTime>> then
+            let struct (dt, _) = PolarsWrapper.SeriesGetDatetime(this.Handle, index).Value
+
+            if t = typeof<DateTime option> then box (Some dt) |> unbox<'T>
+            else box dt |> unbox<'T>
+
+        else if t = typeof<struct(DateTime * string)> || t = typeof<struct(DateTime * string) option> || t = typeof<Nullable<struct(DateTime * string)>> then
+            let v = PolarsWrapper.SeriesGetDatetime(this.Handle, index).Value
+
+            if t = typeof<struct(DateTime * string) option> then box (Some v) |> unbox<'T>
+            else box v |> unbox<'T>
+
+        // --- Complex Types (Arrow Fallback) ---
         else
-            // 2. Getvalue
-            let t = typeof<'T>
+            let column = PolarsWrapper.SeriesToArrow handle
+            ArrowReader.ReadItem<'T>(column, int index)
+    /// <summary>
+    /// Gets a single scalar value by 64-bit index.
+    /// </summary>
+    /// <param name="index">The 64-bit row index.</param>
+    /// <param name="uncheck">If true, bypasses boundary checking and null bitmap validation (internal fast-path).</param>
+    member this.GetValue<'T>(index: int64, uncheck: bool) : 'T =
+        if not uncheck then
+            let len = this.Length
+            if index < 0L || index >= len then
+                raise (IndexOutOfRangeException(sprintf "Index %d is out of bounds for Series length %d." index len))
 
-            // --- Integer Family ---
-            if t = typeof<int> || t = typeof<int option> || t = typeof<Nullable<int>> then
-                let v = int (PolarsWrapper.SeriesGetInt(this.Handle, index).Value)
-                if t = typeof<int option> then box (Some v) |> unbox<'T>
-                else box v |> unbox<'T>
-
-            else if t = typeof<int64> || t = typeof<int64 option> || t = typeof<Nullable<int64>> then
-                let v = PolarsWrapper.SeriesGetInt(this.Handle, index).Value
-                if t = typeof<int64 option> then box (Some v) |> unbox<'T>
-                else box v |> unbox<'T>
-
-            else if t = typeof<Int128> || t = typeof<Int128 option> || t = typeof<Nullable<Int128>> then
-                let v = PolarsWrapper.SeriesGetInt128(this.Handle, index).Value
-                if t = typeof<Int128 option> then box (Some v) |> unbox<'T>
-                else box v |> unbox<'T>
-
-            // --- Float Family ---
-            else if t = typeof<double> || t = typeof<double option> || t = typeof<Nullable<double>> then
-                let v = PolarsWrapper.SeriesGetDouble(this.Handle, index).Value
-                if t = typeof<double option> then box (Some v) |> unbox<'T>
-                else box v |> unbox<'T>
-
-            else if t = typeof<float32> || t = typeof<float32 option> || t = typeof<Nullable<float32>> then
-                let v = float32 (PolarsWrapper.SeriesGetDouble(this.Handle, index).Value)
-                if t = typeof<float32 option> then box (Some v) |> unbox<'T>
-                else box v |> unbox<'T>
-
-            else if t = typeof<Half> || t = typeof<Half> || t = typeof<Nullable<Half>> then
-                let v = PolarsWrapper.SeriesGetDouble(this.Handle, index).Value
-                if t = typeof<Half option> then box (Some v) |> unbox<'T>
-                else box v |> unbox<'T>
-
-            // --- Boolean ---
-            else if t = typeof<bool> || t = typeof<bool option> || t = typeof<Nullable<bool>> then
-                let v = PolarsWrapper.SeriesGetBool(this.Handle, index).Value
-                if t = typeof<bool option> then box (Some v) |> unbox<'T>
-                else box v |> unbox<'T>
-
-            // --- String ---
-            else if t = typeof<string> || t = typeof<string option> then
-                let v = PolarsWrapper.SeriesGetString(this.Handle, index)
-                if t = typeof<string option> then box (Some v) |> unbox<'T>
-                else box v |> unbox<'T>
-
-            // --- Decimal ---
-            else if t = typeof<decimal> || t = typeof<decimal option> || t = typeof<Nullable<decimal>> then
-                let v = PolarsWrapper.SeriesGetDecimal(this.Handle, index).Value
-                if t = typeof<decimal option> then box (Some v) |> unbox<'T>
-                else box v |> unbox<'T>
-
-            // --- Temporal ---
-            else if t = typeof<DateOnly> || t = typeof<DateOnly option> || t = typeof<Nullable<DateOnly>> then
-                let v = PolarsWrapper.SeriesGetDate(this.Handle, index).Value
-                if t = typeof<DateOnly option> then box (Some v) |> unbox<'T>
-                else box v |> unbox<'T>
-
-            else if t = typeof<TimeOnly> || t = typeof<TimeOnly option> || t = typeof<Nullable<TimeOnly>> then
-                let v = PolarsWrapper.SeriesGetTime(this.Handle, index).Value
-                if t = typeof<TimeOnly option> then box (Some v) |> unbox<'T>
-                else box v |> unbox<'T>
-
-            else if t = typeof<TimeSpan> || t = typeof<TimeSpan option> || t = typeof<Nullable<TimeSpan>> then
-                let v = PolarsWrapper.SeriesGetDuration(this.Handle, index).Value
-                if t = typeof<TimeSpan option> then box (Some v) |> unbox<'T>
-                else box v |> unbox<'T>
-
-            else if t = typeof<DateTime> || t = typeof<DateTime option> || t = typeof<Nullable<DateTime>> then
-                let struct (dt, _) = PolarsWrapper.SeriesGetDatetime(this.Handle, index).Value
-
-                if t = typeof<DateTime option> then box (Some dt) |> unbox<'T>
-                else box dt |> unbox<'T>
-
-            else if t = typeof<struct(DateTime * string)> || t = typeof<struct(DateTime * string) option> || t = typeof<Nullable<struct(DateTime * string)>> then
-                let v = PolarsWrapper.SeriesGetDatetime(this.Handle, index).Value
-
-                if t = typeof<struct(DateTime * string) option> then box (Some v) |> unbox<'T>
-                else box v |> unbox<'T>
-
-            // --- Complex Types (Arrow Fallback) ---
+            if this.IsNullAt index then
+                Unchecked.defaultof<'T>
             else
-                use slicedHandle = PolarsWrapper.SeriesSlice(this.Handle, index, 1UL)
-                use dfHandle = PolarsWrapper.SeriesToFrame slicedHandle
-                use batch = ArrowFfiBridge.ExportDataFrame dfHandle
-                let column = batch.Column(0)
-                ArrowReader.ReadItem<'T>(column, 0)
+                this.ReadScalarInternal<'T>(index)
+        else
+            this.ReadScalarInternal<'T>(index)
+    /// <summary>
+    /// Get scalar value with full bounds and null checks.
+    /// </summary>
+    member this.GetValue<'T>(index: int64) : 'T =
+        this.GetValue<'T>(index, false)
     /// <summary>
     /// Get a value as an F# List ('T list).
     /// Automatically handles conversion from .NET List (ResizeArray).
@@ -478,10 +489,10 @@ type Series(handle: SeriesHandle) =
     /// <param name="index">The 64-bit row index location.</param>
     /// <returns>ValueSome value if valid, or ValueNone if null.</returns>
     member inline this.TryGetValue<'T>(index: int64) : 'T voption =
-        if this.IsNullAt index then
+        if index < 0L || index >= this.Length || this.IsNullAt index then
             ValueNone
         else
-            ValueSome (this.GetValue<'T> index)
+            ValueSome (this.GetValue<'T>(index, uncheck = true))
     /// <summary>
     /// [Indexer] Access value at specific index as boxed object.
     /// Syntax: series.[index]
@@ -538,7 +549,10 @@ type Series(handle: SeriesHandle) =
     /// Ideal for safe handling of nulls in Polars series.
     /// </summary>
     member this.GetValueOption<'T>(index: int64) : 'T option =
-        this.GetValue<'T option> index
+        if index < 0L || index >= this.Length || this.IsNullAt index then
+            None
+        else
+            this.GetValue<'T option>(index, uncheck = true)
 
     // ==========================================
     // Interop

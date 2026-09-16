@@ -194,7 +194,7 @@ module Series =
                         acc <- f acc span.[i]
 
         else
-            for i = 0 to int len - 1 do
+            for i in 0L .. len - 1L do
                 match series.TryGetValue<'T>(i) with
                 | ValueSome v ->
                     acc <- folder acc v
