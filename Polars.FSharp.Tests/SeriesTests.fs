@@ -115,12 +115,12 @@ type ``Series Tests`` () =
     member _.``Scalar Access: Series & DataFrame`` () =
         // Series
         use s = Series.create("d", [1.23m; 4.56m])
-        Assert.Equal(Some 1.23m, s.Decimal 0)
-        Assert.Equal(Some 4.56m, s.Decimal 1)
+        Assert.Equal(Some 1.23m, s.GetValueOption<decimal>(0))
+        Assert.Equal(Some 4.56m, s.GetValueOption<decimal>(1))
 
         // DataFrame (Redirect)
         use df = DataFrame.create [s]
-        Assert.Equal(Some 1.23m, df.Decimal("d", 0))
+        Assert.Equal(Some 1.23m, df.["d"].GetValueOption<decimal>(0))
     [<Fact>]
     member _.``Series: IsNull / IsNotNull`` () =
         // 1, null, 3
@@ -129,13 +129,13 @@ type ``Series Tests`` () =
         // IsNull -> [false, true, false]
         let maskNull = s.IsNull()
         Assert.Equal("bool", maskNull.DtypeStr)
-        Assert.Equal(Some false, maskNull.Bool 0)
-        Assert.Equal(Some true, maskNull.Bool 1)
+        Assert.Equal(Some false, maskNull.GetValueOption<bool>(0))
+        Assert.Equal(Some true, maskNull.GetValueOption<bool>(1))
 
         // IsNotNull -> [true, false, true]
         let maskNotNull = s.IsNotNull()
-        Assert.Equal(Some true, maskNotNull.Bool 0)
-        Assert.Equal(Some false, maskNotNull.Bool 1)
+        Assert.Equal(Some true, maskNotNull.GetValueOption<bool>(0))
+        Assert.Equal(Some false, maskNotNull.GetValueOption<bool>(1))
     [<Fact>]
     member _.``Series: Dt Extraction`` () =
         // 2023-01-01 10:30:00

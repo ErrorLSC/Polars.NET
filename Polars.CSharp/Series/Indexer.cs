@@ -75,10 +75,10 @@ public partial class Series : IDisposable,IPolarsSeries
 
         // 5. Temporal (Time)
         if (underlying == typeof(DateOnly))
-            return (T?)(object?)PolarsWrapper.SeriesGetDate(Handle, index);
+            return (T)(object)PolarsWrapper.SeriesGetDateFast(Handle, index)!;
 
         if (underlying == typeof(TimeOnly))
-            return (T?)(object?)PolarsWrapper.SeriesGetTime(Handle, index);
+            return (T)(object)PolarsWrapper.SeriesGetTimeFast(Handle, index)!;
 
         if (underlying == typeof(TimeSpan))
             return (T?)(object?)PolarsWrapper.SeriesGetDuration(Handle, index);

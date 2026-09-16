@@ -964,67 +964,6 @@ pub extern "C" fn pl_series_get_decimal(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_series_get_date(
-    s_ptr: *mut SeriesContext,
-    idx: usize,
-    out_val: *mut i32,
-    out_is_null: *mut bool,
-) -> bool {
-    ffi_bool_try!({
-        let ctx = unsafe { &*s_ptr };
-
-        if idx >= ctx.series.len() {
-            polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
-        }
-
-        match unsafe { ctx.series.get_unchecked(idx) } {
-            AnyValue::Date(v) => unsafe {
-                *out_val = v;
-                *out_is_null = false;
-            },
-            AnyValue::Null => unsafe {
-                *out_is_null = true;
-            },
-            other => {
-                polars_bail!(ComputeError: "Expected Date, got DataType: {:?}", other.dtype());
-            }
-        }
-
-        Ok(())
-    })
-}
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_get_time(
-    s_ptr: *mut SeriesContext,
-    idx: usize,
-    out_val: *mut i64,
-    out_is_null: *mut bool,
-) -> bool {
-    ffi_bool_try!({
-        let ctx = unsafe { &*s_ptr };
-
-        if idx >= ctx.series.len() {
-            polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
-        }
-
-        match unsafe { ctx.series.get_unchecked(idx) } {
-            AnyValue::Time(v) => unsafe {
-                *out_val = v;
-                *out_is_null = false;
-            },
-            AnyValue::Null => unsafe {
-                *out_is_null = true;
-            },
-            other => {
-                polars_bail!(ComputeError: "Expected Time, got DataType: {:?}", other.dtype());
-            }
-        }
-
-        Ok(())
-    })
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn pl_series_get_datetime(
     s_ptr: *mut SeriesContext,
     idx: usize,

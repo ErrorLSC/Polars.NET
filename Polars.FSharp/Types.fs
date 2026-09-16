@@ -447,12 +447,12 @@ type Series(handle: SeriesHandle) =
 
         // --- Temporal ---
         else if t = typeof<DateOnly> || t = typeof<DateOnly option> || t = typeof<Nullable<DateOnly>> then
-            let v = PolarsWrapper.SeriesGetDate(this.Handle, index).Value
+            let v = PolarsWrapper.SeriesGetDateFast(this.Handle, index).Value
             if t = typeof<DateOnly option> then box (Some v) |> unbox<'T>
             else box v |> unbox<'T>
 
         else if t = typeof<TimeOnly> || t = typeof<TimeOnly option> || t = typeof<Nullable<TimeOnly>> then
-            let v = PolarsWrapper.SeriesGetTime(this.Handle, index).Value
+            let v = PolarsWrapper.SeriesGetTimeFast(this.Handle, index).Value
             if t = typeof<TimeOnly option> then box (Some v) |> unbox<'T>
             else box v |> unbox<'T>
 

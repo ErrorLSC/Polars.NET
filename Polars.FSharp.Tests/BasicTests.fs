@@ -163,9 +163,9 @@ type ``Basic Functionality Tests`` () =
         let df = DataFrame.FromArrow batch
 
         Assert.Equal(3L, df.Height)
-        Assert.Equal(100L, df.Int("num", 0).Value)
-        Assert.Equal(200L, df.Int("num", 1).Value)
-        Assert.True(df.Int("num", 2).IsNone)
+        Assert.Equal(100L, df.["num"].GetValue<int64>(0))
+        Assert.Equal(200L, df.["num"].GetValue<int64>(1))
+        Assert.True(df.["num"].GetValueOption<int64>(2).IsNone)
     [<Fact>]
     member _.``Series: AsSeq Lifecycle & Complex Types`` () =
 
@@ -219,8 +219,8 @@ type ``Basic Functionality Tests`` () =
         // DropNulls
         let dfClean = df.DropNulls()
         Assert.Equal(2L, dfClean.Height)
-        Assert.Equal(Some 1L, dfClean.Int("a", 0))
-        Assert.Equal(Some 2L, dfClean.Int("a", 1))
+        Assert.Equal(Some 1L, dfClean.["a"].GetValueOption<int64>(0))
+        Assert.Equal(Some 2L, dfClean.["a"].GetValueOption<int64>(1))
 
         // Sample (n=1)
         let dfSample = df.Sample(n=1, seed=12345UL)
@@ -316,7 +316,7 @@ type ``Basic Functionality Tests`` () =
             |> pl.collect
 
         Assert.Equal(1L, res.Height)
-        Assert.Equal(20L, res.Int("age", 0).Value)
+        Assert.Equal(20L, res.["age"].GetValue<int64>(0))
 
         Assert.Equal(2L, df.Height)
     [<Fact>]
@@ -331,11 +331,11 @@ type ``Basic Functionality Tests`` () =
         Assert.Equal(9L, desc.Height)
 
         // 0: count, 1: null_count, 2: mean
-        let meanVal = desc.Float("nums", 2).Value
+        let meanVal = desc.["nums"].GetValue<float>(2)
         Assert.Equal(3.0, meanVal)
 
         // std
-        let stdVal = desc.Float("nums", 3).Value
+        let stdVal = desc.["nums"].GetValue<float>(3)
         Assert.True(abs(stdVal - 1.58113883) < 0.0001)
     [<Fact>]
     member _.``Reshaping: Concat Diagonal`` () =
@@ -359,13 +359,13 @@ type ``Basic Functionality Tests`` () =
         Assert.Contains("b", cols)
         Assert.Contains("c", cols)
 
-        Assert.Equal(1L, res.Int("a", 0).Value)
-        Assert.Equal(2L, res.Int("b", 0).Value)
-        Assert.True(res.Int("c", 0).IsNone)
+        Assert.Equal(1L, res.["a"].GetValue<int64>(0))
+        Assert.Equal(2L, res.["b"].GetValue<int64>(0))
+        Assert.True(res.["c"].GetValueOption<int64>(0).IsNone)
 
-        Assert.Equal(3L, res.Int("a", 1).Value)
-        Assert.True(res.Int("b", 1).IsNone)
-        Assert.Equal(4L, res.Int("c", 1).Value)
+        Assert.Equal(3L, res.["a"].GetValue<int64>(1))
+        Assert.True(res.["b"].GetValueOption<int64>(1).IsNone)
+        Assert.Equal(4L, res.["c"].GetValue<int64>(1))
     [<Fact>]
     member _.``Scalar Access: IsNullAt`` () =
         // [1, null, 3]
@@ -401,7 +401,7 @@ type ``Basic Functionality Tests`` () =
             |> Async.RunSynchronously
 
         Assert.Equal(2L, df.Height)
-        Assert.Equal(1L, df.Int("a", 0).Value)
+        Assert.Equal(1L, df.["a"].GetValue<int64>(0))
     [<Fact>]
     member _.``Series: Arithmetic & Aggregation (Pandas Style)`` () =
 
@@ -418,7 +418,7 @@ type ``Basic Functionality Tests`` () =
         Assert.Equal(1L, sWeightedMean.Length)
 
         // 650 / 3 = 216.666...
-        let valMean = sWeightedMean.Float(0).Value
+        let valMean = sWeightedMean.GetValue<float>(0)
         Assert.True(abs(valMean - 216.6666) < 0.001)
 
         let mask = demand .> 0.0
@@ -426,7 +426,7 @@ type ``Basic Functionality Tests`` () =
         let countPos = mask.Sum()
 
         // Polars boolean sum returns UInt32 usually.
-        let countVal = countPos.Cast(DataType.Float64).Float(0).Value
+        let countVal = countPos.Cast(DataType.Float64).GetValue<float>(0)
         Assert.Equal(3.0, countVal)
 
         // zero_ratio = (demand == 0).mean()
@@ -434,7 +434,7 @@ type ``Basic Functionality Tests`` () =
         let zeroRatio = zeroMask.Mean() // Mean on boolean = ratio of true
 
         // 0 / 3 = 0.0
-        Assert.Equal(0.0, zeroRatio.Float(0).Value)
+        Assert.Equal(0.0, zeroRatio.GetValue<float>(0))
     [<Fact>]
     member _.``Series: NaN and Infinity Checks`` () =
         // [1.0, NaN, Inf, -Inf, 5.0]
@@ -442,20 +442,20 @@ type ``Basic Functionality Tests`` () =
 
         // IsNan -> [F, T, F, F, F]
         let maskNan = s.IsNan()
-        Assert.Equal(Some true, maskNan.Bool 1) // NaN
-        Assert.Equal(Some false, maskNan.Bool 0)
+        Assert.Equal(Some true, maskNan.GetValueOption<bool>(1)) // NaN
+        Assert.Equal(Some false, maskNan.GetValueOption<bool>(0))
 
         // IsInfinite -> [F, F, T, T, F]
         let maskInf = s.IsInfinite()
-        Assert.Equal(Some true, maskInf.Bool 2) // +Inf
-        Assert.Equal(Some true, maskInf.Bool 3) // -Inf
-        Assert.Equal(Some false, maskInf.Bool 1) // NaN is NOT Infinite
+        Assert.Equal(Some true, maskInf.GetValueOption<bool>(2)) // +Inf
+        Assert.Equal(Some true, maskInf.GetValueOption<bool>(3)) // -Inf
+        Assert.Equal(Some false, maskInf.GetValueOption<bool>(1)) // NaN is NOT Infinite
 
         // IsFinite -> [T, F, F, F, T]
         let maskFin = s.IsFinite()
-        Assert.Equal(Some true, maskFin.Bool 0)
-        Assert.Equal(Some false, maskFin.Bool 1) // NaN not finite
-        Assert.Equal(Some false, maskFin.Bool 2) // Inf not finite
+        Assert.Equal(Some true, maskFin.GetValueOption<bool>(0))
+        Assert.Equal(Some false, maskFin.GetValueOption<bool>(1))   // NaN not finite
+        Assert.Equal(Some false, maskFin.GetValueOption<bool>(2)) // Inf not finite
     // ---------------------------------------------------
     // Streaming Tests
     // ---------------------------------------------------
@@ -490,8 +490,8 @@ type ``Basic Functionality Tests`` () =
                 |> pl.collect
 
         Assert.Equal(2L, res.Height)
-        Assert.Equal(1L, res.Int("Id", 0).Value)
-        Assert.Equal(3L, res.Int("Id", 1).Value)
+        Assert.Equal(1L, res.["Id"].GetValue<int64>(0))
+        Assert.Equal(3L, res.["Id"].GetValue<int64>(1))
 
     [<Fact>]
     member _.``Stream: Lazy Multi-pass Scan (Self Join)`` () =

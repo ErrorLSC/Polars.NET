@@ -1042,16 +1042,16 @@ public readonly partial struct PolarsWrapper
         }
     }
     // Date: Days since 1970-01-01
-    public static DateOnly? SeriesGetDate(SeriesHandle s, long idx)
+    public static DateOnly? SeriesGetDateFast(SeriesHandle s, long idx)
     {
-        bool success = NativeBindings.pl_series_get_date(
+        int status = NativeBindings.pl_series_get_date_fast(
             s,
             (nuint)idx,
             out int days,
             out bool isNull
         );
 
-        ErrorHelper.CheckBool(success);
+        ErrorHelper.CheckStatus(status);
 
         if (isNull)
         {
@@ -1062,15 +1062,15 @@ public readonly partial struct PolarsWrapper
     }
 
     // Time: Nanoseconds since midnight
-    public static TimeOnly? SeriesGetTime(SeriesHandle s, long idx)
+    public static TimeOnly? SeriesGetTimeFast(SeriesHandle s, long idx)
     {
-        bool success = NativeBindings.pl_series_get_time(
+        int status = NativeBindings.pl_series_get_time_fast(
             s,
             (nuint)idx,
             out long ns,
             out bool isNull
         );
-        ErrorHelper.CheckBool(success);
+        ErrorHelper.CheckStatus(status);
 
         if (isNull)
         {

@@ -77,13 +77,9 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] out bool isNull
     );
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.U1)]
-    public static partial bool pl_series_get_date(SeriesHandle s, nuint idx, out int val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
-
+    public static partial int pl_series_get_date_fast(SeriesHandle s, nuint idx, out int val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.U1)]
-    public static partial bool pl_series_get_time(SeriesHandle s, UIntPtr idx, out long val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
-
+    public static partial int pl_series_get_time_fast(SeriesHandle s, nuint idx, out long val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_get_datetime(

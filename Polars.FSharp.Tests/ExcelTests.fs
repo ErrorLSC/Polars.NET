@@ -4,7 +4,7 @@ open System
 open System.IO
 open Xunit
 open Polars.FSharp
-open MiniExcelLibs 
+open MiniExcelLibs
 
 type TestExcelRow = {
     Id: int
@@ -19,7 +19,7 @@ type FSharpExcelTests() =
     [<Fact>]
     member _.``IO: Read Excel (Native Roundtrip with MiniExcel)`` () =
         let tempFile = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + ".xlsx")
-        
+
         try
 
             let data = [
@@ -32,19 +32,19 @@ type FSharpExcelTests() =
 
             let testDefaultRead() =
                 use df = DataFrame.ReadExcel tempFile
-                
-                Assert.Equal(3L, df.Height)
-                
-                Assert.Equal(1.0, df.Float("Id", 0).Value) 
 
-                Assert.Equal("Alice", df.String("Name", 0).Value)
- 
-                Assert.Equal(DateTime(2022, 1, 1), df.DateTime("JoinDate", 0).Value)
+                Assert.Equal(3L, df.Height)
+
+                Assert.Equal(1.0, df.["Id"].GetValue<float>(0))
+
+                Assert.Equal("Alice", df.["Name"].GetValue<string>(0))
+
+                Assert.Equal(DateTime(2022, 1, 1), df.["JoinDate"].GetValue<DateTime>(0))
 
             testDefaultRead()
 
             let testSchemaRead() =
- 
+
                 use schema = PolarsSchema.ofList([
                     "Id", DataType.Int64
                     "Score", DataType.String
@@ -55,10 +55,10 @@ type FSharpExcelTests() =
                 Assert.Equal(DataType.String, df.Schema.["Score"])
 
                 // Id: Float(1.0) -> Int64(1)
-                Assert.Equal(1L, df.Int("Id", 0).Value)
-                
+                Assert.Equal(1L, df.["Id"].GetValue<int64>(0))
+
                 // Score: Float(99.5) -> String("99.5")
-                Assert.Equal("99.5", df.String("Score", 0).Value)
+                Assert.Equal("99.5", df.["Score"].GetValue<string>(0))
 
             testSchemaRead()
 
@@ -67,19 +67,19 @@ type FSharpExcelTests() =
     [<Fact>]
     member _.``IO: Excel Roundtrip (Precision & Formats)`` () =
         let tempFile = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + ".xlsx")
-        
+
         try
-            let bigId = 18446744073709551615UL 
-            
+            let bigId = 18446744073709551615UL
+
             use sId = Series.create("Id", [| 1 |])
             use sBigId = Series.create("BigId", [| bigId |])
             use sDate = Series.create("MyDate", [| DateTime(2023, 10, 1) |])
-            
+
             use df = DataFrame.create [sId; sBigId; sDate]
 
             df.WriteExcel(
-                tempFile, 
-                sheetName="Data", 
+                tempFile,
+                sheetName="Data",
                 dateFormat="dd-mm-yyyy"
             )
 
@@ -87,11 +87,11 @@ type FSharpExcelTests() =
 
             use dfRead = DataFrame.ReadExcel(tempFile, schema=schema)
             Assert.Equal(DataType.String, dfRead.Schema.["BigId"])
-            
-            let readBigIdStr = dfRead.String("BigId", 0).Value
+
+            let readBigIdStr = dfRead.["BigId"].GetValue<string>(0)
             Assert.Equal(bigId.ToString(), readBigIdStr)
 
-            let readDate = dfRead.DateTime("MyDate", 0).Value
+            let readDate = dfRead.["MyDate"].GetValue<DateTime>(0)
             Assert.Equal(DateTime(2023, 10, 1), readDate)
 
         finally

@@ -64,8 +64,8 @@ type ``Complex Query Tests`` () =
 
         Assert.Equal(1L, res.Height)
 
-        Assert.Equal(2020L, int64 (res.Int("decade", 0).Value))
-        Assert.Equal(2L, int64 (res.Int("cnt", 0).Value))
+        Assert.Equal(2020L, int64 (res.["decade"].GetValue<int64>(0)))
+        Assert.Equal(2L, int64 (res.["cnt"].GetValue<int64>(0)))
 
     [<Fact>]
     member _.``Complex Transformation (Selector Exclude)`` () =
@@ -106,17 +106,17 @@ type ``Complex Query Tests`` () =
         Assert.Contains("avg_height", cols)
 
         // Row 0 (1980: Zhang, Li)
-        Assert.Equal(1980L, res.Int("decade", 0).Value)
+        Assert.Equal(1980L, res.["decade"].GetValue<int64>(0))
 
         // Mean + Round
         // Weight: (70.1234 + 60.5678) / 2 = 65.3456 -> Round(2) -> 65.35
-        let w80 = res.Float("avg_weight", 0).Value
+        let w80 = res.["avg_weight"].GetValue<float>(0)
         Assert.Equal(65.35, w80)
 
         // Row 1 (1990: Wang)
-        Assert.Equal(1990L, res.Int("decade", 1).Value)
+        Assert.Equal(1990L, res.["decade"].GetValue<int64>(1))
         // Weight: 80.9999 -> 81.00
-        let w90 = res.Float("avg_weight", 1).Value
+        let w90 = res.["avg_weight"].GetValue<float>(1)
         Assert.Equal(81.00, w90)
 
     [<Fact>]
@@ -144,9 +144,9 @@ type ``Complex Query Tests`` () =
         Assert.Contains("my_tag_list", cols)
 
         // coding reading -> coding-reading
-        Assert.Equal("coding-reading", res.String("joined_tags", 0).Value)
+        Assert.Equal("coding-reading", res.["joined_tags"].GetValue<string>(0))
 
-        let aliceTags = res.StringList("my_tag_list", 0)
+        let aliceTags = res.["my_tag_list"].GetValueOption<string list>(0)
         Assert.True aliceTags.IsSome
         Assert.Equal<string list>(["coding"; "reading"], aliceTags.Value)
 
@@ -156,9 +156,9 @@ type ``Complex Query Tests`` () =
             |> DataFrame.explode (pl.col "my_tag_list")
 
         Assert.Equal(3L, exploded.Height)
-        Assert.Equal("coding", exploded.String("my_tag_list", 0).Value)
-        Assert.Equal("reading", exploded.String("my_tag_list", 1).Value)
-        Assert.Equal("gaming", exploded.String("my_tag_list", 2).Value)
+        Assert.Equal("coding", exploded.["my_tag_list"].GetValue<string>(0))
+        Assert.Equal("reading", exploded.["my_tag_list"].GetValue<string>(1))
+        Assert.Equal("gaming", exploded.["my_tag_list"].GetValue<string>(2))
 
     [<Fact>]
     [<Trait("Expr","StructOps")>]
@@ -194,10 +194,10 @@ type ``Complex Query Tests`` () =
             |> LazyFrame.collect
 
         // Alice score1 = 80
-        Assert.Equal(80L, res.Int("s1_extracted", 0).Value)
+        Assert.Equal(80L, res.["s1_extracted"].GetValue<int64>(0))
 
         // List Sort + First
-        Assert.Equal("5", res.String("max_char", 0).Value)
+        Assert.Equal("5", res.["max_char"].GetValue<string>(0))
 
     [<Fact>]
     member _.``Window Function (Over)`` () =
@@ -216,16 +216,16 @@ type ``Complex Query Tests`` () =
             |> DataFrame.sortAscending [pl.col "name"]
 
         // Alice (IT): 1000 - 1500 = -500
-        Assert.Equal("Alice", res.String("name", 0).Value)
-        Assert.Equal(-500.0, res.Float("diff_from_avg", 0).Value)
+        Assert.Equal("Alice", res.["name"].GetValue<string>(0))
+        Assert.Equal(-500.0, res.["diff_from_avg"].GetValue<float>(0))
 
         // Bob (IT): 2000 - 1500 = 500
-        Assert.Equal("Bob", res.String("name", 1).Value)
-        Assert.Equal(500.0, res.Float("diff_from_avg", 1).Value)
+        Assert.Equal("Bob", res.["name"].GetValue<string>(1))
+        Assert.Equal(500.0, res.["diff_from_avg"].GetValue<float>(1))
 
         // Charlie (HR): 3000 - 3000 = 0
-        Assert.Equal("Charlie", res.String("name", 2).Value)
-        Assert.Equal(0.0, res.Float("diff_from_avg", 2).Value)
+        Assert.Equal("Charlie", res.["name"].GetValue<string>(2))
+        Assert.Equal(0.0, res.["diff_from_avg"].GetValue<float>(2))
     [<Fact>]
     member _.``Reshaping and IO: Pivot, Unpivot (In-Memory & Custom Expr)`` () =
         // Year, Q1, Q2
@@ -297,8 +297,8 @@ type ``Complex Query Tests`` () =
 
         Assert.Equal(1L, dfHorz.Height)
         Assert.Equal(2L, dfHorz.Width)
-        Assert.Equal(1L, dfHorz.Int("a", 0).Value)
-        Assert.Equal(2L, dfHorz.Int("b", 0).Value)
+        Assert.Equal(1L, dfHorz.["a"].GetValue<int64>(0))
+        Assert.Equal(2L, dfHorz.["b"].GetValue<int64>(0))
 
         // Vertical: [a] (rows=2)
         let dfVert =
@@ -335,7 +335,7 @@ type ``Complex Query Tests`` () =
 
         Assert.Equal(1L, df1.Height)
         Assert.Equal(1L, df2.Height)
-        Assert.Equal(1L, df1.Int("val", 0).Value)
+        Assert.Equal(1L, df1.["val"].GetValue<int64>(0))
     [<Fact>]
     member _.``SQL Context: Register and Execute`` () =
         use csv = new TempCsv "name,age\nAlice,20\nBob,30"
@@ -349,8 +349,8 @@ type ``Complex Query Tests`` () =
         let res = resLf |> LazyFrame.collect
 
         Assert.Equal(1L, res.Height)
-        Assert.Equal("Bob", res.String("name", 0).Value)
-        Assert.Equal(60L, res.Int("age_double", 0).Value)
+        Assert.Equal("Bob", res.["name"].GetValue<string>(0))
+        Assert.Equal(60L, res.["age_double"].GetValue<int64>(0))
     [<Fact>]
     member _.``Time Series: Shift, Diff, ForwardFill`` () =
         // P1: 10
@@ -376,17 +376,17 @@ type ``Complex Query Tests`` () =
             )
 
         // Row 0: 10, ffill=10, lag=null, diff=null
-        Assert.Equal(10L, res.Int("price_ffill", 0).Value)
-        Assert.True(res.Int("price_lag1", 0).IsNone)
+        Assert.Equal(10L, res.["price_ffill"].GetValue<int64>(0))
+        Assert.True(res.["price_lag1"].GetValueOption<int64>(0).IsNone)
 
         // Row 1: null, ffill=10, lag=10, diff=0 (10-10)
-        Assert.Equal(10L, res.Int("price_ffill", 1).Value)
-        Assert.Equal(10L, res.Int("price_lag1", 1).Value)
-        Assert.Equal(0L, res.Int("price_diff", 1).Value)
+        Assert.Equal(10L, res.["price_ffill"].GetValue<int64>(1))
+        Assert.Equal(10L, res.["price_lag1"].GetValue<int64>(1))
+        Assert.Equal(0L, res.["price_diff"].GetValue<int64>(1))
 
         // Row 2: 20, ffill=20, lag=null, diff=10 (20-10)
-        Assert.Equal(20L, res.Int("price_ffill", 2).Value)
-        Assert.Equal(10L, res.Int("price_diff", 2).Value)
+        Assert.Equal(20L, res.["price_ffill"].GetValue<int64>(2))
+        Assert.Equal(10L, res.["price_diff"].GetValue<int64>(2))
     [<Fact>]
     member _.``Rolling Window (Moving Average)`` () =
 
@@ -404,8 +404,8 @@ type ``Complex Query Tests`` () =
             )
             |> LazyFrame.collect
 
-        Assert.Equal(15.0, res.Float("ma_2", 1).Value)
-        Assert.Equal(25.0, res.Float("ma_2", 2).Value)
+        Assert.Equal(15.0, res.["ma_2"].GetValue<float>(1))
+        Assert.Equal(25.0, res.["ma_2"].GetValue<float>(2))
     [<Fact>]
     member _.``Time Series: Dynamic Rolling Window`` () =
         // 10:00 -> 10
@@ -429,9 +429,9 @@ type ``Complex Query Tests`` () =
             )
             |> LazyFrame.collect
 
-        Assert.Equal(10L, res.Int("sum_1h", 0).Value)
-        Assert.Equal(30L, res.Int("sum_1h", 1).Value)
-        Assert.Equal(30L, res.Int("sum_1h", 2).Value)
+        Assert.Equal(10L, res.["sum_1h"].GetValue<int64>(0))
+        Assert.Equal(30L, res.["sum_1h"].GetValue<int64>(1))
+        Assert.Equal(30L, res.["sum_1h"].GetValue<int64>(2))
     [<Fact>]
     member _.``Lazy Join (Standard Join)`` () =
 
@@ -513,16 +513,16 @@ type ``Complex Query Tests`` () =
         // Row 2: time=1005, ticker=AAPL. 1001 (diff=4 > 2) -> null
 
         // 1000, AAPL
-        Assert.Equal("AAPL", res.String("ticker", 0).Value)
-        Assert.Equal(99.0, res.Float("bid", 0).Value)
+        Assert.Equal("AAPL", res.["ticker"].GetValue<string>(0))
+        Assert.Equal(99.0, res.["bid"].GetValue<float>(0))
 
         // 1000, MSFT
-        Assert.Equal("MSFT", res.String("ticker", 1).Value)
-        Assert.Equal(50.0, res.Float("bid", 1).Value)
+        Assert.Equal("MSFT", res.["ticker"].GetValue<string>(1))
+        Assert.Equal(50.0, res.["bid"].GetValue<float>(1))
 
         // 1005, AAPL
-        Assert.Equal("AAPL", res.String("ticker", 2).Value)
-        Assert.True(res.Float("bid", 2).IsNone)
+        Assert.Equal("AAPL", res.["ticker"].GetValue<string>(2))
+        Assert.True(res.["bid"].GetValueOption<float>(2).IsNone)
     [<Fact>]
     member _.``Test_ETL_Stream_EndToEnd: DataTable -> Polars -> DataTable`` () =
 
@@ -778,16 +778,16 @@ type ``Complex Query Tests`` () =
         Assert.Equal(4L, result.Width)
         Assert.Equal<string[]>([| "Name_0"; "Name_1"; "Score_0"; "Score_1" |], result.Columns)
 
-        Assert.Equal("Alice", result.String("Name_0", 0).Value)
-        Assert.Equal(80L, result.Int("Score_0", 0).Value)
-        Assert.Equal("Cathy", result.String("Name_1", 0).Value)
-        Assert.Equal(70L, result.Int("Score_1", 0).Value)
+        Assert.Equal("Alice", result.["Name_0"].GetValue<string>(0))
+        Assert.Equal(80L, result.["Score_0"].GetValue<int64>(0))
+        Assert.Equal("Cathy", result.["Name_1"].GetValue<string>(0))
+        Assert.Equal(70L, result.["Score_1"].GetValue<int64>(0))
 
         // Name_0=Bob, Score_0=90, Name_1=Dan, Score_1=60
-        Assert.Equal("Bob", result.String("Name_0", 1).Value)
-        Assert.Equal(90L, result.Int("Score_0", 1).Value)
-        Assert.Equal("Dan", result.String("Name_1", 1).Value)
-        Assert.Equal(60L, result.Int("Score_1", 1).Value)
+        Assert.Equal("Bob", result.["Name_0"].GetValue<string>(1))
+        Assert.Equal(90L, result.["Score_0"].GetValue<int64>(1))
+        Assert.Equal("Dan", result.["Name_1"].GetValue<string>(1))
+        Assert.Equal(60L, result.["Score_1"].GetValue<int64>(1))
     [<Fact>]
     [<Trait("DataFrame", "Unstack")>]
     member _.``DataFrame: Unstack vertical with mixed fill expressions`` () =
@@ -807,16 +807,16 @@ type ``Complex Query Tests`` () =
         Assert.Equal(4L, result.Width)
 
         // Name_0=Alice, Score_0=80, Name_1=Cathy, Score_1=70
-        Assert.Equal("Alice", result.String("Name_0", 0).Value)
-        Assert.Equal(80L, result.Int("Score_0", 0).Value)
-        Assert.Equal("Cathy", result.String("Name_1", 0).Value)
-        Assert.Equal(70L, result.Int("Score_1", 0).Value)
+        Assert.Equal("Alice", result.["Name_0"].GetValue<string>(0))
+        Assert.Equal(80L, result.["Score_0"].GetValue<int64>(0))
+        Assert.Equal("Cathy", result.["Name_1"].GetValue<string>(0))
+        Assert.Equal(70L, result.["Score_1"].GetValue<int64>(0))
 
         //Name_0=Bob, Score_0=90, Name_1="你好", Score_1=-1
-        Assert.Equal("Bob", result.String("Name_0", 1).Value)
-        Assert.Equal(90L, result.Int("Score_0", 1).Value)
-        Assert.Equal("你好", result.String("Name_1", 1).Value)
-        Assert.Equal(-1L, result.Int("Score_1", 1).Value)
+        Assert.Equal("Bob", result.["Name_0"].GetValue<string>(1))
+        Assert.Equal(90L, result.["Score_0"].GetValue<int64>(1))
+        Assert.Equal("你好", result.["Name_1"].GetValue<string>(1))
+        Assert.Equal(-1L, result.["Score_1"].GetValue<int64>(1))
     [<Fact>]
     [<Trait("DataFrame", "Unstack")>]
     member _.``DataFrame: Unstack horizontal, no fill, all columns`` () =
@@ -834,19 +834,19 @@ type ``Complex Query Tests`` () =
         let expectedCols = [| "A_0"; "A_1"; "B_0"; "B_1"; "C_0"; "C_1" |]
         Assert.Equal<string[]>(expectedCols, result.Columns)
 
-        Assert.Equal(1L, result.Int("A_0", 0).Value)
-        Assert.Equal(4L, result.Int("A_1", 0).Value)
-        Assert.Equal(2L, result.Int("B_0", 0).Value)
-        Assert.Equal(5L, result.Int("B_1", 0).Value)
-        Assert.Equal(3L, result.Int("C_0", 0).Value)
-        Assert.Equal(6L, result.Int("C_1", 0).Value)
+        Assert.Equal(1L, result.["A_0"].GetValue<int64>(0))
+        Assert.Equal(4L, result.["A_1"].GetValue<int64>(0))
+        Assert.Equal(2L, result.["B_0"].GetValue<int64>(0))
+        Assert.Equal(5L, result.["B_1"].GetValue<int64>(0))
+        Assert.Equal(3L, result.["C_0"].GetValue<int64>(0))
+        Assert.Equal(6L, result.["C_1"].GetValue<int64>(0))
 
-        Assert.Equal(7L, result.Int("A_0", 1).Value)
-        Assert.Equal(8L, result.Int("B_0", 1).Value)
-        Assert.Equal(9L, result.Int("C_0", 1).Value)
-        Assert.Null(result.Int("C_1", 1))
-        Assert.Null(result.Int("B_1", 1))
-        Assert.Null(result.Int("A_1", 1))
+        Assert.Equal(7L, result.["A_0"].GetValue<int64>(1))
+        Assert.Equal(8L, result.["B_0"].GetValue<int64>(1))
+        Assert.Equal(9L, result.["C_0"].GetValue<int64>(1))
+        Assert.Equal(None, result.["C_1"].GetValueOption<int64>(1))
+        Assert.Equal(None, result.["B_1"].GetValueOption<int64>(1))
+        Assert.Equal(None, result.["A_1"].GetValueOption<int64>(1))
     [<Fact>]
     [<Trait("DataFrame", "Unstack")>]
     member _.``DataFrame: Unstack with column selector`` () =
@@ -866,10 +866,10 @@ type ``Complex Query Tests`` () =
         Assert.DoesNotContain("B_0", result.Columns)
         Assert.DoesNotContain("B_1", result.Columns)
 
-        Assert.Equal(1L, result.Int("A_0", 0).Value)
-        Assert.Equal(3.0, result.Float("C_0", 0).Value)
-        Assert.Equal(3L, result.Int("A_1", 0).Value)
-        Assert.Equal(5.0, result.Float("C_1", 0).Value)
+        Assert.Equal(1L, result.["A_0"].GetValue<int64>(0))
+        Assert.Equal(3.0, result.["C_0"].GetValue<float>(0))
+        Assert.Equal(3L, result.["A_1"].GetValue<int64>(0))
+        Assert.Equal(5.0, result.["C_1"].GetValue<float>(0))
     [<Fact>]
     [<Trait("DataFrame", "Update")>]
     member _.``DataFrame: Update basic - same schema, no missing keys`` () =
@@ -887,8 +887,8 @@ type ``Complex Query Tests`` () =
 
         Assert.Equal(3L, result.Height)
         Assert.Equal(2L, result.Width)
-        Assert.Equal(Some 10L,result.Int("value",0))
-        Assert.Equal(Some 300L,result.Int("value",2))
+        Assert.Equal(Some 10L,result.["value"].GetValueOption<int64>(0))
+        Assert.Equal(Some 300L,result.["value"].GetValueOption<int64>(2))
     [<Fact>]
     [<Trait("DataFrame", "Update")>]
     member _.``DataFrame: Update with explicit leftOn/rightOn`` () =
@@ -905,8 +905,8 @@ type ``Complex Query Tests`` () =
         let result = leftDf.Update(other = rightDf,
                                 leftOn = pl.cs.byName ["pk_left"],
                                 rightOn = pl.cs.byName [ "pk_right"])
-        Assert.Equal(Some "Alice",result.String("name",0))
-        Assert.Equal(Some "Catherine",result.String("name",2))
+        Assert.Equal(Some "Alice",result.["name"].GetValueOption<string>(0))
+        Assert.Equal(Some "Catherine",result.["name"].GetValueOption<string>(2))
 
     [<Fact>]
     [<Trait("DataFrame", "Update")>]
@@ -923,9 +923,9 @@ type ``Complex Query Tests`` () =
 
         let result = leftDf.Update(other = rightDf,on=pl.cs.numeric(),includeNulls = true)
 
-        Assert.Equal(Some "A", result.String("info",0))
-        Assert.Equal(None, result.String("info",1))
-        Assert.Equal(Some "C_updated", result.String("info",2))
+        Assert.Equal(Some "A", result.["info"].GetValueOption<string>(0))
+        Assert.Equal(None, result.["info"].GetValueOption<string>(1))
+        Assert.Equal(Some "C_updated", result.["info"].GetValueOption<string>(2))
 
     [<Fact>]
     [<Trait("DataFrame", "Update")>]
@@ -942,7 +942,7 @@ type ``Complex Query Tests`` () =
 
         let result = leftDf.Update(other = rightDf,on=pl.col "key", includeNulls = false)
 
-        Assert.Equal(Some 20L, result.Int("val", 1))
+        Assert.Equal(Some 20L, result.["val"].GetValueOption<int64>(1))
 
     [<Fact>]
     [<Trait("DataFrame", "Update")>]
@@ -960,8 +960,8 @@ type ``Complex Query Tests`` () =
         let result = leftDf.Update(other = rightDf,on=pl.col "id", how = JoinType.Inner)
 
         Assert.Equal(1L, result.Height)
-        Assert.Equal(Some 2L,  result.Int("id",0))
-        Assert.Equal(Some 200L,  result.Int("val",0))
+        Assert.Equal(Some 2L,  result.["id"].GetValueOption<int64>(0))
+        Assert.Equal(Some 200L,  result.["val"].GetValueOption<int64>(0))
 
     [<Fact>]
     [<Trait("DataFrame", "Update")>]
@@ -977,9 +977,9 @@ type ``Complex Query Tests`` () =
             |> pl.dataframe
 
         let result = leftDf.Update(other = rightDf,on=pl.col "key" ,how = JoinType.Outer)
-        Assert.Equal(Some 10L, result.Int("a",0))
-        Assert.Equal(Some 200L, result.Int("a",1))
-        Assert.Equal(Some 300L, result.Int("a",2))
+        Assert.Equal(Some 10L, result.["a"].GetValueOption<int64>(0))
+        Assert.Equal(Some 200L, result.["a"].GetValueOption<int64>(1))
+        Assert.Equal(Some 300L, result.["a"].GetValueOption<int64>(2))
 
     [<Fact>]
     [<Trait("DataFrame", "Update")>]
@@ -1006,10 +1006,10 @@ type ``Complex Query Tests`` () =
         Assert.Equal(2L, df.Width)
         Assert.Equal(2L, df.Height)
 
-        Assert.Equal(Some "Alice", df.String("name", 0))
-        Assert.Equal(Some 30L, df.Int("age", 0))
-        Assert.Equal(Some "Bob", df.String("name", 1))
-        Assert.Equal(Some 25L, df.Int("age", 1))
+        Assert.Equal(Some "Alice", df.["name"].GetValueOption<string>(0))
+        Assert.Equal(Some 30L, df.["age"].GetValueOption<int64>(0))
+        Assert.Equal(Some "Bob", df.["name"].GetValueOption<string>(1))
+        Assert.Equal(Some 25L, df.["age"].GetValueOption<int64>(1))
 
     [<Fact>]
     [<Trait("DataFrame", "JsonNormalize")>]
@@ -1035,9 +1035,9 @@ type ``Complex Query Tests`` () =
         Assert.Equal(3L, df.Width)
         Assert.Equal(1L, df.Height)
 
-        Assert.Equal(Some 1L, df.Int("id", 0))
-        Assert.Equal(Some 180.0, df.Float("info_height", 0))
-        Assert.Equal(Some 75.0, df.Float("info_weight", 0))
+        Assert.Equal(Some 1L, df.["id"].GetValueOption<int64>(0))
+        Assert.Equal(Some 180.0, df.["info_height"].GetValueOption<float>(0))
+        Assert.Equal(Some 75.0, df.["info_weight"].GetValueOption<float>(0))
 
     [<Fact>]
     [<Trait("DataFrame", "JsonNormalize")>]
@@ -1052,9 +1052,9 @@ type ``Complex Query Tests`` () =
         Assert.Equal(3L, df.Width)
         Assert.Equal(2L, df.Height)
 
-        Assert.Equal(Some "x", df.String("b", 0))
-        Assert.Equal(None, df.String("b", 1))
-        Assert.Equal(Some true, df.Bool("c", 1))
+        Assert.Equal(Some "x", df.["b"].GetValueOption<string>(0))
+        Assert.Equal(None, df.["b"].GetValueOption<string>(1))
+        Assert.Equal(Some true, df.["c"].GetValueOption<bool>(1))
     [<Fact>]
     [<Trait("DataFrame", "JsonNormalizeFromString")>]
     member _.``DataFrame: JsonNormalize from JSON string (array of objects)`` () =
@@ -1069,15 +1069,15 @@ type ``Complex Query Tests`` () =
         Assert.Equal(4L, df.Width)
         Assert.Equal(2L, df.Height)
 
-        Assert.Equal(Some "Alice", df.String("name", 0))
-        Assert.Equal(Some 30L, df.Int("age", 0))
-        Assert.Equal(Some 90L, df.Int("scores.math", 0))
-        Assert.Equal(Some 88L, df.Int("scores.eng", 0))
+        Assert.Equal(Some "Alice", df.["name"].GetValueOption<string>(0))
+        Assert.Equal(Some 30L, df.["age"].GetValueOption<int64>(0))
+        Assert.Equal(Some 90L, df.["scores.math"].GetValueOption<int64>(0))
+        Assert.Equal(Some 88L, df.["scores.eng"].GetValueOption<int64>(0))
 
-        Assert.Equal(Some "Bob", df.String("name", 1))
-        Assert.Equal(Some 25L, df.Int("age", 1))
-        Assert.Equal(Some 78L, df.Int("scores.math", 1))
-        Assert.Equal(Some 82L, df.Int("scores.eng", 1))
+        Assert.Equal(Some "Bob", df.["name"].GetValueOption<string>(1))
+        Assert.Equal(Some 25L, df.["age"].GetValueOption<int64>(1))
+        Assert.Equal(Some 78L, df.["scores.math"].GetValueOption<int64>(1))
+        Assert.Equal(Some 82L, df.["scores.eng"].GetValueOption<int64>(1))
 
     [<Fact>]
     [<Trait("DataFrame", "JsonNormalizeFromString")>]
@@ -1087,9 +1087,9 @@ type ``Complex Query Tests`` () =
 
         Assert.Equal(1L, df.Height)
         Assert.Equal(3L, df.Width)
-        Assert.Equal(Some "Widget", df.String("product", 0))
-        Assert.Equal(Some 9.99, df.Float("price", 0))
-        Assert.Equal(Some true, df.Bool("inStock", 0))
+        Assert.Equal(Some "Widget", df.["product"].GetValueOption<string>(0))
+        Assert.Equal(Some 9.99, df.["price"].GetValueOption<float>(0))
+        Assert.Equal(Some true, df.["inStock"].GetValueOption<bool>(0))
     [<Fact>]
     [<Trait("DataFrame", "Merge")>]
     member _.``DataFrame: Merge basic update (no insert)`` () =
@@ -1110,12 +1110,12 @@ type ``Complex Query Tests`` () =
             |> Merge.executeEager Engine.Auto
 
         Assert.Equal(3L, result.Height)
-        Assert.Equal(Some 1L, result.Int("id", 0))
-        Assert.Equal(Some 2L, result.Int("id", 1))
-        Assert.Equal(Some 3L, result.Int("id", 2))
-        Assert.Equal(Some 10L, result.Int("val", 0))
-        Assert.Equal(Some 200L, result.Int("val", 1))
-        Assert.Equal(Some 30L, result.Int("val", 2))
+        Assert.Equal(Some 1L, result.["id"].GetValueOption<int64>(0))
+        Assert.Equal(Some 2L, result.["id"].GetValueOption<int64>(1))
+        Assert.Equal(Some 3L, result.["id"].GetValueOption<int64>(2))
+        Assert.Equal(Some 10L, result.["val"].GetValueOption<int64>(0))
+        Assert.Equal(Some 200L, result.["val"].GetValueOption<int64>(1))
+        Assert.Equal(Some 30L, result.["val"].GetValueOption<int64>(2))
 
     [<Fact>]
     [<Trait("DataFrame", "Merge")>]
@@ -1138,12 +1138,12 @@ type ``Complex Query Tests`` () =
 
         Assert.Equal(3L, result.Height)
 
-        Assert.Equal(Some 1L, result.Int("key", 0))
-        Assert.Equal(Some "A", result.String("value", 0))
-        Assert.Equal(Some 3L, result.Int("key", 1))
-        Assert.Equal(Some "C", result.String("value", 1))
-        Assert.Equal(Some 4L, result.Int("key", 2))
-        Assert.Equal(Some "D", result.String("value", 2))
+        Assert.Equal(Some 1L, result.["key"].GetValueOption<int64>(0))
+        Assert.Equal(Some "A", result.["value"].GetValueOption<string>(0))
+        Assert.Equal(Some 3L, result.["key"].GetValueOption<int64>(1))
+        Assert.Equal(Some "C", result.["value"].GetValueOption<string>(1))
+        Assert.Equal(Some 4L, result.["key"].GetValueOption<int64>(2))
+        Assert.Equal(Some "D", result.["value"].GetValueOption<string>(2))
 
     [<Fact>]
     [<Trait("DataFrame", "Merge")>]
@@ -1164,9 +1164,9 @@ type ``Complex Query Tests`` () =
             |> Merge.executeEager Engine.Auto
 
         Assert.Equal(3L, result.Height)
-        Assert.Equal(Some 100L, result.Int("score", 0))
-        Assert.Equal(None, result.Int("score", 1))          // null
-        Assert.Equal(Some 999L, result.Int("score", 2))
+        Assert.Equal(Some 100L, result.["score"].GetValueOption<int64>(0))
+        Assert.Equal(None, result.["score"].GetValueOption<int64>(1))          // null
+        Assert.Equal(Some 999L, result.["score"].GetValueOption<int64>(2))
     [<Fact>]
     [<Trait("DataFrame", "Merge")>]
     member _.``DataFrame: Merge full pipeline with all actions and parameters`` () =
@@ -1195,21 +1195,21 @@ type ``Complex Query Tests`` () =
 
         Assert.Equal(4L, result.Height)
 
-        Assert.Equal(Some 1L,      result.Int("key", 0))
-        Assert.Equal(Some "Alice", result.String("name", 0))      // null
-        Assert.Equal(Some 170L,    result.Int("score", 0))
+        Assert.Equal(Some 1L,      result.["key"].GetValueOption<int64>(0))
+        Assert.Equal(Some "Alice", result.["name"].GetValueOption<string>(0))      // null
+        Assert.Equal(Some 170L,    result.["score"].GetValueOption<int64>(0))
 
-        Assert.Equal(Some 3L,      result.Int("key", 1))
-        Assert.Equal(Some "Cathy", result.String("name", 1))
-        Assert.Equal(Some 85L,     result.Int("score", 1))
+        Assert.Equal(Some 3L,      result.["key"].GetValueOption<int64>(1))
+        Assert.Equal(Some "Cathy", result.["name"].GetValueOption<string>(1))
+        Assert.Equal(Some 85L,     result.["score"].GetValueOption<int64>(1))
 
-        Assert.Equal(Some 4L,      result.Int("key", 2))
-        Assert.Equal(Some "Diana", result.String("name", 2))
-        Assert.Equal(Some 75L,     result.Int("score", 2))
+        Assert.Equal(Some 4L,      result.["key"].GetValueOption<int64>(2))
+        Assert.Equal(Some "Diana", result.["name"].GetValueOption<string>(2))
+        Assert.Equal(Some 75L,     result.["score"].GetValueOption<int64>(2))
 
-        Assert.Equal(Some 6L,      result.Int("key", 3))
-        Assert.Equal(Some "Frank", result.String("name", 3))
-        Assert.Equal(Some 65L,     result.Int("score", 3))
+        Assert.Equal(Some 6L,      result.["key"].GetValueOption<int64>(3))
+        Assert.Equal(Some "Frank", result.["name"].GetValueOption<string>(3))
+        Assert.Equal(Some 65L,     result.["score"].GetValueOption<int64>(3))
     [<Fact>]
     [<Trait("DataFrame", "Merge")>]
     member _.``DataFrame: Merge respects first-match-wins (Delete before Update)`` () =
@@ -1232,12 +1232,12 @@ type ``Complex Query Tests`` () =
             |> Merge.executeEager Engine.Auto
 
         Assert.Equal(3L, result.Height)
-        Assert.Equal(Some 1L,   result.Int("Id", 0))
-        Assert.Equal(Some 10L,  result.Int("Score", 0))
-        Assert.Equal(Some 3L,   result.Int("Id", 1))
-        Assert.Equal(Some 15L,  result.Int("Score", 1))
-        Assert.Equal(Some 4L,   result.Int("Id", 2))
-        Assert.Equal(Some 100L, result.Int("Score", 2))
+        Assert.Equal(Some 1L,   result.["Id"].GetValueOption<int64>(0))
+        Assert.Equal(Some 10L,  result.["Score"].GetValueOption<int64>(0))
+        Assert.Equal(Some 3L,   result.["Id"].GetValueOption<int64>(1))
+        Assert.Equal(Some 15L,  result.["Score"].GetValueOption<int64>(1))
+        Assert.Equal(Some 4L,   result.["Id"].GetValueOption<int64>(2))
+        Assert.Equal(Some 100L, result.["Score"].GetValueOption<int64>(2))
     [<Fact>]
     [<Trait("DataFrame", "Merge")>]
     member _.``DataFrame: Merge partial update with setters`` () =
@@ -1272,28 +1272,28 @@ type ``Complex Query Tests`` () =
             |> DataFrame.sortAscending [pl.col "Id"]
 
         // Id=1: Apple, 1.0, 100
-        Assert.Equal(Some 1L,   result.Int("Id", 0))
-        Assert.Equal(Some "Apple", result.String("Name", 0))
-        Assert.Equal(Some 1.0,  result.Float("Price", 0))
-        Assert.Equal(Some 100L, result.Int("Stock", 0))
+        Assert.Equal(Some 1L,   result.["Id"].GetValueOption<int64>(0))
+        Assert.Equal(Some "Apple", result.["Name"].GetValueOption<string>(0))
+        Assert.Equal(Some 1.0,  result.["Price"].GetValueOption<float>(0))
+        Assert.Equal(Some 100L, result.["Stock"].GetValueOption<int64>(0))
 
         // Id=2: Banana, 2.5, 200 (Stock=150+50)
-        Assert.Equal(Some 2L,   result.Int("Id", 1))
-        Assert.Equal(Some "Banana", result.String("Name", 1))
-        Assert.Equal(Some 2.5,  result.Float("Price", 1))
-        Assert.Equal(Some 200L, result.Int("Stock", 1))
+        Assert.Equal(Some 2L,   result.["Id"].GetValueOption<int64>(1))
+        Assert.Equal(Some "Banana", result.["Name"].GetValueOption<string>(1))
+        Assert.Equal(Some 2.5,  result.["Price"].GetValueOption<float>(1))
+        Assert.Equal(Some 200L, result.["Stock"].GetValueOption<int64>(1))
 
         // Id=3: Orange, 3.0, 200 (condition missed)
-        Assert.Equal(Some 3L,   result.Int("Id", 2))
-        Assert.Equal(Some "Orange", result.String("Name", 2))
-        Assert.Equal(Some 3.0,  result.Float("Price", 2))
-        Assert.Equal(Some 200L, result.Int("Stock", 2))
+        Assert.Equal(Some 3L,   result.["Id"].GetValueOption<int64>(2))
+        Assert.Equal(Some "Orange", result.["Name"].GetValueOption<string>(2))
+        Assert.Equal(Some 3.0,  result.["Price"].GetValueOption<float>(2))
+        Assert.Equal(Some 200L, result.["Stock"].GetValueOption<int64>(2))
 
         // Id=4: Grape, 4.0, 200
-        Assert.Equal(Some 4L,   result.Int("Id", 3))
-        Assert.Equal(Some "Grape", result.String("Name", 3))
-        Assert.Equal(Some 4.0,  result.Float("Price", 3))
-        Assert.Equal(Some 200L, result.Int("Stock", 3))
+        Assert.Equal(Some 4L,   result.["Id"].GetValueOption<int64>(3))
+        Assert.Equal(Some "Grape", result.["Name"].GetValueOption<string>(3))
+        Assert.Equal(Some 4.0,  result.["Price"].GetValueOption<float>(3))
+        Assert.Equal(Some 200L, result.["Stock"].GetValueOption<int64>(3))
     [<Fact>]
     [<Trait("DataFrame", "Merge")>]
     member _.``DataFrame: Merge with selector-based batch setters`` () =
@@ -1335,28 +1335,28 @@ type ``Complex Query Tests`` () =
             |> LazyFrame.collect
 
         // Id=1: Hero, HP=120, MP=60, Score=1200, Tag=Updated
-        Assert.Equal(Some 1L,       result.Int("Id", 0))
-        Assert.Equal(Some "Hero",   result.String("Name", 0))
-        Assert.Equal(Some 120L,     result.Int("Stat_HP", 0))
-        Assert.Equal(Some 60L,      result.Int("Stat_MP", 0))
-        Assert.Equal(Some 1200L,    result.Int("Score", 0))
-        Assert.Equal(Some "Updated",result.String("Tag", 0))
+        Assert.Equal(Some 1L,       result.["Id"].GetValueOption<int64>(0))
+        Assert.Equal(Some "Hero",   result.["Name"].GetValueOption<string>(0))
+        Assert.Equal(Some 120L,     result.["Stat_HP"].GetValueOption<int64>(0))
+        Assert.Equal(Some 60L,      result.["Stat_MP"].GetValueOption<int64>(0))
+        Assert.Equal(Some 1200L,    result.["Score"].GetValueOption<int64>(0))
+        Assert.Equal(Some "Updated",result.["Tag"].GetValueOption<string>(0))
 
         // Id=3: NPC (untouched)
-        Assert.Equal(Some 3L,       result.Int("Id", 1))
-        Assert.Equal(Some "NPC",    result.String("Name", 1))
-        Assert.Equal(Some 10L,      result.Int("Stat_HP", 1))
-        Assert.Equal(Some 0L,       result.Int("Stat_MP", 1))
-        Assert.Equal(Some 0L,       result.Int("Score", 1))
-        Assert.Equal(Some "Old",    result.String("Tag", 1))
+        Assert.Equal(Some 3L,       result.["Id"].GetValueOption<int64>(1))
+        Assert.Equal(Some "NPC",    result.["Name"].GetValueOption<string>(1))
+        Assert.Equal(Some 10L,      result.["Stat_HP"].GetValueOption<int64>(1))
+        Assert.Equal(Some 0L,       result.["Stat_MP"].GetValueOption<int64>(1))
+        Assert.Equal(Some 0L,       result.["Score"].GetValueOption<int64>(1))
+        Assert.Equal(Some "Old",    result.["Tag"].GetValueOption<string>(1))
 
         // Id=4: Newbie, HP=80, MP=40, Score=50, Tag=New
-        Assert.Equal(Some 4L,       result.Int("Id", 2))
-        Assert.Equal(Some "Newbie", result.String("Name", 2))
-        Assert.Equal(Some 80L,      result.Int("Stat_HP", 2))
-        Assert.Equal(Some 40L,      result.Int("Stat_MP", 2))
-        Assert.Equal(Some 50L,      result.Int("Score", 2))
-        Assert.Equal(Some "New",    result.String("Tag", 2))
+        Assert.Equal(Some 4L,       result.["Id"].GetValueOption<int64>(2))
+        Assert.Equal(Some "Newbie", result.["Name"].GetValueOption<string>(2))
+        Assert.Equal(Some 80L,      result.["Stat_HP"].GetValueOption<int64>(2))
+        Assert.Equal(Some 40L,      result.["Stat_MP"].GetValueOption<int64>(2))
+        Assert.Equal(Some 50L,      result.["Score"].GetValueOption<int64>(2))
+        Assert.Equal(Some "New",    result.["Tag"].GetValueOption<string>(2))
 
         Assert.Equal(3L, result.Height)
     [<Fact>]
@@ -1394,22 +1394,22 @@ type ``Complex Query Tests`` () =
         Assert.Equal(3L, result.Height)
 
         // T1, 102: Editor, Active=true
-        Assert.Equal(Some "T1", result.String("TenantId", 0))
-        Assert.Equal(Some 102L, result.Int("UserId", 0))
-        Assert.Equal(Some "Editor", result.String("Role", 0))
-        Assert.Equal(Some true, result.Bool("IsActive", 0))
+        Assert.Equal(Some "T1", result.["TenantId"].GetValueOption<string>(0))
+        Assert.Equal(Some 102L, result.["UserId"].GetValueOption<int64>(0))
+        Assert.Equal(Some "Editor", result.["Role"].GetValueOption<string>(0))
+        Assert.Equal(Some true, result.["IsActive"].GetValueOption<bool>(0))
 
         // T2, 101: Admin, Active=true
-        Assert.Equal(Some "T2", result.String("TenantId", 1))
-        Assert.Equal(Some 101L, result.Int("UserId", 1))
-        Assert.Equal(Some "Admin", result.String("Role", 1))
-        Assert.Equal(Some true, result.Bool("IsActive", 1))
+        Assert.Equal(Some "T2", result.["TenantId"].GetValueOption<string>(1))
+        Assert.Equal(Some 101L, result.["UserId"].GetValueOption<int64>(1))
+        Assert.Equal(Some "Admin", result.["Role"].GetValueOption<string>(1))
+        Assert.Equal(Some true, result.["IsActive"].GetValueOption<bool>(1))
 
         // T2, 888: User, Active=true (insert)
-        Assert.Equal(Some "T2", result.String("TenantId", 2))
-        Assert.Equal(Some 888L, result.Int("UserId", 2))
-        Assert.Equal(Some "User", result.String("Role", 2))
-        Assert.Equal(Some true, result.Bool("IsActive", 2))
+        Assert.Equal(Some "T2", result.["TenantId"].GetValueOption<string>(2))
+        Assert.Equal(Some 888L, result.["UserId"].GetValueOption<int64>(2))
+        Assert.Equal(Some "User", result.["Role"].GetValueOption<string>(2))
+        Assert.Equal(Some true, result.["IsActive"].GetValueOption<bool>(2))
 
     [<Fact>]
     [<Trait("DataFrame", "Merge")>]
@@ -1491,8 +1491,8 @@ type ``Complex Query Tests`` () =
             |> Merge.includeNulls false
             |> Merge.executeEager Engine.Auto
 
-        Assert.Equal(Some "A", resultNoNull.String("val", 0))
-        Assert.Equal(Some "new_B", resultNoNull.String("val", 1))
+        Assert.Equal(Some "A", resultNoNull.["val"].GetValueOption<string>(0))
+        Assert.Equal(Some "new_B", resultNoNull.["val"].GetValueOption<string>(1))
 
         let resultWithNull =
             target.Merge(source, pl.col "key")
@@ -1500,8 +1500,8 @@ type ``Complex Query Tests`` () =
             |> Merge.includeNulls true
             |> Merge.executeEager Engine.Auto
 
-        Assert.Equal(None, resultWithNull.String("val", 0))          // null
-        Assert.Equal(Some "new_B", resultWithNull.String("val", 1))
+        Assert.Equal(None, resultWithNull.["val"].GetValueOption<string>(0))          // null
+        Assert.Equal(Some "new_B", resultWithNull.["val"].GetValueOption<string>(1))
     [<Fact>]
     [<Trait("DataFrame", "Merge")>]
     member _.``Merge via module functions: initiate, setter update, insert all`` () =
@@ -1529,14 +1529,14 @@ type ``Complex Query Tests`` () =
             |> LazyFrame.collect
 
         Assert.Equal(4L, result.Height)
-        Assert.Equal(Some 1L, result.Int("Id", 0))
-        Assert.Equal(Some "A", result.String("Value", 0))
-        Assert.Equal(Some 2L, result.Int("Id", 1))
-        Assert.Equal(Some "B_new", result.String("Value", 1))
-        Assert.Equal(Some 3L, result.Int("Id", 2))
-        Assert.Equal(Some "C_new", result.String("Value", 2))
-        Assert.Equal(Some 4L, result.Int("Id", 3))
-        Assert.Equal(Some "D", result.String("Value", 3))
+        Assert.Equal(Some 1L, result.["Id"].GetValueOption<int64>(0))
+        Assert.Equal(Some "A", result.["Value"].GetValueOption<string>(0))
+        Assert.Equal(Some 2L, result.["Id"].GetValueOption<int64>(1))
+        Assert.Equal(Some "B_new", result.["Value"].GetValueOption<string>(1))
+        Assert.Equal(Some 3L, result.["Id"].GetValueOption<int64>(2))
+        Assert.Equal(Some "C_new", result.["Value"].GetValueOption<string>(2))
+        Assert.Equal(Some 4L, result.["Id"].GetValueOption<int64>(3))
+        Assert.Equal(Some "D", result.["Value"].GetValueOption<string>(3))
 
     [<Fact>]
     [<Trait("DataFrame", "Iterate")>]

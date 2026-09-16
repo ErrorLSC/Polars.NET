@@ -6,11 +6,11 @@ open Xunit
 open Polars.FSharp
 
 type IOTests() =
-    
+
     let tempPath = Path.Combine(Path.GetTempPath(), $"scan_test_{Guid.NewGuid()}.parquet")
 
     do
-        let df = 
+        let df =
             DataFrame.create [
                 Series.create("id", [1; 2; 3; 4; 5])
                 Series.create("val", [10.5; 20.5; 30.5; 40.5; 50.5])
@@ -32,22 +32,22 @@ type IOTests() =
     member _.``ScanParquet (File): nRows and RowIndex``() =
 
         let lf = LazyFrame.ScanParquet(
-            tempPath, 
-            nRows = 3UL, 
-            rowIndexName = "idx", 
+            tempPath,
+            nRows = 3UL,
+            rowIndexName = "idx",
             rowIndexOffset = 100u
         )
-        
+
         let df = lf.Collect()
 
         // Assert nRows
         Assert.Equal(3L, df.Height)
-        
+
         // Assert Row Index exists and correct
         let idxCol = df.Column "idx"
         Assert.Equal(100u, idxCol.GetValue<uint32> 0)
         Assert.Equal(101u, idxCol.GetValue<uint32> 1)
-        
+
         // Assert Data
         Assert.Equal(1, df.Column("id").GetValue<int> 0)
 
@@ -65,7 +65,7 @@ type IOTests() =
             bytes,
             schema = mySchema,
             lowMemory = true,
-            useStatistics = false 
+            useStatistics = false
         )
 
         let df = lf.Collect()
@@ -96,7 +96,7 @@ type IOTests() =
     member _.``IO: Advanced CSV Reading (Schema, Skip, Dates)`` () =
         let path = "advanced_test.csv"
         try
-            let content = 
+            let content =
                 "IGNORE_THIS_LINE\n" +
                 "id;date_col;val_col\n" +
                 "007;2023-01-01;99.9\n" +
@@ -111,7 +111,7 @@ type IOTests() =
 
             let df = DataFrame.ReadCsv(
                 path,
-                skipRows = 1UL,      
+                skipRows = 1UL,
                 separator = ';',
                 tryParseDates = true,
                 schema = mySchema
@@ -120,10 +120,10 @@ type IOTests() =
             Assert.Equal(2L, df.Height) // Rows -> Height
 
             Assert.Equal(pl.string, df.Column("id").DataType)
-            
+
             Assert.Equal("007", df.Column("id").GetValue<string>(0))
             Assert.Equal(99.9, df.Column("val_col").GetValue<double>(0))
-            
+
             let dateVal = df.Column("date_col").GetValue<DateOnly>(0)
             Assert.Equal(DateOnly(2023, 1, 1), dateVal)
 
@@ -131,18 +131,18 @@ type IOTests() =
             if File.Exists path then File.Delete path
     [<Fact>]
     member _.``ScanCsv (Memory): Basic & Options``() =
-        let csvString = 
+        let csvString =
             """name,age,active
 Alice,30,true
 Bob,25,false
 Charlie,35,true"""
-        
+
         let bytes = System.Text.Encoding.UTF8.GetBytes csvString
 
         let lf = LazyFrame.ScanCsv(
-            bytes, 
+            bytes,
             hasHeader = true,
-            nRows = 2UL 
+            nRows = 2UL
         )
 
         let df = lf.Collect()
@@ -158,7 +158,7 @@ Charlie,35,true"""
         use df = DataFrame.ReadCsv(csv.Path, tryParseDates=false)
 
         use parquet = new DisposableFile ".parquet"
-        
+
         df.WriteParquet parquet.Path |> ignore
 
         Assert.True(File.Exists parquet.Path, $"Parquet file should exist at {parquet.Path}")
@@ -167,14 +167,14 @@ Charlie,35,true"""
         Assert.Equal(df.Height, df2.Height)
         Assert.Equal(4L, df2.Width)
 
-    [<Fact>]    
+    [<Fact>]
     member _.``IO: Read JSON (File, Bytes, Stream)`` () =
         use jsonFile = new DisposableFile ".json"
 
         let s1 = Series.create("a", [1; 2; 3])
         let s2 = Series.create("b", ["x"; "y"; "z"])
         use df = DataFrame.create [s1; s2]
-        
+
         df.WriteJson jsonFile.Path |> ignore
         Assert.True(File.Exists jsonFile.Path, "JSON file not found")
 
@@ -183,25 +183,25 @@ Charlie,35,true"""
         // ---------------------------------------------------
         use dfFile = DataFrame.ReadJson jsonFile.Path
         Assert.Equal(3L, dfFile.Height)
-        Assert.Equal(1L, dfFile.Int("a", 0).Value)
+        Assert.Equal(1L, dfFile.["a"].GetValue<int64>(0))
 
         // ---------------------------------------------------
         // Bytes
         // ---------------------------------------------------
         let bytes = File.ReadAllBytes jsonFile.Path
         use dfBytes = DataFrame.ReadJson bytes
-        
+
         Assert.Equal(3L, dfBytes.Height)
-        Assert.Equal("y", dfBytes.String("b", 1).Value) 
+        Assert.Equal("y", dfBytes.["b"].GetValue<string>(1))
 
         // ---------------------------------------------------
         // Stream
         // ---------------------------------------------------
         use fs = File.OpenRead jsonFile.Path
         use dfStream = DataFrame.ReadJson fs
-        
+
         Assert.Equal(3L, dfStream.Height)
-        Assert.Equal("z", dfStream.String("b", 2).Value) 
+        Assert.Equal("z", dfStream.["b"].GetValue<string>(2))
     [<Fact>]
     member _.``Lazy: Scan NDJSON (All Modes - Manual IO)`` () =
 
@@ -210,7 +210,7 @@ Charlie,35,true"""
 
         try
 
-            let content = 
+            let content =
                 [ "{\"id\": 1, \"val\": 100, \"tag\": \"A\"}"
                   "{\"id\": 2, \"val\": 200, \"tag\": \"B\"}"
                   "{\"id\": 3, \"val\": 300, \"tag\": \"C\"}" ]
@@ -228,9 +228,9 @@ Charlie,35,true"""
                 use df = lf.Collect()
 
                 Assert.Equal(3L, df.Height)
-                
+
                 Assert.Equal(DataType.Int32, df.Column("val").DataType)
-                Assert.Equal(100L, df.Int("val", 0).Value)
+                Assert.Equal(100L, df.["val"].GetValue<int32>(0))
 
             testFileMode()
 
@@ -244,10 +244,10 @@ Charlie,35,true"""
                 use df = lf.Collect()
 
                 Assert.Equal(3L, df.Height)
-                
+
                 Assert.Equal(DataType.Int64, df.Column("val").DataType)
-                Assert.Equal(200L, df.Int("val", 1).Value)
-                Assert.Equal("B", df.String("tag", 1).Value)
+                Assert.Equal(200L, df.["val"].GetValue<int64>(1))
+                Assert.Equal("B", df.["tag"].GetValue<string>(1))
 
             testMemoryMode()
 
@@ -256,13 +256,13 @@ Charlie,35,true"""
             // =================================================================
             let testStreamMode () =
                 use fs = File.OpenRead path
-                
+
                 use lf = LazyFrame.ScanNdjson(fs)
                 use df = lf.Collect()
 
                 Assert.Equal(3L, df.Height)
 
-                Assert.Equal(3L, df.Int("id", 2).Value)
+                Assert.Equal(3L, df.["id"].GetValue<int64>(2))
 
             testStreamMode()
 
@@ -278,9 +278,9 @@ Charlie,35,true"""
         try
             let s1 = Series.create("id", [1; 2; 3; 4; 5])
             let s2 = Series.create("val", ["A"; "B"; "C"; "D"; "E"])
-            
+
             use dfOrig = DataFrame.create [s1; s2]
-            
+
             dfOrig.WriteIpc path |> ignore
 
             // =================================================================
@@ -288,17 +288,17 @@ Charlie,35,true"""
             // =================================================================
             let testFileMode () =
                 use df = DataFrame.ReadIpc(
-                    path, 
-                    columns=["val"], 
+                    path,
+                    columns=["val"],
                     nRows=3UL
                 )
 
-                Assert.Equal(3L, df.Height)   
-                Assert.Equal(1L, df.Width)  
+                Assert.Equal(3L, df.Height)
+                Assert.Equal(1L, df.Width)
                 Assert.Equal("val", df.ColumnNames.[0])
-                
-                Assert.Equal("A", df.String("val", 0).Value)
-                Assert.Equal("C", df.String("val", 2).Value)
+
+                Assert.Equal("A", df.["val"].GetValue<string>(0))
+                Assert.Equal("C", df.["val"].GetValue<string>(2))
 
             testFileMode()
 
@@ -312,7 +312,7 @@ Charlie,35,true"""
 
                 Assert.Equal(5L, df.Height)
                 Assert.Equal(2L, df.Width)
-                Assert.Equal(5L, df.Int("id", 4).Value) 
+                Assert.Equal(5L, df.["id"].GetValue<int64>(4))
 
             testMemoryMode()
 
@@ -321,11 +321,11 @@ Charlie,35,true"""
             // =================================================================
             let testStreamMode () =
                 use fs = File.OpenRead path
-                
+
                 use df = DataFrame.ReadIpc fs
 
                 Assert.Equal(5L, df.Height)
-                Assert.Equal("E", df.String("val", 4).Value)
+                Assert.Equal("E", df.["val"].GetValue<string>(4))
 
             testStreamMode()
 
@@ -342,11 +342,11 @@ Charlie,35,true"""
         try
             let s1 = Series.create("id", [1; 2; 3; 4; 5])
             let s2 = Series.create("val", ["A"; "B"; "C"; "D"; "E"])
-            
+
             use dfOrig = DataFrame.create [s1; s2]
             dfOrig.Lazy().SinkIpc(
-                path, 
-                compression = IpcCompression.LZ4, 
+                path,
+                compression = IpcCompression.LZ4,
                 maintainOrder = true
             )
 
@@ -355,20 +355,20 @@ Charlie,35,true"""
             // =================================================================
             let testFileMode () =
                 use lf = LazyFrame.ScanIpc(
-                    path, 
-                    nRows=3UL, 
+                    path,
+                    nRows=3UL,
                     rowIndexName="idx_col"
                 )
-                
+
                 use df = lf.Collect()
 
                 Assert.Equal(3L, df.Height)
-                
+
                 let cols = df.ColumnNames
                 Assert.Contains("idx_col", cols)
 
-                Assert.Equal(3L, df.Int("id", 2).Value)
-                Assert.Equal("C", df.String("val", 2).Value)
+                Assert.Equal(3L, df.["id"].GetValue<int64>(2))
+                Assert.Equal("C", df.["val"].GetValue<string>(2))
 
             testFileMode()
 
@@ -379,12 +379,12 @@ Charlie,35,true"""
 
             let testMemoryMode () =
                 use lf = LazyFrame.ScanIpc bytes
-                
+
                 use df = lf.Filter(col "id" .> pl.lit 3 ).Collect()
 
                 // id > 3 -> 4, 5 (2 rows)
                 Assert.Equal(2L, df.Height)
-                Assert.Equal(5L, df.Int("id", 1).Value)
+                Assert.Equal(5L, df.["id"].GetValue<int64>(1))
 
             testMemoryMode()
 
@@ -393,13 +393,13 @@ Charlie,35,true"""
             // =================================================================
             let testStreamMode () =
                 use fs = File.OpenRead path
-                
+
                 // Stream -> MemoryStream -> Bytes -> ScanSources
                 use lf = LazyFrame.ScanIpc fs
                 use df = lf.Collect()
 
                 Assert.Equal(5L, df.Height)
-                Assert.Equal("E", df.String("val", 4).Value)
+                Assert.Equal("E", df.["val"].GetValue<string>(4))
 
             testStreamMode()
 

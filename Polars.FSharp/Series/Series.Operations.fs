@@ -277,7 +277,7 @@ module SeriesOperationExtensions =
         /// <summary>
         /// Fills null values using a built-in strategy (Forward, Backward, Mean, etc.).
         /// </summary>
-        member this.FillNull(strategies:FillNullStrategy,?limit:int) = 
+        member this.FillNull(strategies:FillNullStrategy,?limit:int) =
             this.ApplyExpr(Expr.Col(this.Name).FillNull(strategies,?limit=limit))
         /// <summary>
         /// Interpolate intermediate values. The interpolation method can be configured.
@@ -535,46 +535,6 @@ module SeriesOperationExtensions =
             this.ApplyExpr(Expr.Col(this.Name).BottomKBy(k, by, r))
         member this.BottomKBy(k: int, by: seq<#IColumnExpr>, ?reverse: seq<bool>) =
             this.ApplyExpr(Expr.Col(this.Name).BottomKBy(k, by, ?reverse=reverse))
-
-
-        // --- Scalar Access ---
-
-        /// <summary> Get value as Int64 Option. Handles Int32/Int64 etc. </summary>
-        member this.Int(index: int) : int64 option =
-            PolarsWrapper.SeriesGetInt(this.Handle, int64 index) |> Option.ofNullable
-
-        member this.Int128(index: int) : Int128 option =
-            PolarsWrapper.SeriesGetInt128(this.Handle, int64 index) |> Option.ofNullable
-
-        /// <summary> Get value as Double Option. Handles Float32/Float64. </summary>
-        member this.Float(index: int) : float option =
-            PolarsWrapper.SeriesGetDouble(this.Handle, int64 index) |> Option.ofNullable
-
-        /// <summary> Get value as String Option. </summary>
-        member this.String(index: int) : string option =
-            PolarsWrapper.SeriesGetString(this.Handle, int64 index) |> Option.ofObj
-
-        /// <summary> Get value as Boolean Option. </summary>
-        member this.Bool(index: int) : bool option =
-            PolarsWrapper.SeriesGetBool(this.Handle, int64 index) |> Option.ofNullable
-
-        /// <summary> Get value as Decimal Option. </summary>
-        member this.Decimal(index: int) : decimal option =
-            PolarsWrapper.SeriesGetDecimal(this.Handle, int64 index) |> Option.ofNullable
-
-        // Temporal Type
-        member this.Date(index: int) : DateOnly option =
-            PolarsWrapper.SeriesGetDate(this.Handle, int64 index) |> Option.ofNullable
-
-        member this.Time(index: int) : TimeOnly option =
-            PolarsWrapper.SeriesGetTime(this.Handle, int64 index) |> Option.ofNullable
-        member this.DateTime(index: int) : DateTime option =
-            let result = PolarsWrapper.SeriesGetDatetime(this.Handle, int64 index)
-            if result.HasValue then
-                let struct (dt, _) = result.Value
-                Some dt
-            else
-                None
         /// <summary>
         /// Gets the Datetime value and its TimeZone string at the specified index.
         /// Returns None if the value is null.
