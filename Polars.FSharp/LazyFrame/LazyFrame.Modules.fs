@@ -1,8 +1,24 @@
 namespace Polars.FSharp
-
+open System.Threading.Tasks
+open Polars.NET.Core
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+    
 module LazyFrame =
+    /// <summary>
+    /// Asynchronously execute the LazyFrame query plan.
+    /// Useful for keeping UI responsive during heavy calculations.
+    /// </summary>
+    let collectAsync (lf: LazyFrame) : Async<DataFrame> =
+        async {
+            let lfClone = lf.CloneHandle()
+
+            let! dfHandle =
+                Task.Run(fun () -> PolarsWrapper.LazyCollect(lfClone,PlEngine.Auto,true))
+                |> Async.AwaitTask
+
+            return new DataFrame(dfHandle)
+        }
     /// Collect the LazyFrame using the specified engine.
     let collectWithEngine (engine: Engine) (lazyFrame: LazyFrame) : DataFrame =
         lazyFrame.Collect(engine)

@@ -613,7 +613,7 @@ and Expr(handle: ExprHandle) =
                 new Expr(hFull)
     /// <summary>
     /// Returns the first non-null value between this expression and other expressions.
-    /// Syntactic sugar for <c>Pl.Coalesce(this, others)</c>.
+    /// Syntactic sugar for <c>pl.coalesce(this, others)</c>.
     /// </summary>
     /// <param name="others">Fallback expressions, column names, or literals.</param>
     /// <returns>A new coalesced expression.</returns>

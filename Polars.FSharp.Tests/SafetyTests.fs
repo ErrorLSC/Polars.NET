@@ -13,7 +13,7 @@ type ``Safety Tests`` () =
         
         let ex = Assert.Throws<PolarsException>(fun () -> 
             df 
-            |> pl.filter (pl.col "WrongColumn" .>  pl.lit 1) 
+            |> DataFrame.filter (pl.col "WrongColumn" .>  pl.lit 1) 
             |> ignore
         )
         Assert.Contains("column", ex.Message.ToLower())

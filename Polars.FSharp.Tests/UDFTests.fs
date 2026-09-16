@@ -48,7 +48,6 @@ type ``UDF Tests`` () =
             lf
             |> LazyFrame.withColumn (
                 pl.col("num").MapArrow udf
-                // |> fun e -> e.Map(udf, DataType.String)
                 |> pl.alias "desc"
             )
             |> LazyFrame.select [ pl.col "desc" ]
@@ -70,8 +69,7 @@ type ``UDF Tests`` () =
         let ex = Assert.Throws<PolarsException>(fun () ->
             lf
             |> LazyFrame.withColumn (
-                pl.col "num"
-                |> fun e -> e.MapArrow(udf, DataType.SameAsInput)
+                pl.col("num").MapArrow(udf, DataType.SameAsInput)
             )
             |> LazyFrame.collect
             |> ignore
@@ -90,8 +88,7 @@ type ``UDF Tests`` () =
         let df =
             lf
             |> LazyFrame.withColumn (
-                pl.col "num"
-                |> fun e -> e.Map myLogic
+                pl.col("num").Map myLogic
                 |> pl.alias "res"
             )
             |> LazyFrame.select [ pl.col "res" ]

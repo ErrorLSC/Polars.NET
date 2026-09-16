@@ -87,7 +87,7 @@ type ``Complex Query Tests`` () =
             ])
             |> LazyFrame.select [
                 // Exclude (all except "ignore_me")
-                pl.cs.all().Exclude ["birthdate"] |> pl.asExpr
+                pl.cs.all().Exclude(["birthdate"]).ToExpr()
             ]
             |> LazyFrame.groupBy [ pl.col "decade" ]
             |> LazyFrame.agg
@@ -275,7 +275,7 @@ type ``Complex Query Tests`` () =
                 aggExpr = pl.col("").Sum() * pl.lit 2,
                 sortColumns = true
             )
-            |> pl.sortAscending [pl.col "year"]
+            |> DataFrame.sortAscending [pl.col "year"]
 
         Assert.Equal(200, wideDfExpr.Cell<int>(0, "Q1"))
 
@@ -329,7 +329,7 @@ type ``Complex Query Tests`` () =
         let df2 = DataFrame.ReadCsv csv2.Path
 
         // Concat
-        let bigDf = pl.concat [df1; df2]
+        let bigDf = DataFrame.concatVertical [df1; df2]
 
         Assert.Equal(2L, bigDf.Height)
 
@@ -441,7 +441,7 @@ type ``Complex Query Tests`` () =
                 pl.series "name"  ["Alice"; "Bob"]
                 pl.series "common" ["U1"; "U2"]
             ]
-            |> pl.asLazy
+            |> LazyFrame.ofEager
 
         let orders =
             DataFrame.create [
@@ -505,8 +505,8 @@ type ``Complex Query Tests`` () =
                 byLeft = [pl.col "ticker"],
                 byRight = [pl.col "ticker"]
             )
-            |> pl.sortAscending [pl.col "ticker"]
-            |> pl.sortAscending [pl.col "time"]
+            |> DataFrame.sortAscending [pl.col "ticker"]
+            |> DataFrame.sortAscending [pl.col "time"]
 
         // Row 0: time=1000, ticker=AAPL. 999 (diff=1 <= 2). Bid=99.0
         // Row 1: time=1000, ticker=MSFT. 998 (diff=2 <= 2). Bid=50.0
@@ -644,12 +644,12 @@ type ``Complex Query Tests`` () =
                 // [t, t + period)
                 closedWindow = ClosedInterval.Left
             )
-            |> pl.aggLazy [
+            |> LazyFrame.agg [
                 pl.col("Value").Count().Alias("Count")
                 pl.col("Value").Mean().Alias("Mean")
                 pl.cs.numeric().ToExpr().Sum().Name.Suffix("_Sum")
             ]
-            |> pl.sortAscendingLazy [ pl.col "Category"; pl.col "Time" ]
+            |> LazyFrame.sortAscending [ pl.col "Category"; pl.col "Time" ]
             |> LazyFrame.collect
 
         // Window 1 (10:00): [10:00, 12:00) -> 10:00, 10:30, 11:00, 11:30
@@ -1389,7 +1389,7 @@ type ``Complex Query Tests`` () =
                 Set.col "IsActive" (fun _   -> pl.lit true)
             ])
             |> Merge.executeEager Engine.Auto
-            |> pl.sortAscending [pl.cs.endsWith "Id"]
+            |> DataFrame.sortAscending [pl.cs.endsWith "Id"]
 
         Assert.Equal(3L, result.Height)
 
@@ -1510,14 +1510,14 @@ type ``Complex Query Tests`` () =
                 pl.series "Id"    [1; 2; 3]
                 pl.series "Value" ["A"; "B"; "C"]
             ]
-            |> pl.dataframe |> pl.asLazy
+            |> pl.dataframe |> LazyFrame.ofEager
             |> Merge.initiate
                 (
                     [
                         pl.series "Id"    [2; 3; 4]
                         pl.series "Value" ["B_new"; "C_new"; "D"]
                     ]
-                    |> pl.dataframe |> pl.asLazy
+                    |> pl.dataframe |> DataFrame.asLazy
                 )
                 ["Id"]
             |> Merge.whenMatchedUpdateSet (Set.build [

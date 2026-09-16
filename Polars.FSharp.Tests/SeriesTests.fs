@@ -52,7 +52,7 @@ type ``Series Tests`` () =
         use sName = df.Column "name"
         Assert.Equal("name", sName.Name)
         Assert.Equal(2L, sName.Length)
-        sName |> pl.showSeries |> ignore
+        sName |> Series.show |> ignore
 
         use sAge = df.Column 1
         Assert.Equal("age", sAge.Name)

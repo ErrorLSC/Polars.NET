@@ -40,10 +40,10 @@ module Describe =
                     let exprs = 
                         [ pl.lit(statName).Alias "statistic" ] |> Seq.append (numericCols |> Seq.map (fun c -> op c))
                     
-                    this |> pl.select exprs
+                    this.Select exprs
                 )
 
-            pl.concat rowFrames
+            DataFrame.ConcatVertical rowFrames
 
         /// <summary>
         /// Return a dense preview of the DataFrame as a formatted string.

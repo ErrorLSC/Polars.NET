@@ -185,7 +185,7 @@ module Merge =
 
         let nullCheckExpr =
             plan.On
-            |> Array.map (fun k -> pl.col k |> pl.isNull)
+            |> Array.map (fun k -> (pl.col k).IsNull())
             |> Array.reduce (fun e1 e2 -> e1 .|| e2)
             |> pl.alias plan.ActionCol
 
@@ -234,9 +234,9 @@ module Merge =
             allActions |> List.exists (function MergeAction.NotMatchedInsert _ -> true | _ -> false)
         let how = if hasInsert then JoinType.Outer else JoinType.Left
 
-        let isMatched = pl.col tgtValCol |> pl.isNotNull .&& (pl.col srcValCol |> pl.isNotNull)
-        let isSourceOnly = pl.col tgtValCol |> pl.isNull .&& (pl.col srcValCol |> pl.isNotNull)
-        let isTargetOnly = pl.col tgtValCol |> pl.isNotNull .&& (pl.col srcValCol |> pl.isNull)
+        let isMatched = pl.col(tgtValCol).IsNotNull() .&& pl.col(srcValCol).IsNotNull()
+        let isSourceOnly = pl.col(tgtValCol).IsNull() .&& pl.col(srcValCol).IsNotNull()
+        let isTargetOnly = pl.col(tgtValCol).IsNotNull() .&& pl.col(srcValCol).IsNull()
 
         let actionsWithId = allActions |> List.mapi (fun i a -> i + 1, a)
 
@@ -296,7 +296,7 @@ module Merge =
                                         whenCondHelper id srcTmpCol current
                                     else
                                         pl.ifElse (pl.col actionColName .== pl.lit id)
-                                            (pl.ifElse (srcTmpCol |> pl.isNotNull) srcTmpCol current)
+                                            (pl.ifElse (srcTmpCol.IsNotNull()) srcTmpCol current)
                                             current
                                 else current
                         | _ -> current
@@ -458,7 +458,7 @@ module Merge =
     /// </summary>
     /// <param name="plan">The constructed MergePlan.</param>
     /// <returns>A string representing the query plan (e.g., optimized logical/physical plan).</returns>
-    let explain (plan:MergePlan) = plan |> buildAst |> pl.explain
+    let explain (plan:MergePlan) = plan |> buildAst |> LazyFrame.explain
     /// <summary>
     /// Executes the merge plan lazily, returning a LazyFrame that can be further transformed
     /// or collected later. Validates the plan before building the AST.

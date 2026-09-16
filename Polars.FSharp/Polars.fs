@@ -3,7 +3,6 @@ namespace Polars.FSharp
 
 open System
 open Polars.NET.Core
-open System.Threading.Tasks
 open Polars.NET.Core.Helpers
 type CjkColumnOptions = {
     Chinese       : bool
@@ -15,49 +14,62 @@ type CjkColumnOptions = {
 }
 
 /// <summary>
-/// Intermediate F# state holder after calling 'pl.when''.
+/// Intermediate F# state holder representing an active conditional branch awaiting its statement.
 /// </summary>
-type FSharpWhen (condition: Expr) =
-    member internal _.Condition = condition
+type WhenCondition internal (conditions: Expr list, statements: Expr list, currentCondition: Expr) =
+    member internal _.Conditions = conditions
+    member internal _.Statements = statements
+    member internal _.CurrentCondition = currentCondition
+
+    /// <summary>
+    /// Connects a statement expression to the preceding condition.
+    /// </summary>
+    /// <param name="statement">The expression to evaluate if true.</param>
+    /// <returns>A ThenBranch state holder allowing further chaining, piping, or terminal fallback.</returns>
+    member this.Then(statement: Expr) : ThenBranch =
+        if box statement = null then raise (ArgumentNullException(nameof statement))
+        ThenBranch(this.CurrentCondition :: this.Conditions, statement :: this.Statements)
+
+    /// <summary>
+    /// Connects a scalar statement to the preceding condition using SRTP resolution.
+    /// </summary>
+    member inline this.Then(value: ^T) : ThenBranch =
+        this.Then((^T or LitMechanism) : (static member ($) : LitMechanism * ^T -> Expr) (LitMechanism, value))
 
 /// <summary>
-/// Intermediate F# state holder that collects branch pairs.
+/// Intermediate F# state holder representing accumulated conditional branches.
 /// </summary>
-type FSharpThen (conditions: Expr list, statements: Expr list) =
+and ThenBranch internal (conditions: Expr list, statements: Expr list) =
     member internal _.Conditions = conditions
     member internal _.Statements = statements
 
     /// <summary>
-    /// Chain another condition block (equivalent to Python/C# multi-branch .when()).
+    /// Chains an additional conditional branch.
     /// </summary>
-    member this.when'(condition: Expr) =
-        if box condition = null then raise (ArgumentNullException(nameof(condition)))
-        FSharpChainedWhen(this, condition)
+    /// <param name="condition">Condition expression for the next branch.</param>
+    /// <returns>A WhenCondition state holder awaiting the next statement.</returns>
+    member this.When(condition: Expr) : WhenCondition =
+        if box condition = null then raise (ArgumentNullException(nameof condition))
+        WhenCondition(this.Conditions, this.Statements, condition)
 
     /// <summary>
-    /// Terminal operator that provides the default fallback value and compiles to the underlying Ternary Expr tree.
+    /// Terminal operator that provides the fallback expression and compiles the ternary tree.
     /// </summary>
-    member this.otherwise(statement: Expr) =
-        if box statement = null then raise (ArgumentNullException(nameof(statement)))
+    /// <param name="fallback">The fallback expression if all conditions evaluate to false.</param>
+    /// <returns>Compiled ternary expression.</returns>
+    member this.Otherwise(fallback: Expr) : Expr =
+        if box fallback = null then raise (ArgumentNullException(nameof fallback))
+        
+        // Branches were accumulated in reverse order (head-first), so folding rightward
+        // naturally folds from innermost fallback to the outermost condition.
+        (fallback, List.zip this.Conditions this.Statements)
+        ||> List.fold (fun acc (cond, stmt) -> Expr.Ternary(cond, stmt, acc))
 
-        // Unroll branches in reverse order to correctly nest the Ternary Expression tree
-        let mutable currentExpr = statement
-        let condArr = List.toArray conditions
-        let stmtArr = List.toArray statements
-
-        for i = condArr.Length - 1 downto 0 do
-            currentExpr <- Expr.Ternary(condArr.[i], stmtArr.[i], currentExpr)
-
-        currentExpr
-
-/// <summary>
-/// Intermediate F# state holder after chaining an extra .when() onto a Then block.
-/// </summary>
-and FSharpChainedWhen (parent: FSharpThen, condition: Expr) =
-    member this.then'(statement: Expr) =
-        if box statement = null then raise (ArgumentNullException(nameof(statement)))
-        // Append the new condition and statement to the accumulated branch lists
-        FSharpThen(parent.Conditions @ [condition], parent.Statements @ [statement])
+    /// <summary>
+    /// Terminal operator that provides a default fallback scalar value resolved via SRTP.
+    /// </summary>
+    member inline this.Otherwise(value: ^T) : Expr =
+        this.Otherwise((^T or LitMechanism) : (static member ($) : LitMechanism * ^T -> Expr) (LitMechanism, value))
 
 /// <summary>
 /// The main entry point for Polars.NET F# API.
@@ -578,11 +590,11 @@ module pl =
     let linearSpacesAsSeries(name:string)(start:Expr)(endRange:Expr)(numSamples:int)(closed:ClosedInterval)(asArray:bool) =
         let expr = linearSpaces start endRange numSamples closed asArray
         Series.ofExpr(expr).Rename(name)
-    // --- Expr Helpers ---
-    /// <summary> Cast an expression to a different data type. </summary>
-    let cast (dtype: DataType) (e: Expr) = e.Cast dtype
-    /// <summary> Cast an expression to a .NET data type. </summary>
-    let castWithNetType<'T> (e: Expr) = e.Cast<'T>()
+    // // --- Expr Helpers ---
+    // /// <summary> Cast an expression to a different data type. </summary>
+    // let cast (dtype: DataType) (e: Expr) = e.Cast dtype
+    // /// <summary> Cast an expression to a .NET data type. </summary>
+    // let castWithNetType<'T> (e: Expr) = e.Cast<'T>()
     /// <summary> Create a Series from a sequence of values. </summary>
     let series<'T>(name:string)(data:seq<'T>) =
         Series.create(name,data)
@@ -937,8 +949,8 @@ module pl =
     /// </summary>
     let selectExprsEager (exprs: seq<Expr>) : DataFrame =
         (DataFrame.create()).Select exprs
-    /// <summary> Convert Selector to Expr. </summary>
-    let asExpr (s: Selector) = s.ToExpr()
+    // /// <summary> Convert Selector to Expr. </summary>
+    // let asExpr (s: Selector) = s.ToExpr()
     /// <summary>
     /// Represent all columns except for the given columns.
     /// Syntactic sugar for pl.all().Exclude(columns).
@@ -951,8 +963,8 @@ module pl =
     /// </summary>
     let excludeDataTypes(dtypes:seq<DataType>) =
         all().Exclude(dtypes)
-    /// <summary> Exclude columns from Selector. </summary>
-    let exclude (names: seq<string>) (s: Selector) = s.Exclude names
+    // /// <summary> Exclude columns from Selector. </summary>
+    // let exclude (names: seq<string>) (s: Selector) = s.Exclude names
     /// <summary>
     /// Aggregate all column values into a list.
     /// This function is syntactic sugar for pl.col(name).Implode().
@@ -1016,11 +1028,11 @@ module pl =
     /// </summary>
     let fromEpoch(column:Expr) (timeUnit:EpochTimeUnit) =
         match timeUnit with
-        | EpochTimeUnit.Day -> column |> castWithNetType<DateOnly>
-        | EpochTimeUnit.Second -> column * lit 1_000_000L |> cast(datetime TimeUnit.Microseconds None)
-        | EpochTimeUnit.Milliseconds -> column * lit 1_000L |> cast(datetime TimeUnit.Microseconds None)
-        | EpochTimeUnit.Microseconds -> column |> cast(datetime TimeUnit.Microseconds None)
-        | EpochTimeUnit.Nanoseconds -> column |> cast(datetime TimeUnit.Nanoseconds None)
+        | EpochTimeUnit.Day -> column.Cast<DateOnly>()
+        | EpochTimeUnit.Second -> (column * lit 1_000_000L).Cast(datetime TimeUnit.Microseconds None)
+        | EpochTimeUnit.Milliseconds -> (column * lit 1_000L).Cast(datetime TimeUnit.Microseconds None)
+        | EpochTimeUnit.Microseconds -> column.Cast(datetime TimeUnit.Microseconds None)
+        | EpochTimeUnit.Nanoseconds -> column.Cast(datetime TimeUnit.Nanoseconds None)
     /// <summary> Create a Struct expression from a list of expressions. </summary>
     let asStruct (exprs: seq<Expr>) =
         let handles = exprs |> Seq.map (fun e -> e.CloneHandle()) |> Seq.toArray
@@ -1030,58 +1042,30 @@ module pl =
     /// </summary>
     let structSeries(exprs: seq<Expr>) =
         Series.ofExpr(asStruct exprs)
-    // --- Eager Ops ---
-    /// <summary> Add or replace a single column in the DataFrame. </summary>
-    let withColumn (expr: Expr) (df: DataFrame) : DataFrame =
-        df.WithColumns expr
-    /// <summary> Add or replace multiple columns in the DataFrame. </summary>
-    let withColumns (exprs: seq<Expr>) (df: DataFrame) : DataFrame =
-        df.WithColumns exprs
-    /// <summary> Filter rows based on a boolean expression. </summary>
-    let filter (expr: Expr) (df: DataFrame) : DataFrame =
-        df.Filter expr
-    /// <summary> Select columns from the DataFrame. </summary>
-    let select (exprs: seq<#IColumnExpr>) (df: DataFrame) : DataFrame =
-        df.Select exprs
-    /// <summary> Sort (Order By) the DataFrame. </summary>
-    let sortAscending (columns:seq<IColumnExpr>)(df: DataFrame) : DataFrame =
-        df.Sort(columns,descending=false)
-    let sortDescending (columns:seq<IColumnExpr>)(df: DataFrame) : DataFrame =
-        df.Sort(columns,descending=true)
-    let orderByAscending (columns: seq<IColumnExpr>) (df: DataFrame) = sortAscending columns df
-    let orderByDescending (columns: seq<IColumnExpr>) (df: DataFrame) = sortDescending columns df
-    /// <summary> Group by keys and apply aggregations. </summary>
-    let groupBy (keys: seq<Expr>)(df: DataFrame) : GroupBy =
-        df.GroupBy(keys)
-    let having(predicate: Expr) (builder: GroupBy) = builder.Having(predicate)
-    let agg(aggs:seq<Expr>)(builder: GroupBy) = builder.Agg(aggs)
-    /// <summary> Perform a join between two DataFrames. </summary>
-    let join (other: DataFrame) (leftOn: seq<Expr>) (rightOn:seq<Expr>) (how: JoinType) (left: DataFrame) : DataFrame =
-        left.Join (other, leftOn, rightOn, how)
-    let joinOn(other: DataFrame) (on:seq<Expr>) (how: JoinType) (left: DataFrame) : DataFrame =
-        left.Join(other,on,how)
     /// <summary>
-    /// Vertically concat DataFrames (Standard concat).
+    /// Concat DataFrames
     /// </summary>
-    let concat (dfs: seq<DataFrame>) : DataFrame =
-        DataFrame.ConcatVertical dfs
-
+    let concatDataFrame(how:ConcatType) (dfs: seq<DataFrame>) : DataFrame =
+        DataFrame.Concat(dfs,how)
     /// <summary>
-    /// Horizontally concat DataFrames.
+    /// Concat LazyFrames
     /// </summary>
-    let concatHorizontal (dfs: seq<DataFrame>) : DataFrame =
-        DataFrame.ConcatHorizontal(dfs, checkDuplicates=true)
-
+    let concatLazyFrame(how:ConcatType) (lfs: seq<LazyFrame>) : LazyFrame =
+        LazyFrame.Concat(lfs,how)
     /// <summary>
-    /// Horizontally concat DataFrames (Allow duplicates).
+    /// Concatenates a sequence of Series into a single Series.
+    /// Preserves caller immutability by creating a cloned accumulator.
     /// </summary>
-    let concatHorizontalNoCheck (dfs: seq<DataFrame>) : DataFrame =
-        DataFrame.ConcatHorizontal(dfs, checkDuplicates=false)
-    /// <summary>
-    /// Diagonally concat DataFrames
-    /// </summary>
-    let concatDiagonal (dfs: seq<DataFrame>) : DataFrame =
-        DataFrame.ConcatDiagonal dfs
+    let concatSeries (series: seq<Series>) : Series =
+        use enumerator = series.GetEnumerator()
+        if not (enumerator.MoveNext()) then
+            invalidArg (nameof series) "Cannot concatenate an empty sequence of Series."
+        
+        // Clone the first Series to act as our private accumulator
+        let acc = enumerator.Current.Clone()
+        while enumerator.MoveNext() do
+            acc.AppendInplace enumerator.Current
+        acc
     /// <summary>
     /// Combine multiple expressions horizontally into a List element.
     /// Supports Selectors (e.g. pl.concatList([pl.cs.numeric()])).
@@ -1139,145 +1123,15 @@ module pl =
             |> Seq.map (fun e -> e.CloneHandle())
             |> Seq.toArray
         new Expr(PolarsWrapper.FormatString(format,handles))
-    /// <summary> Get the first n rows of the DataFrame. </summary>
-    let head (n: int) (df: DataFrame) : DataFrame =
-        df.Head n
-    let headLazy(n:int) (lf:LazyFrame) =
-        lf.Head(uint n)
-    /// <summary> Get the last n rows of the DataFrame. </summary>
-    let tail (n: int) (df: DataFrame) : DataFrame =
-        df.Tail n
-    let tailLazy(n:int) (lf:LazyFrame) =
-        lf.Tail(uint n)
-    /// <summary> Explode list-like columns into multiple rows. </summary>
-    let explode (columns: seq<string>) (df: DataFrame) : DataFrame =
-        df.Explode columns
-    /// <summary> Decompose multiple struct columns. </summary>
-    let unnestColumns(columns: seq<string>) (df:DataFrame) : DataFrame =
-        df.UnnestColumns columns
-    let unnestColumnsLazy(columns: seq<string>) (lf:LazyFrame) =
-        lf.Unnest columns
-    let drop(columns:seq<string>) (df:DataFrame):DataFrame =
-        df.Drop(columns |> Seq.toArray)
-    let dropLazy(columns:seq<string>) (lf:LazyFrame):LazyFrame =
-        lf.Drop(columns |> Seq.toArray)
-    /// <summary>
-    /// Horizontally stack columns to the DataFrame.
-    /// </summary>
-    let hstack (columns: seq<Series> ) (df: DataFrame) : DataFrame =
-        df.HStack columns
-    /// <summary>
-    /// Vertically stack another DataFrame to this one.
-    /// </summary>
-    let vstack (other: DataFrame) (df: DataFrame) : DataFrame =
-        df.VStack other
-    // Fill Helpers
-    /// <summary> Fill null values with a specific value. </summary>
-    let fillNull (fillValue: Expr) (e: Expr) = e.FillNull fillValue
-    /// <summary> Check for null values. </summary>
-    let isNull (e: Expr) = e.IsNull()
-    /// <summary> Check for non-null values. </summary>
-    let isNotNull (e: Expr) = e.IsNotNull()
-    /// <summary> Reverse the expr. </summary>
-    let reverse (e:Expr) = e.Reverse()
-    // unique and duplicated helpers
-    /// <summary> Get unique values. </summary>
-    let inline unique (e: Expr) = e.Unique()
-    /// <summary> Check if values are unique. </summary>
-    let inline isUnique (e: Expr) = e.IsUnique()
-    /// <summary> Check if values are duplicated. </summary>
-    let inline isDuplicated (e: Expr) = e.IsDuplicated()
-    // Math Helpers
-    /// <summary> Absolute value. </summary>
-    let abs (e: Expr) = e.Abs()
-    /// <summary> Power. </summary>
-    let pow (exponent: Expr) (baseExpr: Expr) = baseExpr.Pow exponent
-    /// <summary> Square root. </summary>
-    let sqrt (e: Expr) = e.Sqrt()
-    /// <summary> Exponential (e^x). </summary>
-    let exp (e: Expr) = e.Exp()
-    /// <summary> True division. </summary>
-    let inline truediv (other: Expr) (e: Expr) = e.Truediv other
-    /// <summary> Floor division (integer result). </summary>
-    let inline floorDiv (other: Expr) (e: Expr) = e.FloorDiv other
-    /// <summary> Modulo (remainder). </summary>
-    let inline mod_ (other: Expr) (e: Expr) = e.Mod other
-    /// <summary> Cube root. </summary>
-    let inline cbrt (e: Expr) = e.Cbrt()
-    /// <summary> Sign of the value (-1, 0, 1). </summary>
-    let inline sign (e: Expr) = e.Sign()
-    /// <summary> Ceiling (round up). </summary>
-    let inline ceil (e: Expr) = e.Ceil()
-    /// <summary> Floor (round down). </summary>
-    let inline floor (e: Expr) = e.Floor()
-
-    // Trig
-    let inline sin (e: Expr) = e.Sin()
-    let inline cos (e: Expr) = e.Cos()
-    let inline tan (e: Expr) = e.Tan()
-    let inline cot (e:Expr) = e.Cot()
-    let inline arcsin (e: Expr) = e.ArcSin()
-    let inline arccos (e: Expr) = e.ArcCos()
-    let inline arctan (e: Expr) = e.ArcTan()
-
-    // Hyperbolic
-    let inline sinh (e: Expr) = e.Sinh()
-    let inline cosh (e: Expr) = e.Cosh()
-    let inline tanh (e: Expr) = e.Tanh()
-    let inline arcsinh (e: Expr) = e.ArcSinh()
-    let inline arccosh (e: Expr) = e.ArcCosh()
-    let inline arctanh (e: Expr) = e.ArcTanh()
     /// <summary>
     /// Compute two argument arctan in radians.
     /// Returns the angle (in radians) in the plane between the positive x-axis and the ray from the origin to (x,y).
     /// </summary>
     let arctan2(y:Expr) (x:Expr) = new Expr(PolarsWrapper.ArcTan2(y.CloneHandle(),x.CloneHandle()))
 
-    // --- Lazy API ---
     let asLazy(df:DataFrame) = df.Lazy()
-    /// <summary> Explain the LazyFrame execution plan. </summary>
-    let explain (lf: LazyFrame) = lf.Explain true
-    /// <summary> Explain the unoptimized LazyFrame execution plan. </summary>
-    let explainUnoptimized (lf: LazyFrame) = lf.Explain false
-    /// <summary> Get the schema of the LazyFrame. </summary>
-    let collectSchema (lf: LazyFrame) = lf.Schema
-    /// <summary> Filter rows based on a boolean expression. </summary>
-    let filterLazy (expr: Expr) (lf: LazyFrame) : LazyFrame =
-        lf.Filter expr
-    /// <summary> Select columns from LazyFrame. </summary>
-    let selectLazy (exprs: seq<#IColumnExpr>) (lf: LazyFrame) : LazyFrame =
-        lf.Select exprs
-    /// <summary> Sort (Order By) the LazyFrame. </summary>
-    let sortAscendingLazy (exprs: seq<Expr>)(lf: LazyFrame) : LazyFrame =
-        lf.Sort (exprs,false)
-    let sortDescendingLazy (exprs: seq<Expr>)(lf: LazyFrame) : LazyFrame =
-        lf.Sort(exprs,true)
-    /// <summary> Alias for sortLazy </summary>
-    let orderByAscendingLazy (expr: seq<Expr>) (lf: LazyFrame) = sortAscendingLazy expr lf
-    let orderByDescendingLazy (expr: seq<Expr>) (lf: LazyFrame) = sortDescendingLazy expr lf
-    /// <summary> Add or replace columns in the LazyFrame. </summary>
-    let withColumnLazy (expr: Expr) (lf: LazyFrame) : LazyFrame =
-        lf.WithColumns expr
-    /// <summary> Add or replace multiple columns in the LazyFrame. </summary>
-    let withColumnsLazy (exprs: seq<Expr>) (lf: LazyFrame) : LazyFrame =
-        lf.WithColumns exprs
-    /// <summary> Group by keys. </summary>
-    let groupByLazy (keys: seq<Expr>)(lf: LazyFrame) :LazyGroupBy =
-        lf.GroupBy(keys)
-    let havingLazy (predicate: Expr) (builder: LazyGroupBy) = builder.Having(predicate)
-    let aggLazy (aggs: seq<Expr>) (builder: LazyGroupBy) = builder.Agg(aggs)
-    /// <summary> Perform a join between two LazyFrames. </summary>
-    let joinOnLazy (other: LazyFrame) (on: Expr seq) (how: JoinType) (lf: LazyFrame) : LazyFrame =
-        lf.Join(other,on,how)
-    let joinLazy(other:LazyFrame)(leftOn:Expr seq)(rightOn: Expr seq)(how: JoinType) (lf: LazyFrame) : LazyFrame =
-        lf.Join(other,leftOn,rightOn,how)
-    /// <summary> Concatenate multiple LazyFrames. </summary>
-    let concatLazy (lfs: seq<LazyFrame> ) (how: ConcatType) : LazyFrame =
-        LazyFrame.Concat(lfs,how)
-    /// <summary> Define a window over which to perform an aggregation. </summary>
-    let over (partitionBy: Expr seq) (e: Expr) = e.Over partitionBy
     /// <summary> Create a SQL context for executing SQL queries on LazyFrames. </summary>
-    let sqlContext () = new SqlContext()
+    let sqlContext() = new SqlContext()
     /// <summary>
     /// Create an if-else expression.
     /// </summary>
@@ -1288,23 +1142,6 @@ module pl =
 
         new Expr(PolarsWrapper.IfElse(p, t, f))
 
-
-    // --- Async Execution ---
-
-    /// <summary>
-    /// Asynchronously execute the LazyFrame query plan.
-    /// Useful for keeping UI responsive during heavy calculations.
-    /// </summary>
-    let collectAsync (lf: LazyFrame) : Async<DataFrame> =
-        async {
-            let lfClone = lf.CloneHandle()
-
-            let! dfHandle =
-                Task.Run(fun () -> PolarsWrapper.LazyCollect(lfClone,PlEngine.Auto,true))
-                |> Async.AwaitTask
-
-            return new DataFrame(dfHandle)
-        }
     /// --- Config ---
     let setEnvVar (key:string) (value:string) =
         Config.set key value
@@ -1320,49 +1157,35 @@ module pl =
     /// <summary> Reduce multiple columns horizontally/row-wise. </summary>
     let reduce (f: Expr -> Expr -> Expr) (exprs: seq<Expr>) : Expr =
         Seq.reduce f exprs
-
     /// <summary>
-    /// Print the DataFrame to Console (Table format).
-    /// </summary>
-    let show (df: DataFrame) : DataFrame =
-        df.Show()
-        df
-
-    /// <summary>
-    /// Print the Series to Console.
-    /// </summary>
-    let showSeries (s: Series) : Series =
-        s.Show()
-        s
-    /// <summary>
-    /// Starts a conditional when-then-otherwise expression branch logic natively in F#.
+    /// Starts a conditional when-then-otherwise expression branch natively in F#.
     /// </summary>
     /// <param name="condition">The initial filter condition expression.</param>
-    /// <returns>An intermediate FSharpWhen state object.</returns>
-    let when' (condition: Expr) =
-        if box condition = null then raise (ArgumentNullException(nameof(condition)))
-        FSharpWhen(condition)
+    /// <returns>An intermediate WhenCondition state object.</returns>
+    let when' (condition: Expr) : WhenCondition =
+        if box condition = null then raise (ArgumentNullException(nameof condition))
+        WhenCondition([], [], condition)
 
     /// <summary>
-    /// Connects a statement to the preceding when' condition.
+    /// Connects a statement expression to the preceding when' condition.
     /// </summary>
     /// <param name="statement">The expression to evaluate if the condition is true.</param>
-    /// <param name="whenBlock">The FSharpWhen block built by pl.when'.</param>
-    /// <returns>A new FSharpThen collector block.</returns>
-    let then' (statement: Expr) (whenBlock: FSharpWhen) =
-        if box statement = null then raise (ArgumentNullException(nameof(statement)))
-        if box whenBlock = null then raise (ArgumentNullException(nameof(whenBlock)))
-        FSharpThen([whenBlock.Condition], [statement])
+    /// <param name="whenBlock">The WhenCondition block built by pl.when'.</param>
+    /// <returns>A new ThenBranch collector block.</returns>
+    let then' (statement: Expr) (whenBlock: WhenCondition) : ThenBranch =
+        if box whenBlock = null then raise (ArgumentNullException(nameof whenBlock))
+        whenBlock.Then statement
+
     /// <summary>
-    /// Terminal operator that provides the default fallback value for a when-then-otherwise chain.
+    /// Terminal operator that provides the default fallback expression for a when-then-otherwise chain.
     /// </summary>
-    /// <param name="statement">The fallback expression.</param>
-    /// <param name="thenBlock">The FSharpThen block built by preceding when/then calls.</param>
+    /// <param name="fallback">The fallback expression.</param>
+    /// <param name="thenBlock">The ThenBranch collector block.</param>
     /// <returns>The compiled ternary expression tree.</returns>
-    let otherwise (statement: Expr) (thenBlock: FSharpThen) =
-        if box statement = null then raise (ArgumentNullException(nameof(statement)))
-        if box thenBlock = null then raise (ArgumentNullException(nameof(thenBlock)))
-        thenBlock.otherwise(statement)
+    let otherwise (fallback: Expr) (thenBlock: ThenBranch) : Expr =
+        if box thenBlock = null then raise (ArgumentNullException(nameof thenBlock))
+        thenBlock.Otherwise fallback
+
     // ==========================================
     // Column Selectors (pl.cs)
     // ==========================================

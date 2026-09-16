@@ -121,10 +121,10 @@ type ``Basic Functionality Tests`` () =
 
         let lf2 =
             lf
-            |> pl.withColumnLazy (
+            |> LazyFrame.withColumn (
                 (pl.col "a" * pl.lit 2).Alias "a_double"
             )
-            |> pl.filterLazy (pl.col "b" .> pl.lit 0)
+            |> LazyFrame.filter (pl.col "b" .> pl.lit 0)
 
         use pSchema = lf2.Schema
 
@@ -197,7 +197,7 @@ type ``Basic Functionality Tests`` () =
 
         Assert.Equal(3L, s1.Length)
 
-        pl.show df |> ignore
+        DataFrame.show df |> ignore
     [<Fact>]
     member _.``Convenience: Drop, Rename, DropNulls, Sample`` () =
         // Test DataFrame
@@ -271,7 +271,7 @@ type ``Basic Functionality Tests`` () =
 
         let res =
             df
-            |> pl.select([
+            |> DataFrame.select([
                 pl.col "ts"
 
                 // Convert (Naive -> Error, so we must Replace first)
@@ -312,7 +312,7 @@ type ``Basic Functionality Tests`` () =
 
         let res =
             lf
-            |> pl.filterLazy(pl.col "age" .> pl.lit 18)
+            |> LazyFrame.filter(pl.col "age" .> pl.lit 18)
             |> pl.collect
 
         Assert.Equal(1L, res.Height)
@@ -326,7 +326,7 @@ type ``Basic Functionality Tests`` () =
 
         let desc = df.Describe()
 
-        pl.show desc |> ignore
+        DataFrame.show desc |> ignore
 
         Assert.Equal(9L, desc.Height)
 
@@ -349,7 +349,7 @@ type ``Basic Functionality Tests`` () =
 
         // Row 1 (from df1): a=1, b=2, c=null
         // Row 2 (from df2): a=3, b=null, c=4
-        let res = pl.concatDiagonal [df1; df2]
+        let res = DataFrame.concatDiagonal [df1; df2]
 
         Assert.Equal(2L, res.Height)
         Assert.Equal(3L, res.Width)
@@ -396,8 +396,8 @@ type ``Basic Functionality Tests`` () =
         use csv1 = new TempCsv "a,b\n1,2\n3,4"
         let df =
             LazyFrame.ScanCsv (path=csv1.Path, tryParseDates=false)
-            |> pl.filterLazy (pl.col "a" .> pl.lit 0)
-            |> pl.collectAsync
+            |> LazyFrame.filter (pl.col "a" .> pl.lit 0)
+            |> LazyFrame.collectAsync
             |> Async.RunSynchronously
 
         Assert.Equal(2L, df.Height)
@@ -486,7 +486,7 @@ type ``Basic Functionality Tests`` () =
         // 2. Lazy Scan -> Filter -> Collect
         let res =
             LazyFrame.scanSeq data
-                |> pl.filterLazy(pl.col "Group" .== pl.lit "A")
+                |> LazyFrame.filter(pl.col "Group" .== pl.lit "A")
                 |> pl.collect
 
         Assert.Equal(2L, res.Height)
@@ -503,7 +503,7 @@ type ``Basic Functionality Tests`` () =
         // Self Join: lf.Join(lf, on="Key")
         let res =
             lf
-            |> pl.joinOnLazy lf [pl.col "Key"] JoinType.Left
+            |> LazyFrame.joinOn lf [pl.col "Key"] JoinType.Left
             |> pl.collect
 
         // 0: 4 items -> 4*4 = 16
@@ -895,7 +895,7 @@ type LitTests() =
 
         use h_stacked =
             df1
-            |> pl.hstack [s_new]
+            |> DataFrame.hstack [s_new]
 
         Assert.Equal(3L, h_stacked.Height)
         Assert.Equal(2L, h_stacked.Width)
@@ -917,7 +917,7 @@ type LitTests() =
 
         use v_stacked =
             h_stacked
-            |> pl.vstack df2
+            |> DataFrame.vstack df2
 
         Assert.Equal(5L, v_stacked.Height)
         Assert.Equal(2L, v_stacked.Width)

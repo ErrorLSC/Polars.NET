@@ -100,9 +100,7 @@ module UpdateOps =
                         let expr =
                             match validityCol with
                             | Some v ->
-                                pl.when'((pl.col v).IsNull())
-                                |> pl.then'(pl.col name)
-                                |> pl.otherwise(pl.col rightColName)
+                                pl.when'((pl.col v).IsNull()).Then(pl.col name).Otherwise(pl.col rightColName)
                             | None ->
                                 pl.col(rightColName).Coalesce [pl.col name]
                         expr.Alias name

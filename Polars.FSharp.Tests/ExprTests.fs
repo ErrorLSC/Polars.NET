@@ -12,7 +12,7 @@ type ``Expression Logic Tests`` () =
 
             let res = 
                 df
-                |> pl.select [
+                |> DataFrame.select [
                     col "name"
                     
                     col "birthdate" |> alias "b_date"
@@ -34,7 +34,7 @@ type ``Expression Logic Tests`` () =
         use csv = new TempCsv "val\n10\n20\n30"
         let df = DataFrame.ReadCsv csv.Path
         
-        let res = df |> pl.filter (col "val" .> lit 15)
+        let res = df |> DataFrame.filter (col "val" .> lit 15)
         
         Assert.Equal(2L, res.Height)
     [<Fact>]
@@ -42,7 +42,7 @@ type ``Expression Logic Tests`` () =
         use csv = new TempCsv "name,birthdate,weight,height\nBen Brown,1985-02-15,72.5,1.77\nQinglei,2025-11-25,70.0,1.80\nZhang,2025-10-31,55,1.75"
         let df = DataFrame.ReadCsv (path=csv.Path,tryParseDates=true)
 
-        let res = df |> pl.filter ((col "birthdate").Dt.Year() .< lit 1990 )
+        let res = df |> DataFrame.filter ((col "birthdate").Dt.Year() .< lit 1990 )
 
         Assert.Equal(1L,res.Height)
 
@@ -52,7 +52,7 @@ type ``Expression Logic Tests`` () =
         let df = DataFrame.ReadCsv csv.Path
         
         // SRTP
-        let res = df |> pl.filter (pl.col "name" .== pl.lit "Alice")
+        let res = df |> DataFrame.filter (pl.col "name" .== pl.lit "Alice")
         
         Assert.Equal(2L, res.Height)
 
@@ -61,7 +61,7 @@ type ``Expression Logic Tests`` () =
         use csv = new TempCsv "value\n3.36\n4.2\n5\n3.36"
         let df = DataFrame.ReadCsv csv.Path
         
-        let res = df |> pl.filter (col "value" .== lit 3.36)
+        let res = df |> DataFrame.filter (col "value" .== lit 3.36)
         
         Assert.Equal(2L, res.Height)
 
@@ -73,17 +73,16 @@ type ``Expression Logic Tests`` () =
 
         let res = 
             lf 
-            |> pl.withColumnLazy (
-                col "age" 
-                |> pl.fillNull (pl.lit 0) 
+            |> LazyFrame.withColumn (
+                col("age").FillNull 0 
                 |> pl.alias "age_filled"
             )
-            |> pl.filterLazy (col "age_filled" .>= lit 0)
+            |> LazyFrame.filter (col "age_filled" .>= lit 0)
             |> pl.collect
         Assert.Equal(3L, res.Height)
 
         let df= DataFrame.ReadCsv csv.Path 
-        let nulls = df |> pl.filter (pl.col "age" |> pl.isNull)
+        let nulls = df |> DataFrame.filter (pl.col("age").IsNull())
         Assert.Equal(1L, nulls.Height)
     [<Fact>]
     member _.``IsBetween with DateTime Literals`` () =
@@ -102,7 +101,7 @@ type ``Expression Logic Tests`` () =
 
         let res = 
             df 
-            |> pl.filter (
+            |> DataFrame.filter (
                 (pl.col "birthdate").IsBetween(pl.lit startDt, pl.lit endDt)
                 .&&
                 (pl.col "height" .> pl.lit 1.7)
@@ -117,13 +116,13 @@ type ``Expression Logic Tests`` () =
         use df_origin = DataFrame.create [s]
         let df =
             df_origin 
-            |> pl.select([
+            |> DataFrame.select([
             pl.col("ts").Str.ToDatetime("%Y-%m-%d %H:%M:%S").Alias "ts"
             ])
 
         let res = 
             df
-            |> pl.select([
+            |> DataFrame.select([
                 pl.col "ts"
 
                 // Truncate to 1 hour (10:15 -> 10:00)
@@ -138,7 +137,7 @@ type ``Expression Logic Tests`` () =
                 // Timestamp (Micros)
                 pl.col("ts").Dt.Timestamp(TimeUnit.Microseconds).Alias "micros"
             ])
-            |> pl.show
+            |> DataFrame.show
         
         // Truncate: 10:15 -> 10:00
         let t0 = res.DateTime("truncated", 0).Value
@@ -176,7 +175,7 @@ type ``String Logic Tests`` () =
 
         let res = 
             df
-            |> pl.select([
+            |> DataFrame.select([
                 pl.col "raw"
 
                 // "  abc  " -> "abc"
@@ -254,7 +253,7 @@ type ``String Logic Tests`` () =
 
         let res = 
             df 
-            |> pl.select [
+            |> DataFrame.select [
                 pl.col "name"
                 bmiExpr
                 (pl.col "height").Sqrt().Alias "sqrt_h"
@@ -276,7 +275,7 @@ type ``String Logic Tests`` () =
 
         let res =
             df
-            |> pl.select [
+            |> DataFrame.select [
                 pl.col "ts"
 
                 (pl.col "ts").Dt.Year().Alias "y"
@@ -317,7 +316,7 @@ type ``String Logic Tests`` () =
 
         let res = 
             df 
-            |> pl.select [
+            |> DataFrame.select [
                 // String -> Int64
                 (pl.col "val_str").Cast(DataType.Int64).Alias "str_to_int"
                 
@@ -356,8 +355,8 @@ type ``String Logic Tests`` () =
 
         let res = 
             df 
-            |> pl.withColumn gradeExpr
-            |> pl.sortDescending [pl.col "score"] 
+            |> DataFrame.withColumn gradeExpr
+            |> DataFrame.sortDescending [pl.col "score"] 
 
         // Alice (95) -> A
         Assert.Equal("A", res.String("grade", 0).Value)
@@ -373,7 +372,7 @@ type ``String Logic Tests`` () =
 
         let res = 
             df 
-            |> pl.select [
+            |> DataFrame.select [
                 // 1. Regex Replace: number into #
                 (pl.col "text").Str.ReplaceAll("\d+", "#", literal=false).Alias "masked"
                 

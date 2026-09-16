@@ -137,7 +137,8 @@ module DataFrame =
     /// Print the DataFrame to Console (Table format).
     /// </summary>
     let show (df: DataFrame) : DataFrame =
-        df |> pl.show
+        df.Show()
+        df
     /// <summary> Get the schema of the DataFrame. </summary>
     let collectSchema (df: DataFrame) : PolarsSchema =
         df.Schema
