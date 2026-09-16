@@ -15,7 +15,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// Get an item at the specified index.
     /// Supports: int, long, double, bool, string, decimal, DateTime, TimeSpan, DateOnly, TimeOnly.
     /// </summary>
-    public T? GetValue<T>(long index)
+    public T? GetValue<T>(long index, bool? uncheck = false)
     {
         var type = typeof(T);
         var underlying = Nullable.GetUnderlyingType(type) ?? type;
@@ -24,42 +24,42 @@ public partial class Series : IDisposable,IPolarsSeries
             throw new IndexOutOfRangeException($"Index {index} is out of bounds for Series length {Length}.");
 
         // 1. Numeric
-        if (underlying == typeof(int)) 
-            return (T?)(object?)(int?)PolarsWrapper.SeriesGetInt(Handle, index); 
-        if (underlying == typeof(uint)) 
-            return (T?)(object?)(uint?)PolarsWrapper.SeriesGetInt(Handle, index); 
-        if (underlying == typeof(long)) 
+        if (underlying == typeof(int))
+            return (T?)(object?)(int?)PolarsWrapper.SeriesGetInt(Handle, index);
+        if (underlying == typeof(uint))
+            return (T?)(object?)(uint?)PolarsWrapper.SeriesGetInt(Handle, index);
+        if (underlying == typeof(long))
             return (T?)(object?)PolarsWrapper.SeriesGetInt(Handle, index);
-        if (underlying == typeof(ulong)) 
-            return (T?)(object?)(ulong?)PolarsWrapper.SeriesGetInt(Handle, index); 
-        if (underlying == typeof(Int128)) 
+        if (underlying == typeof(ulong))
+            return (T?)(object?)(ulong?)PolarsWrapper.SeriesGetInt(Handle, index);
+        if (underlying == typeof(Int128))
             return (T?)(object?)PolarsWrapper.SeriesGetInt128(Handle, index);
 
-        if (underlying == typeof(UInt128)) 
+        if (underlying == typeof(UInt128))
             return (T?)(object?)PolarsWrapper.SeriesGetUInt128(Handle, index);
 
-        if (underlying == typeof(double)) 
+        if (underlying == typeof(double))
             return (T?)(object?)PolarsWrapper.SeriesGetDouble(Handle, index);
 
-        if (underlying == typeof(float)) 
+        if (underlying == typeof(float))
             return (T?)(object?)(float?)PolarsWrapper.SeriesGetDouble(Handle, index);
-        if (underlying == typeof(Half)) 
+        if (underlying == typeof(Half))
             return (T?)(object?)(Half?)PolarsWrapper.SeriesGetDouble(Handle, index);
 
         // 2. Boolean
-        if (underlying == typeof(bool)) 
+        if (underlying == typeof(bool))
             return (T?)(object?)PolarsWrapper.SeriesGetBool(Handle, index);
 
         // 3. String
-        if (underlying == typeof(string) && DataType != DataType.Categorical()) 
+        if (underlying == typeof(string) && DataType != DataType.Categorical())
         {
             if (PolarsWrapper.SeriesIsNullAt(Handle, index))
             {
-                return default!; 
+                return default!;
             }
 
             var strVal = PolarsWrapper.SeriesGetString(Handle, index);
-            
+
             return (T)(object)strVal!;
         }
 
@@ -70,10 +70,10 @@ public partial class Series : IDisposable,IPolarsSeries
         // 5. Temporal (Time)
         if (underlying == typeof(DateOnly))
             return (T?)(object?)PolarsWrapper.SeriesGetDate(Handle, index);
-            
+
         if (underlying == typeof(TimeOnly))
             return (T?)(object?)PolarsWrapper.SeriesGetTime(Handle, index);
-            
+
         if (underlying == typeof(TimeSpan))
             return (T?)(object?)PolarsWrapper.SeriesGetDuration(Handle, index);
         if (underlying == typeof(DateTime))
@@ -81,15 +81,15 @@ public partial class Series : IDisposable,IPolarsSeries
 
             var dtTuple = PolarsWrapper.SeriesGetDatetime(Handle, index);
 
-            if (!dtTuple.HasValue) 
+            if (!dtTuple.HasValue)
                 return default;
-            
+
             return (T)(object)dtTuple.Value.Value;
         }
         if (underlying == typeof(ValueTuple<DateTime, string>))
         {
             var dtTuple = PolarsWrapper.SeriesGetDatetime(Handle, index);
-            if (!dtTuple.HasValue) 
+            if (!dtTuple.HasValue)
                 return default;
 
             return (T)(object)dtTuple.Value;
@@ -99,14 +99,9 @@ public partial class Series : IDisposable,IPolarsSeries
         // Universal Path - using Arrow Infrastructure
         // For Struct, List, F# Option, DateTimeOffset .etc
         // ==============================================================
-        
-        using var slice = Slice(index, 1);
-        
-        var column = slice.ToArrow();
-
-        return ArrowReader.ReadItem<T>(column, 0);
+        return ArrowReader.ReadItem<T>(this.ToArrow(), (int)index);
     }
-    
+
     /// <summary>
     /// Get an item at the specified index as object (boxed).
     /// </summary>
@@ -146,24 +141,24 @@ public partial class Series : IDisposable,IPolarsSeries
                 // Duration
                 DataTypeKind.Duration => GetValue<TimeSpan?>(index),
 
-                //  Time -> TimeOnly 
+                //  Time -> TimeOnly
                 DataTypeKind.Time => GetValue<TimeOnly?>(index),
 
                 // DateTime
-                DataTypeKind.Date => GetValue<DateOnly?>(index), 
-                DataTypeKind.Datetime => string.IsNullOrEmpty(DataType.TimeZone) 
-                    ? GetValue<DateTime?>(index)      
+                DataTypeKind.Date => GetValue<DateOnly?>(index),
+                DataTypeKind.Datetime => string.IsNullOrEmpty(DataType.TimeZone)
+                    ? GetValue<DateTime?>(index)
                     : (object?)GetValue<DateTimeOffset?>(index),
 
                 // Binary
                 DataTypeKind.Binary => GetValue<byte[]>(index),
 
                 // Complex Types
-                DataTypeKind.List => GetValue<object>(index), 
-                DataTypeKind.Categorical => GetValue<object>(index), 
+                DataTypeKind.List => GetValue<object>(index),
+                DataTypeKind.Categorical => GetValue<object>(index),
                 DataTypeKind.Struct => GetValue<object>(index),
                 DataTypeKind.Array => GetValue<object>(index),
-                
+
                 _ => throw new NotSupportedException($"Indexer not supported for type {DataType.Kind}")
             };
         }
@@ -178,7 +173,7 @@ public partial class Series : IDisposable,IPolarsSeries
 
             var valArray = System.Array.CreateInstance(value.GetType(), 1);
             valArray.SetValue(value, 0);
-            
+
             using var valSeries = Series.From("val", (dynamic)valArray);
 
             var newHandle = PolarsWrapper.SeriesSetWithIndex(Handle, idxSeries.Handle, valSeries.Handle);
@@ -193,7 +188,7 @@ public partial class Series : IDisposable,IPolarsSeries
         get
         {
             if (key.DataType == DataType.Boolean)
-                return Filter(key); 
+                return Filter(key);
             if (key.DataType == DataType.UInt32) return Take(Pl.Lit(key));
             throw new NotSupportedException($"Getter not supported for Series key type: {key.DataType}");
         }
@@ -227,7 +222,7 @@ public partial class Series : IDisposable,IPolarsSeries
     /// </summary>
     public object? this[int[] indices]
     {
-        get 
+        get
         {
            return Take(Pl.Lit(indices));
         }
@@ -235,11 +230,11 @@ public partial class Series : IDisposable,IPolarsSeries
         {
             uint[] uIndices = [.. indices.Select(i => (uint)i)];
             using var idxSeries = Series.From("idx", uIndices);
-            
+
             this[idxSeries] = value;
         }
     }
-    
+
     /// <summary>
     /// Range Indexer (__getitem__ for slices)
     /// e.g. s[1..5] / s[..^1]
