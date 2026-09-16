@@ -17,11 +17,17 @@ public partial class Series : IDisposable,IPolarsSeries
     /// </summary>
     public T? GetValue<T>(long index, bool? uncheck = false)
     {
+        if (uncheck == false)
+        {
+            if (index < 0 || index >= Length)
+                throw new IndexOutOfRangeException($"Index {index} is out of bounds for Series length {Length}.");
+        }
+
+        if (this.IsNullAt(index))
+            return default;
+
         var type = typeof(T);
         var underlying = Nullable.GetUnderlyingType(type) ?? type;
-
-        if (index < 0 || index >= Length)
-            throw new IndexOutOfRangeException($"Index {index} is out of bounds for Series length {Length}.");
 
         // 1. Numeric
         if (underlying == typeof(int))
@@ -53,7 +59,7 @@ public partial class Series : IDisposable,IPolarsSeries
         // 3. String
         if (underlying == typeof(string) && DataType != DataType.Categorical())
         {
-            if (PolarsWrapper.SeriesIsNullAt(Handle, index))
+            if (PolarsWrapper.SeriesIsNullAtFast(Handle, index))
             {
                 return default!;
             }

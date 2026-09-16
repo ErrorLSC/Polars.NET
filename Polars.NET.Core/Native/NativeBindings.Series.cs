@@ -21,7 +21,7 @@ unsafe internal partial class NativeBindings
     public static partial bool pl_series_chunk_count(SeriesHandle handle, out uint count);
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
-    public static partial bool pl_series_estimated_size(SeriesHandle handle, out nuint size); 
+    public static partial bool pl_series_estimated_size(SeriesHandle handle, out nuint size);
     [LibraryImport(LibName)]
     public static partial int pl_series_has_nulls(SeriesHandle handle,[MarshalAs(UnmanagedType.U1)] out bool result);
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_is_first_distinct(SeriesHandle handle);
@@ -34,10 +34,12 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_approx_n_unique(
-        SeriesHandle series, 
+        SeriesHandle series,
         out uint count
     );
     // --- Series Getters ---
+    [LibraryImport(LibName)]
+    public static partial int pl_series_get_i32_fast(SeriesHandle s, nuint idx, out int val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_get_i64(SeriesHandle s, UIntPtr idx, out long val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
@@ -52,12 +54,12 @@ unsafe internal partial class NativeBindings
     public static partial bool pl_series_get_f64(SeriesHandle s, UIntPtr idx, out double val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
 
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.U1)] 
+    [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_get_bool(
-        SeriesHandle series, 
-        nuint idx, 
-        [MarshalAs(UnmanagedType.U1)] out bool val,    
-        [MarshalAs(UnmanagedType.U1)] out bool isNull  
+        SeriesHandle series,
+        nuint idx,
+        [MarshalAs(UnmanagedType.U1)] out bool val,
+        [MarshalAs(UnmanagedType.U1)] out bool isNull
     );
 
     [LibraryImport(LibName)]
@@ -67,11 +69,11 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_get_decimal(
-        SeriesHandle series, 
-        nuint idx, 
-        out Int128 val,         
-        out nuint precision, 
-        out nuint scale, 
+        SeriesHandle series,
+        nuint idx,
+        out Int128 val,
+        out nuint precision,
+        out nuint scale,
         [MarshalAs(UnmanagedType.U1)] out bool isNull
     );
     [LibraryImport(LibName)]
@@ -85,11 +87,11 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_get_datetime(
-        SeriesHandle series, 
-        nuint idx, 
-        out long val, 
-        out PlTimeUnit timeUnit, 
-        out IntPtr timezone, 
+        SeriesHandle series,
+        nuint idx,
+        out long val,
+        out PlTimeUnit timeUnit,
+        out IntPtr timezone,
         [MarshalAs(UnmanagedType.U1)] out bool isNull
     );
 
@@ -137,20 +139,20 @@ unsafe internal partial class NativeBindings
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial SeriesHandle pl_series_new_bool(
-        string name, 
-        ref byte data,       
-        ref byte validity,  
+        string name,
+        ref byte data,
+        ref byte validity,
         UIntPtr len
     );
 
     [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
     public static partial SeriesHandle pl_series_new_str_simd(
         string name,
-        ref byte values_ptr,           
-        nuint values_len,           
-        ref ArrowStringView views_ptr, 
-        ref byte validity_ptr,         
-        nuint len                   
+        ref byte values_ptr,
+        nuint values_len,
+        ref ArrowStringView views_ptr,
+        ref byte validity_ptr,
+        nuint len
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial SeriesHandle pl_series_new_datetime(
@@ -186,7 +188,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_decimal(
         [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
-        ref Int128 ptr,   
+        ref Int128 ptr,
         ref byte validity,
         UIntPtr len,
         UIntPtr precision,
@@ -348,11 +350,11 @@ unsafe internal partial class NativeBindings
     #endregion
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_struct(
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string name, 
-        ref IntPtr fields, 
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string name,
+        ref IntPtr fields,
         nuint len
     );
-    [LibraryImport(LibName)] 
+    [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_clone(SeriesHandle s);
     // --- Series Properties ---
     [LibraryImport(LibName)]
@@ -369,7 +371,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_rename(
-        SeriesHandle series, 
+        SeriesHandle series,
         string name
     );
     [LibraryImport(LibName)]
@@ -378,8 +380,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_is_not_null(SeriesHandle s);
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.U1)]
-    public static partial bool pl_series_is_null_at(SeriesHandle s,nuint idx,[MarshalAs(UnmanagedType.U1)] out bool IsNull);
+    public static partial int pl_series_is_null_at_fast(SeriesHandle s, nuint idx, [MarshalAs(UnmanagedType.U1)] out bool IsNull);
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_drop_nulls(SeriesHandle s);
     [LibraryImport(LibName)]
@@ -392,40 +393,40 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_unique(SeriesHandle series);
 
     [LibraryImport(LibName)] public static partial SeriesHandle pl_series_unique_stable(SeriesHandle series);
-    
-    [LibraryImport(LibName)] 
+
+    [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_n_unique(SeriesHandle series, out uint count);
     // --- Series Ops ---
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_slice(
-        SeriesHandle series, 
-        long offset, 
+        SeriesHandle series,
+        long offset,
         UIntPtr length
     );
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_take(
-        SeriesHandle series, 
+        SeriesHandle series,
         SeriesHandle indices
-    ); 
+    );
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.U1)] 
+    [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_append(SeriesHandle s_ptr, SeriesHandle other_ptr);
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.U1)] 
+    [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_extend(SeriesHandle s_ptr, SeriesHandle other_ptr);
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_reshape(
-        SeriesHandle series,         
+        SeriesHandle series,
         ReadOnlySpan<long> dims_ptr,
         nuint dims_len
     );
     // --- Series Cast ---
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_cast(
-        SeriesHandle ptr, 
-        DataTypeHandle dtype_ptr, 
-        [MarshalAs(UnmanagedType.U1)] bool strict, 
+        SeriesHandle ptr,
+        DataTypeHandle dtype_ptr,
+        [MarshalAs(UnmanagedType.U1)] bool strict,
         [MarshalAs(UnmanagedType.U1)] bool wrap_numerical
     );
     // Arithmetic
@@ -507,23 +508,23 @@ unsafe internal partial class NativeBindings
     );
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial DataFrameHandle pl_series_to_dummies(
-        SeriesHandle series, 
+        SeriesHandle series,
         string? separator,
         [MarshalAs(UnmanagedType.U1)]bool dropFirst,
         [MarshalAs(UnmanagedType.U1)]bool dropNulls
-    );     
+    );
     [LibraryImport(LibName)]
     public static partial SeriesHandle pl_series_new_from_index(SeriesHandle h, nuint index,nuint length);
     [LibraryImport(LibName)]
     public static partial int pl_series_equals(
-        SeriesHandle ptr1, 
-        SeriesHandle ptr2, 
+        SeriesHandle ptr1,
+        SeriesHandle ptr2,
         [MarshalAs(UnmanagedType.U1)] out bool result
     );
 
     [LibraryImport(LibName)]
     public static partial int pl_series_hash(
-        SeriesHandle ptr, 
+        SeriesHandle ptr,
         out ulong hash
     );
     [LibraryImport(LibName)]

@@ -848,7 +848,7 @@ module pl =
             let seed = lfs.[0]
             let onCol = baseAlignExprs |> Array.map (fun e -> e.Clone())
             let joinedFrame =
-                (seed, lfs |> Array.skip 1 |> Array.mapi (fun i lf -> (i + 1, lf)))
+                (seed, lfs |> Array.skip 1 |> Array.mapi (fun i lf -> i + 1, lf))
                 ||> Array.fold (fun acc (idx, lf) ->
                     acc.Join(
                         lf,

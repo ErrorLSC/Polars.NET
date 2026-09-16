@@ -371,9 +371,18 @@ type Series(handle: SeriesHandle) =
     /// <summary>
     /// Check whether indexed value is null。
     /// </summary>
-    member this.IsNullAt(index:int64) = PolarsWrapper.SeriesIsNullAt(this.Handle,index)
-    member this.IsNullAt(index: int) =
-        this.IsNullAt(int64 index)
+    member this.IsNullAt(index:int64,?uncheck:bool):bool =
+        let skipCheck = defaultArg uncheck false
+        if not skipCheck then
+            if index < 0L || index >= this.Length then
+                raise (ArgumentOutOfRangeException(nameof index, sprintf "Index %d is out of bounds for Series of length %d" index this.Length))
+            else
+                PolarsWrapper.SeriesIsNullAtFast(this.Handle, index)
+        else
+            // Fast direct path: completely unchecked
+            PolarsWrapper.SeriesIsNullAtFast(this.Handle, index)
+    member this.IsNullAt(index: int,?uncheck:bool) =
+        this.IsNullAt(int64 index,?uncheck=uncheck)
     // ==========================================
     // Unified Accessor (Fast Path + Universal Path)
     // ==========================================
@@ -509,7 +518,7 @@ type Series(handle: SeriesHandle) =
     /// <param name="index">The 64-bit row index location.</param>
     /// <returns>ValueSome value if valid, or ValueNone if null.</returns>
     member inline this.TryGetValue<'T>(index: int64) : 'T voption =
-        if index < 0L || index >= this.Length || this.IsNullAt index then
+        if index < 0L || index >= this.Length || this.IsNullAt(index, uncheck = true) then
             ValueNone
         else
             ValueSome (this.GetValue<'T>(index, uncheck = true))

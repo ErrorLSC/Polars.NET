@@ -12,7 +12,7 @@ public readonly partial struct PolarsWrapper
     // --- chunks ---
     public static SeriesHandle SeriesRechunk(SeriesHandle handle)
         => NativeBindings.pl_series_rechunk(handle);
-    public static void SeriesShrinkToFit(SeriesHandle s) 
+    public static void SeriesShrinkToFit(SeriesHandle s)
     {
         NativeBindings.pl_series_shrink_to_fit(s);
         ErrorHelper.CheckVoid();
@@ -20,9 +20,9 @@ public readonly partial struct PolarsWrapper
     public static nuint SeriesChunkCounts(SeriesHandle handle)
     {
         bool success = NativeBindings.pl_series_chunk_count(handle,out uint count);
-        
-        ErrorHelper.CheckBool(success); 
-        
+
+        ErrorHelper.CheckBool(success);
+
         return count;
     }
     public static nuint[] SeriesChunkLengths(SeriesHandle handle)
@@ -37,17 +37,17 @@ public readonly partial struct PolarsWrapper
         nuint[] lengths = new nuint[count];
 
         bool success = NativeBindings.pl_series_chunk_lengths(handle, ref lengths[0]);
-        
-        ErrorHelper.CheckBool(success); 
-        
+
+        ErrorHelper.CheckBool(success);
+
         return lengths;
     }
     public static long SeriesEstimatedSize(SeriesHandle series)
     {
         bool success = NativeBindings.pl_series_estimated_size(series,out nuint size);
-        
-        ErrorHelper.CheckBool(success); 
-        
+
+        ErrorHelper.CheckBool(success);
+
         return (long)size;
     }
     public static bool SeriesHasNulls(SeriesHandle series)
@@ -60,7 +60,7 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesIsLastDistinct(SeriesHandle series) => ErrorHelper.Check(NativeBindings.pl_series_is_last_distinct(series));
     public static SeriesHandle SeriesIsUnique(SeriesHandle series) => ErrorHelper.Check(NativeBindings.pl_series_is_unique(series));
     public static SeriesHandle SeriesIsDuplicated(SeriesHandle series) => ErrorHelper.Check(NativeBindings.pl_series_is_duplicated(series));
-    public static SeriesHandle SeriesIsIn(SeriesHandle series, SeriesHandle other, bool nullsLast) 
+    public static SeriesHandle SeriesIsIn(SeriesHandle series, SeriesHandle other, bool nullsLast)
         => ErrorHelper.Check(NativeBindings.pl_series_is_in(series,other, nullsLast));
     public static SeriesHandle SeriesImplode(SeriesHandle series) => ErrorHelper.Check(NativeBindings.pl_series_implode(series));
     public static SeriesHandle SeriesUniqueCounts(SeriesHandle series) => ErrorHelper.Check(NativeBindings.pl_series_unique_counts(series));
@@ -69,7 +69,7 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, ReadOnlySpan<sbyte> data, ReadOnlySpan<byte> validity = default)
     {
         ref sbyte dataRef = ref MemoryMarshal.GetReference(data);
-        
+
         ref byte validRef = ref Unsafe.NullRef<byte>();
 
         if (!validity.IsEmpty)
@@ -78,9 +78,9 @@ public readonly partial struct PolarsWrapper
         }
 
         return ErrorHelper.Check(NativeBindings.pl_series_new_i8(
-            name, 
-            ref dataRef, 
-            ref validRef, 
+            name,
+            ref dataRef,
+            ref validRef,
             (UIntPtr)data.Length));
     }
 
@@ -88,15 +88,15 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, sbyte[] data, byte[]? validity = null)
     {
         return SeriesNew(
-            name, 
-            new ReadOnlySpan<sbyte>(data), 
+            name,
+            new ReadOnlySpan<sbyte>(data),
             validity == null ? default : new ReadOnlySpan<byte>(validity));
     }
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SeriesHandle SeriesNew(string name, ReadOnlySpan<byte> data, ReadOnlySpan<byte> validity = default)
     {
         ref byte dataRef = ref MemoryMarshal.GetReference(data);
-        
+
         ref byte validRef = ref Unsafe.NullRef<byte>();
 
         if (!validity.IsEmpty)
@@ -105,9 +105,9 @@ public readonly partial struct PolarsWrapper
         }
 
         return ErrorHelper.Check(NativeBindings.pl_series_new_u8(
-            name, 
-            ref dataRef, 
-            ref validRef, 
+            name,
+            ref dataRef,
+            ref validRef,
             (UIntPtr)data.Length));
     }
 
@@ -115,8 +115,8 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, byte[] data, byte[]? validity = null)
     {
         return SeriesNew(
-            name, 
-            new ReadOnlySpan<byte>(data), 
+            name,
+            new ReadOnlySpan<byte>(data),
             validity == null ? default : new ReadOnlySpan<byte>(validity));
     }
 
@@ -124,7 +124,7 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, ReadOnlySpan<short> data, ReadOnlySpan<byte> validity = default)
     {
         ref short dataRef = ref MemoryMarshal.GetReference(data);
-        
+
         ref byte validRef = ref Unsafe.NullRef<byte>();
 
         if (!validity.IsEmpty)
@@ -133,9 +133,9 @@ public readonly partial struct PolarsWrapper
         }
 
         return ErrorHelper.Check(NativeBindings.pl_series_new_i16(
-            name, 
-            ref dataRef, 
-            ref validRef, 
+            name,
+            ref dataRef,
+            ref validRef,
             (UIntPtr)data.Length));
     }
 
@@ -143,15 +143,15 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, short[] data, byte[]? validity = null)
     {
         return SeriesNew(
-            name, 
-            new ReadOnlySpan<short>(data), 
+            name,
+            new ReadOnlySpan<short>(data),
             validity == null ? default : new ReadOnlySpan<byte>(validity));
     }
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SeriesHandle SeriesNew(string name, ReadOnlySpan<ushort> data, ReadOnlySpan<byte> validity = default)
     {
         ref ushort dataRef = ref MemoryMarshal.GetReference(data);
-        
+
         ref byte validRef = ref Unsafe.NullRef<byte>();
 
         if (!validity.IsEmpty)
@@ -160,9 +160,9 @@ public readonly partial struct PolarsWrapper
         }
 
         return ErrorHelper.Check(NativeBindings.pl_series_new_u16(
-            name, 
-            ref dataRef, 
-            ref validRef, 
+            name,
+            ref dataRef,
+            ref validRef,
             (UIntPtr)data.Length));
     }
 
@@ -170,8 +170,8 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, ushort[] data, byte[]? validity = null)
     {
         return SeriesNew(
-            name, 
-            new ReadOnlySpan<ushort>(data), 
+            name,
+            new ReadOnlySpan<ushort>(data),
             validity == null ? default : new ReadOnlySpan<byte>(validity));
     }
 
@@ -179,7 +179,7 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, ReadOnlySpan<int> data, ReadOnlySpan<byte> validity = default)
     {
         ref int dataRef = ref MemoryMarshal.GetReference(data);
-        
+
         ref byte validRef = ref Unsafe.NullRef<byte>();
 
         if (!validity.IsEmpty)
@@ -188,9 +188,9 @@ public readonly partial struct PolarsWrapper
         }
 
         return ErrorHelper.Check(NativeBindings.pl_series_new_i32(
-            name, 
-            ref dataRef, 
-            ref validRef, 
+            name,
+            ref dataRef,
+            ref validRef,
             (UIntPtr)data.Length));
     }
 
@@ -198,8 +198,8 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, int[] data, byte[]? validity = null)
     {
         return SeriesNew(
-            name, 
-            new ReadOnlySpan<int>(data), 
+            name,
+            new ReadOnlySpan<int>(data),
             validity == null ? default : new ReadOnlySpan<byte>(validity));
     }
 
@@ -207,7 +207,7 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, ReadOnlySpan<uint> data, ReadOnlySpan<byte> validity = default)
     {
         ref uint dataRef = ref MemoryMarshal.GetReference(data);
-        
+
         ref byte validRef = ref Unsafe.NullRef<byte>();
 
         if (!validity.IsEmpty)
@@ -216,9 +216,9 @@ public readonly partial struct PolarsWrapper
         }
 
         return ErrorHelper.Check(NativeBindings.pl_series_new_u32(
-            name, 
-            ref dataRef, 
-            ref validRef, 
+            name,
+            ref dataRef,
+            ref validRef,
             (UIntPtr)data.Length));
     }
 
@@ -226,15 +226,15 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, uint[] data, byte[]? validity = null)
     {
         return SeriesNew(
-            name, 
-            new ReadOnlySpan<uint>(data), 
+            name,
+            new ReadOnlySpan<uint>(data),
             validity == null ? default : new ReadOnlySpan<byte>(validity));
     }
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SeriesHandle SeriesNew(string name, ReadOnlySpan<long> data, ReadOnlySpan<byte> validity = default)
     {
         ref long dataRef = ref MemoryMarshal.GetReference(data);
-        
+
         ref byte validRef = ref Unsafe.NullRef<byte>();
 
         if (!validity.IsEmpty)
@@ -243,9 +243,9 @@ public readonly partial struct PolarsWrapper
         }
 
         return ErrorHelper.Check(NativeBindings.pl_series_new_i64(
-            name, 
-            ref dataRef, 
-            ref validRef, 
+            name,
+            ref dataRef,
+            ref validRef,
             (UIntPtr)data.Length));
     }
 
@@ -253,8 +253,8 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, long[] data, byte[]? validity = null)
     {
         return SeriesNew(
-            name, 
-            new ReadOnlySpan<long>(data), 
+            name,
+            new ReadOnlySpan<long>(data),
             validity == null ? default : new ReadOnlySpan<byte>(validity));
     }
 
@@ -262,7 +262,7 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, ReadOnlySpan<ulong> data, ReadOnlySpan<byte> validity = default)
     {
         ref ulong dataRef = ref MemoryMarshal.GetReference(data);
-        
+
         ref byte validRef = ref Unsafe.NullRef<byte>();
 
         if (!validity.IsEmpty)
@@ -271,9 +271,9 @@ public readonly partial struct PolarsWrapper
         }
 
         return ErrorHelper.Check(NativeBindings.pl_series_new_u64(
-            name, 
-            ref dataRef, 
-            ref validRef, 
+            name,
+            ref dataRef,
+            ref validRef,
             (UIntPtr)data.Length));
     }
 
@@ -281,8 +281,8 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, ulong[] data, byte[]? validity = null)
     {
         return SeriesNew(
-            name, 
-            new ReadOnlySpan<ulong>(data), 
+            name,
+            new ReadOnlySpan<ulong>(data),
             validity == null ? default : new ReadOnlySpan<byte>(validity));
     }
 
@@ -290,7 +290,7 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, ReadOnlySpan<Int128> data, ReadOnlySpan<byte> validity = default)
     {
         ref Int128 dataRef = ref MemoryMarshal.GetReference(data);
-        
+
         ref byte validRef = ref Unsafe.NullRef<byte>();
 
         if (!validity.IsEmpty)
@@ -299,9 +299,9 @@ public readonly partial struct PolarsWrapper
         }
 
         return ErrorHelper.Check(NativeBindings.pl_series_new_i128(
-            name, 
-            ref dataRef, 
-            ref validRef, 
+            name,
+            ref dataRef,
+            ref validRef,
             (UIntPtr)data.Length));
     }
 
@@ -309,15 +309,15 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, Int128[] data, byte[]? validity = null)
     {
         return SeriesNew(
-            name, 
-            new ReadOnlySpan<Int128>(data), 
+            name,
+            new ReadOnlySpan<Int128>(data),
             validity == null ? default : new ReadOnlySpan<byte>(validity));
     }
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SeriesHandle SeriesNew(string name, ReadOnlySpan<UInt128> data, ReadOnlySpan<byte> validity = default)
     {
         ref UInt128 dataRef = ref MemoryMarshal.GetReference(data);
-        
+
         ref byte validRef = ref Unsafe.NullRef<byte>();
 
         if (!validity.IsEmpty)
@@ -326,9 +326,9 @@ public readonly partial struct PolarsWrapper
         }
 
         return ErrorHelper.Check(NativeBindings.pl_series_new_u128(
-            name, 
-            ref dataRef, 
-            ref validRef, 
+            name,
+            ref dataRef,
+            ref validRef,
             (UIntPtr)data.Length));
     }
 
@@ -336,8 +336,8 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, UInt128[] data, byte[]? validity = null)
     {
         return SeriesNew(
-            name, 
-            new ReadOnlySpan<UInt128>(data), 
+            name,
+            new ReadOnlySpan<UInt128>(data),
             validity == null ? default : new ReadOnlySpan<byte>(validity));
     }
 
@@ -345,7 +345,7 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, ReadOnlySpan<Half> data, ReadOnlySpan<byte> validity = default)
     {
         ref Half dataRef = ref MemoryMarshal.GetReference(data);
-        
+
         ref byte validRef = ref Unsafe.NullRef<byte>();
 
         if (!validity.IsEmpty)
@@ -354,9 +354,9 @@ public readonly partial struct PolarsWrapper
         }
 
         return ErrorHelper.Check(NativeBindings.pl_series_new_f16(
-            name, 
-            ref dataRef, 
-            ref validRef, 
+            name,
+            ref dataRef,
+            ref validRef,
             (UIntPtr)data.Length));
     }
 
@@ -364,15 +364,15 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, Half[] data, byte[]? validity = null)
     {
         return SeriesNew(
-            name, 
-            new ReadOnlySpan<Half>(data), 
+            name,
+            new ReadOnlySpan<Half>(data),
             validity == null ? default : new ReadOnlySpan<byte>(validity));
     }
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SeriesHandle SeriesNew(string name, ReadOnlySpan<float> data, ReadOnlySpan<byte> validity = default)
     {
         ref float dataRef = ref MemoryMarshal.GetReference(data);
-        
+
         ref byte validRef = ref Unsafe.NullRef<byte>();
 
         if (!validity.IsEmpty)
@@ -381,9 +381,9 @@ public readonly partial struct PolarsWrapper
         }
 
         return ErrorHelper.Check(NativeBindings.pl_series_new_f32(
-            name, 
-            ref dataRef, 
-            ref validRef, 
+            name,
+            ref dataRef,
+            ref validRef,
             (UIntPtr)data.Length));
     }
 
@@ -391,8 +391,8 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, float[] data, byte[]? validity = null)
     {
         return SeriesNew(
-            name, 
-            new ReadOnlySpan<float>(data), 
+            name,
+            new ReadOnlySpan<float>(data),
             validity == null ? default : new ReadOnlySpan<byte>(validity));
     }
 
@@ -400,7 +400,7 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, ReadOnlySpan<double> data, ReadOnlySpan<byte> validity = default)
     {
         ref double dataRef = ref MemoryMarshal.GetReference(data);
-        
+
         ref byte validRef = ref Unsafe.NullRef<byte>();
 
         if (!validity.IsEmpty)
@@ -409,9 +409,9 @@ public readonly partial struct PolarsWrapper
         }
 
         return ErrorHelper.Check(NativeBindings.pl_series_new_f64(
-            name, 
-            ref dataRef, 
-            ref validRef, 
+            name,
+            ref dataRef,
+            ref validRef,
             (UIntPtr)data.Length));
     }
 
@@ -419,20 +419,20 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNew(string name, double[] data, byte[]? validity = null)
     {
         return SeriesNew(
-            name, 
-            new ReadOnlySpan<double>(data), 
+            name,
+            new ReadOnlySpan<double>(data),
             validity == null ? default : new ReadOnlySpan<byte>(validity));
     }
-        
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SeriesHandle SeriesNew(
-        string name, 
-        ReadOnlySpan<byte> valuesBitmask, 
-        ReadOnlySpan<byte> validityBitmask, 
+        string name,
+        ReadOnlySpan<byte> valuesBitmask,
+        ReadOnlySpan<byte> validityBitmask,
         UIntPtr length)
     {
-        ref byte valuesRef = ref valuesBitmask.IsEmpty 
-            ? ref Unsafe.NullRef<byte>() 
+        ref byte valuesRef = ref valuesBitmask.IsEmpty
+            ? ref Unsafe.NullRef<byte>()
             : ref MemoryMarshal.GetReference(valuesBitmask);
 
         ref byte validRef = ref Unsafe.NullRef<byte>();
@@ -442,22 +442,22 @@ public readonly partial struct PolarsWrapper
         }
 
         return ErrorHelper.Check(NativeBindings.pl_series_new_bool(
-            name, 
-            ref valuesRef, 
-            ref validRef, 
+            name,
+            ref valuesRef,
+            ref validRef,
             length));
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SeriesHandle SeriesNew(
-        string name, 
-        byte[] valuesBitmask, 
-        byte[]? validityBitmask, 
+        string name,
+        byte[] valuesBitmask,
+        byte[]? validityBitmask,
         UIntPtr length)
     {
         return SeriesNew(
-            name, 
-            new ReadOnlySpan<byte>(valuesBitmask), 
+            name,
+            new ReadOnlySpan<byte>(valuesBitmask),
             validityBitmask == null ? default : new ReadOnlySpan<byte>(validityBitmask),
             length);
     }
@@ -473,12 +473,12 @@ public readonly partial struct PolarsWrapper
         {
             return ErrorHelper.Check(
                 NativeBindings.pl_series_new_str_simd(
-                    name, 
+                    name,
                     ref Unsafe.NullRef<byte>(),            // Null Pointer
-                    0,    
+                    0,
                     ref Unsafe.NullRef<ArrowStringView>(), // Null Pointer
                     ref Unsafe.NullRef<byte>(),            // Null Pointer
-                    0     
+                    0
                 )
             );
         }
@@ -487,10 +487,10 @@ public readonly partial struct PolarsWrapper
         var (views, dataBuffer, validity) = StringPacker.PackStringView(data);
 
         // Prepare Ref
-        
+
         // DataBuffer might be null (All inlined)
-        ref byte pData = ref dataBuffer == null || dataBuffer.Length == 0 
-            ? ref Unsafe.NullRef<byte>() 
+        ref byte pData = ref dataBuffer == null || dataBuffer.Length == 0
+            ? ref Unsafe.NullRef<byte>()
             : ref MemoryMarshal.GetArrayDataReference(dataBuffer);
 
         // Views array
@@ -519,7 +519,7 @@ public readonly partial struct PolarsWrapper
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SeriesHandle SeriesNewStringSimd(string name, string?[] data)
         => SeriesNewStringSimd(name, new ReadOnlySpan<string?>(data));
-    
+
     /// <summary>
     /// Create DateTime Series from pre-calculated Microseconds.
     /// </summary>
@@ -529,9 +529,9 @@ public readonly partial struct PolarsWrapper
     /// <param name="timeZone">"Asia/Shanghai", "UTC" or null (Naive)</param>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static SeriesHandle SeriesNewDatetime(
-        string name, 
-        ReadOnlySpan<long> values, 
-        ReadOnlySpan<byte> validity = default, 
+        string name,
+        ReadOnlySpan<long> values,
+        ReadOnlySpan<byte> validity = default,
         string? timeZone = null)
     {
         // Get Values Ref
@@ -548,9 +548,9 @@ public readonly partial struct PolarsWrapper
 
         return ErrorHelper.Check(
             NativeBindings.pl_series_new_datetime(
-                name, 
-                ref pValsRef, 
-                ref pValidRef, 
+                name,
+                ref pValsRef,
+                ref pValidRef,
                 (UIntPtr)values.Length,
                 PlTimeUnit.Microseconds,
                 timeZone
@@ -560,15 +560,15 @@ public readonly partial struct PolarsWrapper
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static SeriesHandle SeriesNewDatetime(
-        string name, 
-        long[] values, 
-        byte[]? validity, 
+        string name,
+        long[] values,
+        byte[]? validity,
         string? timeZone = null)
     {
         return SeriesNewDatetime(
-            name, 
-            new ReadOnlySpan<long>(values), 
-            validity == null ? default : new ReadOnlySpan<byte>(validity), 
+            name,
+            new ReadOnlySpan<long>(values),
+            validity == null ? default : new ReadOnlySpan<byte>(validity),
             timeZone
         );
     }
@@ -594,8 +594,8 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNewDate(string name, int[] values, byte[]? validity = null)
     {
         return SeriesNewDate(
-            name, 
-            new ReadOnlySpan<int>(values), 
+            name,
+            new ReadOnlySpan<int>(values),
             validity == null ? default : new ReadOnlySpan<byte>(validity)
         );
     }
@@ -623,8 +623,8 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNewTime(string name, long[] values, byte[]? validity = null)
     {
         return SeriesNewTime(
-            name, 
-            new ReadOnlySpan<long>(values), 
+            name,
+            new ReadOnlySpan<long>(values),
             validity == null ? default : new ReadOnlySpan<byte>(validity)
         );
     }
@@ -643,10 +643,10 @@ public readonly partial struct PolarsWrapper
 
         return ErrorHelper.Check(
             NativeBindings.pl_series_new_duration(
-                name, 
-                ref pValsRef, 
-                ref pValidRef, 
-                (UIntPtr)values.Length, 
+                name,
+                ref pValsRef,
+                ref pValidRef,
+                (UIntPtr)values.Length,
                 PlTimeUnit.Microseconds
             )
         );
@@ -656,8 +656,8 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNewDuration(string name, long[] values, byte[]? validity = null)
     {
         return SeriesNewDuration(
-            name, 
-            new ReadOnlySpan<long>(values), 
+            name,
+            new ReadOnlySpan<long>(values),
             validity == null ? default : new ReadOnlySpan<byte>(validity)
         );
     }
@@ -676,10 +676,10 @@ public readonly partial struct PolarsWrapper
 
         return ErrorHelper.Check(
             NativeBindings.pl_series_new_decimal(
-                name, 
-                ref pValsRef, 
-                ref pValidRef, 
-                (UIntPtr)values.Length, 
+                name,
+                ref pValsRef,
+                ref pValidRef,
+                (UIntPtr)values.Length,
                 UIntPtr.Zero, // Precision=0 (Auto)
                 (UIntPtr)scale
             )
@@ -690,8 +690,8 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNewDecimal(string name, Int128[] values, byte[]? validity, int scale)
     {
         return SeriesNewDecimal(
-            name, 
-            new ReadOnlySpan<Int128>(values), 
+            name,
+            new ReadOnlySpan<Int128>(values),
             validity == null ? default : new ReadOnlySpan<byte>(validity),
             scale
         );
@@ -700,19 +700,19 @@ public readonly partial struct PolarsWrapper
     // FixedSizeList (2D Array) Wrapper
     // =================================================================
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public static SeriesHandle SeriesNewFixedArray<T>(string name, ReadOnlySpan<T> flatData, int width, ReadOnlySpan<byte> validity = default) 
+    public static SeriesHandle SeriesNewFixedArray<T>(string name, ReadOnlySpan<T> flatData, int width, ReadOnlySpan<byte> validity = default)
         where T : unmanaged
     {
         int flatLen = flatData.Length;
         int height = flatLen / width;
-        
+
         UIntPtr uFlatLen = (UIntPtr)flatLen;
         UIntPtr uHeight = (UIntPtr)height;
         UIntPtr uWidth = (UIntPtr)width;
 
         // get data ref
         ref T pDataRef = ref flatData.IsEmpty ? ref Unsafe.NullRef<T>() : ref MemoryMarshal.GetReference(flatData);
-        
+
         // get Validity ref
         ref byte pValidRef = ref validity.IsEmpty ? ref Unsafe.NullRef<byte>() : ref MemoryMarshal.GetReference(validity);
         if (typeof(T) == typeof(sbyte))
@@ -788,9 +788,9 @@ public readonly partial struct PolarsWrapper
                 {
                     decimal* pDec = (decimal*)ptr;
                     var (int128Values, scale) = DecimalPacker.Pack(pDec, flatLen);
-                    
+
                     ref Int128 pValsRef = ref MemoryMarshal.GetArrayDataReference(int128Values);
-                    
+
                     return ErrorHelper.Check(NativeBindings.pl_series_new_array_decimal(
                         name, ref pValsRef, uFlatLen, ref pValidRef, uHeight, uWidth, (UIntPtr)scale));
                 }
@@ -806,11 +806,11 @@ public readonly partial struct PolarsWrapper
     /// Create Fixed Size Series (Zero-Copy from C# 2D Array).
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static SeriesHandle SeriesNewFixedArray<T>(string name, T[,] data) 
+    public static SeriesHandle SeriesNewFixedArray<T>(string name, T[,] data)
         where T : unmanaged
     {
         int width = data.GetLength(1);
-        
+
         if (data.Length == 0)
         {
             return SeriesNewFixedArray(name, ReadOnlySpan<T>.Empty, width);
@@ -841,8 +841,8 @@ public readonly partial struct PolarsWrapper
 
         return ErrorHelper.Check(
             NativeBindings.pl_series_new_struct(
-                name, 
-                ref MemoryMarshal.GetReference(pointers), 
+                name,
+                ref MemoryMarshal.GetReference(pointers),
                 (nuint)len
             )
         );
@@ -867,57 +867,65 @@ public readonly partial struct PolarsWrapper
     public static long SeriesLen(SeriesHandle handle)
     {
         bool success = NativeBindings.pl_series_len(handle,out uint count);
-        
-        ErrorHelper.CheckBool(success); 
-        
+
+        ErrorHelper.CheckBool(success);
+
         return count;
     }
     public static long SeriesApproxNUnique(SeriesHandle series)
     {
         bool success = NativeBindings.pl_series_approx_n_unique(series, out uint count);
-        
-        ErrorHelper.CheckBool(success); 
-        
+
+        ErrorHelper.CheckBool(success);
+
         return count;
     }
-    
-    public static string SeriesName(SeriesHandle h) 
+
+    public static string SeriesName(SeriesHandle h)
     {
         var ptr = NativeBindings.pl_series_name(h);
         return ErrorHelper.CheckString(ptr) ;
     }
-    
+
     public static void SeriesRename(SeriesHandle h, string name)
     {
 
         bool success = NativeBindings.pl_series_rename(h, name);
-        
+
         ErrorHelper.CheckBool(success);
     }
 
     public static void SeriesAppend(SeriesHandle h, SeriesHandle other)
     {
         bool success = NativeBindings.pl_series_append(h, other);
-        
+
         ErrorHelper.CheckBool(success);
     }
     public static void SeriesExtend(SeriesHandle h, SeriesHandle other)
     {
         bool success = NativeBindings.pl_series_extend(h, other);
-        
+
         ErrorHelper.CheckBool(success);
     }
 
     // --- DataFrame Conversion ---
-    public static DataFrameHandle SeriesToFrame(SeriesHandle h) 
+    public static DataFrameHandle SeriesToFrame(SeriesHandle h)
+        => ErrorHelper.Check(NativeBindings.pl_series_to_frame(h));
+
+    public static int? SeriesGetInt32(SeriesHandle s, long idx)
     {
-        return ErrorHelper.Check(NativeBindings.pl_series_to_frame(h));
+        int code = NativeBindings.pl_series_get_i32_fast(s, (nuint)idx, out int val, out bool isNull);
+
+        ErrorHelper.CheckStatus(code);
+        if (isNull) return null;
+
+        return val;
     }
     public static long? SeriesGetInt(SeriesHandle s, long idx)
     {
         bool success = NativeBindings.pl_series_get_i64(
             s, (nuint)idx, out long val, out bool isNull);
-        
+
         ErrorHelper.CheckBool(success);
         if (isNull) return null;
 
@@ -927,7 +935,7 @@ public readonly partial struct PolarsWrapper
     {
         bool success = NativeBindings.pl_series_get_i128(
             s, (nuint)idx, out Int128 val, out bool isNull);
-        
+
         ErrorHelper.CheckBool(success);
         if (isNull) return null;
 
@@ -937,7 +945,7 @@ public readonly partial struct PolarsWrapper
     {
         bool success = NativeBindings.pl_series_get_u128(
             s, (nuint)idx, out UInt128 val, out bool isNull);
-        
+
         ErrorHelper.CheckBool(success);
         if (isNull) return null;
 
@@ -948,7 +956,7 @@ public readonly partial struct PolarsWrapper
     {
         bool success = NativeBindings.pl_series_get_f64(
             s, (nuint)idx, out double val, out bool isNull);
-        
+
         ErrorHelper.CheckBool(success);
         if (isNull) return null;
 
@@ -958,9 +966,9 @@ public readonly partial struct PolarsWrapper
     public static bool? SeriesGetBool(SeriesHandle s, long idx)
     {
         bool success = NativeBindings.pl_series_get_bool(
-            s, 
-            (nuint)idx, 
-            out bool val, 
+            s,
+            (nuint)idx,
+            out bool val,
             out bool isNull
         );
 
@@ -977,17 +985,17 @@ public readonly partial struct PolarsWrapper
     public static string? SeriesGetString(SeriesHandle s, long idx)
     {
         IntPtr ptr = NativeBindings.pl_series_get_str(s, (UIntPtr)idx);
-        return ErrorHelper.CheckString(ptr); 
+        return ErrorHelper.CheckString(ptr);
     }
 
     public static decimal? SeriesGetDecimal(SeriesHandle s, long idx)
     {
         bool success = NativeBindings.pl_series_get_decimal(
-            s, 
-            (nuint)idx, 
-            out Int128 val, 
-            out nuint precision, 
-            out nuint scale, 
+            s,
+            (nuint)idx,
+            out Int128 val,
+            out nuint precision,
+            out nuint scale,
             out bool isNull
         );
 
@@ -1010,7 +1018,7 @@ public readonly partial struct PolarsWrapper
         //     );
         // }
 
-        if (scaleInt >= DecimalPacker.PowersOf10Int128.Length) 
+        if (scaleInt >= DecimalPacker.PowersOf10Int128.Length)
         {
             try { return (decimal)val / (decimal)Math.Pow(10, scaleInt); }
             catch { return null; }
@@ -1020,12 +1028,12 @@ public readonly partial struct PolarsWrapper
         Int128 intPart = val / divisor;
         Int128 remPart = val % divisor;
 
-        try 
+        try
         {
             decimal dInt = (decimal)intPart;
             decimal dRem = (decimal)remPart;
-            decimal dDivisor = (decimal)divisor; 
-            
+            decimal dDivisor = (decimal)divisor;
+
             return dInt + (dRem / dDivisor);
         }
         catch (OverflowException)
@@ -1037,9 +1045,9 @@ public readonly partial struct PolarsWrapper
     public static DateOnly? SeriesGetDate(SeriesHandle s, long idx)
     {
         bool success = NativeBindings.pl_series_get_date(
-            s, 
-            (nuint)idx, 
-            out int days, 
+            s,
+            (nuint)idx,
+            out int days,
             out bool isNull
         );
 
@@ -1050,16 +1058,16 @@ public readonly partial struct PolarsWrapper
             return null;
         }
 
-        return DateOnly.FromDayNumber(days + 719162); 
+        return DateOnly.FromDayNumber(days + 719162);
     }
 
     // Time: Nanoseconds since midnight
     public static TimeOnly? SeriesGetTime(SeriesHandle s, long idx)
     {
         bool success = NativeBindings.pl_series_get_time(
-            s, 
-            (nuint)idx, 
-            out long ns, 
+            s,
+            (nuint)idx,
+            out long ns,
             out bool isNull
         );
         ErrorHelper.CheckBool(success);
@@ -1081,11 +1089,11 @@ public readonly partial struct PolarsWrapper
     public static (DateTime Value, string? TimeZone)? SeriesGetDatetime(SeriesHandle s, long idx)
     {
         bool success = NativeBindings.pl_series_get_datetime(
-            s, 
-            (nuint)idx, 
-            out long val, 
-            out PlTimeUnit timeUnit, 
-            out IntPtr tzPtr, 
+            s,
+            (nuint)idx,
+            out long val,
+            out PlTimeUnit timeUnit,
+            out IntPtr tzPtr,
             out bool isNull
         );
 
@@ -1096,13 +1104,13 @@ public readonly partial struct PolarsWrapper
         string? timeZone = null;
         if (tzPtr != IntPtr.Zero)
         {
-            try 
-            { 
-                timeZone = Marshal.PtrToStringUTF8(tzPtr); 
+            try
+            {
+                timeZone = Marshal.PtrToStringUTF8(tzPtr);
             }
-            finally 
-            { 
-                NativeBindings.pl_free_string(tzPtr); 
+            finally
+            {
+                NativeBindings.pl_free_string(tzPtr);
             }
         }
 
@@ -1136,7 +1144,7 @@ public readonly partial struct PolarsWrapper
     {
         bool success = NativeBindings.pl_series_get_duration(
             s, (nuint)idx, out long val, out PlTimeUnit timeUnit, out bool isNull);
-        
+
         ErrorHelper.CheckBool(success);
         if (isNull) return null;
 
@@ -1153,10 +1161,10 @@ public readonly partial struct PolarsWrapper
     public static unsafe IArrowArray SeriesToArrow(SeriesHandle h)
     {
         using var contextHandle = NativeBindings.pl_series_to_arrow(h);
-        
+
         var cArray = new CArrowArray();
         var cSchema = new CArrowSchema();
-        
+
         bool arraySuccess = NativeBindings.pl_arrow_array_export(contextHandle, out cArray);
         ErrorHelper.CheckBool(arraySuccess);
 
@@ -1164,7 +1172,7 @@ public readonly partial struct PolarsWrapper
         ErrorHelper.CheckBool(schemaSuccess);
 
         var importedField = CArrowSchemaImporter.ImportField(&cSchema);
-        
+
         var array = CArrowArrayImporter.ImportArray(&cArray, importedField.DataType);
         return array;
     }
@@ -1174,16 +1182,16 @@ public readonly partial struct PolarsWrapper
     public static unsafe SeriesHandle SeriesFromArrow(string name, CArrowArray* cArray, CArrowSchema* cSchema)
         => ErrorHelper.Check(NativeBindings.pl_arrow_to_series(name, cArray, cSchema));
     public static SeriesHandle SeriesCast(SeriesHandle series, DataTypeHandle dtype, bool strict, bool wrapNumerical)
-        => ErrorHelper.Check(NativeBindings.pl_series_cast(series, dtype, strict, wrapNumerical)); 
+        => ErrorHelper.Check(NativeBindings.pl_series_cast(series, dtype, strict, wrapNumerical));
     public static SeriesHandle SeriesIsNull(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_null(s));
     public static SeriesHandle SeriesIsNotNull(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_not_null(s));
     public static SeriesHandle SeriesDropNulls(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_drop_nulls(s));
-    public static bool SeriesIsNullAt(SeriesHandle s, long idx)
+    public static bool SeriesIsNullAtFast(SeriesHandle s, long idx)
     {
-        bool success = NativeBindings.pl_series_is_null_at(s, (nuint)idx, out bool isNull);
-        
-        ErrorHelper.CheckBool(success); 
-        
+        int status = NativeBindings.pl_series_is_null_at_fast(s, (nuint)idx, out bool isNull);
+
+        ErrorHelper.CheckStatus(status);
+
         return isNull;
     }
     public static SeriesHandle SeriesIsNan(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_is_nan(s));
@@ -1194,8 +1202,8 @@ public readonly partial struct PolarsWrapper
     {
         bool success = NativeBindings.pl_series_null_count(s, out uint count);
 
-        ErrorHelper.CheckBool(success); 
-        
+        ErrorHelper.CheckBool(success);
+
         return count;
     }
     public static SeriesHandle SeriesUnique(SeriesHandle handle) => ErrorHelper.Check(NativeBindings.pl_series_unique(handle));
@@ -1203,14 +1211,14 @@ public readonly partial struct PolarsWrapper
     public static long SeriesNUnique(SeriesHandle handle)
     {
         bool success = NativeBindings.pl_series_n_unique(handle,out uint count);
-        
-        ErrorHelper.CheckBool(success); 
-        
+
+        ErrorHelper.CheckBool(success);
+
         return count;
     }
     public static SeriesHandle SeriesReshape(SeriesHandle series, ReadOnlySpan<long> dimensions)
         => ErrorHelper.Check(NativeBindings.pl_series_reshape(series, dimensions, (nuint)dimensions.Length));
-    
+
     // Ops
     public static SeriesHandle SeriesAdd(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_add(s1, s2));
     public static SeriesHandle SeriesSub(SeriesHandle s1, SeriesHandle s2) => ErrorHelper.Check(NativeBindings.pl_series_sub(s1, s2));
@@ -1234,30 +1242,30 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesMax(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_max(s));
     public static SeriesHandle SeriesMode(SeriesHandle s,bool maintainOrder) => ErrorHelper.Check(NativeBindings.pl_series_mode(s,maintainOrder));
     public static SeriesHandle SeriesNot(SeriesHandle s) => ErrorHelper.Check(NativeBindings.pl_series_not(s));
-    
+
     // Slice
     public static SeriesHandle SeriesSlice(SeriesHandle handle, long offset, ulong length)
         => ErrorHelper.Check(NativeBindings.pl_series_slice(handle, offset, (UIntPtr)length));
     public static SeriesHandle SeriesTake(SeriesHandle series, SeriesHandle indices)
-        => ErrorHelper.Check(NativeBindings.pl_series_take(series,indices)); 
+        => ErrorHelper.Check(NativeBindings.pl_series_take(series,indices));
     // Sort
     public static SeriesHandle SeriesSort(
-        SeriesHandle series, 
+        SeriesHandle series,
         bool descending = false,
         bool nullsLast = false,
-        bool multithreaded = true, 
+        bool multithreaded = true,
         bool maintainOrder = false
     )
     {
         return ErrorHelper.Check(NativeBindings.pl_series_sort(
-            series, 
-            descending, 
-            nullsLast, 
-            multithreaded, 
+            series,
+            descending,
+            nullsLast,
+            multithreaded,
             maintainOrder
         ));
     }
-    public static DataFrameHandle SeriesStructUnnest(SeriesHandle series)   
+    public static DataFrameHandle SeriesStructUnnest(SeriesHandle series)
         => ErrorHelper.Check(NativeBindings.pl_series_struct_unnest(series));
     public static DataFrameHandle SeriesValueCounts(
         SeriesHandle series,
@@ -1288,7 +1296,7 @@ public readonly partial struct PolarsWrapper
         => ErrorHelper.Check(NativeBindings.pl_series_scatter_indices(series,index,value));
     public static SeriesHandle SeriesZipWith(SeriesHandle series,SeriesHandle mask, SeriesHandle other)
         => ErrorHelper.Check(NativeBindings.pl_series_zip_with(series,mask,other));
-    public static SeriesHandle SeriesSetSortedFlag(SeriesHandle handle,bool descending) 
+    public static SeriesHandle SeriesSetSortedFlag(SeriesHandle handle,bool descending)
         => ErrorHelper.Check(NativeBindings.pl_series_set_sorted_flag(handle,descending));
     public static PlSortStateFlags SeriesGetSortedFlags(SeriesHandle handle)
     {

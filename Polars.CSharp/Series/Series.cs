@@ -19,7 +19,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     {
         var oldHandle = Handle;
         Handle = newHandle;
-        oldHandle?.Dispose(); 
+        oldHandle?.Dispose();
     }
     internal Series(SeriesHandle handle)
     {
@@ -50,8 +50,8 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// Reallocates the Series to ensure that all its underlying memory is physically contiguous.
     /// </summary>
     /// <remarks>
-    /// Polars Operations like Appending or Filtering can create fragmented memory chunks. 
-    /// Calling Rechunk() merges these chunks into a single contiguous Arrow array. 
+    /// Polars Operations like Appending or Filtering can create fragmented memory chunks.
+    /// Calling Rechunk() merges these chunks into a single contiguous Arrow array.
     /// This is CRITICAL before zero-copy extracting native pointers for Tensors or FFI.
     /// </remarks>
     /// <returns>A new Series instance backed by contiguous memory.</returns>
@@ -65,7 +65,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// Shrink Series memory usage.
     /// </summary>
     /// <returns>A new Series</returns>
-    public Series ShrinkToFit() 
+    public Series ShrinkToFit()
     {
         var newS = Clone();
         PolarsWrapper.SeriesShrinkToFit(newS.Handle);
@@ -121,9 +121,9 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     internal Series ApplyBinaryExpr(IntoExprColumn other, Func<Expr, Expr, Expr> op)
     {
         using Expr rightExpr = other.Consume();
-        
+
         using Expr combinedExpr = op(Pl.Col(Name), rightExpr);
-        
+
         return ApplyExpr(combinedExpr);
     }
     // ==========================================
@@ -161,14 +161,14 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
         get
         {
             var handle = PolarsWrapper.GetSeriesDataType(Handle);
-            
+
             return DataType.CreateFromHandle(handle);
         }
     }
     IPolarsDataType IPolarsSeries.DataType => DataType;
 
     /// <summary>
-    /// Shape of this Series. 
+    /// Shape of this Series.
     /// In Polars, a Series is always 1D, so this returns an array of length 1.
     /// </summary>
     public long[] Shape => [Length];
@@ -211,7 +211,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
         catch (Exception ex) when (ex.Message.Contains("OutOfBounds") || ex.Message.Contains("out of bounds"))
         {
             throw new ArgumentOutOfRangeException(
-                nameof(indices), 
+                nameof(indices),
                 "Index out of bounds. Please ensure no negative indices are used and all values are within the Series length.");
         }
     }
@@ -228,10 +228,10 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     public Series ArgSort(bool descending = false, bool nullsLast = false)
         => ApplyExpr(Pl.Col(Name).ArgSort(descending, nullsLast));
 
-    /// <inheritdoc cref="Expr.IsClose"/> 
+    /// <inheritdoc cref="Expr.IsClose"/>
     public Series IsClose(IntoExprColumn other,double absTol = 0.0,double relTol=1e-9,bool nansEqual=false)
         => ApplyExpr(Pl.Col(Name).IsClose(other,absTol,relTol,nansEqual));
-    
+
     // -------------------------------------------------------------------------
     // Boolean Aggregation
     // -------------------------------------------------------------------------
@@ -262,7 +262,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <summary>
     /// Name of the Series.
     /// </summary>
-    public string Name 
+    public string Name
     {
         get => PolarsWrapper.SeriesName(Handle);
         set => PolarsWrapper.SeriesRename(Handle, value);
@@ -271,7 +271,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// Get the number of null values in the Series.
     /// </summary>
     public long NullCount => PolarsWrapper.SeriesNullCount(Handle);
-    
+
     // ==========================================
     // Operations
     // ==========================================
@@ -311,13 +311,13 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <inheritdoc cref="Expr.Sample(double, bool, bool?, ulong?)"/>
     public Series Sample(double fraction,bool withReplacement=false,bool shuffle=false,ulong? seed=null)
         => ApplyExpr(Pl.Col(Name).Sample(fraction,withReplacement,shuffle,seed));
-    /// <inheritdoc cref="Expr.Reinterpret(bool)"/> 
+    /// <inheritdoc cref="Expr.Reinterpret(bool)"/>
     public Series Reinterpret(bool signed=true) => ApplyExpr(Pl.Col(Name).Reinterpret(signed));
-    /// <inheritdoc cref="Expr.Reinterpret(DataType)"/> 
+    /// <inheritdoc cref="Expr.Reinterpret(DataType)"/>
     public Series Reinterpret(DataType dtype) => ApplyExpr(Pl.Col(Name).Reinterpret(dtype));
-    /// <inheritdoc cref="Expr.Reinterpret(DataType)"/> 
+    /// <inheritdoc cref="Expr.Reinterpret(DataType)"/>
     public Series Reinterpret<T>() => ApplyExpr(Pl.Col(Name).Reinterpret<T>());
-    /// <inheritdoc cref="Expr.RepeatBy(IntoExpr)"/> 
+    /// <inheritdoc cref="Expr.RepeatBy(IntoExpr)"/>
     public Series RepeatBy(IntoExpr by) => ApplyExpr(Pl.Col(Name).RepeatBy(by));
     /// <summary>
     /// Get a slice of this Series.
@@ -327,7 +327,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     public Series Slice(long offset, ulong? length=null)
     {
         long absoluteOffset;
-        
+
         if (offset < 0)
         {
             absoluteOffset = Length + offset;
@@ -350,23 +350,23 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     public Series Slice(Range range)
     {
         long length = Length;
-        
-        long start = range.Start.IsFromEnd 
-            ? length - range.Start.Value 
+
+        long start = range.Start.IsFromEnd
+            ? length - range.Start.Value
             : range.Start.Value;
-            
-        long end = range.End.IsFromEnd 
-            ? length - range.End.Value 
+
+        long end = range.End.IsFromEnd
+            ? length - range.End.Value
             : range.End.Value;
 
         start = Math.Max(0, Math.Min(start, length));
         end = Math.Max(0, Math.Min(end, length));
-        
+
         long sliceLength = end - start;
-        
+
         if (sliceLength <= 0)
         {
-            return Slice(0, 0); 
+            return Slice(0, 0);
         }
 
         return Slice(start, (ulong)sliceLength);
@@ -383,7 +383,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <param name="other">Series to append.</param>
     public Series Append(Series other)
     {
-        PolarsWrapper.SeriesAppend(Handle,other.Handle);    
+        PolarsWrapper.SeriesAppend(Handle,other.Handle);
         return this;
     }
     /// <summary>
@@ -414,9 +414,9 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     {
         if (IsEmpty(ignoreNulls:false))
             return this.Clone();
-        else if (n == 0)  
+        else if (n == 0)
             return new(PolarsWrapper.SeriesClear(Handle));
-        else 
+        else
             return new Series(PolarsWrapper.SeriesClear(Handle)).ExtendConstant(Pl.LitNull(),n);
     }
     /// <summary>
@@ -425,19 +425,19 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <param name="dimensions">Tuple of the dimension sizes. If a -1 is used in any of the dimensions, that dimension is inferred.</param>
     /// <returns>Tuple of the dimension sizes. If a -1 is used in any of the dimensions, that dimension is inferred.</returns>
     public Series Reshape(ReadOnlySpan<long> dimensions) => new(PolarsWrapper.SeriesReshape(Handle, dimensions));
-    /// <inheritdoc cref="Expr.Replace(IntoExpr, IntoExpr)"/> 
+    /// <inheritdoc cref="Expr.Replace(IntoExpr, IntoExpr)"/>
     public Series Replace(IntoExpr old,IntoExpr newExpr) => ApplyExpr(Pl.Col(Name).Replace(old,newExpr));
-    /// <inheritdoc cref="Expr.Replace{TKey, TValue}(IEnumerable{KeyValuePair{TKey, TValue}})"/> 
+    /// <inheritdoc cref="Expr.Replace{TKey, TValue}(IEnumerable{KeyValuePair{TKey, TValue}})"/>
     public Series Replace<TKey, TValue>(IEnumerable<KeyValuePair<TKey, TValue>> mapping) => ApplyExpr(Pl.Col(Name).Replace(mapping));
-    /// <inheritdoc cref="Expr.ReplaceStrict{TOld, TNew}(IEnumerable{TOld}, IEnumerable{TNew}, IntoExpr?, IntoDataTypeExpr?)"/> 
+    /// <inheritdoc cref="Expr.ReplaceStrict{TOld, TNew}(IEnumerable{TOld}, IEnumerable{TNew}, IntoExpr?, IntoDataTypeExpr?)"/>
     public Series Replace<TOld, TNew>(IEnumerable<TOld> oldValues, IEnumerable<TNew> newValues) => ApplyExpr(Pl.Col(Name).Replace(oldValues,newValues));
-    /// <inheritdoc cref="Expr.ReplaceStrict(IntoExpr, IntoExpr,IntoExpr?,IntoDataTypeExpr?)"/> 
+    /// <inheritdoc cref="Expr.ReplaceStrict(IntoExpr, IntoExpr,IntoExpr?,IntoDataTypeExpr?)"/>
     public Series ReplaceStrict(IntoExpr old,IntoExpr newExpr,IntoExpr? defaultExpr = null,IntoDataTypeExpr? returnDataType=null) => ApplyExpr(Pl.Col(Name).ReplaceStrict(old,newExpr,defaultExpr,returnDataType));
     /// <inheritdoc cref="Expr.ReplaceStrict{TKey, TValue}(IEnumerable{KeyValuePair{TKey, TValue}}, IntoExpr?, IntoDataTypeExpr?)"/>
     public Series ReplaceStrict<TKey, TValue>(IEnumerable<KeyValuePair<TKey, TValue>> mapping,IntoExpr? defaultExpr = null,IntoDataTypeExpr? returnDataType=null) => ApplyExpr(Pl.Col(Name).ReplaceStrict(mapping,defaultExpr,returnDataType));
     /// <inheritdoc cref="Expr.ReplaceStrict{TOld, TNew}(IEnumerable{TOld}, IEnumerable{TNew}, IntoExpr?, IntoDataTypeExpr?)"/>
     public Series ReplaceStrict<TOld, TNew>(IEnumerable<TOld> oldValues, IEnumerable<TNew> newValues,IntoExpr? defaultExpr = null,IntoDataTypeExpr? returnDataType=null) => ApplyExpr(Pl.Col(Name).ReplaceStrict(oldValues,newValues,defaultExpr,returnDataType));
-    
+
     // ==========================================
     // Null Checks & Boolean Masks
     // ==========================================
@@ -445,7 +445,15 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <summary>
     /// Check whether indexed value is null。
     /// </summary>
-    public bool IsNullAt(long index) => PolarsWrapper.SeriesIsNullAt(Handle, index);
+    public bool IsNullAt(long index, bool uncheck = false)
+    {
+        if (uncheck == false)
+        {
+            if (index < 0 || index >= Length)
+                throw new IndexOutOfRangeException($"Index {index} is out of bounds for Series length {Length}.");
+        }
+        return PolarsWrapper.SeriesIsNullAtFast(Handle, index);
+    }
 
     // ==========================================
     // Drop Nulls and Nans
@@ -466,13 +474,13 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     // ==========================================
     // Fill Ops
     // ==========================================
-    /// <inheritdoc cref="Expr.FillNull(IntoExpr)"/> 
+    /// <inheritdoc cref="Expr.FillNull(IntoExpr)"/>
     public Series FillNull(IntoExpr value) => ApplyExpr(Pl.Col(Name).FillNull(value));
-    /// <inheritdoc cref="Expr.FillNull(FillNullStrategy,uint?)"/> 
+    /// <inheritdoc cref="Expr.FillNull(FillNullStrategy,uint?)"/>
     public Series FillNull(FillNullStrategy strategy,uint? limit = null) => ApplyExpr(Pl.Col(Name).FillNull(strategy,limit));
-    /// <inheritdoc cref="Expr.ForwardFill"/> 
+    /// <inheritdoc cref="Expr.ForwardFill"/>
     public Series ForwardFill(uint limit = 0) => ApplyExpr(Pl.Col(Name).ForwardFill(limit));
-    /// <inheritdoc cref="Expr.BackwardFill"/> 
+    /// <inheritdoc cref="Expr.BackwardFill"/>
     public Series BackwardFill(uint limit = 0) => ApplyExpr(Pl.Col(Name).BackwardFill(limit));
     /// <summary>
     /// Interpolate intermediate values.
@@ -526,7 +534,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// </summary>
     /// <inheritdoc cref="Expr.TopKBy(int, Expr[], bool[])" path="/param"/>
     /// <returns>A new <see cref="Series"/> containing the top k elements.</returns>
-    public Series TopKBy(int k, Expr by, bool reverse = false) 
+    public Series TopKBy(int k, Expr by, bool reverse = false)
         => TopKBy(k, [by], [reverse]);
     /// <summary>
     /// <inheritdoc cref="Expr.BottomKBy(int, Expr[], bool[])" path="/summary"/>
@@ -580,12 +588,12 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <summary>
     /// Check if values are between lower and upper bounds.
     /// </summary>
-    public Series IsBetween(object lower, object upper, ClosedInterval closedInterval=ClosedInterval.Both) 
+    public Series IsBetween(object lower, object upper, ClosedInterval closedInterval=ClosedInterval.Both)
         => ApplyExpr(Pl.Col(Name).IsBetween(Expr.MakeLit(lower), Expr.MakeLit(upper), closedInterval));
     /// <summary>
     /// Check if values are between lower and upper bounds.
     /// </summary>
-    public Series IsBetween(Expr lower, Expr upper, ClosedInterval closedInterval=ClosedInterval.Both) 
+    public Series IsBetween(Expr lower, Expr upper, ClosedInterval closedInterval=ClosedInterval.Both)
         => ApplyExpr(Pl.Col(Name).IsBetween(lower, upper,closedInterval));
     /// <summary>
     /// Filter a series.
@@ -594,10 +602,10 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// </summary>
     /// <param name="predicate">Boolean expression/Series used to filter the current expression.</param>
     /// <returns>A new series with filtered values.</returns>
-    public Series Filter(Expr predicate) 
+    public Series Filter(Expr predicate)
         => ApplyExpr(Pl.Col(Name).Filter(predicate));
     /// <inheritdoc cref="Filter(Expr)"/>
-    public Series Filter(Series predicate) 
+    public Series Filter(Series predicate)
         => ApplyExpr(Pl.Col(Name).Filter(Pl.Lit(predicate)));
     /// <inheritdoc cref="Expr.Rle"/>
     public Series Rle() => ApplyExpr(Pl.Col(Name).Rle());
@@ -608,7 +616,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <inheritdoc cref="Expr.PeakMin"/>
     public Series PeakMin() => ApplyExpr(Pl.Col(Name).PeakMin());
     /// <inheritdoc cref="Expr.Cut"/>
-    public Series Cut(ReadOnlySpan<double> breaks,string[]? labels = null,bool leftClosed=false,bool includeBreaks=false) 
+    public Series Cut(ReadOnlySpan<double> breaks,string[]? labels = null,bool leftClosed=false,bool includeBreaks=false)
         => ApplyExpr(Pl.Col(Name).Cut(breaks,labels,leftClosed,includeBreaks));
     /// <inheritdoc cref="Expr.QCut(ReadOnlySpan{double}, string[], bool, bool, bool)"/>
     public Series QCut(ReadOnlySpan<double> quantiles,string[]? labels = null,bool leftClosed=false,bool allowDuplicates=false,bool includeBreaks =false)
@@ -617,7 +625,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     public Series QCut(int quantiles,string[]? labels = null,bool leftClosed=false,bool allowDuplicates=false,bool includeBreaks =false)
         => ApplyExpr(Pl.Col(Name).QCut(quantiles,labels,leftClosed,allowDuplicates,includeBreaks));
     // ==========================================
-    // Common Ops 
+    // Common Ops
     // ==========================================
     /// <summary>
     /// Sort this Series.
@@ -627,16 +635,16 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <param name="multithreaded">Use parallel sorting (default: true).</param>
     /// <param name="maintainOrder">Use stable sort (maintain order of equal elements) (default: false).</param>
     public Series Sort(
-        bool descending = false, 
-        bool nullsLast = false, 
-        bool maintainOrder = false, 
+        bool descending = false,
+        bool nullsLast = false,
+        bool maintainOrder = false,
         bool multithreaded = true)
     {
         var h = PolarsWrapper.SeriesSort(
-            Handle, 
-            descending, 
-            nullsLast, 
-            multithreaded, 
+            Handle,
+            descending,
+            nullsLast,
+            multithreaded,
             maintainOrder
         );
         return new Series(h);
@@ -679,19 +687,19 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     {
         return timeUnit switch
         {
-            EpochTimeUnit.Day => 
+            EpochTimeUnit.Day =>
                 this.Cast(DataType.Date),
 
-            EpochTimeUnit.Second => 
+            EpochTimeUnit.Second =>
                 (EnsureInt64(this) * 1_000_000L).Cast(DataType.Datetime(TimeUnit.Microseconds)),
 
-            EpochTimeUnit.Milliseconds => 
+            EpochTimeUnit.Milliseconds =>
                 (EnsureInt64(this) * 1_000L).Cast(DataType.Datetime(TimeUnit.Microseconds)),
 
-            EpochTimeUnit.Microseconds => 
+            EpochTimeUnit.Microseconds =>
                 this.Cast(DataType.Datetime(TimeUnit.Microseconds)),
 
-            EpochTimeUnit.Nanoseconds => 
+            EpochTimeUnit.Nanoseconds =>
                 this.Cast(DataType.Datetime(TimeUnit.Nanoseconds)),
 
             _ => throw new ArgumentException(
@@ -700,8 +708,8 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
 
         static Series EnsureInt64(Series s)
         {
-            return s.DataType.IsInteger && s.DataType != DataType.Int64 
-                ? s.Cast(DataType.Int64) 
+            return s.DataType.IsInteger && s.DataType != DataType.Int64
+                ? s.Cast(DataType.Int64)
                 : s;
         }
     }
@@ -723,7 +731,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
         => new(PolarsWrapper.SeriesToFrame(Handle));
     IPolarsDataFrame IPolarsSeries.ToFrame()
         => ToFrame();
-   
+
     // ==========================================
     // Window & Rolling
     // ==========================================
@@ -769,7 +777,7 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     {
         if (ReferenceEquals(this, other)) return true;
         if (other is null) return false;
-        
+
         return PolarsWrapper.SeriesEquals(Handle,other.Handle);
     }
     /// <inheritdoc cref="Series.Equals(Series)"/>
@@ -778,13 +786,13 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// Get hashcode for the series
     /// </summary>
     public override int GetHashCode() => (int)PolarsWrapper.SeriesHash(Handle);
-    
+
     /// <summary>
     /// Dispose the underlying SeriesHandle.
     /// </summary>
     public void Dispose()
     {
         Handle?.Dispose();
-        GC.SuppressFinalize(this); 
+        GC.SuppressFinalize(this);
     }
 }

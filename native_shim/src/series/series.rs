@@ -1,35 +1,34 @@
+use crate::pl_io::arrow::ArrowArrayContext;
+use crate::types::{DataFrameContext, DataTypeContext, SeriesContext};
+use polars::chunked_array::cast::CastOptions;
 use polars::prelude::*;
-use polars_arrow::array::{Array,ListArray};
+use polars_arrow::array::{Array, ListArray};
+use polars_arrow::datatypes::ArrowDataType;
+use polars_buffer::Buffer;
 use polars_core::utils::Wrap;
 use std::ffi::{CStr, CString, c_int};
 use std::hash::{DefaultHasher, Hasher};
 use std::os::raw::c_char;
 use std::slice::from_raw_parts;
-use crate::pl_io::arrow::ArrowArrayContext;
-use crate::types::{DataFrameContext, DataTypeContext, SeriesContext};
-use polars_arrow::datatypes::ArrowDataType;
-use polars_buffer::Buffer;
-use polars::chunked_array::cast::CastOptions;
 
 // ==========================================
-// Constructors 
+// Constructors
 // ==========================================
-
 
 // macro_rules! gen_series_new_128 {
 //     ($func_name:ident, $rs_type:ty, $pl_type:ty) => {
 //         #[unsafe(no_mangle)]
 //         pub unsafe extern "C" fn $func_name(
 //             name: *const c_char,
-//             ptr: *const u64, 
-//             validity: *const u8, 
+//             ptr: *const u64,
+//             validity: *const u8,
 //             len: usize,
 //         ) -> *mut SeriesContext {
 //             ffi_try!({
 //                 let name = unsafe {CStr::from_ptr(name).to_string_lossy()};
-                
+
 //                 let slice_u64 = unsafe { std::slice::from_raw_parts(ptr, len * 2) };
-                
+
 //                 let values_vec: Vec<$rs_type> = slice_u64
 //                     .chunks_exact(2)
 //                     .map(|chunk| {
@@ -46,12 +45,12 @@ use polars::chunked_array::cast::CastOptions;
 //                 } else {
 //                     let bytes_len = (len + 7) / 8;
 //                     let v_slice =unsafe { std::slice::from_raw_parts(validity, bytes_len)};
-//                     let v_vec = v_slice.to_vec(); 
+//                     let v_vec = v_slice.to_vec();
 //                     Some(Bitmap::try_new(v_vec, len).unwrap())
 //                 };
 
 //                 let arrow_dtype = <$pl_type as PolarsDataType>::get_static_dtype().to_arrow(CompatLevel::newest());
-                
+
 //                 let arrow_array = PrimitiveArray::new(
 //                     arrow_dtype,
 //                     values_buffer,
@@ -59,10 +58,10 @@ use polars::chunked_array::cast::CastOptions;
 //                 );
 
 //                 let ca = ChunkedArray::<$pl_type>::with_chunk(
-//                     PlSmallStr::from_str(name.as_ref()), 
+//                     PlSmallStr::from_str(name.as_ref()),
 //                     arrow_array,
 //                 );
-                
+
 //                 Ok(Box::into_raw(Box::new(SeriesContext { series: ca.into_series() })))
 //             })
 //         }
@@ -72,16 +71,16 @@ use polars::chunked_array::cast::CastOptions;
 // gen_series_new_128!(pl_series_new_i128, i128, Int128Type);
 // gen_series_new_128!(pl_series_new_u128, u128, UInt128Type);
 
-
-
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_clone(ptr: *mut SeriesContext) -> *mut SeriesContext {
     ffi_try!({
         let ctx = unsafe { &*ptr };
-        
+
         let new_series = ctx.series.clone();
-        
-        Ok(Box::into_raw(Box::new(SeriesContext { series: new_series })))
+
+        Ok(Box::into_raw(Box::new(SeriesContext {
+            series: new_series,
+        })))
     })
 }
 
@@ -91,14 +90,12 @@ pub extern "C" fn pl_series_rechunk(ptr: *mut SeriesContext) -> *mut SeriesConte
         let ctx = unsafe { &*ptr };
 
         let contiguous_series = ctx.series.rechunk();
-        
+
         Ok(Box::into_raw(Box::new(SeriesContext {
             series: contiguous_series,
         })))
     })
 }
-
-
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_approx_n_unique(
@@ -107,11 +104,11 @@ pub extern "C" fn pl_series_approx_n_unique(
 ) -> bool {
     ffi_bool_try!({
         let ctx = unsafe { &*series_ptr };
-        
+
         let count = ctx.series.approx_n_unique()?;
-        
+
         unsafe { *out_count = count as u32 };
-        
+
         Ok(())
     })
 }
@@ -123,7 +120,9 @@ pub extern "C" fn pl_series_approx_n_unique(
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_free(ptr: *mut SeriesContext) {
     if !ptr.is_null() {
-        unsafe { let _ = Box::from_raw(ptr); }
+        unsafe {
+            let _ = Box::from_raw(ptr);
+        }
     }
 }
 
@@ -131,11 +130,11 @@ pub extern "C" fn pl_series_free(ptr: *mut SeriesContext) {
 pub extern "C" fn pl_series_name(ptr: *mut SeriesContext) -> *mut c_char {
     ffi_try!({
         let ctx = unsafe { &*ptr };
-        let name = ctx.series.name().as_str(); 
-        
+        let name = ctx.series.name().as_str();
+
         let c_str = CString::new(name)
             .map_err(|e| polars_err!(ComputeError: "Series name contains null byte: {}", e))?;
-            
+
         Ok(c_str.into_raw())
     })
 }
@@ -143,7 +142,6 @@ pub extern "C" fn pl_series_name(ptr: *mut SeriesContext) -> *mut c_char {
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_rename(ptr: *mut SeriesContext, name: *const c_char) -> bool {
     ffi_bool_try!({
-
         if ptr.is_null() {
             polars_bail!(ComputeError: "Series pointer is null");
         }
@@ -153,7 +151,7 @@ pub extern "C" fn pl_series_rename(ptr: *mut SeriesContext, name: *const c_char)
 
         let ctx = unsafe { &mut *ptr };
         let name_str = unsafe { CStr::from_ptr(name).to_string_lossy() };
-        
+
         ctx.series.rename(name_str.into());
 
         Ok(())
@@ -166,9 +164,10 @@ pub extern "C" fn pl_series_to_string(s_ptr: *mut SeriesContext) -> *mut c_char 
         let ctx = unsafe { &*s_ptr };
         let mut s = std::string::ToString::to_string(&ctx.series); // Native Display
         if s.contains('\0') {
-            s = s.replace('\0', "␀"); 
+            s = s.replace('\0', "␀");
         }
-        let c_str = CString::new(s).map_err(|e| polars_err!(ComputeError: "Series contains null byte: {}", e))?;
+        let c_str = CString::new(s)
+            .map_err(|e| polars_err!(ComputeError: "Series contains null byte: {}", e))?;
         Ok(c_str.into_raw())
     })
 }
@@ -196,7 +195,9 @@ pub extern "C" fn pl_series_take(
 
         let taken_series = ctx.series.take(idx_ca)?;
 
-        Ok(Box::into_raw(Box::new(SeriesContext { series: taken_series })))
+        Ok(Box::into_raw(Box::new(SeriesContext {
+            series: taken_series,
+        })))
     })
 }
 
@@ -230,7 +231,7 @@ pub fn upgrade_to_large_list(array: Box<dyn Array>) -> Box<dyn Array> {
             // Convert Offsets (i32 -> i64)
             let offsets_i32 = list_array.offsets();
             let offsets_i64: Vec<i64> = offsets_i32.iter().map(|&x| x as i64).collect();
-            
+
             // Convert Arrow Buffer
             let raw_buffer = Buffer::from(offsets_i64);
             let offsets_buffer = polars_arrow::offset::OffsetsBuffer::try_from(raw_buffer).unwrap();
@@ -254,37 +255,37 @@ pub fn upgrade_to_large_list(array: Box<dyn Array>) -> Box<dyn Array> {
             );
 
             Box::new(large_list)
-        },
-        
-        ArrowDataType::LargeList(inner_field) => {
-             let list_array = array.as_any().downcast_ref::<ListArray<i64>>().unwrap();
-             
-             let values = list_array.values().clone();
-             let new_values = upgrade_to_large_list(values.clone());
-             
-             if new_values.dtype() == values.dtype() {
-                 return array;
-             }
+        }
 
-             let new_inner_dtype = new_values.dtype().clone();
-             let new_field = inner_field.as_ref().clone().with_dtype(new_inner_dtype);
-             let new_dtype = ArrowDataType::LargeList(Box::new(new_field));
-             
-             let large_list = ListArray::<i64>::new(
+        ArrowDataType::LargeList(inner_field) => {
+            let list_array = array.as_any().downcast_ref::<ListArray<i64>>().unwrap();
+
+            let values = list_array.values().clone();
+            let new_values = upgrade_to_large_list(values.clone());
+
+            if new_values.dtype() == values.dtype() {
+                return array;
+            }
+
+            let new_inner_dtype = new_values.dtype().clone();
+            let new_field = inner_field.as_ref().clone().with_dtype(new_inner_dtype);
+            let new_dtype = ArrowDataType::LargeList(Box::new(new_field));
+
+            let large_list = ListArray::<i64>::new(
                 new_dtype,
                 list_array.offsets().clone(),
                 new_values,
                 list_array.validity().cloned(),
             );
             Box::new(large_list)
-        },
+        }
         ArrowDataType::Struct(fields) => {
             let struct_array = array.as_any().downcast_ref::<StructArray>().unwrap();
-            
+
             let new_values: Vec<Box<dyn Array>> = struct_array
                 .values()
                 .iter()
-                .map(|v| upgrade_to_large_list(v.clone())) 
+                .map(|v| upgrade_to_large_list(v.clone()))
                 .collect();
 
             let mut changed = false;
@@ -302,11 +303,9 @@ pub fn upgrade_to_large_list(array: Box<dyn Array>) -> Box<dyn Array> {
             let new_fields: Vec<ArrowField> = fields
                 .iter()
                 .zip(new_values.iter())
-                .map(|(f, v)| {
-                    f.clone().with_dtype(v.dtype().clone())
-                })
+                .map(|(f, v)| f.clone().with_dtype(v.dtype().clone()))
                 .collect();
-            
+
             let new_dtype = ArrowDataType::Struct(new_fields);
 
             let new_struct = StructArray::new(
@@ -317,7 +316,7 @@ pub fn upgrade_to_large_list(array: Box<dyn Array>) -> Box<dyn Array> {
             );
 
             Box::new(new_struct)
-        },
+        }
         _ => array,
     }
 }
@@ -325,15 +324,19 @@ pub fn upgrade_to_large_list(array: Box<dyn Array>) -> Box<dyn Array> {
 pub unsafe extern "C" fn pl_arrow_to_series(
     name: *const c_char,
     ptr_array: *mut polars_arrow::ffi::ArrowArray,
-    ptr_schema: *mut polars_arrow::ffi::ArrowSchema
+    ptr_schema: *mut polars_arrow::ffi::ArrowSchema,
 ) -> *mut SeriesContext {
     ffi_try!({
-        let name_str = unsafe { CStr::from_ptr(name).to_str().map_err(|e| polars_err!(ComputeError: "Name contains null byte: {}", e))? };
+        let name_str = unsafe {
+            CStr::from_ptr(name)
+                .to_str()
+                .map_err(|e| polars_err!(ComputeError: "Name contains null byte: {}", e))?
+        };
         let field = unsafe { polars_arrow::ffi::import_field_from_c(&*ptr_schema)? };
 
         let array_val = unsafe { std::ptr::read(ptr_array) };
         let mut array = unsafe { polars_arrow::ffi::import_array_from_c(array_val, field.dtype)? };
-       
+
         array = upgrade_to_large_list(array);
 
         let series = Series::from_arrow(name_str.into(), array)?;
@@ -343,15 +346,15 @@ pub unsafe extern "C" fn pl_arrow_to_series(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_cast(
-    ptr: *mut SeriesContext, 
+    ptr: *mut SeriesContext,
     dtype_ptr: *mut DataTypeContext,
     strict: bool,
-    wrap_numerical: bool
+    wrap_numerical: bool,
 ) -> *mut SeriesContext {
     ffi_try!({
         let ctx = unsafe { &*ptr };
         let target_dtype = unsafe { &(*dtype_ptr).dtype };
-        
+
         let options = match (strict, wrap_numerical) {
             (true, _) => CastOptions::Strict,
             (false, true) => CastOptions::Overflowing,
@@ -359,37 +362,66 @@ pub extern "C" fn pl_series_cast(
         };
 
         let s = ctx.series.cast_with_options(target_dtype, options)?;
-        
+
         Ok(Box::into_raw(Box::new(SeriesContext { series: s })))
     })
 }
 
+/// Checks whether the element at `idx` is null without AnyValue allocation or bounds checks.
+///
+/// Returns 0 on success, non-zero on error.
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_series_is_null_at(
-    s_ptr: *mut SeriesContext, 
+pub unsafe extern "C" fn pl_series_is_null_at_fast(
+    s_ptr: *mut SeriesContext,
     idx: usize,
-    out_is_null: *mut bool
-) -> bool {
-    ffi_bool_try!({
-        if s_ptr.is_null() {
-            polars_bail!(ComputeError: "Series pointer is null");
-        }
-        
+    out_is_null: *mut bool,
+) -> c_int {
+    ffi_try_c_int!({
         let ctx = unsafe { &*s_ptr };
-        let len = ctx.series.len();
-        
-        if idx >= len { 
-            polars_bail!(OutOfBounds: "Index {} is out of bounds for Series of length {}", idx, len);
+        let s = &ctx.series;
+
+        if s.null_count() == 0 {
+            unsafe {
+                *out_is_null = false;
+            }
+            return Ok(0);
         }
-        
-        let is_null = match unsafe { ctx.series.get_unchecked(idx) } {
-            AnyValue::Null => true,
-            _ => false 
-        };
-        
-        unsafe { *out_is_null = is_null; }
-        
-        Ok(())
+
+        let chunks = s.chunks();
+        let n_chunks = chunks.len();
+
+        if n_chunks == 1 {
+            let arr = unsafe { chunks.get_unchecked(0) };
+            let is_null = match arr.validity() {
+                Some(bitmap) => unsafe { !bitmap.get_bit_unchecked(idx) },
+                None => false,
+            };
+            unsafe {
+                *out_is_null = is_null;
+            }
+            return Ok(0);
+        }
+
+        let mut current_offset = idx;
+        let mut is_null = false;
+
+        for arr in chunks {
+            let len = arr.len();
+            if current_offset < len {
+                is_null = match arr.validity() {
+                    Some(bitmap) => unsafe { !bitmap.get_bit_unchecked(current_offset) },
+                    None => false,
+                };
+                break;
+            }
+            current_offset -= len;
+        }
+
+        unsafe {
+            *out_is_null = is_null;
+        }
+
+        Ok(0)
     })
 }
 
@@ -423,179 +455,447 @@ pub extern "C" fn pl_series_unique_stable(ptr: *mut SeriesContext) -> *mut Serie
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_series_n_unique(
-    ptr: *mut SeriesContext,
-    out_count: *mut usize,
-) -> bool {
+pub extern "C" fn pl_series_n_unique(ptr: *mut SeriesContext, out_count: *mut usize) -> bool {
     ffi_bool_try!({
         let ctx = unsafe { &*ptr };
-        
-        let count = ctx.series.n_unique()?; 
-        
+
+        let count = ctx.series.n_unique()?;
+
         unsafe { *out_count = count };
-        
+
         Ok(())
     })
 }
 // --- Scalar Access ---
+macro_rules! impl_pl_series_get_fast {
+    ($func_name:ident, $try_method:ident, $ty:ty) => {
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $func_name(
+            s_ptr: *mut SeriesContext,
+            idx: usize,
+            out_val: *mut $ty,
+            out_is_null: *mut bool,
+        ) -> c_int {
+            ffi_try_c_int!({
+                let ctx = unsafe { &*s_ptr };
+
+                // Get ChunkedArray
+                let ca = ctx.series.$try_method().ok_or_else(|| {
+                    polars_err!(ComputeError: "Series cannot be downcasted to target type")
+                })?;
+
+                // Read directly from chunk, skipping AnyValue conversion and bounds checking
+                match unsafe { ca.get_unchecked(idx) } {
+                    Some(v) => {
+                        unsafe {
+                            *out_val = v;
+                            *out_is_null = false;
+                        }
+                    }
+                    None => {
+                        unsafe {
+                            *out_is_null = true;
+                        }
+                    }
+                }
+
+                Ok(0)
+            })
+        }
+    };
+}
+
+impl_pl_series_get_fast!(pl_series_get_i8_fast, try_i8, i8);
+impl_pl_series_get_fast!(pl_series_get_i16_fast, try_i16, i16);
+impl_pl_series_get_fast!(pl_series_get_i32_fast, try_i32, i32);
+impl_pl_series_get_fast!(pl_series_get_i64_fast, try_i64, i64);
+impl_pl_series_get_fast!(pl_series_get_i128_fast, try_i128, i128);
+
+impl_pl_series_get_fast!(pl_series_get_u8_fast, try_u8, u8);
+impl_pl_series_get_fast!(pl_series_get_u16_fast, try_u16, u16);
+impl_pl_series_get_fast!(pl_series_get_u32_fast, try_u32, u32);
+impl_pl_series_get_fast!(pl_series_get_u64_fast, try_u64, u64);
+impl_pl_series_get_fast!(pl_series_get_u128_fast, try_u128, u128);
+
+impl_pl_series_get_fast!(pl_series_get_f16_fast, try_f16, pf16);
+impl_pl_series_get_fast!(pl_series_get_f32_fast, try_f32, f32);
+impl_pl_series_get_fast!(pl_series_get_f64_fast, try_f64, f64);
+impl_pl_series_get_fast!(pl_series_get_bool_fast, try_bool, bool);
+
+/// Gets a string slice from a String Series without bounds checks or heap allocation.
+///
+/// Returns 0 on success, non-zero on error.
+/// If the element is null, `*out_is_null` is set to true.
+/// If not null, `*out_ptr` points to the UTF-8 bytes directly borrowed from Series memory,
+/// and `*out_len` contains the byte count.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_series_get_str_fast(
+    s_ptr: *mut SeriesContext,
+    idx: usize,
+    out_ptr: *mut *const u8,
+    out_len: *mut usize,
+    out_is_null: *mut bool,
+) -> c_int {
+    ffi_try_c_int!({
+        let ctx = unsafe { &*s_ptr };
+
+        let ca = ctx.series.try_str().ok_or_else(
+            || polars_err!(ComputeError: "Series cannot be downcasted to String/Utf8"),
+        )?;
+
+        match unsafe { ca.get_unchecked(idx) } {
+            Some(s) => unsafe {
+                *out_ptr = s.as_ptr();
+                *out_len = s.len();
+                *out_is_null = false;
+            },
+            None => unsafe {
+                *out_ptr = std::ptr::null();
+                *out_len = 0;
+                *out_is_null = true;
+            },
+        }
+
+        Ok(0)
+    })
+}
+
+/// Reads an i128 decimal physical value at `idx` directly from the underlying physical Int128Chunked buffer.
+/// Bypasses AnyValue construction and bounds checking.
+///
+/// Returns 0 on success, non-zero on error.
+/// If the element is null, `*out_is_null` is set to true.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_series_get_decimal_fast(
+    s_ptr: *mut SeriesContext,
+    idx: usize,
+    out_val: *mut i128,
+    out_is_null: *mut bool,
+) -> c_int {
+    ffi_try_c_int!({
+        let ctx = unsafe { &*s_ptr };
+
+        let ca = ctx.series.try_decimal().ok_or_else(
+            || polars_err!(ComputeError: "Series cannot be downcasted to DecimalChunked"),
+        )?;
+
+        let phys = ca.physical();
+
+        match unsafe { phys.get_unchecked(idx) } {
+            Some(v) => unsafe {
+                *out_val = v;
+                *out_is_null = false;
+            },
+            None => unsafe {
+                *out_val = 0;
+                *out_is_null = true;
+            },
+        }
+
+        Ok(0)
+    })
+}
+
+macro_rules! impl_series_get_temporal_fast {
+    ($func_name:ident, $ca_method:ident, $native_ty:ty, $type_name:literal, $doc:literal) => {
+        #[doc = $doc]
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $func_name(
+            s_ptr: *mut SeriesContext,
+            idx: usize,
+            out_val: *mut $native_ty,
+            out_is_null: *mut bool,
+        ) -> c_int {
+            ffi_try_c_int!({
+                let ctx = unsafe { &*s_ptr };
+
+                let ca = ctx
+                    .series
+                    .$ca_method()
+                    .map_err(|e| polars_err!(ComputeError: format!("Series cannot be downcasted to {}: {}", $type_name, e)))?;
+
+                let phys = ca.physical();
+
+                match unsafe { phys.get_unchecked(idx) } {
+                    Some(v) => unsafe {
+                        *out_val = v;
+                        *out_is_null = false;
+                    },
+                    None => unsafe {
+                        *out_val = 0;
+                        *out_is_null = true;
+                    },
+                }
+
+                Ok(0)
+            })
+        }
+    };
+}
+
+impl_series_get_temporal_fast!(
+    pl_series_get_date_fast,
+    date,
+    i32,
+    "Date",
+    "Reads an i32 date physical value (days since 1970-01-01) at `idx` without AnyValue allocation or bounds checks.\n\nReturns 0 on success, non-zero on error.\nIf the element is null, `*out_is_null` is set to true."
+);
+
+impl_series_get_temporal_fast!(
+    pl_series_get_time_fast,
+    time,
+    i64,
+    "Time",
+    "Reads an i64 time physical value (nanoseconds since midnight) at `idx` without AnyValue allocation or bounds checks.\n\nReturns 0 on success, non-zero on error.\nIf the element is null, `*out_is_null` is set to true."
+);
+
+impl_series_get_temporal_fast!(
+    pl_series_get_datetime_fast,
+    datetime,
+    i64,
+    "Datetime",
+    "Reads an i64 datetime physical timestamp at `idx` without AnyValue allocation or bounds checks.\nTimeUnit and TimeZone must be obtained once from the Series schema at cursor initialization.\n\nReturns 0 on success, non-zero on error.\nIf the element is null, `*out_is_null` is set to true."
+);
+
+impl_series_get_temporal_fast!(
+    pl_series_get_duration_fast,
+    duration,
+    i64,
+    "Duration",
+    "Reads an i64 duration physical value at `idx` without AnyValue allocation or bounds checks.\nTimeUnit must be obtained once from the Series schema at cursor initialization.\n\nReturns 0 on success, non-zero on error.\nIf the element is null, `*out_is_null` is set to true."
+);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_get_i64(
-    s_ptr: *mut SeriesContext, 
-    idx: usize, 
+    s_ptr: *mut SeriesContext,
+    idx: usize,
     out_val: *mut i64,
-    out_is_null: *mut bool
+    out_is_null: *mut bool,
 ) -> bool {
     ffi_bool_try!({
         let ctx = unsafe { &*s_ptr };
-        
+
         if idx >= ctx.series.len() {
             polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
         }
 
-        match ctx.series.get(idx)? {
-            AnyValue::Int64(v) => unsafe { *out_val = v; *out_is_null = false; },
-            AnyValue::Int32(v) => unsafe { *out_val = v as i64; *out_is_null = false; },
-            AnyValue::Int16(v) => unsafe { *out_val = v as i64; *out_is_null = false; },
-            AnyValue::Int8(v)  => unsafe { *out_val = v as i64; *out_is_null = false; },
-            AnyValue::UInt64(v) => unsafe { *out_val = v as i64; *out_is_null = false; }, 
-            AnyValue::UInt32(v) => unsafe { *out_val = v as i64; *out_is_null = false; },
-            AnyValue::Null => unsafe { *out_is_null = true; },
-            other => polars_bail!(ComputeError: "Expected Integer, got DataType: {:?}", other.dtype()),
+        match unsafe { ctx.series.get_unchecked(idx) } {
+            AnyValue::Int64(v) => unsafe {
+                *out_val = v;
+                *out_is_null = false;
+            },
+            AnyValue::Int32(v) => unsafe {
+                *out_val = v as i64;
+                *out_is_null = false;
+            },
+            AnyValue::Int16(v) => unsafe {
+                *out_val = v as i64;
+                *out_is_null = false;
+            },
+            AnyValue::Int8(v) => unsafe {
+                *out_val = v as i64;
+                *out_is_null = false;
+            },
+            AnyValue::UInt64(v) => unsafe {
+                *out_val = v as i64;
+                *out_is_null = false;
+            },
+            AnyValue::UInt32(v) => unsafe {
+                *out_val = v as i64;
+                *out_is_null = false;
+            },
+            AnyValue::Null => unsafe {
+                *out_is_null = true;
+            },
+            other => {
+                polars_bail!(ComputeError: "Expected Integer, got DataType: {:?}", other.dtype())
+            }
         }
-        
+
         Ok(())
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_get_i128(
-    s_ptr: *mut SeriesContext, 
-    idx: usize, 
-    out_val: *mut i128, 
-    out_is_null: *mut bool
+    s_ptr: *mut SeriesContext,
+    idx: usize,
+    out_val: *mut i128,
+    out_is_null: *mut bool,
 ) -> bool {
     ffi_bool_try!({
         let ctx = unsafe { &*s_ptr };
-        
+
         if idx >= ctx.series.len() {
             polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
         }
 
-        match ctx.series.get(idx)? {
-            AnyValue::Int128(v) => unsafe { *out_val = v; *out_is_null = false; },
-            AnyValue::Int64(v)  => unsafe { *out_val = v as i128; *out_is_null = false; },
-            AnyValue::Int32(v)  => unsafe { *out_val = v as i128; *out_is_null = false; },
-            AnyValue::Int16(v)  => unsafe { *out_val = v as i128; *out_is_null = false; },
-            AnyValue::Int8(v)   => unsafe { *out_val = v as i128; *out_is_null = false; },
-            AnyValue::UInt64(v) => unsafe { *out_val = v as i128; *out_is_null = false; },
-            AnyValue::UInt32(v) => unsafe { *out_val = v as i128; *out_is_null = false; },
-            AnyValue::UInt16(v) => unsafe { *out_val = v as i128; *out_is_null = false; },
-            AnyValue::UInt8(v)  => unsafe { *out_val = v as i128; *out_is_null = false; },
-            AnyValue::Null      => unsafe { *out_is_null = true; },
-            other => polars_bail!(ComputeError: "Expected Integer, got DataType: {:?}", other.dtype()),
+        match unsafe { ctx.series.get_unchecked(idx) } {
+            AnyValue::Int128(v) => unsafe {
+                *out_val = v;
+                *out_is_null = false;
+            },
+            AnyValue::Int64(v) => unsafe {
+                *out_val = v as i128;
+                *out_is_null = false;
+            },
+            AnyValue::Int32(v) => unsafe {
+                *out_val = v as i128;
+                *out_is_null = false;
+            },
+            AnyValue::Int16(v) => unsafe {
+                *out_val = v as i128;
+                *out_is_null = false;
+            },
+            AnyValue::Int8(v) => unsafe {
+                *out_val = v as i128;
+                *out_is_null = false;
+            },
+            AnyValue::UInt64(v) => unsafe {
+                *out_val = v as i128;
+                *out_is_null = false;
+            },
+            AnyValue::UInt32(v) => unsafe {
+                *out_val = v as i128;
+                *out_is_null = false;
+            },
+            AnyValue::UInt16(v) => unsafe {
+                *out_val = v as i128;
+                *out_is_null = false;
+            },
+            AnyValue::UInt8(v) => unsafe {
+                *out_val = v as i128;
+                *out_is_null = false;
+            },
+            AnyValue::Null => unsafe {
+                *out_is_null = true;
+            },
+            other => {
+                polars_bail!(ComputeError: "Expected Integer, got DataType: {:?}", other.dtype())
+            }
         }
-        
+
         Ok(())
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_get_u128(
-    s_ptr: *mut SeriesContext, 
-    idx: usize, 
-    out_val: *mut u128, 
-    out_is_null: *mut bool
+    s_ptr: *mut SeriesContext,
+    idx: usize,
+    out_val: *mut u128,
+    out_is_null: *mut bool,
 ) -> bool {
     ffi_bool_try!({
         let ctx = unsafe { &*s_ptr };
-        
+
         if idx >= ctx.series.len() {
             polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
         }
 
-        match ctx.series.get(idx)? {
-            AnyValue::UInt128(v) => unsafe { *out_val = v; *out_is_null = false; },
-            AnyValue::UInt64(v)  => unsafe { *out_val = v as u128; *out_is_null = false; },
-            AnyValue::UInt32(v)  => unsafe { *out_val = v as u128; *out_is_null = false; },
-            AnyValue::UInt16(v)  => unsafe { *out_val = v as u128; *out_is_null = false; },
-            AnyValue::UInt8(v)   => unsafe { *out_val = v as u128; *out_is_null = false; },
-            AnyValue::Int64(v) if v >= 0 => unsafe { *out_val = v as u128; *out_is_null = false; },
-            AnyValue::Null       => unsafe { *out_is_null = true; },
-            other => polars_bail!(ComputeError: "Expected Unsigned Integer, got DataType: {:?}", other.dtype()),
+        match unsafe { ctx.series.get_unchecked(idx) } {
+            AnyValue::UInt128(v) => unsafe {
+                *out_val = v;
+                *out_is_null = false;
+            },
+            AnyValue::UInt64(v) => unsafe {
+                *out_val = v as u128;
+                *out_is_null = false;
+            },
+            AnyValue::UInt32(v) => unsafe {
+                *out_val = v as u128;
+                *out_is_null = false;
+            },
+            AnyValue::UInt16(v) => unsafe {
+                *out_val = v as u128;
+                *out_is_null = false;
+            },
+            AnyValue::UInt8(v) => unsafe {
+                *out_val = v as u128;
+                *out_is_null = false;
+            },
+            AnyValue::Int64(v) if v >= 0 => unsafe {
+                *out_val = v as u128;
+                *out_is_null = false;
+            },
+            AnyValue::Null => unsafe {
+                *out_is_null = true;
+            },
+            other => {
+                polars_bail!(ComputeError: "Expected Unsigned Integer, got DataType: {:?}", other.dtype())
+            }
         }
-        
+
         Ok(())
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_get_f64(
-    s_ptr: *mut SeriesContext, 
-    idx: usize, 
-    out_val: *mut f64, 
-    out_is_null: *mut bool
+    s_ptr: *mut SeriesContext,
+    idx: usize,
+    out_val: *mut f64,
+    out_is_null: *mut bool,
 ) -> bool {
     ffi_bool_try!({
         let ctx = unsafe { &*s_ptr };
-        
+
         if idx >= ctx.series.len() {
             polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
         }
 
-        match ctx.series.get(idx)? {
-            AnyValue::Float64(v) => { 
-                unsafe { *out_val = v; *out_is_null = false; } 
+        match unsafe { ctx.series.get_unchecked(idx) } {
+            AnyValue::Float64(v) => unsafe {
+                *out_val = v;
+                *out_is_null = false;
             },
-            AnyValue::Float32(v) => { 
-                unsafe { *out_val = v as f64; *out_is_null = false; } 
+            AnyValue::Float32(v) => unsafe {
+                *out_val = v as f64;
+                *out_is_null = false;
             },
-            AnyValue::Float16(v) => { 
-                unsafe { *out_val = v.0.to_f64(); *out_is_null = false; } 
+            AnyValue::Float16(v) => unsafe {
+                *out_val = v.0.to_f64();
+                *out_is_null = false;
             },
-            AnyValue::Null => {
-                unsafe { *out_is_null = true; }
+            AnyValue::Null => unsafe {
+                *out_is_null = true;
             },
             other => {
                 polars_bail!(ComputeError: "Expected Float type, got DataType: {:?}", other.dtype());
             }
         }
-        
+
         Ok(())
     })
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_get_bool(
-    s_ptr: *mut SeriesContext, 
-    idx: usize, 
+    s_ptr: *mut SeriesContext,
+    idx: usize,
     out_val: *mut bool,
-    out_is_null: *mut bool 
+    out_is_null: *mut bool,
 ) -> bool {
     ffi_bool_try!({
         let ctx = unsafe { &*s_ptr };
-        
+
         if idx >= ctx.series.len() {
             polars_bail!(OutOfBounds: "Index {} is out of bounds for Series of length {}", idx, ctx.series.len());
         }
 
-        match ctx.series.get(idx)? {
-            AnyValue::Boolean(v) => {
-                unsafe { 
-                    *out_val = v; 
-                    *out_is_null = false;
-                }
+        match unsafe { ctx.series.get_unchecked(idx) } {
+            AnyValue::Boolean(v) => unsafe {
+                *out_val = v;
+                *out_is_null = false;
             },
-            AnyValue::Null => {
-                unsafe { 
-                    *out_val = false; 
-                    *out_is_null = true;
-                }
+            AnyValue::Null => unsafe {
+                *out_val = false;
+                *out_is_null = true;
             },
             other => {
                 polars_bail!(ComputeError: "Expected Boolean, got DataType: {:?}", other.dtype());
             }
         }
-        
+
         Ok(())
     })
 }
@@ -604,153 +904,143 @@ pub extern "C" fn pl_series_get_bool(
 pub extern "C" fn pl_series_get_str(s_ptr: *mut SeriesContext, idx: usize) -> *mut c_char {
     ffi_try!({
         let ctx = unsafe { &*s_ptr };
-        
+
         if idx >= ctx.series.len() {
             polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
         }
 
-        match ctx.series.get(idx)? {
+        match unsafe { ctx.series.get_unchecked(idx) } {
             AnyValue::String(s) => {
                 let c_str = CString::new(s)
                     .map_err(|e| polars_err!(ComputeError: "String at index {} contains null byte: {}", idx, e))?;
                 Ok(c_str.into_raw())
-            },
-            AnyValue::Null => {
-                Ok(std::ptr::null_mut())
-            },
+            }
+            AnyValue::Null => Ok(std::ptr::null_mut()),
             other => {
                 polars_bail!(ComputeError: "Expected String, got DataType: {:?}", other.dtype());
             }
         }
     })
 }
-// Decimal 
+// Decimal
 // out_val: i128 value
-// out_scale: scale 
+// out_scale: scale
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_get_decimal(
-    s_ptr: *mut SeriesContext, 
-    idx: usize, 
-    out_val: *mut i128, 
-    out_precision: *mut usize, 
+    s_ptr: *mut SeriesContext,
+    idx: usize,
+    out_val: *mut i128,
+    out_precision: *mut usize,
     out_scale: *mut usize,
-    out_is_null: *mut bool
+    out_is_null: *mut bool,
 ) -> bool {
     ffi_bool_try!({
         let ctx = unsafe { &*s_ptr };
-        
+
         if idx >= ctx.series.len() {
             polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
         }
 
-        match ctx.series.get(idx)? {
-            AnyValue::Decimal(v, precision, scale) => {
-                unsafe {
-                    *out_val = v;
-                    *out_precision = precision;
-                    *out_scale = scale;
-                    *out_is_null = false;
-                }
+        match unsafe { ctx.series.get_unchecked(idx) } {
+            AnyValue::Decimal(v, precision, scale) => unsafe {
+                *out_val = v;
+                *out_precision = precision;
+                *out_scale = scale;
+                *out_is_null = false;
             },
-            AnyValue::Null => {
-                unsafe { 
-                    *out_val = 0; 
-                    *out_precision = 0;
-                    *out_scale = 0;
-                    *out_is_null = true; 
-                }
+            AnyValue::Null => unsafe {
+                *out_val = 0;
+                *out_precision = 0;
+                *out_scale = 0;
+                *out_is_null = true;
             },
             other => {
                 polars_bail!(ComputeError: "Expected Decimal, got DataType: {:?}", other.dtype());
             }
         }
-        
+
         Ok(())
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_get_date(
-    s_ptr: *mut SeriesContext, 
-    idx: usize, 
+    s_ptr: *mut SeriesContext,
+    idx: usize,
     out_val: *mut i32,
-    out_is_null: *mut bool
+    out_is_null: *mut bool,
 ) -> bool {
     ffi_bool_try!({
         let ctx = unsafe { &*s_ptr };
-        
+
         if idx >= ctx.series.len() {
             polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
         }
 
-        match ctx.series.get(idx)? {
-            AnyValue::Date(v) => { 
-                unsafe { 
-                    *out_val = v; 
-                    *out_is_null = false;
-                } 
+        match unsafe { ctx.series.get_unchecked(idx) } {
+            AnyValue::Date(v) => unsafe {
+                *out_val = v;
+                *out_is_null = false;
             },
-            AnyValue::Null => {
-                unsafe { *out_is_null = true; }
+            AnyValue::Null => unsafe {
+                *out_is_null = true;
             },
             other => {
                 polars_bail!(ComputeError: "Expected Date, got DataType: {:?}", other.dtype());
             }
         }
-        
+
         Ok(())
     })
 }
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_get_time(
-    s_ptr: *mut SeriesContext, 
-    idx: usize, 
+    s_ptr: *mut SeriesContext,
+    idx: usize,
     out_val: *mut i64,
-    out_is_null: *mut bool
+    out_is_null: *mut bool,
 ) -> bool {
     ffi_bool_try!({
         let ctx = unsafe { &*s_ptr };
-        
+
         if idx >= ctx.series.len() {
             polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
         }
 
-        match ctx.series.get(idx)? {
-            AnyValue::Time(v) => { 
-                unsafe { 
-                    *out_val = v; 
-                    *out_is_null = false;
-                } 
+        match unsafe { ctx.series.get_unchecked(idx) } {
+            AnyValue::Time(v) => unsafe {
+                *out_val = v;
+                *out_is_null = false;
             },
-            AnyValue::Null => {
-                unsafe { *out_is_null = true; }
+            AnyValue::Null => unsafe {
+                *out_is_null = true;
             },
             other => {
                 polars_bail!(ComputeError: "Expected Time, got DataType: {:?}", other.dtype());
             }
         }
-        
+
         Ok(())
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_get_datetime(
-    s_ptr: *mut SeriesContext, 
-    idx: usize, 
-    out_val: *mut i64, 
-    out_time_unit: *mut u8,      
-    out_timezone: *mut *mut c_char, 
-    out_is_null: *mut bool
+    s_ptr: *mut SeriesContext,
+    idx: usize,
+    out_val: *mut i64,
+    out_time_unit: *mut u8,
+    out_timezone: *mut *mut c_char,
+    out_is_null: *mut bool,
 ) -> bool {
     ffi_bool_try!({
         let ctx = unsafe { &*s_ptr };
-        
+
         if idx >= ctx.series.len() {
             polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
         }
 
-        match ctx.series.get(idx)? {
+        match unsafe { ctx.series.get_unchecked(idx) } {
             AnyValue::Datetime(v, tu, tz) => {
                 let tu_val = match tu {
                     TimeUnit::Nanoseconds => 0,
@@ -760,77 +1050,76 @@ pub extern "C" fn pl_series_get_datetime(
 
                 let tz_ptr = match tz {
                     Some(tz_str) => {
-                        let c_str = CString::new(tz_str.as_str())
-                            .map_err(|e| polars_err!(ComputeError: "TimeZone contains null byte: {}", e))?;
+                        let c_str = CString::new(tz_str.as_str()).map_err(
+                            |e| polars_err!(ComputeError: "TimeZone contains null byte: {}", e),
+                        )?;
                         c_str.into_raw()
-                    },
+                    }
                     None => std::ptr::null_mut(),
                 };
 
-                unsafe { 
-                    *out_val = v; 
+                unsafe {
+                    *out_val = v;
                     *out_time_unit = tu_val;
                     *out_timezone = tz_ptr;
-                    *out_is_null = false; 
+                    *out_is_null = false;
                 }
-            },
-            AnyValue::Null => {
-                unsafe { 
-                    *out_is_null = true; 
-                    *out_timezone = std::ptr::null_mut(); 
-                }
+            }
+            AnyValue::Null => unsafe {
+                *out_is_null = true;
+                *out_timezone = std::ptr::null_mut();
             },
             other => {
                 polars_bail!(ComputeError: "Expected Datetime, got DataType: {:?}", other.dtype());
             }
         }
-        
+
         Ok(())
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_get_duration(
-    s_ptr: *mut SeriesContext, 
-    idx: usize, 
-    out_val: *mut i64, 
-    out_time_unit: *mut u8, 
-    out_is_null: *mut bool
+    s_ptr: *mut SeriesContext,
+    idx: usize,
+    out_val: *mut i64,
+    out_time_unit: *mut u8,
+    out_is_null: *mut bool,
 ) -> bool {
     ffi_bool_try!({
         let ctx = unsafe { &*s_ptr };
-        
+
         if idx >= ctx.series.len() {
             polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
         }
 
-        match ctx.series.get(idx)? {
+        match unsafe { ctx.series.get_unchecked(idx) } {
             AnyValue::Duration(v, tu) => {
                 let tu_val = match tu {
                     TimeUnit::Nanoseconds => 0,
                     TimeUnit::Microseconds => 1,
                     TimeUnit::Milliseconds => 2,
                 };
-                unsafe { 
-                    *out_val = v; 
+                unsafe {
+                    *out_val = v;
                     *out_time_unit = tu_val;
-                    *out_is_null = false; 
+                    *out_is_null = false;
                 }
-            },
-            AnyValue::Null => {
-                unsafe { *out_is_null = true; }
+            }
+            AnyValue::Null => unsafe {
+                *out_is_null = true;
             },
             other => {
                 polars_bail!(ComputeError: "Expected Duration, got DataType: {:?}", other.dtype());
             }
         }
-        
+
         Ok(())
     })
 }
 
 // ==========================================
-// Arithmetic Ops 
+// Arithmetic Ops
 // ==========================================
 
 macro_rules! impl_series_arithmetic_op {
@@ -840,7 +1129,7 @@ macro_rules! impl_series_arithmetic_op {
             ffi_try!({
                 let s1_ref = unsafe { &(*s1).series };
                 let s2_ref = unsafe { &(*s2).series };
-                let res = s1_ref $op s2_ref; 
+                let res = s1_ref $op s2_ref;
                 Ok(Box::into_raw(Box::new(SeriesContext { series: res? })))
             })
         }
@@ -854,17 +1143,21 @@ impl_series_arithmetic_op!(pl_series_div, /);
 impl_series_arithmetic_op!(pl_series_rem, %);
 
 // ==========================================
-// Comparison Ops 
+// Comparison Ops
 // ==========================================
 
 macro_rules! impl_series_comparison_op {
     ($func_name:ident, $method:ident) => {
         #[unsafe(no_mangle)]
-        pub extern "C" fn $func_name(s1: *mut SeriesContext, s2: *mut SeriesContext) -> *mut SeriesContext {
+        pub extern "C" fn $func_name(
+            s1: *mut SeriesContext,
+            s2: *mut SeriesContext,
+        ) -> *mut SeriesContext {
             ffi_try!({
                 let s1_ref = unsafe { &(*s1).series };
                 let s2_ref = unsafe { &(*s2).series };
-                let res = s1_ref.$method(s2_ref)
+                let res = s1_ref
+                    .$method(s2_ref)
                     .map_err(|e| PolarsError::ComputeError(e.to_string().into()))?
                     .into_series();
                 Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
@@ -885,7 +1178,7 @@ impl_series_comparison_op!(pl_series_lt_eq, lt_eq);
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pl_series_get_dtype(ptr: *mut Series) -> *mut DataType {
     ffi_try!({
-        let s = unsafe {&*ptr};
+        let s = unsafe { &*ptr };
         Ok(Box::into_raw(Box::new(s.dtype().clone())))
     })
 }
@@ -894,14 +1187,14 @@ pub unsafe extern "C" fn pl_series_get_dtype(ptr: *mut Series) -> *mut DataType 
 pub extern "C" fn pl_series_not(s_ptr: *mut SeriesContext) -> *mut SeriesContext {
     ffi_try!({
         let ctx = unsafe { &*s_ptr };
-        
-        // Downcast to BooleanChunked. If it's not a boolean series, this will automatically 
+
+        // Downcast to BooleanChunked. If it's not a boolean series, this will automatically
         // return a PolarsError which ffi_try! will catch and pass to the C# side safely.
         let bool_ca = ctx.series.bool()?;
-        
+
         // Apply logical NOT operation and convert back to Series
         let res = (!bool_ca).into_series();
-        
+
         Ok(Box::into_raw(Box::new(SeriesContext { series: res })))
     })
 }
@@ -915,21 +1208,21 @@ pub extern "C" fn pl_series_sort(
     descending: bool,
     nulls_last: bool,
     multithreaded: bool,
-    maintain_order: bool
+    maintain_order: bool,
 ) -> *mut SeriesContext {
     ffi_try!({
         let ctx = unsafe { &*series_ptr };
-        
+
         let options = SortOptions {
             descending,
             nulls_last,
             multithreaded,
             maintain_order,
-            limit: None, 
+            limit: None,
         };
 
         let out = ctx.series.sort(options)?;
-        
+
         Ok(Box::into_raw(Box::new(SeriesContext { series: out })))
     })
 }
@@ -942,9 +1235,9 @@ pub extern "C" fn pl_series_reshape(
 ) -> *mut Series {
     ffi_try!({
         let s = unsafe { &*series_ptr };
-        
+
         let raw_dims = unsafe { from_raw_parts(dims_ptr, dims_len) };
-        
+
         let mut dimensions = Vec::with_capacity(dims_len);
         for &d in raw_dims {
             if d == -1 {
@@ -954,10 +1247,10 @@ pub extern "C" fn pl_series_reshape(
             } else {
                 polars_bail!(InvalidOperation: "dimension size must be > 0 or -1 (infer)");
             }
-}
-        
+        }
+
         let reshaped = s.reshape_array(&dimensions)?;
-        
+
         Ok(Box::into_raw(Box::new(reshaped)))
     })
 }
@@ -977,7 +1270,10 @@ pub extern "C" fn pl_series_struct_unnest(series_ptr: *mut SeriesContext) -> *mu
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_series_append(s_ptr: *mut SeriesContext, other_ptr: *mut SeriesContext) -> bool {
+pub extern "C" fn pl_series_append(
+    s_ptr: *mut SeriesContext,
+    other_ptr: *mut SeriesContext,
+) -> bool {
     ffi_bool_try!({
         if s_ptr.is_null() {
             polars_bail!(ComputeError: "Target Series pointer is null");
@@ -988,7 +1284,7 @@ pub extern "C" fn pl_series_append(s_ptr: *mut SeriesContext, other_ptr: *mut Se
 
         let target_ctx = unsafe { &mut *s_ptr };
         let other_ctx = unsafe { &*other_ptr };
-        
+
         target_ctx.series.append(&other_ctx.series)?;
 
         Ok(())
@@ -1008,7 +1304,10 @@ pub extern "C" fn pl_series_shrink_to_fit(ptr: *mut SeriesContext) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_series_extend(s_ptr: *mut SeriesContext, other_ptr: *mut SeriesContext) -> bool {
+pub extern "C" fn pl_series_extend(
+    s_ptr: *mut SeriesContext,
+    other_ptr: *mut SeriesContext,
+) -> bool {
     ffi_bool_try!({
         if s_ptr.is_null() {
             polars_bail!(ComputeError: "Target Series pointer is null");
@@ -1019,7 +1318,7 @@ pub extern "C" fn pl_series_extend(s_ptr: *mut SeriesContext, other_ptr: *mut Se
 
         let target_ctx = unsafe { &mut *s_ptr };
         let other_ctx = unsafe { &*other_ptr };
-        
+
         target_ctx.series.extend(&other_ctx.series)?;
 
         Ok(())
@@ -1033,25 +1332,25 @@ pub extern "C" fn pl_series_get_sorted_flags(
 ) -> c_int {
     ffi_try_c_int!({
         let ctx = unsafe { &*series_ptr };
-        
+
         let mut flags: u8 = 0;
         match ctx.series.is_sorted_flag() {
             polars::series::IsSorted::Ascending => {
                 flags |= 1; // IsSorted
-            },
+            }
             polars::series::IsSorted::Descending => {
                 flags |= 1; // IsSorted
                 flags |= 2; // Descending
-            },
+            }
             _ => {}
         }
-        // TODO for 0.54: 
+        // TODO for 0.54:
         // if ctx.series.nulls_last_flag() { flags |= 4; }
 
         if !out_flags.is_null() {
             unsafe { *out_flags = flags };
         }
-        
+
         Ok(0)
     })
 }
@@ -1065,15 +1364,15 @@ pub extern "C" fn pl_series_set_sorted_flag(
 ) -> *mut SeriesContext {
     ffi_try!({
         let ctx = unsafe { &*series_ptr };
-        
+
         let mut s = ctx.series.clone();
-        
+
         let sorted_flag = if descending {
             polars::series::IsSorted::Descending
         } else {
             polars::series::IsSorted::Ascending
         };
-        
+
         s.set_sorted_flag(sorted_flag);
 
         Ok(Box::into_raw(Box::new(SeriesContext { series: s })))
@@ -1084,19 +1383,19 @@ pub extern "C" fn pl_series_set_sorted_flag(
 pub extern "C" fn pl_series_set_with_mask(
     s_ptr: *mut SeriesContext,
     mask_ptr: *mut SeriesContext,
-    value_ptr: *mut SeriesContext
+    value_ptr: *mut SeriesContext,
 ) -> *mut SeriesContext {
     ffi_try!({
         let s = unsafe { &(*s_ptr).series };
         let mask = unsafe { &(*mask_ptr).series };
         let value_s = unsafe { &(*value_ptr).series };
 
-        let mask_bool = mask.bool().map_err(|_| {
-            polars_err!(ComputeError: "Mask must be a boolean series")
-        })?;
-        
+        let mask_bool = mask
+            .bool()
+            .map_err(|_| polars_err!(ComputeError: "Mask must be a boolean series"))?;
+
         let casted_value = value_s.cast(s.dtype())?;
-        
+
         let broadcasted_value = if casted_value.len() == 1 && s.len() > 1 {
             casted_value.new_from_index(0, s.len())
         } else {
@@ -1104,17 +1403,16 @@ pub extern "C" fn pl_series_set_with_mask(
         };
 
         let result = broadcasted_value.zip_with(mask_bool, s)?;
-        
+
         Ok(Box::into_raw(Box::new(SeriesContext { series: result })))
     })
 }
-
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_scatter_indices(
     s_ptr: *mut SeriesContext,
     idx_ptr: *mut SeriesContext,
-    value_ptr: *mut SeriesContext
+    value_ptr: *mut SeriesContext,
 ) -> *mut SeriesContext {
     ffi_try!({
         let s = unsafe { &(*s_ptr).series };
@@ -1123,7 +1421,7 @@ pub extern "C" fn pl_series_scatter_indices(
 
         let idx_u32 = idx_s.cast(&DataType::UInt32)?;
         let idx_ca = idx_u32.u32()?;
-        
+
         let casted_value = value_s.cast(s.dtype())?;
         let is_scalar = casted_value.len() == 1;
 
@@ -1144,7 +1442,7 @@ pub extern "C" fn pl_series_scatter_indices(
                 }
             }
             let mask_bool = BooleanChunked::from_slice("mask".into(), &mask_vec);
-            
+
             let broadcasted_value = casted_value.new_from_index(0, s.len());
             broadcasted_value.zip_with(&mask_bool, s)?
         } else {
@@ -1161,7 +1459,7 @@ pub extern "C" fn pl_series_scatter_indices(
             }
             Series::new(s.name().clone(), &s_vec).cast(s.dtype())?
         };
-        
+
         Ok(Box::into_raw(Box::new(SeriesContext { series: result })))
     })
 }
@@ -1180,7 +1478,7 @@ pub extern "C" fn pl_series_zip_with(
         // Convert the mask Series to a BooleanChunked
         // The ? operator will safely propagate an error to C# if the mask is not boolean
         let mask = mask_series.bool()?;
-        
+
         // Execute zip_with
         let res = s.zip_with(mask, other)?;
 
@@ -1197,7 +1495,7 @@ pub extern "C" fn pl_series_to_dummies(
 ) -> *mut DataFrameContext {
     ffi_try!({
         let ctx = unsafe { &*s_ptr };
-        
+
         let sep_str = if separator.is_null() {
             None
         } else {
@@ -1205,7 +1503,7 @@ pub extern "C" fn pl_series_to_dummies(
         };
 
         let df = ctx.series.to_dummies(sep_str, drop_first, drop_nulls)?;
-        
+
         Ok(Box::into_raw(Box::new(DataFrameContext { df })))
     })
 }
@@ -1213,15 +1511,15 @@ pub extern "C" fn pl_series_to_dummies(
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_series_new_from_index(
     s_ptr: *mut SeriesContext,
-    index:usize,
-    length:usize
+    index: usize,
+    length: usize,
 ) -> *mut SeriesContext {
     ffi_try!({
         let ctx = unsafe { &*s_ptr };
-        
-        let s = ctx.series.new_from_index(index,length);
-        
-        Ok(Box::into_raw(Box::new(SeriesContext { series:s })))
+
+        let s = ctx.series.new_from_index(index, length);
+
+        Ok(Box::into_raw(Box::new(SeriesContext { series: s })))
     })
 }
 
@@ -1234,57 +1532,52 @@ pub extern "C" fn pl_series_equals(
     ffi_try_c_int!({
         let ctx1 = unsafe { &*ptr1 };
         let ctx2 = unsafe { &*ptr2 };
-        
+
         unsafe {
             *out = ctx1.series.equals_missing(&ctx2.series);
         }
-        
-        Ok(0) 
-    })
-}
 
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_hash(
-    ptr: *mut SeriesContext,
-    out: *mut u64,
-) -> i32 {
-    ffi_try_c_int!({
-        let ctx = unsafe { &*ptr };
-        
-        let mut hasher = DefaultHasher::new();
-        
-        std::hash::Hash::hash(&Wrap(ctx.series.clone()), &mut hasher);
-        
-        unsafe {
-            *out = hasher.finish();
-        }
-        
         Ok(0)
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_series_clear(
-    s_ptr: *mut SeriesContext,
-) -> *mut SeriesContext {
-    ffi_try!({
-        let ctx = unsafe { &*s_ptr };
+pub extern "C" fn pl_series_hash(ptr: *mut SeriesContext, out: *mut u64) -> i32 {
+    ffi_try_c_int!({
+        let ctx = unsafe { &*ptr };
 
-        let s = ctx.series.clear();
-        
-        Ok(Box::into_raw(Box::new(SeriesContext { series:s })))
+        let mut hasher = DefaultHasher::new();
+
+        std::hash::Hash::hash(&Wrap(ctx.series.clone()), &mut hasher);
+
+        unsafe {
+            *out = hasher.finish();
+        }
+
+        Ok(0)
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_series_to_physical(
-    s_ptr: *mut SeriesContext,
-) -> *mut SeriesContext {
+pub extern "C" fn pl_series_clear(s_ptr: *mut SeriesContext) -> *mut SeriesContext {
+    ffi_try!({
+        let ctx = unsafe { &*s_ptr };
+
+        let s = ctx.series.clear();
+
+        Ok(Box::into_raw(Box::new(SeriesContext { series: s })))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pl_series_to_physical(s_ptr: *mut SeriesContext) -> *mut SeriesContext {
     ffi_try!({
         let ctx = unsafe { &*s_ptr };
 
         let s = ctx.series.to_physical_repr();
-        
-        Ok(Box::into_raw(Box::new(SeriesContext { series:s.into_owned() })))
+
+        Ok(Box::into_raw(Box::new(SeriesContext {
+            series: s.into_owned(),
+        })))
     })
 }
