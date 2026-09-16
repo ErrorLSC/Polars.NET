@@ -447,8 +447,9 @@ type Series(handle: SeriesHandle) =
 
         // --- Complex Types (Arrow Fallback) ---
         else
-            let column = PolarsWrapper.SeriesToArrow handle
-            ArrowReader.ReadItem<'T>(column, int index)
+            use slicedHandle = PolarsWrapper.SeriesSlice(this.Handle, index, 1UL)
+            use column = PolarsWrapper.SeriesToArrow slicedHandle
+            ArrowReader.ReadItem<'T>(column, 0)
     /// <summary>
     /// Gets a single scalar value by 64-bit index.
     /// </summary>

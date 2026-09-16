@@ -99,7 +99,12 @@ public partial class Series : IDisposable,IPolarsSeries
         // Universal Path - using Arrow Infrastructure
         // For Struct, List, F# Option, DateTimeOffset .etc
         // ==============================================================
-        return ArrowReader.ReadItem<T>(this.ToArrow(), (int)index);
+
+        using var slice = Slice(index, 1);
+
+        using var column = slice.ToArrow();
+
+        return ArrowReader.ReadItem<T>(column, 0);
     }
 
     /// <summary>
