@@ -90,6 +90,7 @@
     <Compile Include="DataFrame/DataFrame.Transpose.fs" />
     <Compile Include="Display.fs" />
     <Compile Include="Polars.fs" />
+    <Compile Include="Expr/Manipulation.fs" />
     <Compile Include="Extensions.fs" />
     <Compile Include="DataFrame/DataFrame.Unstack.fs" />
     <Compile Include="DataFrame/DataFrame.JsonNormalize.fs" />

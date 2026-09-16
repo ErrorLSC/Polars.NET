@@ -35,7 +35,7 @@ public class AsyncTests
         using var lf = LazyFrame.ScanCsv(csv.Path);
         
         var passExpr = Pl.Col("score")
-            .Map<long, string>(s => s >= 60 ? "Pass" : "Fail", DataType.String)
+            .Map<long, string>(s => s >= 60 ? "Pass" : "Fail")
             .Alias("status");
 
         // Async Collect

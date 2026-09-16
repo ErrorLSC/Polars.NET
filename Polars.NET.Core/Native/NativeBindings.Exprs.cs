@@ -329,7 +329,7 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_ceil(ExprHandle expr);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_floor(ExprHandle expr);
     [LibraryImport(LibName)]
-    public static partial ExprHandle pl_expr_is_between(ExprHandle expr, ExprHandle lower, ExprHandle upper);
+    public static partial ExprHandle pl_expr_is_between(ExprHandle expr, ExprHandle lower, ExprHandle upper, PlClosedInterval closedInterval);
     [LibraryImport(LibName)] public static partial ExprHandle pl_expr_filter(ExprHandle expr, ExprHandle predicate);
     [LibraryImport(LibName)] 
     public static partial ExprHandle pl_expr_is_in(ExprHandle expr, ExprHandle other, [MarshalAs(UnmanagedType.U1)] bool nulls_equal);

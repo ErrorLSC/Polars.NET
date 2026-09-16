@@ -37,17 +37,18 @@ open Polars.NET.Core
 type ``UDF Tests`` () =
 
     [<Fact>]
+    [<Trait("UDF","Basic")>]
     member _.``Map UDF can change data type (Int -> String)`` () =
         use csv = new TempCsv "num\n100\n200"
         let lf = LazyFrame.ScanCsv csv.Path
 
-        let udf = Func<IArrowArray, IArrowArray> UdfLogic.intToString
+        let udf = UdfLogic.intToString
 
         let df =
             lf
             |> LazyFrame.withColumn (
-                pl.col "num"
-                |> fun e -> e.Map(udf, DataType.String)
+                pl.col("num").MapArrow udf
+                // |> fun e -> e.Map(udf, DataType.String)
                 |> pl.alias "desc"
             )
             |> LazyFrame.select [ pl.col "desc" ]
@@ -64,13 +65,13 @@ type ``UDF Tests`` () =
         use csv = new TempCsv "num\n1"
         let lf = LazyFrame.ScanCsv csv.Path
 
-        let udf = Func<IArrowArray, IArrowArray> UdfLogic.alwaysFail
+        let udf = UdfLogic.alwaysFail
 
         let ex = Assert.Throws<PolarsException>(fun () ->
             lf
             |> LazyFrame.withColumn (
                 pl.col "num"
-                |> fun e -> e.Map(udf, DataType.SameAsInput)
+                |> fun e -> e.MapArrow(udf, DataType.SameAsInput)
             )
             |> LazyFrame.collect
             |> ignore
@@ -90,8 +91,7 @@ type ``UDF Tests`` () =
             lf
             |> LazyFrame.withColumn (
                 pl.col "num"
-
-                |> fun e -> e.Map(Udf.map myLogic, DataType.String)
+                |> fun e -> e.Map myLogic
                 |> pl.alias "res"
             )
             |> LazyFrame.select [ pl.col "res" ]
@@ -116,8 +116,7 @@ type ``UDF Tests`` () =
         let df =
             lf
             |> LazyFrame.withColumn (
-                pl.col "val"
-                |> fun e -> e.Map(Udf.mapOption logic, DataType.Int32)
+                pl.col("val").MapOption logic
                 |> pl.alias "res"
             )
             |> LazyFrame.collect
@@ -258,7 +257,7 @@ type ``UDF Tests`` () =
             lf
             |> LazyFrame.withColumn (
                 pl.col "Code"
-                |> fun e -> e.Map(Udf.mapValueOption parseEmpId, DataType.Int32)
+                |> fun e -> e.MapValueOption parseEmpId
                 |> pl.alias "EmpId"
             )
             |> LazyFrame.collect

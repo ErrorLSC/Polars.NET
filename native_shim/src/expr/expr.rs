@@ -1,7 +1,7 @@
 use polars::{chunked_array::cast::CastOptions, prelude::*, series::ops::NullBehavior, sql::sql_expr};
 use polars_plan::plans::AExprSorted;
 use std::{ffi::{CStr, CString}, os::raw::c_char, slice::from_raw_parts};
-use crate::{types::{DataTypeContext, DataTypeExprContext, ExprContext, SeriesContext}, utils::{parse_closed_window, ptr_to_opt_pl_str_vec}};
+use crate::{types::{DataTypeContext, DataTypeExprContext, ExprContext, SeriesContext}, utils::{parse_closed_interval, parse_closed_window, ptr_to_opt_pl_str_vec}};
 use std::ops::{Add, Sub, Mul, Div, Rem};
 use crate::utils::{consume_exprs_array, ptr_to_str};
 use polars_arrow::array::PrimitiveArray;
@@ -1000,14 +1000,17 @@ pub extern "C" fn pl_expr_clone(ptr: *mut ExprContext) -> *mut ExprContext {
 pub extern "C" fn pl_expr_is_between(
     expr_ptr: *mut ExprContext,
     lower_ptr: *mut ExprContext,
-    upper_ptr: *mut ExprContext
+    upper_ptr: *mut ExprContext,
+    closed: u8
 ) -> *mut ExprContext {
     ffi_try!({
         let ctx = unsafe { Box::from_raw(expr_ptr) };
         let lower = unsafe { Box::from_raw(lower_ptr) };
         let upper = unsafe { Box::from_raw(upper_ptr) };
 
-        let new_expr = ctx.inner.is_between(lower.inner, upper.inner, ClosedInterval::Both);
+        let closed_interval = parse_closed_interval(closed);
+
+        let new_expr = ctx.inner.is_between(lower.inner, upper.inner, closed_interval);
         
         Ok(Box::into_raw(Box::new(ExprContext { inner: new_expr })))
     })

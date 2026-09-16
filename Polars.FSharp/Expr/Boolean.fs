@@ -10,8 +10,9 @@ module ExprBoolean =
         /// </summary>
         member this.HasNulls() = this.NullCount() .> new Expr(PolarsWrapper.Lit 0)
         /// <summary> Check if the value is between lower and upper bounds (inclusive). </summary>
-        member this.IsBetween(lower: Expr, upper: Expr) =
-            new Expr(PolarsWrapper.IsBetween(this.CloneHandle(), lower.CloneHandle(), upper.CloneHandle()))
+        member this.IsBetween(lower: Expr, upper: Expr, ?closedInterval:ClosedInterval) =
+            let cI = defaultArg closedInterval ClosedInterval.Both
+            new Expr(PolarsWrapper.IsBetween(this.CloneHandle(), lower.CloneHandle(), upper.CloneHandle(),cI.ToNative()))
         /// <summary>
         /// Check if the value is in given collection.
         /// </summary>

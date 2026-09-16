@@ -42,26 +42,34 @@ module SeriesOperationExtensions =
                     else Some (uint64 (resolvedEnd - resolvedStart + 1L))
             this.Slice(offset, ?length = length)
         /// <summary>
-        /// Append a Series to this one.
-        /// The resulting series will consist of multiple chunks.
-        /// </summary>
-        /// <param name="other">Series to append.</param>
-        member this.Append(other:Series) =
-            PolarsWrapper.SeriesAppend(this.Handle,other.Handle)
-            this
-        /// <summary>
         /// Extend the memory backed by this Series with the values from another.
         /// Different from append, which adds the chunks from other to the chunks of this series, extend appends the data from other to the underlying memory locations and thus may cause a reallocation (which is expensive).
         /// If this does not cause a reallocation, the resulting data structure will not have any extra chunks and thus will yield faster queries.
         /// </summary>
         /// <param name="other">Series to extend the series with.</param>
-        member this.Extend(other:Series) =
-            PolarsWrapper.SeriesExtend(this.Handle,other.Handle)
-            this
+        member this.Extend(other: Series) : Series =
+            let cloned = this.Clone()
+            PolarsWrapper.SeriesExtend(cloned.Handle, other.Handle)
+            cloned
+        /// <summary>
+        /// Extends the memory backed by this Series with the values from another in-place.
+        /// This directly mutates the underlying memory buffer and may trigger reallocation.
+        /// Returns unit to explicitly indicate in-place side effects.
+        /// </summary>
+        /// <param name="other">Series to extend this series with.</param>
+        member this.ExtendInplace(other: Series) : unit =
+            PolarsWrapper.SeriesExtend(this.Handle, other.Handle)
         member this.ExtendConstant(value,n) = this.ApplyExpr(Expr.Col(this.Name).ExtendConstant(value,n))
         member this.Reverse() = this.ApplyExpr(Expr.Col(this.Name).Reverse())
         member this.Clip(?lowerBound: Expr, ?upperBound: Expr) =
             this.ApplyExpr(Expr.Col(this.Name).Clip(?lowerBound=lowerBound,?upperBound=upperBound))
+        /// <summary>
+        /// Set values outside bounds to scalar boundary values.
+        /// </summary>
+        member inline this.Clip(lowerBound: ^T, upperBound: ^T) : Series =
+            let low = ((^T or LitMechanism) : (static member ($) : LitMechanism * ^T -> Expr) (LitMechanism, lowerBound))
+            let high = ((^T or LitMechanism) : (static member ($) : LitMechanism * ^T -> Expr) (LitMechanism, upperBound))
+            this.Clip(low, high)
         /// <summary>
         /// Cast to physical representation of the logical dtype.
         /// </summary>
@@ -84,9 +92,9 @@ module SeriesOperationExtensions =
             else
                 match defaultArg n 0u with
                 | 0u ->
-                    new Series(PolarsWrapper.SeriesClear(this.Handle))
+                    new Series(PolarsWrapper.SeriesClear this.Handle)
                 | count ->
-                    let cleared = new Series(PolarsWrapper.SeriesClear(this.Handle))
+                    let cleared = new Series(PolarsWrapper.SeriesClear this.Handle)
                     cleared.ExtendConstant(Expr.LitNull(),new Expr(PolarsWrapper.Lit count))
         /// <summary>
         /// Reshape this Series to a flat Series or an Array Series.
@@ -97,8 +105,18 @@ module SeriesOperationExtensions =
             let dim = dimensions |> Seq.toArray
             let dimSpan = ReadOnlySpan<int64> dim
             new Series(PolarsWrapper.SeriesReshape(this.Handle,dimSpan))
+        /// <summary>
+        /// Replace values where the condition matches the old expression with the new expression.
+        /// </summary>
         member this.Replace(old,newExpr) =
             this.ApplyExpr(Expr.Col(this.Name).Replace(old,newExpr))
+        /// <summary>
+        /// Replace values with scalar.
+        /// </summary>
+        member inline this.Replace(oldVal: ^Old, newVal: ^New) : Series =
+            let old = ((^Old or LitMechanism) : (static member ($) : LitMechanism * ^Old -> Expr) (LitMechanism, oldVal))
+            let newV = ((^New or LitMechanism) : (static member ($) : LitMechanism * ^New -> Expr) (LitMechanism, newVal))
+            this.Replace(old,newV)
         member this.ReplaceStrict(old,newExpr,?defaultExpr:Expr,?returnDataType:DataTypeExpr) =
             this.ApplyExpr(Expr.Col(this.Name).ReplaceStrict(old,newExpr,?defaultExpr=defaultExpr,?returnDataType=returnDataType))
         /// <summary>
@@ -238,17 +256,29 @@ module SeriesOperationExtensions =
         // Missing Data Handling (FillNull & FillNan)
         // ==========================================
 
-        // --- 1. Fill with Scalar (ApplyExpr) ---
-
-        /// <summary> Fill null values with a literal integer. </summary>
-        member this.FillNull(fillValue: int) =
-            this.ApplyExpr(Expr.Col(this.Name).FillNull(new Expr(PolarsWrapper.Lit fillValue)))
-        /// <summary> Fill null values with a literal double. </summary>
-        member this.FillNull(fillValue: double) =
-            this.ApplyExpr(Expr.Col(this.Name).FillNull(new Expr(PolarsWrapper.Lit fillValue)))
-        /// <summary> Fill null values with a literal string. </summary>
-        member this.FillNull(fillValue: string) =
-            this.ApplyExpr(Expr.Col(this.Name).FillNull(new Expr(PolarsWrapper.Lit fillValue)))
+        /// <summary>
+        /// Fill nulls using an expression (mostly for internal use or complex literals).
+        /// </summary>
+        member this.FillNull(expr: Expr) =
+            this.ApplyExpr(Expr.Col(this.Name).FillNull expr)
+        /// <summary>
+        /// Fill null values with a scalar literal.
+        /// </summary>
+        /// <param name="value">The scalar value to fill nulls with.</param>
+        member inline this.FillNull(fillValue:^T) :Series =
+            let va = ((^T or LitMechanism) : (static member ($) : LitMechanism * ^T -> Expr) (LitMechanism, fillValue))
+            this.ApplyExpr(Expr.Col(this.Name).FillNull(value=va))
+        /// <summary>
+        /// Fill null values with values from another Series.
+        /// Useful for coalescing.
+        /// </summary>
+        member this.FillNull(fillValue: Series) =
+            this.ApplyBinaryExpr(fillValue, fun l r -> l.FillNull r)
+        /// <summary>
+        /// Fills null values using a built-in strategy (Forward, Backward, Mean, etc.).
+        /// </summary>
+        member this.FillNull(strategies:FillNullStrategy,?limit:int) = 
+            this.ApplyExpr(Expr.Col(this.Name).FillNull(strategies,?limit=limit))
         /// <summary>
         /// Interpolate intermediate values. The interpolation method can be configured.
         /// <para>Nulls at the beginning and end of the series remain null.</para>
@@ -256,36 +286,36 @@ module SeriesOperationExtensions =
         /// <param name="method">Interpolation method (Linear or Nearest).</param>
         member this.Interpolate(?method:InterpolationMethod) =
             this.ApplyExpr(Expr.Col(this.Name).Interpolate(?method=method))
+        /// <summary>
+        /// Interpolates intermediate values guided by an independent variable series.
+        /// </summary>
         member this.InterpolateBy(by:Series) =
             this.ApplyBinaryExpr(by, fun l r -> l.InterpolateBy r)
         member this.InterpolateBy(by:Expr) =
             this.ApplyExpr(Expr.Col(this.Name).InterpolateBy(by))
+        /// <summary>
+        /// Fill floating-point NaN values using an expression.
+        /// </summary>
+        /// <param name="expr">The expression providing replacement values.</param>
+        /// <returns>A new Series with NaN values replaced.</returns>
+        member this.FillNan(expr: Expr) : Series =
+            this.ApplyExpr(Expr.Col(this.Name).FillNan expr)
         /// <summary> Fill floating point NaN values with a literal value. </summary>
         member this.FillNan(fillValue: double) =
             this.ApplyExpr(Expr.Col(this.Name).FillNan(new Expr(PolarsWrapper.Lit fillValue)))
-
-        // --- 2. Fill with Series (ApplyBinaryExpr) ---
-
         /// <summary>
-        /// Fill null values with values from another Series.
-        /// Useful for coalescing.
+        /// Fill floating-point NaN values with a literal float32.
         /// </summary>
-        member this.FillNull(fillValue: Series) =
-            this.ApplyBinaryExpr(fillValue, fun l r -> l.FillNull r)
-
+        /// <param name="fillValue">The float32 value to replace NaN with.</param>
+        /// <returns>A new Series with NaN values replaced.</returns>
+        member this.FillNan(fillValue: float32) : Series =
+            this.ApplyExpr(Expr.Col(this.Name).FillNan(new Expr(PolarsWrapper.Lit fillValue)))
         /// <summary>
         /// Fill NaN values with values from another Series.
         /// </summary>
         member this.FillNan(fillValue: Series) =
             this.ApplyBinaryExpr(fillValue, fun l r -> l.FillNan r)
 
-        // --- 3. Fill with Expr (Advanced) ---
-
-        /// <summary>
-        /// Fill nulls using an expression (mostly for internal use or complex literals).
-        /// </summary>
-        member this.FillNull(expr: Expr) =
-            this.ApplyExpr(Expr.Col(this.Name).FillNull expr)
         /// <summary>
         /// Drop null values.
         /// </summary>
@@ -304,8 +334,8 @@ module SeriesOperationExtensions =
         /// <summary>
         /// Check if values are between lower and upper bounds.
         /// </summary>
-        member this.IsBetween(lower:Expr, upper:Expr) =
-            this.ApplyExpr(Expr.Col(this.Name).IsBetween(lower,upper))
+        member this.IsBetween(lower:Expr, upper:Expr,?closedInterval:ClosedInterval) =
+            this.ApplyExpr(Expr.Col(this.Name).IsBetween(lower,upper,?closedInterval=closedInterval))
         /// <summary>
         /// Filter a series.
         /// Mostly useful in <c>group_by</c> context or when you want to filter an expression based on another expression within a <c>Select</c> context.
@@ -369,16 +399,16 @@ module SeriesOperationExtensions =
         /// </summary>
         /// <param name="func">The compiled UDF (created via Udf.map or Udf.mapOption).</param>
         /// <param name="returnType">The expected output DataType. Required for Polars query planning.</param>
-        member this.Map(func: Func<IArrowArray, IArrowArray>, returnType: DataType) =
+        member this.MapArrow(func: IArrowArray -> IArrowArray, ?returnType: DataType) =
             // col(Name).Map(func, returnType)
-            this.ApplyExpr(Expr.Col(this.Name).Map(func, returnType))
+            this.ApplyExpr(Expr.Col(this.Name).MapArrow(func,?outputType=returnType))
 
         /// <summary>
         /// Apply a custom function (UDF) assuming the output type is the same as the input.
         /// </summary>
         /// <param name="func">The compiled UDF.</param>
-        member this.Map(func: Func<IArrowArray, IArrowArray>) =
-            this.Map(func, DataType.SameAsInput)
+        member this.Map(func: IArrowArray -> IArrowArray) =
+            this.MapArrow(func, DataType.SameAsInput)
 
         // ==========================================
         // Optional: High-Level F# Overloads (Sugar)
@@ -387,23 +417,29 @@ module SeriesOperationExtensions =
         /// Map values using a standard F# function.
         /// Automatically wraps it using Udf.map.
         /// </summary>
-        member this.Map<'T, 'U>(f: 'T -> 'U, returnType: DataType) =
+        member this.Map<'T, 'U>(f: 'T -> 'U) =
+            let arrowType = typeof<Apache.Arrow.IArrowArray>
+            if arrowType.IsAssignableFrom(typeof<'T>) || arrowType.IsAssignableFrom(typeof<'U>) then
+                invalidArg (nameof f) "Detected Arrow array types ('T or 'U implement IArrowArray). Please use Series.MapArrow instead of Series.Map."
+            use returnType = DataType.FromNetType<'U>()
             let udf = Udf.map f
-            this.Map(udf, returnType)
+            this.MapArrow(udf, returnType)
         /// <summary>
         /// Map values using an F# function that handles Options.
         /// Automatically wraps it using Udf.mapOption.
         /// </summary>
-        member this.MapOption<'T, 'U>(f: 'T option -> 'U option, returnType: DataType) =
+        member this.MapOption<'T, 'U>(f: 'T option -> 'U option) =
+            use returnType = DataType.FromNetType<'U>()
             let udf = Udf.mapOption f
-            this.Map(udf, returnType)
+            this.MapArrow(udf, returnType)
         /// <summary>
         /// Map values using an F# function that handles Value Options.
         /// Automatically wraps it using Udf.mapValueOption.
         /// </summary>
-        member this.MapValueOption<'T, 'U>(f: 'T voption -> 'U voption, returnType: DataType) =
+        member this.MapValueOption<'T, 'U>(f: 'T voption -> 'U voption) =
+            use returnType = DataType.FromNetType<'U>()
             let udf = Udf.mapValueOption f
-            this.Map(udf, returnType)
+            this.MapArrow(udf, returnType)
         // ==========================================
         // Math Operations (Forwarding to Expr)
         // ==========================================

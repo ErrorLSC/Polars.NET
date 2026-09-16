@@ -12,6 +12,7 @@ open System.Collections
 open System.Threading
 open Apache.Arrow.Adbc
 open Apache.Arrow.Ipc
+open System.ComponentModel
 /// --- Series ---
 /// <summary>
 /// An eager Series holding a single column of data.
@@ -105,7 +106,8 @@ type Series(handle: SeriesHandle) =
     /// Internal Helper: Wrap this Series in a temporary DataFrame, run an Expr, and extract the result.
     /// This allows Series to directly use the full power of the Expression engine without duplicating logic.
     /// </summary>
-    member internal this.ApplyExpr(expr: Expr) : Series =
+    [<EditorBrowsable(EditorBrowsableState.Never)>]
+    member this.ApplyExpr(expr: Expr) : Series =
         use dfHandle = PolarsWrapper.SeriesToFrame handle
         use df = new DataFrame(dfHandle)
 
@@ -286,6 +288,22 @@ type Series(handle: SeriesHandle) =
     // Operators (Arithmetic)
     // ==========================================
 
+    /// <summary>
+    /// Append a Series to this one.
+    /// The resulting series will consist of multiple chunks.
+    /// </summary>
+    /// <param name="other">Series to append.</param>
+    member this.Append(other:Series) =
+        let cloned = this.Clone()
+        PolarsWrapper.SeriesAppend(cloned.Handle, other.Handle)
+        cloned
+    /// <summary>
+    /// Appends another Series to this one in-place, mutating the underlying chunks.
+    /// Returns unit to indicate side-effects.
+    /// </summary>
+    /// <param name="other">Series to append.</param>
+    member this.AppendInplace(other: Series) : unit =
+        PolarsWrapper.SeriesAppend(this.Handle, other.Handle)
     /// <summary> Modulo (remainder). </summary>
     member this.Mod(other: Series) =
         this.ApplyBinaryExpr(other, fun l r -> l.Mod r)
@@ -349,6 +367,7 @@ type Series(handle: SeriesHandle) =
     static member (.=) (lhs: Series, rhs: string) = lhs .= Series.create("lit", [rhs])
     static member (.!=) (lhs: Series, rhs: int) = lhs != Series.create("lit", [rhs])
     static member (.!=) (lhs: Series, rhs: string) = lhs != Series.create("lit", [rhs])
+    static member ( .@ ) (s1: Series, s2: Series) : Series = s1.Append s2
     /// <summary>
     /// Check whether indexed value is null。
     /// </summary>
@@ -842,20 +861,18 @@ and DataFrame(handle: DataFrameHandle) =
     /// Fold over all columns (left to right) using the first column as the initial accumulator.
     /// Throws if the DataFrame is empty.
     /// </summary>
-    member this.Fold(operation: Func<Series, Series, Series>) : Series =
-        if this.IsEmpty then
-            invalidOp "Cannot fold an empty DataFrame."
+    member this.Fold(folder: Series -> Series -> Series) : Series =
         let columns = this.GetColumns()
-        let acc = columns.[0]
-        // Start folding from the second column (index 1)
-        Array.fold (fun acc col -> operation.Invoke(acc, col)) acc columns.[1..]
+        if columns.Length = 0 then
+            invalidOp "Cannot fold a DataFrame with no columns."
+        Array.fold folder columns.[0] columns.[1..]
 
     /// <summary>
     /// Fold over all columns with a custom starting accumulator.
     /// </summary>
-    member this.Fold(initial: Series, operation: Func<Series, Series, Series>) : Series =
+    member this.Fold(state: 'State, folder: 'State -> Series -> 'State) : 'State =
         let columns = this.GetColumns()
-        Array.fold (fun acc col -> operation.Invoke(acc, col)) initial columns
+        Array.fold folder state columns
     // ==========================================
     // Printing / String Representation
     // ==========================================

@@ -3,6 +3,7 @@ namespace Polars.FSharp
 open System
 open Polars.NET.Core
 open Apache.Arrow
+open System.ComponentModel
 /// <summary>
 /// Interface for types that can be converted to one or more Polars Expressions.
 /// </summary>
@@ -71,7 +72,8 @@ and Expr(handle: ExprHandle) =
     /// Create an expression representing a column in a DataFrame.
     /// </summary>
     /// <param name="name">The name of the column.</param>
-    static member internal Col (name: string) = new Expr(PolarsWrapper.Col name)
+    [<EditorBrowsable(EditorBrowsableState.Never)>]
+    static member Col (name: string) = new Expr(PolarsWrapper.Col name)
     /// <summary>
     /// Create an expression representing multiple columns (Wildcard).
     /// </summary>
@@ -734,12 +736,39 @@ and Expr(handle: ExprHandle) =
     /// </summary>
     /// <param name="func">Function mapping IArrowArray -> IArrowArray.</param>
     /// <param name="outputType">The expected output DataType (optional).</param>
-    member this.Map(func: Func<IArrowArray, IArrowArray>, outputType: DataType) =
-        use typeHandle = outputType.CreateHandle()
-        let newHandle = PolarsWrapper.Map(this.CloneHandle(), func, typeHandle)
+    member this.MapArrow(mapping: IArrowArray -> IArrowArray, ?outputType: DataType) : Expr =
+        let targetType = defaultArg outputType DataType.SameAsInput
+        use typeHandle = targetType.CreateHandle()
+        let netFunc = Func<IArrowArray, IArrowArray> mapping
+        let newHandle = PolarsWrapper.Map(this.CloneHandle(), netFunc, typeHandle)
         new Expr(newHandle)
-    member this.Map(func: Func<IArrowArray, IArrowArray>) =
-        this.Map(func, DataType.SameAsInput)
+    /// <summary>
+    /// Map values using a standard F# function.
+    /// Automatically wraps it using Udf.map.
+    /// </summary>
+    member this.Map<'T, 'U>(f: 'T -> 'U) =
+        let arrowType = typeof<Apache.Arrow.IArrowArray>
+        if arrowType.IsAssignableFrom typeof<'T> || arrowType.IsAssignableFrom typeof<'U> then
+            invalidArg (nameof f) "Detected Arrow array types ('T or 'U implement IArrowArray). Please use Expr.MapArrow instead of Expr.Map."
+        use returnType = DataType.FromNetType<'U>()
+        let udf = Udf.map f
+        this.MapArrow(udf, returnType)
+    /// <summary>
+    /// Map values using an F# function that handles Options.
+    /// Automatically wraps it using Udf.mapOption.
+    /// </summary>
+    member this.MapOption<'T, 'U>(f: 'T option -> 'U option) =
+        use returnType = DataType.FromNetType<'U>()
+        let udf = Udf.mapOption f
+        this.MapArrow(udf, returnType)
+    /// <summary>
+    /// Map values using an F# function that handles Value Options.
+    /// Automatically wraps it using Udf.mapValueOption.
+    /// </summary>
+    member this.MapValueOption<'T, 'U>(f: 'T voption -> 'U voption) =
+        let udf = Udf.mapValueOption f
+        use returnType = DataType.FromNetType<'U>()
+        this.MapArrow(udf, returnType)
     /// Advanced
     /// <summary> Explode a list column into multiple rows. </summary>
     member this.Explode(?emptyAsNull: bool, ?keepNulls: bool) = 

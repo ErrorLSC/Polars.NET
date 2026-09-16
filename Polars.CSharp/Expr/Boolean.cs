@@ -12,8 +12,8 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <summary>
     /// Check if the value is between lower and upper bounds (inclusive).
     /// </summary>
-    public Expr IsBetween(IntoExprColumn lower, IntoExprColumn upper)
-        => new(PolarsWrapper.IsBetween(CloneHandle(), lower.Consume().CloneHandle(), upper.Consume().CloneHandle()));
+    public Expr IsBetween(IntoExprColumn lower, IntoExprColumn upper, ClosedInterval closedInterval=ClosedInterval.Both)
+        => new(PolarsWrapper.IsBetween(CloneHandle(), lower.Consume().CloneHandle(), upper.Consume().CloneHandle(), closedInterval.ToNative()));
     /// <summary>
     /// Check if elements of this expression are present in the other collection.
     /// </summary>

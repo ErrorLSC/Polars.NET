@@ -411,12 +411,12 @@ module pl =
     /// <param name="interval">Interval of the range periods, “1w2d” # 1 week, 2 days.Default is 1 day.</param>
     /// <param name="closed">Define which sides of the range are closed</param>
     /// <returns>Column of data type Date</returns>
-    let dateRange(start:DateOnly)(endRange:DateOnly)(interval:Dur)(closed:ClosedWindow) =
+    let dateRange(start:DateOnly)(endRange:DateOnly)(interval:Dur)(closed:ClosedInterval) =
         let st = (lit start).Handle
         let ed = (lit endRange).Handle
         let ine = Dur.consume interval
         new Expr(PolarsWrapper.DateRange(st,ed,ine,null,closed.ToNative()))
-    let dateRangeAsSeries (name:string)(start:DateOnly)(endRange:DateOnly)(interval:Dur)(closed:ClosedWindow) =
+    let dateRangeAsSeries (name:string)(start:DateOnly)(endRange:DateOnly)(interval:Dur)(closed:ClosedInterval) =
         let expr = dateRange start endRange interval closed
         Series.ofExpr(expr).Rename name
     /// <summary>
@@ -427,12 +427,12 @@ module pl =
     /// <param name="interval">Interval of the range periods, “1w2d” # 1 week, 2 days.Default is 1 day.</param>
     /// <param name="closed">Define which sides of the range are closed</param>
     /// <returns>Column of data type Date</returns>
-    let dateRanges(start:DateOnly)(endRange:DateOnly)(interval:Dur)(closed:ClosedWindow) =
+    let dateRanges(start:DateOnly)(endRange:DateOnly)(interval:Dur)(closed:ClosedInterval) =
         let st = (lit start).Handle
         let ed = (lit endRange).Handle
         let ine = Dur.consume interval
         new Expr(PolarsWrapper.DateRanges(st,ed,ine,null,closed.ToNative()))
-    let dateRangesAsSeries(name:string)(start:DateOnly)(endRange:DateOnly)(interval:Dur)(closed:ClosedWindow) =
+    let dateRangesAsSeries(name:string)(start:DateOnly)(endRange:DateOnly)(interval:Dur)(closed:ClosedInterval) =
         let expr = dateRanges start endRange interval closed
         Series.ofExpr(expr).Rename name
     /// <summary>
@@ -444,7 +444,7 @@ module pl =
     /// <param name="closed">Define which sides of the range are closed</param>
     /// <param name="unit">Time unit of the resulting Datetime data type.</param>
     /// <param name="timeZone">Time zone of the resulting Datetime data type.</param>
-    let datetimeRange(start:DateTime)(endRange:DateTime)(interval:Dur)(closed:ClosedWindow)(unit:TimeUnit)(timeZone:string option) =
+    let datetimeRange(start:DateTime)(endRange:DateTime)(interval:Dur)(closed:ClosedInterval)(unit:TimeUnit)(timeZone:string option) =
         let st = (lit start).Handle
         let ed = (lit endRange).Handle
         let ine = Dur.consume interval
@@ -463,13 +463,13 @@ module pl =
     /// <param name="closed">Closed window of the range.</param>
     /// <param name="unit">Time unit of the resulting Datetime data type.</param>
     /// <param name="timeZone">Time zone of the resulting Datetime data type.</param>
-    let datetimeRangeAsSeries(name:string)(start:DateTime)(endRange:DateTime)(interval:Dur)(closed:ClosedWindow)(unit:TimeUnit)(timeZone:string option) =
+    let datetimeRangeAsSeries(name:string)(start:DateTime)(endRange:DateTime)(interval:Dur)(closed:ClosedInterval)(unit:TimeUnit)(timeZone:string option) =
         let expr = datetimeRange start endRange interval closed unit timeZone
         Series.ofExpr(expr).Rename(name)
     /// <summary>
     /// Creates a datetime range expression from the specified start, end, interval, closed window, unit, and time zone.
     /// </summary>
-    let datetimeRanges(start:DateTime)(endRange:DateTime)(interval:Dur)(closed:ClosedWindow)(unit:TimeUnit)(timeZone:string option) =
+    let datetimeRanges(start:DateTime)(endRange:DateTime)(interval:Dur)(closed:ClosedInterval)(unit:TimeUnit)(timeZone:string option) =
         let st = (lit start).Handle
         let ed = (lit endRange).Handle
         let ine = Dur.consume interval
@@ -481,7 +481,7 @@ module pl =
     /// <summary>
     /// Converts a datetime range expression to a Series with the specified name.
     /// </summary>
-    let datetimeRangesAsSeries(name:string)(start:DateTime)(endRange:DateTime)(interval:Dur)(closed:ClosedWindow)(unit:TimeUnit)(timeZone:string option) =
+    let datetimeRangesAsSeries(name:string)(start:DateTime)(endRange:DateTime)(interval:Dur)(closed:ClosedInterval)(unit:TimeUnit)(timeZone:string option) =
         let expr = datetimeRanges start endRange interval closed unit timeZone
         Series.ofExpr(expr).Rename(name)
     /// <summary>
@@ -491,7 +491,7 @@ module pl =
     /// <param name="end">Upper bound of the time range. If omitted, defaults to TimeOnly.MaxValue</param>
     /// <param name="interval">Interval of the range periods</param>
     /// <param name="closed">Define which sides of the range are closed.</param>
-    let timeRange(start:TimeOnly)(endRange:TimeOnly)(interval:Dur)(closed:ClosedWindow) =
+    let timeRange(start:TimeOnly)(endRange:TimeOnly)(interval:Dur)(closed:ClosedInterval) =
         let st = (lit start).Handle
         let ed = (lit endRange).Handle
         let ine = Dur.consume interval
@@ -504,7 +504,7 @@ module pl =
     /// <param name="endRange">End time of the range.</param>
     /// <param name="interval">Interval between time values.</param>
     /// <param name="closed">Closed window of the range.</param>
-    let timeRangeAsSeries(name:string)(start:TimeOnly)(endRange:TimeOnly)(interval:Dur)(closed:ClosedWindow) =
+    let timeRangeAsSeries(name:string)(start:TimeOnly)(endRange:TimeOnly)(interval:Dur)(closed:ClosedInterval) =
         let expr = timeRange start endRange interval closed
         Series.ofExpr(expr).Rename(name)
     /// <summary>
@@ -514,7 +514,7 @@ module pl =
     /// <param name="endRange">End time of the range.</param>
     /// <param name="interval">Interval between time values.</param>
     /// <param name="closed">Closed window of the range.</param>
-    let timeRanges(start:TimeOnly)(endRange:TimeOnly)(interval:Dur)(closed:ClosedWindow) =
+    let timeRanges(start:TimeOnly)(endRange:TimeOnly)(interval:Dur)(closed:ClosedInterval) =
         let st = (lit start).Handle
         let ed = (lit endRange).Handle
         let ine = Dur.consume interval
@@ -527,7 +527,7 @@ module pl =
     /// <param name="endRange">End time of the range.</param>
     /// <param name="interval">Interval between time values.</param>
     /// <param name="closed">Closed window of the range.</param>
-    let timeRangesAsSeries(name:string)(start:TimeOnly)(endRange:TimeOnly)(interval:Dur)(closed:ClosedWindow) =
+    let timeRangesAsSeries(name:string)(start:TimeOnly)(endRange:TimeOnly)(interval:Dur)(closed:ClosedInterval) =
         let expr = timeRanges start endRange interval closed
         Series.ofExpr(expr).Rename(name)
     /// <summary>
@@ -537,7 +537,7 @@ module pl =
     /// <param name="end">Upper bound of the linear space.</param>
     /// <param name="numSamples">Number of samples to generate.</param>
     /// <param name="closed">Whether the intervals are closed or open.</param>
-    let linearSpace(start:Expr)(endRange:Expr)(numSamples:int)(closed:ClosedWindow) =
+    let linearSpace(start:Expr)(endRange:Expr)(numSamples:int)(closed:ClosedInterval) =
         let st = start.CloneHandle()
         let en = endRange.CloneHandle()
         let nu = (lit numSamples).Handle
@@ -550,7 +550,7 @@ module pl =
     /// <param name="endRange">Upper bound of the linear space.</param>
     /// <param name="numSamples">Number of samples to generate.</param>
     /// <param name="closed">Whether the intervals are closed or open.</param>
-    let linearSpaceAsSeries(name:string)(start:Expr)(endRange:Expr)(numSamples:int)(closed:ClosedWindow) =
+    let linearSpaceAsSeries(name:string)(start:Expr)(endRange:Expr)(numSamples:int)(closed:ClosedInterval) =
         let expr = linearSpace start endRange numSamples closed
         Series.ofExpr(expr).Rename(name)
     /// <summary>
@@ -561,7 +561,7 @@ module pl =
     /// <param name="numSamples">Number of samples.</param>
     /// <param name="closed">Whether the intervals are closed or open.</param>
     /// <param name="asArray">If true, returns an Array dtype instead of List. Requires numSamples to be a constant.</param>
-    let linearSpaces(start:Expr)(endRange:Expr)(numSamples:int)(closed:ClosedWindow)(asArray:bool) =
+    let linearSpaces(start:Expr)(endRange:Expr)(numSamples:int)(closed:ClosedInterval)(asArray:bool) =
         let st = start.CloneHandle()
         let en = endRange.CloneHandle()
         let nu = (lit numSamples).Handle
@@ -575,7 +575,7 @@ module pl =
     /// <param name="numSamples">Number of samples.</param>
     /// <param name="closed">Whether the intervals are closed or open.</param>
     /// <param name="asArray">If true, returns an Array dtype instead of List. Requires numSamples to be a constant.</param>
-    let linearSpacesAsSeries(name:string)(start:Expr)(endRange:Expr)(numSamples:int)(closed:ClosedWindow)(asArray:bool) =
+    let linearSpacesAsSeries(name:string)(start:Expr)(endRange:Expr)(numSamples:int)(closed:ClosedInterval)(asArray:bool) =
         let expr = linearSpaces start endRange numSamples closed asArray
         Series.ofExpr(expr).Rename(name)
     // --- Expr Helpers ---
@@ -996,25 +996,21 @@ module pl =
     /// This is syntactic sugar for the repeat function.
     /// </summary>
     /// <param name="n">Length of the resulting column.</param>
-    /// <param name="dtype">Data type of the resulting column. Defaults to Float64.</param>
-    let zeros(n:int) (dtype:DataType option) =
-        match dtype with
-        | Some d -> repeat (lit 0) n (Some d)
-        | None -> repeat (lit 0) n (Some DataType.Float64)
-    let zerosAsSeries (n:int) (dtype:DataType option) =
-        Series.ofExpr(zeros n dtype)
+    let zeros<'T>(n:int) =
+        let dtype = DataType.FromNetType<'T>()
+        repeat (lit 0) n (Some dtype)
+    let zerosAsSeries<'T> (n:int) =
+        Series.ofExpr(zeros<'T> n)
     /// <summary>
     /// Construct a column of length n filled with ones.
     /// This is syntactic sugar for the repeat function.
     /// </summary>
     /// <param name="n">Length of the resulting column.</param>
-    /// <param name="dtype">Data type of the resulting column. Defaults to Float64.</param>
-    let ones(n:int) (dtype:DataType option) =
-        match dtype with
-        | Some d -> repeat (lit 1) n (Some d)
-        | None -> repeat (lit 1) n (Some DataType.Float64)
-    let onesAsSeries (n:int) (dtype:DataType option) =
-        Series.ofExpr(ones n dtype)
+    let ones<'T>(n:int) =
+        let dtype = DataType.FromNetType<'T>()
+        repeat (lit 1) n (Some dtype)
+    let onesAsSeries<'T> (n:int) =
+        Series.ofExpr(ones<'T> n)
     /// <summary>
     /// Parses an integer column (seconds, milliseconds, etc.) into a Datetime or Date expression.
     /// </summary>

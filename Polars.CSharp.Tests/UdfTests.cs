@@ -106,7 +106,7 @@ public class UdfTests
         Func<IArrowArray, IArrowArray> udf = UdfLogic.IntToDouble;
 
         using var res = df.Select(
-            Pl.Col("num").Map(udf, Pl.Float64).Alias("res")
+            Pl.Col("num").MapArrow(udf, Pl.Float64).Alias("res")
         );
 
         Assert.Equal(5, res.Height);
@@ -125,7 +125,7 @@ public class UdfTests
         Assert.Equal(5, df.Height); 
 
         // UDF (Int64 -> Int64)
-        var udf = Pl.Col("num").Map<long, long>(x => x * 2, typeof(long)).Alias("res");
+        var udf = Pl.Col("num").Map<long, long>(x => x * 2).Alias("res");
 
         using var res = df.Select(
             Pl.Col("num"),
@@ -147,7 +147,7 @@ public class UdfTests
 
         using var df = lf.Select(
             Pl.Col("num")
-            .Map(udf, DataType.String) 
+            .MapArrow(udf, DataType.String) 
             .Alias("desc")
         ).Collect();
         df.Show();
@@ -168,7 +168,7 @@ public class UdfTests
         var ex = Assert.Throws<PolarsException>(() => 
         {
             lf.Select(
-                Pl.Col("num").Map(udf, Pl.SameAsInput)
+                Pl.Col("num").MapArrow(udf, Pl.SameAsInput)
             ).Collect();
         });
 
@@ -181,7 +181,7 @@ public class UdfTests
         using var df = DataFrame.ReadCsv(csv.Path);
 
         var doubleExpr = Pl.Col("num")
-            .Map<long, long>(x => x * 2, Pl.Int64)
+            .Map<long, long>(x => x * 2)
             .Alias("doubled");
 
         using var res = df.Select(Pl.Col("num"), doubleExpr);
@@ -198,7 +198,7 @@ public class UdfTests
 
         // UDF: "Hello, {name}!"
         var greetExpr = Pl.Col("name")
-            .Map<string, string>(name => $"Hello, {name}!", typeof(string))
+            .Map<string, string>(name => $"Hello, {name}!")
             .Alias("greeting");
 
         using var res = df.Select(Pl.Col("name"), greetExpr);
@@ -216,7 +216,7 @@ public class UdfTests
         using var df = DataFrame.ReadCsv(csv.Path);
 
         var formatExpr = Pl.Col("id")
-            .Map<long, string>(id => $"Order-{id}", typeof(string))
+            .Map<long, string>(id => $"Order-{id}")
             .Alias("order_id");
 
         using var res = df.Select(Pl.Col("id"), formatExpr);
@@ -232,7 +232,7 @@ public class UdfTests
 
         // 0 -> null (C# null)
         var cleanExpr = Pl.Col("num")
-            .Map<long, long?>(x => x == 0 ? null : x, Pl.Int64)
+            .Map<long, long?>(x => x == 0 ? null : x)
             .Alias("cleaned");
 
         using var res = df.Select(Pl.Col("num"), cleanExpr);
@@ -250,7 +250,7 @@ public class UdfTests
         // int? -> string
         // null -> "FoundNull" or "Value:{x}"
         var checkNullExpr = Pl.Col("num")
-            .Map<int?, string>(x => x.HasValue ? $"Value:{x}" : "FoundNull", Pl.Utf8)
+            .Map<int?, string>(x => x.HasValue ? $"Value:{x}" : "FoundNull")
             .Alias("status");
 
         using var res = df.Select(Pl.Col("num"), checkNullExpr);
@@ -277,7 +277,7 @@ public class UdfTests
                     .Agg(
                         Pl.Col("val")
                         .Implode() 
-                        .Map((Func<long[], long>)myGroupLogic, typeof(long)) 
+                        .Map((Func<long[], long>)myGroupLogic) 
                         .Alias("custom_agg")
                     )
                     .Sort("key");

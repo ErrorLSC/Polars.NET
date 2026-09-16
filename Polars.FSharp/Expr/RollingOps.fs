@@ -332,8 +332,8 @@ module ExprRollingOps =
         /// Default is <see cref="ClosedWindow.Left"/> <c>[t - window, t)</c>.
         /// </param>
         /// <returns>A new Expr representing the dynamic rolling mean.</returns>
-        member this.RollingMeanBy(windowSize: Dur, by: Expr,?closed: ClosedWindow,?minPeriod: int) =
-            let c = defaultArg closed ClosedWindow.Left
+        member this.RollingMeanBy(windowSize: Dur, by: Expr,?closed: ClosedInterval,?minPeriod: int) =
+            let c = defaultArg closed ClosedInterval.Left
             let d = Dur.consume windowSize
             let m = defaultArg minPeriod 1
             new Expr(PolarsWrapper.RollingMeanBy(this.CloneHandle(), d, m, by.CloneHandle(), c.ToNative()))
@@ -361,8 +361,8 @@ module ExprRollingOps =
         /// Default is <see cref="ClosedWindow.Left"/> <c>[t - window, t)</c>.
         /// </param>
         /// <returns>A new Expr representing the dynamic rolling sum.</returns>
-        member this.RollingSumBy(windowSize: Dur, by: Expr, ?closed: ClosedWindow,?minPeriod: int) =
-            let c = defaultArg closed ClosedWindow.Left
+        member this.RollingSumBy(windowSize: Dur, by: Expr, ?closed: ClosedInterval,?minPeriod: int) =
+            let c = defaultArg closed ClosedInterval.Left
             let d = Dur.consume windowSize
             let m = defaultArg minPeriod 1 
             new Expr(PolarsWrapper.RollingSumBy(this.CloneHandle(), d, m, by.CloneHandle(), c.ToNative()))
@@ -390,8 +390,8 @@ module ExprRollingOps =
         /// Default is <see cref="ClosedWindow.Left"/> <c>[t - window, t)</c>.
         /// </param>
         /// <returns>A new Expr representing the dynamic rolling max.</returns>
-        member this.RollingMaxBy(windowSize: Dur, by: Expr, ?closed: ClosedWindow, ?minPeriod: int) =
-            let c = defaultArg closed ClosedWindow.Left
+        member this.RollingMaxBy(windowSize: Dur, by: Expr, ?closed: ClosedInterval, ?minPeriod: int) =
+            let c = defaultArg closed ClosedInterval.Left
             let m = defaultArg minPeriod 1 
             let d = Dur.consume windowSize
             new Expr(PolarsWrapper.RollingMaxBy(this.CloneHandle(), d, m, by.CloneHandle(), c.ToNative()))
@@ -419,8 +419,8 @@ module ExprRollingOps =
         /// Default is <see cref="ClosedWindow.Left"/> <c>[t - window, t)</c>.
         /// </param>
         /// <returns>A new Expr representing the dynamic rolling min.</returns>
-        member this.RollingMinBy(windowSize: Dur, by: Expr, ?closed: ClosedWindow, ?minPeriod: int) =
-            let c = defaultArg closed ClosedWindow.Left
+        member this.RollingMinBy(windowSize: Dur, by: Expr, ?closed: ClosedInterval, ?minPeriod: int) =
+            let c = defaultArg closed ClosedInterval.Left
             let d = Dur.consume windowSize
             let m = defaultArg minPeriod 1 
             new Expr(PolarsWrapper.RollingMinBy(this.CloneHandle(), d, m, by.CloneHandle(), c.ToNative()))
@@ -448,8 +448,8 @@ module ExprRollingOps =
         /// Default is <see cref="ClosedWindow.Left"/> <c>[t - window, t)</c>.
         /// </param>
         /// <returns>A new Expr representing the dynamic rolling standard deviation.</returns>
-        member this.RollingStdBy(windowSize: Dur, by: Expr, ?closed: ClosedWindow, ?minPeriod: int) =
-            let c = defaultArg closed ClosedWindow.Left
+        member this.RollingStdBy(windowSize: Dur, by: Expr, ?closed: ClosedInterval, ?minPeriod: int) =
+            let c = defaultArg closed ClosedInterval.Left
             let d = Dur.consume windowSize
             let m = defaultArg minPeriod 1 
             new Expr(PolarsWrapper.RollingStdBy(this.CloneHandle(), d, m, by.CloneHandle(), c.ToNative()))
@@ -481,8 +481,8 @@ module ExprRollingOps =
         /// <para>By default ddof is 1.</para>
         /// </param>
         /// <returns>A new Expr representing the dynamic rolling variance.</returns>
-        member this.RollingVarBy(windowSize: Dur, by: Expr, ?closed: ClosedWindow, ?minPeriod: int,?ddof:uint8) =
-            let c = defaultArg closed ClosedWindow.Left
+        member this.RollingVarBy(windowSize: Dur, by: Expr, ?closed: ClosedInterval, ?minPeriod: int,?ddof:uint8) =
+            let c = defaultArg closed ClosedInterval.Left
             let m = defaultArg minPeriod 1 
             let d = Dur.consume windowSize
             let dd = defaultArg ddof 1uy
@@ -511,8 +511,8 @@ module ExprRollingOps =
         /// Default is <see cref="ClosedWindow.Left"/> <c>[t - window, t)</c>.
         /// </param>
         /// <returns>A new Expr representing the dynamic rolling max.</returns>
-        member this.RollingMedianBy(windowSize: Dur, by: Expr, ?closed: ClosedWindow, ?minPeriod: int) =
-            let c = defaultArg closed ClosedWindow.Left
+        member this.RollingMedianBy(windowSize: Dur, by: Expr, ?closed: ClosedInterval, ?minPeriod: int) =
+            let c = defaultArg closed ClosedInterval.Left
             let m = defaultArg minPeriod 1 
             let d = Dur.consume windowSize
             new Expr(PolarsWrapper.RollingMedianBy(this.CloneHandle(), d, m, by.CloneHandle(), c.ToNative()))
@@ -544,8 +544,8 @@ module ExprRollingOps =
         /// Default is <see cref="ClosedWindow.Left"/> <c>[t - window, t)</c>.
         /// </param>
         /// <returns>A new Expr representing the dynamic rolling rank.</returns>
-        member this.RollingRankBy(windowSize: Dur, by: Expr, ?method:RollingRankMethod,?seed:uint64,?closed: ClosedWindow, ?minPeriod: int) =
-            let c = defaultArg closed ClosedWindow.Left
+        member this.RollingRankBy(windowSize: Dur, by: Expr, ?method:RollingRankMethod,?seed:uint64,?closed: ClosedInterval, ?minPeriod: int) =
+            let c = defaultArg closed ClosedInterval.Left
             let met = defaultArg method RollingRankMethod.Average
             let d = Dur.consume windowSize
             let m = defaultArg minPeriod 1 
@@ -579,8 +579,8 @@ module ExprRollingOps =
         /// Default is <see cref="ClosedWindow.Left"/> <c>[t - window, t)</c>.
         /// </param>
         /// <returns>A new Expr representing the dynamic rolling quantile.</returns>
-        member this.RollingQuantileBy(quantile:float,method:QuantileMethod, windowSize: Dur, by: Expr,?closed: ClosedWindow, ?minPeriod: int) =
-            let c = defaultArg closed ClosedWindow.Left
+        member this.RollingQuantileBy(quantile:float,method:QuantileMethod, windowSize: Dur, by: Expr,?closed: ClosedInterval, ?minPeriod: int) =
+            let c = defaultArg closed ClosedInterval.Left
             let d = Dur.consume windowSize
             let m = defaultArg minPeriod 1 
             new Expr(PolarsWrapper.RollingQuantileBy(this.CloneHandle(),quantile,method.ToNative(), d,m, by.CloneHandle(), c.ToNative()))

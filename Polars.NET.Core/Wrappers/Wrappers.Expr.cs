@@ -725,9 +725,9 @@ public readonly partial struct PolarsWrapper
         return ErrorHelper.Check(h);
     }
     // IsBetween
-    public static ExprHandle IsBetween(ExprHandle expr, ExprHandle lower, ExprHandle upper)
+    public static ExprHandle IsBetween(ExprHandle expr, ExprHandle lower, ExprHandle upper, PlClosedInterval closedInterval)
     {
-        var h = NativeBindings.pl_expr_is_between(expr, lower, upper);
+        var h = NativeBindings.pl_expr_is_between(expr, lower, upper, closedInterval);
         expr.TransferOwnership();
         lower.TransferOwnership();
         upper.TransferOwnership();

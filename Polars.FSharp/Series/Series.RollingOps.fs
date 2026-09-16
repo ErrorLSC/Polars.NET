@@ -283,7 +283,7 @@ module SeriesRollingOps =
         /// Default is <see cref="ClosedWindow.Left"/> <c>[t - window, t)</c>.
         /// </param>
         /// <returns>A new series representing the dynamic rolling mean.</returns>
-        member this.RollingMeanBy(windowSize: Dur, by: Expr, ?closed: ClosedWindow, ?minPeriod: int) =
+        member this.RollingMeanBy(windowSize: Dur, by: Expr, ?closed: ClosedInterval, ?minPeriod: int) =
             this.ApplyExpr(Expr.Col(this.Name).RollingMeanBy(windowSize, by, ?closed=closed, ?minPeriod=minPeriod))
         /// <summary>
         /// Apply a rolling sum (moving sum) over a dynamic window defined by the values in the <paramref name="by"/> column.
@@ -309,7 +309,7 @@ module SeriesRollingOps =
         /// Default is <see cref="ClosedWindow.Left"/> <c>[t - window, t)</c>.
         /// </param>
         /// <returns>A new series representing the dynamic rolling sum.</returns>
-        member this.RollingSumBy(windowSize: Dur, by: Expr, ?closed: ClosedWindow, ?minPeriod: int) =
+        member this.RollingSumBy(windowSize: Dur, by: Expr, ?closed: ClosedInterval, ?minPeriod: int) =
             this.ApplyExpr(Expr.Col(this.Name).RollingSumBy(windowSize, by, ?closed=closed, ?minPeriod=minPeriod))
         /// <summary>
         /// Apply a rolling min (moving min) over a dynamic window defined by the values in the <paramref name="by"/> column.
@@ -335,7 +335,7 @@ module SeriesRollingOps =
         /// Default is <see cref="ClosedWindow.Left"/> <c>[t - window, t)</c>.
         /// </param>
         /// <returns>A new series representing the dynamic rolling min.</returns>
-        member this.RollingMinBy(windowSize: Dur, by: Expr, ?closed: ClosedWindow, ?minPeriod: int) =
+        member this.RollingMinBy(windowSize: Dur, by: Expr, ?closed: ClosedInterval, ?minPeriod: int) =
             this.ApplyExpr(Expr.Col(this.Name).RollingMinBy(windowSize, by, ?closed=closed, ?minPeriod=minPeriod))
         /// <summary>
         /// Apply a rolling max (moving max) over a dynamic window defined by the values in the <paramref name="by"/> column.
@@ -361,7 +361,7 @@ module SeriesRollingOps =
         /// Default is <see cref="ClosedWindow.Left"/> <c>[t - window, t)</c>.
         /// </param>
         /// <returns>A new series representing the dynamic rolling max.</returns>
-        member this.RollingMaxBy(windowSize: Dur, by: Expr, ?closed: ClosedWindow, ?minPeriod: int) =
+        member this.RollingMaxBy(windowSize: Dur, by: Expr, ?closed: ClosedInterval, ?minPeriod: int) =
             this.ApplyExpr(Expr.Col(this.Name).RollingMaxBy(windowSize, by, ?closed=closed, ?minPeriod=minPeriod))
         /// <summary>
         /// Apply a rolling median (moving median) over a dynamic window defined by the values in the <paramref name="by"/> column.
@@ -387,7 +387,7 @@ module SeriesRollingOps =
         /// Default is <see cref="ClosedWindow.Left"/> <c>[t - window, t)</c>.
         /// </param>
         /// <returns>A new series representing the dynamic rolling max.</returns>
-        member this.RollingMedianBy(windowSize: Dur, by: Expr, ?closed: ClosedWindow, ?minPeriod: int) =
+        member this.RollingMedianBy(windowSize: Dur, by: Expr, ?closed: ClosedInterval, ?minPeriod: int) =
             this.ApplyExpr(Expr.Col(this.Name).RollingMedianBy(windowSize, by, ?closed=closed, ?minPeriod=minPeriod))
         /// <summary>
         /// Apply a rolling standard deviation (moving standard deviation) over a dynamic window defined by the values in the <paramref name="by"/> column.
@@ -413,7 +413,7 @@ module SeriesRollingOps =
         /// Default is <see cref="ClosedWindow.Left"/> <c>[t - window, t)</c>.
         /// </param>
         /// <returns>A new series representing the dynamic rolling standard deviation.</returns>
-        member this.RollingStdBy(windowSize: Dur, by: Expr, ?closed: ClosedWindow, ?minPeriod: int) =
+        member this.RollingStdBy(windowSize: Dur, by: Expr, ?closed: ClosedInterval, ?minPeriod: int) =
             this.ApplyExpr(Expr.Col(this.Name).RollingStdBy(windowSize, by, ?closed=closed, ?minPeriod=minPeriod))
         /// <summary>
         /// Apply a rolling variance (moving variance) over a dynamic window defined by the values in the <paramref name="by"/> column.
@@ -443,7 +443,7 @@ module SeriesRollingOps =
         /// <para>By default ddof is 1.</para>
         /// </param>
         /// <returns>A new series representing the dynamic rolling variance.</returns>
-        member this.RollingVarBy(windowSize: Dur, by: Expr, ?closed: ClosedWindow, ?minPeriod: int,?ddof:uint8) =
+        member this.RollingVarBy(windowSize: Dur, by: Expr, ?closed: ClosedInterval, ?minPeriod: int,?ddof:uint8) =
             this.ApplyExpr(Expr.Col(this.Name).RollingVarBy(windowSize, by, ?closed=closed, ?minPeriod=minPeriod,?ddof=ddof))
         /// <summary>
         /// Apply a rolling rank (moving rank) over a dynamic window defined by the values in the <paramref name="by"/> column.
@@ -473,7 +473,7 @@ module SeriesRollingOps =
         /// Default is <see cref="ClosedWindow.Left"/> <c>[t - window, t)</c>.
         /// </param>
         /// <returns>A new series representing the dynamic rolling rank.</returns>
-        member this.RollingRankBy(windowSize: Dur, by: Expr, ?method:RollingRankMethod,?seed:uint64,?closed: ClosedWindow, ?minPeriod: int) =
+        member this.RollingRankBy(windowSize: Dur, by: Expr, ?method:RollingRankMethod,?seed:uint64,?closed: ClosedInterval, ?minPeriod: int) =
             this.ApplyExpr(Expr.Col(this.Name).RollingRankBy(windowSize, by,?method=method,?seed=seed, ?closed=closed, ?minPeriod=minPeriod))
         /// <summary>
         /// Apply a rolling quantile (moving quantile) over a dynamic window defined by the values in the <paramref name="by"/> column.
@@ -503,5 +503,5 @@ module SeriesRollingOps =
         /// Default is <see cref="ClosedWindow.Left"/> <c>[t - window, t)</c>.
         /// </param>
         /// <returns>A new series representing the dynamic rolling quantile.</returns>
-        member this.RollingQuantileBy(quantile: float, method: QuantileMethod, windowSize: Dur, by: Expr, ?closed: ClosedWindow, ?minPeriod: int) =
+        member this.RollingQuantileBy(quantile: float, method: QuantileMethod, windowSize: Dur, by: Expr, ?closed: ClosedInterval, ?minPeriod: int) =
             this.ApplyExpr(Expr.Col(this.Name).RollingQuantileBy(quantile, method, windowSize, by, ?closed=closed, ?minPeriod=minPeriod))

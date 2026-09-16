@@ -424,7 +424,7 @@ type ``Complex Query Tests`` () =
                 // 10:30: [09:30, 10:30) -> 10 + 20 = 30
                 // 12:00: [11:00, 12:00) -> 30
                 (pl.col "val")
-                    .RollingSumBy(Dur.TimeSpan (TimeSpan(1,0,0)), pl.col "time", closed= ClosedWindow.Right) // closed="left" means [ )
+                    .RollingSumBy(Dur.TimeSpan (TimeSpan(1,0,0)), pl.col "time", closed= ClosedInterval.Right) // closed="left" means [ )
                     .Alias "sum_1h"
             )
             |> LazyFrame.collect
@@ -642,7 +642,7 @@ type ``Complex Query Tests`` () =
                 by = [ pl.col "Category" ],
 
                 // [t, t + period)
-                closedWindow = ClosedWindow.Left
+                closedWindow = ClosedInterval.Left
             )
             |> pl.aggLazy [
                 pl.col("Value").Count().Alias("Count")

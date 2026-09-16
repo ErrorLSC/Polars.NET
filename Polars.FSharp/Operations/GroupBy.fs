@@ -10,9 +10,9 @@ open Polars.NET.Core
 type GroupByType =
     | Standard of maintainOrder: bool
     | Dynamic of 
-        indexColumn: string * every: string * period: string * offset: string * label: Label * includeBoundaries: bool * closedInterval: ClosedWindow * startBy: StartBy
+        indexColumn: string * every: string * period: string * offset: string * label: Label * includeBoundaries: bool * closedInterval: ClosedInterval * startBy: StartBy
     | Rolling of 
-        indexColumn: string * period: string * offset: string * closedInterval: ClosedWindow
+        indexColumn: string * period: string * offset: string * closedInterval: ClosedInterval
 
 /// <summary>
 /// A unified builder for Standard, Dynamic, and Rolling GroupBy operations.
@@ -298,13 +298,13 @@ module LazyGroupByExtensions =
             ?by: seq<#IColumnExpr>, 
             ?label: Label,
             ?includeBoundaries: bool,
-            ?closedWindow: ClosedWindow,
+            ?closedWindow: ClosedInterval,
             ?startBy: StartBy
         ) : LazyGroupBy =
             let periodVal = defaultArg period every
             let labelVal = defaultArg label Label.Left
             let includeBoundariesVal = defaultArg includeBoundaries false
-            let closedWindowVal = defaultArg closedWindow ClosedWindow.Left
+            let closedWindowVal = defaultArg closedWindow ClosedInterval.Left
             let startByVal = defaultArg startBy StartBy.WindowBound
             let offsetVal = 
                 match offset with
@@ -327,13 +327,13 @@ module LazyGroupByExtensions =
             period: Dur,
             ?offset: Dur,
             ?by: seq<#IColumnExpr>, 
-            ?closedWindow: ClosedWindow
+            ?closedWindow: ClosedInterval
         ) : LazyGroupBy =
             let offsetVal = 
                 match offset with
                 | Some o -> Dur.consume o
                 | None -> Dur.consume (Dur.TimeSpan TimeSpan.Zero)
-            let closedWindowVal = defaultArg closedWindow ClosedWindow.Left
+            let closedWindowVal = defaultArg closedWindow ClosedInterval.Left
 
             let periodStr = Dur.consume period
 
@@ -366,7 +366,7 @@ module DataFrameGroupByExtensions =
             ?by: seq<#IColumnExpr>, 
             ?label: Label,
             ?includeBoundaries: bool,
-            ?closedWindow: ClosedWindow,
+            ?closedWindow: ClosedInterval,
             ?startBy: StartBy
         ) : GroupBy =
             let periodVal = defaultArg period every
@@ -376,7 +376,7 @@ module DataFrameGroupByExtensions =
                 | None -> Dur.consume (Dur.TimeSpan TimeSpan.Zero)
             let labelVal = defaultArg label Label.Left
             let includeBoundariesVal = defaultArg includeBoundaries false
-            let closedWindowVal = defaultArg closedWindow ClosedWindow.Left
+            let closedWindowVal = defaultArg closedWindow ClosedInterval.Left
             let startByVal = defaultArg startBy StartBy.WindowBound
 
             let everyStr = Dur.consume every
@@ -395,13 +395,13 @@ module DataFrameGroupByExtensions =
             period: Dur,
             ?offset: Dur,
             ?by: seq<#IColumnExpr>, 
-            ?closedWindow: ClosedWindow
+            ?closedWindow: ClosedInterval
         ) : GroupBy =
             let offsetVal = 
                 match offset with
                 | Some o -> Dur.consume o
                 | None -> Dur.consume (Dur.TimeSpan TimeSpan.Zero)
-            let closedWindowVal = defaultArg closedWindow ClosedWindow.Left
+            let closedWindowVal = defaultArg closedWindow ClosedInterval.Left
 
             let periodStr = Dur.consume period
 

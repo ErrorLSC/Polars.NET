@@ -55,7 +55,7 @@ type ``Extensions Tests`` () =
             b.Build()
 
         // Run Map directly on Series
-        use sRes = s.Map(Func<_,_>(logic))
+        use sRes = s.Map logic
 
         // 4. Verify
         let res = sRes.AsSeq<double>() |> Seq.toList

@@ -203,3 +203,17 @@ module DataFrame =
         for step = 1 to steps do
             current <- stepFn step current
         current
+
+    /// <summary>
+    /// Applies a folding function across all columns of the DataFrame from left to right,
+    /// using the first column as the seed.
+    /// </summary>
+    let fold (folder: Series -> Series -> Series) (df: DataFrame) : Series =
+        df.Fold folder
+
+    /// <summary>
+    /// Applies a folding function across all columns of the DataFrame from left to right,
+    /// threading an accumulator state.
+    /// </summary>
+    let foldState (folder: 'State -> Series -> 'State) (state: 'State) (df: DataFrame) : 'State =
+        df.Fold(state, folder)

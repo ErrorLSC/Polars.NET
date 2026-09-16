@@ -645,17 +645,28 @@ public partial class Expr : IDisposable,IEquatable<Expr>
     /// <typeparam name="TInput">Input type (e.g. int, double, string)</typeparam>
     /// <typeparam name="TOutput">Output type (e.g. int, double, string)</typeparam>
     /// <param name="function">The function to apply.</param>
-    /// <param name="outputType">The Polars data type of the output column.</param>
+    /// <param name="outputType">
+    /// Optional target DataType. If null, the DataType is automatically inferred from <typeparamref name="TOutput"/>.
+    /// </param>
     /// <summary>
     /// Apply a custom C# function to the expression (High-Level).
     /// </summary>
-    public Expr Map<TInput, TOutput>(Func<TInput, TOutput> function, DataType outputType)
-        => new(PolarsWrapper.Map(CloneHandle(), UdfUtils.Wrap(function), outputType.Handle));
-
+    public Expr Map<TInput, TOutput>(Func<TInput, TOutput> function, DataType? outputType=null)
+    {
+        Type arrowArrayType = typeof(Apache.Arrow.IArrowArray);
+        if (arrowArrayType.IsAssignableFrom(typeof(TInput)) || arrowArrayType.IsAssignableFrom(typeof(TOutput)))
+        {
+            throw new ArgumentException(
+                "Detected Arrow array types. For batch/vectorized operations on IArrowArray, please use MapArrow instead of Map.",
+                nameof(function));
+        }
+        using DataType outDataType = outputType ?? DataType.FromNetType<TOutput>(); 
+        return new(PolarsWrapper.Map(CloneHandle(), UdfUtils.Wrap(function), outDataType.Handle));
+    }
     /// <summary>
     /// Apply a raw Arrow-to-Arrow UDF. (Advanced / Internal use)
     /// </summary>
-    public Expr Map(Func<IArrowArray, IArrowArray> function, DataType outputType)
+    public Expr MapArrow(Func<IArrowArray, IArrowArray> function, DataType outputType)
         => new(PolarsWrapper.Map(CloneHandle(), function, outputType.Handle));
 
     /// <summary>

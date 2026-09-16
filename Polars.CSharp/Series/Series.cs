@@ -580,13 +580,13 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <summary>
     /// Check if values are between lower and upper bounds.
     /// </summary>
-    public Series IsBetween(object lower, object upper) 
-        => ApplyExpr(Pl.Col(Name).IsBetween(Expr.MakeLit(lower), Expr.MakeLit(upper)));
+    public Series IsBetween(object lower, object upper, ClosedInterval closedInterval=ClosedInterval.Both) 
+        => ApplyExpr(Pl.Col(Name).IsBetween(Expr.MakeLit(lower), Expr.MakeLit(upper), closedInterval));
     /// <summary>
     /// Check if values are between lower and upper bounds.
     /// </summary>
-    public Series IsBetween(Expr lower, Expr upper) 
-        => ApplyExpr(Pl.Col(Name).IsBetween(lower, upper));
+    public Series IsBetween(Expr lower, Expr upper, ClosedInterval closedInterval=ClosedInterval.Both) 
+        => ApplyExpr(Pl.Col(Name).IsBetween(lower, upper,closedInterval));
     /// <summary>
     /// Filter a series.
     /// <br/>
@@ -739,8 +739,8 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// Apply a custom C# function to the series (element-wise).
     /// <para>Warning: This is slower than native expressions because it runs in the .NET runtime.</para>
     /// </summary>
-    public Series Map<TInput, TOutput>(Func<TInput, TOutput> function, DataType outputType)
-        => ApplyExpr(Pl.Col(Name).Map(function, outputType));
+    public Series Map<TInput, TOutput>(Func<TInput, TOutput> function)
+        => ApplyExpr(Pl.Col(Name).Map(function));
     /// <summary>
     /// Apply a raw Arrow-to-Arrow UDF.
     /// </summary>

@@ -181,7 +181,7 @@ type StartBy =
         | Saturday -> PlStartBy.Saturday
         | Sunday -> PlStartBy.Sunday
 [<RequireQualifiedAccess>]
-type ClosedWindow =
+type ClosedInterval =
     | Left
     | Right
     | Both

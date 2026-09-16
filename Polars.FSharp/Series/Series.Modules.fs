@@ -1,6 +1,7 @@
 namespace Polars.FSharp
 
 open Apache.Arrow
+open System
 
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
@@ -12,8 +13,7 @@ module Series =
     /// <param name="mapping">The mapping function applied to each element.</param>
     /// <param name="series">The target Series.</param>
     let inline map (mapping: 'T -> 'U) (series: Series) : Series =
-        let returnType = DataType.FromNetType<'U>()
-        series.Map<'T, 'U>(mapping, returnType)
+        series.Map<'T, 'U> mapping
 
     /// <summary>
     /// Map values of the Series using an F# function that handles Option values with automatic return DataType inference.
@@ -22,8 +22,7 @@ module Series =
     /// <param name="mapping">The mapping function taking and returning F# Option.</param>
     /// <param name="series">The target Series.</param>
     let inline mapOption (mapping: 'T option -> 'U option) (series: Series) : Series =
-        let returnType = DataType.FromNetType<'U>()
-        series.MapOption<'T, 'U>(mapping, returnType)
+        series.MapOption<'T, 'U> mapping
 
     /// <summary>
     /// Map values of the Series using an F# function that handles ValueOption with automatic return DataType inference.
@@ -32,8 +31,7 @@ module Series =
     /// <param name="mapping">The mapping function taking and returning F# ValueOption.</param>
     /// <param name="series">The target Series.</param>
     let inline mapValueOption (mapping: 'T voption -> 'U voption) (series: Series) : Series =
-        let returnType = DataType.FromNetType<'U>()
-        series.MapValueOption<'T, 'U>(mapping, returnType)
+        series.MapValueOption<'T, 'U> mapping
 
     /// Builds a new Series whose elements are the results of applying the given function
     /// to each valid (non-null) element of the Series and its 0-based index.
@@ -360,7 +358,11 @@ module Series =
     /// </summary>
     let inline toArray<'T> (series: Series) : 'T[] =
         series.ToArray<'T>()
-
+    /// <summary>
+    /// Convert the Series to Expr.
+    /// </summary>
+    let inline toExpr(series:Series) :Expr = 
+        pl.litSeries series
     /// <summary>
     /// Prints the Series to the console.
     /// </summary>
@@ -601,3 +603,198 @@ module Series =
             | _ ->
                 i <- i + 1L
         result
+
+    /// <summary>
+    /// Creates a new Series of length n filled with the zero value of type 'T.
+    /// </summary>
+    /// <param name="n">The length of the resulting Series.</param>
+    /// <returns>A new Series filled with typed zeros.</returns>
+    let inline zeroCreate<'T> (n: int) : Series =
+        pl.zerosAsSeries<'T> n 
+
+    /// <summary>
+    /// Creates a new Series of length n filled with the one value of type 'T.
+    /// </summary>
+    /// <param name="n">The length of the resulting Series.</param>
+    /// <returns>A new Series filled with typed ones.</returns>
+    let inline oneCreate<'T> (n: int) : Series =
+        pl.onesAsSeries<'T> n 
+
+    /// <summary>
+    /// Creates a new Series of length n filled with a specified scalar constant.
+    /// </summary>
+    /// <param name="n">The length of the resulting Series.</param>
+    /// <param name="value">The constant scalar value.</param>
+    /// <returns>A new Series repeating the scalar value.</returns>
+    let inline replicate<^T when (^T or LitMechanism) : (static member ($) : LitMechanism * ^T -> Expr)> 
+            (n: int) (value: ^T) : Series =
+        let targetType = DataType.FromNetType typeof< ^T >
+        pl.repeatAsSeries (pl.lit value) n (Some targetType)
+    /// <summary>
+    /// Creates a new Series of length n where each element is computed by calling the initializer on its row index.
+    /// Idiomatic functional counterpart to Array.init / List.init.
+    /// </summary>
+    /// <param name="name">The name of the resulting Series.</param>
+    /// <param name="n">The number of elements to create.</param>
+    /// <param name="initializer">A function that computes the element at each index (0 to n - 1).</param>
+    /// <returns>A new Series populated with the computed elements.</returns>
+    let inline init (name: string) (n: int) (initializer: int -> 'T) : Series =
+        let data = Array.init n initializer
+        Series.create (name, data)
+    /// <summary>
+    /// Overload that creates an unnamed or default-named Series of length n.
+    /// </summary>
+    let inline initUnnamed (n: int) (initializer: int -> 'T) : Series =
+        init "" n initializer
+    /// <summary>
+    /// Generate a range of integers as a series.
+    /// </summary>
+    /// <param name="start">Start of the range (inclusive).</param>
+    /// <param name="end">End of the range (exclusive). If set to Null (default), the value of start is used and start is set to 0.</param>
+    /// <param name="step">Step size of the range.</param>
+    let intRange<'T>(name:string) (start:int64) (endRange:int64) (step:int64) =
+        let exp = pl.intRange<'T> start endRange step
+        Series.ofExpr(exp).Rename(name).SetSorted(descending = (step < 0))
+    /// <summary>
+    /// Generate a date range.
+    /// </summary>
+    /// <param name="start">Lower bound of the date range.</param>
+    /// <param name="end">Upper bound of the date range.</param>
+    /// <param name="interval">Interval of the range periods, “1w2d” # 1 week, 2 days.Default is 1 day.</param>
+    /// <param name="closed">Define which sides of the range are closed</param>
+    /// <returns>Series of data type Date</returns>
+    let dateRange (name:string)(start:DateOnly)(endRange:DateOnly)(interval:Dur)(closed:ClosedInterval) =
+        let expr = pl.dateRange start endRange interval closed
+        Series.ofExpr(expr).Rename name
+
+    /// <summary>
+    /// Converts a datetime range expression to a Series with the specified name.
+    /// </summary>
+    /// <param name="name">Name of the resulting Series.</param>
+    /// <param name="start">Start datetime of the range.</param>
+    /// <param name="endRange">End datetime of the range.</param>
+    /// <param name="interval">Interval between datetime values.</param>
+    /// <param name="closed">Closed window of the range.</param>
+    /// <param name="unit">Time unit of the resulting Datetime data type.</param>
+    /// <param name="timeZone">Time zone of the resulting Datetime data type.</param>
+    let datetimeRange(name:string)(start:DateTime)(endRange:DateTime)(interval:Dur)(closed:ClosedInterval)(unit:TimeUnit)(timeZone:string option) =
+        let expr = pl.datetimeRange start endRange interval closed unit timeZone
+        Series.ofExpr(expr).Rename name
+
+    /// <summary>
+    /// Converts a time range expression to a Series with the specified name.
+    /// </summary>
+    /// <param name="name">Name of the resulting Series.</param>
+    /// <param name="start">Start time of the range.</param>
+    /// <param name="endRange">End time of the range.</param>
+    /// <param name="interval">Interval between time values.</param>
+    /// <param name="closed">Closed window of the range.</param>
+    let timeRange(name:string)(start:TimeOnly)(endRange:TimeOnly)(interval:Dur)(closed:ClosedInterval) =
+        let expr = pl.timeRange start endRange interval closed
+        Series.ofExpr(expr).Rename name
+
+    /// <summary>
+    /// Converts a linear space expression to a Series with the specified name.
+    /// </summary>
+    /// <param name="name">Name of the resulting Series.</param>
+    /// <param name="start">Lower bound of the linear space.</param>
+    /// <param name="endRange">Upper bound of the linear space.</param>
+    /// <param name="numSamples">Number of samples to generate.</param>
+    /// <param name="closed">Whether the intervals are closed or open.</param>
+    let linearSpace(name:string)(start:Expr)(endRange:Expr)(numSamples:int)(closed:ClosedInterval) =
+        let expr = pl.linearSpace start endRange numSamples closed
+        Series.ofExpr(expr).Rename name
+    /// <summary>
+    /// Clamps series values between scalar bounds.
+    /// </summary>
+    let inline clamp (lowerBound: ^T) (upperBound: ^T) (series: Series) : Series =
+        series.Clip(lowerBound, upperBound)
+    /// <summary>
+    /// Replace values in the series using replacement expressions.
+    /// </summary>
+    /// <param name="old">The expression or series identifying values to replace.</param>
+    /// <param name="newExpr">The expression or series containing replacement values.</param>
+    /// <param name="series">The target Series.</param>
+    /// <returns>A new Series with replaced values.</returns>
+    let replace (old: Expr) (newExpr: Expr) (series: Series) : Series =
+        series.Replace(old, newExpr)
+
+    /// <summary>
+    /// Replace scalar values in the series using SRTP literals.
+    /// </summary>
+    let inline replaceScalar (oldVal: ^Old) (newVal: ^New) (series: Series) : Series =
+        series.Replace(pl.lit oldVal, pl.lit newVal)
+
+    /// <summary>
+    /// Strictly replace values in the series. Throws an error if unmatched unless defaultExpr is provided.
+    /// </summary>
+    let replaceStrict (old: Expr) (newExpr: Expr) (defaultExpr: Expr option) (returnDataType: DataTypeExpr option) (series: Series) : Series =
+        series.ReplaceStrict(old, newExpr, ?defaultExpr = defaultExpr, ?returnDataType = returnDataType)
+
+    /// <summary>
+    /// Fills floating-point NaN values with a float (double) literal.
+    /// Default floating-point pipeline operator.
+    /// </summary>
+    let fillNan (fillValue: float) (series: Series) : Series =
+        series.FillNan fillValue
+
+    /// <summary>
+    /// Fills floating-point NaN values with a float32 (single) literal.
+    /// </summary>
+    let fillNanSingle (fillValue: float32) (series: Series) : Series =
+        series.FillNan fillValue
+
+    /// <summary>
+    /// Fills floating-point NaN values with values from another Series.
+    /// </summary>
+    let fillNanWith (fillSeries: Series) (series: Series) : Series =
+        series.FillNan fillSeries
+
+    /// <summary>
+    /// Fills floating-point NaN values using an expression.
+    /// </summary>
+    let fillNanExpr (expr: Expr) (series: Series) : Series =
+        series.FillNan expr
+
+    /// <summary>
+    /// Fills null values with a scalar literal using SRTP.
+    /// </summary>
+    let inline fillNull (value: ^T) (series: Series) : Series =
+        series.FillNull(pl.lit value)
+
+    /// <summary>
+    /// Fills null values with another Series (coalesce).
+    /// </summary>
+    let fillNullWith (fillSeries: Series) (series: Series) : Series =
+        series.FillNull fillSeries
+
+    /// <summary>
+    /// Fills null values using a dynamic expression.
+    /// </summary>
+    let fillNullExpr (expr: Expr) (series: Series) : Series =
+        series.FillNull expr
+
+    let fillNullStrategy (strategy: FillNullStrategy)(limit:int option) (series: Series) : Series =
+        series.FillNull (strategy,?limit=limit)
+    /// <summary>
+    /// Forward-fills null values up to an consecutive limit.
+    /// </summary>
+    let forwardFill (limit: int) (series: Series) : Series =
+        series.FillNull(FillNullStrategy.Forward, limit)
+
+    /// <summary>
+    /// Backward-fills null values up to an consecutive limit.
+    /// </summary>
+    let backwardFill (limit: int) (series: Series) : Series =
+        series.FillNull(FillNullStrategy.Backward,limit)
+    /// <summary>
+    /// Interpolates intermediate null values linearly or using nearest neighbors.
+    /// </summary>
+    let interpolate (method: InterpolationMethod) (series: Series) : Series =
+        series.Interpolate(method = method)
+
+    /// <summary>
+    /// Interpolates intermediate values guided by an independent variable series.
+    /// </summary>
+    let interpolateBy (by: Series) (series: Series) : Series =
+        series.InterpolateBy by

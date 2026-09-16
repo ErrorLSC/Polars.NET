@@ -1122,3 +1122,37 @@ type ``Series Tests`` () =
 
         Assert.Equal(ValueSome 200, hit)
         Assert.Equal(ValueNone, miss)
+
+    [<Fact>]
+    [<Trait("Series", "Append")>]
+    member _.``Series.Append and its operator preserve original Series immutability`` () =
+        // Arrange
+        let s1 = pl.series "part1" [| 1; 2; 3 |]
+        let s2 = pl.series "part2" [| 4; 5 |]
+
+        // Act: Immutable append using @ operator
+        let s3 = s1 .@ s2
+
+        // Assert
+        // s1 must remain untouched (length = 3)
+        Assert.Equal(3L, s1.Length)
+        Assert.Equal(2L, s2.Length)
+
+        // Combined Series must have full length and correct chunk aggregation
+        Assert.Equal(5L, s3.Length)
+        Assert.Equal(1, s3.GetValue<int>(0L))
+        Assert.Equal(5, s3.GetValue<int>(4L))
+
+    [<Fact>]
+    [<Trait("Series", "Append")>]
+    member _.``Series.AppendMut alters original Series in place`` () =
+        // Arrange
+        let s1 = pl.series "mut" [| 10; 20 |]
+        let s2 = pl.series "other" [| 30 |]
+
+        // Act
+        s1.AppendInplace s2
+
+        // Assert
+        Assert.Equal(3L, s1.Length)
+        Assert.Equal(30, s1.GetValue<int>(2L))
