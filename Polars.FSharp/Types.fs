@@ -440,7 +440,7 @@ type Series(handle: SeriesHandle) =
 
         // --- String ---
         else if t = typeof<string> || t = typeof<string option> then
-            let v = PolarsWrapper.SeriesGetString(this.Handle, index)
+            let v = PolarsWrapper.SeriesGetStringFast(this.Handle, index)
             if t = typeof<string option> then box (Some v) |> unbox<'T>
             else box v |> unbox<'T>
 

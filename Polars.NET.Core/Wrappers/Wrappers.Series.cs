@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 using Apache.Arrow;
 using Apache.Arrow.C;
 using Polars.NET.Core.Helpers;
@@ -980,11 +981,30 @@ public readonly partial struct PolarsWrapper
 
         return val;
     }
-
-    public static string? SeriesGetString(SeriesHandle s, long idx)
+    public static unsafe string? SeriesGetStringFast(SeriesHandle handle, long idx)
     {
-        IntPtr ptr = NativeBindings.pl_series_get_str(s, (UIntPtr)idx);
-        return ErrorHelper.CheckString(ptr);
+        int status = NativeBindings.pl_series_get_str_fast(
+            handle,
+            (nuint)idx,
+            out nint ptr,
+            out nuint len
+        );
+
+        ErrorHelper.CheckStatus(status);
+
+        if (ptr == nint.Zero)
+        {
+            return null;
+        }
+
+        if (len == 0)
+        {
+            return string.Empty;
+        }
+
+        // Zero-copy view directly pointing to Arrow buffer
+        ReadOnlySpan<byte> span = new((byte*)ptr, (int)len);
+        return Encoding.UTF8.GetString(span);
     }
     // Maximum scale supported natively by System.Decimal
     private const int MaxDotNetDecimalScale = 28;

@@ -57,9 +57,13 @@ unsafe internal partial class NativeBindings
         [MarshalAs(UnmanagedType.U1)] out bool val,
         [MarshalAs(UnmanagedType.U1)] out bool isNull
     );
-
     [LibraryImport(LibName)]
-    public static partial IntPtr pl_series_get_str(SeriesHandle s, UIntPtr idx);
+    public static partial int pl_series_get_str_fast(
+        SeriesHandle s, 
+        nuint idx, 
+        out nint utf8bytes,
+        out nuint len
+    );
 
     [LibraryImport(LibName)]
     public static partial int pl_series_get_decimal_fast(

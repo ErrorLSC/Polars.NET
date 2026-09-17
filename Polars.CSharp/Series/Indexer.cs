@@ -59,14 +59,8 @@ public partial class Series : IDisposable,IPolarsSeries
         // 3. String
         if (underlying == typeof(string) && DataType != DataType.Categorical())
         {
-            if (PolarsWrapper.SeriesIsNullAtFast(Handle, index))
-            {
-                return default!;
-            }
-
-            var strVal = PolarsWrapper.SeriesGetString(Handle, index);
-
-            return (T)(object)strVal!;
+            string? strVal = PolarsWrapper.SeriesGetStringFast(Handle,index);
+            return (T?)(object?)strVal;
         }
 
         // 4. Decimal

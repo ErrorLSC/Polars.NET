@@ -525,7 +525,6 @@ impl_pl_series_get_fast!(pl_series_get_bool_fast, try_bool, bool);
 /// Gets a string slice from a String Series without bounds checks or heap allocation.
 ///
 /// Returns 0 on success, non-zero on error.
-/// If the element is null, `*out_is_null` is set to true.
 /// If not null, `*out_ptr` points to the UTF-8 bytes directly borrowed from Series memory,
 /// and `*out_len` contains the byte count.
 #[unsafe(no_mangle)]
@@ -534,7 +533,6 @@ pub unsafe extern "C" fn pl_series_get_str_fast(
     idx: usize,
     out_ptr: *mut *const u8,
     out_len: *mut usize,
-    out_is_null: *mut bool,
 ) -> c_int {
     ffi_try_c_int!({
         let ctx = unsafe { &*s_ptr };
@@ -547,12 +545,10 @@ pub unsafe extern "C" fn pl_series_get_str_fast(
             Some(s) => unsafe {
                 *out_ptr = s.as_ptr();
                 *out_len = s.len();
-                *out_is_null = false;
             },
             None => unsafe {
                 *out_ptr = std::ptr::null();
                 *out_len = 0;
-                *out_is_null = true;
             },
         }
 
@@ -752,29 +748,6 @@ pub extern "C" fn pl_series_get_f64(
         }
 
         Ok(())
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_get_str(s_ptr: *mut SeriesContext, idx: usize) -> *mut c_char {
-    ffi_try!({
-        let ctx = unsafe { &*s_ptr };
-
-        if idx >= ctx.series.len() {
-            polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
-        }
-
-        match unsafe { ctx.series.get_unchecked(idx) } {
-            AnyValue::String(s) => {
-                let c_str = CString::new(s)
-                    .map_err(|e| polars_err!(ComputeError: "String at index {} contains null byte: {}", idx, e))?;
-                Ok(c_str.into_raw())
-            }
-            AnyValue::Null => Ok(std::ptr::null_mut()),
-            other => {
-                polars_bail!(ComputeError: "Expected String, got DataType: {:?}", other.dtype());
-            }
-        }
     })
 }
 
