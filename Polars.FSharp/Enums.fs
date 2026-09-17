@@ -13,6 +13,12 @@ type TimeUnit =
         | Nanoseconds -> PlTimeUnit.Nanoseconds
         | Microseconds -> PlTimeUnit.Microseconds
         | Milliseconds -> PlTimeUnit.Milliseconds
+    static member internal FromNative(timeUnit:PlTimeUnit) = 
+        match timeUnit with
+        | PlTimeUnit.Nanoseconds -> TimeUnit.Nanoseconds
+        | PlTimeUnit.Microseconds -> TimeUnit.Microseconds
+        | PlTimeUnit.Milliseconds -> TimeUnit.Milliseconds
+        | _ -> TimeUnit.Microseconds
 // [<RequireQualifiedAccess>]
 // type CorrelationMethod =
 //     | Pearson

@@ -535,19 +535,6 @@ module SeriesOperationExtensions =
             this.ApplyExpr(Expr.Col(this.Name).BottomKBy(k, by, r))
         member this.BottomKBy(k: int, by: seq<#IColumnExpr>, ?reverse: seq<bool>) =
             this.ApplyExpr(Expr.Col(this.Name).BottomKBy(k, by, ?reverse=reverse))
-        /// <summary>
-        /// Gets the Datetime value and its TimeZone string at the specified index.
-        /// Returns None if the value is null.
-        /// </summary>
-        member this.DateTimeWithZone(index: int) : struct (DateTime * string) option =
-            PolarsWrapper.SeriesGetDatetime(this.Handle, int64 index)
-            |> Option.ofNullable
-        /// <summary>
-        /// Gets the Duration value at the specified index.
-        /// Returns None if the value is null.
-        /// </summary>
-        member this.Duration(index: int) : TimeSpan option =
-            PolarsWrapper.SeriesGetDuration(this.Handle, int64 index) |> Option.ofNullable
         // ==========================================
         // Statistical Ops
         // ==========================================

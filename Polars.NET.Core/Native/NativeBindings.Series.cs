@@ -81,19 +81,14 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial int pl_series_get_time_fast(SeriesHandle s, nuint idx, out long val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.U1)]
-    public static partial bool pl_series_get_datetime(
+    public static partial int pl_series_get_datetime_fast(
         SeriesHandle series,
         nuint idx,
         out long val,
-        out PlTimeUnit timeUnit,
-        out IntPtr timezone,
         [MarshalAs(UnmanagedType.U1)] out bool isNull
     );
-
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.U1)]
-    public static partial bool pl_series_get_duration(SeriesHandle s, UIntPtr idx, out long val, out PlTimeUnit timeUnit, [MarshalAs(UnmanagedType.U1)] out bool isNull);
+    public static partial int pl_series_get_duration_fast(SeriesHandle s, nuint idx, out long val, [MarshalAs(UnmanagedType.U1)] out bool isNull);
     // --- Series Constructors ---
     // DataFrame -> Series (ByName)
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]

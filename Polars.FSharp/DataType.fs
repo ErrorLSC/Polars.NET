@@ -42,8 +42,21 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         | TimeUnit.Nanoseconds -> 0uy
         | TimeUnit.Microseconds -> 1uy
         | TimeUnit.Milliseconds -> 2uy
+    member internal this.toTimeUnit (unit:PlTimeUnit):TimeUnit =             
+        match  PolarsWrapper.GetTimeUnit handle with
+        | PlTimeUnit.Nanoseconds -> TimeUnit.Nanoseconds
+        | PlTimeUnit.Microseconds -> TimeUnit.Microseconds
+        | PlTimeUnit.Milliseconds -> TimeUnit.Milliseconds
+        | _ -> TimeUnit.Microseconds
+
     member internal this.Handle = handle
     member this.Kind = kind
+    member this.TimeUnit = 
+        if this.IsTemporal then
+            PolarsWrapper.GetTimeUnit handle |> TimeUnit.FromNative
+        else 
+            raise (InvalidOperationException "Invalid Operation for non-temporal type")
+    member this.TimeZone = PolarsWrapper.GetTimeZone handle 
     static member Unknown     = new DataType(PolarsWrapper.NewPrimitiveType(0), DataTypeKind.Unknown)
     static member SameAsInput = new DataType(PolarsWrapper.NewPrimitiveType(0), DataTypeKind.SameAsInput)
     static member Null        = new DataType(PolarsWrapper.NewPrimitiveType(18), DataTypeKind.Null)
@@ -236,25 +249,13 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         | PlDataType.Float16 -> DataType.Float16
 
         | PlDataType.Datetime ->
-            let unitCode = PolarsWrapper.GetTimeUnit handle
-            let unit =
-                match unitCode with
-                | PlTimeUnit.Nanoseconds -> TimeUnit.Nanoseconds
-                | PlTimeUnit.Microseconds -> TimeUnit.Microseconds
-                | PlTimeUnit.Milliseconds -> TimeUnit.Milliseconds
-                | _ -> TimeUnit.Microseconds
+            let unit = PolarsWrapper.GetTimeUnit handle |> TimeUnit.FromNative
             let tz = Option.ofObj (PolarsWrapper.GetTimeZone handle)
             DataType.Datetime(unit, ?tz=tz)
 
         | PlDataType.Time -> DataType.Time
         | PlDataType.Duration ->
-            let unitCode = PolarsWrapper.GetTimeUnit handle
-            let unit =
-                match unitCode with
-                | PlTimeUnit.Nanoseconds -> TimeUnit.Nanoseconds
-                | PlTimeUnit.Microseconds -> TimeUnit.Microseconds
-                | PlTimeUnit.Milliseconds -> TimeUnit.Milliseconds
-                | _ -> TimeUnit.Microseconds
+            let unit = PolarsWrapper.GetTimeUnit handle |> TimeUnit.FromNative
             DataType.Duration unit
 
         | PlDataType.Binary -> DataType.Binary

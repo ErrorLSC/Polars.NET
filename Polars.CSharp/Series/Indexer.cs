@@ -23,8 +23,8 @@ public partial class Series : IDisposable,IPolarsSeries
                 throw new IndexOutOfRangeException($"Index {index} is out of bounds for Series length {Length}.");
         }
 
-        if (this.IsNullAt(index))
-            return default;
+        // if (this.IsNullAt(index))
+        //     return default;
 
         var type = typeof(T);
         var underlying = Nullable.GetUnderlyingType(type) ?? type;
@@ -81,24 +81,29 @@ public partial class Series : IDisposable,IPolarsSeries
             return (T)(object)PolarsWrapper.SeriesGetTimeFast(Handle, index)!;
 
         if (underlying == typeof(TimeSpan))
-            return (T?)(object?)PolarsWrapper.SeriesGetDuration(Handle, index);
+        {
+            TimeUnit timeUnit = (TimeUnit)DataType.Unit!;
+            return (T?)(object?)PolarsWrapper.SeriesGetDurationFast(Handle, index,timeUnit.ToNative());
+        }
         if (underlying == typeof(DateTime))
         {
+            TimeUnit timeUnit = (TimeUnit)DataType.Unit!;
+            DateTime? dt = PolarsWrapper.SeriesGetDatetimeFast(Handle, index,timeUnit.ToNative(),null);
 
-            var dtTuple = PolarsWrapper.SeriesGetDatetime(Handle, index);
-
-            if (!dtTuple.HasValue)
+            if (!dt.HasValue)
                 return default;
 
-            return (T)(object)dtTuple.Value.Value;
+            return (T)(object)dt.Value;
         }
         if (underlying == typeof(ValueTuple<DateTime, string>))
         {
-            var dtTuple = PolarsWrapper.SeriesGetDatetime(Handle, index);
-            if (!dtTuple.HasValue)
+            TimeUnit timeUnit = (TimeUnit)DataType.Unit!;
+            string timeZone = DataType.TimeZone!;
+            var dt = PolarsWrapper.SeriesGetDatetimeFast(Handle, index,timeUnit.ToNative(),timeZone);
+            if (!dt.HasValue)
                 return default;
 
-            return (T)(object)dtTuple.Value;
+            return (T)(object)(dt,timeZone);
         }
 
         // ==============================================================

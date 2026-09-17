@@ -457,21 +457,25 @@ type Series(handle: SeriesHandle) =
             else box v |> unbox<'T>
 
         else if t = typeof<TimeSpan> || t = typeof<TimeSpan option> || t = typeof<Nullable<TimeSpan>> then
-            let v = PolarsWrapper.SeriesGetDuration(this.Handle, index).Value
+            let timeUnit = this.DataType.TimeUnit
+            let v = PolarsWrapper.SeriesGetDurationFast(this.Handle, index,timeUnit.ToNative()).Value
             if t = typeof<TimeSpan option> then box (Some v) |> unbox<'T>
             else box v |> unbox<'T>
 
         else if t = typeof<DateTime> || t = typeof<DateTime option> || t = typeof<Nullable<DateTime>> then
-            let struct (dt, _) = PolarsWrapper.SeriesGetDatetime(this.Handle, index).Value
+            let timeUnit = this.DataType.TimeUnit
+            let dt = PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index,timeUnit.ToNative(),null).Value
 
             if t = typeof<DateTime option> then box (Some dt) |> unbox<'T>
             else box dt |> unbox<'T>
 
         else if t = typeof<struct(DateTime * string)> || t = typeof<struct(DateTime * string) option> || t = typeof<Nullable<struct(DateTime * string)>> then
-            let v = PolarsWrapper.SeriesGetDatetime(this.Handle, index).Value
+            let timeUnit = this.DataType.TimeUnit
+            let timeZone = this.DataType.TimeZone
+            let v = PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index,timeUnit.ToNative(),timeZone).Value
 
-            if t = typeof<struct(DateTime * string) option> then box (Some v) |> unbox<'T>
-            else box v |> unbox<'T>
+            if t = typeof<struct(DateTime * string) option> then box (Some (v,timeZone)) |> unbox<'T>
+            else box (v,timeZone) |> unbox<'T>
 
         // --- Complex Types (Arrow Fallback) ---
         else
@@ -511,6 +515,15 @@ type Series(handle: SeriesHandle) =
             []
         else
             netList |> List.ofSeq
+    /// <summary>
+    /// Get an item as an F# Option.
+    /// Ideal for safe handling of nulls in Polars series.
+    /// </summary>
+    member this.GetValueOption<'T>(index: int64) : 'T option =
+        if index < 0L || index >= this.Length || this.IsNullAt index then
+            None
+        else
+            this.GetValue<'T option>(index, uncheck = true)
     /// <summary>
     /// Gets the value at the specified index as a ValueOption ('T voption).
     /// </summary>
@@ -573,15 +586,7 @@ type Series(handle: SeriesHandle) =
                 | validComplex -> ValueSome validComplex
 
             | _ -> failwithf "Indexer not fully implemented for type: %A" this.DataType
-    /// <summary>
-    /// Get an item as an F# Option.
-    /// Ideal for safe handling of nulls in Polars series.
-    /// </summary>
-    member this.GetValueOption<'T>(index: int64) : 'T option =
-        if index < 0L || index >= this.Length || this.IsNullAt index then
-            None
-        else
-            this.GetValue<'T option>(index, uncheck = true)
+
 
     // ==========================================
     // Interop

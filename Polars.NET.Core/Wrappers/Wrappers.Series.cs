@@ -1081,38 +1081,19 @@ public readonly partial struct PolarsWrapper
         return new TimeOnly(ns /100);
     }
 
-    // Datetime: Microseconds since 1970-01-01 (Assuming 'us' time unit)
-    /// <summary>
-    /// Gets the Datetime value at the specified index.
-    /// Returns a tuple containing the .NET DateTime and the TimeZone string (if aware).
-    /// </summary>
-    public static (DateTime Value, string? TimeZone)? SeriesGetDatetime(SeriesHandle s, long idx)
+    // Datetime: Microseconds since 1970-01-01
+    public static DateTime? SeriesGetDatetimeFast(SeriesHandle s, long idx,PlTimeUnit timeUnit,string? timeZone)
     {
-        bool success = NativeBindings.pl_series_get_datetime(
+        int status = NativeBindings.pl_series_get_datetime_fast(
             s,
             (nuint)idx,
             out long val,
-            out PlTimeUnit timeUnit,
-            out IntPtr tzPtr,
             out bool isNull
         );
 
-        ErrorHelper.CheckBool(success);
+        ErrorHelper.CheckStatus(status);
 
         if (isNull) return null;
-
-        string? timeZone = null;
-        if (tzPtr != IntPtr.Zero)
-        {
-            try
-            {
-                timeZone = Marshal.PtrToStringUTF8(tzPtr);
-            }
-            finally
-            {
-                NativeBindings.pl_free_string(tzPtr);
-            }
-        }
 
         long ticks = timeUnit switch
         {
@@ -1136,16 +1117,17 @@ public readonly partial struct PolarsWrapper
             dt = DateTime.SpecifyKind(dt, DateTimeKind.Utc);
         }
 
-        return (dt, timeZone);
+        return dt;
     }
 
-    // Duration
-    public static TimeSpan? SeriesGetDuration(SeriesHandle s, long idx)
-    {
-        bool success = NativeBindings.pl_series_get_duration(
-            s, (nuint)idx, out long val, out PlTimeUnit timeUnit, out bool isNull);
 
-        ErrorHelper.CheckBool(success);
+    // Duration
+    public static TimeSpan? SeriesGetDurationFast(SeriesHandle s, long idx,PlTimeUnit timeUnit)
+    {
+        int status = NativeBindings.pl_series_get_duration_fast(
+            s, (nuint)idx, out long val, out bool isNull);
+
+        ErrorHelper.CheckStatus(status);
         if (isNull) return null;
 
         return timeUnit switch
