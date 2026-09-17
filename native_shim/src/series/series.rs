@@ -777,46 +777,6 @@ pub extern "C" fn pl_series_get_str(s_ptr: *mut SeriesContext, idx: usize) -> *m
         }
     })
 }
-// Decimal
-// out_val: i128 value
-// out_scale: scale
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_get_decimal(
-    s_ptr: *mut SeriesContext,
-    idx: usize,
-    out_val: *mut i128,
-    out_precision: *mut usize,
-    out_scale: *mut usize,
-    out_is_null: *mut bool,
-) -> bool {
-    ffi_bool_try!({
-        let ctx = unsafe { &*s_ptr };
-
-        if idx >= ctx.series.len() {
-            polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
-        }
-
-        match unsafe { ctx.series.get_unchecked(idx) } {
-            AnyValue::Decimal(v, precision, scale) => unsafe {
-                *out_val = v;
-                *out_precision = precision;
-                *out_scale = scale;
-                *out_is_null = false;
-            },
-            AnyValue::Null => unsafe {
-                *out_val = 0;
-                *out_precision = 0;
-                *out_scale = 0;
-                *out_is_null = true;
-            },
-            other => {
-                polars_bail!(ComputeError: "Expected Decimal, got DataType: {:?}", other.dtype());
-            }
-        }
-
-        Ok(())
-    })
-}
 
 // ==========================================
 // Arithmetic Ops

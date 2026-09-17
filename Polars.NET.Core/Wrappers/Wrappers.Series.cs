@@ -986,59 +986,53 @@ public readonly partial struct PolarsWrapper
         IntPtr ptr = NativeBindings.pl_series_get_str(s, (UIntPtr)idx);
         return ErrorHelper.CheckString(ptr);
     }
+    // Maximum scale supported natively by System.Decimal
+    private const int MaxDotNetDecimalScale = 28;
 
-    public static decimal? SeriesGetDecimal(SeriesHandle s, long idx)
+    // Max absolute value that can fit into a 96-bit System.Decimal mantissa (2^96 - 1)
+    private static readonly UInt128 MaxDecimalBits = unchecked(((UInt128)1 << 96) - 1);
+    /// <summary>
+    /// Reads a decimal physical value directly and reconstructs it into a .NET decimal.
+    /// Bypasses string conversion and arithmetic division for maximum throughput.
+    /// </summary>
+    public static decimal? SeriesGetDecimalFast(SeriesHandle s, long idx, int scale, int precision)
     {
-        bool success = NativeBindings.pl_series_get_decimal(
+        int status = NativeBindings.pl_series_get_decimal_fast(
             s,
             (nuint)idx,
             out Int128 val,
-            out nuint precision,
-            out nuint scale,
             out bool isNull
         );
 
-        ErrorHelper.CheckBool(success);
+        ErrorHelper.CheckStatus(status);
 
         if (isNull)
         {
             return null;
         }
 
-        int scaleInt = (int)scale;
-        int precisionInt = (int)precision;
-
-        // if (precisionInt > 29)
-        // {
-        //     throw new OverflowException(
-        //         $"Cannot safely marshal Polars Decimal({precisionInt}, {scaleInt}) to C# decimal. " +
-        //         "C# decimal supports a maximum precision of 29. " +
-        //         "Consider extracting this as a string (.Cast(DataType.String)) to preserve accuracy."
-        //     );
-        // }
-
-        if (scaleInt >= DecimalPacker.PowersOf10Int128.Length)
+        // 1. Check if scale exceeds .NET decimal limits (0..28)
+        if (scale is < 0 or > MaxDotNetDecimalScale)
         {
-            try { return (decimal)val / (decimal)Math.Pow(10, scaleInt); }
-            catch { return null; }
+            // Polars Decimal scale is beyond .NET decimal capability
+            throw new OverflowException($"Decimal scale {scale} exceeds the maximum supported .NET decimal scale (28).");
         }
 
-        Int128 divisor = DecimalPacker.PowersOf10Int128[scaleInt];
-        Int128 intPart = val / divisor;
-        Int128 remPart = val % divisor;
+        bool isNegative = val < 0;
+        UInt128 uval = isNegative ? unchecked((UInt128)(-val)) : unchecked((UInt128)val);
 
-        try
+        // 2. Precision & 96-bit mantissa range check
+        if (uval > MaxDecimalBits)
         {
-            decimal dInt = (decimal)intPart;
-            decimal dRem = (decimal)remPart;
-            decimal dDivisor = (decimal)divisor;
+            throw new OverflowException($"Decimal value with precision {precision} exceeds the 96-bit capacity of .NET decimal.");
+        }
 
-            return dInt + (dRem / dDivisor);
-        }
-        catch (OverflowException)
-        {
-            return null;
-        }
+        // 3. Direct zero-division bit decomposition into low, mid, and high 32-bit words
+        int low = (int)(uval & 0xFFFF_FFFF);
+        int mid = (int)((uval >> 32) & 0xFFFF_FFFF);
+        int high = (int)((uval >> 64) & 0xFFFF_FFFF);
+
+        return new decimal(low, mid, high, isNegative, (byte)scale);
     }
     // Date: Days since 1970-01-01
     public static DateOnly? SeriesGetDateFast(SeriesHandle s, long idx)

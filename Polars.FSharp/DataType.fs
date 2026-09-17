@@ -21,7 +21,7 @@ type DataTypeKind =
     | Datetime of TimeUnit * string option
     | Duration of TimeUnit
     | Categorical of Categories option
-    | Decimal of int option * int option
+    | Decimal of int * int
     | List of DataType
     | Struct of seq<Field>
     | Array of DataType * uint[]
@@ -55,8 +55,100 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         if this.IsTemporal then
             PolarsWrapper.GetTimeUnit handle |> TimeUnit.FromNative
         else 
-            raise (InvalidOperationException "Invalid Operation for non-temporal type")
-    member this.TimeZone = PolarsWrapper.GetTimeZone handle 
+            invalidOp "Invalid Operation for non-temporal type"
+    member this.TimeZone : string option =
+        match this.Kind with
+        | DataTypeKind.Datetime _ -> 
+            let tz = PolarsWrapper.GetTimeZone handle
+            if String.IsNullOrEmpty tz then None else Some tz
+        | _ -> 
+            invalidOp $"TimeZone is only applicable to Datetime, but current type is {this.Kind}."
+
+    /// Gets the decimal precision.
+    /// Throws InvalidOperationException if the data type is not Decimal.
+    member this.Precision: int =
+        match kind with
+        | DataTypeKind.Decimal(p, _) -> p
+        | _ -> invalidOp (sprintf "Precision is only applicable to Decimal, but current type is %A." kind)
+
+    /// Gets the decimal scale.
+    /// Throws InvalidOperationException if the data type is not Decimal.
+    member this.Scale: int =
+        match kind with
+        | DataTypeKind.Decimal(_, s) -> s
+        | _ -> invalidOp (sprintf "Scale is only applicable to Decimal, but current type is %A." kind)
+
+    /// Attempts to extract Decimal metadata safely.
+    member this.TryGetDecimalInfo() : (int * int) option =
+        match kind with
+        | DataTypeKind.Decimal(p, s) -> Some(p, s)
+        | _ -> None
+    /// <summary>
+    /// Gets the first-dimension fixed width (number of elements in the leading dimension) of the Array.
+    /// </summary>
+    /// <exception cref="System.InvalidOperationException">
+    /// Thrown when the data type is not an Array.
+    /// </exception>
+    member this.ArrayWidth: uint =
+        match kind with
+        | DataTypeKind.Array(_, shape) when shape.Length > 0 -> shape.[0]
+        | DataTypeKind.Array _ -> 0u
+        | _ -> invalidOp (sprintf "ArrayWidth is only applicable to Array, but current type is %A." kind)
+
+    /// <summary>
+    /// Gets the dimensional shape of the Array.
+    /// Returns a defensive copy to prevent external array mutation.
+    /// </summary>
+    /// <exception cref="System.InvalidOperationException">
+    /// Thrown when the data type is not an Array.
+    /// </exception>
+    member this.ArrayShape: uint[] =
+        match kind with
+        | DataTypeKind.Array(_, shape) -> Array.copy shape
+        | _ -> invalidOp (sprintf "ArrayShape is only applicable to Array, but current type is %A." kind)
+    /// <summary>
+    /// Safely attempts to extract Array metadata without throwing exceptions.
+    /// </summary>
+    /// <returns>Some(inner, shape) if this is an Array; otherwise None.</returns>
+    member this.TryGetArrayInfo() : (DataType * uint[]) option =
+        match kind with
+        | DataTypeKind.Array(inner, shape) -> Some(inner, Array.copy shape)
+        | _ -> None
+
+    /// <summary>
+    /// Gets the immediate inner element DataType of an Array or a List.
+    /// </summary>
+    /// <exception cref="System.InvalidOperationException">
+    /// Thrown when the data type is neither an Array nor a List.
+    /// </exception>
+    member this.InnerType: DataType = 
+        match kind with
+        | DataTypeKind.Array(inner, _) -> inner
+        | DataTypeKind.List inner -> inner
+        | _ -> invalidOp (sprintf "InnerType is only applicable to Array or List, but current type is %A." kind)
+
+    /// <summary>
+    /// Recursively unwraps all outer Array and List layers to retrieve the leaf (primitive/base) DataType.
+    /// Returns itself if this DataType is not nested.
+    /// </summary>
+    member this.LeafType: DataType =
+        let rec unwrap (dt: DataType) =
+            match dt.Kind with
+            | DataTypeKind.Array(inner, _) -> unwrap inner
+            | DataTypeKind.List inner -> unwrap inner
+            | _ -> dt
+        unwrap this
+
+    /// <summary>
+    /// Safely attempts to extract the inner element DataType without throwing an exception.
+    /// </summary>
+    /// <returns>Some(inner) if the type is an Array or List; otherwise None.</returns>
+    member this.TryGetInnerType() : DataType option =
+        match kind with
+        | DataTypeKind.Array(inner, _) -> Some inner
+        | DataTypeKind.List inner -> Some inner
+        | _ -> None
+            
     static member Unknown     = new DataType(PolarsWrapper.NewPrimitiveType(0), DataTypeKind.Unknown)
     static member SameAsInput = new DataType(PolarsWrapper.NewPrimitiveType(0), DataTypeKind.SameAsInput)
     static member Null        = new DataType(PolarsWrapper.NewPrimitiveType(18), DataTypeKind.Null)
@@ -98,7 +190,7 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
     static member op_Equality (left: DataType, right: DataType) =
         if obj.ReferenceEquals(left, right) then true
         elif obj.ReferenceEquals(left, null) then false
-        else left.Equals(right)
+        else left.Equals right
 
     static member op_Inequality (left: DataType, right: DataType) =
         not (left = right)
@@ -109,7 +201,7 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
                 if not (isNull (box handle)) && not handle.IsInvalid then
                     handle.Dispose()
                 disposed <- true
-                GC.SuppressFinalize(this)
+                GC.SuppressFinalize this
 
     interface IPolarsDataType with
         member this.GetArrowType() : Apache.Arrow.Types.IArrowType =
@@ -154,13 +246,11 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
             PolarsWrapper.NewEnumType frozenCat.Handle
 
         | DataTypeKind.Decimal(p, s) ->
-            let prec = defaultArg p 0
-            let scale = defaultArg s 0
-            PolarsWrapper.NewDecimalType(prec, scale)
+            PolarsWrapper.NewDecimalType(p, s)
 
         | DataTypeKind.List innerType ->
             use innerHandle = innerType.CreateHandle()
-            PolarsWrapper.NewListType(innerHandle)
+            PolarsWrapper.NewListType innerHandle
 
         | DataTypeKind.Struct fields ->
             let names = fields |> Seq.map (fun f -> f.Name) |> Seq.toArray
@@ -202,7 +292,7 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         let prec = defaultArg precision 0
         let sc = defaultArg scale 0
         let handle = PolarsWrapper.NewDecimalType(prec, sc)
-        new DataType(handle, DataTypeKind.Decimal(Some prec, Some sc))
+        new DataType(handle, DataTypeKind.Decimal(prec,sc))
 
     static member List(inner: DataType) =
         use innerHandle = inner.CreateHandle()

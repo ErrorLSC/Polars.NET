@@ -71,8 +71,11 @@ public partial class Series : IDisposable,IPolarsSeries
 
         // 4. Decimal
         if (underlying == typeof(decimal))
-            return (T?)(object?)PolarsWrapper.SeriesGetDecimal(Handle, index);
-
+        {   
+            int scale = DataType.Scale;
+            int precision = DataType.Precision;
+            return (T)(object)PolarsWrapper.SeriesGetDecimalFast(Handle, index,scale,precision)!;
+        }
         // 5. Temporal (Time)
         if (underlying == typeof(DateOnly))
             return (T)(object)PolarsWrapper.SeriesGetDateFast(Handle, index)!;
@@ -82,12 +85,12 @@ public partial class Series : IDisposable,IPolarsSeries
 
         if (underlying == typeof(TimeSpan))
         {
-            TimeUnit timeUnit = (TimeUnit)DataType.Unit!;
-            return (T?)(object?)PolarsWrapper.SeriesGetDurationFast(Handle, index,timeUnit.ToNative());
+            TimeUnit timeUnit = DataType.TimeUnit;
+            return (T)(object)PolarsWrapper.SeriesGetDurationFast(Handle, index,timeUnit.ToNative())!;
         }
         if (underlying == typeof(DateTime))
         {
-            TimeUnit timeUnit = (TimeUnit)DataType.Unit!;
+            TimeUnit timeUnit = DataType.TimeUnit;
             DateTime? dt = PolarsWrapper.SeriesGetDatetimeFast(Handle, index,timeUnit.ToNative(),null);
 
             if (!dt.HasValue)
@@ -97,7 +100,7 @@ public partial class Series : IDisposable,IPolarsSeries
         }
         if (underlying == typeof(ValueTuple<DateTime, string>))
         {
-            TimeUnit timeUnit = (TimeUnit)DataType.Unit!;
+            TimeUnit timeUnit = DataType.TimeUnit;
             string timeZone = DataType.TimeZone!;
             var dt = PolarsWrapper.SeriesGetDatetimeFast(Handle, index,timeUnit.ToNative(),timeZone);
             if (!dt.HasValue)

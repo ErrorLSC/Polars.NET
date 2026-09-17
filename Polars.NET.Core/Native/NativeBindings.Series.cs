@@ -61,15 +61,11 @@ unsafe internal partial class NativeBindings
     [LibraryImport(LibName)]
     public static partial IntPtr pl_series_get_str(SeriesHandle s, UIntPtr idx);
 
-    // Decimal: out Int128, out UIntPtr (scale)
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.U1)]
-    public static partial bool pl_series_get_decimal(
+    public static partial int pl_series_get_decimal_fast(
         SeriesHandle series,
         nuint idx,
         out Int128 val,
-        out nuint precision,
-        out nuint scale,
         [MarshalAs(UnmanagedType.U1)] out bool isNull
     );
     [LibraryImport(LibName)]

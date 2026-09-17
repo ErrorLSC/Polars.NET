@@ -19,11 +19,53 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// </summary>
     public DataTypeKind Kind { get; }
     private string? _displayString;
-    public int? Precision { get; private set; }
-    public int? Scale { get; private set; }
+    private readonly int? _precision;
+    private readonly int? _scale;
+    private readonly TimeUnit? _timeUnit;
+    private readonly string? _timeZone;
+    /// <summary>
+    /// Gets the decimal precision.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the data type is not <see cref="DataTypeKind.Decimal"/>.
+    /// </exception>
+    public int Precision =>
+        Kind == DataTypeKind.Decimal && _precision.HasValue
+            ? _precision.Value
+            : throw new InvalidOperationException($"Precision is only applicable to Decimal, but current type is {Kind}.");
+    /// <summary>
+    /// Gets the decimal scale.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the data type is not <see cref="DataTypeKind.Decimal"/>.
+    /// </exception>
+    public int Scale =>
+        Kind == DataTypeKind.Decimal && _scale.HasValue
+            ? _scale.Value
+            : throw new InvalidOperationException($"Scale is only applicable to Decimal, but current type is {Kind}.");
 
-    public TimeUnit? Unit { get; private set; }
-    public string? TimeZone { get; private set; }
+    /// <summary>
+    /// Gets the time unit for Datetime and Duration types.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the data type is neither <see cref="DataTypeKind.Datetime"/> nor <see cref="DataTypeKind.Duration"/>.
+    /// </exception>
+    public TimeUnit TimeUnit =>
+        IsTemporal && _timeUnit.HasValue
+            ? _timeUnit.Value
+            : throw new InvalidOperationException($"TimeUnit is only applicable to Datetime or Duration, but current type is {Kind}.");
+
+    /// <summary>
+    /// Gets the timezone string for Datetime type.
+    /// Returns null if the datetime has no timezone (naive datetime).
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the data type is not <see cref="DataTypeKind.Datetime"/>.
+    /// </exception>
+    public string? TimeZone =>
+        Kind == DataTypeKind.Datetime
+            ? _timeZone
+            : throw new InvalidOperationException($"TimeZone is only applicable to Datetime, but current type is {Kind}.");
 
     private IReadOnlyList<Field>? _structFields;
 
@@ -55,18 +97,18 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
         switch (Kind)
         {
             case DataTypeKind.Datetime:
-                Unit = (TimeUnit?)PolarsWrapper.GetTimeUnit(Handle);
-                TimeZone = PolarsWrapper.GetTimeZone(Handle);
+                _timeUnit = (TimeUnit?)PolarsWrapper.GetTimeUnit(Handle);
+                _timeZone = PolarsWrapper.GetTimeZone(Handle);
                 break;
 
             case DataTypeKind.Duration:
-                Unit = (TimeUnit?)PolarsWrapper.GetTimeUnit(Handle);
+                _timeUnit = (TimeUnit?)PolarsWrapper.GetTimeUnit(Handle);
                 break;
 
             case DataTypeKind.Decimal:
                 PolarsWrapper.GetDecimalInfo(Handle, out int p, out int s);
-                Precision = p;
-                Scale = s;
+                _precision = p;
+                _scale = s;
                 break;
         }
     }
@@ -381,7 +423,7 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// </summary>
     /// <param name="unit">precision (ns, us, ms)</param>
     /// <param name="timeZone">timezone string (e.g. "Asia/Shanghai")， null for no timezone (Naive)</param>
-    public static DataType Datetime(TimeUnit unit = TimeUnit.Microseconds, string? timeZone = null)
+    public static DataType Datetime(TimeUnit unit = CSharp.TimeUnit.Microseconds, string? timeZone = null)
     {
         var handle = PolarsWrapper.NewDateTimeType((byte)unit, timeZone);
         return new DataType(handle,DataTypeKind.Datetime);
@@ -390,7 +432,7 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// Creates a Duration type. Default is Microseconds.
     /// Usage: DataType.Duration(TimeUnit.Nanoseconds)
     /// </summary>
-    public static DataType Duration(TimeUnit unit = TimeUnit.Microseconds)
+    public static DataType Duration(TimeUnit unit = CSharp.TimeUnit.Microseconds)
         => new(PolarsWrapper.NewDurationType((byte)unit), DataTypeKind.Duration);
     /// <summary>
     /// Creates a List type.
@@ -507,26 +549,26 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
             TimestampType t => Datetime(
                 t.Unit switch
                 {
-                    Apache.Arrow.Types.TimeUnit.Microsecond => TimeUnit.Microseconds,
-                    Apache.Arrow.Types.TimeUnit.Millisecond => TimeUnit.Milliseconds, 
-                    Apache.Arrow.Types.TimeUnit.Nanosecond => TimeUnit.Nanoseconds, 
-                    _ => TimeUnit.Microseconds
+                    Apache.Arrow.Types.TimeUnit.Microsecond => CSharp.TimeUnit.Microseconds,
+                    Apache.Arrow.Types.TimeUnit.Millisecond => CSharp.TimeUnit.Milliseconds,
+                    Apache.Arrow.Types.TimeUnit.Nanosecond => CSharp.TimeUnit.Nanoseconds, 
+                    _ => CSharp.TimeUnit.Microseconds
                 }, 
                 t.Timezone
             ),
             DurationType d => Duration(
-                d.Unit switch { 
-                    Apache.Arrow.Types.TimeUnit.Microsecond => TimeUnit.Microseconds,
-                    Apache.Arrow.Types.TimeUnit.Millisecond => TimeUnit.Milliseconds, 
-                    Apache.Arrow.Types.TimeUnit.Nanosecond => TimeUnit.Nanoseconds, 
-                    _ => TimeUnit.Microseconds
+                d.Unit switch {
+                    Apache.Arrow.Types.TimeUnit.Microsecond => CSharp.TimeUnit.Microseconds,
+                    Apache.Arrow.Types.TimeUnit.Millisecond => CSharp.TimeUnit.Milliseconds,
+                    Apache.Arrow.Types.TimeUnit.Nanosecond => CSharp.TimeUnit.Nanoseconds, 
+                    _ => CSharp.TimeUnit.Microseconds
                 }
             ),
 
             ListType l => List(FromArrowType(l.ValueDataType)),
             LargeListType l => List(FromArrowType(l.ValueDataType)),
             FixedSizeListType l => Array(FromArrowType(l.ValueDataType), (uint)l.ListSize),
-            
+
             StructType s => Struct(
                 [.. s.Fields.Select(f => (Field)(f.Name, FromArrowType(f.DataType)))]
             ),
@@ -535,7 +577,7 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
 
             MapType map => List(
                 Struct(
-                    ("key",   FromArrowType(map.KeyField.DataType)),
+                    ("key", FromArrowType(map.KeyField.DataType)),
                     ("value", FromArrowType(map.ValueField.DataType))
                 )
             ),

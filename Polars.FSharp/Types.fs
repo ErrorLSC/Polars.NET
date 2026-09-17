@@ -446,7 +446,9 @@ type Series(handle: SeriesHandle) =
 
         // --- Decimal ---
         else if t = typeof<decimal> || t = typeof<decimal option> || t = typeof<Nullable<decimal>> then
-            let v = PolarsWrapper.SeriesGetDecimal(this.Handle, index).Value
+            let scale = this.DataType.Scale
+            let precision = this.DataType.Precision
+            let v = PolarsWrapper.SeriesGetDecimalFast(this.Handle, index, scale,precision).Value
             if t = typeof<decimal option> then box (Some v) |> unbox<'T>
             else box v |> unbox<'T>
 
@@ -477,7 +479,7 @@ type Series(handle: SeriesHandle) =
         else if t = typeof<struct(DateTime * string)> || t = typeof<struct(DateTime * string) option> || t = typeof<Nullable<struct(DateTime * string)>> then
             let timeUnit = this.DataType.TimeUnit
             let timeZone = this.DataType.TimeZone
-            let v = PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index,timeUnit.ToNative(),timeZone).Value
+            let v = PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index,timeUnit.ToNative(),timeZone.Value).Value
 
             if t = typeof<struct(DateTime * string) option> then box (Some (v,timeZone)) |> unbox<'T>
             else box (v,timeZone) |> unbox<'T>

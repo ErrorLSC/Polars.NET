@@ -850,17 +850,17 @@ public class DataTypeTests
         CheckIndex(s, data, count - 3); // Main Loop End
     }
     [Fact]
-    [Trait("DataType","DecimalMix")]
+    [Trait("DataType", "DecimalMix")]
     public void Test_Decimal_Integration_MixedScale()
     {
         var data = new decimal?[]
         {
-            1.5m,               // Scale 1 -> 5
-            -2.123m,            // Scale 3 -> 5
-            100m,               // Scale 0 -> 5
-            0.00005m,           // Scale 5 (Max) 
-            decimal.MaxValue,    
-            decimal.MinValue,   
+            1.5m,            // Scale 1 -> 5
+            -2.123m,         // Scale 3 -> 5
+            100m,            // Scale 0 -> 5
+            0.00005m,        // Scale 5 (Max)
+            123456789.99m,   // Scale 2 -> 5 (Large number that fits within 96-bit when scaled by 10^3)
+            -987654321.1m,   // Scale 1 -> 5
             null
         };
 
@@ -876,6 +876,29 @@ public class DataTypeTests
         Assert.Equal(data[4], s[4]);
         Assert.Equal(data[5], s[5]);
         Assert.Null(s[6]);
+    }
+    [Fact]
+    [Trait("DataType", "Decimal")]
+    public void Test_Decimal_Integration_MinMax()
+    {
+        var data = new decimal?[]
+        {
+            decimal.MaxValue, 
+            decimal.MinValue, 
+            0m,
+            null
+        };
+
+        // All elements have Scale = 0, so no 10^N scaling overflow occurs
+        using var s = Series.From("extreme_decimal", data);
+
+        Assert.Equal(4, s.Length);
+        Assert.Equal(1, s.NullCount);
+
+        Assert.Equal(decimal.MaxValue, s[0]);
+        Assert.Equal(decimal.MinValue, s[1]);
+        Assert.Equal(0m, s[2]);
+        Assert.Null(s[3]);
     }
     [Fact]
     public void Test_Decimal_NonNullable_FastPath()
