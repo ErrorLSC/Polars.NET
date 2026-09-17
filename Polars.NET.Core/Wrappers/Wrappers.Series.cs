@@ -913,143 +913,119 @@ public readonly partial struct PolarsWrapper
     public static DataFrameHandle SeriesToFrame(SeriesHandle h)
         => ErrorHelper.Check(NativeBindings.pl_series_to_frame(h));
 
-    public static sbyte? SeriesGetInt8Fast(SeriesHandle s, long idx)
+    public static sbyte SeriesGetInt8Fast(SeriesHandle s, long idx)
     {
-        int code = NativeBindings.pl_series_get_i8_fast(s, (nuint)idx, out sbyte val, out bool isNull);
+        int code = NativeBindings.pl_series_get_i8_fast(s, (nuint)idx, out sbyte val);
 
         ErrorHelper.CheckStatus(code);
-        if (isNull) return null;
 
         return val;
     }
-    public static short? SeriesGetInt16Fast(SeriesHandle s, long idx)
+    public static short SeriesGetInt16Fast(SeriesHandle s, long idx)
     {
-        int code = NativeBindings.pl_series_get_i16_fast(s, (nuint)idx, out short val, out bool isNull);
+        int code = NativeBindings.pl_series_get_i16_fast(s, (nuint)idx, out short val);
 
         ErrorHelper.CheckStatus(code);
-        if (isNull) return null;
 
         return val;
     }
-    public static long? SeriesGetInt64Fast(SeriesHandle s, long idx)
+    public static long SeriesGetInt64Fast(SeriesHandle s, long idx)
     {
-        int code = NativeBindings.pl_series_get_i64_fast(s, (nuint)idx, out long val, out bool isNull);
+        int code = NativeBindings.pl_series_get_i64_fast(s, (nuint)idx, out long val);
 
         ErrorHelper.CheckStatus(code);
-        if (isNull) return null;
 
         return val;
     }
-    public static int? SeriesGetInt32Fast(SeriesHandle s, long idx)
+    public static int SeriesGetInt32Fast(SeriesHandle s, long idx)
     {
-        int code = NativeBindings.pl_series_get_i32_fast(s, (nuint)idx, out int val, out bool isNull);
+        int code = NativeBindings.pl_series_get_i32_fast(s, (nuint)idx, out int val);
 
         ErrorHelper.CheckStatus(code);
-        if (isNull) return null;
 
         return val;
     }
-    public static byte? SeriesGetUInt8Fast(SeriesHandle s, long idx)
+    public static byte SeriesGetUInt8Fast(SeriesHandle s, long idx)
     {
-        int code = NativeBindings.pl_series_get_u8_fast(s, (nuint)idx, out byte val, out bool isNull);
+        int code = NativeBindings.pl_series_get_u8_fast(s, (nuint)idx, out byte val);
 
         ErrorHelper.CheckStatus(code);
-        if (isNull) return null;
 
         return val;
     }
-    public static ushort? SeriesGetUInt16Fast(SeriesHandle s, long idx)
+    public static ushort SeriesGetUInt16Fast(SeriesHandle s, long idx)
     {
-        int code = NativeBindings.pl_series_get_u16_fast(s, (nuint)idx, out ushort val, out bool isNull);
+        int code = NativeBindings.pl_series_get_u16_fast(s, (nuint)idx, out ushort val);
 
         ErrorHelper.CheckStatus(code);
-        if (isNull) return null;
 
         return val;
     }
-    public static uint? SeriesGetUInt32Fast(SeriesHandle s, long idx)
+    public static uint SeriesGetUInt32Fast(SeriesHandle s, long idx)
     {
-        int code = NativeBindings.pl_series_get_u32_fast(s, (nuint)idx, out uint val, out bool isNull);
+        int code = NativeBindings.pl_series_get_u32_fast(s, (nuint)idx, out uint val);
 
         ErrorHelper.CheckStatus(code);
-        if (isNull) return null;
 
         return val;
     }
-    public static ulong? SeriesGetUInt64Fast(SeriesHandle s, long idx)
+    public static ulong SeriesGetUInt64Fast(SeriesHandle s, long idx)
     {
-        int code = NativeBindings.pl_series_get_u64_fast(s, (nuint)idx, out ulong val, out bool isNull);
+        int code = NativeBindings.pl_series_get_u64_fast(s, (nuint)idx, out ulong val);
 
         ErrorHelper.CheckStatus(code);
-        if (isNull) return null;
 
         return val;
     }
-    public static Int128? SeriesGetInt128Fast(SeriesHandle s, long idx)
+    public static Int128 SeriesGetInt128Fast(SeriesHandle s, long idx)
     {
-        int status = NativeBindings.pl_series_get_i128_fast(
-            s, (nuint)idx, out Int128 val, out bool isNull);
+        int status = NativeBindings.pl_series_get_i128_fast(s, (nuint)idx, out Int128 val);
 
         ErrorHelper.CheckStatus(status);
-        if (isNull) return null;
 
         return val;
     }
-    public static UInt128? SeriesGetUInt128Fast(SeriesHandle s, long idx)
+    public static UInt128 SeriesGetUInt128Fast(SeriesHandle s, long idx)
     {
-        int status = NativeBindings.pl_series_get_u128_fast(
-            s, (nuint)idx, out UInt128 val, out bool isNull);
+        int status = NativeBindings.pl_series_get_u128_fast(s, (nuint)idx, out UInt128 val);
 
         ErrorHelper.CheckStatus(status);
-        if (isNull) return null;
 
         return val;
     }
-    public static double? SeriesGetDoubleFast(SeriesHandle s, long idx)
+    public static double SeriesGetDoubleFast(SeriesHandle s, long idx)
     {
-        int status = NativeBindings.pl_series_get_f64_fast(
-            s, (nuint)idx, out double val, out bool isNull);
+        int status = NativeBindings.pl_series_get_f64_fast(s, (nuint)idx, out double val);
 
         ErrorHelper.CheckStatus(status);
-        if (isNull) return null;
 
         return val;
     }
-    public static float? SeriesGetSingleFast(SeriesHandle s, long idx)
+    public static float SeriesGetSingleFast(SeriesHandle s, long idx)
     {
-        int status = NativeBindings.pl_series_get_f32_fast(
-            s, (nuint)idx, out float val, out bool isNull);
+        int status = NativeBindings.pl_series_get_f32_fast(s, (nuint)idx, out float val);
 
         ErrorHelper.CheckStatus(status);
-        if (isNull) return null;
 
         return val;
     }
-    public static Half? SeriesGetHalfFast(SeriesHandle s, long idx)
+    public static Half SeriesGetHalfFast(SeriesHandle s, long idx)
     {
-        int status = NativeBindings.pl_series_get_f16_fast(
-            s, (nuint)idx, out Half val, out bool isNull);
+        int status = NativeBindings.pl_series_get_f16_fast(s, (nuint)idx, out Half val);
 
         ErrorHelper.CheckStatus(status);
-        if (isNull) return null;
 
         return val;
     }
-    public static bool? SeriesGetBoolFast(SeriesHandle s, long idx)
+    public static bool SeriesGetBoolFast(SeriesHandle s, long idx)
     {
         int status = NativeBindings.pl_series_get_bool_fast(
             s,
             (nuint)idx,
-            out bool val,
-            out bool isNull
+            out bool val
         );
 
         ErrorHelper.CheckStatus(status);
-
-        if (isNull)
-        {
-            return null;
-        }
 
         return val;
     }
@@ -1087,21 +1063,15 @@ public readonly partial struct PolarsWrapper
     /// Reads a decimal physical value directly and reconstructs it into a .NET decimal.
     /// Bypasses string conversion and arithmetic division for maximum throughput.
     /// </summary>
-    public static decimal? SeriesGetDecimalFast(SeriesHandle s, long idx, int scale, int precision)
+    public static decimal SeriesGetDecimalFast(SeriesHandle s, long idx, int scale, int precision)
     {
         int status = NativeBindings.pl_series_get_decimal_fast(
             s,
             (nuint)idx,
-            out Int128 val,
-            out bool isNull
+            out Int128 val
         );
 
         ErrorHelper.CheckStatus(status);
-
-        if (isNull)
-        {
-            return null;
-        }
 
         // 1. Check if scale exceeds .NET decimal limits (0..28)
         if (scale is < 0 or > MaxDotNetDecimalScale)
@@ -1127,58 +1097,43 @@ public readonly partial struct PolarsWrapper
         return new decimal(low, mid, high, isNegative, (byte)scale);
     }
     // Date: Days since 1970-01-01
-    public static DateOnly? SeriesGetDateFast(SeriesHandle s, long idx)
+    public static DateOnly SeriesGetDateFast(SeriesHandle s, long idx)
     {
         int status = NativeBindings.pl_series_get_date_fast(
             s,
             (nuint)idx,
-            out int days,
-            out bool isNull
+            out int days
         );
 
         ErrorHelper.CheckStatus(status);
-
-        if (isNull)
-        {
-            return null;
-        }
 
         return DateOnly.FromDayNumber(days + 719162);
     }
 
     // Time: Nanoseconds since midnight
-    public static TimeOnly? SeriesGetTimeFast(SeriesHandle s, long idx)
+    public static TimeOnly SeriesGetTimeFast(SeriesHandle s, long idx)
     {
         int status = NativeBindings.pl_series_get_time_fast(
             s,
             (nuint)idx,
-            out long ns,
-            out bool isNull
+            out long ns
         );
         ErrorHelper.CheckStatus(status);
-
-        if (isNull)
-        {
-            return null;
-        }
 
         // .NET Ticks = 100ns
         return new TimeOnly(ns /100);
     }
 
     // Datetime: Microseconds since 1970-01-01
-    public static DateTime? SeriesGetDatetimeFast(SeriesHandle s, long idx,PlTimeUnit timeUnit,string? timeZone)
+    public static DateTime SeriesGetDatetimeFast(SeriesHandle s, long idx,PlTimeUnit timeUnit,string? timeZone)
     {
         int status = NativeBindings.pl_series_get_datetime_fast(
             s,
             (nuint)idx,
-            out long val,
-            out bool isNull
+            out long val
         );
 
         ErrorHelper.CheckStatus(status);
-
-        if (isNull) return null;
 
         long ticks = timeUnit switch
         {
@@ -1207,13 +1162,11 @@ public readonly partial struct PolarsWrapper
 
 
     // Duration
-    public static TimeSpan? SeriesGetDurationFast(SeriesHandle s, long idx,PlTimeUnit timeUnit)
+    public static TimeSpan SeriesGetDurationFast(SeriesHandle s, long idx,PlTimeUnit timeUnit)
     {
-        int status = NativeBindings.pl_series_get_duration_fast(
-            s, (nuint)idx, out long val, out bool isNull);
+        int status = NativeBindings.pl_series_get_duration_fast(s, (nuint)idx, out long val);
 
         ErrorHelper.CheckStatus(status);
-        if (isNull) return null;
 
         return timeUnit switch
         {

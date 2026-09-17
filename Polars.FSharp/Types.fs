@@ -394,17 +394,17 @@ type Series(handle: SeriesHandle) =
     member private this.CoerceNumericScalar(index: int64, targetType: Type) : obj =
         let rawVal: obj =
             match this.DataType.Kind with
-            | DataTypeKind.Int64   -> box (PolarsWrapper.SeriesGetInt64Fast(this.Handle, index).Value)
-            | DataTypeKind.Int32   -> box (PolarsWrapper.SeriesGetInt32Fast(this.Handle, index).Value)
-            | DataTypeKind.Int16   -> box (PolarsWrapper.SeriesGetInt16Fast(this.Handle, index).Value)
-            | DataTypeKind.Int8    -> box (PolarsWrapper.SeriesGetInt8Fast(this.Handle, index).Value)
-            | DataTypeKind.UInt64  -> box (PolarsWrapper.SeriesGetUInt64Fast(this.Handle, index).Value)
-            | DataTypeKind.UInt32  -> box (PolarsWrapper.SeriesGetUInt32Fast(this.Handle, index).Value)
-            | DataTypeKind.UInt16  -> box (PolarsWrapper.SeriesGetUInt16Fast(this.Handle, index).Value)
-            | DataTypeKind.UInt8   -> box (PolarsWrapper.SeriesGetUInt8Fast(this.Handle, index).Value)
-            | DataTypeKind.Float64 -> box (PolarsWrapper.SeriesGetDoubleFast(this.Handle, index).Value)
-            | DataTypeKind.Float32 -> box (PolarsWrapper.SeriesGetSingleFast(this.Handle, index).Value)
-            | DataTypeKind.Float16 -> box (PolarsWrapper.SeriesGetHalfFast(this.Handle, index).Value)
+            | DataTypeKind.Int64   -> box (PolarsWrapper.SeriesGetInt64Fast(this.Handle, index))
+            | DataTypeKind.Int32   -> box (PolarsWrapper.SeriesGetInt32Fast(this.Handle, index))
+            | DataTypeKind.Int16   -> box (PolarsWrapper.SeriesGetInt16Fast(this.Handle, index))
+            | DataTypeKind.Int8    -> box (PolarsWrapper.SeriesGetInt8Fast(this.Handle, index))
+            | DataTypeKind.UInt64  -> box (PolarsWrapper.SeriesGetUInt64Fast(this.Handle, index))
+            | DataTypeKind.UInt32  -> box (PolarsWrapper.SeriesGetUInt32Fast(this.Handle, index))
+            | DataTypeKind.UInt16  -> box (PolarsWrapper.SeriesGetUInt16Fast(this.Handle, index))
+            | DataTypeKind.UInt8   -> box (PolarsWrapper.SeriesGetUInt8Fast(this.Handle, index))
+            | DataTypeKind.Float64 -> box (PolarsWrapper.SeriesGetDoubleFast(this.Handle, index))
+            | DataTypeKind.Float32 -> box (PolarsWrapper.SeriesGetSingleFast(this.Handle, index))
+            | DataTypeKind.Float16 -> box (PolarsWrapper.SeriesGetHalfFast(this.Handle, index))
             | other ->
                 invalidOp (sprintf "Cannot coerce non-numeric series of type %A to %s" other targetType.Name)
 
@@ -422,31 +422,31 @@ type Series(handle: SeriesHandle) =
         // 1. Exact Physical Fast Paths (Zero Allocation / Max Throughput)
         // ==============================================================
         if t = typeof<int> && kind = DataTypeKind.Int32 then
-            box (PolarsWrapper.SeriesGetInt32Fast(this.Handle, index).Value) |> unbox<'T>
+            box (PolarsWrapper.SeriesGetInt32Fast(this.Handle, index)) |> unbox<'T>
         elif t = typeof<int64> && kind = DataTypeKind.Int64 then
-            box (PolarsWrapper.SeriesGetInt64Fast(this.Handle, index).Value) |> unbox<'T>
+            box (PolarsWrapper.SeriesGetInt64Fast(this.Handle, index)) |> unbox<'T>
         elif t = typeof<uint32> && kind = DataTypeKind.UInt32 then
-            box (PolarsWrapper.SeriesGetUInt32Fast(this.Handle, index).Value) |> unbox<'T>
+            box (PolarsWrapper.SeriesGetUInt32Fast(this.Handle, index)) |> unbox<'T>
         elif t = typeof<uint64> && kind = DataTypeKind.UInt64 then
-            box (PolarsWrapper.SeriesGetUInt64Fast(this.Handle, index).Value) |> unbox<'T>
+            box (PolarsWrapper.SeriesGetUInt64Fast(this.Handle, index)) |> unbox<'T>
         elif t = typeof<int16> && kind = DataTypeKind.Int16 then
-            box (PolarsWrapper.SeriesGetInt16Fast(this.Handle, index).Value) |> unbox<'T>
+            box (PolarsWrapper.SeriesGetInt16Fast(this.Handle, index)) |> unbox<'T>
         elif t = typeof<uint16> && kind = DataTypeKind.UInt16 then
-            box (PolarsWrapper.SeriesGetUInt16Fast(this.Handle, index).Value) |> unbox<'T>
+            box (PolarsWrapper.SeriesGetUInt16Fast(this.Handle, index)) |> unbox<'T>
         elif t = typeof<sbyte> && kind = DataTypeKind.Int8 then
-            box (PolarsWrapper.SeriesGetInt8Fast(this.Handle, index).Value) |> unbox<'T>
+            box (PolarsWrapper.SeriesGetInt8Fast(this.Handle, index)) |> unbox<'T>
         elif t = typeof<byte> && kind = DataTypeKind.UInt8 then
-            box (PolarsWrapper.SeriesGetUInt8Fast(this.Handle, index).Value) |> unbox<'T>
+            box (PolarsWrapper.SeriesGetUInt8Fast(this.Handle, index)) |> unbox<'T>
         elif t = typeof<double> && kind = DataTypeKind.Float64 then
-            box (PolarsWrapper.SeriesGetDoubleFast(this.Handle, index).Value) |> unbox<'T>
+            box (PolarsWrapper.SeriesGetDoubleFast(this.Handle, index)) |> unbox<'T>
         elif t = typeof<float32> && kind = DataTypeKind.Float32 then
-            box (PolarsWrapper.SeriesGetSingleFast(this.Handle, index).Value) |> unbox<'T>
+            box (PolarsWrapper.SeriesGetSingleFast(this.Handle, index)) |> unbox<'T>
         elif t = typeof<Half> && kind = DataTypeKind.Float16 then
-            box (PolarsWrapper.SeriesGetHalfFast(this.Handle, index).Value) |> unbox<'T>
+            box (PolarsWrapper.SeriesGetHalfFast(this.Handle, index)) |> unbox<'T>
         elif t = typeof<Int128> then
-            box (PolarsWrapper.SeriesGetInt128Fast(this.Handle, index).Value) |> unbox<'T>
+            box (PolarsWrapper.SeriesGetInt128Fast(this.Handle, index)) |> unbox<'T>
         elif t = typeof<UInt128> then
-            box (PolarsWrapper.SeriesGetUInt128Fast(this.Handle, index).Value) |> unbox<'T>
+            box (PolarsWrapper.SeriesGetUInt128Fast(this.Handle, index)) |> unbox<'T>
 
         // ==============================================================
         // 2. Numeric Coercion Path (Cross-numeric reads, e.g., Int64 -> int)
@@ -458,7 +458,7 @@ type Series(handle: SeriesHandle) =
         // 3. Boolean
         // ==============================================================
         elif t = typeof<bool> then
-            box (PolarsWrapper.SeriesGetBoolFast(this.Handle, index).Value) |> unbox<'T>
+            box (PolarsWrapper.SeriesGetBoolFast(this.Handle, index)) |> unbox<'T>
 
         // ==============================================================
         // 4. String (Guaranteed not null; empty string is safely preserved)
@@ -472,25 +472,25 @@ type Series(handle: SeriesHandle) =
         elif t = typeof<decimal> then
             let p = this.DataType.Precision
             let s = this.DataType.Scale
-            box (PolarsWrapper.SeriesGetDecimalFast(this.Handle, index, s, p).Value) |> unbox<'T>
+            box (PolarsWrapper.SeriesGetDecimalFast(this.Handle, index, s, p)) |> unbox<'T>
 
         // ==============================================================
         // 6. Temporal (Date, Time, Duration, Datetime)
         // ==============================================================
         elif t = typeof<DateOnly> then
-            box (PolarsWrapper.SeriesGetDateFast(this.Handle, index).Value) |> unbox<'T>
+            box (PolarsWrapper.SeriesGetDateFast(this.Handle, index)) |> unbox<'T>
         elif t = typeof<TimeOnly> then
-            box (PolarsWrapper.SeriesGetTimeFast(this.Handle, index).Value) |> unbox<'T>
+            box (PolarsWrapper.SeriesGetTimeFast(this.Handle, index)) |> unbox<'T>
         elif t = typeof<TimeSpan> then
             let tu = this.DataType.TimeUnit.ToNative()
-            box (PolarsWrapper.SeriesGetDurationFast(this.Handle, index, tu).Value) |> unbox<'T>
+            box (PolarsWrapper.SeriesGetDurationFast(this.Handle, index, tu)) |> unbox<'T>
         elif t = typeof<DateTime> then
             let tu = this.DataType.TimeUnit.ToNative()
-            box (PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index, tu, null).Value) |> unbox<'T>
+            box (PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index, tu, null)) |> unbox<'T>
         elif t = typeof<struct(DateTime * string)> then
             let tu = this.DataType.TimeUnit.ToNative()
             let tz = this.DataType.TimeZone.Value
-            let dt = PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index, tu, tz).Value
+            let dt = PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index, tu, tz)
             box struct(dt, tz) |> unbox<'T>
 
         // ==============================================================

@@ -39,37 +39,36 @@ unsafe internal partial class NativeBindings
     );
     // --- Series Getters ---
     [LibraryImport(LibName)]
-    public static partial int pl_series_get_i32_fast(SeriesHandle s, nuint idx, out int val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
+    public static partial int pl_series_get_i32_fast(SeriesHandle s, nuint idx, out int val);
     [LibraryImport(LibName)]
-    public static partial int pl_series_get_i8_fast(SeriesHandle s, nuint idx, out sbyte val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
+    public static partial int pl_series_get_i8_fast(SeriesHandle s, nuint idx, out sbyte val);
     [LibraryImport(LibName)]
-    public static partial int pl_series_get_i16_fast(SeriesHandle s, nuint idx, out short val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
+    public static partial int pl_series_get_i16_fast(SeriesHandle s, nuint idx, out short val);
     [LibraryImport(LibName)]
-    public static partial int pl_series_get_i64_fast(SeriesHandle s, nuint idx, out long val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
+    public static partial int pl_series_get_i64_fast(SeriesHandle s, nuint idx, out long val);
     [LibraryImport(LibName)]
-    public static partial int pl_series_get_u8_fast(SeriesHandle s, nuint idx, out byte val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
+    public static partial int pl_series_get_u8_fast(SeriesHandle s, nuint idx, out byte val);
     [LibraryImport(LibName)]
-    public static partial int pl_series_get_u16_fast(SeriesHandle s, nuint idx, out ushort val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
+    public static partial int pl_series_get_u16_fast(SeriesHandle s, nuint idx, out ushort val);
     [LibraryImport(LibName)]
-    public static partial int pl_series_get_u32_fast(SeriesHandle s, nuint idx, out uint val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
+    public static partial int pl_series_get_u32_fast(SeriesHandle s, nuint idx, out uint val);
     [LibraryImport(LibName)]
-    public static partial int pl_series_get_u64_fast(SeriesHandle s, nuint idx, out ulong val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
+    public static partial int pl_series_get_u64_fast(SeriesHandle s, nuint idx, out ulong val);
     [LibraryImport(LibName)]
-    public static partial int pl_series_get_i128_fast(SeriesHandle s, nuint idx, out Int128 val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
+    public static partial int pl_series_get_i128_fast(SeriesHandle s, nuint idx, out Int128 val);
     [LibraryImport(LibName)]
-    public static partial int pl_series_get_u128_fast(SeriesHandle s, nuint idx, out UInt128 val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
+    public static partial int pl_series_get_u128_fast(SeriesHandle s, nuint idx, out UInt128 val);
     [LibraryImport(LibName)]
-    public static partial int pl_series_get_f16_fast(SeriesHandle s, nuint idx, out Half val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
+    public static partial int pl_series_get_f16_fast(SeriesHandle s, nuint idx, out Half val);
     [LibraryImport(LibName)]
-    public static partial int pl_series_get_f32_fast(SeriesHandle s, nuint idx, out float val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
+    public static partial int pl_series_get_f32_fast(SeriesHandle s, nuint idx, out float val);
     [LibraryImport(LibName)]
-    public static partial int pl_series_get_f64_fast(SeriesHandle s, nuint idx, out double val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
+    public static partial int pl_series_get_f64_fast(SeriesHandle s, nuint idx, out double val);
     [LibraryImport(LibName)]
     public static partial int pl_series_get_bool_fast(
         SeriesHandle series,
         nuint idx,
-        [MarshalAs(UnmanagedType.U1)] out bool val,
-        [MarshalAs(UnmanagedType.U1)] out bool isNull
+        [MarshalAs(UnmanagedType.U1)] out bool val
     );
     [LibraryImport(LibName)]
     public static partial int pl_series_get_str_fast(
@@ -83,22 +82,20 @@ unsafe internal partial class NativeBindings
     public static partial int pl_series_get_decimal_fast(
         SeriesHandle series,
         nuint idx,
-        out Int128 val,
-        [MarshalAs(UnmanagedType.U1)] out bool isNull
+        out Int128 val
     );
     [LibraryImport(LibName)]
-    public static partial int pl_series_get_date_fast(SeriesHandle s, nuint idx, out int val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
+    public static partial int pl_series_get_date_fast(SeriesHandle s, nuint idx, out int val);
     [LibraryImport(LibName)]
-    public static partial int pl_series_get_time_fast(SeriesHandle s, nuint idx, out long val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
+    public static partial int pl_series_get_time_fast(SeriesHandle s, nuint idx, out long val);
     [LibraryImport(LibName)]
     public static partial int pl_series_get_datetime_fast(
         SeriesHandle series,
         nuint idx,
-        out long val,
-        [MarshalAs(UnmanagedType.U1)] out bool isNull
+        out long val
     );
     [LibraryImport(LibName)]
-    public static partial int pl_series_get_duration_fast(SeriesHandle s, nuint idx, out long val, [MarshalAs(UnmanagedType.U1)] out bool isNull);
+    public static partial int pl_series_get_duration_fast(SeriesHandle s, nuint idx, out long val);
     // --- Series Constructors ---
     // DataFrame -> Series (ByName)
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]

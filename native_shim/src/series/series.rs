@@ -474,7 +474,6 @@ macro_rules! impl_pl_series_get_fast {
             s_ptr: *mut SeriesContext,
             idx: usize,
             out_val: *mut $ty,
-            out_is_null: *mut bool,
         ) -> c_int {
             ffi_try_c_int!({
                 let ctx = unsafe { &*s_ptr };
@@ -485,19 +484,7 @@ macro_rules! impl_pl_series_get_fast {
                 })?;
 
                 // Read directly from chunk, skipping AnyValue conversion and bounds checking
-                match unsafe { ca.get_unchecked(idx) } {
-                    Some(v) => {
-                        unsafe {
-                            *out_val = v;
-                            *out_is_null = false;
-                        }
-                    }
-                    None => {
-                        unsafe {
-                            *out_is_null = true;
-                        }
-                    }
-                }
+                unsafe {*out_val = ca.value_unchecked(idx) };
 
                 Ok(0)
             })
@@ -560,13 +547,11 @@ pub unsafe extern "C" fn pl_series_get_str_fast(
 /// Bypasses AnyValue construction and bounds checking.
 ///
 /// Returns 0 on success, non-zero on error.
-/// If the element is null, `*out_is_null` is set to true.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pl_series_get_decimal_fast(
     s_ptr: *mut SeriesContext,
     idx: usize,
     out_val: *mut i128,
-    out_is_null: *mut bool,
 ) -> c_int {
     ffi_try_c_int!({
         let ctx = unsafe { &*s_ptr };
@@ -577,16 +562,7 @@ pub unsafe extern "C" fn pl_series_get_decimal_fast(
 
         let phys = ca.physical();
 
-        match unsafe { phys.get_unchecked(idx) } {
-            Some(v) => unsafe {
-                *out_val = v;
-                *out_is_null = false;
-            },
-            None => unsafe {
-                *out_val = 0;
-                *out_is_null = true;
-            },
-        }
+        unsafe { *out_val = phys.value_unchecked(idx); }
 
         Ok(0)
     })
@@ -600,7 +576,6 @@ macro_rules! impl_series_get_temporal_fast {
             s_ptr: *mut SeriesContext,
             idx: usize,
             out_val: *mut $native_ty,
-            out_is_null: *mut bool,
         ) -> c_int {
             ffi_try_c_int!({
                 let ctx = unsafe { &*s_ptr };
@@ -612,16 +587,8 @@ macro_rules! impl_series_get_temporal_fast {
 
                 let phys = ca.physical();
 
-                match unsafe { phys.get_unchecked(idx) } {
-                    Some(v) => unsafe {
-                        *out_val = v;
-                        *out_is_null = false;
-                    },
-                    None => unsafe {
-                        *out_val = 0;
-                        *out_is_null = true;
-                    },
-                }
+                unsafe {*out_val = phys.value_unchecked(idx) };
+                
 
                 Ok(0)
             })
@@ -660,57 +627,6 @@ impl_series_get_temporal_fast!(
     "Duration",
     "Reads an i64 duration physical value at `idx` without AnyValue allocation or bounds checks.\nTimeUnit must be obtained once from the Series schema at cursor initialization.\n\nReturns 0 on success, non-zero on error.\nIf the element is null, `*out_is_null` is set to true."
 );
-
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_get_i64(
-    s_ptr: *mut SeriesContext,
-    idx: usize,
-    out_val: *mut i64,
-    out_is_null: *mut bool,
-) -> bool {
-    ffi_bool_try!({
-        let ctx = unsafe { &*s_ptr };
-
-        if idx >= ctx.series.len() {
-            polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
-        }
-
-        match unsafe { ctx.series.get_unchecked(idx) } {
-            AnyValue::Int64(v) => unsafe {
-                *out_val = v;
-                *out_is_null = false;
-            },
-            AnyValue::Int32(v) => unsafe {
-                *out_val = v as i64;
-                *out_is_null = false;
-            },
-            AnyValue::Int16(v) => unsafe {
-                *out_val = v as i64;
-                *out_is_null = false;
-            },
-            AnyValue::Int8(v) => unsafe {
-                *out_val = v as i64;
-                *out_is_null = false;
-            },
-            AnyValue::UInt64(v) => unsafe {
-                *out_val = v as i64;
-                *out_is_null = false;
-            },
-            AnyValue::UInt32(v) => unsafe {
-                *out_val = v as i64;
-                *out_is_null = false;
-            },
-            AnyValue::Null => unsafe {
-                *out_is_null = true;
-            },
-            other => {
-                polars_bail!(ComputeError: "Expected Integer, got DataType: {:?}", other.dtype())
-            }
-        }
-
-        Ok(())
-    })
-}
 
 // ==========================================
 // Arithmetic Ops

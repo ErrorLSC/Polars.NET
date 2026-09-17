@@ -31,40 +31,40 @@ public partial class Series : IDisposable,IPolarsSeries
 
         // 1. Numeric
         if (underlying == typeof(int) && DataType == DataType.Int32)
-            return (T?)(object?)PolarsWrapper.SeriesGetInt32Fast(Handle, index);
+            return (T)(object)PolarsWrapper.SeriesGetInt32Fast(Handle, index);
 
         if (underlying == typeof(long) && DataType == DataType.Int64)
-            return (T?)(object?)PolarsWrapper.SeriesGetInt64Fast(Handle, index);
+            return (T)(object)PolarsWrapper.SeriesGetInt64Fast(Handle, index);
 
         if (underlying == typeof(uint) && DataType == DataType.UInt32)
-            return (T?)(object?)PolarsWrapper.SeriesGetUInt32Fast(Handle, index);
+            return (T)(object)PolarsWrapper.SeriesGetUInt32Fast(Handle, index);
 
         if (underlying == typeof(ulong) && DataType == DataType.UInt64)
-            return (T?)(object?)PolarsWrapper.SeriesGetUInt64Fast(Handle, index);
+            return (T)(object)PolarsWrapper.SeriesGetUInt64Fast(Handle, index);
 
         if (underlying == typeof(short) && DataType == DataType.Int16)
-            return (T?)(object?)PolarsWrapper.SeriesGetInt16Fast(Handle, index);
+            return (T)(object)PolarsWrapper.SeriesGetInt16Fast(Handle, index);
 
         if (underlying == typeof(ushort) && DataType == DataType.UInt16)
-            return (T?)(object?)PolarsWrapper.SeriesGetUInt16Fast(Handle, index);
+            return (T)(object)PolarsWrapper.SeriesGetUInt16Fast(Handle, index);
 
         if (underlying == typeof(sbyte) && DataType == DataType.Int8)
-            return (T?)(object?)PolarsWrapper.SeriesGetInt8Fast(Handle, index);
+            return (T)(object)PolarsWrapper.SeriesGetInt8Fast(Handle, index);
 
         if (underlying == typeof(byte) && DataType == DataType.UInt8)
-            return (T?)(object?)PolarsWrapper.SeriesGetUInt8Fast(Handle, index);
+            return (T)(object)PolarsWrapper.SeriesGetUInt8Fast(Handle, index);
         if (underlying == typeof(Int128))
-            return (T?)(object?)PolarsWrapper.SeriesGetInt128Fast(Handle, index);
+            return (T)(object)PolarsWrapper.SeriesGetInt128Fast(Handle, index);
 
         if (underlying == typeof(UInt128))
-            return (T?)(object?)PolarsWrapper.SeriesGetUInt128Fast(Handle, index);
+            return (T)(object)PolarsWrapper.SeriesGetUInt128Fast(Handle, index);
 
         if (underlying == typeof(double) && DataType == DataType.Float64)
-            return (T?)(object?)PolarsWrapper.SeriesGetDoubleFast(Handle, index);
+            return (T)(object)PolarsWrapper.SeriesGetDoubleFast(Handle, index);
         if (underlying == typeof(float) && DataType == DataType.Float32)
-            return (T?)(object?)PolarsWrapper.SeriesGetSingleFast(Handle, index);
+            return (T)(object)PolarsWrapper.SeriesGetSingleFast(Handle, index);
         if (underlying == typeof(Half) && DataType == DataType.Float16)
-            return (T?)(object?)PolarsWrapper.SeriesGetHalfFast(Handle, index);
+            return (T)(object)PolarsWrapper.SeriesGetHalfFast(Handle, index);
 
         if (IsSupportedNumericType(underlying) && DataType.IsNumeric)
         {
@@ -72,7 +72,7 @@ public partial class Series : IDisposable,IPolarsSeries
         }
         // 2. Boolean
         if (underlying == typeof(bool))
-            return (T?)(object?)PolarsWrapper.SeriesGetBoolFast(Handle, index);
+            return (T)(object)PolarsWrapper.SeriesGetBoolFast(Handle, index);
 
         // 3. String
         if (underlying == typeof(string) && !DataType.IsCategorical)
@@ -86,37 +86,32 @@ public partial class Series : IDisposable,IPolarsSeries
         {   
             int scale = DataType.Scale;
             int precision = DataType.Precision;
-            return (T)(object)PolarsWrapper.SeriesGetDecimalFast(Handle, index,scale,precision)!;
+            return (T)(object)PolarsWrapper.SeriesGetDecimalFast(Handle, index,scale,precision);
         }
         // 5. Temporal (Time)
         if (underlying == typeof(DateOnly))
-            return (T)(object)PolarsWrapper.SeriesGetDateFast(Handle, index)!;
+            return (T)(object)PolarsWrapper.SeriesGetDateFast(Handle, index);
 
         if (underlying == typeof(TimeOnly))
-            return (T)(object)PolarsWrapper.SeriesGetTimeFast(Handle, index)!;
+            return (T)(object)PolarsWrapper.SeriesGetTimeFast(Handle, index);
 
         if (underlying == typeof(TimeSpan))
         {
             TimeUnit timeUnit = DataType.TimeUnit;
-            return (T)(object)PolarsWrapper.SeriesGetDurationFast(Handle, index,timeUnit.ToNative())!;
+            return (T)(object)PolarsWrapper.SeriesGetDurationFast(Handle, index,timeUnit.ToNative());
         }
         if (underlying == typeof(DateTime))
         {
             TimeUnit timeUnit = DataType.TimeUnit;
-            DateTime? dt = PolarsWrapper.SeriesGetDatetimeFast(Handle, index,timeUnit.ToNative(),null);
+            DateTime dt = PolarsWrapper.SeriesGetDatetimeFast(Handle, index,timeUnit.ToNative(),null);
 
-            if (!dt.HasValue)
-                return default;
-
-            return (T)(object)dt.Value;
+            return (T)(object)dt;
         }
         if (underlying == typeof(ValueTuple<DateTime, string>))
         {
             TimeUnit timeUnit = DataType.TimeUnit;
             string timeZone = DataType.TimeZone!;
             var dt = PolarsWrapper.SeriesGetDatetimeFast(Handle, index,timeUnit.ToNative(),timeZone);
-            if (!dt.HasValue)
-                return default;
 
             return (T)(object)(dt,timeZone);
         }
@@ -143,27 +138,27 @@ public partial class Series : IDisposable,IPolarsSeries
     {
         object val;
         if (actualDtype == DataType.Int64)
-            val = PolarsWrapper.SeriesGetInt64Fast(Handle, index)!.Value;
+            val = PolarsWrapper.SeriesGetInt64Fast(Handle, index);
         else if (actualDtype == DataType.Int32)
-            val = PolarsWrapper.SeriesGetInt32Fast(Handle, index)!.Value;
+            val = PolarsWrapper.SeriesGetInt32Fast(Handle, index);
         else if (actualDtype == DataType.Float64)
-            val = PolarsWrapper.SeriesGetDoubleFast(Handle, index)!.Value;
+            val = PolarsWrapper.SeriesGetDoubleFast(Handle, index);
         else if (actualDtype == DataType.Float32)
-            val = PolarsWrapper.SeriesGetSingleFast(Handle, index)!.Value;
+            val = PolarsWrapper.SeriesGetSingleFast(Handle, index);
         else if (actualDtype == DataType.Float16)
-            val = PolarsWrapper.SeriesGetHalfFast(Handle, index)!.Value;
+            val = PolarsWrapper.SeriesGetHalfFast(Handle, index);
         else if (actualDtype == DataType.UInt64)
-            val = PolarsWrapper.SeriesGetUInt64Fast(Handle, index)!.Value;
+            val = PolarsWrapper.SeriesGetUInt64Fast(Handle, index);
         else if (actualDtype == DataType.UInt32)
-            val = PolarsWrapper.SeriesGetUInt32Fast(Handle, index)!.Value;
+            val = PolarsWrapper.SeriesGetUInt32Fast(Handle, index);
         else if (actualDtype == DataType.Int16)
-            val = PolarsWrapper.SeriesGetInt16Fast(Handle, index)!.Value;
+            val = PolarsWrapper.SeriesGetInt16Fast(Handle, index);
         else if (actualDtype == DataType.UInt16)
-            val = PolarsWrapper.SeriesGetUInt16Fast(Handle, index)!.Value;
+            val = PolarsWrapper.SeriesGetUInt16Fast(Handle, index);
         else if (actualDtype == DataType.Int8)
-            val = PolarsWrapper.SeriesGetInt8Fast(Handle, index)!.Value;
+            val = PolarsWrapper.SeriesGetInt8Fast(Handle, index);
         else if (actualDtype == DataType.UInt8)
-            val = PolarsWrapper.SeriesGetUInt8Fast(Handle, index)!.Value;
+            val = PolarsWrapper.SeriesGetUInt8Fast(Handle, index);
         else
             throw new InvalidOperationException($"Cannot coerce non-numeric series of type {actualDtype} to {targetType.Name}");
 
