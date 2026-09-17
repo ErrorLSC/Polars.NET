@@ -2,6 +2,7 @@ using Polars.NET.Core;
 using Polars.NET.Core.Arrow;
 using Pl = Polars.CSharp.Polars;
 using Cs = Polars.CSharp.Polars.Selectors;
+using System.Runtime.CompilerServices;
 
 namespace Polars.CSharp;
 
@@ -13,7 +14,6 @@ public partial class Series : IDisposable,IPolarsSeries
 
     /// <summary>
     /// Get an item at the specified index.
-    /// Supports: int, long, double, bool, string, decimal, DateTime, TimeSpan, DateOnly, TimeOnly.
     /// </summary>
     public T? GetValue<T>(long index, bool? uncheck = false)
     {
@@ -22,42 +22,60 @@ public partial class Series : IDisposable,IPolarsSeries
             if (index < 0 || index >= Length)
                 throw new IndexOutOfRangeException($"Index {index} is out of bounds for Series length {Length}.");
         }
-
-        // if (this.IsNullAt(index))
-        //     return default;
+        
+        if (this.IsNullAt(index))
+            return default;
 
         var type = typeof(T);
         var underlying = Nullable.GetUnderlyingType(type) ?? type;
 
         // 1. Numeric
-        if (underlying == typeof(int))
-            return (T?)(object?)(int?)PolarsWrapper.SeriesGetInt(Handle, index);
-        if (underlying == typeof(uint))
-            return (T?)(object?)(uint?)PolarsWrapper.SeriesGetInt(Handle, index);
-        if (underlying == typeof(long))
-            return (T?)(object?)PolarsWrapper.SeriesGetInt(Handle, index);
-        if (underlying == typeof(ulong))
-            return (T?)(object?)(ulong?)PolarsWrapper.SeriesGetInt(Handle, index);
+        if (underlying == typeof(int) && DataType == DataType.Int32)
+            return (T?)(object?)PolarsWrapper.SeriesGetInt32Fast(Handle, index);
+
+        if (underlying == typeof(long) && DataType == DataType.Int64)
+            return (T?)(object?)PolarsWrapper.SeriesGetInt64Fast(Handle, index);
+
+        if (underlying == typeof(uint) && DataType == DataType.UInt32)
+            return (T?)(object?)PolarsWrapper.SeriesGetUInt32Fast(Handle, index);
+
+        if (underlying == typeof(ulong) && DataType == DataType.UInt64)
+            return (T?)(object?)PolarsWrapper.SeriesGetUInt64Fast(Handle, index);
+
+        if (underlying == typeof(short) && DataType == DataType.Int16)
+            return (T?)(object?)PolarsWrapper.SeriesGetInt16Fast(Handle, index);
+
+        if (underlying == typeof(ushort) && DataType == DataType.UInt16)
+            return (T?)(object?)PolarsWrapper.SeriesGetUInt16Fast(Handle, index);
+
+        if (underlying == typeof(sbyte) && DataType == DataType.Int8)
+            return (T?)(object?)PolarsWrapper.SeriesGetInt8Fast(Handle, index);
+
+        if (underlying == typeof(byte) && DataType == DataType.UInt8)
+            return (T?)(object?)PolarsWrapper.SeriesGetUInt8Fast(Handle, index);
         if (underlying == typeof(Int128))
             return (T?)(object?)PolarsWrapper.SeriesGetInt128Fast(Handle, index);
 
         if (underlying == typeof(UInt128))
             return (T?)(object?)PolarsWrapper.SeriesGetUInt128Fast(Handle, index);
 
-        if (underlying == typeof(double))
-            return (T?)(object?)PolarsWrapper.SeriesGetDouble(Handle, index);
+        if (underlying == typeof(double) && DataType == DataType.Float64)
+            return (T?)(object?)PolarsWrapper.SeriesGetDoubleFast(Handle, index);
+        if (underlying == typeof(float) && DataType == DataType.Float32)
+            return (T?)(object?)PolarsWrapper.SeriesGetSingleFast(Handle, index);
+        if (underlying == typeof(Half) && DataType == DataType.Float16)
+            return (T?)(object?)PolarsWrapper.SeriesGetHalfFast(Handle, index);
 
-        if (underlying == typeof(float))
-            return (T?)(object?)(float?)PolarsWrapper.SeriesGetDouble(Handle, index);
-        if (underlying == typeof(Half))
-            return (T?)(object?)(Half?)PolarsWrapper.SeriesGetDouble(Handle, index);
-
+        if (IsSupportedNumericType(underlying) && DataType.IsNumeric)
+        {
+            return CoerceNumericValue<T>(index, DataType, underlying);
+        }
         // 2. Boolean
         if (underlying == typeof(bool))
             return (T?)(object?)PolarsWrapper.SeriesGetBoolFast(Handle, index);
 
         // 3. String
-        if (underlying == typeof(string) && DataType != DataType.Categorical())
+        if (underlying == typeof(string) && !DataType.IsCategorical)
         {
             string? strVal = PolarsWrapper.SeriesGetStringFast(Handle,index);
             return (T?)(object?)strVal;
@@ -114,7 +132,43 @@ public partial class Series : IDisposable,IPolarsSeries
 
         return ArrowReader.ReadItem<T>(column, 0);
     }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IsSupportedNumericType(Type t) =>
+        t == typeof(int) || t == typeof(long) || t == typeof(double) ||
+        t == typeof(float) || t == typeof(uint) || t == typeof(ulong) ||
+        t == typeof(short) || t == typeof(ushort) || t == typeof(byte) ||
+        t == typeof(sbyte);
 
+    private T? CoerceNumericValue<T>(long index, DataType actualDtype, Type targetType)
+    {
+        object val;
+        if (actualDtype == DataType.Int64)
+            val = PolarsWrapper.SeriesGetInt64Fast(Handle, index)!.Value;
+        else if (actualDtype == DataType.Int32)
+            val = PolarsWrapper.SeriesGetInt32Fast(Handle, index)!.Value;
+        else if (actualDtype == DataType.Float64)
+            val = PolarsWrapper.SeriesGetDoubleFast(Handle, index)!.Value;
+        else if (actualDtype == DataType.Float32)
+            val = PolarsWrapper.SeriesGetSingleFast(Handle, index)!.Value;
+        else if (actualDtype == DataType.Float16)
+            val = PolarsWrapper.SeriesGetHalfFast(Handle, index)!.Value;
+        else if (actualDtype == DataType.UInt64)
+            val = PolarsWrapper.SeriesGetUInt64Fast(Handle, index)!.Value;
+        else if (actualDtype == DataType.UInt32)
+            val = PolarsWrapper.SeriesGetUInt32Fast(Handle, index)!.Value;
+        else if (actualDtype == DataType.Int16)
+            val = PolarsWrapper.SeriesGetInt16Fast(Handle, index)!.Value;
+        else if (actualDtype == DataType.UInt16)
+            val = PolarsWrapper.SeriesGetUInt16Fast(Handle, index)!.Value;
+        else if (actualDtype == DataType.Int8)
+            val = PolarsWrapper.SeriesGetInt8Fast(Handle, index)!.Value;
+        else if (actualDtype == DataType.UInt8)
+            val = PolarsWrapper.SeriesGetUInt8Fast(Handle, index)!.Value;
+        else
+            throw new InvalidOperationException($"Cannot coerce non-numeric series of type {actualDtype} to {targetType.Name}");
+
+        return (T?)(object?)Convert.ChangeType(val, targetType);
+    }
     /// <summary>
     /// Get an item at the specified index as object (boxed).
     /// </summary>

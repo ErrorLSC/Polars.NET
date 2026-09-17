@@ -464,6 +464,10 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         match this.Kind with
         | DataTypeKind.UInt8 | DataTypeKind.UInt16 | DataTypeKind.UInt32 | DataTypeKind.UInt64 | DataTypeKind.UInt128 -> true
         | _ -> false
+    member this.IsCategorical =
+        match this.Kind with
+        | DataTypeKind.Categorical _ -> true
+        | _ -> false
     member this.Code =
         match this.Kind with
         | DataTypeKind.SameAsInput | DataTypeKind.Unknown -> 0
@@ -561,6 +565,15 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
                 s.Fields |> Seq.map (fun f -> { Name = f.Name; DataType = DataType.FromArrowType f.DataType }) |> Seq.toList
             DataType.Struct fields
         | _ -> raise (NotSupportedException(sprintf "ArrowType %s is not supported yet." (arrowType.GetType().Name)))
+
+    /// <summary>
+    /// Checks if a .NET type is a supported numeric primitive.
+    /// </summary>
+    static member internal IsNumericType (t: Type) =
+        t = typeof<int> || t = typeof<int64> || t = typeof<double> || t = typeof<Half> ||
+        t = typeof<single> || t = typeof<uint32> || t = typeof<uint64> ||
+        t = typeof<int16> || t = typeof<uint16> || t = typeof<uint8> ||
+        t = typeof<int8>
 
 and Field = { Name: string; DataType: DataType }
 

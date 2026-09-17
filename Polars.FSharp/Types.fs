@@ -388,106 +388,117 @@ type Series(handle: SeriesHandle) =
     // ==========================================
 
     /// <summary>
-    /// Get an item at the specified index.
-    /// Supports primitives (int, float, bool, string) via fast native path,
-    /// and complex types (Struct, List, DateTime) via Arrow infrastructure.
+    /// Reads a numeric scalar according to the exact physical DataType of the Series,
+    /// and coerces it to the target .NET type using Convert.ChangeType.
     /// </summary>
-    member internal this.ReadScalarInternal<'T>(index: int64) : 'T =
+    member private this.CoerceNumericScalar(index: int64, targetType: Type) : obj =
+        let rawVal: obj =
+            match this.DataType.Kind with
+            | DataTypeKind.Int64   -> box (PolarsWrapper.SeriesGetInt64Fast(this.Handle, index).Value)
+            | DataTypeKind.Int32   -> box (PolarsWrapper.SeriesGetInt32Fast(this.Handle, index).Value)
+            | DataTypeKind.Int16   -> box (PolarsWrapper.SeriesGetInt16Fast(this.Handle, index).Value)
+            | DataTypeKind.Int8    -> box (PolarsWrapper.SeriesGetInt8Fast(this.Handle, index).Value)
+            | DataTypeKind.UInt64  -> box (PolarsWrapper.SeriesGetUInt64Fast(this.Handle, index).Value)
+            | DataTypeKind.UInt32  -> box (PolarsWrapper.SeriesGetUInt32Fast(this.Handle, index).Value)
+            | DataTypeKind.UInt16  -> box (PolarsWrapper.SeriesGetUInt16Fast(this.Handle, index).Value)
+            | DataTypeKind.UInt8   -> box (PolarsWrapper.SeriesGetUInt8Fast(this.Handle, index).Value)
+            | DataTypeKind.Float64 -> box (PolarsWrapper.SeriesGetDoubleFast(this.Handle, index).Value)
+            | DataTypeKind.Float32 -> box (PolarsWrapper.SeriesGetSingleFast(this.Handle, index).Value)
+            | DataTypeKind.Float16 -> box (PolarsWrapper.SeriesGetHalfFast(this.Handle, index).Value)
+            | other ->
+                invalidOp (sprintf "Cannot coerce non-numeric series of type %A to %s" other targetType.Name)
+
+        Convert.ChangeType(rawVal, targetType)
+    
+    /// <summary>
+    /// Internal scalar reader routing to exact fast paths, numeric coercion paths, or the universal Arrow reader.
+    /// </summary>
+    [<EditorBrowsable(EditorBrowsableState.Never)>]
+    member this.ReadScalarInternal<'T>(index: int64) : 'T =
         let t = typeof<'T>
+        let kind = this.DataType.Kind
 
-        // --- Integer Family ---
-        if t = typeof<int> || t = typeof<int option> || t = typeof<Nullable<int>> then
-            let v = int (PolarsWrapper.SeriesGetInt(this.Handle, index).Value)
-            if t = typeof<int option> then box (Some v) |> unbox<'T>
-            else box v |> unbox<'T>
+        // ==============================================================
+        // 1. Exact Physical Fast Paths (Zero Allocation / Max Throughput)
+        // ==============================================================
+        if t = typeof<int> && kind = DataTypeKind.Int32 then
+            box (PolarsWrapper.SeriesGetInt32Fast(this.Handle, index).Value) |> unbox<'T>
+        elif t = typeof<int64> && kind = DataTypeKind.Int64 then
+            box (PolarsWrapper.SeriesGetInt64Fast(this.Handle, index).Value) |> unbox<'T>
+        elif t = typeof<uint32> && kind = DataTypeKind.UInt32 then
+            box (PolarsWrapper.SeriesGetUInt32Fast(this.Handle, index).Value) |> unbox<'T>
+        elif t = typeof<uint64> && kind = DataTypeKind.UInt64 then
+            box (PolarsWrapper.SeriesGetUInt64Fast(this.Handle, index).Value) |> unbox<'T>
+        elif t = typeof<int16> && kind = DataTypeKind.Int16 then
+            box (PolarsWrapper.SeriesGetInt16Fast(this.Handle, index).Value) |> unbox<'T>
+        elif t = typeof<uint16> && kind = DataTypeKind.UInt16 then
+            box (PolarsWrapper.SeriesGetUInt16Fast(this.Handle, index).Value) |> unbox<'T>
+        elif t = typeof<sbyte> && kind = DataTypeKind.Int8 then
+            box (PolarsWrapper.SeriesGetInt8Fast(this.Handle, index).Value) |> unbox<'T>
+        elif t = typeof<byte> && kind = DataTypeKind.UInt8 then
+            box (PolarsWrapper.SeriesGetUInt8Fast(this.Handle, index).Value) |> unbox<'T>
+        elif t = typeof<double> && kind = DataTypeKind.Float64 then
+            box (PolarsWrapper.SeriesGetDoubleFast(this.Handle, index).Value) |> unbox<'T>
+        elif t = typeof<float32> && kind = DataTypeKind.Float32 then
+            box (PolarsWrapper.SeriesGetSingleFast(this.Handle, index).Value) |> unbox<'T>
+        elif t = typeof<Half> && kind = DataTypeKind.Float16 then
+            box (PolarsWrapper.SeriesGetHalfFast(this.Handle, index).Value) |> unbox<'T>
+        elif t = typeof<Int128> then
+            box (PolarsWrapper.SeriesGetInt128Fast(this.Handle, index).Value) |> unbox<'T>
+        elif t = typeof<UInt128> then
+            box (PolarsWrapper.SeriesGetUInt128Fast(this.Handle, index).Value) |> unbox<'T>
 
-        else if t = typeof<int64> || t = typeof<int64 option> || t = typeof<Nullable<int64>> then
-            let v = PolarsWrapper.SeriesGetInt(this.Handle, index).Value
-            if t = typeof<int64 option> then box (Some v) |> unbox<'T>
-            else box v |> unbox<'T>
+        // ==============================================================
+        // 2. Numeric Coercion Path (Cross-numeric reads, e.g., Int64 -> int)
+        // ==============================================================
+        elif DataType.IsNumericType t && this.DataType.IsNumeric then
+            this.CoerceNumericScalar(index, t) |> unbox<'T>
 
-        else if t = typeof<Int128> || t = typeof<Int128 option> || t = typeof<Nullable<Int128>> then
-            let v = PolarsWrapper.SeriesGetInt128Fast(this.Handle, index).Value
-            if t = typeof<Int128 option> then box (Some v) |> unbox<'T>
-            else box v |> unbox<'T>
+        // ==============================================================
+        // 3. Boolean
+        // ==============================================================
+        elif t = typeof<bool> then
+            box (PolarsWrapper.SeriesGetBoolFast(this.Handle, index).Value) |> unbox<'T>
 
-        else if t = typeof<UInt128> || t = typeof<UInt128 option> || t = typeof<Nullable<UInt128>> then
-            let v = PolarsWrapper.SeriesGetUInt128Fast(this.Handle, index).Value
-            if t = typeof<UInt128 option> then box (Some v) |> unbox<'T>
-            else box v |> unbox<'T>
+        // ==============================================================
+        // 4. String (Guaranteed not null; empty string is safely preserved)
+        // ==============================================================
+        elif t = typeof<string> && not this.DataType.IsCategorical then
+            box (PolarsWrapper.SeriesGetStringFast(this.Handle, index)) |> unbox<'T>
 
-        // --- Float Family ---
-        else if t = typeof<double> || t = typeof<double option> || t = typeof<Nullable<double>> then
-            let v = PolarsWrapper.SeriesGetDouble(this.Handle, index).Value
-            if t = typeof<double option> then box (Some v) |> unbox<'T>
-            else box v |> unbox<'T>
+        // ==============================================================
+        // 5. Decimal
+        // ==============================================================
+        elif t = typeof<decimal> then
+            let p = this.DataType.Precision
+            let s = this.DataType.Scale
+            box (PolarsWrapper.SeriesGetDecimalFast(this.Handle, index, s, p).Value) |> unbox<'T>
 
-        else if t = typeof<float32> || t = typeof<float32 option> || t = typeof<Nullable<float32>> then
-            let v = float32 (PolarsWrapper.SeriesGetDouble(this.Handle, index).Value)
-            if t = typeof<float32 option> then box (Some v) |> unbox<'T>
-            else box v |> unbox<'T>
+        // ==============================================================
+        // 6. Temporal (Date, Time, Duration, Datetime)
+        // ==============================================================
+        elif t = typeof<DateOnly> then
+            box (PolarsWrapper.SeriesGetDateFast(this.Handle, index).Value) |> unbox<'T>
+        elif t = typeof<TimeOnly> then
+            box (PolarsWrapper.SeriesGetTimeFast(this.Handle, index).Value) |> unbox<'T>
+        elif t = typeof<TimeSpan> then
+            let tu = this.DataType.TimeUnit.ToNative()
+            box (PolarsWrapper.SeriesGetDurationFast(this.Handle, index, tu).Value) |> unbox<'T>
+        elif t = typeof<DateTime> then
+            let tu = this.DataType.TimeUnit.ToNative()
+            box (PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index, tu, null).Value) |> unbox<'T>
+        elif t = typeof<struct(DateTime * string)> then
+            let tu = this.DataType.TimeUnit.ToNative()
+            let tz = this.DataType.TimeZone.Value
+            let dt = PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index, tu, tz).Value
+            box struct(dt, tz) |> unbox<'T>
 
-        else if t = typeof<Half> || t = typeof<Half> || t = typeof<Nullable<Half>> then
-            let v = PolarsWrapper.SeriesGetDouble(this.Handle, index).Value
-            if t = typeof<Half option> then box (Some v) |> unbox<'T>
-            else box v |> unbox<'T>
-
-        // --- Boolean ---
-        else if t = typeof<bool> || t = typeof<bool option> || t = typeof<Nullable<bool>> then
-            let v = PolarsWrapper.SeriesGetBoolFast(this.Handle, index).Value
-            if t = typeof<bool option> then box (Some v) |> unbox<'T>
-            else box v |> unbox<'T>
-
-        // --- String ---
-        else if t = typeof<string> || t = typeof<string option> then
-            let v = PolarsWrapper.SeriesGetStringFast(this.Handle, index)
-            if t = typeof<string option> then box (Some v) |> unbox<'T>
-            else box v |> unbox<'T>
-
-        // --- Decimal ---
-        else if t = typeof<decimal> || t = typeof<decimal option> || t = typeof<Nullable<decimal>> then
-            let scale = this.DataType.Scale
-            let precision = this.DataType.Precision
-            let v = PolarsWrapper.SeriesGetDecimalFast(this.Handle, index, scale,precision).Value
-            if t = typeof<decimal option> then box (Some v) |> unbox<'T>
-            else box v |> unbox<'T>
-
-        // --- Temporal ---
-        else if t = typeof<DateOnly> || t = typeof<DateOnly option> || t = typeof<Nullable<DateOnly>> then
-            let v = PolarsWrapper.SeriesGetDateFast(this.Handle, index).Value
-            if t = typeof<DateOnly option> then box (Some v) |> unbox<'T>
-            else box v |> unbox<'T>
-
-        else if t = typeof<TimeOnly> || t = typeof<TimeOnly option> || t = typeof<Nullable<TimeOnly>> then
-            let v = PolarsWrapper.SeriesGetTimeFast(this.Handle, index).Value
-            if t = typeof<TimeOnly option> then box (Some v) |> unbox<'T>
-            else box v |> unbox<'T>
-
-        else if t = typeof<TimeSpan> || t = typeof<TimeSpan option> || t = typeof<Nullable<TimeSpan>> then
-            let timeUnit = this.DataType.TimeUnit
-            let v = PolarsWrapper.SeriesGetDurationFast(this.Handle, index,timeUnit.ToNative()).Value
-            if t = typeof<TimeSpan option> then box (Some v) |> unbox<'T>
-            else box v |> unbox<'T>
-
-        else if t = typeof<DateTime> || t = typeof<DateTime option> || t = typeof<Nullable<DateTime>> then
-            let timeUnit = this.DataType.TimeUnit
-            let dt = PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index,timeUnit.ToNative(),null).Value
-
-            if t = typeof<DateTime option> then box (Some dt) |> unbox<'T>
-            else box dt |> unbox<'T>
-
-        else if t = typeof<struct(DateTime * string)> || t = typeof<struct(DateTime * string) option> || t = typeof<Nullable<struct(DateTime * string)>> then
-            let timeUnit = this.DataType.TimeUnit
-            let timeZone = this.DataType.TimeZone
-            let v = PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index,timeUnit.ToNative(),timeZone.Value).Value
-
-            if t = typeof<struct(DateTime * string) option> then box (Some (v,timeZone)) |> unbox<'T>
-            else box (v,timeZone) |> unbox<'T>
-
-        // --- Complex Types (Arrow Fallback) ---
+        // ==============================================================
+        // 7. Universal Fallback (List, Struct, Complex)
+        // ==============================================================
         else
-            use slicedHandle = PolarsWrapper.SeriesSlice(this.Handle, index, 1UL)
-            use column = PolarsWrapper.SeriesToArrow slicedHandle
+            use sliced = PolarsWrapper.SeriesSlice(this.Handle, index, 1UL)
+            use column = PolarsWrapper.SeriesToArrow sliced
             ArrowReader.ReadItem<'T>(column, 0)
     /// <summary>
     /// Gets a single scalar value by 64-bit index.
@@ -495,17 +506,11 @@ type Series(handle: SeriesHandle) =
     /// <param name="index">The 64-bit row index.</param>
     /// <param name="uncheck">If true, bypasses boundary checking and null bitmap validation (internal fast-path).</param>
     member this.GetValue<'T>(index: int64, uncheck: bool) : 'T =
-        if not uncheck then
-            let len = this.Length
-            if index < 0L || index >= len then
-                raise (IndexOutOfRangeException(sprintf "Index %d is out of bounds for Series length %d." index len))
-
-            if this.IsNullAt index then
-                Unchecked.defaultof<'T>
-            else
-                this.ReadScalarInternal<'T>(index)
+        if this.IsNullAt(index,uncheck) then
+            Unchecked.defaultof<'T>
         else
-            this.ReadScalarInternal<'T>(index)
+            this.ReadScalarInternal<'T> index
+
     /// <summary>
     /// Get scalar value with full bounds and null checks.
     /// </summary>
@@ -527,10 +532,10 @@ type Series(handle: SeriesHandle) =
     /// Ideal for safe handling of nulls in Polars series.
     /// </summary>
     member this.GetValueOption<'T>(index: int64) : 'T option =
-        if index < 0L || index >= this.Length || this.IsNullAt index then
+        if this.IsNullAt index then
             None
         else
-            this.GetValue<'T option>(index, uncheck = true)
+            Some (this.ReadScalarInternal<'T> index)
     /// <summary>
     /// Gets the value at the specified index as a ValueOption ('T voption).
     /// </summary>
@@ -538,10 +543,10 @@ type Series(handle: SeriesHandle) =
     /// <param name="index">The 64-bit row index location.</param>
     /// <returns>ValueSome value if valid, or ValueNone if null.</returns>
     member inline this.TryGetValue<'T>(index: int64) : 'T voption =
-        if index < 0L || index >= this.Length || this.IsNullAt(index, uncheck = true) then
+        if this.IsNullAt(index, uncheck = false) then
             ValueNone
         else
-            ValueSome (this.GetValue<'T>(index, uncheck = true))
+            ValueSome (this.ReadScalarInternal<'T> index)
     /// <summary>
     /// [Indexer] Access value at specific index as boxed object.
     /// Syntax: series.[index]

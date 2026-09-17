@@ -344,6 +344,7 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
         or DataTypeKind.UInt128 => true,
         _ => false
     };
+    public bool IsCategorical => Kind == DataTypeKind.Categorical;
 
     // ==========================================
     // Primitive Factories (Static Properties)

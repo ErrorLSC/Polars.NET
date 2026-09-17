@@ -712,45 +712,6 @@ pub extern "C" fn pl_series_get_i64(
     })
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn pl_series_get_f64(
-    s_ptr: *mut SeriesContext,
-    idx: usize,
-    out_val: *mut f64,
-    out_is_null: *mut bool,
-) -> bool {
-    ffi_bool_try!({
-        let ctx = unsafe { &*s_ptr };
-
-        if idx >= ctx.series.len() {
-            polars_bail!(OutOfBounds: "Index {} is out of bounds", idx);
-        }
-
-        match unsafe { ctx.series.get_unchecked(idx) } {
-            AnyValue::Float64(v) => unsafe {
-                *out_val = v;
-                *out_is_null = false;
-            },
-            AnyValue::Float32(v) => unsafe {
-                *out_val = v as f64;
-                *out_is_null = false;
-            },
-            AnyValue::Float16(v) => unsafe {
-                *out_val = v.0.to_f64();
-                *out_is_null = false;
-            },
-            AnyValue::Null => unsafe {
-                *out_is_null = true;
-            },
-            other => {
-                polars_bail!(ComputeError: "Expected Float type, got DataType: {:?}", other.dtype());
-            }
-        }
-
-        Ok(())
-    })
-}
-
 // ==========================================
 // Arithmetic Ops
 // ==========================================
