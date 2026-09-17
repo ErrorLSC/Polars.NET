@@ -44,18 +44,14 @@ unsafe internal partial class NativeBindings
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_get_i64(SeriesHandle s, UIntPtr idx, out long val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.U1)]
-    public static partial bool pl_series_get_i128(SeriesHandle s, UIntPtr idx, out Int128 val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
+    public static partial int pl_series_get_i128_fast(SeriesHandle s, nuint idx, out Int128 val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.U1)]
-    public static partial bool pl_series_get_u128(SeriesHandle series, UIntPtr idx, out UInt128 val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
+    public static partial int pl_series_get_u128_fast(SeriesHandle s, nuint idx, out UInt128 val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
     public static partial bool pl_series_get_f64(SeriesHandle s, UIntPtr idx, out double val,[MarshalAs(UnmanagedType.U1)] out bool isNull);
-
     [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.U1)]
-    public static partial bool pl_series_get_bool(
+    public static partial int pl_series_get_bool_fast(
         SeriesHandle series,
         nuint idx,
         [MarshalAs(UnmanagedType.U1)] out bool val,

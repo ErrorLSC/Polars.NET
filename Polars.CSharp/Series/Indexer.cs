@@ -39,10 +39,10 @@ public partial class Series : IDisposable,IPolarsSeries
         if (underlying == typeof(ulong))
             return (T?)(object?)(ulong?)PolarsWrapper.SeriesGetInt(Handle, index);
         if (underlying == typeof(Int128))
-            return (T?)(object?)PolarsWrapper.SeriesGetInt128(Handle, index);
+            return (T?)(object?)PolarsWrapper.SeriesGetInt128Fast(Handle, index);
 
         if (underlying == typeof(UInt128))
-            return (T?)(object?)PolarsWrapper.SeriesGetUInt128(Handle, index);
+            return (T?)(object?)PolarsWrapper.SeriesGetUInt128Fast(Handle, index);
 
         if (underlying == typeof(double))
             return (T?)(object?)PolarsWrapper.SeriesGetDouble(Handle, index);
@@ -54,7 +54,7 @@ public partial class Series : IDisposable,IPolarsSeries
 
         // 2. Boolean
         if (underlying == typeof(bool))
-            return (T?)(object?)PolarsWrapper.SeriesGetBool(Handle, index);
+            return (T?)(object?)PolarsWrapper.SeriesGetBoolFast(Handle, index);
 
         // 3. String
         if (underlying == typeof(string) && DataType != DataType.Categorical())

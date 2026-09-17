@@ -407,8 +407,13 @@ type Series(handle: SeriesHandle) =
             else box v |> unbox<'T>
 
         else if t = typeof<Int128> || t = typeof<Int128 option> || t = typeof<Nullable<Int128>> then
-            let v = PolarsWrapper.SeriesGetInt128(this.Handle, index).Value
+            let v = PolarsWrapper.SeriesGetInt128Fast(this.Handle, index).Value
             if t = typeof<Int128 option> then box (Some v) |> unbox<'T>
+            else box v |> unbox<'T>
+
+        else if t = typeof<UInt128> || t = typeof<UInt128 option> || t = typeof<Nullable<UInt128>> then
+            let v = PolarsWrapper.SeriesGetUInt128Fast(this.Handle, index).Value
+            if t = typeof<UInt128 option> then box (Some v) |> unbox<'T>
             else box v |> unbox<'T>
 
         // --- Float Family ---
@@ -429,7 +434,7 @@ type Series(handle: SeriesHandle) =
 
         // --- Boolean ---
         else if t = typeof<bool> || t = typeof<bool option> || t = typeof<Nullable<bool>> then
-            let v = PolarsWrapper.SeriesGetBool(this.Handle, index).Value
+            let v = PolarsWrapper.SeriesGetBoolFast(this.Handle, index).Value
             if t = typeof<bool option> then box (Some v) |> unbox<'T>
             else box v |> unbox<'T>
 

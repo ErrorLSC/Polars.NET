@@ -931,22 +931,22 @@ public readonly partial struct PolarsWrapper
 
         return val;
     }
-    public static Int128? SeriesGetInt128(SeriesHandle s, long idx)
+    public static Int128? SeriesGetInt128Fast(SeriesHandle s, long idx)
     {
-        bool success = NativeBindings.pl_series_get_i128(
+        int status = NativeBindings.pl_series_get_i128_fast(
             s, (nuint)idx, out Int128 val, out bool isNull);
 
-        ErrorHelper.CheckBool(success);
+        ErrorHelper.CheckStatus(status);
         if (isNull) return null;
 
         return val;
     }
-    public static UInt128? SeriesGetUInt128(SeriesHandle s, long idx)
+    public static UInt128? SeriesGetUInt128Fast(SeriesHandle s, long idx)
     {
-        bool success = NativeBindings.pl_series_get_u128(
+        int status = NativeBindings.pl_series_get_u128_fast(
             s, (nuint)idx, out UInt128 val, out bool isNull);
 
-        ErrorHelper.CheckBool(success);
+        ErrorHelper.CheckStatus(status);
         if (isNull) return null;
 
         return val;
@@ -962,17 +962,16 @@ public readonly partial struct PolarsWrapper
 
         return val;
     }
-
-    public static bool? SeriesGetBool(SeriesHandle s, long idx)
+    public static bool? SeriesGetBoolFast(SeriesHandle s, long idx)
     {
-        bool success = NativeBindings.pl_series_get_bool(
+        int status = NativeBindings.pl_series_get_bool_fast(
             s,
             (nuint)idx,
             out bool val,
             out bool isNull
         );
 
-        ErrorHelper.CheckBool(success);
+        ErrorHelper.CheckStatus(status);
 
         if (isNull)
         {
