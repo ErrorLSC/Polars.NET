@@ -13,6 +13,87 @@ open System.Threading
 open Apache.Arrow.Adbc
 open Apache.Arrow.Ipc
 open System.ComponentModel
+open System.Runtime.CompilerServices
+
+[<AutoOpen>]
+module private NumericCoercionHelpers =
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    let inline coerceFromI64<'T> (v: int64) : 'T =
+        let t = typeof<'T>
+        if t = typeof<int> then 
+            let mutable c = int v
+            Unsafe.As<int, 'T>(&c)
+        elif t = typeof<int64> then 
+            let mutable c = v
+            Unsafe.As<int64, 'T>(&c)
+        elif t = typeof<double> then 
+            let mutable c = double v
+            Unsafe.As<double, 'T>(&c)
+        elif t = typeof<float32> then 
+            let mutable c = float32 v
+            Unsafe.As<float32, 'T>(&c)
+        elif t = typeof<uint32> then 
+            let mutable c = uint32 v
+            Unsafe.As<uint32, 'T>(&c)
+        elif t = typeof<uint64> then 
+            let mutable c = uint64 v
+            Unsafe.As<uint64, 'T>(&c)
+        elif t = typeof<int16> then 
+            let mutable c = int16 v
+            Unsafe.As<int16, 'T>(&c)
+        elif t = typeof<uint16> then 
+            let mutable c = uint16 v
+            Unsafe.As<uint16, 'T>(&c)
+        elif t = typeof<byte> then 
+            let mutable c = byte v
+            Unsafe.As<byte, 'T>(&c)
+        elif t = typeof<sbyte> then 
+            let mutable c = sbyte v
+            Unsafe.As<sbyte, 'T>(&c)
+        elif t = typeof<Half> then 
+            let mutable c = Half.op_Explicit (float32 v)
+            Unsafe.As<Half, 'T>(&c)
+        else 
+            invalidOp (sprintf "Unsupported target numeric coercion type: %s" t.Name)
+
+    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
+    let inline coerceFromF64<'T> (v: double) : 'T =
+        let t = typeof<'T>
+        if t = typeof<double> then 
+            let mutable c = v
+            Unsafe.As<double, 'T>(&c)
+        elif t = typeof<float32> then 
+            let mutable c = float32 v
+            Unsafe.As<float32, 'T>(&c)
+        elif t = typeof<int> then 
+            let mutable c = int v
+            Unsafe.As<int, 'T>(&c)
+        elif t = typeof<int64> then 
+            let mutable c = int64 v
+            Unsafe.As<int64, 'T>(&c)
+        elif t = typeof<uint32> then 
+            let mutable c = uint32 v
+            Unsafe.As<uint32, 'T>(&c)
+        elif t = typeof<uint64> then 
+            let mutable c = uint64 v
+            Unsafe.As<uint64, 'T>(&c)
+        elif t = typeof<int16> then 
+            let mutable c = int16 v
+            Unsafe.As<int16, 'T>(&c)
+        elif t = typeof<uint16> then 
+            let mutable c = uint16 v
+            Unsafe.As<uint16, 'T>(&c)
+        elif t = typeof<byte> then 
+            let mutable c = byte v
+            Unsafe.As<byte, 'T>(&c)
+        elif t = typeof<sbyte> then 
+            let mutable c = sbyte v
+            Unsafe.As<sbyte, 'T>(&c)
+        elif t = typeof<Half> then 
+            let mutable c = Half.op_Explicit (float32 v)
+            Unsafe.As<Half, 'T>(&c)
+        else 
+            invalidOp (sprintf "Unsupported target numeric coercion type: %s" t.Name)
 /// --- Series ---
 /// <summary>
 /// An eager Series holding a single column of data.
@@ -391,24 +472,46 @@ type Series(handle: SeriesHandle) =
     /// Reads a numeric scalar according to the exact physical DataType of the Series,
     /// and coerces it to the target .NET type using Convert.ChangeType.
     /// </summary>
-    member private this.CoerceNumericScalar(index: int64, targetType: Type) : obj =
-        let rawVal: obj =
-            match this.DataType.Kind with
-            | DataTypeKind.Int64   -> box (PolarsWrapper.SeriesGetInt64Fast(this.Handle, index))
-            | DataTypeKind.Int32   -> box (PolarsWrapper.SeriesGetInt32Fast(this.Handle, index))
-            | DataTypeKind.Int16   -> box (PolarsWrapper.SeriesGetInt16Fast(this.Handle, index))
-            | DataTypeKind.Int8    -> box (PolarsWrapper.SeriesGetInt8Fast(this.Handle, index))
-            | DataTypeKind.UInt64  -> box (PolarsWrapper.SeriesGetUInt64Fast(this.Handle, index))
-            | DataTypeKind.UInt32  -> box (PolarsWrapper.SeriesGetUInt32Fast(this.Handle, index))
-            | DataTypeKind.UInt16  -> box (PolarsWrapper.SeriesGetUInt16Fast(this.Handle, index))
-            | DataTypeKind.UInt8   -> box (PolarsWrapper.SeriesGetUInt8Fast(this.Handle, index))
-            | DataTypeKind.Float64 -> box (PolarsWrapper.SeriesGetDoubleFast(this.Handle, index))
-            | DataTypeKind.Float32 -> box (PolarsWrapper.SeriesGetSingleFast(this.Handle, index))
-            | DataTypeKind.Float16 -> box (PolarsWrapper.SeriesGetHalfFast(this.Handle, index))
-            | other ->
-                invalidOp (sprintf "Cannot coerce non-numeric series of type %A to %s" other targetType.Name)
+    member private this.CoerceNumericScalar<'T>(index: int64) : 'T =
+        let t = typeof<'T>
 
-        Convert.ChangeType(rawVal, targetType)
+        match this.DataType.Kind with
+        | DataTypeKind.Float64 ->
+            let v = PolarsWrapper.SeriesGetDoubleFast(this.Handle, index)
+            coerceFromF64<'T> v
+        | DataTypeKind.Float32 ->
+            let v = PolarsWrapper.SeriesGetSingleFast(this.Handle, index)
+            coerceFromF64<'T> (double v)
+        | DataTypeKind.Float16 ->
+            let v = PolarsWrapper.SeriesGetHalfFast(this.Handle, index)
+            coerceFromF64<'T> (double (float32 v))
+        | DataTypeKind.Int64 ->
+            let v = PolarsWrapper.SeriesGetInt64Fast(this.Handle, index)
+            coerceFromI64<'T> v
+        | DataTypeKind.Int32 ->
+            let v = PolarsWrapper.SeriesGetInt32Fast(this.Handle, index)
+            coerceFromI64<'T> (int64 v)
+        | DataTypeKind.Int16 ->
+            let v = PolarsWrapper.SeriesGetInt16Fast(this.Handle, index)
+            coerceFromI64<'T> (int64 v)
+        | DataTypeKind.Int8 ->
+            let v = PolarsWrapper.SeriesGetInt8Fast(this.Handle, index)
+            coerceFromI64<'T> (int64 v)
+        | DataTypeKind.UInt64 ->
+            let v = PolarsWrapper.SeriesGetUInt64Fast(this.Handle, index)
+            coerceFromI64<'T> (int64 v)
+        | DataTypeKind.UInt32 ->
+            let v = PolarsWrapper.SeriesGetUInt32Fast(this.Handle, index)
+            coerceFromI64<'T> (int64 v)
+        | DataTypeKind.UInt16 ->
+            let v = PolarsWrapper.SeriesGetUInt16Fast(this.Handle, index)
+            coerceFromI64<'T> (int64 v)
+        | DataTypeKind.UInt8 ->
+            let v = PolarsWrapper.SeriesGetUInt8Fast(this.Handle, index)
+            coerceFromI64<'T> (int64 v)
+
+        | other ->
+            invalidOp (sprintf "Cannot coerce non-numeric series of typ e%A to %s" other t.Name)
     
     /// <summary>
     /// Internal scalar reader routing to exact fast paths, numeric coercion paths, or the universal Arrow reader.
@@ -418,53 +521,66 @@ type Series(handle: SeriesHandle) =
         let t = typeof<'T>
         let kind = this.DataType.Kind
 
-        // ==============================================================
-        // 1. Exact Physical Fast Paths (Zero Allocation / Max Throughput)
-        // ==============================================================
+
         if t = typeof<int> && kind = DataTypeKind.Int32 then
-            box (PolarsWrapper.SeriesGetInt32Fast(this.Handle, index)) |> unbox<'T>
+            let mutable v = PolarsWrapper.SeriesGetInt32Fast(this.Handle, index)
+            Unsafe.As<int, 'T>(&v)
         elif t = typeof<int64> && kind = DataTypeKind.Int64 then
-            box (PolarsWrapper.SeriesGetInt64Fast(this.Handle, index)) |> unbox<'T>
+            let mutable v = PolarsWrapper.SeriesGetInt64Fast(this.Handle, index)
+            Unsafe.As<int64, 'T>(&v)
         elif t = typeof<uint32> && kind = DataTypeKind.UInt32 then
-            box (PolarsWrapper.SeriesGetUInt32Fast(this.Handle, index)) |> unbox<'T>
+            let mutable v = PolarsWrapper.SeriesGetUInt32Fast(this.Handle, index)
+            Unsafe.As<uint32, 'T>(&v)
         elif t = typeof<uint64> && kind = DataTypeKind.UInt64 then
-            box (PolarsWrapper.SeriesGetUInt64Fast(this.Handle, index)) |> unbox<'T>
+            let mutable v = PolarsWrapper.SeriesGetUInt64Fast(this.Handle, index)
+            Unsafe.As<uint64, 'T>(&v)
         elif t = typeof<int16> && kind = DataTypeKind.Int16 then
-            box (PolarsWrapper.SeriesGetInt16Fast(this.Handle, index)) |> unbox<'T>
+            let mutable v = PolarsWrapper.SeriesGetInt16Fast(this.Handle, index)
+            Unsafe.As<int16, 'T>(&v)
         elif t = typeof<uint16> && kind = DataTypeKind.UInt16 then
-            box (PolarsWrapper.SeriesGetUInt16Fast(this.Handle, index)) |> unbox<'T>
+            let mutable v = PolarsWrapper.SeriesGetUInt16Fast(this.Handle, index)
+            Unsafe.As<uint16, 'T>(&v)
         elif t = typeof<sbyte> && kind = DataTypeKind.Int8 then
-            box (PolarsWrapper.SeriesGetInt8Fast(this.Handle, index)) |> unbox<'T>
+            let mutable v = PolarsWrapper.SeriesGetInt8Fast(this.Handle, index)
+            Unsafe.As<sbyte, 'T>(&v)
         elif t = typeof<byte> && kind = DataTypeKind.UInt8 then
-            box (PolarsWrapper.SeriesGetUInt8Fast(this.Handle, index)) |> unbox<'T>
+            let mutable v = PolarsWrapper.SeriesGetUInt8Fast(this.Handle, index)
+            Unsafe.As<byte, 'T>(&v)
         elif t = typeof<double> && kind = DataTypeKind.Float64 then
-            box (PolarsWrapper.SeriesGetDoubleFast(this.Handle, index)) |> unbox<'T>
+            let mutable v = PolarsWrapper.SeriesGetDoubleFast(this.Handle, index)
+            Unsafe.As<double, 'T>(&v)
         elif t = typeof<float32> && kind = DataTypeKind.Float32 then
-            box (PolarsWrapper.SeriesGetSingleFast(this.Handle, index)) |> unbox<'T>
+            let mutable v = PolarsWrapper.SeriesGetSingleFast(this.Handle, index)
+            Unsafe.As<float32, 'T>(&v)
         elif t = typeof<Half> && kind = DataTypeKind.Float16 then
-            box (PolarsWrapper.SeriesGetHalfFast(this.Handle, index)) |> unbox<'T>
+            let mutable v = PolarsWrapper.SeriesGetHalfFast(this.Handle, index)
+            Unsafe.As<Half, 'T>(&v)
         elif t = typeof<Int128> then
-            box (PolarsWrapper.SeriesGetInt128Fast(this.Handle, index)) |> unbox<'T>
+            let mutable v = PolarsWrapper.SeriesGetInt128Fast(this.Handle, index)
+            Unsafe.As<Int128, 'T>(&v)
         elif t = typeof<UInt128> then
-            box (PolarsWrapper.SeriesGetUInt128Fast(this.Handle, index)) |> unbox<'T>
+            let mutable v = PolarsWrapper.SeriesGetUInt128Fast(this.Handle, index)
+            Unsafe.As<UInt128, 'T>(&v)
 
         // ==============================================================
         // 2. Numeric Coercion Path (Cross-numeric reads, e.g., Int64 -> int)
         // ==============================================================
         elif DataType.IsNumericType t && this.DataType.IsNumeric then
-            this.CoerceNumericScalar(index, t) |> unbox<'T>
+            this.CoerceNumericScalar<'T>(index)
 
         // ==============================================================
         // 3. Boolean
         // ==============================================================
         elif t = typeof<bool> then
-            box (PolarsWrapper.SeriesGetBoolFast(this.Handle, index)) |> unbox<'T>
+            let mutable v = PolarsWrapper.SeriesGetBoolFast(this.Handle, index)
+            Unsafe.As<bool, 'T>(&v)
 
         // ==============================================================
         // 4. String (Guaranteed not null; empty string is safely preserved)
         // ==============================================================
         elif t = typeof<string> && not this.DataType.IsCategorical then
-            box (PolarsWrapper.SeriesGetStringFast(this.Handle, index)) |> unbox<'T>
+            let v = PolarsWrapper.SeriesGetStringFast(this.Handle, index)
+            Unsafe.As<string, 'T>(&Unsafe.AsRef(&v))
 
         // ==============================================================
         // 5. Decimal
@@ -472,26 +588,32 @@ type Series(handle: SeriesHandle) =
         elif t = typeof<decimal> then
             let p = this.DataType.Precision
             let s = this.DataType.Scale
-            box (PolarsWrapper.SeriesGetDecimalFast(this.Handle, index, s, p)) |> unbox<'T>
+            let mutable v = PolarsWrapper.SeriesGetDecimalFast(this.Handle, index, s, p)
+            Unsafe.As<decimal, 'T>(&v)
 
         // ==============================================================
         // 6. Temporal (Date, Time, Duration, Datetime)
         // ==============================================================
         elif t = typeof<DateOnly> then
-            box (PolarsWrapper.SeriesGetDateFast(this.Handle, index)) |> unbox<'T>
+            let mutable v = PolarsWrapper.SeriesGetDateFast(this.Handle, index)
+            Unsafe.As<DateOnly, 'T>(&v)
         elif t = typeof<TimeOnly> then
-            box (PolarsWrapper.SeriesGetTimeFast(this.Handle, index)) |> unbox<'T>
+            let mutable v = PolarsWrapper.SeriesGetTimeFast(this.Handle, index)
+            Unsafe.As<TimeOnly, 'T>(&v)
         elif t = typeof<TimeSpan> then
             let tu = this.DataType.TimeUnit.ToNative()
-            box (PolarsWrapper.SeriesGetDurationFast(this.Handle, index, tu)) |> unbox<'T>
+            let mutable v = PolarsWrapper.SeriesGetDurationFast(this.Handle, index, tu)
+            Unsafe.As<TimeSpan, 'T>(&v)
         elif t = typeof<DateTime> then
             let tu = this.DataType.TimeUnit.ToNative()
-            box (PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index, tu, null)) |> unbox<'T>
+            let mutable v = PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index, tu, null)
+            Unsafe.As<DateTime, 'T>(&v)
         elif t = typeof<struct(DateTime * string)> then
             let tu = this.DataType.TimeUnit.ToNative()
             let tz = this.DataType.TimeZone.Value
             let dt = PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index, tu, tz)
-            box struct(dt, tz) |> unbox<'T>
+            let mutable v = struct(dt, tz)
+            Unsafe.As<struct(DateTime * string), 'T>(&v)
 
         // ==============================================================
         // 7. Universal Fallback (List, Struct, Complex)

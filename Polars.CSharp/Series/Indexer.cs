@@ -29,91 +29,144 @@ public partial class Series : IDisposable,IPolarsSeries
         var type = typeof(T);
         var underlying = Nullable.GetUnderlyingType(type) ?? type;
 
-        // 1. Numeric
+        bool isNullable = type != underlying;
+
+        // 1. Numeric Fast Path
         if (underlying == typeof(int) && DataType == DataType.Int32)
-            return (T)(object)PolarsWrapper.SeriesGetInt32Fast(Handle, index);
-
+        {
+            int val = PolarsWrapper.SeriesGetInt32Fast(Handle, index);
+            return isNullable ? (T)(object)(int?)val : Unsafe.As<int, T>(ref val);
+        }
         if (underlying == typeof(long) && DataType == DataType.Int64)
-            return (T)(object)PolarsWrapper.SeriesGetInt64Fast(Handle, index);
-
+        {
+            long val = PolarsWrapper.SeriesGetInt64Fast(Handle, index);
+            return isNullable ? (T)(object)(long?)val : Unsafe.As<long, T>(ref val);
+        }
         if (underlying == typeof(uint) && DataType == DataType.UInt32)
-            return (T)(object)PolarsWrapper.SeriesGetUInt32Fast(Handle, index);
-
+        {
+            uint val = PolarsWrapper.SeriesGetUInt32Fast(Handle, index);
+            return isNullable ? (T)(object)(uint?)val : Unsafe.As<uint, T>(ref val);
+        }
         if (underlying == typeof(ulong) && DataType == DataType.UInt64)
-            return (T)(object)PolarsWrapper.SeriesGetUInt64Fast(Handle, index);
-
+        {
+            ulong val = PolarsWrapper.SeriesGetUInt64Fast(Handle, index);
+            return isNullable ? (T)(object)(ulong?)val : Unsafe.As<ulong, T>(ref val);
+        }
         if (underlying == typeof(short) && DataType == DataType.Int16)
-            return (T)(object)PolarsWrapper.SeriesGetInt16Fast(Handle, index);
-
+        {
+            short val = PolarsWrapper.SeriesGetInt16Fast(Handle, index);
+            return isNullable ? (T)(object)(short?)val : Unsafe.As<short, T>(ref val);
+        }
         if (underlying == typeof(ushort) && DataType == DataType.UInt16)
-            return (T)(object)PolarsWrapper.SeriesGetUInt16Fast(Handle, index);
-
+        {
+            ushort val = PolarsWrapper.SeriesGetUInt16Fast(Handle, index);
+            return isNullable ? (T)(object)(ushort?)val : Unsafe.As<ushort, T>(ref val);
+        }
         if (underlying == typeof(sbyte) && DataType == DataType.Int8)
-            return (T)(object)PolarsWrapper.SeriesGetInt8Fast(Handle, index);
-
+        {
+            sbyte val = PolarsWrapper.SeriesGetInt8Fast(Handle, index);
+            return isNullable ? (T)(object)(sbyte?)val : Unsafe.As<sbyte, T>(ref val);
+        }
         if (underlying == typeof(byte) && DataType == DataType.UInt8)
-            return (T)(object)PolarsWrapper.SeriesGetUInt8Fast(Handle, index);
-        if (underlying == typeof(Int128))
-            return (T)(object)PolarsWrapper.SeriesGetInt128Fast(Handle, index);
-
-        if (underlying == typeof(UInt128))
-            return (T)(object)PolarsWrapper.SeriesGetUInt128Fast(Handle, index);
-
+        {
+            byte val = PolarsWrapper.SeriesGetUInt8Fast(Handle, index);
+            return isNullable ? (T)(object)(byte?)val : Unsafe.As<byte, T>(ref val);
+        }
         if (underlying == typeof(double) && DataType == DataType.Float64)
-            return (T)(object)PolarsWrapper.SeriesGetDoubleFast(Handle, index);
+        {
+            double val = PolarsWrapper.SeriesGetDoubleFast(Handle, index);
+            return isNullable ? (T)(object)(double?)val : Unsafe.As<double, T>(ref val);
+        }
         if (underlying == typeof(float) && DataType == DataType.Float32)
-            return (T)(object)PolarsWrapper.SeriesGetSingleFast(Handle, index);
+        {
+            float val = PolarsWrapper.SeriesGetSingleFast(Handle, index);
+            return isNullable ? (T)(object)(float?)val : Unsafe.As<float, T>(ref val);
+        }
         if (underlying == typeof(Half) && DataType == DataType.Float16)
-            return (T)(object)PolarsWrapper.SeriesGetHalfFast(Handle, index);
+        {
+            Half val = PolarsWrapper.SeriesGetHalfFast(Handle, index);
+            return isNullable ? (T)(object)(Half?)val : Unsafe.As<Half, T>(ref val);
+        }
+        if (underlying == typeof(Int128))
+        {
+            Int128 val = PolarsWrapper.SeriesGetInt128Fast(Handle, index);
+            return isNullable ? (T)(object)(Int128?)val : Unsafe.As<Int128, T>(ref val);
+        }
+        if (underlying == typeof(UInt128))
+        {
+            UInt128 val = PolarsWrapper.SeriesGetUInt128Fast(Handle, index);
+            return isNullable ? (T)(object)(UInt128?)val : Unsafe.As<UInt128, T>(ref val);
+        }
 
         if (IsSupportedNumericType(underlying) && DataType.IsNumeric)
         {
             return CoerceNumericValue<T>(index, DataType, underlying);
-        }
+        }       
+        // ==============================================================
         // 2. Boolean
+        // ==============================================================
         if (underlying == typeof(bool))
-            return (T)(object)PolarsWrapper.SeriesGetBoolFast(Handle, index);
+        {
+            bool val = PolarsWrapper.SeriesGetBoolFast(Handle, index);
+            return isNullable ? (T)(object)(bool?)val : Unsafe.As<bool, T>(ref val);
+        }
 
-        // 3. String
+        // ==============================================================
+        // 3. String (Reference type - zero boxing via ref reinterpret)
+        // ==============================================================
         if (underlying == typeof(string) && !DataType.IsCategorical)
         {
-            string? strVal = PolarsWrapper.SeriesGetStringFast(Handle,index);
-            return (T?)(object?)strVal;
+            string? strVal = PolarsWrapper.SeriesGetStringFast(Handle, index);
+            return Unsafe.As<string?, T>(ref strVal);
         }
 
+        // ==============================================================
         // 4. Decimal
+        // ==============================================================
         if (underlying == typeof(decimal))
         {   
             int scale = DataType.Scale;
             int precision = DataType.Precision;
-            return (T)(object)PolarsWrapper.SeriesGetDecimalFast(Handle, index,scale,precision);
+            decimal val = PolarsWrapper.SeriesGetDecimalFast(Handle, index, scale, precision);
+            return isNullable ? (T)(object)(decimal?)val : Unsafe.As<decimal, T>(ref val);
         }
+
+        // ==============================================================
         // 5. Temporal (Time)
+        // ==============================================================
         if (underlying == typeof(DateOnly))
-            return (T)(object)PolarsWrapper.SeriesGetDateFast(Handle, index);
+        {
+            DateOnly val = PolarsWrapper.SeriesGetDateFast(Handle, index);
+            return isNullable ? (T)(object)(DateOnly?)val : Unsafe.As<DateOnly, T>(ref val);
+        }
 
         if (underlying == typeof(TimeOnly))
-            return (T)(object)PolarsWrapper.SeriesGetTimeFast(Handle, index);
+        {
+            TimeOnly val = PolarsWrapper.SeriesGetTimeFast(Handle, index);
+            return isNullable ? (T)(object)(TimeOnly?)val : Unsafe.As<TimeOnly, T>(ref val);
+        }
 
         if (underlying == typeof(TimeSpan))
         {
             TimeUnit timeUnit = DataType.TimeUnit;
-            return (T)(object)PolarsWrapper.SeriesGetDurationFast(Handle, index,timeUnit.ToNative());
+            TimeSpan val = PolarsWrapper.SeriesGetDurationFast(Handle, index, timeUnit.ToNative());
+            return isNullable ? (T)(object)(TimeSpan?)val : Unsafe.As<TimeSpan, T>(ref val);
         }
+
         if (underlying == typeof(DateTime))
         {
             TimeUnit timeUnit = DataType.TimeUnit;
-            DateTime dt = PolarsWrapper.SeriesGetDatetimeFast(Handle, index,timeUnit.ToNative(),null);
-
-            return (T)(object)dt;
+            DateTime dt = PolarsWrapper.SeriesGetDatetimeFast(Handle, index, timeUnit.ToNative(), null);
+            return isNullable ? (T)(object)(DateTime?)dt : Unsafe.As<DateTime, T>(ref dt);
         }
+
         if (underlying == typeof(ValueTuple<DateTime, string>))
         {
             TimeUnit timeUnit = DataType.TimeUnit;
             string timeZone = DataType.TimeZone!;
-            var dt = PolarsWrapper.SeriesGetDatetimeFast(Handle, index,timeUnit.ToNative(),timeZone);
-
-            return (T)(object)(dt,timeZone);
+            DateTime dt = PolarsWrapper.SeriesGetDatetimeFast(Handle, index, timeUnit.ToNative(), timeZone);
+            var tuple = (dt, timeZone);
+            return isNullable ? (T)(object)((DateTime, string)?)tuple : Unsafe.As<(DateTime, string), T>(ref tuple);
         }
 
         // ==============================================================
@@ -134,35 +187,230 @@ public partial class Series : IDisposable,IPolarsSeries
         t == typeof(short) || t == typeof(ushort) || t == typeof(byte) ||
         t == typeof(sbyte);
 
-    private T? CoerceNumericValue<T>(long index, DataType actualDtype, Type targetType)
+    /// <summary>
+    /// Reads physical numeric scalar and converts it to the underlying non-nullable numeric type,
+    /// then packages it into T (handling both T and Nullable&lt;T&gt; without heap allocation).
+    /// </summary>
+    private T CoerceNumericValue<T>(long index, DataType actualDtype, Type underlyingType)
     {
-        object val;
         if (actualDtype == DataType.Int64)
-            val = PolarsWrapper.SeriesGetInt64Fast(Handle, index);
-        else if (actualDtype == DataType.Int32)
-            val = PolarsWrapper.SeriesGetInt32Fast(Handle, index);
-        else if (actualDtype == DataType.Float64)
-            val = PolarsWrapper.SeriesGetDoubleFast(Handle, index);
-        else if (actualDtype == DataType.Float32)
-            val = PolarsWrapper.SeriesGetSingleFast(Handle, index);
-        else if (actualDtype == DataType.Float16)
-            val = PolarsWrapper.SeriesGetHalfFast(Handle, index);
-        else if (actualDtype == DataType.UInt64)
-            val = PolarsWrapper.SeriesGetUInt64Fast(Handle, index);
-        else if (actualDtype == DataType.UInt32)
-            val = PolarsWrapper.SeriesGetUInt32Fast(Handle, index);
-        else if (actualDtype == DataType.Int16)
-            val = PolarsWrapper.SeriesGetInt16Fast(Handle, index);
-        else if (actualDtype == DataType.UInt16)
-            val = PolarsWrapper.SeriesGetUInt16Fast(Handle, index);
-        else if (actualDtype == DataType.Int8)
-            val = PolarsWrapper.SeriesGetInt8Fast(Handle, index);
-        else if (actualDtype == DataType.UInt8)
-            val = PolarsWrapper.SeriesGetUInt8Fast(Handle, index);
-        else
-            throw new InvalidOperationException($"Cannot coerce non-numeric series of type {actualDtype} to {targetType.Name}");
+            return CoerceFromInt64<T>(PolarsWrapper.SeriesGetInt64Fast(Handle, index), underlyingType);
+        if (actualDtype == DataType.Int32)
+            return CoerceFromInt64<T>(PolarsWrapper.SeriesGetInt32Fast(Handle, index), underlyingType);
+        if (actualDtype == DataType.Int16)
+            return CoerceFromInt64<T>(PolarsWrapper.SeriesGetInt16Fast(Handle, index), underlyingType);
+        if (actualDtype == DataType.Int8)
+            return CoerceFromInt64<T>(PolarsWrapper.SeriesGetInt8Fast(Handle, index), underlyingType);
 
-        return (T?)(object?)Convert.ChangeType(val, targetType);
+        if (actualDtype == DataType.UInt64)
+            return CoerceFromUInt64<T>(PolarsWrapper.SeriesGetUInt64Fast(Handle, index), underlyingType);
+        if (actualDtype == DataType.UInt32)
+            return CoerceFromUInt64<T>(PolarsWrapper.SeriesGetUInt32Fast(Handle, index), underlyingType);
+        if (actualDtype == DataType.UInt16)
+            return CoerceFromUInt64<T>(PolarsWrapper.SeriesGetUInt16Fast(Handle, index), underlyingType);
+        if (actualDtype == DataType.UInt8)
+            return CoerceFromUInt64<T>(PolarsWrapper.SeriesGetUInt8Fast(Handle, index), underlyingType);
+
+        if (actualDtype == DataType.Float64)
+            return CoerceFromDouble<T>(PolarsWrapper.SeriesGetDoubleFast(Handle, index), underlyingType);
+        if (actualDtype == DataType.Float32)
+            return CoerceFromDouble<T>(PolarsWrapper.SeriesGetSingleFast(Handle, index), underlyingType);
+        if (actualDtype == DataType.Float16)
+            return CoerceFromDouble<T>((float)PolarsWrapper.SeriesGetHalfFast(Handle, index), underlyingType);
+
+        throw new InvalidOperationException($"Cannot coerce non-numeric series of type {actualDtype} to {underlyingType.Name}");
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static T CoerceFromInt64<T>(long v, Type underlying)
+    {
+        bool isNullable = typeof(T) != underlying;
+
+        if (underlying == typeof(int))
+        {
+            int res = (int)v;
+            return isNullable ? (T)(object)(int?)res : Unsafe.As<int, T>(ref res);
+        }
+        if (underlying == typeof(long))
+        {
+            long res = v;
+            return isNullable ? (T)(object)(long?)res : Unsafe.As<long, T>(ref res);
+        }
+        if (underlying == typeof(double))
+        {
+            double res = v;
+            return isNullable ? (T)(object)(double?)res : Unsafe.As<double, T>(ref res);
+        }
+        if (underlying == typeof(float))
+        {
+            float res = v;
+            return isNullable ? (T)(object)(float?)res : Unsafe.As<float, T>(ref res);
+        }
+        if (underlying == typeof(uint))
+        {
+            uint res = (uint)v;
+            return isNullable ? (T)(object)(uint?)res : Unsafe.As<uint, T>(ref res);
+        }
+        if (underlying == typeof(ulong))
+        {
+            ulong res = (ulong)v;
+            return isNullable ? (T)(object)(ulong?)res : Unsafe.As<ulong, T>(ref res);
+        }
+        if (underlying == typeof(short))
+        {
+            short res = (short)v;
+            return isNullable ? (T)(object)(short?)res : Unsafe.As<short, T>(ref res);
+        }
+        if (underlying == typeof(ushort))
+        {
+            ushort res = (ushort)v;
+            return isNullable ? (T)(object)(ushort?)res : Unsafe.As<ushort, T>(ref res);
+        }
+        if (underlying == typeof(byte))
+        {
+            byte res = (byte)v;
+            return isNullable ? (T)(object)(byte?)res : Unsafe.As<byte, T>(ref res);
+        }
+        if (underlying == typeof(sbyte))
+        {
+            sbyte res = (sbyte)v;
+            return isNullable ? (T)(object)(sbyte?)res : Unsafe.As<sbyte, T>(ref res);
+        }
+        if (underlying == typeof(Half))
+        {
+            Half res = (Half)(float)v;
+            return isNullable ? (T)(object)(Half?)res : Unsafe.As<Half, T>(ref res);
+        }
+
+        throw new InvalidOperationException($"Unsupported target numeric coercion type: {underlying.Name}");
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static T CoerceFromUInt64<T>(ulong v, Type underlying)
+    {
+        bool isNullable = typeof(T) != underlying;
+
+        if (underlying == typeof(ulong))
+        {
+            ulong res = v;
+            return isNullable ? (T)(object)(ulong?)res : Unsafe.As<ulong, T>(ref res);
+        }
+        if (underlying == typeof(long))
+        {
+            long res = (long)v;
+            return isNullable ? (T)(object)(long?)res : Unsafe.As<long, T>(ref res);
+        }
+        if (underlying == typeof(uint))
+        {
+            uint res = (uint)v;
+            return isNullable ? (T)(object)(uint?)res : Unsafe.As<uint, T>(ref res);
+        }
+        if (underlying == typeof(int))
+        {
+            int res = (int)v;
+            return isNullable ? (T)(object)(int?)res : Unsafe.As<int, T>(ref res);
+        }
+        if (underlying == typeof(double))
+        {
+            double res = v;
+            return isNullable ? (T)(object)(double?)res : Unsafe.As<double, T>(ref res);
+        }
+        if (underlying == typeof(float))
+        {
+            float res = v;
+            return isNullable ? (T)(object)(float?)res : Unsafe.As<float, T>(ref res);
+        }
+        if (underlying == typeof(ushort))
+        {
+            ushort res = (ushort)v;
+            return isNullable ? (T)(object)(ushort?)res : Unsafe.As<ushort, T>(ref res);
+        }
+        if (underlying == typeof(short))
+        {
+            short res = (short)v;
+            return isNullable ? (T)(object)(short?)res : Unsafe.As<short, T>(ref res);
+        }
+        if (underlying == typeof(byte))
+        {
+            byte res = (byte)v;
+            return isNullable ? (T)(object)(byte?)res : Unsafe.As<byte, T>(ref res);
+        }
+        if (underlying == typeof(sbyte))
+        {
+            sbyte res = (sbyte)v;
+            return isNullable ? (T)(object)(sbyte?)res : Unsafe.As<sbyte, T>(ref res);
+        }
+        if (underlying == typeof(Half))
+        {
+            Half res = (Half)(float)v;
+            return isNullable ? (T)(object)(Half?)res : Unsafe.As<Half, T>(ref res);
+        }
+
+        throw new InvalidOperationException($"Unsupported target numeric coercion type: {underlying.Name}");
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static T CoerceFromDouble<T>(double v, Type underlying)
+    {
+        bool isNullable = typeof(T) != underlying;
+
+        if (underlying == typeof(double))
+        {
+            double res = v;
+            return isNullable ? (T)(object)(double?)res : Unsafe.As<double, T>(ref res);
+        }
+        if (underlying == typeof(float))
+        {
+            float res = (float)v;
+            return isNullable ? (T)(object)(float?)res : Unsafe.As<float, T>(ref res);
+        }
+        if (underlying == typeof(Half))
+        {
+            Half res = (Half)(float)v;
+            return isNullable ? (T)(object)(Half?)res : Unsafe.As<Half, T>(ref res);
+        }
+        if (underlying == typeof(int))
+        {
+            int res = (int)v;
+            return isNullable ? (T)(object)(int?)res : Unsafe.As<int, T>(ref res);
+        }
+        if (underlying == typeof(long))
+        {
+            long res = (long)v;
+            return isNullable ? (T)(object)(long?)res : Unsafe.As<long, T>(ref res);
+        }
+        if (underlying == typeof(uint))
+        {
+            uint res = (uint)v;
+            return isNullable ? (T)(object)(uint?)res : Unsafe.As<uint, T>(ref res);
+        }
+        if (underlying == typeof(ulong))
+        {
+            ulong res = (ulong)v;
+            return isNullable ? (T)(object)(ulong?)res : Unsafe.As<ulong, T>(ref res);
+        }
+        if (underlying == typeof(short))
+        {
+            short res = (short)v;
+            return isNullable ? (T)(object)(short?)res : Unsafe.As<short, T>(ref res);
+        }
+        if (underlying == typeof(ushort))
+        {
+            ushort res = (ushort)v;
+            return isNullable ? (T)(object)(ushort?)res : Unsafe.As<ushort, T>(ref res);
+        }
+        if (underlying == typeof(byte))
+        {
+            byte res = (byte)v;
+            return isNullable ? (T)(object)(byte?)res : Unsafe.As<byte, T>(ref res);
+        }
+        if (underlying == typeof(sbyte))
+        {
+            sbyte res = (sbyte)v;
+            return isNullable ? (T)(object)(sbyte?)res : Unsafe.As<sbyte, T>(ref res);
+        }
+
+        throw new InvalidOperationException($"Unsupported target numeric coercion type: {underlying.Name}");
     }
     /// <summary>
     /// Get an item at the specified index as object (boxed).
