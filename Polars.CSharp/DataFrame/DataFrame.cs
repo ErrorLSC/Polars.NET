@@ -628,40 +628,7 @@ public partial class DataFrame : IDisposable,IEnumerable<Series>,IEquatable<Data
         _backingResources.Clear();
         GC.SuppressFinalize(this); 
     }
-    
-    // ==========================================
-    // Object Mapping (To Records)
-    // ==========================================
 
-    /// <summary>
-    /// Convert DataFrame to a list of strongly-typed objects.
-    /// This triggers a conversion to Arrow format internally.
-    /// </summary>
-    public IEnumerable<T> Rows<T>() where T : new()
-    {
-        using var batch = ToArrow(); 
-
-        foreach (var item in ArrowReader.ReadRecordBatch<T>(batch))
-        {
-            yield return item;
-        }
-    }
- 
-    /// <summary>
-    /// Get data for selected row.
-    /// </summary>
-    public object?[] Row(int index)
-    {
-        if (index < 0 || index >= Height)
-            throw new IndexOutOfRangeException($"Row index {index} is out of bounds. Height: {Height}");
-
-        var rowData = new object?[Width];
-        for (int i = 0; i < Width; i++)
-        {
-            rowData[i] = this[index, i];
-        }
-        return rowData;
-    }
     // ==========================================
     // Equality (IEquatable)
     // ==========================================

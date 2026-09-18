@@ -32,7 +32,7 @@ public partial class Series : IDisposable,IPolarsSeries
 
         return unit switch
         {
-            SizeUnit.Bytes     => bytes,
+            SizeUnit.Bytes => bytes,
             SizeUnit.Kilobytes => bytes / 1024.0,
             SizeUnit.Megabytes => bytes / Math.Pow(1024, 2),
             SizeUnit.Gigabytes => bytes / Math.Pow(1024, 3),
@@ -40,10 +40,11 @@ public partial class Series : IDisposable,IPolarsSeries
             _ => throw new ArgumentOutOfRangeException(nameof(unit), $"Unsupported size unit: {unit}")
         };
     }
+    private bool? _hasNulls;
     /// <summary>
     /// Check whether the Series contains one or more null values.
     /// </summary>
-    public bool HasNulls() => PolarsWrapper.SeriesHasNulls(Handle);
+    public bool HasNulls() => _hasNulls ??= (PolarsWrapper.SeriesHasNulls(Handle));
     /// <summary>
     /// True if the Series is empty.
     /// </summary>

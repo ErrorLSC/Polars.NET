@@ -346,6 +346,8 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     };
     public bool IsCategorical => Kind == DataTypeKind.Categorical;
 
+    public bool IsEnum => Kind == DataTypeKind.Enum;
+
     // ==========================================
     // Primitive Factories (Static Properties)
     // ==========================================

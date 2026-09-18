@@ -37,6 +37,56 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
     let mutable disposed = false
     [<DefaultValue>]
     val mutable private _displayString : string
+    // Cached FFI queries (eliminates repeated native crossings)
+    let lazyTimeUnit =
+        lazy (
+            PolarsWrapper.GetTimeUnit handle |> TimeUnit.FromNative
+        )
+
+    let lazyTimeZone =
+        lazy (
+            let tz = PolarsWrapper.GetTimeZone handle
+            if String.IsNullOrEmpty tz then None else Some tz
+        )
+
+    // 2. Cached Array Metadata (avoids repeated array copies and pattern checks)
+    let lazyArrayShape =
+        lazy (
+            match kind with
+            | DataTypeKind.Array(_, shape) -> Array.copy shape
+            | _ -> invalidOp (sprintf "ArrayShape is only applicable to Array, but current type is %A." kind)
+        )
+
+    let lazyArrayWidth =
+        lazy (
+            match kind with
+            | DataTypeKind.Array(_, shape) when shape.Length > 0 -> shape.[0]
+            | DataTypeKind.Array _ -> 0u
+            | _ -> invalidOp (sprintf "ArrayWidth is only applicable to Array, but current type is %A." kind)
+        )
+
+    // 3. Cached Nested / Leaf Type Unwrapping (avoids repeated recursive walks)
+    let lazyInnerType =
+        lazy (
+            match kind with
+            | DataTypeKind.Array(inner, _) -> inner
+            | DataTypeKind.List inner -> inner
+            | _ -> invalidOp (sprintf "InnerType is only applicable to Array or List, but current type is %A." kind)
+        )
+
+    let lazyLeafType =
+        lazy (
+            let rec unwrap (dt: DataType) =
+                match dt.Kind with
+                | DataTypeKind.Array(inner, _) -> unwrap inner
+                | DataTypeKind.List inner -> unwrap inner
+                | _ -> dt
+
+            match kind with
+            | DataTypeKind.Array(inner, _) -> Some(unwrap inner)
+            | DataTypeKind.List inner -> Some(unwrap inner)
+            | _ -> None
+        )
     static let toUnitCode tu =
         match tu with
         | TimeUnit.Nanoseconds -> 0uy
@@ -53,16 +103,13 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
     member this.Kind = kind
     member this.TimeUnit = 
         if this.IsTemporal then
-            PolarsWrapper.GetTimeUnit handle |> TimeUnit.FromNative
+            lazyTimeUnit.Value
         else 
             invalidOp "Invalid Operation for non-temporal type"
     member this.TimeZone : string option =
         match this.Kind with
-        | DataTypeKind.Datetime _ -> 
-            let tz = PolarsWrapper.GetTimeZone handle
-            if String.IsNullOrEmpty tz then None else Some tz
-        | _ -> 
-            invalidOp $"TimeZone is only applicable to Datetime, but current type is {this.Kind}."
+        | DataTypeKind.Datetime _ -> lazyTimeZone.Value
+        | _ -> invalidOp $"TimeZone is only applicable to Datetime, but current type is {this.Kind}."
 
     /// Gets the decimal precision.
     /// Throws InvalidOperationException if the data type is not Decimal.
@@ -89,11 +136,7 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
     /// <exception cref="System.InvalidOperationException">
     /// Thrown when the data type is not an Array.
     /// </exception>
-    member this.ArrayWidth: uint =
-        match kind with
-        | DataTypeKind.Array(_, shape) when shape.Length > 0 -> shape.[0]
-        | DataTypeKind.Array _ -> 0u
-        | _ -> invalidOp (sprintf "ArrayWidth is only applicable to Array, but current type is %A." kind)
+    member this.ArrayWidth: uint = lazyArrayWidth.Value
 
     /// <summary>
     /// Gets the dimensional shape of the Array.
@@ -102,17 +145,14 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
     /// <exception cref="System.InvalidOperationException">
     /// Thrown when the data type is not an Array.
     /// </exception>
-    member this.ArrayShape: uint[] =
-        match kind with
-        | DataTypeKind.Array(_, shape) -> Array.copy shape
-        | _ -> invalidOp (sprintf "ArrayShape is only applicable to Array, but current type is %A." kind)
+    member this.ArrayShape: uint[] = Array.copy lazyArrayShape.Value
     /// <summary>
     /// Safely attempts to extract Array metadata without throwing exceptions.
     /// </summary>
     /// <returns>Some(inner, shape) if this is an Array; otherwise None.</returns>
     member this.TryGetArrayInfo() : (DataType * uint[]) option =
         match kind with
-        | DataTypeKind.Array(inner, shape) -> Some(inner, Array.copy shape)
+        | DataTypeKind.Array(inner, _) -> Some(inner, Array.copy lazyArrayShape.Value)
         | _ -> None
 
     /// <summary>
@@ -121,23 +161,16 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
     /// <exception cref="System.InvalidOperationException">
     /// Thrown when the data type is neither an Array nor a List.
     /// </exception>
-    member this.InnerType: DataType = 
-        match kind with
-        | DataTypeKind.Array(inner, _) -> inner
-        | DataTypeKind.List inner -> inner
-        | _ -> invalidOp (sprintf "InnerType is only applicable to Array or List, but current type is %A." kind)
+    member this.InnerType: DataType = lazyInnerType.Value
 
     /// <summary>
     /// Recursively unwraps all outer Array and List layers to retrieve the leaf (primitive/base) DataType.
     /// Returns itself if this DataType is not nested.
     /// </summary>
     member this.LeafType: DataType =
-        let rec unwrap (dt: DataType) =
-            match dt.Kind with
-            | DataTypeKind.Array(inner, _) -> unwrap inner
-            | DataTypeKind.List inner -> unwrap inner
-            | _ -> dt
-        unwrap this
+        match lazyLeafType.Value with
+        | Some leaf -> leaf
+        | None -> this
 
     /// <summary>
     /// Safely attempts to extract the inner element DataType without throwing an exception.
@@ -467,6 +500,10 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
     member this.IsCategorical =
         match this.Kind with
         | DataTypeKind.Categorical _ -> true
+        | _ -> false
+    member this.IsEnum =
+        match this.Kind with
+        | DataTypeKind.Enum _ -> true
         | _ -> false
     member this.Code =
         match this.Kind with

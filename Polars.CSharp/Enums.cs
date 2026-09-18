@@ -83,7 +83,7 @@ public enum ConcatType
 /// <summary>
 /// Enum of DataTypeKind
 /// </summary>
-public enum DataTypeKind
+public enum DataTypeKind:byte
 {
     Boolean = 1 ,
     Int8 =2,
@@ -172,12 +172,12 @@ public enum Roll
     /// Raise an error if the result is not a business day.
     /// </summary>
     Raise,
-    
+
     /// <summary>
     /// Roll forward to the next business day.
     /// </summary>
     Forward,
-    
+
     /// <summary>
     /// Roll backward to the previous business day.
     /// </summary>
@@ -283,7 +283,7 @@ public enum JoinMaintainOrder: byte
 /// <summary>
 /// Specifies the strategy for the hash join build side.
 /// <para>
-/// In a hash join, one dataframe is loaded into memory (the "build side") to construct a hash table, 
+/// In a hash join, one dataframe is loaded into memory (the "build side") to construct a hash table,
 /// while the other is streamed (the "probe side") to find matches.
 /// </para>
 /// <para>
@@ -296,24 +296,24 @@ public enum JoinSide : byte
     /// Let Polars decide the best join strategy (Optimizer's choice).
     /// </summary>
     LetPolarsDecide = 0,
-    
+
     /// <summary>
     /// Prefer using the left side as the build side (hash table).
     /// Optimizer may override this if the right side is significantly smaller.
     /// </summary>
     PreferLeft = 1,
-    
+
     /// <summary>
     /// Force using the left side as the build side.
     /// </summary>
     ForceLeft = 2,
-    
+
     /// <summary>
     /// Prefer using the right side as the build side (hash table).
     /// Optimizer may override this if the left side is significantly smaller.
     /// </summary>
     PreferRight = 3,
-    
+
     /// <summary>
     /// Force using the right side as the build side.
     /// </summary>
@@ -363,12 +363,12 @@ public enum SyncOnClose : byte
     /// Don't call sync on close. (Default, fastest)
     /// </summary>
     None = 0,
-    
+
     /// <summary>
     /// Sync only the file contents.
     /// </summary>
     Data = 1,
-    
+
     /// <summary>
     /// Sync the file contents and the metadata. (Slowest, safest)
     /// </summary>
@@ -391,17 +391,17 @@ public enum QuoteStyle : byte
     /// Quote fields only when necessary (e.g. containing delimiter/quote). Default.
     /// </summary>
     Necessary = 0,
-    
+
     /// <summary>
     /// Quote every field.
     /// </summary>
     Always = 1,
-    
+
     /// <summary>
     /// Quote non-numeric fields.
     /// </summary>
     NonNumeric = 2,
-    
+
     /// <summary>
     /// Never quote fields.
     /// </summary>
@@ -506,13 +506,13 @@ public enum MergeActionType : byte
 public enum AdbcIngestMode
 {
     /// <summary>
-    /// Creates a new table and inserts the data. 
+    /// Creates a new table and inserts the data.
     /// Fails if the target table already exists. (Default behavior)
     /// </summary>
     Create,
 
     /// <summary>
-    /// Appends the data to an existing table. 
+    /// Appends the data to an existing table.
     /// Fails if the target table does not exist, or if the DataFrame schema doesn't match.
     /// </summary>
     Append,
@@ -569,22 +569,22 @@ public enum AmbiguousStrategy
 public enum WindowMappingStrategy: byte
 {
     /// <summary>
-    /// If the aggregation results in multiple values per group, 
-    /// map them back to their row position in the DataFrame. 
-    /// This can only be done if each group yields the same elements before aggregation as after. 
+    /// If the aggregation results in multiple values per group,
+    /// map them back to their row position in the DataFrame.
+    /// This can only be done if each group yields the same elements before aggregation as after.
     /// If the aggregation results in one scalar value per group, this value will be mapped to every row.
     /// </summary>
     GroupsToRows = 0,
     /// <summary>
-    /// If the aggregation may result in multiple values per group, map each value to a new row, similar to the results of group_by + agg + explode. 
-    /// If the aggregation always results in one scalar value per group, map this value to one row position. 
-    /// Sorting of the given groups is required if the groups are not part of the window operation for the operation, otherwise the result would not make sense. 
+    /// If the aggregation may result in multiple values per group, map each value to a new row, similar to the results of group_by + agg + explode.
+    /// If the aggregation always results in one scalar value per group, map this value to one row position.
+    /// Sorting of the given groups is required if the groups are not part of the window operation for the operation, otherwise the result would not make sense.
     /// This operation changes the number of rows.
     /// </summary>
     Explode = 1,
     /// <summary>
-    /// If the aggregation may result in multiple values per group, join the values as List{group_dtype} to each row position. 
-    /// Warning: this can be memory intensive. 
+    /// If the aggregation may result in multiple values per group, join the values as List{group_dtype} to each row position.
+    /// Warning: this can be memory intensive.
     /// If the aggregation always results in one scalar value per group, join this value as group_dtype to each row position.
     /// </summary>
     Join = 2
@@ -606,7 +606,7 @@ public enum CategoricalPhysical : byte
 {
     U32 = 0,
     U16 = 1,
-    U8 = 2 
+    U8 = 2
 }
 
 public enum FloatFormat: byte
@@ -631,13 +631,13 @@ public enum TableFormatting: byte
     AsciiFull,
     AsciiFullCondensed,
     AsciiNoBorders,
-    AsciiBordersOnly, 
-    AsciiBordersOnlyCondensed, 
-    AsciiHorizontalOnly, 
+    AsciiBordersOnly,
+    AsciiBordersOnlyCondensed,
+    AsciiHorizontalOnly,
     AsciiMarkdown,
     Markdown,
-    Utf8Full, 
-    Utf8FullCondensed, 
+    Utf8Full,
+    Utf8FullCondensed,
     Utf8NoBorders,
     Utf8BordersOnly,
     Utf8HorizontalOnly,
@@ -685,7 +685,7 @@ internal static class EnumExtensions
         DataTypeKind.Boolean => CoreEnums.PlDataType.Boolean,
         DataTypeKind.Categorical => CoreEnums.PlDataType.Categorical,
         DataTypeKind.Null => CoreEnums.PlDataType.Null,
-        DataTypeKind.String => CoreEnums.PlDataType.String, 
+        DataTypeKind.String => CoreEnums.PlDataType.String,
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
     };
     internal static CoreEnums.PlTimeUnit ToNative(this TimeUnit unit) => unit switch
@@ -727,7 +727,7 @@ internal static class EnumExtensions
         PivotColumnNaming.Combine => CoreEnums.PlPivotColumnNaming.Combine,
         _ => CoreEnums.PlPivotColumnNaming.Auto
     };
-    
+
     internal static CoreEnums.PlConcatType ToNative(this ConcatType type) => type switch
     {
         ConcatType.Vertical => CoreEnums.PlConcatType.Vertical,
@@ -769,8 +769,8 @@ internal static class EnumExtensions
         QuantileMethod.Higher => CoreEnums.PlQuantileMethod.Higher,
         QuantileMethod.Lower => CoreEnums.PlQuantileMethod.Lower,
         QuantileMethod.Midpoint => CoreEnums.PlQuantileMethod.Midpoint,
-        QuantileMethod.Linear => CoreEnums.PlQuantileMethod.Linear,  
-        QuantileMethod.Equiprobable => CoreEnums.PlQuantileMethod.Equiprobable,  
+        QuantileMethod.Linear => CoreEnums.PlQuantileMethod.Linear,
+        QuantileMethod.Equiprobable => CoreEnums.PlQuantileMethod.Equiprobable,
         _ => throw new ArgumentOutOfRangeException(nameof(interpol), interpol, null)
     };
     internal static CoreEnums.PlRankMethod ToNative(this RankMethod method) => method switch
@@ -1043,4 +1043,3 @@ internal static class EnumExtensions
         _ => throw new ArgumentOutOfRangeException(nameof(fmt), fmt, null)
     };
 }
-

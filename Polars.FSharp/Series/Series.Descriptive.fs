@@ -3,7 +3,7 @@ namespace Polars.FSharp
 open Polars.NET.Core
 
 [<AutoOpen>]
-module SeriesDescriptiveOps = 
+module SeriesDescriptiveOps =
     type Series with
         /// <summary>
         /// Get the length of each individual chunk.
@@ -11,7 +11,7 @@ module SeriesDescriptiveOps =
         /// <returns>An array of lengths as primitive int64 values.</returns>
         member this.ChunkLengths() =
             let nativeLengths = PolarsWrapper.SeriesChunkLengths(this.Handle)
-            
+
             nativeLengths |> Array.map int64
         /// <summary>
         /// Return an estimation of the total (heap) allocated size of the Series.
@@ -29,10 +29,6 @@ module SeriesDescriptiveOps =
             | SizeUnit.Megabytes -> bytes / 1024.0 ** 2.0
             | SizeUnit.Gigabytes -> bytes / 1024.0 ** 3.0
             | SizeUnit.Terabytes -> bytes / 1024.0 ** 4.0
-        /// <summary>
-        /// Check whether the Series contains one or more null values.
-        /// </summary>
-        member this.HasNulls() = PolarsWrapper.SeriesHasNulls(this.Handle)
         /// <summary> Check if floating point values are NaN. </summary>
         member this.IsNan() = new Series(PolarsWrapper.SeriesIsNan this.Handle)
 
@@ -65,9 +61,9 @@ module SeriesDescriptiveOps =
         /// </summary>
         member this.IsIn(other: Series, ?nullsEqual: bool) : Series =
             let nEq = defaultArg nullsEqual false
-            
+
             match other.DataType.ToPlDataType() with
-            | PlDataType.List 
+            | PlDataType.List
             | PlDataType.Array ->
                 new Series(PolarsWrapper.SeriesIsIn(this.Handle, other.Handle, nEq))
             | _ ->
@@ -82,12 +78,12 @@ module SeriesDescriptiveOps =
         /// <summary>
         /// Returns a boolean Series indicating which values are null.
         /// </summary>
-        member this.IsNull() : Series = 
+        member this.IsNull() : Series =
             new Series(PolarsWrapper.SeriesIsNull this.Handle)
         /// <summary>
         /// Returns a boolean Series indicating which values are not null.
         /// </summary>
-        member this.IsNotNull() : Series = 
+        member this.IsNotNull() : Series =
             new Series(PolarsWrapper.SeriesIsNotNull this.Handle)
         /// <summary>
         /// Count the number of unique values.
@@ -101,7 +97,7 @@ module SeriesDescriptiveOps =
         member this.ApproxNUnique() = PolarsWrapper.SeriesApproxNUnique this.Handle
         /// <summary>
         /// Return the lower bound of this Series’ dtype as a unit Series.
-        /// </summary>        
+        /// </summary>
         member this.LowerBound() = this.ApplyExpr(Expr.Col(this.Name).LowerBound())
         /// <summary>
         /// Return the upper bound of this Series’ dtype as a unit Series.
@@ -124,6 +120,6 @@ module SeriesDescriptiveOps =
             let paralleling = defaultArg paralleling true
             let name = defaultArg name "count"
             let normalize = defaultArg normalize false
-            
+
             let dfHandle = PolarsWrapper.SeriesValueCounts(this.Handle, sort, paralleling, name, normalize)
             new DataFrame(dfHandle)

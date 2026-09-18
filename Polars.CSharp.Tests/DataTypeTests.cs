@@ -26,9 +26,9 @@ public class DataTypeTests
 
         // From: List -> DataFrame
         using var df = DataFrame.From(trades);
-        
+
         Assert.Equal(3, df.Height);
-    
+
         // To: DataFrame -> List (Rows<T>)
         var resultList = df.Rows<TradeRecord>().ToList();
 
@@ -43,14 +43,14 @@ public class DataTypeTests
 
         var row1 = resultList[1];
         Assert.Equal("GOOG", row1.Ticker);
-        Assert.Null(row1.Factor); 
+        Assert.Null(row1.Factor);
     }
     public class LogEntry
     {
         public int Id { get; set; }
         public string Message { get; set; }
         public DateTime Timestamp { get; set; }
-        public DateTime? ProcessedAt { get; set; } 
+        public DateTime? ProcessedAt { get; set; }
     }
 
     [Fact]
@@ -101,32 +101,32 @@ public class DataTypeTests
     {
         var data = new List<ComplexContainer>
         {
-            new() { 
-                Id = 1, 
-                Info = new NestedItem { Key = "A", Values = new List<double> { 1.1, 2.2 } } 
+            new() {
+                Id = 1,
+                Info = new NestedItem { Key = "A", Values = new List<double> { 1.1, 2.2 } }
             },
-            new() { 
-                Id = 2, 
+            new() {
+                Id = 2,
                 Info = null // Struct Null
             },
-            new() { 
-                Id = 3, 
-                Info = new NestedItem { Key = "B", Values = new List<double> { 3.3 } } 
+            new() {
+                Id = 3,
+                Info = new NestedItem { Key = "B", Values = new List<double> { 3.3 } }
             }
         };
 
         // 2. POCO -> DataFrame (Series.From + DataFrame)
-        using var s = Series.From("data", data); 
-        using var df = DataFrame.FromSeries(s).Unnest("data"); 
+        using var s = Series.From("data", data);
+        using var df = DataFrame.FromSeries(s).Unnest("data");
 
         // Expected:
         // Id (i64), Info (Struct)
-        
+
         // DataFrame -> POCO (Rows<T>)
         var results = df.Rows<ComplexContainer>().ToList();
 
         Assert.Equal(3, results.Count);
-        
+
         // Row 0
         Assert.Equal(1, results[0].Id);
         Assert.Equal("A", results[0].Info.Key);
@@ -135,7 +135,7 @@ public class DataTypeTests
 
         // Row 1 (Struct Null)
         Assert.Equal(2, results[1].Id);
-        Assert.Null(results[1].Info); 
+        Assert.Null(results[1].Info);
 
         // Row 2
         Assert.Equal("B", results[2].Info.Key);
@@ -143,7 +143,7 @@ public class DataTypeTests
     }
     private class ModernTypesPoco
     {
-        public string Cat { get; set; } 
+        public string Cat { get; set; }
         public DateOnly Date { get; set; }
         public TimeOnly Time { get; set; }
     }
@@ -154,15 +154,15 @@ public class DataTypeTests
     {
         var data = new List<ModernTypesPoco>
         {
-            new() { 
-                Cat = "A", 
-                Date = new DateOnly(2023, 1, 1), 
-                Time = new TimeOnly(12, 0, 0) 
+            new() {
+                Cat = "A",
+                Date = new DateOnly(2023, 1, 1),
+                Time = new TimeOnly(12, 0, 0)
             },
-            new() { 
-                Cat = "B", 
-                Date = new DateOnly(2024, 2, 29), 
-                Time = new TimeOnly(23, 59, 59) 
+            new() {
+                Cat = "B",
+                Date = new DateOnly(2024, 2, 29),
+                Time = new TimeOnly(23, 59, 59)
             }
         };
 
@@ -178,7 +178,7 @@ public class DataTypeTests
         var rows = dfCat.Rows<ModernTypesPoco>().ToList();
 
         Assert.Equal(2, rows.Count);
-        
+
         Assert.Equal("A", rows[0].Cat);
         Assert.Equal("B", rows[1].Cat);
 
@@ -191,7 +191,7 @@ public class DataTypeTests
         public DateOnly Date { get; set; }
         public TimeOnly Time { get; set; }
         public DateTime Stamp { get; set; }
-        public TimeSpan Duration { get; set; } 
+        public TimeSpan Duration { get; set; }
     }
 
     [Fact]
@@ -222,7 +222,7 @@ public class DataTypeTests
 
         // Row 0
         Assert.Equal(TimeSpan.FromHours(1.5) + TimeSpan.FromMicroseconds(50), rows[0].Duration);
-        
+
         // Row 1
         Assert.Equal(TimeSpan.FromDays(365), rows[1].Duration);
 
@@ -234,19 +234,19 @@ public class DataTypeTests
     {
         // 2025-01-01 00:00:00 UTC
         var utcPoint = new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        
+
         // Beijing: 08:00 (+8) ->  UTC 00:00
         var beijingPoint = new DateTimeOffset(2025, 1, 1, 8, 0, 0, TimeSpan.FromHours(8));
-        
+
         // New York: 19:00 (-5, 前一天) -> 对应 UTC 00:00
         var nyPoint = new DateTimeOffset(2024, 12, 31, 19, 0, 0, TimeSpan.FromHours(-5));
 
-        var data = new DateTimeOffset?[] 
-        { 
+        var data = new DateTimeOffset?[]
+        {
             utcPoint,      // Index 0
             null,          // Index 1 (Null)
-            beijingPoint,  // Index 2 
-            nyPoint,       // Index 3 
+            beijingPoint,  // Index 2
+            nyPoint,       // Index 3
             null           // Index 4
         };
 
@@ -256,26 +256,26 @@ public class DataTypeTests
         Assert.Equal(5, s.Length);
         Assert.Equal(2, s.NullCount);
 
-        var results = s.ToArray<DateTimeOffset?>(); 
+        var results = s.ToArray<DateTimeOffset?>();
 
         //  Index 0 (UTC)
         Assert.NotNull(results[0]);
         Assert.Equal(TimeSpan.Zero, results[0]!.Value.Offset);
-        Assert.Equal(utcPoint.UtcTicks / 10, results[0]!.Value.UtcTicks / 10); 
+        Assert.Equal(utcPoint.UtcTicks / 10, results[0]!.Value.UtcTicks / 10);
 
         //  Index 1 (Null)
         Assert.Null(results[1]);
 
         //  Index 2 (Beijing -> UTC)
         Assert.NotNull(results[2]);
-        Assert.Equal(TimeSpan.Zero, results[2]!.Value.Offset); 
-        Assert.Equal(0, results[2]!.Value.Hour); 
+        Assert.Equal(TimeSpan.Zero, results[2]!.Value.Offset);
+        Assert.Equal(0, results[2]!.Value.Hour);
         Assert.Equal(results[0]!.Value.UtcTicks, results[2]!.Value.UtcTicks);
 
         //  Index 3 (New York -> UTC)
         Assert.NotNull(results[3]);
         Assert.Equal(TimeSpan.Zero, results[3]!.Value.Offset);
-        Assert.Equal(results[0]!.Value.UtcTicks, results[3]!.Value.UtcTicks);        
+        Assert.Equal(results[0]!.Value.UtcTicks, results[3]!.Value.UtcTicks);
     }
     [Fact]
     public void Test_DateTimeOffset_FastPath_LargeScale()
@@ -287,7 +287,7 @@ public class DataTypeTests
         for (int i = 0; i < count; i++)
         {
             var baseTime = start.AddSeconds(i);
-            
+
             int mode = i % 4;
             if (mode == 0) data[i] = baseTime.ToOffset(TimeSpan.Zero); // UTC
             else if (mode == 1) data[i] = baseTime.ToOffset(TimeSpan.FromHours(8)); // Beijing
@@ -298,19 +298,19 @@ public class DataTypeTests
         var sw = Stopwatch.StartNew();
         using var s = new Series("fast_offsets", data);
         sw.Stop();
-        
+
         Console.WriteLine($"Processed {count} DateTimeOffsets in {sw.Elapsed.TotalMilliseconds} ms");
         Assert.Equal(count, s.Length);
         Assert.Equal(0, s.NullCount);
 
-        long tolerance = 10; 
+        long tolerance = 10;
 
         void CheckIndex(int idx)
         {
             object val = s[idx];
             DateTimeOffset result;
 
-            if (val is DateTimeOffset dto) 
+            if (val is DateTimeOffset dto)
             {
                 result = dto;
             }
@@ -326,12 +326,12 @@ public class DataTypeTests
             }
 
             long diff = Math.Abs(data[idx].UtcTicks - result.UtcTicks);
-            
+
             if (diff > tolerance)
             {
                 Assert.Fail($"Mismatch at {idx}. Input Offset: {data[idx].Offset}. Diff: {diff} Ticks.");
             }
-            
+
             Assert.Equal(TimeSpan.Zero, result.Offset);
         }
 
@@ -344,12 +344,12 @@ public class DataTypeTests
         {
             CheckIndex(rng.Next(0, count));
         }
-        
+
     }
     [Fact]
     public void Test_WallClock_Consistency()
     {
-        
+
         var dtLocal = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Local);
         var dtUtc   = new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc);
         var dtUnspec= new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Unspecified);
@@ -357,23 +357,23 @@ public class DataTypeTests
 
         using var df = DataFrame.From(
         [
-            new { A = dtLocal, B = dtUtc, C = dtUnspec } 
+            new { A = dtLocal, B = dtUtc, C = dtUnspec }
         ]);
 
 
         var row = df.Rows<dynamic>().First();
-        
+
         DateTime valA = df.GetValue<DateTime>(0, "A");
         DateTime valB = df.GetValue<DateTime>(0, "B");
         DateTime valC = df.GetValue<DateTime>(0, "C");
 
-        long tolerance = 100; 
+        long tolerance = 100;
 
         Assert.InRange(valA.Ticks - new DateTime(2025, 1, 1, 12, 0, 0).Ticks, -tolerance, tolerance);
-        
+
         Assert.Equal(DateTimeKind.Unspecified, valA.Kind);
         Assert.Equal(DateTimeKind.Unspecified, valB.Kind);
-        
+
         Assert.InRange(valA.Ticks - valB.Ticks, -tolerance, tolerance);
         Assert.InRange(valA.Ticks - valC.Ticks, -tolerance, tolerance);
     }
@@ -395,7 +395,7 @@ public class DataTypeTests
         var item2 = s.GetValue<ComplexContainer>(1);
         Assert.Equal("K2", item2.Info.Key);
     }
-    
+
     [Fact]
     public void Test_GetValue_List()
     {
@@ -416,14 +416,14 @@ public class DataTypeTests
     {
         // 2023-01-01 10:00:00
         var dt = new DateTime(2023, 1, 1, 10, 0, 0);
-        
-        using var df = DataFrame.FromColumns(new 
+
+        using var df = DataFrame.FromColumns(new
         {
-            ts = new[] { dt } 
+            ts = new[] { dt }
         });
 
         // --- ReplaceTimeZone (Naive -> Asia/Shanghai) ---
-        
+
         using var df1 = df.Select(
             Pl.Col("ts")
                 .Dt
@@ -437,12 +437,12 @@ public class DataTypeTests
 
         object valReplace = df1["ts_shanghai"][0];
 
-        Assert.IsType<DateTimeOffset>(valReplace); 
+        Assert.IsType<DateTimeOffset>(valReplace);
         var dtoReplace = (DateTimeOffset)valReplace;
 
-        Assert.Equal(10, dtoReplace.Hour); 
+        Assert.Equal(10, dtoReplace.Hour);
         Assert.Equal(TimeSpan.FromHours(8), dtoReplace.Offset);
-        
+
         // --- ConvertTimeZone (Asia/Shanghai -> UTC) ---
 
         using var df2 = df1.Select(
@@ -456,15 +456,15 @@ public class DataTypeTests
         Assert.Equal("UTC", schema2.TimeZone);
 
         var valUtc = (DateTimeOffset)df2["ts_utc"][0];
-        Assert.Equal(2, valUtc.Hour); 
+        Assert.Equal(2, valUtc.Hour);
 
 
         // --- Naive -> UTC -> Shanghai ---
-        
+
         using var df3 = df.Select(
             Pl.Col("ts").Dt
-            .ReplaceTimeZone("UTC").Dt         
-            .ConvertTimeZone("Asia/Shanghai") 
+            .ReplaceTimeZone("UTC").Dt
+            .ConvertTimeZone("Asia/Shanghai")
             .Alias("ts_converted")
         );
 
@@ -481,16 +481,16 @@ public class DataTypeTests
         Assert.Equal((sbyte)18, hour);
 
         // --- Remove TimeZone (Aware -> Naive) ---
-        
+
         using var df4 = df3.Select(
             Pl.Col("ts_converted").Dt
-            .ReplaceTimeZone(null) 
+            .ReplaceTimeZone(null)
             .Alias("ts_naive")
         );
 
         var schema4 = df4.Schema["ts_naive"];
-        Assert.Equal("",schema4.TimeZone); 
-        
+        Assert.Equal("",schema4.TimeZone);
+
         var valNaive = (DateTime)df4["ts_naive"][0];
         Assert.Equal(18, valNaive.Hour);
     }
@@ -500,20 +500,20 @@ public class DataTypeTests
         var dtype = DataType.Array(DataType.Int32, 3);
 
         Assert.Equal(DataTypeKind.Array, dtype.Kind);
-        
+
         Assert.Equal(3UL, dtype.ArrayWidth);
-        
+
         Assert.Equal(DataType.Int32, dtype.InnerType);
     }
     [Fact]
     public void Test_Float_Double_Half_Resolution()
     {
 
-        var sF64 = new Series("f64", [1.1, 2.2, null]); 
-        Assert.Equal(DataType.Float64, sF64.DataType); 
+        var sF64 = new Series("f64", [1.1, 2.2, null]);
+        Assert.Equal(DataType.Float64, sF64.DataType);
         Assert.Equal(1.1, sF64.GetValue<double?>(0));
         Assert.Null(sF64.GetValue<double?>(2));
-        
+
         var sF32 = new Series("f32", [1.1f, 2.2f, null]);
         Assert.Equal(DataType.Float32, sF32.DataType);
         Assert.Equal(1.1f, sF32.GetValue<float?>(0));
@@ -541,8 +541,8 @@ public class DataTypeTests
 
         // --- u8 (Byte) [0, 255] ---
 
-        byte[] u8Raw = [10, 255]; 
-        var sU8 = Series.From("u8", u8Raw); 
+        byte[] u8Raw = [10, 255];
+        var sU8 = Series.From("u8", u8Raw);
         Assert.Equal((byte)255,sU8[1]);
 
         var sU8_Null = new Series("u8_n", [10, 255, null]);
@@ -561,24 +561,24 @@ public class DataTypeTests
     public void Test_Large_Unsigned_Integers_u32_u64()
     {
         // --- u32 (UInt) ---
-        uint bigUInt = 3_000_000_000u; 
+        uint bigUInt = 3_000_000_000u;
         var sU32 = new Series("u32", [bigUInt, null, 0u]);
-        
+
         Assert.Equal(bigUInt, sU32.GetValue<uint?>(0));
 
         // --- u64 (ULong) ---
-        ulong hugeULong = 10_000_000_000_000_000ul; 
+        ulong hugeULong = 10_000_000_000_000_000ul;
         var sU64 = new Series("u64", [hugeULong, null, 123ul]);
-        
+
         Assert.Equal(hugeULong, sU64.GetValue<ulong?>(0));
     }
     [Fact]
     public void Test_Float16_Million_Rows_SIMD_Stress()
     {
         const int RowCount = 1_000_000;
-        
+
         var rawData = new Half?[RowCount];
-        
+
         for (int i = 0; i < RowCount; i++)
         {
             if (i % 100 == 0)
@@ -590,43 +590,43 @@ public class DataTypeTests
         Console.WriteLine($"Starting ingestion of {RowCount:N0} f16 rows (SIMD Check)...");
 
         var sw = Stopwatch.StartNew();
-        
+
         using var s = Series.From("f16_million", rawData);
-        
+
         sw.Stop();
-        
+
         Console.WriteLine($"Ingestion took: {sw.Elapsed.TotalMilliseconds:F2} ms");
         Console.WriteLine($"Throughput: {RowCount / sw.Elapsed.TotalSeconds / 1_000_000:F2} M rows/sec");
 
         Assert.Equal(RowCount, s.Length);
         Assert.Equal("f16_million", s.Name);
-        
-        Assert.Equal(DataType.Float16, s.DataType); 
-        
+
+        Assert.Equal(DataType.Float16, s.DataType);
+
         Assert.Equal(10_000, s.NullCount);
 
         // Index 0 Null
         Assert.Null(s.GetValue<Half?>(0));
-        
+
         // Index 1 1.0
         Assert.Equal((Half)1, s.GetValue<Half?>(1));
-        
+
         // Index 99 99.0
         Assert.Equal((Half)99, s.GetValue<Half?>(99));
-        
+
         // Index 100 Null
         Assert.Null(s.GetValue<Half?>(100));
 
-        double? sum = s.Cast<double>().Sum<double>(); 
-        
+        double? sum = s.Cast<double>().Sum<double>();
+
         Assert.Equal(49_500_000.0, sum);
     }
     [Fact]
     public void Test_Edge_Case_Mixed_Numeric_Types()
     {
-        
+
         sbyte[] smallData = [1, 2, 3];
-        
+
         var s = new Series("sbyte", smallData);
 
         Assert.Equal((sbyte)1, s.GetValue<sbyte>(0));
@@ -635,8 +635,8 @@ public class DataTypeTests
     [Trait("Series","Int128")]
     public void Test_Int128_Beyond_Int64_Range()
     {
-        Int128 bigVal = (Int128)1 << 100; 
-        
+        Int128 bigVal = (Int128)1 << 100;
+
         Assert.True(bigVal > long.MaxValue);
 
         var s = Series.FromSpan("big_i128",new Int128?[] {bigVal, -bigVal, null}.AsSpan());
@@ -653,7 +653,7 @@ public class DataTypeTests
     {
         // UInt128 Max：340282366920938463463374607431768211455
         UInt128 maxVal = UInt128.MaxValue;
-        
+
         var s = new Series("max_u128", [maxVal, UInt128.MinValue,null]);
 
         Assert.Equal(maxVal, s.GetValue<UInt128?>(0));
@@ -665,9 +665,9 @@ public class DataTypeTests
     public void Test_Int128_Span_Optimization()
     {
         Int128?[] data = [1, null, 2];
-        
+
         var s = Series.From("opt_test", data);
-        
+
         Assert.Equal((Int128)1, s.GetValue<Int128?>(0));
         Assert.Null(s.GetValue<Int128?>(1));
     }
@@ -679,7 +679,7 @@ public class DataTypeTests
         using var sInt = Series.FromSpan("empty_int", emptyInt.AsSpan());
         Assert.Equal(0, sInt.Length);
 
-        // DateTime Empty 
+        // DateTime Empty
         DateTime?[] emptyDt = [];
         using var sDt = Series.From("empty_dt", emptyDt);
         Assert.Equal(0, sDt.Length);
@@ -688,11 +688,11 @@ public class DataTypeTests
         string[] emptyStr = [];
         using var sStr = Series.From("empty_str", emptyStr);
         Assert.Equal(0, sStr.Length);
-        
+
         // DataFrame Schema Alignment
         var df = new DataFrame(sInt, sDt, sStr);
         Assert.Equal((0,3), df.Shape);
-        
+
         var schema = df.Schema;
         Assert.Equal(DataType.Int32, schema["empty_int"]);
         Assert.Equal(DataType.Datetime(TimeUnit.Microseconds), schema["empty_dt"]);
@@ -704,15 +704,15 @@ public class DataTypeTests
         int count = 1_000_000;
         var dateArray = new DateTime[count];
         var start = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        
+
         for (int i = 0; i < count; i++)
         {
-            var dt = start.AddSeconds(i); 
-            
+            var dt = start.AddSeconds(i);
+
             if (i % 2 == 0)
                 dateArray[i] = DateTime.SpecifyKind(dt, DateTimeKind.Utc);
             else
-                dateArray[i] = dt.ToLocalTime(); 
+                dateArray[i] = dt.ToLocalTime();
         }
 
         var sw = Stopwatch.StartNew();
@@ -739,14 +739,14 @@ public class DataTypeTests
     {
 
         object val = s[index];
-        
+
         Assert.NotNull(val);
         Assert.IsType<DateTime>(val);
-        
+
         DateTime actual = (DateTime)val!;
         DateTime expected = source[index];
-        
-        long expectedTicks = expected.Ticks; 
+
+        long expectedTicks = expected.Ticks;
         long actualTicks = actual.Ticks;
 
         long expectedUs = expectedTicks / 10;
@@ -781,7 +781,7 @@ public class DataTypeTests
         CheckIndex(s, data, 8);
         CheckIndex(s, data, 15);
         CheckIndex(s, data, 16);
-        
+
         // Tail Loop
         CheckIndex(s, data, count - 1);
         CheckIndex(s, data, count - 2);
@@ -808,7 +808,7 @@ public class DataTypeTests
 
         for (int i = 0; i < count; i++)
         {
-            data[i] = start.Add(TimeSpan.FromTicks(i * 10000000L + 1)); 
+            data[i] = start.Add(TimeSpan.FromTicks(i * 10000000L + 1));
         }
 
 
@@ -833,7 +833,7 @@ public class DataTypeTests
 
         for (int i = 0; i < count; i++)
         {
-            data[i] = TimeSpan.FromTicks(i * 10); 
+            data[i] = TimeSpan.FromTicks(i * 10);
         }
 
         using var s = Series.From("ilp_durations", data);
@@ -883,8 +883,8 @@ public class DataTypeTests
     {
         var data = new decimal?[]
         {
-            decimal.MaxValue, 
-            decimal.MinValue, 
+            decimal.MaxValue,
+            decimal.MinValue,
             0m,
             null
         };
@@ -927,7 +927,7 @@ public class DataTypeTests
     {
         int count = 1_000_000;
         var data = new decimal[count];
-        
+
         for (int i = 0; i < count; i++)
         {
             if (i % 2 == 0) data[i] = i;       // Scale 0
@@ -938,7 +938,7 @@ public class DataTypeTests
         var sw = Stopwatch.StartNew();
         using var s = Series.FromSpan("stress_decimal", dataSpan);
         sw.Stop();
-        
+
         Console.WriteLine($"Decimal Packed {count} items in {sw.Elapsed.TotalMilliseconds} ms");
         Assert.Equal(count, s.Length);
 
@@ -950,7 +950,7 @@ public class DataTypeTests
         Assert.Equal(100m, s[100]);
         // Index End
         Assert.Equal(data[count - 1], s[count - 1]);
-        
+
         var rng = new Random(999);
         for (int k = 0; k < 100; k++)
         {
@@ -959,34 +959,35 @@ public class DataTypeTests
         }
     }
     [Fact]
+    [Trait("DataType", "Decimal")]
     public void Test_Decimal_MaxScale_Limit()
     {
         decimal extreme = 0.0000000000000000000000000001m; // 1e-28
         Assert.Equal(28, extreme.Scale);
 
-        var data = new decimal[] { 1m, extreme };
-        
+        decimal[] data = [1m, extreme];
+
         // MaxScale = 28
-        
+
         using var s = new Series("limit_decimal", data);
-        
+
         Assert.Equal(1m, s[0]);
         Assert.Equal(extreme, s[1]);
     }
     [Fact]
     public void Test_FixedSizeList_Double_Image()
     {
-        double[,] pixels = new double[,] 
-        { 
-            { 0.1, 0.2 }, 
-            { 0.8, 0.9 } 
+        double[,] pixels = new double[,]
+        {
+            { 0.1, 0.2 },
+            { 0.8, 0.9 }
         };
 
         using var s = new Series("pixels", pixels);
 
         Assert.Equal(2, s.Length);
-        
-        Console.WriteLine(s);  
+
+        Console.WriteLine(s);
     }
     [Fact]
     [Trait("DataType","Matrix")]
@@ -994,14 +995,14 @@ public class DataTypeTests
     {
         int size = 1000;
         double[,] largeMatrix = new double[size, size];
-        
+
         largeMatrix[0, 0] = 1.0;
         largeMatrix[size-1, size-1] = 99.0;
 
         var sw = Stopwatch.StartNew();
-        
+
         using var s = Series.From("large_matrix", largeMatrix);
-        
+
         sw.Stop();
         Console.WriteLine($"Transferred 1,000,000 doubles (2D) in {sw.Elapsed.TotalMilliseconds} ms");
 
@@ -1011,10 +1012,10 @@ public class DataTypeTests
     public void Test_FixedSizeList_Int128_Layout_Check()
     {
         Int128[,] data = new Int128[2, 2];
-        
-        data[0, 0] = 1; 
-        
-        Int128 highBit = (Int128)1 << 64; 
+
+        data[0, 0] = 1;
+
+        Int128 highBit = (Int128)1 << 64;
         data[0, 1] = highBit;
 
         data[1, 0] = Int128.MaxValue;
@@ -1030,35 +1031,35 @@ public class DataTypeTests
     public void Test_Decimal_Matrix_AutoScaling()
     {
 
-        decimal[,] data = new decimal[2, 3] 
+        decimal[,] data = new decimal[2, 3]
         {
             { 1.1m,      2.22m,     3.333m }, // Row 0: Max Scale 3
-            { 100m,      0.00005m,  -1.5m  }  // Row 1: Max Scale 5 
+            { 100m,      0.00005m,  -1.5m  }  // Row 1: Max Scale 5
         };
-        
+
         // 3.333 -> Scale 3
         // 0.00005 -> Scale 5
         // Scale of the series will be 5
         // 1.1 -> 1.10000
-        
+
         string name = "decimal_matrix";
-        
+
         using var series = Series.From(name, data);
 
-        Assert.Equal(DataType.Array(Pl.Decimal(38,5),3),series.DataType); 
-        
+        Assert.Equal(DataType.Array(Pl.Decimal(38,5),3),series.DataType);
+
         decimal[][] rows = series.ToArray<decimal[]>();
 
-        Assert.Equal(2, rows.Length); 
+        Assert.Equal(2, rows.Length);
 
         // Row 0 Check
-        Assert.Equal(3, rows[0].Length); 
+        Assert.Equal(3, rows[0].Length);
         Assert.Equal(1.1m, rows[0][0]);
         Assert.Equal(2.22m, rows[0][1]);
         Assert.Equal(3.333m, rows[0][2]);
 
         // Row 1 Check
-        Assert.Equal(3, rows[1].Length); 
+        Assert.Equal(3, rows[1].Length);
         Assert.Equal(100m, rows[1][0]);
         Assert.Equal(0.00005m, rows[1][1]);
         Assert.Equal(-1.5m, rows[1][2]);
@@ -1069,10 +1070,10 @@ public class DataTypeTests
     public void Test_Decimal_OverflowException()
     {
         // Test Decimal Scale Overflow exception
-        decimal huge = decimal.MaxValue; 
+        decimal huge = decimal.MaxValue;
         decimal tiny = 0.0000000000000000000000000001m; // Decimal.MinValue (Scale 28)
 
-        decimal[,] data = new decimal[2, 1] 
+        decimal[,] data = new decimal[2, 1]
         {
             { huge },
             { tiny }
@@ -1084,12 +1085,12 @@ public class DataTypeTests
     [Trait("DataType","Struct")]
     public void Test_LitStruct_Creation_And_Metadata_Extraction()
     {
-        var inputObj = new 
-        { 
-            Id = 42, 
-            Name = "Polars.NET", 
+        var inputObj = new
+        {
+            Id = 42,
+            Name = "Polars.NET",
             Score = 99.5,
-            IsActive = true 
+            IsActive = true
         };
 
         using var df = new DataFrame()
@@ -1138,7 +1139,7 @@ public class DataTypeTests
     public void Test_DataType_Extension()
     {
         using DataType extIntType = DataType.Extension("my_ext.int", DataType.Int32);
-        Assert.Equal(DataTypeKind.Extension, extIntType.Kind); 
+        Assert.Equal(DataTypeKind.Extension, extIntType.Kind);
 
         using DataType extGeoType = DataType.Extension("geoarrow.wkb", DataType.Binary, "{\"crs\":\"EPSG:4326\"}");
         Assert.Equal(DataTypeKind.Extension, extGeoType.Kind);
@@ -1167,7 +1168,7 @@ public class DataTypeTests
     public void Test_DataType_OOP_Registry_Interception()
     {
         Pl.RegisterExtensionType<UuidExtension>(
-            "myapp.uuid", 
+            "myapp.uuid",
             (storage, metadata) => new UuidExtension()
         );
 
@@ -1175,15 +1176,15 @@ public class DataTypeTests
 
         try
         {
-            byte[][] uuidData = [[1, 2, 3], [4, 5, 6]]; 
+            byte[][] uuidData = [[1, 2, 3], [4, 5, 6]];
             using Series sUuid = Pl.CreateSeries("uuids", uuidData)
-                        .Cast(DataType.Binary) 
+                        .Cast(DataType.Binary)
                         .Ext.To(new UuidExtension());
             using DataFrame df1 = Pl.CreateDataFrame(sUuid);
 
             DataType readType = df1.Schema["uuids"];
-            Assert.IsType<UuidExtension>(readType); 
-            
+            Assert.IsType<UuidExtension>(readType);
+
             var uuidType = (UuidExtension)readType;
             Assert.Equal("myapp.uuid", uuidType.ExtensionName);
             Assert.Equal(DataTypeKind.Binary, uuidType.Storage.Kind);
@@ -1193,7 +1194,7 @@ public class DataTypeTests
             using DataFrame df2 = Pl.CreateDataFrame(sTrans);
 
             DataType readTransType = df2.Schema["trans"];
-            Assert.IsNotType<BaseExtension>(readTransType, exactMatch: false); 
+            Assert.IsNotType<BaseExtension>(readTransType, exactMatch: false);
             Assert.Equal(DataType.Int64, readTransType);
 
             using DataType alienExt = DataType.Extension("alien.type", DataType.Float32, "{\"v\": 1}");
@@ -1202,7 +1203,7 @@ public class DataTypeTests
 
             DataType readAlienType = df3.Schema["alien"];
             Assert.IsType<UnknownExtension>(readAlienType);
-            
+
             var alien = (UnknownExtension)readAlienType;
             Assert.Equal("alien.type", alien.ExtensionName);
             Assert.Equal("{\"v\": 1}", alien.Metadata);
@@ -1228,17 +1229,17 @@ public class DataTypeTests
         try
         {
             Pl.RegisterExtensionType<UuidExtension>(
-                classExtName, 
-                (storage, metadata) => new UuidExtension() 
+                classExtName,
+                (storage, metadata) => new UuidExtension()
             );
 
             ExtensionInfo classInfo = Pl.GetExtensionType(classExtName);
-            
+
             var asClass = Assert.IsType<ExtensionInfo.AsClass>(classInfo);
-            Assert.NotNull(asClass.Factory); 
+            Assert.NotNull(asClass.Factory);
 
             Pl.RegisterExtensionType(storageExtName, asStorage: true);
-            
+
             ExtensionInfo storageInfo = Pl.GetExtensionType(storageExtName);
             Assert.IsType<ExtensionInfo.AsStorage>(storageInfo);
         }
@@ -1264,7 +1265,7 @@ public class DataTypeTests
 
     public class EnumTestPoco
     {
-        public string Status { get; set; } 
+        public string Status { get; set; }
         public int TaskId { get; set; }
     }
     [Fact]
@@ -1286,7 +1287,7 @@ public class DataTypeTests
 
         Assert.Equal(enumType, dfEnum.Schema["Status"]);
         Assert.Equal(DataType.Int32, dfEnum.Schema["TaskId"]);
-        
+
         var castedEnumType = dfEnum.Schema["Status"];
         string[] expectedCategories = ["Pending", "Running", "Completed", "Failed"];
         Assert.Equal(expectedCategories, castedEnumType.EnumCategories.GetCategories());
@@ -1294,7 +1295,7 @@ public class DataTypeTests
         var rows = dfEnum.Rows<EnumTestPoco>().ToList();
 
         Assert.Equal(3, rows.Count);
-        
+
         Assert.Equal(101, rows[0].TaskId);
         Assert.Equal("Pending", rows[0].Status);
 

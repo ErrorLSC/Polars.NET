@@ -1,4 +1,5 @@
 using Polars.NET.Core;
+using Polars.NET.Core.Helpers;
 using Apache.Arrow;
 using Polars.NET.Core.Arrow;
 using Pl = Polars.CSharp.Polars;
@@ -15,6 +16,7 @@ namespace Polars.CSharp;
 public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
 {
     internal SeriesHandle Handle { get; private set; }
+
     private void ReplaceInnerHandle(SeriesHandle newHandle)
     {
         var oldHandle = Handle;
@@ -149,20 +151,33 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// Get the string representation of the Series data type (e.g. "i64", "str", "datetime(μs)").
     /// </summary>
     public string DataTypeName => PolarsWrapper.GetSeriesDtypeString(Handle);
+    private DataType? _cachedDataType;
     /// <summary>
     /// Gets the DataType of the Series.
     /// </summary>
     /// <remarks>
-    /// This property creates a new DataType instance every time it is accessed.
-    /// Since DataType wraps a native handle, consider caching it locally if accessed frequently in a loop.
+    /// Thread-safe lock-free cached property. Disposes redundant instances in race conditions.
     /// </remarks>
     public DataType DataType
     {
         get
         {
-            var handle = PolarsWrapper.GetSeriesDataType(Handle);
+            var current = Volatile.Read(ref _cachedDataType);
+            if (current != null)
+                return current;
 
-            return DataType.CreateFromHandle(handle);
+            var handle = PolarsWrapper.GetSeriesDataType(Handle);
+            var newInstance = DataType.CreateFromHandle(handle);
+
+            var existing = Interlocked.CompareExchange(ref _cachedDataType, newInstance, null);
+            if (existing != null)
+            {
+                // Another thread won the race, dispose the redundant native instance
+                newInstance.Dispose();
+                return existing;
+            }
+
+            return newInstance;
         }
     }
     IPolarsDataType IPolarsSeries.DataType => DataType;
@@ -452,6 +467,8 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
             if (index < 0 || index >= Length)
                 throw new IndexOutOfRangeException($"Index {index} is out of bounds for Series length {Length}.");
         }
+        if (!HasNulls())
+            return false;
         return PolarsWrapper.SeriesIsNullAtFast(Handle, index);
     }
 

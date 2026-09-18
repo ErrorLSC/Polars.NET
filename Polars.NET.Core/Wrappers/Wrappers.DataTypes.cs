@@ -13,10 +13,10 @@ public readonly partial struct PolarsWrapper
        => ErrorHelper.Check(NativeBindings.pl_datatype_new_list(innerType));
     public static DataTypeHandle NewDateTimeType(byte unit, string? timezone)
         => ErrorHelper.Check(NativeBindings.pl_datatype_new_datetime(unit,timezone));
-    public static DataTypeHandle NewDurationType(byte unit) 
+    public static DataTypeHandle NewDurationType(byte unit)
         => ErrorHelper.Check(NativeBindings.pl_datatype_new_duration(unit));
     public static DataTypeHandle NewArrayType(DataTypeHandle inner, uint width)
-        => NewArrayType(inner, new ReadOnlySpan<uint>([width])); 
+        => NewArrayType(inner, new ReadOnlySpan<uint>([width]));
     public static DataTypeHandle NewArrayType(DataTypeHandle inner, ReadOnlySpan<uint> shape)
     {
         if (shape.IsEmpty)
@@ -34,24 +34,24 @@ public readonly partial struct PolarsWrapper
             NativeBindings.pl_datatype_new_array(inner, ref shapeRef, (nuint)shape.Length)
         );
     }
-    
+
     public static DataTypeHandle NewStructType(string[] names, DataTypeHandle[] types)
     {
-        if (names.Length != types.Length) 
+        if (names.Length != types.Length)
             throw new ArgumentException("Names and Types must have same length");
         var typePtrs = HandlesToPtrs(types);
         var h = NativeBindings.pl_datatype_new_struct(names, typePtrs, (nuint)names.Length);
 
         return ErrorHelper.Check(h);
     }
-    
+
     /// <summary>
     /// Get Dtype String
     /// </summary>
     public static string GetDataTypeString(DataTypeHandle handle)
     {
         IntPtr strPtr = NativeBindings.pl_datatype_to_string(handle);
-        
+
         if (strPtr == IntPtr.Zero) return "unknown";
 
         return ErrorHelper.CheckString(strPtr);
@@ -64,7 +64,7 @@ public readonly partial struct PolarsWrapper
     {
 
         nint ptr = NativeBindings.pl_datatype_get_timezone(handle);
-        
+
         return ErrorHelper.CheckString(ptr);
     }
     /// <summary>
@@ -88,7 +88,7 @@ public readonly partial struct PolarsWrapper
     }
 
     /// <summary>
-    /// Get Decimal Precision and Scal
+    /// Get Decimal Precision and Scale
     /// </summary>
     public static void GetDecimalInfo(DataTypeHandle handle, out int precision, out int scale)
     {
@@ -106,11 +106,11 @@ public readonly partial struct PolarsWrapper
     public static DataTypeHandle GetInnerType(DataTypeHandle handle)
         => ErrorHelper.Check(NativeBindings.pl_datatype_get_inner(handle));
     public static ulong DataTypeGetArrayWidth(DataTypeHandle dtype)
-    {  
+    {
         bool success = NativeBindings.pl_datatype_get_array_width(dtype, out uint width);
-        
+
         ErrorHelper.CheckBool(success);
-        
+
         return width;
     }
     public static uint[] GetArrayShape(DataTypeHandle handle)
@@ -142,11 +142,11 @@ public readonly partial struct PolarsWrapper
     /// Get Struct field length
     /// </summary>
     public static ulong GetStructLen(DataTypeHandle handle)
-    {        
+    {
         bool success = NativeBindings.pl_datatype_get_struct_len(handle,out uint len);
-        
-        ErrorHelper.CheckBool(success); 
-        
+
+        ErrorHelper.CheckBool(success);
+
         return len;
     }
 
@@ -156,19 +156,19 @@ public readonly partial struct PolarsWrapper
     public static void GetStructField(DataTypeHandle handle, ulong index, out string name, out DataTypeHandle typeHandle)
     {
         bool success = NativeBindings.pl_datatype_get_struct_field(
-            handle, 
-            (UIntPtr)index, 
-            out IntPtr namePtr, 
+            handle,
+            (UIntPtr)index,
+            out IntPtr namePtr,
             out var outTypeHandle
         );
 
-        ErrorHelper.CheckBool(success); 
+        ErrorHelper.CheckBool(success);
 
         typeHandle = ErrorHelper.Check(outTypeHandle);
-        
+
         name = ErrorHelper.CheckString(namePtr);
     }
-    public static DataTypeHandle NewEnumType(FrozenCategoriesHandle frozenCategories) 
+    public static DataTypeHandle NewEnumType(FrozenCategoriesHandle frozenCategories)
         => ErrorHelper.Check(NativeBindings.pl_datatype_new_enum(frozenCategories));
     public static DataTypeHandle NewExtensionType(string name, DataTypeHandle innerType, string? metadata)
         => ErrorHelper.Check(NativeBindings.pl_datatype_new_extension(name, innerType, metadata));

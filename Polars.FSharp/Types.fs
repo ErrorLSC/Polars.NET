@@ -15,95 +15,24 @@ open Apache.Arrow.Ipc
 open System.ComponentModel
 open System.Runtime.CompilerServices
 
-[<AutoOpen>]
-module private NumericCoercionHelpers =
-    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
-    let inline coerceFromI64<'T> (v: int64) : 'T =
-        let t = typeof<'T>
-        if t = typeof<int> then 
-            let mutable c = int v
-            Unsafe.As<int, 'T>(&c)
-        elif t = typeof<int64> then 
-            let mutable c = v
-            Unsafe.As<int64, 'T>(&c)
-        elif t = typeof<double> then 
-            let mutable c = double v
-            Unsafe.As<double, 'T>(&c)
-        elif t = typeof<float32> then 
-            let mutable c = float32 v
-            Unsafe.As<float32, 'T>(&c)
-        elif t = typeof<uint32> then 
-            let mutable c = uint32 v
-            Unsafe.As<uint32, 'T>(&c)
-        elif t = typeof<uint64> then 
-            let mutable c = uint64 v
-            Unsafe.As<uint64, 'T>(&c)
-        elif t = typeof<int16> then 
-            let mutable c = int16 v
-            Unsafe.As<int16, 'T>(&c)
-        elif t = typeof<uint16> then 
-            let mutable c = uint16 v
-            Unsafe.As<uint16, 'T>(&c)
-        elif t = typeof<byte> then 
-            let mutable c = byte v
-            Unsafe.As<byte, 'T>(&c)
-        elif t = typeof<sbyte> then 
-            let mutable c = sbyte v
-            Unsafe.As<sbyte, 'T>(&c)
-        elif t = typeof<Half> then 
-            let mutable c = Half.op_Explicit (float32 v)
-            Unsafe.As<Half, 'T>(&c)
-        else 
-            invalidOp (sprintf "Unsupported target numeric coercion type: %s" t.Name)
-
-    [<MethodImpl(MethodImplOptions.AggressiveInlining)>]
-    let inline coerceFromF64<'T> (v: double) : 'T =
-        let t = typeof<'T>
-        if t = typeof<double> then 
-            let mutable c = v
-            Unsafe.As<double, 'T>(&c)
-        elif t = typeof<float32> then 
-            let mutable c = float32 v
-            Unsafe.As<float32, 'T>(&c)
-        elif t = typeof<int> then 
-            let mutable c = int v
-            Unsafe.As<int, 'T>(&c)
-        elif t = typeof<int64> then 
-            let mutable c = int64 v
-            Unsafe.As<int64, 'T>(&c)
-        elif t = typeof<uint32> then 
-            let mutable c = uint32 v
-            Unsafe.As<uint32, 'T>(&c)
-        elif t = typeof<uint64> then 
-            let mutable c = uint64 v
-            Unsafe.As<uint64, 'T>(&c)
-        elif t = typeof<int16> then 
-            let mutable c = int16 v
-            Unsafe.As<int16, 'T>(&c)
-        elif t = typeof<uint16> then 
-            let mutable c = uint16 v
-            Unsafe.As<uint16, 'T>(&c)
-        elif t = typeof<byte> then 
-            let mutable c = byte v
-            Unsafe.As<byte, 'T>(&c)
-        elif t = typeof<sbyte> then 
-            let mutable c = sbyte v
-            Unsafe.As<sbyte, 'T>(&c)
-        elif t = typeof<Half> then 
-            let mutable c = Half.op_Explicit (float32 v)
-            Unsafe.As<Half, 'T>(&c)
-        else 
-            invalidOp (sprintf "Unsupported target numeric coercion type: %s" t.Name)
 /// --- Series ---
 /// <summary>
 /// An eager Series holding a single column of data.
 /// </summary>
 type Series(handle: SeriesHandle) =
-
+    let hasNulls = lazy PolarsWrapper.SeriesHasNulls(handle)
     member this.Dispose() = handle.Dispose()
     member _.Handle = handle
     member _.Name = PolarsWrapper.SeriesName handle
     member _.Length = PolarsWrapper.SeriesLen handle
+    /// <summary>
+    /// Check whether the Series contains one or more null values.
+    /// </summary>
+    member this.HasNulls() = hasNulls.Value
+
+    /// <summary>
+    /// Get the number of values in the Series.
+    /// </summary>
     member this.Len() = this.Length
     /// <summary>
     /// Get the number of null values in the Series.
@@ -453,14 +382,13 @@ type Series(handle: SeriesHandle) =
     /// Check whether indexed value is null。
     /// </summary>
     member this.IsNullAt(index:int64,?uncheck:bool):bool =
-        let skipCheck = defaultArg uncheck false
-        if not skipCheck then
-            if index < 0L || index >= this.Length then
-                raise (ArgumentOutOfRangeException(nameof index, sprintf "Index %d is out of bounds for Series of length %d" index this.Length))
-            else
-                PolarsWrapper.SeriesIsNullAtFast(this.Handle, index)
+        if not hasNulls.Value then
+            false
         else
-            // Fast direct path: completely unchecked
+            let skipCheck = defaultArg uncheck false
+            if not skipCheck then
+                if index < 0L || index >= this.Length then
+                    raise (ArgumentOutOfRangeException(nameof index, sprintf "Index %d is out of bounds for Series of length %d." index this.Length))
             PolarsWrapper.SeriesIsNullAtFast(this.Handle, index)
     member this.IsNullAt(index: int,?uncheck:bool) =
         this.IsNullAt(int64 index,?uncheck=uncheck)
@@ -469,58 +397,12 @@ type Series(handle: SeriesHandle) =
     // ==========================================
 
     /// <summary>
-    /// Reads a numeric scalar according to the exact physical DataType of the Series,
-    /// and coerces it to the target .NET type using Convert.ChangeType.
-    /// </summary>
-    member private this.CoerceNumericScalar<'T>(index: int64) : 'T =
-        let t = typeof<'T>
-
-        match this.DataType.Kind with
-        | DataTypeKind.Float64 ->
-            let v = PolarsWrapper.SeriesGetDoubleFast(this.Handle, index)
-            coerceFromF64<'T> v
-        | DataTypeKind.Float32 ->
-            let v = PolarsWrapper.SeriesGetSingleFast(this.Handle, index)
-            coerceFromF64<'T> (double v)
-        | DataTypeKind.Float16 ->
-            let v = PolarsWrapper.SeriesGetHalfFast(this.Handle, index)
-            coerceFromF64<'T> (double (float32 v))
-        | DataTypeKind.Int64 ->
-            let v = PolarsWrapper.SeriesGetInt64Fast(this.Handle, index)
-            coerceFromI64<'T> v
-        | DataTypeKind.Int32 ->
-            let v = PolarsWrapper.SeriesGetInt32Fast(this.Handle, index)
-            coerceFromI64<'T> (int64 v)
-        | DataTypeKind.Int16 ->
-            let v = PolarsWrapper.SeriesGetInt16Fast(this.Handle, index)
-            coerceFromI64<'T> (int64 v)
-        | DataTypeKind.Int8 ->
-            let v = PolarsWrapper.SeriesGetInt8Fast(this.Handle, index)
-            coerceFromI64<'T> (int64 v)
-        | DataTypeKind.UInt64 ->
-            let v = PolarsWrapper.SeriesGetUInt64Fast(this.Handle, index)
-            coerceFromI64<'T> (int64 v)
-        | DataTypeKind.UInt32 ->
-            let v = PolarsWrapper.SeriesGetUInt32Fast(this.Handle, index)
-            coerceFromI64<'T> (int64 v)
-        | DataTypeKind.UInt16 ->
-            let v = PolarsWrapper.SeriesGetUInt16Fast(this.Handle, index)
-            coerceFromI64<'T> (int64 v)
-        | DataTypeKind.UInt8 ->
-            let v = PolarsWrapper.SeriesGetUInt8Fast(this.Handle, index)
-            coerceFromI64<'T> (int64 v)
-
-        | other ->
-            invalidOp (sprintf "Cannot coerce non-numeric series of typ e%A to %s" other t.Name)
-    
-    /// <summary>
     /// Internal scalar reader routing to exact fast paths, numeric coercion paths, or the universal Arrow reader.
     /// </summary>
     [<EditorBrowsable(EditorBrowsableState.Never)>]
     member this.ReadScalarInternal<'T>(index: int64) : 'T =
         let t = typeof<'T>
         let kind = this.DataType.Kind
-
 
         if t = typeof<int> && kind = DataTypeKind.Int32 then
             let mutable v = PolarsWrapper.SeriesGetInt32Fast(this.Handle, index)
@@ -566,7 +448,7 @@ type Series(handle: SeriesHandle) =
         // 2. Numeric Coercion Path (Cross-numeric reads, e.g., Int64 -> int)
         // ==============================================================
         elif DataType.IsNumericType t && this.DataType.IsNumeric then
-            this.CoerceNumericScalar<'T>(index)
+            RowCursor.CoerceNumericValue<'T>(handle,index, this.DataType.ToPlDataType(), t)
 
         // ==============================================================
         // 3. Boolean
@@ -576,9 +458,9 @@ type Series(handle: SeriesHandle) =
             Unsafe.As<bool, 'T>(&v)
 
         // ==============================================================
-        // 4. String (Guaranteed not null; empty string is safely preserved)
+        // 4. String
         // ==============================================================
-        elif t = typeof<string> && not this.DataType.IsCategorical then
+        elif t = typeof<string> && not this.DataType.IsCategorical && not this.DataType.IsEnum then
             let v = PolarsWrapper.SeriesGetStringFast(this.Handle, index)
             Unsafe.As<string, 'T>(&Unsafe.AsRef(&v))
 
@@ -670,57 +552,11 @@ type Series(handle: SeriesHandle) =
         else
             ValueSome (this.ReadScalarInternal<'T> index)
     /// <summary>
-    /// [Indexer] Access value at specific index as boxed object.
+    /// [Indexer] Access value at specific index.
     /// Syntax: series.[index]
     /// </summary>
-    member this.Item (index: int) : obj voption =
-        let idx = int64 index
-
-        // Consistent boundary protection
-        if idx < 0L || idx >= this.Length then
-            raise (IndexOutOfRangeException(sprintf "Index %d is out of bounds for Series length %d." idx this.Length))
-
-        if this.IsNullAt idx then
-            ValueNone
-        else
-            let inline wrapSome (dummy: 'T) = ValueSome (box (this.GetValue<'T>(idx)))
-
-            match this.DataType.Kind with
-            | DataTypeKind.Boolean -> wrapSome Unchecked.defaultof<bool>
-            | DataTypeKind.Int8 -> wrapSome Unchecked.defaultof<int8>
-            | DataTypeKind.Int16 -> wrapSome Unchecked.defaultof<int16>
-            | DataTypeKind.Int32 -> wrapSome Unchecked.defaultof<int>
-            | DataTypeKind.Int64 -> wrapSome Unchecked.defaultof<int64>
-            | DataTypeKind.Int128 -> wrapSome Unchecked.defaultof<Int128>
-
-            | DataTypeKind.UInt8 -> wrapSome Unchecked.defaultof<uint8>
-            | DataTypeKind.UInt16 -> wrapSome Unchecked.defaultof<uint16>
-            | DataTypeKind.UInt32 -> wrapSome Unchecked.defaultof<uint32>
-            | DataTypeKind.UInt64 -> wrapSome Unchecked.defaultof<uint64>
-            | DataTypeKind.UInt128 -> wrapSome Unchecked.defaultof<UInt128>
-
-            | DataTypeKind.Float16 -> wrapSome Unchecked.defaultof<Half>
-            | DataTypeKind.Float32 -> wrapSome Unchecked.defaultof<float32>
-            | DataTypeKind.Float64 -> wrapSome Unchecked.defaultof<double>
-
-            | DataTypeKind.Decimal _ -> wrapSome Unchecked.defaultof<decimal>
-            | DataTypeKind.String -> wrapSome Unchecked.defaultof<string>
-
-            | DataTypeKind.Date -> wrapSome Unchecked.defaultof<DateOnly>
-            | DataTypeKind.Time -> wrapSome Unchecked.defaultof<TimeOnly>
-            | DataTypeKind.Datetime _ -> wrapSome Unchecked.defaultof<DateTime>
-            | DataTypeKind.Duration _ -> wrapSome Unchecked.defaultof<TimeSpan>
-            | DataTypeKind.Binary -> wrapSome Unchecked.defaultof<byte[]>
-
-            | DataTypeKind.List _
-            | DataTypeKind.Struct _
-            | DataTypeKind.Array _ ->
-                match this.GetValue<obj> idx with
-                | null -> ValueNone
-                | validComplex -> ValueSome validComplex
-
-            | _ -> failwithf "Indexer not fully implemented for type: %A" this.DataType
-
+    member this.Item<'T>(index: int)  =
+        this.GetValue<'T> index
 
     // ==========================================
     // Interop
