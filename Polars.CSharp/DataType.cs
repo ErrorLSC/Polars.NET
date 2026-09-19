@@ -7,22 +7,24 @@ using Polars.NET.Core.Arrow;
 namespace Polars.CSharp;
 
 /// <summary>
-/// Represents a Polars data type. 
+/// Represents a Polars data type.
 /// Wraps the underlying Rust DataType Handle and provides high-level metadata.
 /// </summary>
 public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
 {
     internal DataTypeHandle Handle { get; }
-    
+
     /// <summary>
     /// Gets the high-level kind of this data type.
     /// </summary>
     public DataTypeKind Kind { get; }
     private string? _displayString;
-    private readonly int? _precision;
-    private readonly int? _scale;
-    private readonly TimeUnit? _timeUnit;
-    private readonly string? _timeZone;
+    private int? _precision;
+    private int? _scale;
+    private TimeUnit? _timeUnit;
+    private string? _timeZone;
+    private Categories? _categories;
+    private FrozenCategories? _frozenCategories;
     /// <summary>
     /// Gets the decimal precision.
     /// </summary>
@@ -124,14 +126,14 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
         string extName = PolarsWrapper.DataTypeGetExtensionName(handle);
         string? metadata = PolarsWrapper.DataTypeGetExtensionMetadata(handle);
         DataTypeHandle storageHandle = PolarsWrapper.DataTypeGetExtensionStorage(handle);
-        
+
         DataType storage = CreateFromHandle(storageHandle);
 
         if (ExtensionRegistry.TryGetResolution(extName, out var factory, out bool asStorage))
         {
             if (asStorage)
             {
-                handle.Dispose(); 
+                handle.Dispose();
                 return storage;
             }
 
@@ -166,15 +168,17 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     {
         get
         {
-            if (Kind != DataTypeKind.Categorical) 
+            if (Kind != DataTypeKind.Categorical)
                 return null;
-
+            if (_categories != null)
+                return _categories;
             var handle = PolarsWrapper.GetCategories(Handle);
-            
-            if (handle == null || handle.IsInvalid) 
+
+            if (handle == null || handle.IsInvalid)
                 return null;
 
-            return new Categories(handle);
+            _categories = new Categories(handle);
+            return _categories;
         }
     }
 
@@ -185,25 +189,28 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     {
         get
         {
-            if (Kind != DataTypeKind.Enum) 
+            if (Kind != DataTypeKind.Enum)
                 return null;
 
+            if (_frozenCategories != null)
+                return _frozenCategories;
             var handle = PolarsWrapper.GetEnumCategories(Handle);
-            
-            if (handle == null || handle.IsInvalid) 
+
+            if (handle == null || handle.IsInvalid)
                 return null;
 
-            return new FrozenCategories(handle);
+            _frozenCategories = new FrozenCategories(handle);
+            return _frozenCategories;
         }
     }
-    
+
     /// <summary>
     /// Dispose the underlying DataTypeHandle.
     /// </summary>
     public void Dispose()
     {
         Handle?.Dispose();
-        GC.SuppressFinalize(this); 
+        GC.SuppressFinalize(this);
     }
 
     /// <summary>
@@ -217,22 +224,22 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// <summary>
     /// Return the inner type of list/array. Non-List/Array input will return null.
     /// </summary>
-    public DataType? InnerType 
+    public DataType? InnerType
     {
-        get 
+        get
         {
             if (Kind != DataTypeKind.List && Kind != DataTypeKind.Array) return null;
 
             var innerHandle = PolarsWrapper.GetInnerType(Handle);
-            
+
             if (innerHandle.IsInvalid) return null;
-            
-            return new DataType(innerHandle); 
+
+            return new DataType(innerHandle);
         }
     }
 
     /// <summary>
-    /// Gets the fields of a Struct type. 
+    /// Gets the fields of a Struct type.
     /// Returns null if this DataType is not a Struct.
     /// </summary>
     public IReadOnlyList<Field>? StructFields
@@ -295,7 +302,7 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     {
         DataTypeKind.Int8 or DataTypeKind.Int16 or DataTypeKind.Int32 or DataTypeKind.Int64 or
         DataTypeKind.UInt8 or DataTypeKind.UInt16 or DataTypeKind.UInt32 or DataTypeKind.UInt64 or
-        DataTypeKind.Float32 or DataTypeKind.Float64 or DataTypeKind.Decimal or 
+        DataTypeKind.Float32 or DataTypeKind.Float64 or DataTypeKind.Decimal or
         DataTypeKind.Int128 or DataTypeKind.UInt128 or DataTypeKind.Float16=> true,
         _ => false
     };
@@ -351,12 +358,12 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     // ==========================================
     // Primitive Factories (Static Properties)
     // ==========================================
-    
+
     public static DataType Unknown => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Unknown), DataTypeKind.Unknown);
     public static DataType Boolean => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Boolean), DataTypeKind.Boolean);
     public static DataType Int8    => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int8), DataTypeKind.Int8);
     public static DataType Int16   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int16), DataTypeKind.Int16);
-    public static DataType Int32   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int32), DataTypeKind.Int32);    
+    public static DataType Int32   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int32), DataTypeKind.Int32);
     public static DataType Int64   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int64), DataTypeKind.Int64);
     public static DataType Int128   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.Int128), DataTypeKind.Int128);
     public static DataType UInt8   => new(PolarsWrapper.NewPrimitiveType((int)PlDataType.UInt8), DataTypeKind.UInt8);
@@ -383,8 +390,21 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// <param name="precision"></param>
     /// <param name="scale"></param>
     /// <returns></returns>
-    public static DataType Decimal(int precision=38, int scale=9) 
-        => new(PolarsWrapper.NewDecimalType(precision, scale), DataTypeKind.Decimal);
+    public static DataType Decimal(int precision = 38, int scale = 9)
+    {
+        if (precision is < 1 or > 38)
+            throw new ArgumentOutOfRangeException(nameof(precision), "Precision must be between 1 and 38.");
+        if (scale < 0 || scale > precision)
+            throw new ArgumentOutOfRangeException(nameof(scale), "Scale must be non-negative and less than or equal to precision.");
+
+        var handle = PolarsWrapper.NewDecimalType(precision, scale);
+        var dtype = new DataType(handle, DataTypeKind.Decimal)
+        {
+            _precision = precision,
+            _scale = scale
+        };
+        return dtype;
+    }
     /// <summary>
     /// Create a Categorical type
     /// </summary>
@@ -402,7 +422,6 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// Create a Enum type
     /// </summary>
     /// <param name="categories"></param>
-    /// <returns></returns>
     public static DataType Enum(FrozenCategories categories) => new(PolarsWrapper.NewEnumType(categories.Handle),DataTypeKind.Enum);
     public static DataType Enum(Series categories)
     {
@@ -429,14 +448,26 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     public static DataType Datetime(TimeUnit unit = CSharp.TimeUnit.Microseconds, string? timeZone = null)
     {
         var handle = PolarsWrapper.NewDateTimeType((byte)unit, timeZone);
-        return new DataType(handle,DataTypeKind.Datetime);
+        var dtype = new DataType(handle, DataTypeKind.Datetime)
+        {
+            _timeUnit = unit,
+            _timeZone = timeZone
+        };
+        return dtype;
     }
     /// <summary>
     /// Creates a Duration type. Default is Microseconds.
     /// Usage: DataType.Duration(TimeUnit.Nanoseconds)
     /// </summary>
     public static DataType Duration(TimeUnit unit = CSharp.TimeUnit.Microseconds)
-        => new(PolarsWrapper.NewDurationType((byte)unit), DataTypeKind.Duration);
+    {
+        var handle = PolarsWrapper.NewDurationType((byte)unit);
+        var dtype = new DataType(handle, DataTypeKind.Duration)
+        {
+            _timeUnit = unit
+        };
+        return dtype;
+    }
     /// <summary>
     /// Creates a List type.
     /// Usage: DataType.List(DataType.Int32)
@@ -479,13 +510,13 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// <inheritdoc cref="Struct(IEnumerable{Field})"/>
     public static DataType Struct(IReadOnlyDictionary<string, DataType> fields)
         => Struct([.. fields.Select(kvp => (Field)kvp)]);
-    /// <inheritdoc cref="Struct(IEnumerable{Field})"/>    
+    /// <inheritdoc cref="Struct(IEnumerable{Field})"/>
     public static DataType Struct(string[] names, DataType[] types)
     {
         var handles = System.Array.ConvertAll(types, t => t.Handle);
-        
+
         var h = PolarsWrapper.NewStructType(names, handles);
-        
+
         return new DataType(h, DataTypeKind.Struct);
     }
     /// <summary>
@@ -497,7 +528,7 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     public static DataType Extension(string name, DataType inner, string? metadata = null)
     {
         var h = PolarsWrapper.NewExtensionType(name, inner.Handle, metadata);
-        return new DataType(h, DataTypeKind.Extension); 
+        return new DataType(h, DataTypeKind.Extension);
     }
     /// <summary>
     /// Convert this DataType to a DataTypeExpr literal.
@@ -505,14 +536,14 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
     /// </summary>
     public DataTypeExpr ToDataTypeExpr()
         => new(PolarsWrapper.DataTypeExprFromDataType(this.Handle));
-    
+
     public Type GetNetType() => ArrowTypeResolver.GetNetTypeFromArrowType(GetArrowType());
     public static DataType FromNetType<T>() => FromArrowType(ArrowTypeResolver.GetArrowTypeFromNetType(typeof(T)));
     /// <summary>
     /// Implicitly convert System.Type to Polars DataType.
     /// Example: DataType dt = typeof(int); // dt is now DataType.Int32
     /// </summary>
-    public static implicit operator DataType(Type type) 
+    public static implicit operator DataType(Type type)
         => FromArrowType(ArrowTypeResolver.GetArrowTypeFromNetType(type));
     /// <summary>
     /// Get Apache Arrow Type
@@ -554,16 +585,16 @@ public class DataType : IDisposable, IEquatable<DataType>,IPolarsDataType
                 {
                     Apache.Arrow.Types.TimeUnit.Microsecond => CSharp.TimeUnit.Microseconds,
                     Apache.Arrow.Types.TimeUnit.Millisecond => CSharp.TimeUnit.Milliseconds,
-                    Apache.Arrow.Types.TimeUnit.Nanosecond => CSharp.TimeUnit.Nanoseconds, 
+                    Apache.Arrow.Types.TimeUnit.Nanosecond => CSharp.TimeUnit.Nanoseconds,
                     _ => CSharp.TimeUnit.Microseconds
-                }, 
+                },
                 t.Timezone
             ),
             DurationType d => Duration(
                 d.Unit switch {
                     Apache.Arrow.Types.TimeUnit.Microsecond => CSharp.TimeUnit.Microseconds,
                     Apache.Arrow.Types.TimeUnit.Millisecond => CSharp.TimeUnit.Milliseconds,
-                    Apache.Arrow.Types.TimeUnit.Nanosecond => CSharp.TimeUnit.Nanoseconds, 
+                    Apache.Arrow.Types.TimeUnit.Nanosecond => CSharp.TimeUnit.Nanoseconds,
                     _ => CSharp.TimeUnit.Microseconds
                 }
             ),
@@ -628,10 +659,12 @@ public class Categories : IDisposable,IEquatable<Categories>
 {
     internal CategoriesHandle Handle { get; }
     private bool _disposed;
+    private CategoricalPhysical? _physical;
 
     public Categories(string? name=null, string? nameSpace= "",CategoricalPhysical physical = CategoricalPhysical.U32)
     {
         Handle = PolarsWrapper.CategoriesNew(name,nameSpace,physical.ToNative());
+        _physical = physical;
     }
 
     internal Categories(CategoriesHandle handle)
@@ -642,12 +675,19 @@ public class Categories : IDisposable,IEquatable<Categories>
     public static Categories Random(string nameSpace = "", CategoricalPhysical physical = CategoricalPhysical.U32)
     {
         var handle = PolarsWrapper.CategoriesRandom(nameSpace,physical.ToNative());
-        return new Categories(handle);
+        Categories cat = new(handle);
+        cat._physical = physical;
+        return cat;
     }
     public string Name() => PolarsWrapper.CategoriesGetName(Handle);
     public string NameSpace() => PolarsWrapper.CategoriesGetNameSpace(Handle);
+
     public bool IsGlobal() => PolarsWrapper.CategoriesIsGlobal(Handle);
-    public CategoricalPhysical Physical() => (CategoricalPhysical)PolarsWrapper.CategoriesPhysical(Handle);
+    public CategoricalPhysical Physical()
+    {
+        _physical ??= (CategoricalPhysical)PolarsWrapper.CategoriesPhysical(Handle);
+        return (CategoricalPhysical)_physical;
+    }
     public static Categories Global() => new(PolarsWrapper.CategoriesGlobal());
 
     public FrozenCategories Freeze() => new(PolarsWrapper.CategoriesFreeze(Handle));
@@ -671,9 +711,9 @@ public class Categories : IDisposable,IEquatable<Categories>
     public bool Equals(Categories? other)
     {
         if (other is null) return false;
-        
+
         if (ReferenceEquals(this, other)) return true;
-        
+
         return this.Hash == other.Hash;
     }
 
@@ -698,6 +738,7 @@ public class FrozenCategories : IDisposable,IEquatable<FrozenCategories>
 {
     internal FrozenCategoriesHandle Handle { get; }
     private bool _disposed;
+    private CategoricalPhysical? _physical;
 
     public FrozenCategories(string[] categories)
     {
@@ -710,7 +751,11 @@ public class FrozenCategories : IDisposable,IEquatable<FrozenCategories>
     }
 
     public string[] GetCategories() => new Series(PolarsWrapper.FrozenCategoriesGetCategories(Handle)).ToArray<string>();
-    public CategoricalPhysical Physical() => (CategoricalPhysical)PolarsWrapper.FrozenCategoriesPhysical(Handle);
+    public CategoricalPhysical Physical()
+    {
+        _physical ??= (CategoricalPhysical)PolarsWrapper.FrozenCategoriesPhysical(Handle);
+        return (CategoricalPhysical)_physical;
+    }
 
     public ulong Hash
     {
@@ -731,9 +776,9 @@ public class FrozenCategories : IDisposable,IEquatable<FrozenCategories>
     public bool Equals(FrozenCategories? other)
     {
         if (other is null) return false;
-        
+
         if (ReferenceEquals(this, other)) return true;
-        
+
         return this.Hash == other.Hash;
     }
 
@@ -776,7 +821,7 @@ public abstract class BaseExtension(string name, DataType storage, string? metad
 
 public sealed class UnknownExtension : BaseExtension
 {
-    internal UnknownExtension(string name, DataType storage, string? metadata) 
+    internal UnknownExtension(string name, DataType storage, string? metadata)
         : base(name, storage, metadata)
     {
     }
@@ -825,8 +870,8 @@ internal static class ExtensionRegistry
 public abstract record ExtensionInfo
 {
     public sealed record AsClass(ExtensionFactory Factory) : ExtensionInfo;
-    
+
     public sealed record AsStorage() : ExtensionInfo;
-    
+
     public sealed record NotFound() : ExtensionInfo;
 }

@@ -1054,6 +1054,32 @@ public readonly partial struct PolarsWrapper
         ReadOnlySpan<byte> span = new((byte*)ptr, (int)len);
         return Encoding.UTF8.GetString(span);
     }
+
+    public static unsafe string? SeriesGetCatOrEnumFast(SeriesHandle handle, long idx, PlCategoricalPhysical catSize)
+    {
+        int status = NativeBindings.pl_series_get_cat_or_enum_str_fast(
+            handle,
+            (nuint)idx,
+            catSize,
+            out nint ptr,
+            out nuint len
+        );
+
+        ErrorHelper.CheckStatus(status);
+
+        if (ptr == nint.Zero)
+        {
+            return null;
+        }
+
+        if (len == 0)
+        {
+            return string.Empty;
+        }
+
+        ReadOnlySpan<byte> span = new((byte*)ptr, (int)len);
+        return Encoding.UTF8.GetString(span);
+    }
     // Maximum scale supported natively by System.Decimal
     private const int MaxDotNetDecimalScale = 28;
 

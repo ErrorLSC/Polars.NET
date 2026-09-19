@@ -72,8 +72,8 @@ unsafe internal partial class NativeBindings
     );
     [LibraryImport(LibName)]
     public static partial int pl_series_get_str_fast(
-        SeriesHandle s, 
-        nuint idx, 
+        SeriesHandle s,
+        nuint idx,
         out nint utf8bytes,
         out nuint len
     );
@@ -96,6 +96,15 @@ unsafe internal partial class NativeBindings
     );
     [LibraryImport(LibName)]
     public static partial int pl_series_get_duration_fast(SeriesHandle s, nuint idx, out long val);
+    [LibraryImport(LibName)]
+    public static partial int pl_series_get_cat_or_enum_str_fast(
+        SeriesHandle s,
+        nuint idx,
+        PlCategoricalPhysical catSize,
+        out nint utf8bytes,
+        out nuint len
+    );
+
     // --- Series Constructors ---
     // DataFrame -> Series (ByName)
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]

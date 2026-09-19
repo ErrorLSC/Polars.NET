@@ -155,9 +155,6 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// <summary>
     /// Gets the DataType of the Series.
     /// </summary>
-    /// <remarks>
-    /// Thread-safe lock-free cached property. Disposes redundant instances in race conditions.
-    /// </remarks>
     public DataType DataType
     {
         get

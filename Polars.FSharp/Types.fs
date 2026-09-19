@@ -460,6 +460,14 @@ type Series(handle: SeriesHandle) =
         // ==============================================================
         // 4. String
         // ==============================================================
+        elif this.DataType.IsCategorical then
+            let v = PolarsWrapper.SeriesGetCatOrEnumFast(this.Handle,index, this.DataType.Categories.Physical.ToNative())
+            Unsafe.As<string, 'T>(&Unsafe.AsRef(&v))
+
+        elif this.DataType.IsEnum then
+            let v = PolarsWrapper.SeriesGetCatOrEnumFast(this.Handle,index, this.DataType.EnumCategories.Physical.ToNative())
+            Unsafe.As<string, 'T>(&Unsafe.AsRef(&v))
+
         elif t = typeof<string> && not this.DataType.IsCategorical && not this.DataType.IsEnum then
             let v = PolarsWrapper.SeriesGetStringFast(this.Handle, index)
             Unsafe.As<string, 'T>(&Unsafe.AsRef(&v))

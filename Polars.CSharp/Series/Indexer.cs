@@ -18,7 +18,7 @@ public partial class Series : IDisposable,IPolarsSeries
             if (index < 0 || index >= Length)
                 throw new IndexOutOfRangeException($"Index {index} is out of bounds for Series length {Length}.");
         }
-        
+
         if (this.IsNullAt(index,uncheck:true))
             return default;
 
@@ -97,7 +97,7 @@ public partial class Series : IDisposable,IPolarsSeries
         if (RowCursor.IsSupportedNumericType(underlying) && DataType.IsNumeric)
         {
             return RowCursor.CoerceNumericValue<T>(Handle,index, (PlDataType)DataType.Kind, underlying);
-        }       
+        }
         // ==============================================================
         // 2. Boolean
         // ==============================================================
@@ -110,6 +110,16 @@ public partial class Series : IDisposable,IPolarsSeries
         // ==============================================================
         // 3. String (Reference type - zero boxing via ref reinterpret)
         // ==============================================================
+        if (DataType.IsCategorical)
+        {
+            string? strVal = PolarsWrapper.SeriesGetCatOrEnumFast(Handle, index, (PlCategoricalPhysical)DataType.Categories!.Physical());
+            return Unsafe.As<string?, T>(ref strVal);
+        }
+        if (DataType.IsEnum)
+        {
+            string? strVal = PolarsWrapper.SeriesGetCatOrEnumFast(Handle, index, (PlCategoricalPhysical)DataType.EnumCategories!.Physical());
+            return Unsafe.As<string?, T>(ref strVal);
+        }
         if (underlying == typeof(string) && !DataType.IsCategorical && !DataType.IsEnum)
         {
             string? strVal = PolarsWrapper.SeriesGetStringFast(Handle, index);
@@ -120,7 +130,7 @@ public partial class Series : IDisposable,IPolarsSeries
         // 4. Decimal
         // ==============================================================
         if (underlying == typeof(decimal))
-        {   
+        {
             int scale = DataType.Scale;
             int precision = DataType.Precision;
             decimal val = PolarsWrapper.SeriesGetDecimalFast(Handle, index, scale, precision);

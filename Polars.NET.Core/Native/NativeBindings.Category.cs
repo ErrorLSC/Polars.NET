@@ -40,7 +40,7 @@ internal partial class NativeBindings
     );
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
-    public static partial bool pl_categories_physical(
+    public static partial bool pl_categories_get_physical(
         CategoriesHandle categories,
         out PlCategoricalPhysical physical
     );
@@ -65,7 +65,7 @@ internal partial class NativeBindings
     );
     [LibraryImport(LibName)]
     [return: MarshalAs(UnmanagedType.U1)]
-    public static partial bool pl_frozencategories_physical(
+    public static partial bool pl_frozencategories_get_physical(
         FrozenCategoriesHandle categories,
         out PlCategoricalPhysical physical
     );

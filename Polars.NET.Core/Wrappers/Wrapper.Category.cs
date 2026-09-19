@@ -37,7 +37,7 @@ public readonly partial struct PolarsWrapper
     }
     public static PlCategoricalPhysical CategoriesPhysical(CategoriesHandle categories)
     {
-        bool status = NativeBindings.pl_categories_physical(categories,out PlCategoricalPhysical physical);
+        bool status = NativeBindings.pl_categories_get_physical(categories,out PlCategoricalPhysical physical);
         ErrorHelper.CheckBool(status);
         return physical;
     }
@@ -50,10 +50,10 @@ public readonly partial struct PolarsWrapper
         return hash;
     }
     public static SeriesHandle FrozenCategoriesGetCategories(FrozenCategoriesHandle categories)
-        => ErrorHelper.Check(NativeBindings.pl_frozencategories_get_categories(categories));  
+        => ErrorHelper.Check(NativeBindings.pl_frozencategories_get_categories(categories));
     public static PlCategoricalPhysical FrozenCategoriesPhysical(FrozenCategoriesHandle categories)
     {
-        bool status = NativeBindings.pl_frozencategories_physical(categories,out PlCategoricalPhysical physical);
+        bool status = NativeBindings.pl_frozencategories_get_physical(categories,out PlCategoricalPhysical physical);
         ErrorHelper.CheckBool(status);
         return physical;
     }

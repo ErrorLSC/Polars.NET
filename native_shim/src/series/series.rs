@@ -543,34 +543,8 @@ pub unsafe extern "C" fn pl_series_get_str_fast(
     })
 }
 
-/// Reads an i128 decimal physical value at `idx` directly from the underlying physical Int128Chunked buffer.
-/// Bypasses AnyValue construction and bounds checking.
-///
-/// Returns 0 on success, non-zero on error.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pl_series_get_decimal_fast(
-    s_ptr: *mut SeriesContext,
-    idx: usize,
-    out_val: *mut i128,
-) -> c_int {
-    ffi_try_c_int!({
-        let ctx = unsafe { &*s_ptr };
-
-        let ca = ctx.series.try_decimal().ok_or_else(
-            || polars_err!(ComputeError: "Series cannot be downcasted to DecimalChunked"),
-        )?;
-
-        let phys = ca.physical();
-
-        unsafe { *out_val = phys.value_unchecked(idx); }
-
-        Ok(0)
-    })
-}
-
-macro_rules! impl_series_get_temporal_fast {
-    ($func_name:ident, $ca_method:ident, $native_ty:ty, $type_name:literal, $doc:literal) => {
-        #[doc = $doc]
+macro_rules! impl_series_get_physical_fast {
+    ($func_name:ident, $ca_method:ident, $native_ty:ty, $type_name:literal) => {
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $func_name(
             s_ptr: *mut SeriesContext,
@@ -588,7 +562,7 @@ macro_rules! impl_series_get_temporal_fast {
                 let phys = ca.physical();
 
                 unsafe {*out_val = phys.value_unchecked(idx) };
-                
+
 
                 Ok(0)
             })
@@ -596,38 +570,123 @@ macro_rules! impl_series_get_temporal_fast {
     };
 }
 
-impl_series_get_temporal_fast!(
-    pl_series_get_date_fast,
-    date,
-    i32,
-    "Date",
-    "Reads an i32 date physical value (days since 1970-01-01) at `idx` without AnyValue allocation or bounds checks.\n\nReturns 0 on success, non-zero on error.\nIf the element is null, `*out_is_null` is set to true."
-);
+impl_series_get_physical_fast!(pl_series_get_date_fast, date, i32, "Date");
 
-impl_series_get_temporal_fast!(
-    pl_series_get_time_fast,
-    time,
-    i64,
-    "Time",
-    "Reads an i64 time physical value (nanoseconds since midnight) at `idx` without AnyValue allocation or bounds checks.\n\nReturns 0 on success, non-zero on error.\nIf the element is null, `*out_is_null` is set to true."
-);
+impl_series_get_physical_fast!(pl_series_get_time_fast, time, i64, "Time");
 
-impl_series_get_temporal_fast!(
-    pl_series_get_datetime_fast,
-    datetime,
-    i64,
-    "Datetime",
-    "Reads an i64 datetime physical timestamp at `idx` without AnyValue allocation or bounds checks.\nTimeUnit and TimeZone must be obtained once from the Series schema at cursor initialization.\n\nReturns 0 on success, non-zero on error.\nIf the element is null, `*out_is_null` is set to true."
-);
+impl_series_get_physical_fast!(pl_series_get_datetime_fast, datetime, i64, "Datetime");
 
-impl_series_get_temporal_fast!(
-    pl_series_get_duration_fast,
-    duration,
-    i64,
-    "Duration",
-    "Reads an i64 duration physical value at `idx` without AnyValue allocation or bounds checks.\nTimeUnit must be obtained once from the Series schema at cursor initialization.\n\nReturns 0 on success, non-zero on error.\nIf the element is null, `*out_is_null` is set to true."
-);
+impl_series_get_physical_fast!(pl_series_get_duration_fast, duration, i64, "Duration");
 
+impl_series_get_physical_fast!(pl_series_get_decimal_fast, decimal, i128, "Decimal");
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_series_get_binary_fast(
+    s_ptr: *mut SeriesContext,
+    idx: usize,
+    out_ptr: *mut *const u8,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_try_c_int!({
+        let ctx = unsafe { &*s_ptr };
+        let s = &ctx.series;
+
+        let opt_bytes = if let Ok(ca) = s.binary() {
+            unsafe { ca.get_unchecked(idx) }
+        } else if let Ok(ca) = s.binary_offset() {
+            unsafe { ca.get_unchecked(idx) }
+        } else {
+            polars_bail!(ComputeError: "Series is not of type Binary or BinaryOffset");
+        };
+
+        match opt_bytes {
+            Some(bytes) => unsafe {
+                *out_ptr = bytes.as_ptr();
+                *out_len = bytes.len();
+            },
+            None => unsafe {
+                *out_ptr = std::ptr::null();
+                *out_len = 0;
+            },
+        }
+
+        Ok(0)
+    })
+}
+
+/// Extracts string slice from CategoricalChunked across Cat8, Cat16, and Cat32 (including Enum).
+macro_rules! extract_cat_str {
+    ($ca:expr,$idx:expr, $out_ptr:expr,$out_len:expr) => {{
+        // Bounds check (caller in managed layer can skip when uncheck is true)
+        if $idx >=$ca.len() {
+            polars_bail!(ComputeError: "Index out of bounds for Categorical/Enum Series");
+        }
+
+        // Direct physical value extraction without chunk branching
+        let physical = $ca.physical();
+        let cat_id = unsafe { physical.value_unchecked($idx) };
+
+        // Access mapping via Polars ChunkedArray API
+        let mapping = $ca.get_mapping();
+        let opt_str = mapping.cat_to_str(cat_id as _);
+
+        match opt_str {
+            Some(s) => unsafe {
+                *$out_ptr = s.as_ptr();
+                *$out_len = s.len();
+            },
+            None => unsafe {
+                *$out_ptr = std::ptr::null();
+                *$out_len = 0;
+            },
+        }
+        Ok(0)
+    }};
+}
+
+/// Fast O(1) string extractor for both Categorical and Enum series.
+/// Unified across physical Cat8, Cat16, and Cat32 representations.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_series_get_cat_or_enum_str_fast(
+    s_ptr: *mut SeriesContext,
+    idx: usize,
+    cat_size: u8,
+    out_ptr: *mut *const u8,
+    out_len: *mut usize,
+) -> c_int {
+    ffi_try_c_int!({
+        if s_ptr.is_null() || out_ptr.is_null() || out_len.is_null() {
+            polars_bail!(ComputeError: "Null pointer passed to pl_series_get_cat_or_enum_str_fast");
+        }
+
+        let ctx = unsafe { &*s_ptr };
+        let series = &ctx.series;
+
+        match cat_size {
+            2 => {
+                let ca = series
+                    .cat8()
+                    .map_err(|e| polars_err!(ComputeError: format!("{}", e)))?;
+                extract_cat_str!(ca, idx, out_ptr, out_len)
+            }
+            1 => {
+                let ca = series
+                    .cat16()
+                    .map_err(|e| polars_err!(ComputeError: format!("{}", e)))?;
+                extract_cat_str!(ca, idx, out_ptr, out_len)
+            }
+            0 => {
+                let ca = series
+                    .cat32()
+                    .map_err(|e| polars_err!(ComputeError: format!("{}", e)))?;
+                extract_cat_str!(ca, idx, out_ptr, out_len)
+            }
+            size => {
+                polars_bail!(ComputeError: format!("Unsupported categorical physical size: {}", size));
+            }
+        }
+    })
+}
 // ==========================================
 // Arithmetic Ops
 // ==========================================

@@ -87,12 +87,29 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
             | DataTypeKind.List inner -> Some(unwrap inner)
             | _ -> None
         )
+
+    let categories =
+        lazy (
+            match kind with
+            | DataTypeKind.Categorical _ ->
+                let catHandle = PolarsWrapper.GetCategories(handle)
+                new Categories(catHandle)
+            | _ -> invalidOp (sprintf "Categories is only applicable to Categorical type, but current type is %A." kind)
+        )
+    let frozenCategories =
+        lazy (
+            match kind with
+            | DataTypeKind.Enum _ ->
+                let enumHandle = PolarsWrapper.GetEnumCategories(handle)
+                new FrozenCategories(enumHandle)
+            | _ -> invalidOp (sprintf "EnumCategories is only applicable to Enum type, but current type is %A." kind)
+        )
     static let toUnitCode tu =
         match tu with
         | TimeUnit.Nanoseconds -> 0uy
         | TimeUnit.Microseconds -> 1uy
         | TimeUnit.Milliseconds -> 2uy
-    member internal this.toTimeUnit (unit:PlTimeUnit):TimeUnit =             
+    member internal this.toTimeUnit (unit:PlTimeUnit):TimeUnit =
         match  PolarsWrapper.GetTimeUnit handle with
         | PlTimeUnit.Nanoseconds -> TimeUnit.Nanoseconds
         | PlTimeUnit.Microseconds -> TimeUnit.Microseconds
@@ -101,10 +118,10 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
 
     member internal this.Handle = handle
     member this.Kind = kind
-    member this.TimeUnit = 
+    member this.TimeUnit =
         if this.IsTemporal then
             lazyTimeUnit.Value
-        else 
+        else
             invalidOp "Invalid Operation for non-temporal type"
     member this.TimeZone : string option =
         match this.Kind with
@@ -181,7 +198,23 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         | DataTypeKind.Array(inner, _) -> Some inner
         | DataTypeKind.List inner -> Some inner
         | _ -> None
-            
+    /// <summary>
+    /// The categories of this DataType, if it is a Categorical type.
+    /// </summary>
+    member this.Categories = categories.Value
+    member this.TryGetCategories() =
+        match kind with
+        | DataTypeKind.Categorical _ -> Some categories.Value
+        | _ -> None
+    /// <summary>
+    /// The frozen categories of this DataType, if it is an Enum type.
+    /// </summary>
+    member this.EnumCategories = frozenCategories.Value
+    member this.TryGetEnumCategories() =
+        match kind with
+        | DataTypeKind.Enum _ -> Some frozenCategories.Value
+        | _ -> None
+
     static member Unknown     = new DataType(PolarsWrapper.NewPrimitiveType(0), DataTypeKind.Unknown)
     static member SameAsInput = new DataType(PolarsWrapper.NewPrimitiveType(0), DataTypeKind.SameAsInput)
     static member Null        = new DataType(PolarsWrapper.NewPrimitiveType(18), DataTypeKind.Null)
@@ -217,7 +250,7 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         | :? DataType as other -> (this :> IEquatable<DataType>).Equals(other)
         | _ -> false
 
-    override this.GetHashCode() = 
+    override this.GetHashCode() =
         this.ToString().GetHashCode()
 
     static member op_Equality (left: DataType, right: DataType) =
@@ -386,20 +419,20 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
 
         | PlDataType.Struct ->
             let len = int (PolarsWrapper.GetStructLen handle)
-            
+
             let fields =
                 List.init len (fun i ->
                     let mutable name = null
                     let mutable fieldHandle = new DataTypeHandle()
-                    
+
                     PolarsWrapper.GetStructField(handle, uint64 i, &name, &fieldHandle)
-                    
+
                     try
                         { Name = name; DataType = DataType.FromHandle fieldHandle }
                     finally
                         if not fieldHandle.IsInvalid then fieldHandle.Dispose()
                 )
-                
+
             DataType.Struct fields
 
         | PlDataType.List ->
@@ -484,7 +517,7 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
 
     member this.IsTemporal =
         match this.Kind with
-        | DataTypeKind.Duration _ | DataTypeKind.Date 
+        | DataTypeKind.Duration _ | DataTypeKind.Date
         | DataTypeKind.Datetime _ | DataTypeKind.Time -> true
         | _ -> false
 
@@ -535,7 +568,7 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
         | DataTypeKind.UInt128 -> 25
         | DataTypeKind.Float16 -> 26
         | DataTypeKind.Enum _ -> 27
-        | DataTypeKind.Extension _ -> 28 
+        | DataTypeKind.Extension _ -> 28
     /// <summary>Get the corresponding PlDataType enum value.</summary>
     member this.ToPlDataType() = enum<PlDataType>(this.Code)
     member this.GetArrowType() : Apache.Arrow.Types.IArrowType =
@@ -619,23 +652,24 @@ and Field = { Name: string; DataType: DataType }
 /// </summary>
 and Categories (handle: CategoriesHandle) =
     let mutable disposed = false
+    let physical = lazy (PolarsWrapper.CategoriesPhysical(handle))
 
     // --- Public constructors ---
-    
+
     /// <summary>Create a new Categories with optional name, namespace, and physical type.</summary>
     new (?name: string, ?nameSpace: string, ?physical: CategoricalPhysical) =
         let physical = defaultArg physical CategoricalPhysical.U32
         let name = Option.toObj name            // None -> null
         let nameSpace = defaultArg nameSpace ""  // None -> ""
         let h = PolarsWrapper.CategoriesNew(name, nameSpace, physical.ToNative())
-        new Categories(h)    
+        new Categories(h)
     // --- Properties ---
     member internal this.Handle = handle
     member this.Name = PolarsWrapper.CategoriesGetName(handle)
     member this.NameSpace = PolarsWrapper.CategoriesGetNameSpace(handle)
     member this.IsGlobal = PolarsWrapper.CategoriesIsGlobal(handle)
     member this.Physical =
-        let raw : PlCategoricalPhysical = PolarsWrapper.CategoriesPhysical(handle)
+        let raw = physical.Value
         match raw with
         | PlCategoricalPhysical.U32 -> CategoricalPhysical.U32
         | PlCategoricalPhysical.U16 -> CategoricalPhysical.U16
@@ -649,7 +683,7 @@ and Categories (handle: CategoriesHandle) =
     /// <summary>Create a random Categories.</summary>
     static member Random(?nameSpace: string, ?physical: CategoricalPhysical) =
         let phys = defaultArg physical CategoricalPhysical.U32
-        let nameSpace = defaultArg nameSpace "" 
+        let nameSpace = defaultArg nameSpace ""
         let handle = PolarsWrapper.CategoriesRandom(nameSpace, phys.ToNative())
         new Categories(handle)
 
@@ -710,6 +744,7 @@ and Categories (handle: CategoriesHandle) =
 /// </summary>
 and FrozenCategories (handle: FrozenCategoriesHandle) =
     let mutable disposed = false
+    let physical = lazy (PolarsWrapper.FrozenCategoriesPhysical(handle))
 
     /// <summary>Create a FrozenCategories from a string array of categories.</summary>
     new (categories: string[]) =
@@ -720,7 +755,7 @@ and FrozenCategories (handle: FrozenCategoriesHandle) =
 
     /// <summary>The physical representation of the categories.</summary>
     member this.Physical =
-        let raw : PlCategoricalPhysical = PolarsWrapper.FrozenCategoriesPhysical(handle)
+        let raw = physical.Value
         match raw with
         | PlCategoricalPhysical.U32 -> CategoricalPhysical.U32
         | PlCategoricalPhysical.U16 -> CategoricalPhysical.U16
