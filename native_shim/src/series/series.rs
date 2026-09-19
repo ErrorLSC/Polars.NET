@@ -614,6 +614,41 @@ pub unsafe extern "C" fn pl_series_get_binary_fast(
     })
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pl_series_get_guid_fast(
+    s_ptr: *mut SeriesContext,
+    idx: usize,
+    out_guid: *mut u8,
+) -> c_int {
+    ffi_try_c_int!({
+        if s_ptr.is_null() || out_guid.is_null() {
+            polars_bail!(ComputeError: "Null pointer passed to pl_series_get_guid_fast");
+        }
+
+        let ctx = unsafe { &*s_ptr };
+        let series = &ctx.series;
+
+        // series.binary() returns BinaryChunked
+        let ca = series
+            .binary()
+            .map_err(|e| polars_err!(ComputeError: format!("{}", e)))?;
+
+        // Direct value_unchecked without null bitmap parsing
+        let bytes = unsafe { ca.value_unchecked(idx) };
+
+        if bytes.len() != 16 {
+            polars_bail!(ComputeError: format!("Expected 16-byte fixed binary, found {} bytes", bytes.len()));
+        }
+
+        // 16-byte hardware SIMD/register store directly into C# stack memory
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), out_guid, 16);
+        }
+
+        Ok(0)
+    })
+}
+
 /// Extracts string slice from CategoricalChunked across Cat8, Cat16, and Cat32 (including Enum).
 macro_rules! extract_cat_str {
     ($ca:expr,$idx:expr, $out_ptr:expr,$out_len:expr) => {{

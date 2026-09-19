@@ -20,8 +20,19 @@ open System.Runtime.CompilerServices
 /// An eager Series holding a single column of data.
 /// </summary>
 type Series(handle: SeriesHandle) =
+    let mutable disposed = 0
     let hasNulls = lazy PolarsWrapper.SeriesHasNulls(handle)
-    member this.Dispose() = handle.Dispose()
+    let dtype =
+        lazy
+            let dtypeHandle = PolarsWrapper.GetSeriesDataType handle
+            DataType.FromHandle dtypeHandle
+
+    member this.Dispose() =
+        // Ensure cleanup logic executes strictly once across competing threads
+        if Interlocked.Exchange(&disposed, 1) = 0 then
+            if dtype.IsValueCreated then
+                dtype.Value.Dispose()
+            handle.Dispose()
     member _.Handle = handle
     member _.Name = PolarsWrapper.SeriesName handle
     member _.Length = PolarsWrapper.SeriesLen handle
@@ -161,17 +172,15 @@ type Series(handle: SeriesHandle) =
             | Some s -> s.Handle.Dispose()
             | None -> ()
 
-
-
     /// <summary>
     /// Get the string representation of the Series Data Type (e.g., "Int64", "String").
     /// </summary>
     member _.DtypeStr = PolarsWrapper.GetSeriesDtypeString handle
     /// <summary> Get the DataType of the Series. </summary>
     member this.DataType : DataType =
-        use typeHandle = PolarsWrapper.GetSeriesDataType handle
-
-        DataType.FromHandle typeHandle
+        if Volatile.Read(&disposed) = 1 then
+            raise (ObjectDisposedException(nameof Series, "Cannot access DataType on a disposed Series."))
+        dtype.Value
 
     // ==========================================
     // Static Constructors
@@ -401,114 +410,114 @@ type Series(handle: SeriesHandle) =
     /// </summary>
     [<EditorBrowsable(EditorBrowsableState.Never)>]
     member this.ReadScalarInternal<'T>(index: int64) : 'T =
-        let t = typeof<'T>
-        let kind = this.DataType.Kind
-
-        if t = typeof<int> && kind = DataTypeKind.Int32 then
+        match typeof<'T>, this.DataType.Kind with
+        | t, DataTypeKind.Int32 when t = typeof<int32> ->
             let mutable v = PolarsWrapper.SeriesGetInt32Fast(this.Handle, index)
-            Unsafe.As<int, 'T>(&v)
-        elif t = typeof<int64> && kind = DataTypeKind.Int64 then
+            Unsafe.As<int32, 'T>(&v)
+
+        | t, DataTypeKind.Int64 when t = typeof<int64> ->
             let mutable v = PolarsWrapper.SeriesGetInt64Fast(this.Handle, index)
             Unsafe.As<int64, 'T>(&v)
-        elif t = typeof<uint32> && kind = DataTypeKind.UInt32 then
+
+        | t, DataTypeKind.UInt32 when t = typeof<uint32> ->
             let mutable v = PolarsWrapper.SeriesGetUInt32Fast(this.Handle, index)
             Unsafe.As<uint32, 'T>(&v)
-        elif t = typeof<uint64> && kind = DataTypeKind.UInt64 then
+
+        | t, DataTypeKind.UInt64 when t = typeof<uint64> ->
             let mutable v = PolarsWrapper.SeriesGetUInt64Fast(this.Handle, index)
             Unsafe.As<uint64, 'T>(&v)
-        elif t = typeof<int16> && kind = DataTypeKind.Int16 then
+
+        | t, DataTypeKind.Int16 when t = typeof<int16> ->
             let mutable v = PolarsWrapper.SeriesGetInt16Fast(this.Handle, index)
             Unsafe.As<int16, 'T>(&v)
-        elif t = typeof<uint16> && kind = DataTypeKind.UInt16 then
+
+        | t, DataTypeKind.UInt16 when t = typeof<uint16> ->
             let mutable v = PolarsWrapper.SeriesGetUInt16Fast(this.Handle, index)
             Unsafe.As<uint16, 'T>(&v)
-        elif t = typeof<sbyte> && kind = DataTypeKind.Int8 then
+
+        | t, DataTypeKind.Int8 when t = typeof<sbyte> ->
             let mutable v = PolarsWrapper.SeriesGetInt8Fast(this.Handle, index)
             Unsafe.As<sbyte, 'T>(&v)
-        elif t = typeof<byte> && kind = DataTypeKind.UInt8 then
+
+        | t, DataTypeKind.UInt8 when t = typeof<byte> ->
             let mutable v = PolarsWrapper.SeriesGetUInt8Fast(this.Handle, index)
             Unsafe.As<byte, 'T>(&v)
-        elif t = typeof<double> && kind = DataTypeKind.Float64 then
+
+        | t, DataTypeKind.Float64 when t = typeof<double> ->
             let mutable v = PolarsWrapper.SeriesGetDoubleFast(this.Handle, index)
             Unsafe.As<double, 'T>(&v)
-        elif t = typeof<float32> && kind = DataTypeKind.Float32 then
+
+        | t, DataTypeKind.Float32 when t = typeof<float32> ->
             let mutable v = PolarsWrapper.SeriesGetSingleFast(this.Handle, index)
             Unsafe.As<float32, 'T>(&v)
-        elif t = typeof<Half> && kind = DataTypeKind.Float16 then
+
+        | t, DataTypeKind.Float16 when t = typeof<Half> ->
             let mutable v = PolarsWrapper.SeriesGetHalfFast(this.Handle, index)
             Unsafe.As<Half, 'T>(&v)
-        elif t = typeof<Int128> then
+
+        | t, _ when t = typeof<Int128> ->
             let mutable v = PolarsWrapper.SeriesGetInt128Fast(this.Handle, index)
             Unsafe.As<Int128, 'T>(&v)
-        elif t = typeof<UInt128> then
+
+        | t, _ when t = typeof<UInt128> ->
             let mutable v = PolarsWrapper.SeriesGetUInt128Fast(this.Handle, index)
             Unsafe.As<UInt128, 'T>(&v)
 
-        // ==============================================================
-        // 2. Numeric Coercion Path (Cross-numeric reads, e.g., Int64 -> int)
-        // ==============================================================
-        elif DataType.IsNumericType t && this.DataType.IsNumeric then
-            RowCursor.CoerceNumericValue<'T>(handle,index, this.DataType.ToPlDataType(), t)
+        | t, _ when DataType.IsNumericType t && this.DataType.IsNumeric ->
+            RowCursor.CoerceNumericValue<'T>(this.Handle, index, this.DataType.ToPlDataType(), t)
 
-        // ==============================================================
-        // 3. Boolean
-        // ==============================================================
-        elif t = typeof<bool> then
+        | t, _ when t = typeof<bool> ->
             let mutable v = PolarsWrapper.SeriesGetBoolFast(this.Handle, index)
             Unsafe.As<bool, 'T>(&v)
 
-        // ==============================================================
-        // 4. String
-        // ==============================================================
-        elif this.DataType.IsCategorical then
-            let v = PolarsWrapper.SeriesGetCatOrEnumFast(this.Handle,index, this.DataType.Categories.Physical.ToNative())
-            Unsafe.As<string, 'T>(&Unsafe.AsRef(&v))
+        | t, DataTypeKind.Categorical _ when t = typeof<string> ->
+            let mutable v = PolarsWrapper.SeriesGetCatOrEnumFast(this.Handle, index, this.DataType.Categories.Physical.ToNative())
+            Unsafe.As<string, 'T>(&v)
 
-        elif this.DataType.IsEnum then
-            let v = PolarsWrapper.SeriesGetCatOrEnumFast(this.Handle,index, this.DataType.EnumCategories.Physical.ToNative())
-            Unsafe.As<string, 'T>(&Unsafe.AsRef(&v))
+        | t, DataTypeKind.Enum _ when t = typeof<string> ->
+            let mutable v = PolarsWrapper.SeriesGetCatOrEnumFast(this.Handle, index, this.DataType.EnumCategories.Physical.ToNative())
+            Unsafe.As<string, 'T>(&v)
 
-        elif t = typeof<string> && not this.DataType.IsCategorical && not this.DataType.IsEnum then
-            let v = PolarsWrapper.SeriesGetStringFast(this.Handle, index)
-            Unsafe.As<string, 'T>(&Unsafe.AsRef(&v))
+        | t, _ when t = typeof<string> && not this.DataType.IsCategorical && not this.DataType.IsEnum ->
+            let mutable v = PolarsWrapper.SeriesGetStringFast(this.Handle, index)
+            Unsafe.As<string, 'T>(&v)
 
-        // ==============================================================
-        // 5. Decimal
-        // ==============================================================
-        elif t = typeof<decimal> then
+        | t, DataTypeKind.Decimal (_, _) when t = typeof<decimal> ->
             let p = this.DataType.Precision
             let s = this.DataType.Scale
             let mutable v = PolarsWrapper.SeriesGetDecimalFast(this.Handle, index, s, p)
             Unsafe.As<decimal, 'T>(&v)
 
-        // ==============================================================
-        // 6. Temporal (Date, Time, Duration, Datetime)
-        // ==============================================================
-        elif t = typeof<DateOnly> then
+        | t, DataTypeKind.Date when t = typeof<DateOnly> ->
             let mutable v = PolarsWrapper.SeriesGetDateFast(this.Handle, index)
             Unsafe.As<DateOnly, 'T>(&v)
-        elif t = typeof<TimeOnly> then
+
+        | t, DataTypeKind.Time when t = typeof<TimeOnly> ->
             let mutable v = PolarsWrapper.SeriesGetTimeFast(this.Handle, index)
             Unsafe.As<TimeOnly, 'T>(&v)
-        elif t = typeof<TimeSpan> then
+
+        | t, DataTypeKind.Duration _ when t = typeof<TimeSpan> ->
             let tu = this.DataType.TimeUnit.ToNative()
             let mutable v = PolarsWrapper.SeriesGetDurationFast(this.Handle, index, tu)
             Unsafe.As<TimeSpan, 'T>(&v)
-        elif t = typeof<DateTime> then
+
+        | t, DataTypeKind.Datetime (_, _) when t = typeof<DateTime> ->
             let tu = this.DataType.TimeUnit.ToNative()
             let mutable v = PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index, tu, null)
             Unsafe.As<DateTime, 'T>(&v)
-        elif t = typeof<struct(DateTime * string)> then
+
+        | t, DataTypeKind.Datetime (_, _) when t = typeof<struct(DateTime * string)> ->
             let tu = this.DataType.TimeUnit.ToNative()
             let tz = this.DataType.TimeZone.Value
             let dt = PolarsWrapper.SeriesGetDatetimeFast(this.Handle, index, tu, tz)
             let mutable v = struct(dt, tz)
             Unsafe.As<struct(DateTime * string), 'T>(&v)
 
-        // ==============================================================
-        // 7. Universal Fallback (List, Struct, Complex)
-        // ==============================================================
-        else
+        | t, _ when t = typeof<Guid> ->
+            let mutable v = PolarsWrapper.SeriesGetGuidFast(this.Handle, index)
+            Unsafe.As<Guid, 'T>(&v)
+
+        | _ ->
             use sliced = PolarsWrapper.SeriesSlice(this.Handle, index, 1UL)
             use column = PolarsWrapper.SeriesToArrow sliced
             ArrowReader.ReadItem<'T>(column, 0)

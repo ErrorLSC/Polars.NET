@@ -14,10 +14,6 @@ public static class SeriesFactory
     /// <summary>
     /// Generic type entry for Series create
     /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <param name="name"></param>
-    /// <param name="data"></param>
-    /// <returns></returns>
     public static SeriesHandle CreateGenericType<T>(string name, IEnumerable<T> data)
     {
         if (data is Array array)
@@ -58,25 +54,25 @@ public static class SeriesFactory
         else if (t == typeof(decimal))
         {
             var span = ReinterpretSpan<T, decimal>(data);
-            var (vals, scale) = DecimalPacker.Pack(span); 
+            var (vals, scale) = DecimalPacker.Pack(span);
             return PolarsWrapper.SeriesNewDecimal(name, vals, default, scale);
         }
         else if (t == typeof(decimal?))
         {
             var span = ReinterpretSpan<T, decimal?>(data);
-            var (vals,validity, scale) = DecimalPacker.Pack(span); 
+            var (vals, validity, scale) = DecimalPacker.Pack(span);
             return PolarsWrapper.SeriesNewDecimal(name, vals, validity, scale);
         }
         else if (t == typeof(bool))
         {
             var span = ReinterpretSpan<T, bool>(data);
-            var packed = BoolPacker.Pack(span); 
+            var packed = BoolPacker.Pack(span);
             return PolarsWrapper.SeriesNew(name, packed, default, (nuint)data.Length);
         }
         else if (t == typeof(bool?))
         {
             var span = ReinterpretSpan<T, bool?>(data);
-            var (packed,validity) = BoolPacker.PackNullable(span); 
+            var (packed, validity) = BoolPacker.PackNullable(span);
             return PolarsWrapper.SeriesNew(name, packed, validity, (nuint)data.Length);
         }
 
@@ -86,37 +82,37 @@ public static class SeriesFactory
         else if (t == typeof(sbyte?))
         {
             var span = ReinterpretSpan<T, sbyte?>(data);
-            var (vals, mask) = ArrayHelper.UnzipNullable(span); 
+            var (vals, mask) = ArrayHelper.UnzipNullable(span);
             return PolarsWrapper.SeriesNew(name, vals, mask);
         }
         else if (t == typeof(byte?))
         {
             var span = ReinterpretSpan<T, byte?>(data);
-            var (vals, mask) = ArrayHelper.UnzipNullable(span); 
+            var (vals, mask) = ArrayHelper.UnzipNullable(span);
             return PolarsWrapper.SeriesNew(name, vals, mask);
         }
         else if (t == typeof(short?))
         {
             var span = ReinterpretSpan<T, short?>(data);
-            var (vals, mask) = ArrayHelper.UnzipNullable(span); 
+            var (vals, mask) = ArrayHelper.UnzipNullable(span);
             return PolarsWrapper.SeriesNew(name, vals, mask);
         }
         else if (t == typeof(ushort?))
         {
             var span = ReinterpretSpan<T, ushort?>(data);
-            var (vals, mask) = ArrayHelper.UnzipNullable(span); 
+            var (vals, mask) = ArrayHelper.UnzipNullable(span);
             return PolarsWrapper.SeriesNew(name, vals, mask);
         }
         else if (t == typeof(int?))
         {
             var span = ReinterpretSpan<T, int?>(data);
-            var (vals, mask) = ArrayHelper.UnzipNullable(span); 
+            var (vals, mask) = ArrayHelper.UnzipNullable(span);
             return PolarsWrapper.SeriesNew(name, vals, mask);
         }
         else if (t == typeof(uint?))
         {
             var span = ReinterpretSpan<T, uint?>(data);
-            var (vals, mask) = ArrayHelper.UnzipNullable(span); 
+            var (vals, mask) = ArrayHelper.UnzipNullable(span);
             return PolarsWrapper.SeriesNew(name, vals, mask);
         }
         else if (t == typeof(long?))
@@ -178,7 +174,7 @@ public static class SeriesFactory
         else if (t == typeof(DateTime))
         {
             var span = ReinterpretSpan<T, DateTime>(data);
-            var vals = ArrayHelper.UnzipDateTimeToUs(span); 
+            var vals = ArrayHelper.UnzipDateTimeToUs(span);
             return PolarsWrapper.SeriesNewDatetime(name, vals, default, null);
         }
         else if (t == typeof(DateTimeOffset))
@@ -211,7 +207,7 @@ public static class SeriesFactory
         else if (t == typeof(DateTime?))
         {
             var span = ReinterpretSpan<T, DateTime?>(data);
-            var (vals, mask) = ArrayHelper.UnzipDateTimeToUs(span); 
+            var (vals, mask) = ArrayHelper.UnzipDateTimeToUs(span);
             return PolarsWrapper.SeriesNewDatetime(name, vals, mask, null);
         }
         else if (t == typeof(DateTimeOffset?))
@@ -238,244 +234,311 @@ public static class SeriesFactory
             var (vals, mask) = ArrayHelper.UnzipDateOnlyToInt32(span);
             return PolarsWrapper.SeriesNewDate(name, vals, mask);
         }
-
+        // --- Guid (FixedSizeBinary 16) ---
+        else if (t == typeof(Guid))
+        {
+            var span = ReinterpretSpan<T, Guid>(data);
+            ReadOnlySpan<byte> byteSpan = MemoryMarshal.AsBytes(span);
+            return PolarsWrapper.SeriesNewGuidFixedBinary(name, byteSpan, default, (nuint)data.Length);
+        }
+        else if (t == typeof(Guid?))
+        {
+            var span = ReinterpretSpan<T, Guid?>(data);
+            var (vals, validity) = ArrayHelper.UnzipGuid(span);
+            return PolarsWrapper.SeriesNewGuidFixedBinary(name, vals, validity, (nuint)data.Length);
+        }
         // ==========================================
         // F# ValueOption<T> Support (Struct Option)
         // ==========================================
-        
+
         // --- 1. Primitives ---
-        else if (t == typeof(FSharpValueOption<sbyte>)) {
+        else if (t == typeof(FSharpValueOption<sbyte>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<sbyte>>(data);
             var (vals, valid) = FSharpHelper.UnzipValueOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpValueOption<byte>)) {
+        else if (t == typeof(FSharpValueOption<byte>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<byte>>(data);
             var (vals, valid) = FSharpHelper.UnzipValueOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpValueOption<short>)) {
+        else if (t == typeof(FSharpValueOption<short>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<short>>(data);
             var (vals, valid) = FSharpHelper.UnzipValueOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpValueOption<ushort>)) {
+        else if (t == typeof(FSharpValueOption<ushort>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<ushort>>(data);
             var (vals, valid) = FSharpHelper.UnzipValueOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpValueOption<int>)) {
+        else if (t == typeof(FSharpValueOption<int>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<int>>(data);
             var (vals, valid) = FSharpHelper.UnzipValueOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpValueOption<uint>)) {
+        else if (t == typeof(FSharpValueOption<uint>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<uint>>(data);
             var (vals, valid) = FSharpHelper.UnzipValueOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpValueOption<long>)) {
+        else if (t == typeof(FSharpValueOption<long>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<long>>(data);
             var (vals, valid) = FSharpHelper.UnzipValueOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpValueOption<ulong>)) {
+        else if (t == typeof(FSharpValueOption<ulong>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<ulong>>(data);
             var (vals, valid) = FSharpHelper.UnzipValueOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpValueOption<Int128>)) {
+        else if (t == typeof(FSharpValueOption<Int128>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<Int128>>(data);
             var (vals, valid) = FSharpHelper.UnzipValueOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpValueOption<UInt128>)) {
+        else if (t == typeof(FSharpValueOption<UInt128>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<UInt128>>(data);
             var (vals, valid) = FSharpHelper.UnzipValueOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpValueOption<Half>)) {
+        else if (t == typeof(FSharpValueOption<Half>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<Half>>(data);
             var (vals, valid) = FSharpHelper.UnzipValueOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpValueOption<float>)) {
+        else if (t == typeof(FSharpValueOption<float>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<float>>(data);
             var (vals, valid) = FSharpHelper.UnzipValueOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpValueOption<double>)) {
+        else if (t == typeof(FSharpValueOption<double>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<double>>(data);
             var (vals, valid) = FSharpHelper.UnzipValueOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
 
         // --- 2. Bool (Packed) ---
-        else if (t == typeof(FSharpValueOption<bool>)) {
+        else if (t == typeof(FSharpValueOption<bool>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<bool>>(data);
             var (vals, valid) = FSharpHelper.PackValueOptionBool(span);
             return PolarsWrapper.SeriesNew(name, vals, valid, (nuint)data.Length);
         }
 
         // --- 3. String ---
-        else if (t == typeof(FSharpValueOption<string>)) {
+        else if (t == typeof(FSharpValueOption<string>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<string>>(data);
-            var unwrapped = FSharpHelper.UnwrapValueOptionString(span); 
+            var unwrapped = FSharpHelper.UnwrapValueOptionString(span);
             return PolarsWrapper.SeriesNewStringSimd(name, unwrapped);
         }
 
         // --- 4. Temporals ---
-        else if (t == typeof(FSharpValueOption<DateTime>)) {
+        else if (t == typeof(FSharpValueOption<DateTime>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<DateTime>>(data);
             var (vals, valid) = FSharpHelper.UnzipValueOptionDateTimeToUs(span);
             return PolarsWrapper.SeriesNewDatetime(name, vals, valid, null);
         }
-        else if (t == typeof(FSharpValueOption<DateOnly>)) {
+        else if (t == typeof(FSharpValueOption<DateOnly>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<DateOnly>>(data);
             var (vals, valid) = FSharpHelper.UnzipValueOptionDateOnlyToInt32(span);
             return PolarsWrapper.SeriesNewDate(name, vals, valid);
         }
-        else if (t == typeof(FSharpValueOption<TimeOnly>)) {
+        else if (t == typeof(FSharpValueOption<TimeOnly>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<TimeOnly>>(data);
             var (vals, valid) = FSharpHelper.UnzipValueOptionTimeOnlyToNs(span);
             return PolarsWrapper.SeriesNewTime(name, vals, valid);
         }
-        else if (t == typeof(FSharpValueOption<TimeSpan>)) {
+        else if (t == typeof(FSharpValueOption<TimeSpan>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<TimeSpan>>(data);
             var (vals, valid) = FSharpHelper.UnzipValueOptionTimeSpanToUs(span);
             return PolarsWrapper.SeriesNewDuration(name, vals, valid);
         }
-        else if (t == typeof(FSharpValueOption<DateTimeOffset>)) {
+        else if (t == typeof(FSharpValueOption<DateTimeOffset>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<DateTimeOffset>>(data);
             var (vals, valid) = FSharpHelper.UnzipValueOptionDateTimeOffsetToUs(span);
             return PolarsWrapper.SeriesNewDatetime(name, vals, valid, "UTC");
         }
-
+        else if (t == typeof(FSharpValueOption<Guid>))
+        {
+            var span = ReinterpretSpan<T, FSharpValueOption<Guid>>(data);
+            var nullable = FSharpHelper.UnwrapValueOptionGuid(span);
+            var (vals, validity) = ArrayHelper.UnzipGuid(nullable);
+            return PolarsWrapper.SeriesNewGuidFixedBinary(name, vals, validity, (nuint)data.Length);
+        }
         // --- 5. Decimal ---
-        else if (t == typeof(FSharpValueOption<decimal>)) {
+        else if (t == typeof(FSharpValueOption<decimal>))
+        {
             var span = ReinterpretSpan<T, FSharpValueOption<decimal>>(data);
-            var nullable = FSharpHelper.UnwrapValueOptionDecimal(span); 
+            var nullable = FSharpHelper.UnwrapValueOptionDecimal(span);
             var (vals, valid, scale) = DecimalPacker.Pack(nullable);
             return PolarsWrapper.SeriesNewDecimal(name, vals, valid, scale);
         }
         // ==========================================
         // F# Option<T> Support (Reference Option)
         // ==========================================
-        
+
         // --- 1. Primitives ---
-        else if (t == typeof(FSharpOption<sbyte>)) {
+        else if (t == typeof(FSharpOption<sbyte>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<sbyte>>(data);
             var (vals, valid) = FSharpHelper.UnzipOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpOption<byte>)) {
+        else if (t == typeof(FSharpOption<byte>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<byte>>(data);
             var (vals, valid) = FSharpHelper.UnzipOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpOption<short>)) {
+        else if (t == typeof(FSharpOption<short>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<short>>(data);
             var (vals, valid) = FSharpHelper.UnzipOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpOption<ushort>)) {
+        else if (t == typeof(FSharpOption<ushort>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<ushort>>(data);
             var (vals, valid) = FSharpHelper.UnzipOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpOption<int>)) {
+        else if (t == typeof(FSharpOption<int>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<int>>(data);
             var (vals, valid) = FSharpHelper.UnzipOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpOption<uint>)) {
+        else if (t == typeof(FSharpOption<uint>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<uint>>(data);
             var (vals, valid) = FSharpHelper.UnzipOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpOption<long>)) {
+        else if (t == typeof(FSharpOption<long>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<long>>(data);
             var (vals, valid) = FSharpHelper.UnzipOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpOption<ulong>)) {
+        else if (t == typeof(FSharpOption<ulong>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<ulong>>(data);
             var (vals, valid) = FSharpHelper.UnzipOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpOption<Int128>)) {
+        else if (t == typeof(FSharpOption<Int128>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<Int128>>(data);
             var (vals, valid) = FSharpHelper.UnzipOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpOption<UInt128>)) {
+        else if (t == typeof(FSharpOption<UInt128>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<UInt128>>(data);
             var (vals, valid) = FSharpHelper.UnzipOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpOption<Half>)) {
+        else if (t == typeof(FSharpOption<Half>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<Half>>(data);
             var (vals, valid) = FSharpHelper.UnzipOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpOption<float>)) {
+        else if (t == typeof(FSharpOption<float>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<float>>(data);
             var (vals, valid) = FSharpHelper.UnzipOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
-        else if (t == typeof(FSharpOption<double>)) {
+        else if (t == typeof(FSharpOption<double>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<double>>(data);
             var (vals, valid) = FSharpHelper.UnzipOption(span);
             return PolarsWrapper.SeriesNew(name, vals, valid);
         }
 
         // --- 2. Bool (Packed) ---
-        else if (t == typeof(FSharpOption<bool>)) {
+        else if (t == typeof(FSharpOption<bool>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<bool>>(data);
             var (vals, valid) = FSharpHelper.PackOptionBool(span);
             return PolarsWrapper.SeriesNew(name, vals, valid, (nuint)data.Length);
         }
 
         // --- 3. String ---
-        else if (t == typeof(FSharpOption<string>)) {
+        else if (t == typeof(FSharpOption<string>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<string>>(data);
-            var unwrapped = FSharpHelper.UnwrapOptionString(span); 
+            var unwrapped = FSharpHelper.UnwrapOptionString(span);
             return PolarsWrapper.SeriesNewStringSimd(name, unwrapped);
         }
 
         // --- 4. Temporals ---
-        else if (t == typeof(FSharpOption<DateTime>)) {
+        else if (t == typeof(FSharpOption<DateTime>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<DateTime>>(data);
             var (vals, valid) = FSharpHelper.UnzipOptionDateTimeToUs(span);
             return PolarsWrapper.SeriesNewDatetime(name, vals, valid, null);
         }
-        else if (t == typeof(FSharpOption<DateOnly>)) {
+        else if (t == typeof(FSharpOption<DateOnly>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<DateOnly>>(data);
             var (vals, valid) = FSharpHelper.UnzipOptionDateOnlyToInt32(span);
             return PolarsWrapper.SeriesNewDate(name, vals, valid);
         }
-        else if (t == typeof(FSharpOption<TimeOnly>)) {
+        else if (t == typeof(FSharpOption<TimeOnly>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<TimeOnly>>(data);
             var (vals, valid) = FSharpHelper.UnzipOptionTimeOnlyToNs(span);
             return PolarsWrapper.SeriesNewTime(name, vals, valid);
         }
-        else if (t == typeof(FSharpOption<TimeSpan>)) {
+        else if (t == typeof(FSharpOption<TimeSpan>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<TimeSpan>>(data);
             var (vals, valid) = FSharpHelper.UnzipOptionTimeSpanToUs(span);
             return PolarsWrapper.SeriesNewDuration(name, vals, valid);
         }
-        else if (t == typeof(FSharpOption<DateTimeOffset>)) {
+        else if (t == typeof(FSharpOption<DateTimeOffset>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<DateTimeOffset>>(data);
             var (vals, valid) = FSharpHelper.UnzipOptionDateTimeOffsetToUs(span);
             return PolarsWrapper.SeriesNewDatetime(name, vals, valid, "UTC");
         }
 
         // --- 5. Decimal ---
-        else if (t == typeof(FSharpOption<decimal>)) {
+        else if (t == typeof(FSharpOption<decimal>))
+        {
             var span = ReinterpretSpan<T, FSharpOption<decimal>>(data);
-            var nullable = FSharpHelper.UnwrapOptionDecimal(span); 
+            var nullable = FSharpHelper.UnwrapOptionDecimal(span);
             var (vals, valid, scale) = DecimalPacker.Pack(nullable);
             return PolarsWrapper.SeriesNewDecimal(name, vals, valid, scale);
+        }
+        else if (t == typeof(FSharpOption<Guid>))
+        {
+            var span = ReinterpretSpan<T, FSharpOption<Guid>>(data);
+            var nullable = FSharpHelper.UnwrapOptionGuid(span);
+            var (vals, validity) = ArrayHelper.UnzipGuid(nullable);
+            return PolarsWrapper.SeriesNewGuidFixedBinary(name, vals, validity, (nuint)data.Length);
         }
         return null!;
     }
@@ -520,7 +583,7 @@ public static class SeriesFactory
     // --- Helpers ---
     private static SeriesHandle CreateFromArrowViaReflection(string name, Array array)
     {
-        using var arrowArray = ArrowConverter.Build((dynamic)array); 
+        using var arrowArray = ArrowConverter.Build((dynamic)array);
         return ArrowFfiBridge.ImportSeries(name, arrowArray);
     }
 

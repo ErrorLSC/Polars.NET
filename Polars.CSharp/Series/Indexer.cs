@@ -175,6 +175,14 @@ public partial class Series : IDisposable,IPolarsSeries
             return isNullable ? (T)(object)((DateTime, string)?)tuple : Unsafe.As<(DateTime, string), T>(ref tuple);
         }
 
+        if (underlying == typeof(Guid))
+        {
+            Guid val = PolarsWrapper.SeriesGetGuidFast(Handle, index);
+            return isNullable
+                ? (T)(object)(Guid?)val
+                : Unsafe.As<Guid, T>(ref val);
+        }
+
         // ==============================================================
         // Universal Path - using Arrow Infrastructure
         // For Struct, List, F# Option, DateTimeOffset .etc
@@ -189,8 +197,6 @@ public partial class Series : IDisposable,IPolarsSeries
     /// <summary>
     /// Get an item at the specified index as object (boxed).
     /// </summary>
-    /// <param name="index"></param>
-    /// <returns></returns>
     /// <exception cref="NotSupportedException"></exception>
     public object? this[int index]
     {

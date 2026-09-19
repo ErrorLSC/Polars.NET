@@ -1330,4 +1330,17 @@ public class DataTypeTests
         var plain = Pl.Utf8;
         Assert.Empty(plain.ArrayShape);
     }
+    [Fact]
+    [Trait("DataType", "Guid")]
+    public void Test_Guid_GetValue()
+    {
+        var sampleGuid = Guid.NewGuid(); // Standard Guid
+        var emptyGuid = Guid.Empty;      // 00000000-0000-0000-0000-000000000000
+        Guid? nullID = null;             // Guid? nullID = null;
+
+        var guidSeries = Pl.CreateSeries("guid", [sampleGuid, emptyGuid,nullID]);
+        Assert.Equal(sampleGuid, guidSeries.GetValue<Guid>(0));
+        Assert.Equal(emptyGuid, guidSeries.GetValue<Guid>(1));
+        Assert.Null(guidSeries.GetValue<Guid?>(2));
+    }
 }

@@ -521,6 +521,13 @@ public readonly partial struct PolarsWrapper
     public static SeriesHandle SeriesNewStringSimd(string name, string?[] data)
         => SeriesNewStringSimd(name, new ReadOnlySpan<string?>(data));
 
+    public static SeriesHandle SeriesNewGuidFixedBinary(string name, ReadOnlySpan<byte> values, ReadOnlySpan<byte> validity, nuint len)
+    {
+        ref byte valuesRef = ref (values.IsEmpty ? ref Unsafe.NullRef<byte>() : ref MemoryMarshal.GetReference(values));
+        ref byte validityRef = ref (validity.IsEmpty ? ref Unsafe.NullRef<byte>() : ref MemoryMarshal.GetReference(validity));
+
+        return NativeBindings.pl_series_new_guid_fixed_binary(name, ref valuesRef, ref validityRef, len);
+    }
     /// <summary>
     /// Create DateTime Series from pre-calculated Microseconds.
     /// </summary>
@@ -1053,6 +1060,17 @@ public readonly partial struct PolarsWrapper
         // Zero-copy view directly pointing to Arrow buffer
         ReadOnlySpan<byte> span = new((byte*)ptr, (int)len);
         return Encoding.UTF8.GetString(span);
+    }
+    public static Guid SeriesGetGuidFast(SeriesHandle handle, long idx)
+    {
+        int status = NativeBindings.pl_series_get_guid_fast(
+            handle,
+            (nuint)idx,
+            out Guid guid
+        );
+
+        ErrorHelper.CheckStatus(status);
+        return guid;
     }
 
     public static unsafe string? SeriesGetCatOrEnumFast(SeriesHandle handle, long idx, PlCategoricalPhysical catSize)

@@ -1,6 +1,9 @@
-use std::{ffi::{CStr, CString, c_char}, os::raw::c_int};
 use crate::types::{CategoriesContext, DataTypeContext, FrozenCategoriesContext};
 use polars::prelude::{extension::get_extension_type_or_generic, *};
+use std::{
+    ffi::{CStr, CString, c_char},
+    os::raw::c_int,
+};
 
 macro_rules! define_pl_datatype_kind {
     (
@@ -102,7 +105,7 @@ pub extern "C" fn pl_datatype_new_primitive(code: i32) -> *mut DataType {
     })
 }
 
-// Decimal 
+// Decimal
 // precision: 0 for None (auto detect), >0 for real precision
 // scale: decimal places
 #[unsafe(no_mangle)]
@@ -110,25 +113,14 @@ pub extern "C" fn pl_datatype_new_decimal(precision: usize, scale: usize) -> *mu
     ffi_try!({
         let prec = if precision == 0 { 38 } else { precision };
         let dtype = DataType::Decimal(prec, scale);
-        
+
         Ok(Box::into_raw(Box::new(DataTypeContext { dtype })))
     })
 }
 
-// Categorical 
-// #[unsafe(no_mangle)]
-// pub extern "C" fn pl_datatype_new_categorical() -> *mut DataTypeContext {
-//     ffi_try!({
-//         let cats = Categories::random(PlSmallStr::EMPTY, CategoricalPhysical::U32);
-//         let mapping = cats.mapping();
-//         let dtype = DataType::Categorical(cats, mapping);
-        
-//         Ok(Box::into_raw(Box::new(DataTypeContext { dtype })))
-//     })
-// }
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_new_categorical(
-    cats_ptr: *mut CategoriesContext
+    cats_ptr: *mut CategoriesContext,
 ) -> *mut DataTypeContext {
     ffi_try!({
         let cats = if cats_ptr.is_null() {
@@ -140,27 +132,27 @@ pub extern "C" fn pl_datatype_new_categorical(
 
         let mapping = cats.mapping();
         let dtype = DataType::Categorical(cats, mapping);
-        
+
         Ok(Box::into_raw(Box::new(DataTypeContext { dtype })))
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_new_enum(
-    frozen_ptr: *mut FrozenCategoriesContext
+    frozen_ptr: *mut FrozenCategoriesContext,
 ) -> *mut DataTypeContext {
     ffi_try!({
         let frozen = if frozen_ptr.is_null() {
             FrozenCategories::new(std::iter::empty::<&str>()).unwrap()
         } else {
             let ctx = unsafe { &*frozen_ptr };
-            ctx.inner.clone() 
+            ctx.inner.clone()
         };
 
         let mapping = frozen.mapping().clone();
-        
+
         let dtype = DataType::Enum(frozen, mapping);
-        
+
         Ok(Box::into_raw(Box::new(DataTypeContext { dtype })))
     })
 }
@@ -191,11 +183,7 @@ pub extern "C" fn pl_datatype_new_extension(
             Some(unsafe { CStr::from_ptr(metadata).to_str().unwrap() })
         };
 
-        let ext_inst = get_extension_type_or_generic(
-            name_str,
-            &inner,
-            meta_str
-        );
+        let ext_inst = get_extension_type_or_generic(name_str, &inner, meta_str);
 
         let dtype = DataType::Extension(ext_inst, Box::new(inner));
 
@@ -209,11 +197,13 @@ pub extern "C" fn pl_datatype_new_list(inner_ptr: *mut DataTypeContext) -> *mut 
         if inner_ptr.is_null() {
             polars_bail!(ComputeError: "Inner DataTypeContext pointer is null for List creation");
         }
-        
+
         let inner_ctx = unsafe { &*inner_ptr };
         let list_dtype = DataType::List(Box::new(inner_ctx.dtype.clone()));
-        
-        Ok(Box::into_raw(Box::new(DataTypeContext { dtype: list_dtype })))
+
+        Ok(Box::into_raw(Box::new(DataTypeContext {
+            dtype: list_dtype,
+        })))
     })
 }
 
@@ -222,7 +212,7 @@ pub fn parse_timeunit(unit: u8) -> TimeUnit {
         0 => TimeUnit::Nanoseconds,
         1 => TimeUnit::Microseconds,
         2 => TimeUnit::Milliseconds,
-        _ => TimeUnit::Microseconds, 
+        _ => TimeUnit::Microseconds,
     };
     time_unit
 }
@@ -232,15 +222,15 @@ pub extern "C" fn pl_datatype_new_duration(unit: u8) -> *mut DataTypeContext {
     ffi_try!({
         let time_unit = parse_timeunit(unit);
         let dt = DataType::Duration(time_unit);
-        
+
         Ok(Box::into_raw(Box::new(DataTypeContext { dtype: dt })))
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_new_datetime(
-    unit_code: u8,     
-    tz_ptr: *const c_char 
+    unit_code: u8,
+    tz_ptr: *const c_char,
 ) -> *mut DataTypeContext {
     ffi_try!({
         let time_unit = parse_timeunit(unit_code);
@@ -248,15 +238,15 @@ pub extern "C" fn pl_datatype_new_datetime(
         let timezone = if tz_ptr.is_null() {
             None
         } else {
-            let c_str = unsafe { CStr::from_ptr(tz_ptr) }
-                .to_str()
-                .map_err(|e| polars_err!(ComputeError: "Invalid UTF-8 in timezone string: {}", e))?;
+            let c_str = unsafe { CStr::from_ptr(tz_ptr) }.to_str().map_err(
+                |e| polars_err!(ComputeError: "Invalid UTF-8 in timezone string: {}", e),
+            )?;
 
-            unsafe {Some(TimeZone::from_static(c_str))}
+            unsafe { Some(TimeZone::from_static(c_str)) }
         };
 
         let dtype = DataType::Datetime(time_unit, timezone);
-        
+
         Ok(Box::into_raw(Box::new(DataTypeContext { dtype })))
     })
 }
@@ -264,8 +254,8 @@ pub extern "C" fn pl_datatype_new_datetime(
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_new_array(
     inner_ptr: *mut DataTypeContext,
-    width_or_shape_ptr: *const usize,  
-    ndim: usize                         
+    width_or_shape_ptr: *const usize,
+    ndim: usize,
 ) -> *mut DataTypeContext {
     ffi_try!({
         if inner_ptr.is_null() {
@@ -274,47 +264,44 @@ pub extern "C" fn pl_datatype_new_array(
         if width_or_shape_ptr.is_null() && ndim > 0 {
             polars_bail!(ComputeError: "Shape pointer is null but ndim > 0");
         }
-        
+
         let inner_ctx = unsafe { &*inner_ptr };
         let mut current_dtype = inner_ctx.dtype.clone();
-        
+
         if ndim == 0 {
-            return Ok(Box::into_raw(Box::new(DataTypeContext { 
-                dtype: current_dtype 
+            return Ok(Box::into_raw(Box::new(DataTypeContext {
+                dtype: current_dtype,
             })));
         }
-        
+
         let widths = unsafe { std::slice::from_raw_parts(width_or_shape_ptr, ndim) };
-        
+
         for &width in widths.iter().rev() {
-            current_dtype = DataType::Array(
-                Box::new(current_dtype), 
-                width
-            );
+            current_dtype = DataType::Array(Box::new(current_dtype), width);
         }
-        
-        Ok(Box::into_raw(Box::new(DataTypeContext { 
-            dtype: current_dtype 
+
+        Ok(Box::into_raw(Box::new(DataTypeContext {
+            dtype: current_dtype,
         })))
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_new_struct(
-    names: *const *const c_char,      
-    types: *const *mut DataTypeContext, 
-    len: usize
+    names: *const *const c_char,
+    types: *const *mut DataTypeContext,
+    len: usize,
 ) -> *mut DataTypeContext {
     ffi_try!({
         let mut fields = Vec::with_capacity(len);
-        
+
         let name_slice = unsafe { std::slice::from_raw_parts(names, len) };
         let type_slice = unsafe { std::slice::from_raw_parts(types, len) };
 
         for i in 0..len {
             let name_cstr = unsafe { CStr::from_ptr(name_slice[i]) };
             let name = name_cstr.to_str().unwrap().to_string();
-            
+
             let dt_ptr = type_slice[i];
             let dt_box = unsafe { Box::from_raw(dt_ptr) };
             let dtype = dt_box.dtype;
@@ -331,22 +318,23 @@ fn dtype_to_string_verbose(dt: &DataType) -> String {
     match dt {
         // Struct：Concat "struct[name: type, ...]"
         DataType::Struct(fields) => {
-            let content: Vec<String> = fields.iter()
+            let content: Vec<String> = fields
+                .iter()
                 .map(|f| format!("{}: {}", f.name, dtype_to_string_verbose(&f.dtype)))
                 .collect();
             format!("struct[{}]", content.join(", "))
-        },
-        
+        }
+
         // List：open innertype recursively
         DataType::List(inner) => {
             format!("list[{}]", dtype_to_string_verbose(inner))
-        },
-        
+        }
+
         DataType::Array(inner, width) => {
-             format!("array[{}; {}]", dtype_to_string_verbose(inner), width)
-        },
-        
-        _ => dt.to_string()
+            format!("array[{}; {}]", dtype_to_string_verbose(inner), width)
+        }
+
+        _ => dt.to_string(),
     }
 }
 
@@ -365,7 +353,9 @@ pub extern "C" fn pl_datatype_to_string(dt_ptr: *mut DataTypeContext) -> *mut c_
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_free(ptr: *mut DataTypeContext) {
     if !ptr.is_null() {
-        unsafe { let _ = Box::from_raw(ptr); }
+        unsafe {
+            let _ = Box::from_raw(ptr);
+        }
     }
 }
 
@@ -373,45 +363,39 @@ pub extern "C" fn pl_datatype_free(ptr: *mut DataTypeContext) {
 pub extern "C" fn pl_datatype_clone(ptr: *mut DataTypeContext) -> *mut DataTypeContext {
     ffi_try!({
         let ctx = unsafe { &*ptr };
-        
+
         let new_dt = ctx.dtype.clone();
-        
-        Ok(Box::into_raw(Box::new(DataTypeContext { dtype:new_dt})))
+
+        Ok(Box::into_raw(Box::new(DataTypeContext { dtype: new_dt })))
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_datatype_get_kind(
-    ptr: *mut DataType,
-    out_kind: *mut i32
-) -> bool {
+pub extern "C" fn pl_datatype_get_kind(ptr: *mut DataType, out_kind: *mut i32) -> bool {
     ffi_bool_try!({
         if ptr.is_null() {
             polars_bail!(ComputeError: "DataType pointer is null");
         }
-        
+
         let dtype = unsafe { &*ptr };
-        
-        unsafe { 
-            *out_kind = map_dtype_to_kind(dtype) as i32; 
+
+        unsafe {
+            *out_kind = map_dtype_to_kind(dtype) as i32;
         }
-        
+
         Ok(())
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_datatype_get_time_unit(
-    ptr: *mut DataType,
-    out_unit: *mut u8
-) -> bool {
+pub extern "C" fn pl_datatype_get_time_unit(ptr: *mut DataType, out_unit: *mut u8) -> bool {
     ffi_bool_try!({
         if ptr.is_null() {
             polars_bail!(ComputeError: "DataType pointer is null");
         }
-        
+
         let dtype = unsafe { &*ptr };
-        
+
         match dtype {
             DataType::Datetime(u, _) | DataType::Duration(u) => {
                 let unit_val = match u {
@@ -421,7 +405,7 @@ pub extern "C" fn pl_datatype_get_time_unit(
                 };
                 unsafe { *out_unit = unit_val };
                 Ok(())
-            },
+            }
             _ => {
                 polars_bail!(ComputeError: "Expected Datetime or Duration DataType, but got: {:?}", dtype);
             }
@@ -437,11 +421,11 @@ pub extern "C" fn pl_datatype_get_timezone(ptr: *mut DataType) -> *mut c_char {
         }
 
         let dtype = unsafe { &*ptr };
-        
+
         if let DataType::Datetime(_, Some(tz)) = dtype {
             let c_str = CString::new(tz.as_str())
                 .map_err(|e| polars_err!(ComputeError: "TimeZone contains null byte: {}", e))?;
-            
+
             Ok(c_str.into_raw())
         } else {
             Ok(std::ptr::null_mut())
@@ -451,21 +435,21 @@ pub extern "C" fn pl_datatype_get_timezone(ptr: *mut DataType) -> *mut c_char {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_get_decimal_info(
-    ptr: *mut DataType, 
-    out_precision: *mut i32, 
-    out_scale: *mut i32
+    ptr: *mut DataType,
+    out_precision: *mut i32,
+    out_scale: *mut i32,
 ) -> bool {
     ffi_bool_try!({
         if ptr.is_null() {
             polars_bail!(ComputeError: "DataType pointer is null");
         }
-        
+
         let dtype = unsafe { &*ptr };
-        
+
         if let DataType::Decimal(precision, scale) = dtype {
             unsafe {
-                *out_precision = *precision as i32 ; 
-                *out_scale = *scale as i32; 
+                *out_precision = *precision as i32;
+                *out_scale = *scale as i32;
             }
             Ok(())
         } else {
@@ -481,37 +465,37 @@ pub extern "C" fn pl_datatype_get_inner(ptr: *mut DataType) -> *mut DataType {
         }
 
         let dtype = unsafe { &*ptr };
-        
+
         match dtype {
             DataType::List(inner) | DataType::Array(inner, _) => {
                 Ok(Box::into_raw(Box::new(*inner.clone())))
-            },
-            _ => Ok(std::ptr::null_mut())
+            }
+            _ => Ok(std::ptr::null_mut()),
         }
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_get_array_width(
-    ptr: *mut DataTypeContext, 
-    out_width: *mut usize
+    ptr: *mut DataTypeContext,
+    out_width: *mut usize,
 ) -> bool {
     ffi_bool_try!({
         if ptr.is_null() {
             polars_bail!(ComputeError: "DataTypeContext pointer is null");
         }
-        
+
         let ctx = unsafe { &*ptr };
-        
+
         match &ctx.dtype {
             DataType::Array(_, width) => {
                 unsafe { *out_width = *width };
-            },
+            }
             _ => {
                 unsafe { *out_width = 0 };
             }
         }
-        
+
         Ok(())
     })
 }
@@ -528,7 +512,7 @@ pub extern "C" fn pl_datatype_get_array_shape(
         }
 
         let ctx = unsafe { &*ctx };
-        let shape_opt = ctx.dtype.get_shape(); 
+        let shape_opt = ctx.dtype.get_shape();
 
         match shape_opt {
             Some(shape) if !shape.is_empty() => {
@@ -562,17 +546,14 @@ pub extern "C" fn pl_free_shape(data: *mut usize, len: usize) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_datatype_get_struct_len(
-    ptr: *mut DataType,
-    out_len: *mut usize
-) -> bool {
+pub extern "C" fn pl_datatype_get_struct_len(ptr: *mut DataType, out_len: *mut usize) -> bool {
     ffi_bool_try!({
         if ptr.is_null() {
             polars_bail!(ComputeError: "DataType pointer is null");
         }
-        
+
         let dtype = unsafe { &*ptr };
-        
+
         if let DataType::Struct(fields) = dtype {
             unsafe { *out_len = fields.len() };
             Ok(())
@@ -584,28 +565,29 @@ pub extern "C" fn pl_datatype_get_struct_len(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_get_struct_field(
-    ptr: *mut DataType, 
-    index: usize, 
-    name_out: *mut *mut c_char, 
-    type_out: *mut *mut DataType
+    ptr: *mut DataType,
+    index: usize,
+    name_out: *mut *mut c_char,
+    type_out: *mut *mut DataType,
 ) -> bool {
     ffi_bool_try!({
         if ptr.is_null() {
             polars_bail!(ComputeError: "DataType pointer is null");
         }
-        
+
         let dtype = unsafe { &*ptr };
-        
+
         if let DataType::Struct(fields) = dtype {
             if index >= fields.len() {
                 polars_bail!(OutOfBounds: "Index {} is out of bounds for Struct DataType with {} fields", index, fields.len());
             }
-            
+
             let field = &fields[index];
-            
-            let c_name = CString::new(field.name.as_str())
-                .map_err(|e| polars_err!(ComputeError: "Struct field name contains null byte: {}", e))?;
-            
+
+            let c_name = CString::new(field.name.as_str()).map_err(
+                |e| polars_err!(ComputeError: "Struct field name contains null byte: {}", e),
+            )?;
+
             unsafe {
                 *name_out = c_name.into_raw();
                 *type_out = Box::into_raw(Box::new(field.dtype.clone()));
@@ -620,7 +602,7 @@ pub extern "C" fn pl_datatype_get_struct_field(
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_export_arrow_schema(
     ptr: *mut DataType,
-    out_schema: *mut polars_arrow::ffi::ArrowSchema, 
+    out_schema: *mut polars_arrow::ffi::ArrowSchema,
 ) -> bool {
     ffi_bool_try!({
         if ptr.is_null() {
@@ -631,14 +613,16 @@ pub extern "C" fn pl_datatype_export_arrow_schema(
         }
 
         let dtype = unsafe { &*ptr };
-        
+
         let arrow_type = dtype.to_arrow(CompatLevel::newest());
         let field = polars_arrow::datatypes::Field::new("value".into(), arrow_type, true);
 
         let schema = polars_arrow::ffi::export_field_to_c(&field);
-        
-        unsafe { std::ptr::write(out_schema, schema); }
-        
+
+        unsafe {
+            std::ptr::write(out_schema, schema);
+        }
+
         Ok(())
     })
 }
@@ -652,45 +636,47 @@ pub extern "C" fn pl_datatype_eq(
     ffi_try_c_int!({
         let a = unsafe { &(*a_ptr).dtype };
         let b = unsafe { &(*b_ptr).dtype };
-        
+
         unsafe {
             *out_eq = a == b;
         }
-        
+
         Ok(0)
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pl_datatype_get_categories(
-    ptr: *mut DataTypeContext
-) -> *mut CategoriesContext {
+pub extern "C" fn pl_datatype_get_categories(ptr: *mut DataTypeContext) -> *mut CategoriesContext {
     ffi_try!({
-        if ptr.is_null() { return Ok(std::ptr::null_mut()); }
+        if ptr.is_null() {
+            return Ok(std::ptr::null_mut());
+        }
         let ctx = unsafe { &*ptr };
-        
+
         match &ctx.dtype {
-            DataType::Categorical(cats, _) => {
-                Ok(Box::into_raw(Box::new(CategoriesContext { inner: cats.clone() })))
-            },
-            _ => Ok(std::ptr::null_mut())
+            DataType::Categorical(cats, _) => Ok(Box::into_raw(Box::new(CategoriesContext {
+                inner: cats.clone(),
+            }))),
+            _ => Ok(std::ptr::null_mut()),
         }
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pl_datatype_get_enum_categories(
-    ptr: *mut DataTypeContext
+    ptr: *mut DataTypeContext,
 ) -> *mut FrozenCategoriesContext {
     ffi_try!({
-        if ptr.is_null() { return Ok(std::ptr::null_mut()); }
+        if ptr.is_null() {
+            return Ok(std::ptr::null_mut());
+        }
         let ctx = unsafe { &*ptr };
-        
+
         match &ctx.dtype {
-            DataType::Enum(frozen, _) => {
-                Ok(Box::into_raw(Box::new(FrozenCategoriesContext { inner: frozen.clone() })))
-            },
-            _ => Ok(std::ptr::null_mut())
+            DataType::Enum(frozen, _) => Ok(Box::into_raw(Box::new(FrozenCategoriesContext {
+                inner: frozen.clone(),
+            }))),
+            _ => Ok(std::ptr::null_mut()),
         }
     })
 }
@@ -703,14 +689,15 @@ pub extern "C" fn pl_datatype_get_extension_name(
     ffi_try_c_int!({
         let dt = unsafe { &(*dt_ptr).dtype };
         unsafe { *out_name = std::ptr::null_mut() };
-        
+
         if let DataType::Extension(instance, _) = dt {
-            let c_str = CString::new(instance.name().as_ref())
-                .map_err(|e| PolarsError::ComputeError(format!("Invalid UTF-8 in Extension Name: {}", e).into()))?;
-            
+            let c_str = CString::new(instance.name().as_ref()).map_err(|e| {
+                PolarsError::ComputeError(format!("Invalid UTF-8 in Extension Name: {}", e).into())
+            })?;
+
             unsafe { *out_name = c_str.into_raw() };
         }
-        
+
         Ok(0)
     })
 }
@@ -723,16 +710,19 @@ pub extern "C" fn pl_datatype_get_extension_metadata(
     ffi_try_c_int!({
         let dt = unsafe { &(*dt_ptr).dtype };
         unsafe { *out_metadata = std::ptr::null_mut() };
-        
+
         if let DataType::Extension(instance, _) = dt {
             if let Some(metadata_cow) = instance.serialize_metadata() {
-                let c_str = CString::new(metadata_cow.as_ref())
-                    .map_err(|e| PolarsError::ComputeError(format!("Invalid UTF-8 in Extension Metadata: {}", e).into()))?;
-                    
+                let c_str = CString::new(metadata_cow.as_ref()).map_err(|e| {
+                    PolarsError::ComputeError(
+                        format!("Invalid UTF-8 in Extension Metadata: {}", e).into(),
+                    )
+                })?;
+
                 unsafe { *out_metadata = c_str.into_raw() };
             }
         }
-        
+
         Ok(0)
     })
 }
@@ -745,15 +735,15 @@ pub extern "C" fn pl_datatype_get_extension_storage(
     ffi_try_c_int!({
         let dt = unsafe { &(*dt_ptr).dtype };
         unsafe { *out_storage = std::ptr::null_mut() };
-        
+
         if let DataType::Extension(_, storage) = dt {
             let storage_ctx = DataTypeContext {
-                dtype: *storage.clone(), 
+                dtype: *storage.clone(),
             };
-            
+
             unsafe { *out_storage = Box::into_raw(Box::new(storage_ctx)) };
         }
-        
+
         Ok(0)
     })
 }

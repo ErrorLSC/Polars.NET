@@ -801,6 +801,25 @@ public partial class Series : IDisposable,IPolarsSeries,IEquatable<Series>
     /// </summary>
     public override int GetHashCode() => (int)PolarsWrapper.SeriesHash(Handle);
 
+    private bool _disposed;
+    /// <summary>
+    /// Dispose the underlying SeriesHandle.
+    /// </summary>
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!_disposed)
+        {
+            if (disposing)
+            {
+                Interlocked.Exchange(ref _cachedDataType, null)?.Dispose();
+            }
+
+            Handle.Dispose();
+
+            _disposed = true;
+        }
+    }
+
     /// <summary>
     /// Dispose the underlying SeriesHandle.
     /// </summary>

@@ -104,6 +104,19 @@ unsafe internal partial class NativeBindings
         out nint utf8bytes,
         out nuint len
     );
+    [LibraryImport(LibName)]
+    public static partial int pl_series_get_binary_fast(
+        SeriesHandle s,
+        nuint idx,
+        out nint bytes,
+        out nuint len
+    );
+    [LibraryImport(LibName)]
+    public static partial int pl_series_get_guid_fast(
+        SeriesHandle s,
+        nuint idx,
+        out Guid guid
+    );
 
     // --- Series Constructors ---
     // DataFrame -> Series (ByName)
@@ -149,15 +162,22 @@ unsafe internal partial class NativeBindings
         string name,
         ref byte data,
         ref byte validity,
-        UIntPtr len
+        nuint len
     );
 
-    [LibraryImport(LibName,StringMarshalling = StringMarshalling.Utf8)]
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial SeriesHandle pl_series_new_str_simd(
         string name,
         ref byte values_ptr,
         nuint values_len,
         ref ArrowStringView views_ptr,
+        ref byte validity_ptr,
+        nuint len
+    );
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial SeriesHandle pl_series_new_guid_fixed_binary(
+        string name,
+        ref byte values_ptr,
         ref byte validity_ptr,
         nuint len
     );

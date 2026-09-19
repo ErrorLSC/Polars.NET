@@ -32,50 +32,42 @@ type DataTypeKind =
 /// <summary>
 /// Polars data types for casting and schema definitions.
 /// </summary>
-
 and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
     let mutable disposed = false
     [<DefaultValue>]
     val mutable private _displayString : string
     // Cached FFI queries (eliminates repeated native crossings)
-    let lazyTimeUnit =
-        lazy (
-            PolarsWrapper.GetTimeUnit handle |> TimeUnit.FromNative
-        )
-
+    let lazyTimeUnit = lazy (PolarsWrapper.GetTimeUnit handle |> TimeUnit.FromNative)
     let lazyTimeZone =
-        lazy (
+        lazy
             let tz = PolarsWrapper.GetTimeZone handle
             if String.IsNullOrEmpty tz then None else Some tz
-        )
+
 
     // 2. Cached Array Metadata (avoids repeated array copies and pattern checks)
     let lazyArrayShape =
-        lazy (
+        lazy
             match kind with
             | DataTypeKind.Array(_, shape) -> Array.copy shape
             | _ -> invalidOp (sprintf "ArrayShape is only applicable to Array, but current type is %A." kind)
-        )
 
     let lazyArrayWidth =
-        lazy (
+        lazy
             match kind with
             | DataTypeKind.Array(_, shape) when shape.Length > 0 -> shape.[0]
             | DataTypeKind.Array _ -> 0u
             | _ -> invalidOp (sprintf "ArrayWidth is only applicable to Array, but current type is %A." kind)
-        )
 
     // 3. Cached Nested / Leaf Type Unwrapping (avoids repeated recursive walks)
     let lazyInnerType =
-        lazy (
+        lazy
             match kind with
             | DataTypeKind.Array(inner, _) -> inner
             | DataTypeKind.List inner -> inner
             | _ -> invalidOp (sprintf "InnerType is only applicable to Array or List, but current type is %A." kind)
-        )
 
     let lazyLeafType =
-        lazy (
+        lazy
             let rec unwrap (dt: DataType) =
                 match dt.Kind with
                 | DataTypeKind.Array(inner, _) -> unwrap inner
@@ -86,24 +78,23 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
             | DataTypeKind.Array(inner, _) -> Some(unwrap inner)
             | DataTypeKind.List inner -> Some(unwrap inner)
             | _ -> None
-        )
 
     let categories =
-        lazy (
+        lazy
             match kind with
             | DataTypeKind.Categorical _ ->
                 let catHandle = PolarsWrapper.GetCategories(handle)
                 new Categories(catHandle)
             | _ -> invalidOp (sprintf "Categories is only applicable to Categorical type, but current type is %A." kind)
-        )
+
     let frozenCategories =
-        lazy (
+        lazy
             match kind with
             | DataTypeKind.Enum _ ->
                 let enumHandle = PolarsWrapper.GetEnumCategories(handle)
                 new FrozenCategories(enumHandle)
             | _ -> invalidOp (sprintf "EnumCategories is only applicable to Enum type, but current type is %A." kind)
-        )
+
     static let toUnitCode tu =
         match tu with
         | TimeUnit.Nanoseconds -> 0uy
@@ -157,7 +148,6 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
 
     /// <summary>
     /// Gets the dimensional shape of the Array.
-    /// Returns a defensive copy to prevent external array mutation.
     /// </summary>
     /// <exception cref="System.InvalidOperationException">
     /// Thrown when the data type is not an Array.
@@ -238,16 +228,16 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
     static member Float16     = new DataType(PolarsWrapper.NewPrimitiveType(26), DataTypeKind.Float16)
 
     // ---------- Equality & Hashing ----------
-
+    member this.Equals(other: DataType) =
+        if obj.ReferenceEquals(other, null) then false
+        elif obj.ReferenceEquals(this, other) then true
+        else PolarsWrapper.DataTypeEq(this.Handle, other.Handle)
     interface IEquatable<DataType> with
-        member this.Equals(other: DataType) =
-            if obj.ReferenceEquals(other, null) then false
-            elif obj.ReferenceEquals(this, other) then true
-            else PolarsWrapper.DataTypeEq(this.Handle, other.Handle)
+        member this.Equals(other: DataType) = this.Equals other
 
     override this.Equals(otherObj: obj) =
         match otherObj with
-        | :? DataType as other -> (this :> IEquatable<DataType>).Equals(other)
+        | :? DataType as other -> this.Equals other
         | _ -> false
 
     override this.GetHashCode() =
@@ -261,18 +251,23 @@ and DataType (handle: DataTypeHandle, kind: DataTypeKind) =
     static member op_Inequality (left: DataType, right: DataType) =
         not (left = right)
 
+    member this.Dispose() =
+        if not disposed then
+            if categories.IsValueCreated then
+                categories.Value.Dispose()
+            if frozenCategories.IsValueCreated then
+                frozenCategories.Value.Dispose()
+            if not (isNull (box handle)) && not handle.IsInvalid then
+                handle.Dispose()
+            disposed <- true
+            GC.SuppressFinalize this
+
     interface IDisposable with
-        member this.Dispose() =
-            if not disposed then
-                if not (isNull (box handle)) && not handle.IsInvalid then
-                    handle.Dispose()
-                disposed <- true
-                GC.SuppressFinalize this
+        member this.Dispose() = this.Dispose()
 
     interface IPolarsDataType with
         member this.GetArrowType() : Apache.Arrow.Types.IArrowType =
             ArrowFfiBridge.ImportDataType this.Handle
-
 
     member internal this.CreateHandle() : DataTypeHandle =
         match this.Kind with
@@ -721,14 +716,14 @@ and Categories (handle: CategoriesHandle) =
         not (left = right)
 
     // --- IDisposable ---
-
+    member this.Dispose() =
+        if not disposed then
+            if handle |> box |> isNull |> not && not handle.IsInvalid then
+                handle.Dispose()
+            disposed <- true
+            GC.SuppressFinalize(this)
     interface IDisposable with
-        member this.Dispose() =
-            if not disposed then
-                if handle |> box |> isNull |> not && not handle.IsInvalid then
-                    handle.Dispose()
-                disposed <- true
-                GC.SuppressFinalize(this)
+        member this.Dispose() = this.Dispose()
 
     // --- Display ---
 
@@ -786,14 +781,14 @@ and FrozenCategories (handle: FrozenCategoriesHandle) =
         not (left = right)
 
     // ---------- IDisposable ----------
-
+    member this.Dispose() =
+        if not disposed then
+            if not (obj.ReferenceEquals(handle, null)) && not handle.IsInvalid then
+                handle.Dispose()
+            disposed <- true
+            GC.SuppressFinalize(this)
     interface IDisposable with
-        member this.Dispose() =
-            if not disposed then
-                if not (obj.ReferenceEquals(handle, null)) && not handle.IsInvalid then
-                    handle.Dispose()
-                disposed <- true
-                GC.SuppressFinalize(this)
+        member this.Dispose() = this.Dispose()
 
 and ExtensionFactory = DataType * string option -> DataType
 
