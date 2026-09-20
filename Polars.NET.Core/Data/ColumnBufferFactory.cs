@@ -5,7 +5,7 @@ namespace Polars.NET.Core.Data;
 // =================================================================================
 // 1. Interface
 // =================================================================================
-public interface IColumnBuffer
+public interface IArrowColumnBuffer
 {
     void Add(object? value);
     IArrowArray BuildArray();
@@ -14,21 +14,21 @@ public interface IColumnBuffer
 // =================================================================================
 // 2. Factory
 // =================================================================================
-public static class ColumnBufferFactory
+public static class ArrowColumnBufferFactory
 {
-    public static IColumnBuffer Create(Type type,int length)
+    public static IArrowColumnBuffer Create(Type type,int length)
     {
         var field = ArrowTypeResolver.ResolveField("udf_result", type);
-        
+
         var builder = ColumnBuilderFactory.Create(field, type,false, length);
-        
+
         return new BuilderAdapter(builder);
     }
 
     // =============================================================================
     // Adapter: Convert DbToArrowStream.ColumnBuilder to IColumnBuffer
     // =============================================================================
-    private class BuilderAdapter(ColumnBuilder internalBuilder) : IColumnBuffer
+    private class BuilderAdapter(ColumnBuilder internalBuilder) : IArrowColumnBuffer
     {
         public void Add(object? value)
         {

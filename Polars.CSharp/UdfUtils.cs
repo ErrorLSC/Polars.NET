@@ -1,5 +1,5 @@
 using Apache.Arrow;
-using Polars.NET.Core.Arrow; 
+using Polars.NET.Core.Arrow;
 using Polars.NET.Core.Data;
 
 namespace Polars.CSharp;
@@ -9,16 +9,16 @@ internal static class UdfUtils
     public static Func<IArrowArray, IArrowArray> Wrap<TIn, TOut>(Func<TIn, TOut> userFunc)
     {
         var tIn = typeof(TIn);
-        
+
         bool isNullableValueType = tIn.IsValueType && Nullable.GetUnderlyingType(tIn) != null;
-        
+
         bool isPureValueType = tIn.IsValueType && Nullable.GetUnderlyingType(tIn) == null;
 
         return inputArray =>
         {
             int length = inputArray.Length;
             var rawGetter = ArrowReader.CreateAccessor(inputArray, tIn);
-            var buffer = ColumnBufferFactory.Create(typeof(TOut), length);
+            var buffer = ArrowColumnBufferFactory.Create(typeof(TOut), length);
 
             if (isPureValueType)
             {
@@ -41,7 +41,7 @@ internal static class UdfUtils
                 {
                     if (inputArray.IsNull(i))
                     {
-                        TIn nullInstance = default!; 
+                        TIn nullInstance = default!;
                         buffer.Add(userFunc(nullInstance)!);
                     }
                     else

@@ -26,8 +26,8 @@ module DataFrameJsonNormalizeOps =
                 ?inferSchemaLength: uint,
                 ?encoder: obj -> string
             ) : DataFrame =
-            DataFrame.JsonNormalize([data], ?separator = separator, ?maxLevel = maxLevel, 
-                                ?schema = schema, ?strict = strict, 
+            DataFrame.JsonNormalize([data], ?separator = separator, ?maxLevel = maxLevel,
+                                ?schema = schema, ?strict = strict,
                                 ?inferSchemaLength = inferSchemaLength, ?encoder = encoder)
 
         /// <summary>
@@ -46,11 +46,11 @@ module DataFrameJsonNormalizeOps =
                 ?encoder: obj -> string
             ) : DataFrame =
             let separator = defaultArg separator "."
-            let actualMaxLevel = 
-                match maxLevel with 
-                | Some l -> l + 1 
+            let actualMaxLevel =
+                match maxLevel with
+                | Some l -> l + 1
                 | None -> System.Int32.MaxValue
-            let realEncoder = 
+            let realEncoder =
                 match encoder with
                 | Some e -> e
                 | None -> System.Text.Json.JsonSerializer.Serialize
@@ -59,20 +59,27 @@ module DataFrameJsonNormalizeOps =
 
             // Convert F# Maps to C# IDictionary for the normalization helper
             let dicts : seq<IDictionary<string, obj>> =
-                data |> Seq.map (fun map -> 
+                data |> Seq.map (fun map ->
                     let d = System.Collections.Generic.Dictionary<string, obj>()
                     for kv in map do d.Add(kv.Key, kv.Value)
                     d :> IDictionary<string, obj>)
-
-            // Normalize: SimpleJsonNormalize handles a list of dicts and returns List<IDictionary<string, object?>>
-            let normalizedList = 
+                // Call Core helper
+            let rawList =
                 JsonNormalizeHelper.SimpleJsonNormalize(dicts, separator, actualMaxLevel, realEncoder)
-                :?> System.Collections.Generic.IEnumerable<IDictionary<string, obj>>
 
-            // Convert back to F# Map and build DataFrame via ofMaps
+            // Safe conversion: cast IEnumerable/obj to typed sequence of dictionaries
+            let dictSequence =
+                match box rawList with
+                | :? System.Collections.IEnumerable as nonGenericEnum ->
+                    nonGenericEnum
+                    |> Seq.cast<IDictionary<string, obj>>
+                | _ ->
+                    Seq.empty
+
+            // Convert back to F# Map
             let normalizedMaps =
-                normalizedList
-                |> Seq.map (fun d -> 
+                dictSequence
+                |> Seq.map (fun d ->
                     d |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq)
             let df = DataFrame.ofMaps(normalizedMaps, strict = strict, inferSchemaLength = inferSchemaLength)
 
@@ -81,11 +88,11 @@ module DataFrameJsonNormalizeOps =
             | Some s ->
                 s.ToMap() |> Map.fold (fun (df: DataFrame) (colName: string) (dtype: DataType) ->
                     if df.Columns |> Array.contains colName then
-                            let castExpr = 
-                                Expr.Col(colName).Cast(dtype).Alias(colName)
-                            df.WithColumns(castExpr)
-                        else
-                            df
+                        let castExpr =
+                            Expr.Col(colName).Cast(dtype).Alias(colName)
+                        df.WithColumns(castExpr)
+                    else
+                        df
                 ) df
             | None -> df
         /// <summary>
@@ -104,7 +111,7 @@ module DataFrameJsonNormalizeOps =
                 ?encoder: obj -> string
             ) : DataFrame =
             let parsed = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(jsonString)
-            
+
             let objResult = JsonNormalizeHelper.ConvertJsonElement(parsed)
             let dataList : seq<Map<string, obj>> =
                 match objResult with

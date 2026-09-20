@@ -2,19 +2,19 @@ namespace Polars.FSharp
 
 open System
 open Apache.Arrow
-open Polars.NET.Core.Arrow 
-open Polars.NET.Core.Data 
+open Polars.NET.Core.Arrow
+open Polars.NET.Core.Data
 
 module internal Udf =
     // ==========================================
-    // Normal Map (T -> U) 
+    // Normal Map (T -> U)
     // ==========================================
     let internal map (f: 'T -> 'U) : IArrowArray -> IArrowArray =
         fun (inputArray: IArrowArray) ->
             let len = inputArray.Length
-            let buffer = ColumnBufferFactory.Create(typeof<'U>, len)
+            let buffer = ArrowColumnBufferFactory.Create(typeof<'U>, len)
             let rawGetter = ArrowReader.CreateAccessor(inputArray, typeof<'T>)
-            
+
             let tIn = typeof<'T>
             let isNullableValueType = tIn.IsValueType && not (isNull (Nullable.GetUnderlyingType tIn))
             let isPureValueType = tIn.IsValueType && isNull (Nullable.GetUnderlyingType tIn)
@@ -28,10 +28,10 @@ module internal Udf =
                         buffer.Add (box (f v))
             elif isNullableValueType then
                 for i = 0 to len - 1 do
-                    if inputArray.IsNull i then 
+                    if inputArray.IsNull i then
                         let nullInstance = Unchecked.defaultof<'T>
                         buffer.Add (box (f nullInstance))
-                    else 
+                    else
                         let v = rawGetter.Invoke i |> unbox<'T>
                         buffer.Add (box (f v))
             else
@@ -52,7 +52,7 @@ module internal Udf =
         fun (inputArray: IArrowArray) ->
             let len = inputArray.Length
             let rawGetter = ArrowReader.CreateAccessor(inputArray, typeof<'T>)
-            let buffer = ColumnBufferFactory.Create(typeof<'U>, len)
+            let buffer = ArrowColumnBufferFactory.Create(typeof<'U>, len)
 
             for i = 0 to len - 1 do
                 let inputOpt =
@@ -69,13 +69,13 @@ module internal Udf =
             buffer.BuildArray()
 
     // ==========================================
-    // ValueOption Map (T voption -> U voption) 
+    // ValueOption Map (T voption -> U voption)
     // ==========================================
     let internal mapValueOption (f: 'T voption -> 'U voption) : IArrowArray -> IArrowArray =
         fun (inputArray: IArrowArray) ->
             let len = inputArray.Length
             let rawGetter = ArrowReader.CreateAccessor(inputArray, typeof<'T>)
-            let buffer = ColumnBufferFactory.Create(typeof<'U>, len)
+            let buffer = ArrowColumnBufferFactory.Create(typeof<'U>, len)
 
             for i = 0 to len - 1 do
                 let inputVOpt =

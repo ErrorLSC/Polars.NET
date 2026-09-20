@@ -553,19 +553,19 @@ public static class SeriesFactory
             // ==========================================
             // Fixed Size Arrays (2D)
             // ==========================================
-            sbyte[,] v   => PolarsWrapper.SeriesNewFixedArray(name, v),
-            byte[,] v    => PolarsWrapper.SeriesNewFixedArray(name, v),
-            short[,] v   => PolarsWrapper.SeriesNewFixedArray(name, v),
-            ushort[,] v  => PolarsWrapper.SeriesNewFixedArray(name, v),
-            int[,] v     => PolarsWrapper.SeriesNewFixedArray(name, v),
-            uint[,] v    => PolarsWrapper.SeriesNewFixedArray(name, v),
-            long[,] v    => PolarsWrapper.SeriesNewFixedArray(name, v),
-            ulong[,] v   => PolarsWrapper.SeriesNewFixedArray(name, v),
-            Half[,] v    => PolarsWrapper.SeriesNewFixedArray(name, v),
-            float[,] v   => PolarsWrapper.SeriesNewFixedArray(name, v),
-            double[,] v  => PolarsWrapper.SeriesNewFixedArray(name, v),
+            sbyte[,] v => PolarsWrapper.SeriesNewFixedArray(name, v),
+            byte[,] v => PolarsWrapper.SeriesNewFixedArray(name, v),
+            short[,] v => PolarsWrapper.SeriesNewFixedArray(name, v),
+            ushort[,] v => PolarsWrapper.SeriesNewFixedArray(name, v),
+            int[,] v => PolarsWrapper.SeriesNewFixedArray(name, v),
+            uint[,] v => PolarsWrapper.SeriesNewFixedArray(name, v),
+            long[,] v => PolarsWrapper.SeriesNewFixedArray(name, v),
+            ulong[,] v => PolarsWrapper.SeriesNewFixedArray(name, v),
+            Half[,] v => PolarsWrapper.SeriesNewFixedArray(name, v),
+            float[,] v => PolarsWrapper.SeriesNewFixedArray(name, v),
+            double[,] v => PolarsWrapper.SeriesNewFixedArray(name, v),
             decimal[,] v => PolarsWrapper.SeriesNewFixedArray(name, v),
-            Int128[,] v  => PolarsWrapper.SeriesNewFixedArray(name, v),
+            Int128[,] v => PolarsWrapper.SeriesNewFixedArray(name, v),
             UInt128[,] v => PolarsWrapper.SeriesNewFixedArray(name, v),
 
             _ => null

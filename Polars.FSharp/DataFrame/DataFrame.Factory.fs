@@ -5,18 +5,22 @@ open Apache.Arrow
 open Polars.NET.Core
 open System
 open System.Reflection
+open Polars.NET.Core.Helpers
 
+/// <summary>
+/// Internal abstraction for transposing row-oriented map values into columnar Series.
+/// </summary>
 type IColumnBuffer =
     abstract member Add: obj -> unit
     abstract member ToSeries: string -> Series
 
+/// <summary>
+/// Strongly-typed columnar buffer for F# row ingestion.
+/// </summary>
 type private ColumnBuffer<'TCol>(capacity: int) =
     let _data = ResizeArray<'TCol>(capacity)
-
     let _colType = typeof<'TCol>
-    let _underlyingType =
-        let t = Nullable.GetUnderlyingType(_colType)
-        if isNull t then _colType else t
+    let _underlyingType = PolarsTypeHelper.UnwrapCoreType(_colType)
 
     interface IColumnBuffer with
         member _.Add(valObj: obj) =
@@ -31,9 +35,10 @@ type private ColumnBuffer<'TCol>(capacity: int) =
                     _data.Add(converted :?> 'TCol)
 
         member _.ToSeries(name: string) =
-            Series.From(name, _data.ToArray())
+            // Directly calls the existing generic Series.create<'TCol>(string, seq<'TCol>) without reflection!
+            Series.create(name, _data.ToArray())
 
-module ColumnBufferFactory =
+module internal ColumnBufferFactory =
 
     let create (propType: Type) (capacity: int) : IColumnBuffer =
         let targetType =
@@ -43,46 +48,23 @@ module ColumnBufferFactory =
                 propType
 
         let bufferType = typedefof<ColumnBuffer<_>>.MakeGenericType [| targetType |]
-
         Activator.CreateInstance(bufferType, [| box capacity |]) :?> IColumnBuffer
 
-module TypeInference =
-
-    let private isNumeric (t: Type) =
-        t = typeof<int> || t = typeof<float> || t = typeof<double> ||
-        t = typeof<decimal> || t = typeof<int64> || t = typeof<int16> ||
-        t = typeof<byte>
-
-    let rec promoteType (typeA: Type) (typeB: Type) : Type =
-        if typeA = typeB then typeA
-        else
-            let baseA = defaultArg (Option.ofObj (Nullable.GetUnderlyingType(typeA))) typeA
-            let baseB = defaultArg (Option.ofObj (Nullable.GetUnderlyingType(typeB))) typeB
-
-            if baseA = baseB then baseA
-            elif isNumeric baseA && isNumeric baseB then
-                if baseA = typeof<double> || baseB = typeof<double> then typeof<double>
-                elif baseA = typeof<float> || baseB = typeof<float> then typeof<double>
-                elif baseA = typeof<decimal> || baseB = typeof<decimal> then typeof<decimal>
-                elif baseA = typeof<int64> || baseB = typeof<int64> then typeof<int64>
-                else typeof<int64>
-            else
-                typeof<string>
-
+/// <summary>
+/// High-performance typed transposer for converting arrays of F# records into Polars Series.
+/// Pre-computes compiled getter delegates to eliminate reflection in hot loops.
+/// </summary>
 type internal RecordColumnTransposer =
     static member CreateSeriesFromColumn<'Rec, 'Field>(data: 'Rec[], name: string, prop: PropertyInfo) : Series =
-        // Create Fast Getter (Delegate)
-        let getterMethod = prop.GetGetMethod()
+        let getterMethod = prop.GetGetMethod(true)
         let getter = Delegate.CreateDelegate(typeof<Func<'Rec, 'Field>>, getterMethod) :?> Func<'Rec, 'Field>
 
-        // Transpose: Row-Oriented -> Column-Oriented
         let len = data.Length
         let colData = Array.zeroCreate<'Field> len
 
         for i = 0 to len - 1 do
             colData.[i] <- getter.Invoke(data.[i])
 
-        // Delegate to C# SeriesFactory
         Series.create(name, colData)
 
 [<AutoOpen>]
@@ -151,32 +133,7 @@ module DataFrameFactory =
         // ==========================================
         // High-Performance Record Converter
         // ==========================================
-        /// <summary>
-        /// Check if a type is supported by the Fast Columnar Transposition path.
-        /// Primitives, Strings, Dates, and their Option/VOption variants, or Arrays with non-null primitive data types are supported.
-        /// Lists, Arrays with nullable or option type, and Nested Records must fallback to Arrow.
-        /// </summary>
-        static member private IsSupportedFastType (t: Type) =
-            // 1. Unwrap Option/VOption/Nullable
-            let coreType =
-                if t.IsGenericType && (t.GetGenericTypeDefinition() = typedefof<option<_>> || t.GetGenericTypeDefinition() = typedefof<voption<_>> || t.GetGenericTypeDefinition() = typedefof<Nullable<_>>) then
-                    t.GetGenericArguments().[0]
-                else
-                    t
 
-            if t.IsArray then false
-            else
-                if coreType.IsPrimitive then true
-                else if coreType = typeof<string> then true
-                else if coreType = typeof<decimal> then true
-                else if coreType = typeof<DateTime> then true
-                else if coreType = typeof<DateOnly> then true
-                else if coreType = typeof<TimeOnly> then true
-                else if coreType = typeof<TimeSpan> then true
-                else if coreType = typeof<DateTimeOffset> then true
-                else if coreType = typeof<Int128> then true
-                else if coreType = typeof<UInt128> then true
-                else false
         /// <summary>
         /// Create a DataFrame from a sequence of records.
         /// <para>
@@ -186,45 +143,40 @@ module DataFrameFactory =
         /// </para>
         /// </summary>
         static member ofRecords<'T>(data: seq<'T>) : DataFrame =
-            let recordType = typeof<'T>
-            let props = recordType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
-
-            // 1. Check Eligibility for Fast Path
-            // We only use Fast Path if ALL columns are supported.
-            let useFastPath =
-                props
-                |> Array.forall (fun p -> DataFrame.IsSupportedFastType p.PropertyType)
-
-            if useFastPath then
-                // ==================================================
-                // PATH A: High-Performance Columnar Transposition
-                // ==================================================
-                let records = Seq.toArray data
-
-                // Helper Cache
-                let helperMethodDef =
-                    typeof<RecordColumnTransposer>.GetMethod("CreateSeriesFromColumn", BindingFlags.NonPublic ||| BindingFlags.Static)
-
-                let seriesList =
-                    props
-                    |> Array.map (fun prop ->
-                        let fieldType = prop.PropertyType
-                        let specificHelper = helperMethodDef.MakeGenericMethod(recordType, fieldType)
-                        try
-                            specificHelper.Invoke(null, [| records; prop.Name; prop |]) :?> Series
-                        with ex ->
-                            failwithf "Failed to create series for column '%s': %s" prop.Name ex.InnerException.Message
-                    )
-                DataFrame.create seriesList
-
+            if isNull data then DataFrame.create()
             else
-                // ==================================================
-                // PATH B: Arrow Fallback (The Old Way)
-                // Supports Lists, Structs, and complex nesting
-                // ==================================================
-                let batch = ArrowFfiBridge.BuildRecordBatch data
-                let handle = ArrowFfiBridge.ImportDataFrame batch
-                new DataFrame(handle)
+                let records =
+                    match data with
+                    | :? ('T[]) as arr -> arr
+                    | _ -> Seq.toArray data
+
+                if records.Length = 0 then DataFrame.create()
+                else
+                    let recordType = typeof<'T>
+                    let props = recordType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+
+                    // 1. Leverage unified PolarsTypeHelper across the board
+                    let useFastPath =
+                        props |> Array.forall (fun p -> PolarsTypeHelper.IsSupportedSimpleType(p.PropertyType))
+
+                    if useFastPath then
+                        // PATH A: Zero-Copy compiled getter columnar transposition
+                        let helperMethodDef =
+                            typeof<RecordColumnTransposer>.GetMethod("CreateSeriesFromColumn", BindingFlags.NonPublic ||| BindingFlags.Static)
+
+                        let seriesList =
+                            props
+                            |> Array.map (fun prop ->
+                                let fieldType = prop.PropertyType
+                                let specificHelper = helperMethodDef.MakeGenericMethod(recordType, fieldType)
+                                specificHelper.Invoke(null, [| box records; box prop.Name; box prop |]) :?> Series
+                            )
+                        DataFrame.create seriesList
+                    else
+                        // PATH B: Arrow Fallback for nested structs / lists
+                        let batch = ArrowFfiBridge.BuildRecordBatch records
+                        let handle = ArrowFfiBridge.ImportDataFrame batch
+                        new DataFrame(handle)
         /// <summary>
         /// Build DataFrame from maps
         /// </summary>
@@ -235,76 +187,104 @@ module DataFrameFactory =
                 ?inferSchemaLength: uint
             ) : DataFrame =
 
-            let strictMode = defaultArg strict true
-            let inferLen = defaultArg inferSchemaLength 100u |> int
-
-            let records = Seq.toArray data
-
-            if records.Length = 0 then
-                DataFrame.create()
+            if isNull data then DataFrame.create()
             else
-                let columnTypes = Dictionary<string, Type>()
+                let records = Seq.toArray data
+                if records.Length = 0 then DataFrame.create()
+                else
+                    let strictMode = defaultArg strict true
+                    let inferLen = defaultArg inferSchemaLength 100u |> int
+                    let rowsToInfer = min inferLen records.Length
 
-                // ==========================================
-                // Phase 1: Schema Inference
-                // ==========================================
-                let rowsToInfer = min inferLen records.Length
+                    // ==========================================
+                    // Phase 1: Robust Schema Inference
+                    // ==========================================
+                    let columnTypes = Dictionary<string, Type>()
 
-                for i = 0 to rowsToInfer - 1 do
-                    let row = records.[i]
-                    for kvp in row do
-                        let colName = kvp.Key
-                        let valObj = kvp.Value
+                    // 1. Collect all unique column keys safely
+                    for r = 0 to records.Length - 1 do
+                        match records.[r] with
+                        | m when not (Map.isEmpty m) ->
+                            for KeyValue(k, _) in m do
+                                if not (columnTypes.ContainsKey k) then
+                                    columnTypes.[k] <- typeof<obj> // Safe initial fallback
+                        | _ -> ()
 
-                        if not (isNull valObj) then
-                            let newType = valObj.GetType()
+                    // 2. Infer concrete types up to rowsToInfer
+                    for i = 0 to rowsToInfer - 1 do
+                        let row = records.[i]
+                        for KeyValue(colName, valObj) in row do
+                            if not (isNull valObj) then
+                                let newType = valObj.GetType()
+                                let existingType = columnTypes.[colName]
+                                if existingType = typeof<obj> || isNull existingType then
+                                    columnTypes.[colName] <- newType
+                                elif existingType <> newType then
+                                    columnTypes.[colName] <- PolarsTypeHelper.PromoteType(existingType, newType)
 
-                            match columnTypes.TryGetValue(colName) with
-                            | true, existingType when existingType <> newType ->
-                                columnTypes.[colName] <- TypeInference.promoteType existingType newType
-                            | false, _ ->
-                                columnTypes.[colName] <- newType
-                            | _ -> ()
+                    // 3. Ensure no null types remain
+                    for KeyValue(colName, t) in columnTypes do
+                        if isNull t then
+                            columnTypes.[colName] <- typeof<string>
 
-                let finalSchema =
-                    columnTypes
-                    |> Seq.map (fun kvp ->
-                        let t = if isNull kvp.Value then typeof<string> else kvp.Value
-                        kvp.Key, t)
-                    |> dict
+                    let colNames = columnTypes.Keys |> Seq.toArray
+                    let rowCount = records.Length
 
-                // ==========================================
-                // Phase 2: Buffer Loading
-                // ==========================================
-                let buffers = Dictionary<string, IColumnBuffer>()
-                for kvp in finalSchema do
-                    buffers.[kvp.Key] <- ColumnBufferFactory.create kvp.Value records.Length
+                    // ==========================================
+                    // Phase 2: Transposition & Native Series Construction
+                    // ==========================================
+                    let seriesFromMethod =
+                        typeof<Series>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
+                        |> Array.find (fun m ->
+                            m.Name = "From" &&
+                            m.IsGenericMethodDefinition &&
+                            m.GetParameters().Length = 2 &&
+                            m.GetParameters().[0].ParameterType = typeof<string> &&
+                            m.GetParameters().[1].ParameterType.IsGenericType &&
+                            m.GetParameters().[1].ParameterType.GetGenericTypeDefinition() = typedefof<seq<_>>
+                        )
 
-                for row in records do
-                    for colName in finalSchema.Keys do
-                        match Map.tryFind colName row with
-                        | Some valObj when not (isNull valObj) ->
-                            try
-                                buffers.[colName].Add(valObj)
-                            with
-                            | :? InvalidCastException as ex ->
-                                if strictMode then
-                                    failwithf "Strict mode error on column '%s': %s" colName ex.Message
+                    let seriesList =
+                        colNames
+                        |> Array.map (fun colName ->
+                            let rawType = columnTypes.[colName]
+
+                            // Ensure value types are wrapped into Nullable<T> so nulls generate a proper Validity Bitmap
+                            let targetType =
+                                if rawType.IsValueType && isNull (Nullable.GetUnderlyingType rawType) then
+                                    typedefof<Nullable<_>>.MakeGenericType [| rawType |]
                                 else
-                                    buffers.[colName].Add(null)
-                        | _ ->
-                            buffers.[colName].Add(null)
+                                    rawType
 
-                // ==========================================
-                // Phase 3: Assembly
-                // ==========================================
-                let seriesList =
-                    finalSchema.Keys
-                    |> Seq.map (fun key -> buffers.[key].ToSeries(key))
-                    |> Seq.toArray
+                            let values = Array.CreateInstance(targetType, rowCount)
+                            let coreType = PolarsTypeHelper.UnwrapCoreType(targetType)
 
-                DataFrame.create seriesList
+                            for r = 0 to rowCount - 1 do
+                                match Map.tryFind colName records.[r] with
+                                | Some v when not (isNull v) ->
+                                    try
+                                        let converted = Convert.ChangeType(v, coreType)
+                                        // Activator handles boxing into Nullable<T> with HasValue = true
+                                        let boxedVal =
+                                            if targetType <> coreType then
+                                                Activator.CreateInstance(targetType, [| converted |])
+                                            else
+                                                converted
+                                        values.SetValue(boxedVal, r)
+                                    with ex ->
+                                        if strictMode then
+                                            failwithf "Strict mode error on column '%s' at row %d: %s" colName r ex.Message
+                                        else
+                                            values.SetValue(null, r)
+                                | _ ->
+                                    values.SetValue(null, r)
 
+                            // Make closed generic method: Series.From<Nullable<T>>(colName, values)
+                            let specializedFrom = seriesFromMethod.MakeGenericMethod([| targetType |])
+                            specializedFrom.Invoke(null, [| box colName; box values |]) :?> Series
+                        )
+
+                    DataFrame.create seriesList
     type Series with
         /// <summary>
         /// Create Series From single column expression.
