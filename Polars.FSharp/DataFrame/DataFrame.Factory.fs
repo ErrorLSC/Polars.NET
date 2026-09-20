@@ -8,6 +8,7 @@ open System.Collections.Concurrent
 open System.Linq.Expressions
 open Polars.NET.Core.Helpers
 open Polars.NET.Core
+open Microsoft.FSharp.Reflection
 
 /// <summary>
 /// Internal abstraction for transposing row-oriented map values into columnar Series.
@@ -126,6 +127,87 @@ type internal RecordColumnTransposer =
 
         factory.Invoke(data, name)
 
+/// <summary>
+/// Pre-cached metadata and compiled columnar transposer pipeline for F# Record type 'T.
+/// </summary>
+type internal RecordSchemaCache<'T>() =
+    static let recordType = typeof<'T>
+    static let props = recordType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
+    static let isRecord = FSharpType.IsRecord(recordType, true)
+
+    static let useFastPath =
+        props.Length > 0 &&
+        props |> Array.forall (fun p -> PolarsTypeHelper.IsSupportedSimpleType(p.PropertyType))
+
+    // Compiled fast transposer: ('T[] -> Series[])
+    static let fastTransposer : Func<'T[], Series[]> option =
+        if not useFastPath then None
+        else
+            let helperMethodDef =
+                typeof<RecordColumnTransposer>.GetMethod(
+                    "CreateSeriesFromColumn",
+                    BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static
+                )
+
+            let recordsParam = Expression.Parameter(typeof<'T[]>, "records")
+
+            // Generate:
+            // [|
+            //     RecordColumnTransposer.CreateSeriesFromColumn<'T, F1>(records, "Prop1", prop1);
+            //     RecordColumnTransposer.CreateSeriesFromColumn<'T, F2>(records, "Prop2", prop2);
+            //     ...
+            // |]
+            let seriesExpressions =
+                props
+                |> Array.map (fun prop ->
+                    let specificHelper = helperMethodDef.MakeGenericMethod([| recordType; prop.PropertyType |])
+                    Expression.Call(
+                        null,
+                        specificHelper,
+                        recordsParam,
+                        Expression.Constant(prop.Name, typeof<string>),
+                        Expression.Constant(prop, typeof<PropertyInfo>)
+                    ) :> Expression
+                )
+
+            let newArrayExpr = Expression.NewArrayInit(typeof<Series>, seriesExpressions)
+            let lambda = Expression.Lambda<Func<'T[], Series[]>>(newArrayExpr, recordsParam)
+            Some (lambda.Compile())
+
+    // Empty Series generator preserving exact column schemas
+    static let emptySeriesFactory : Func<Series[]> =
+        let helperMethodDef =
+            typeof<RecordColumnTransposer>.GetMethod(
+                "CreateSeriesFromColumn",
+                BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static
+            )
+
+        let emptyRecords = Array.empty<'T>
+        let emptyRecordsConst = Expression.Constant(emptyRecords, typeof<'T[]>)
+
+        let emptySeriesExprs =
+            props
+            |> Array.map (fun prop ->
+                let specificHelper = helperMethodDef.MakeGenericMethod([| recordType; prop.PropertyType |])
+                Expression.Call(
+                    null,
+                    specificHelper,
+                    emptyRecordsConst,
+                    Expression.Constant(prop.Name, typeof<string>),
+                    Expression.Constant(prop, typeof<PropertyInfo>)
+                ) :> Expression
+            )
+
+        let newArrayExpr = Expression.NewArrayInit(typeof<Series>, emptySeriesExprs)
+        let lambda = Expression.Lambda<Func<Series[]>>(newArrayExpr)
+        lambda.Compile()
+
+    static member Properties = props
+    static member IsRecord = isRecord
+    static member UseFastPath = useFastPath
+    static member FastTransposer = fastTransposer
+    static member CreateEmptySeries() = emptySeriesFactory.Invoke()
+
 [<AutoOpen>]
 module DataFrameFactory =
     open System.Collections.Generic
@@ -194,19 +276,14 @@ module DataFrameFactory =
         // ==========================================
 
         /// <summary>
-        /// Create a DataFrame from a sequence of records.
-        /// <para>
-        /// Strategy:
-        /// 1. Inspects types. If all are simple primitives/strings/dates, uses Fast Columnar Transposition (Zero-Arrow).
-        /// 2. If any complex types (Lists, Arrays, Nested Records) are found, falls back to ArrowFfiBridge.
-        /// </para>
+        /// Creates a DataFrame from an array or sequence of F# records.
+        /// Uses Zero-Copy fast-path if all columns are supported primitives, dates, or options.
+        /// Falls back to Arrow serialization for complex nested structs and lists.
         /// </summary>
         static member ofRecords<'T>(data: seq<'T>) : DataFrame =
-            let recordType = typeof<'T>
-            let props = recordType.GetProperties(BindingFlags.Public ||| BindingFlags.Instance)
-
+            let props = RecordSchemaCache<'T>.Properties
             if props.Length = 0 then
-                DataFrame.create()
+                DataFrame.create []
             else
                 let records =
                     if isNull data then Array.empty<'T>
@@ -215,48 +292,19 @@ module DataFrameFactory =
                         | :? ('T[]) as arr -> arr
                         | _ -> Seq.toArray data
 
-                // Handle Empty Record Sequence: Create empty typed Series for each property
+                // Case 1: Empty sequence -> return DataFrame with preserved typed columns
                 if records.Length = 0 then
-                    let seriesFromMethod =
-                        typeof<Series>.GetMethods(BindingFlags.Public ||| BindingFlags.Static)
-                        |> Array.find (fun m ->
-                            m.Name = "From" &&
-                            m.IsGenericMethodDefinition &&
-                            m.GetParameters().Length = 2 &&
-                            m.GetParameters().[0].ParameterType = typeof<string> &&
-                            m.GetParameters().[1].ParameterType.IsGenericType &&
-                            m.GetParameters().[1].ParameterType.GetGenericTypeDefinition() = typedefof<seq<_>>
-                        )
-
-                    let emptySeriesList =
-                        props
-                        |> Array.map (fun prop ->
-                            let emptyArr = Array.CreateInstance(prop.PropertyType, 0)
-                            let specializedFrom = seriesFromMethod.MakeGenericMethod([| prop.PropertyType |])
-                            specializedFrom.Invoke(null, [| box prop.Name; box emptyArr |]) :?> Series
-                        )
-
+                    let emptySeriesList = RecordSchemaCache<'T>.CreateEmptySeries()
                     DataFrame.create emptySeriesList
                 else
-                    // Check eligibility for fast zero-copy path
-                    let useFastPath =
-                        props |> Array.forall (fun p -> PolarsTypeHelper.IsSupportedSimpleType(p.PropertyType))
-
-                    if useFastPath then
-                        // PATH A: Zero-Copy compiled getter columnar transposition
-                        let helperMethodDef =
-                            typeof<RecordColumnTransposer>.GetMethod("CreateSeriesFromColumn", BindingFlags.NonPublic ||| BindingFlags.Static)
-
-                        let seriesList =
-                            props
-                            |> Array.map (fun prop ->
-                                let fieldType = prop.PropertyType
-                                let specificHelper = helperMethodDef.MakeGenericMethod(recordType, fieldType)
-                                specificHelper.Invoke(null, [| box records; box prop.Name; box prop |]) :?> Series
-                            )
+                    // Case 2: Simple types -> fully compiled zero-reflection columnar transposition
+                    match RecordSchemaCache<'T>.FastTransposer with
+                    | Some transposer ->
+                        let seriesList = transposer.Invoke(records)
                         DataFrame.create seriesList
-                    else
-                        // PATH B: Arrow Fallback for nested structs / lists
+
+                    // Case 3: Nested structs / lists -> Arrow Fallback
+                    | None ->
                         let batch = ArrowFfiBridge.BuildRecordBatch records
                         let handle = ArrowFfiBridge.ImportDataFrame batch
                         new DataFrame(handle)
