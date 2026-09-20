@@ -2,10 +2,12 @@ namespace Polars.FSharp
 
 open Polars.NET.Core.Arrow
 open Apache.Arrow
-open Polars.NET.Core
 open System
 open System.Reflection
+open System.Collections.Concurrent
+open System.Linq.Expressions
 open Polars.NET.Core.Helpers
+open Polars.NET.Core
 
 /// <summary>
 /// Internal abstraction for transposing row-oriented map values into columnar Series.
@@ -51,21 +53,78 @@ module internal ColumnBufferFactory =
         Activator.CreateInstance(bufferType, [| box capacity |]) :?> IColumnBuffer
 
 /// <summary>
-/// High-performance typed transposer for converting arrays of F# records into Polars Series.
-/// Pre-computes compiled getter delegates to eliminate reflection in hot loops.
+/// Pre-compiled batch columnar transposer for converting F# Record arrays into Series.
+/// Compiles the entire array projection loop into straight-line IL to eliminate per-element delegate overhead.
 /// </summary>
 type internal RecordColumnTransposer =
+    // Cache compiled batch extractors: (RecordType, PropertyName) -> Func<Array, Series>
+    static let extractorCache = ConcurrentDictionary<Type * string, Func<obj, string, Series>>()
+
+    /// <summary>
+    /// Builds a compiled batch projection delegate: ('Rec[] -> 'Field[])
+    /// </summary>
+    static member private BuildBatchExtractor<'Rec, 'Field>(prop: PropertyInfo) : ('Rec[] -> 'Field[]) =
+        let dataParam = Expression.Parameter(typeof<'Rec[]>, "data")
+        let lenVar = Expression.Variable(typeof<int>, "len")
+        let colDataVar = Expression.Variable(typeof<'Field[]>, "colData")
+        let indexVar = Expression.Variable(typeof<int>, "i")
+        let breakLabel = Expression.Label("loopBreak")
+
+        let lenAssign = Expression.Assign(lenVar, Expression.ArrayLength(dataParam))
+        let colDataAssign = Expression.Assign(colDataVar, Expression.NewArrayBounds(typeof<'Field>, lenVar))
+        let indexInit = Expression.Assign(indexVar, Expression.Constant(0))
+
+        // Loop body:
+        // if (i >= len) goto breakLabel;
+        // colData[i] = data[i].Prop;
+        // i++;
+        let loop =
+            Expression.Loop(
+                Expression.Block(
+                    Expression.IfThen(
+                        Expression.GreaterThanOrEqual(indexVar, lenVar),
+                        Expression.Goto(breakLabel)
+                    ),
+                    Expression.Assign(
+                        Expression.ArrayAccess(colDataVar, indexVar),
+                        Expression.Property(Expression.ArrayAccess(dataParam, indexVar), prop)
+                    ),
+                    Expression.PostIncrementAssign(indexVar)
+                ),
+                breakLabel
+            )
+
+        let body =
+            Expression.Block(
+                [| lenVar; colDataVar; indexVar |],
+                lenAssign,
+                colDataAssign,
+                indexInit,
+                loop,
+                colDataVar
+            )
+
+        let lambda = Expression.Lambda<Func<'Rec[], 'Field[]>>(body, dataParam)
+        let compiled = lambda.Compile()
+        fun (arr: 'Rec[]) -> compiled.Invoke(arr)
+
     static member CreateSeriesFromColumn<'Rec, 'Field>(data: 'Rec[], name: string, prop: PropertyInfo) : Series =
-        let getterMethod = prop.GetGetMethod(true)
-        let getter = Delegate.CreateDelegate(typeof<Func<'Rec, 'Field>>, getterMethod) :?> Func<'Rec, 'Field>
+        let key = (typeof<'Rec>, prop.Name)
 
-        let len = data.Length
-        let colData = Array.zeroCreate<'Field> len
+        let factory =
+            extractorCache.GetOrAdd(
+                key,
+                Func<Type * string, Func<obj, string, Series>>(fun _ ->
+                    let batchExtract = RecordColumnTransposer.BuildBatchExtractor<'Rec, 'Field>(prop)
+                    Func<obj, string, Series>(fun boxedArr colName ->
+                        let typedArr = boxedArr :?> 'Rec[]
+                        let colData = batchExtract typedArr
+                        Series.create(colName, colData)
+                    )
+                )
+            )
 
-        for i = 0 to len - 1 do
-            colData.[i] <- getter.Invoke(data.[i])
-
-        Series.create(name, colData)
+        factory.Invoke(data, name)
 
 [<AutoOpen>]
 module DataFrameFactory =
